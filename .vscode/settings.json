@@ -7,8 +7,11 @@
     "prflx",
     "raddr",
     "rport",
+    "rtc",
+    "sctp",
     "srflx",
     "tcptype",
+    "transport",
     "wrtct"
   ]
 }

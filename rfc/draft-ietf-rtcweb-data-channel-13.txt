@@ -1,0 +1,896 @@
+
+
+
+
+Network Working Group                                           R. Jesup
+Internet-Draft                                                   Mozilla
+Intended status: Standards Track                               S. Loreto
+Expires: July 8, 2015                                           Ericsson
+                                                               M. Tuexen
+                                        Muenster Univ. of Appl. Sciences
+                                                         January 4, 2015
+
+
+                          WebRTC Data Channels
+                 draft-ietf-rtcweb-data-channel-13.txt
+
+Abstract
+
+   The WebRTC framework specifies protocol support for direct
+   interactive rich communication using audio, video, and data between
+   two peers' web-browsers.  This document specifies the non-media data
+   transport aspects of the WebRTC framework.  It provides an
+   architectural overview of how the Stream Control Transmission
+   Protocol (SCTP) is used in the WebRTC context as a generic transport
+   service allowing WEB-browsers to exchange generic data from peer to
+   peer.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at http://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on July 8, 2015.
+
+Copyright Notice
+
+   Copyright (c) 2015 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (http://trustee.ietf.org/license-info) in effect on the date of
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 1]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Simplified BSD License text as described in Section 4.e of
+   the Trust Legal Provisions and are provided without warranty as
+   described in the Simplified BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   2
+   2.  Conventions . . . . . . . . . . . . . . . . . . . . . . . . .   3
+   3.  Use Cases . . . . . . . . . . . . . . . . . . . . . . . . . .   3
+     3.1.  Use Cases for Unreliable Data Channels  . . . . . . . . .   4
+     3.2.  Use Cases for Reliable Data Channels  . . . . . . . . . .   4
+   4.  Requirements  . . . . . . . . . . . . . . . . . . . . . . . .   4
+   5.  SCTP over DTLS over UDP Considerations  . . . . . . . . . . .   6
+   6.  The Usage of SCTP for Data Channels . . . . . . . . . . . . .   8
+     6.1.  SCTP Protocol Considerations  . . . . . . . . . . . . . .   8
+     6.2.  SCTP Association Management . . . . . . . . . . . . . . .   9
+     6.3.  SCTP Streams  . . . . . . . . . . . . . . . . . . . . . .   9
+     6.4.  Data Channel Definition . . . . . . . . . . . . . . . . .  10
+     6.5.  Opening a Data Channel  . . . . . . . . . . . . . . . . .  10
+     6.6.  Transferring User Data on a Data Channel  . . . . . . . .  11
+     6.7.  Closing a Data Channel  . . . . . . . . . . . . . . . . .  12
+   7.  Security Considerations . . . . . . . . . . . . . . . . . . .  13
+   8.  IANA Considerations . . . . . . . . . . . . . . . . . . . . .  13
+   9.  Acknowledgments . . . . . . . . . . . . . . . . . . . . . . .  14
+   10. References  . . . . . . . . . . . . . . . . . . . . . . . . .  14
+     10.1.  Normative References . . . . . . . . . . . . . . . . . .  14
+     10.2.  Informative References . . . . . . . . . . . . . . . . .  15
+   Authors' Addresses  . . . . . . . . . . . . . . . . . . . . . . .  16
+
+1.  Introduction
+
+   In the WebRTC framework, communication between the parties consists
+   of media (for example audio and video) and non-media data.  Media is
+   sent using SRTP, and is not specified further here.  Non-media data
+   is handled by using SCTP [RFC4960] encapsulated in DTLS.  DTLS 1.0 is
+   defined in [RFC4347] and the present latest version, DTLS 1.2, is
+   defined in [RFC6347].
+
+
+
+
+
+
+
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 2]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+                               +----------+
+                               |   SCTP   |
+                               +----------+
+                               |   DTLS   |
+                               +----------+
+                               | ICE/UDP  |
+                               +----------+
+
+                       Figure 1: Basic stack diagram
+
+   The encapsulation of SCTP over DTLS (see
+   [I-D.ietf-tsvwg-sctp-dtls-encaps]) over ICE/UDP (see [RFC5245])
+   provides a NAT traversal solution together with confidentiality,
+   source authentication, and integrity protected transfers.  This data
+   transport service operates in parallel to the SRTP media transports,
+   and all of them can eventually share a single UDP port number.
+
+   SCTP as specified in [RFC4960] with the partial reliability extension
+   defined in [RFC3758] and the additional policies defined in
+   [I-D.ietf-tsvwg-sctp-prpolicies] provides multiple streams natively
+   with reliable, and the relevant partially-reliable delivery modes for
+   user messages.  Using the reconfiguration extension defined in
+   [RFC6525] allows to increase the number of streams during the
+   lifetime of an SCTP association and to reset individual SCTP streams.
+   Using [I-D.ietf-tsvwg-sctp-ndata] allows to interleave large messages
+   to avoid the monopolization and adds the support of prioritizing of
+   SCTP streams.
+
+   The remainder of this document is organized as follows: Section 3 and
+   Section 4 provide use cases and requirements for both unreliable and
+   reliable peer to peer data channels; Section 5 discusses SCTP over
+   DTLS over UDP; Section 6 provides the specification of how SCTP
+   should be used by the WebRTC protocol framework for transporting non-
+   media data between WEB-browsers.
+
+2.  Conventions
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+   document are to be interpreted as described in [RFC2119].
+
+3.  Use Cases
+
+   This section defines use cases specific to data channels.  Please
+   note that this section is informational only.
+
+
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 3]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+3.1.  Use Cases for Unreliable Data Channels
+
+   U-C 1:  A real-time game where position and object state information
+           is sent via one or more unreliable data channels.  Note that
+           at any time there may be no SRTP media channels, or all SRTP
+           media channels may be inactive, and that there may also be
+           reliable data channels in use.
+
+   U-C 2:  Providing non-critical information to a user about the reason
+           for a state update in a video chat or conference, such as
+           mute state.
+
+3.2.  Use Cases for Reliable Data Channels
+
+   U-C 3:  A real-time game where critical state information needs to be
+           transferred, such as control information.  Such a game may
+           have no SRTP media channels, or they may be inactive at any
+           given time, or may only be added due to in-game actions.
+
+   U-C 4:  Non-realtime file transfers between people chatting.  Note
+           that this may involve a large number of files to transfer
+           sequentially or in parallel, such as when sharing a folder of
+           images or a directory of files.
+
+   U-C 5:  Realtime text chat during an audio and/or video call with an
+           individual or with multiple people in a conference.
+
+   U-C 6:  Renegotiation of the configuration of the PeerConnection.
+
+   U-C 7:  Proxy browsing, where a browser uses data channels of a
+           PeerConnection to send and receive HTTP/HTTPS requests and
+           data, for example to avoid local Internet filtering or
+           monitoring.
+
+4.  Requirements
+
+   This section lists the requirements for P2P data channels between two
+   browsers.  Please note that this section is informational only.
+
+   Req. 1:   Multiple simultaneous data channels must be supported.
+             Note that there may be 0 or more SRTP media streams in
+             parallel with the data channels in the same PeerConnection,
+             and the number and state (active/inactive) of these SRTP
+             media streams may change at any time.
+
+   Req. 2:   Both reliable and unreliable data channels must be
+             supported.
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 4]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   Req. 3:   Data channels of a PeerConnection must be congestion
+             controlled; either individually, as a class, or in
+             conjunction with the SRTP media streams of the
+             PeerConnection, to ensure that data channels don't cause
+             congestion problems for these SRTP media streams, and that
+             the WebRTC PeerConnection does not cause excessive problems
+             when run in parallel with TCP connections.
+
+   Req. 4:   The application should be able to provide guidance as to
+             the relative priority of each data channel relative to each
+             other, and relative to the SRTP media streams.  This will
+             interact with the congestion control algorithms.
+
+   Req. 5:   Data channels must be secured; allowing for
+             confidentiality, integrity and source authentication.  See
+             [I-D.ietf-rtcweb-security] and
+             [I-D.ietf-rtcweb-security-arch] for detailed info.
+
+   Req. 6:   Data channels must provide message fragmentation support
+             such that IP-layer fragmentation can be avoided no matter
+             how large a message the JavaScript application passes to be
+             sent.  It also must ensure that large data channel
+             transfers don't unduly delay traffic on other data
+             channels.
+
+   Req. 7:   The data channel transport protocol must not encode local
+             IP addresses inside its protocol fields; doing so reveals
+             potentially private information, and leads to failure if
+             the address is depended upon.
+
+   Req. 8:   The data channel transport protocol should support
+             unbounded-length "messages" (i.e., a virtual socket stream)
+             at the application layer, for such things as image-file-
+             transfer; Implementations might enforce a reasonable
+             message size limit.
+
+   Req. 9:   The data channel transport protocol should avoid IP
+             fragmentation.  It must support PMTU (Path MTU) discovery
+             and must not rely on ICMP or ICMPv6 being generated or
+             being passed back, especially for PMTU discovery.
+
+   Req. 10:  It must be possible to implement the protocol stack in the
+             user application space.
+
+
+
+
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 5]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+5.  SCTP over DTLS over UDP Considerations
+
+   The important features of SCTP in the WebRTC context are:
+
+   o  Usage of a TCP-friendly congestion control.
+
+   o  The congestion control is modifiable for integration with the SRTP
+      media stream congestion control.
+
+   o  Support of multiple unidirectional streams, each providing its own
+      notion of ordered message delivery.
+
+   o  Support of ordered and out-of-order message delivery.
+
+   o  Supporting arbitrary large user messages by providing
+      fragmentation and reassembly.
+
+   o  Support of PMTU-discovery.
+
+   o  Support of reliable or partially reliable message transport.
+
+   The WebRTC Data Channel mechanism does not support SCTP multihoming.
+   The SCTP layer will simply act as if it were running on a single-
+   homed host, since that is the abstraction that the DTLS layer (a
+   connection oriented, unreliable datagram service) exposes.
+
+   The encapsulation of SCTP over DTLS defined in
+   [I-D.ietf-tsvwg-sctp-dtls-encaps] provides confidentiality, source
+   authenticated, and integrity protected transfers.  Using DTLS over
+   UDP in combination with ICE enables middlebox traversal in IPv4 and
+   IPv6 based networks.  SCTP as specified in [RFC4960] MUST be used in
+   combination with the extension defined in [RFC3758] and provides the
+   following features for transporting non-media data between browsers:
+
+   o  Support of multiple unidirectional streams.
+
+   o  Ordered and unordered delivery of user messages.
+
+   o  Reliable and partial-reliable transport of user messages.
+
+   Each SCTP user message contains a Payload Protocol Identifier (PPID)
+   that is passed to SCTP by its upper layer on the sending side and
+   provided to its upper layer on the receiving side.  The PPID can be
+   used to multiplex/demultiplex multiple upper layers over a single
+   SCTP association.  In the WebRTC context, the PPID is used to
+   distinguish between UTF-8 encoded user data, binary encoded userdata
+   and the Data Channel Establishment Protocol defined in
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 6]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   [I-D.ietf-rtcweb-data-protocol].  Please note that the PPID is not
+   accessible via the Javascript API.
+
+   The encapsulation of SCTP over DTLS, together with the SCTP features
+   listed above satisfies all the requirements listed in Section 4.
+
+   The layering of protocols for WebRTC is shown in the following
+   Figure 2.
+
+                                 +------+------+------+
+                                 | DCEP | UTF-8|Binary|
+                                 |      | data | data |
+                                 +------+------+------+
+                                 |        SCTP        |
+                   +----------------------------------+
+                   | STUN | SRTP |        DTLS        |
+                   +----------------------------------+
+                   |                ICE               |
+                   +----------------------------------+
+                   | UDP1 | UDP2 | UDP3 | ...         |
+                   +----------------------------------+
+
+                     Figure 2: WebRTC protocol layers
+
+   This stack (especially in contrast to DTLS over SCTP [RFC6083] in
+   combination with SCTP over UDP [RFC6951]) has been chosen because it
+
+   o  supports the transmission of arbitrary large user messages.
+
+   o  shares the DTLS connection with the SRTP media channels of the
+      PeerConnection.
+
+   o  provides privacy for the SCTP control information.
+
+   Considering the protocol stack of Figure 2 the usage of DTLS 1.0 over
+   UDP is specified in [RFC4347] and the usage of DTLS 1.2 over UDP in
+   specified in [RFC6347], while the usage of SCTP on top of DTLS is
+   specified in [I-D.ietf-tsvwg-sctp-dtls-encaps].  Please note that the
+   demultiplexing STUN vs. SRTP vs. DTLS is done as described in
+   Section 5.1.2 of [RFC5764] and SCTP is the only payload of DTLS.
+
+   Since DTLS is typically implemented in user application space, the
+   SCTP stack also needs to be a user application space stack.
+
+   The ICE/UDP layer can handle IP address changes during a session
+   without needing interaction with the DTLS and SCTP layers.  However,
+   SCTP SHOULD be notified when an address changes has happened.  In
+   this case SCTP SHOULD retest the Path MTU and reset the congestion
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 7]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   state to the initial state.  In case of a window based congestion
+   control like the one specified in [RFC4960], this means setting the
+   congestion window and slow start threshold to its initial values.
+
+   Incoming ICMP or ICMPv6 messages can't be processed by the SCTP
+   layer, since there is no way to identify the corresponding
+   association.  Therefore SCTP MUST support performing Path MTU
+   discovery without relying on ICMP or ICMPv6 as specified in [RFC4821]
+   using probing messages specified in [RFC4820].  The initial Path MTU
+   at the IP layer SHOULD NOT exceed 1200 bytes for IPv4 and 1280 for
+   IPv6.
+
+   In general, the lower layer interface of an SCTP implementation
+   should be adapted to address the differences between IPv4 and IPv6
+   (being connection-less) or DTLS (being connection-oriented).
+
+   When the protocol stack of Figure 2 is used, DTLS protects the
+   complete SCTP packet, so it provides confidentiality, integrity and
+   source authentication of the complete SCTP packet.
+
+   SCTP provides congestion control on a per-association base.  This
+   means that all SCTP streams within a single SCTP association share
+   the same congestion window.  Traffic not being sent over SCTP is not
+   covered by the SCTP congestion control.  Using a congestion control
+   different from than the standard one might improve the impact on the
+   parallel SRTP media streams.
+
+   SCTP uses the same port number concept as TCP and UDP do.  Therefore
+   an SCTP association uses two port numbers, one at each SCTP end-
+   point.
+
+6.  The Usage of SCTP for Data Channels
+
+6.1.  SCTP Protocol Considerations
+
+   The DTLS encapsulation of SCTP packets as described in
+   [I-D.ietf-tsvwg-sctp-dtls-encaps] MUST be used.
+
+   This SCTP stack and its upper layer MUST support the usage of
+   multiple SCTP streams.  A user message can be sent ordered or
+   unordered and with partial or full reliability.
+
+   The following SCTP protocol extensions are required:
+
+   o  The stream reconfiguration extension defined in [RFC6525] MUST be
+      supported.  It is used for closing channels.
+
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 8]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   o  The dynamic address reconfiguration extension defined in [RFC5061]
+      MUST be used to signal the support of the stream reset extension
+      defined in [RFC6525].  Other features of [RFC5061] are OPTIONAL.
+
+   o  The partial reliability extension defined in [RFC3758] MUST be
+      supported.  In addition to the timed reliability PR-SCTP policy
+      defined in [RFC3758], the limited retransmission policy defined in
+      [I-D.ietf-tsvwg-sctp-prpolicies] MUST be supported.  Limiting the
+      number of retransmissions to zero combined with unordered delivery
+      provides a UDP-like service where each user message is sent
+      exactly once and delivered in the order received.
+
+   The support for message interleaving as defined in
+   [I-D.ietf-tsvwg-sctp-ndata] SHOULD be used.
+
+6.2.  SCTP Association Management
+
+   In the WebRTC context, the SCTP association will be set up when the
+   two endpoints of the WebRTC PeerConnection agree on opening it, as
+   negotiated by JSEP (typically an exchange of SDP)
+   [I-D.ietf-rtcweb-jsep].  It will use the DTLS connection selected via
+   ICE; typically this will be shared via BUNDLE or equivalent with DTLS
+   connections used to key the SRTP media streams.
+
+   The number of streams negotiated during SCTP association setup SHOULD
+   be 65535, which is the maximum number of streams that can be
+   negotiated during the association setup.
+
+   SCTP supports two ways of terminating an SCTP association.  A
+   graceful one, using a procedure which ensures that no messages are
+   lost during the shutdown of the association.  The second method is a
+   non-graceful one, where one side can just abort the association.
+
+   Each SCTP end-point supervises continuously the reachability of its
+   peer by monitoring the number of retransmissions of user messages and
+   test messages.  In case of excessive retransmissions, the association
+   is terminated in a non-graceful way.
+
+   If an SCTP association is closed in a graceful way, all of its data
+   channels are closed.  In case of a non-graceful teardown, all data
+   channels are also closed, but an error indication SHOULD be provided
+   if possible.
+
+6.3.  SCTP Streams
+
+   SCTP defines a stream as a unidirectional logical channel existing
+   within an SCTP association to another SCTP endpoint.  The streams are
+   used to provide the notion of in-sequence delivery and for
+
+
+
+Jesup, et al.             Expires July 8, 2015                  [Page 9]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   multiplexing.  Each user message is sent on a particular stream,
+   either ordered or unordered.  Ordering is preserved only for ordered
+   messages sent on the same stream.
+
+6.4.  Data Channel Definition
+
+   Data channels are defined such that their accompanying application-
+   level API can closely mirror the API for WebSockets, which implies
+   bidirectional streams of data and a textual field called 'label' used
+   to identify the meaning of the data channel.
+
+   The realization of a data channel is a pair of one incoming stream
+   and one outgoing SCTP stream having the same SCTP stream identifier.
+   How these SCTP stream identifiers are selected is protocol and
+   implementation dependent.  This allows a bidirectional communication.
+
+   Additionally, each data channel has the following properties in each
+   direction:
+
+   o  reliable or unreliable message transmission.  In case of
+      unreliable transmissions, the same level of unreliability is used.
+      Please note that in SCTP this is a property of an SCTP user
+      message and not of an SCTP stream.
+
+   o  in-order or out-of-order message delivery for message sent.
+      Please note that in SCTP this is a property of an SCTP user
+      message and not of an SCTP stream.
+
+   o  A priority, which is a 2 byte unsigned integer.  These priorities
+      MUST be interpreted as weighted-fair-queuing scheduling priorities
+      per the definition of the corresponding stream scheduler
+      supporting interleaving in [I-D.ietf-tsvwg-sctp-ndata].  For use
+      in WebRTC, the values used SHOULD be one of 128 ("below normal"),
+      256 ("normal"), 512 ("high") or 1024 ("extra high").
+
+   o  an optional label.
+
+   o  an optional protocol.
+
+   Please note that for a data channel being negotiated with the
+   protocol specified in [I-D.ietf-rtcweb-data-protocol] all of the
+   above properties are the same in both directions.
+
+6.5.  Opening a Data Channel
+
+   Data channels can be opened by using negotiation within the SCTP
+   association, called in-band negotiation, or out-of-band negotiation.
+   Out-of-band negotiation is defined as any method which results in an
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 10]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   agreement as to the parameters of a channel and the creation thereof.
+   The details are out of scope of this document.  Applications using
+   data channels need to use the negotiation methods consistently on
+   both end-points.
+
+   A simple protocol for in-band negotiation is specified in
+   [I-D.ietf-rtcweb-data-protocol].
+
+   When one side wants to open a channel using out-of-band negotiation,
+   it picks a stream.  Unless otherwise defined or negotiated, the
+   streams are picked based on the DTLS role (the client picks even
+   stream identifiers, the server odd stream identifiers).  However, the
+   application is responsible for avoiding collisions with existing
+   streams.  If it attempts to re-use a stream which is part of an
+   existing data channel, the addition MUST fail.  In addition to
+   choosing a stream, the application SHOULD also determine the options
+   to use for sending messages.  The application MUST ensure in an
+   application-specific manner that the application at the peer will
+   also know the selected stream to be used, and the options for sending
+   data from that side.
+
+6.6.  Transferring User Data on a Data Channel
+
+   All data sent on a data channel in both directions MUST be sent over
+   the underlying stream using the reliability defined when the data
+   channel was opened unless the options are changed, or per-message
+   options are specified by a higher level.
+
+   The message-orientation of SCTP is used to preserve the message
+   boundaries of user messages.  Therefore, senders MUST NOT put more
+   than one application message into an SCTP user message.  Unless the
+   deprecated PPID-based fragmentation and reassembly is used, the
+   sender MUST include exactly one application message in each SCTP user
+   message.
+
+   The SCTP Payload Protocol Identifiers (PPIDs) are used to signal the
+   interpretation of the "Payload data".  The following PPIDs MUST be
+   used (see Section 8):
+
+   WebRTC String:  to identify a non-empty JavaScript string encoded in
+      UTF-8.
+
+   WebRTC String Empty:  to identify an empty JavaScript string encoded
+      in UTF-8.
+
+   WebRTC Binary:  to identify a non-empty JavaScript binary data
+      (ArrayBuffer, ArrayBufferView or Blob).
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 11]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   WebRTC Binary Empty:  to identify an empty JavaScript binary data
+      (ArrayBuffer, ArrayBufferView or Blob).
+
+   SCTP does not support the sending of empty user messages.  Therefore,
+   if an empty message has to be sent, the appropriate PPID (WebRTC
+   String Empty or WebRTC Binary Empty) is used and the SCTP user
+   message of one zero byte is sent.  When receiving an SCTP user
+   message with one of these PPIDs, the receiver MUST ignore the SCTP
+   user message and process it as an empty message.
+
+   The usage of the PPIDs "WebRTC String Partial" and "WebRTC Binary
+   Partial" is deprecated.  They were used for a PPID-based
+   fragmentation and reassembly of user messages belonging to reliable
+   and ordered data channels.
+
+   If a message with an unsupported PPID is received or some error
+   condition related to the received message is detected by the receiver
+   (for example, illegal ordering), the receiver SHOULD close the
+   corresponding data channel.  This implies in particular that
+   extensions using additional PPIDs can't be used without prior
+   negotiation.
+
+   The SCTP base protocol specified in [RFC4960] does not support the
+   interleaving of user messages.  Therefore sending a large user
+   message can monopolize the SCTP association.  To overcome this
+   limitation, [I-D.ietf-tsvwg-sctp-ndata] defines an extension to
+   support message interleaving, which SHOULD be used.  As long as
+   message interleaving is not supported, the sender SHOULD limit the
+   maximum message size to 16 KB to avoid monopolization.
+
+   It is recommended that the message size be kept within certain size
+   bounds as applications will not be able to support arbitrarily-large
+   single messages.  This limit has to be negotiated, for example by
+   using [I-D.ietf-mmusic-sctp-sdp].
+
+   The sender SHOULD disable the Nagle algorithm (see [RFC1122]) to
+   minimize the latency.
+
+6.7.  Closing a Data Channel
+
+   Closing of a data channel MUST be signaled by resetting the
+   corresponding outgoing streams [RFC6525].  This means that if one
+   side decides to close the data channel, it resets the corresponding
+   outgoing stream.  When the peer sees that an incoming stream was
+   reset, it also resets its corresponding outgoing stream.  Once this
+   is completed, the data channel is closed.  Resetting a stream sets
+   the Stream Sequence Numbers (SSNs) of the stream back to 'zero' with
+   a corresponding notification to the application layer that the reset
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 12]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   has been performed.  Streams are available for reuse after a reset
+   has been performed.
+
+   [RFC6525] also guarantees that all the messages are delivered (or
+   abandoned) before the stream is reset.
+
+7.  Security Considerations
+
+   This document does not add any additional considerations to the ones
+   given in [I-D.ietf-rtcweb-security] and
+   [I-D.ietf-rtcweb-security-arch].
+
+   It should be noted that a receiver must be prepared that the sender
+   tries to send arbitrary large messages.
+
+8.  IANA Considerations
+
+   [NOTE to RFC-Editor:
+
+      "RFCXXXX" is to be replaced by the RFC number you assign this
+      document.
+
+   ]
+
+   This document uses six already registered SCTP Payload Protocol
+   Identifiers (PPIDs): "DOMString Last", "Binary Data Partial", "Binary
+   Data Last", "DOMString Partial", "WebRTC String Empty", and "WebRTC
+   Binary Empty".  [RFC4960] creates the registry "SCTP Payload Protocol
+   Identifiers" from which these identifiers were assigned.  IANA is
+   requested to update the reference of these six assignments to point
+   to this document and change the names of the first four PPIDs.  The
+   corresponding dates should be kept.
+
+   Therefore these six assignments should be updated to read:
+
+   +-------------------------------+----------+-----------+------------+
+   | Value                         | SCTP     | Reference | Date       |
+   |                               | PPID     |           |            |
+   +-------------------------------+----------+-----------+------------+
+   | WebRTC String                 | 51       | [RFCXXXX] | 2013-09-20 |
+   | WebRTC Binary Partial         | 52       | [RFCXXXX] | 2013-09-20 |
+   | (Deprecated)                  |          |           |            |
+   | WebRTC Binary                 | 53       | [RFCXXXX] | 2013-09-20 |
+   | WebRTC String Partial         | 54       | [RFCXXXX] | 2013-09-20 |
+   | (Deprecated)                  |          |           |            |
+   | WebRTC String Empty           | 56       | [RFCXXXX] | 2014-08-22 |
+   | WebRTC Binary Empty           | 57       | [RFCXXXX] | 2014-08-22 |
+   +-------------------------------+----------+-----------+------------+
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 13]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+9.  Acknowledgments
+
+   Many thanks for comments, ideas, and text from Harald Alvestrand,
+   Richard Barnes, Adam Bergkvist, Alissa Cooper, Benoit Claise, Spencer
+   Dawkins, Gunnar Hellstrom, Christer Holmberg, Cullen Jennings, Paul
+   Kyzivat, Eric Rescorla, Adam Roach, Irene Ruengeler, Randall Stewart,
+   Martin Stiemerling, Justin Uberti, and Magnus Westerlund.
+
+10.  References
+
+10.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997.
+
+   [RFC3758]  Stewart, R., Ramalho, M., Xie, Q., Tuexen, M., and P.
+              Conrad, "Stream Control Transmission Protocol (SCTP)
+              Partial Reliability Extension", RFC 3758, May 2004.
+
+   [RFC4347]  Rescorla, E. and N. Modadugu, "Datagram Transport Layer
+              Security", RFC 4347, April 2006.
+
+   [RFC4820]  Tuexen, M., Stewart, R., and P. Lei, "Padding Chunk and
+              Parameter for the Stream Control Transmission Protocol
+              (SCTP)", RFC 4820, March 2007.
+
+   [RFC4821]  Mathis, M. and J. Heffner, "Packetization Layer Path MTU
+              Discovery", RFC 4821, March 2007.
+
+   [RFC4960]  Stewart, R., "Stream Control Transmission Protocol", RFC
+              4960, September 2007.
+
+   [RFC5061]  Stewart, R., Xie, Q., Tuexen, M., Maruyama, S., and M.
+              Kozuka, "Stream Control Transmission Protocol (SCTP)
+              Dynamic Address Reconfiguration", RFC 5061, September
+              2007.
+
+   [RFC5245]  Rosenberg, J., "Interactive Connectivity Establishment
+              (ICE): A Protocol for Network Address Translator (NAT)
+              Traversal for Offer/Answer Protocols", RFC 5245, April
+              2010.
+
+   [RFC6347]  Rescorla, E. and N. Modadugu, "Datagram Transport Layer
+              Security Version 1.2", RFC 6347, January 2012.
+
+   [RFC6525]  Stewart, R., Tuexen, M., and P. Lei, "Stream Control
+              Transmission Protocol (SCTP) Stream Reconfiguration", RFC
+              6525, February 2012.
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 14]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   [I-D.ietf-tsvwg-sctp-ndata]
+              Stewart, R., Tuexen, M., Loreto, S., and R. Seggelmann,
+              "Stream Schedulers and a New Data Chunk for the Stream
+              Control Transmission Protocol", draft-ietf-tsvwg-sctp-
+              ndata-01 (work in progress), July 2014.
+
+   [I-D.ietf-rtcweb-data-protocol]
+              Jesup, R., Loreto, S., and M. Tuexen, "WebRTC Data Channel
+              Establishment Protocol", draft-ietf-rtcweb-data-
+              protocol-08 (work in progress), September 2014.
+
+   [I-D.ietf-tsvwg-sctp-dtls-encaps]
+              Tuexen, M., Stewart, R., Jesup, R., and S. Loreto, "DTLS
+              Encapsulation of SCTP Packets", draft-ietf-tsvwg-sctp-
+              dtls-encaps-07 (work in progress), December 2014.
+
+   [I-D.ietf-rtcweb-security]
+              Rescorla, E., "Security Considerations for WebRTC", draft-
+              ietf-rtcweb-security-07 (work in progress), July 2014.
+
+   [I-D.ietf-rtcweb-security-arch]
+              Rescorla, E., "WebRTC Security Architecture", draft-ietf-
+              rtcweb-security-arch-10 (work in progress), July 2014.
+
+   [I-D.ietf-rtcweb-jsep]
+              Uberti, J., Jennings, C., and E. Rescorla, "Javascript
+              Session Establishment Protocol", draft-ietf-rtcweb-jsep-08
+              (work in progress), October 2014.
+
+   [I-D.ietf-tsvwg-sctp-prpolicies]
+              Tuexen, M., Seggelmann, R., Stewart, R., and S. Loreto,
+              "Additional Policies for the Partial Reliability Extension
+              of the Stream Control Transmission Protocol", draft-ietf-
+              tsvwg-sctp-prpolicies-06 (work in progress), December
+              2014.
+
+   [I-D.ietf-mmusic-sctp-sdp]
+              Holmberg, C., Loreto, S., and G. Camarillo, "Stream
+              Control Transmission Protocol (SCTP)-Based Media Transport
+              in the Session Description Protocol (SDP)", draft-ietf-
+              mmusic-sctp-sdp-11 (work in progress), December 2014.
+
+10.2.  Informative References
+
+   [RFC1122]  Braden, R., "Requirements for Internet Hosts -
+              Communication Layers", STD 3, RFC 1122, October 1989.
+
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 15]
+
+Internet-Draft            WebRTC Data Channels              January 2015
+
+
+   [RFC5764]  McGrew, D. and E. Rescorla, "Datagram Transport Layer
+              Security (DTLS) Extension to Establish Keys for the Secure
+              Real-time Transport Protocol (SRTP)", RFC 5764, May 2010.
+
+   [RFC6083]  Tuexen, M., Seggelmann, R., and E. Rescorla, "Datagram
+              Transport Layer Security (DTLS) for Stream Control
+              Transmission Protocol (SCTP)", RFC 6083, January 2011.
+
+   [RFC6951]  Tuexen, M. and R. Stewart, "UDP Encapsulation of Stream
+              Control Transmission Protocol (SCTP) Packets for End-Host
+              to End-Host Communication", RFC 6951, May 2013.
+
+Authors' Addresses
+
+   Randell Jesup
+   Mozilla
+   US
+
+   Email: randell-ietf@jesup.org
+
+
+   Salvatore Loreto
+   Ericsson
+   Hirsalantie 11
+   Jorvas  02420
+   FI
+
+   Email: salvatore.loreto@ericsson.com
+
+
+   Michael Tuexen
+   Muenster University of Applied Sciences
+   Stegerwaldstrasse 39
+   Steinfurt  48565
+   DE
+
+   Email: tuexen@fh-muenster.de
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Jesup, et al.             Expires July 8, 2015                 [Page 16]
