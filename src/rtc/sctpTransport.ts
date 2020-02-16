@@ -5,7 +5,7 @@ import {
   WEBRTC_DCEP,
   State
 } from "./const";
-import { Pack } from "jspack/jspack";
+import { jspack } from "jspack";
 
 export class RTCSctpTransport {
   private dataChannels: { [key: string]: RTCDataChannel } = {};
@@ -42,7 +42,7 @@ export class RTCSctpTransport {
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
-    let data = Pack("!BBHLHH", [
+    let data = jspack.Pack("!BBHLHH", [
       DATA_CHANNEL_OPEN,
       channelType,
       priority,

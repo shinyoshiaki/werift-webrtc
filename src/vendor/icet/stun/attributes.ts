@@ -1,4 +1,4 @@
-import { Pack, Unpack } from "jspack/jspack";
+import { jspack } from "jspack";
 import * as nodeIp from "ip";
 import { range } from "../utils";
 import { IPV6_PROTOCOL, IPV4_PROTOCOL, COOKIE } from "./const";
@@ -12,14 +12,14 @@ function packAddress(value: [string, number]) {
     protocol = IPV4_PROTOCOL;
   }
   return Buffer.concat([
-    Buffer.from(Pack("!BBH", [0, protocol, value[1]])),
+    Buffer.from(jspack.Pack("!BBH", [0, protocol, value[1]])),
     nodeIp.toBuffer(address)
   ]);
 }
 
 export function unpackErrorCode(data: Buffer): [number, string] {
   if (data.length < 4) throw new Error("STUN error code is less than 4 bytes");
-  const [, codeHigh, codeLow] = Unpack("!HBB", data.slice(0, 4));
+  const [, codeHigh, codeLow] = jspack.Unpack("!HBB", data.slice(0, 4));
   const reason = data.slice(4).toString("utf8");
   return [codeHigh * 100 + codeLow, reason];
 }
@@ -27,7 +27,7 @@ export function unpackErrorCode(data: Buffer): [number, string] {
 function unpackAddress(data: Buffer): [string, number] {
   if (data.length < 4)
     throw new Error("STUN address length is less than 4 bytes");
-  const [, protocol, port] = Unpack("!BBH", data.slice(0, 4));
+  const [, protocol, port] = jspack.Unpack("!BBH", data.slice(0, 4));
   const address = data.slice(4);
   switch (protocol) {
     case IPV4_PROTOCOL:
@@ -44,7 +44,10 @@ function unpackAddress(data: Buffer): [string, number] {
 }
 
 function xorAddress(data: Buffer, transactionId: Buffer) {
-  const xPad = [...Pack("!HI", [COOKIE >> 16, COOKIE]), ...transactionId];
+  const xPad = [
+    ...jspack.Pack("!HI", [COOKIE >> 16, COOKIE]),
+    ...transactionId
+  ];
   let xData = data.slice(0, 2);
 
   for (let i of range(2, data.length)) {
@@ -62,7 +65,7 @@ export function unpackXorAddress(data: Buffer, transactionId: Buffer) {
 
 export function packErrorCode(value: [number, string]) {
   const pack = Buffer.from(
-    Pack("!HBB", [0, Math.floor(value[0] / 100), value[0] % 100])
+    jspack.Pack("!HBB", [0, Math.floor(value[0] / 100), value[0] % 100])
   );
   const encode = Buffer.from(value[1], "utf8");
   return Buffer.concat([pack, encode]);
@@ -72,12 +75,16 @@ export function packXorAddress(value: [string, number], transactionId: Buffer) {
   return xorAddress(packAddress(value), transactionId);
 }
 
-const packUnsigned = (value: number) => Buffer.from(Pack("!I", [value]));
-const unpackUnsigned = (data: Buffer) => Unpack("!I", data)[0];
+const packUnsigned = (value: number) => Buffer.from(jspack.Pack("!I", [value]));
+const unpackUnsigned = (data: Buffer) => jspack.Unpack("!I", data)[0];
 
 const packUnsignedShort = (value: number) =>
-  Buffer.concat([Buffer.from(Pack("!H", [value])), Buffer.from("\x00\x00")]);
-const unpackUnsignedShort = (data: Buffer) => Unpack("!H", data.slice(0, 2))[0];
+  Buffer.concat([
+    Buffer.from(jspack.Pack("!H", [value])),
+    Buffer.from("\x00\x00")
+  ]);
+const unpackUnsignedShort = (data: Buffer) =>
+  jspack.Unpack("!H", data.slice(0, 2))[0];
 
 const packUnsigned64 = (value: BigInt) => {
   return new Int64BE(value.toString()).toBuffer();

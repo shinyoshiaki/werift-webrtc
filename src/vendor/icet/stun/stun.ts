@@ -8,7 +8,7 @@ import {
   RETRY_RTO,
   RETRY_MAX
 } from "./const";
-import { Pack, Unpack } from "jspack/jspack";
+import { jspack } from "jspack";
 import {
   ATTRIBUTES_BY_TYPE,
   unpackXorAddress,
@@ -26,7 +26,7 @@ import { StunProtocol } from "../ice/protocol";
 const setBodyLength = (data: Buffer, length: number) => {
   return Buffer.concat([
     data.slice(0, 2),
-    Buffer.from(Pack("!H", [length])),
+    Buffer.from(jspack.Pack("!H", [length])),
     data.slice(4)
   ]);
 };
@@ -60,7 +60,10 @@ export function parseMessage(data: Buffer, integrityKey: Buffer | null = null) {
   if (data.length < HEADER_LENGTH) {
     throw new Error("STUN message length is less than 20 bytes");
   }
-  let [messageType, length] = Unpack("!HHI", data.slice(0, HEADER_LENGTH));
+  let [messageType, length] = jspack.Unpack(
+    "!HHI",
+    data.slice(0, HEADER_LENGTH)
+  );
 
   const transactionId = Buffer.from(
     data.slice(HEADER_LENGTH - 12, HEADER_LENGTH)
@@ -72,7 +75,7 @@ export function parseMessage(data: Buffer, integrityKey: Buffer | null = null) {
   const attributes: { [key: string]: any } = {};
 
   for (let pos = HEADER_LENGTH; pos <= data.length - 4; ) {
-    const [attrType, attrLen] = Unpack("!HH", data.slice(pos, pos + 4));
+    const [attrType, attrLen] = jspack.Unpack("!HH", data.slice(pos, pos + 4));
     const v = data.slice(pos + 4, pos + 4 + attrLen);
     const padLen = 4 * Math.floor((attrLen + 3) / 4) - attrLen;
     const attributesTypes = Object.keys(ATTRIBUTES_BY_TYPE);
@@ -156,13 +159,13 @@ export class Message {
       const padLen = 4 * Math.floor((attrLen + 3) / 4) - attrLen;
       data = Buffer.concat([
         data,
-        Buffer.from(Pack("!HH", [attrType, attrLen])),
+        Buffer.from(jspack.Pack("!HH", [attrType, attrLen])),
         v,
         ...[...Array(padLen)].map(() => Buffer.from("\x00"))
       ]);
     }
     const buf = Buffer.from(
-      Pack("!HHI", [
+      jspack.Pack("!HHI", [
         this.messageMethod | this.messageClass,
         data.length,
         COOKIE
