@@ -1,0 +1,71 @@
+{
+  // IntelliSense を使用して利用可能な属性を学べます。
+  // 既存の属性の説明をホバーして表示します。
+  // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Jest Tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/node_modules/.bin/jest",
+      "protocol": "inspector",
+      "args": ["--runInBand", "--forceExit"],
+      "windows": {
+        "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Jest Target File",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/node_modules/.bin/jest",
+      "protocol": "inspector",
+      "args": [
+        "--runInBand",
+        "--forceExit",
+        "--detectOpenHandles",
+        "${workspaceRoot}/tests/ice/ice.test.ts"
+      ],
+      "windows": {
+        "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Jest Target Test",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/node_modules/.bin/jest",
+      "protocol": "inspector",
+      "args": [
+        "--runInBand",
+        "--forceExit",
+        "--detectOpenHandles",
+        "-t test_connect_role_conflict_both_controlling"
+      ],
+      "windows": {
+        "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "ts-node",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceRoot}/node_modules/ts-node/dist/bin.js",
+      "protocol": "inspector",
+      "args": [
+        "--project",
+        "${workspaceRoot}/tsconfig.json",
+        "${workspaceRoot}/examples/cli/controlled.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}

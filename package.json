@@ -1,0 +1,66 @@
+{
+  "name": "icet",
+  "version": "0.0.3",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "homepage": "https://github.com/shinyoshiaki/icet",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shinyoshiaki/icet.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "rm -rf lib && tsc",
+    "test": "npm run type && jest --forceExit",
+    "ci": "jest --runInBand --forceExit",
+    "type": "tsc --noEmit --project ./tsconfig.json",
+    "publish": "npm publish --access=public",
+    "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts"
+  },
+  "dependencies": {
+    "buffer-crc32": "^0.2.13",
+    "dgram": "^1.0.1",
+    "icet": "^0.0.3",
+    "int64-buffer": "^0.99.1007",
+    "ip": "^1.1.5",
+    "jspack": "^0.0.4",
+    "lodash": "^4.17.15",
+    "p-cancelable": "^2.0.0",
+    "rxjs": "^6.5.4"
+  },
+  "devDependencies": {
+    "@types/buffer-crc32": "^0.2.0",
+    "@types/ip": "^1.1.0",
+    "@types/jest": "^23.3.13",
+    "@types/lodash": "^4.14.149",
+    "@types/node": "^11.13.6",
+    "@types/utf8": "^2.1.6",
+    "@types/ws": "^7.2.1",
+    "jest": "^23.6.0",
+    "prettier": "^1.19.1",
+    "ts-jest": "^23.10.5",
+    "ts-node": "^8.6.2",
+    "tslib": "^1.9.3",
+    "typescript": "^3.7.2",
+    "ws": "^7.2.1"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js"
+    ],
+    "globals": {
+      "ts-jest": {
+        "tsConfig": "tsconfig.json"
+      }
+    },
+    "testMatch": [
+      "**/*.test.ts"
+    ]
+  }
+}
