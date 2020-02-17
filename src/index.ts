@@ -1,3 +1,3 @@
-export { RTCSctpTransport } from "./rtc/sctpTransport";
+export { RTCSctpTransport } from "./rtc/transport/sctp";
 
-export { RTCIceGatherer, RTCIceTransport } from "./rtc/iceTransport";
+export { RTCIceGatherer, RTCIceTransport } from "./rtc/transport/ice";

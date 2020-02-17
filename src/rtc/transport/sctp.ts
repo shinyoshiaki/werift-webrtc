@@ -1,10 +1,10 @@
-import { RTCDataChannel } from "./dataChannel";
+import { RTCDataChannel } from "../dataChannel";
 import {
   DATA_CHANNEL_RELIABLE,
   DATA_CHANNEL_OPEN,
   WEBRTC_DCEP,
   State
-} from "./const";
+} from "../const";
 import { jspack } from "jspack";
 
 export class RTCSctpTransport {

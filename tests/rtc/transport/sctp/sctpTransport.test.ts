@@ -1,4 +1,4 @@
-import { RTCSctpTransport } from "../../../src";
+import { RTCSctpTransport } from "../../../../src";
 
 describe("RTCSctpTransportTest", () => {
   function setUp() {}
