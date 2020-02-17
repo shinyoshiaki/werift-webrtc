@@ -1,0 +1,221 @@
+
+
+
+
+
+
+
+
+
+
+ISSN：2070-1721 Netflix、Inc. R. Jesup WorldGate Communications S.Loreto Ericsson 2017年11月 
+
+
+
+SCTPパケットのデータグラムトランスポート層セキュリティ（DTLS）カプセル化 
+
+概要 
+
+SCTP（Stream Control Transmission Protocol）は、元々ネットワークプロトコルIPv4またはIPv6の上で実行するように定義されたトランスポートプロトコルです。このドキュメントでは、Datagram Transport Layer Security（DTLS）プロトコル上でSCTPを使用する方法を指定します。このドキュメントで説明されているカプセル化方法を使用すると、SCTPはDTLSの下で使用されているプロトコルを認識しません。したがって、明示的なIPアドレスはSCTP制御チャンクで使用できません。結果として、DTLSを介して運ばれるSCTPアソシエーションは、シングルホームにしかできません。
+
+このドキュメントは、Internet Engineering Task Force（IETF）の製品です。IETFコミュニティのコンセンサスを表しています。これは公開レビューを受けており、Internet Engineering Steering Group（IESG）による公開が承認されています。インターネット標準の詳細については、RFC 7841のセクション2を参照してください。
+
+このドキュメントの現在のステータス、エラータ、およびフィードバックの提供方法に関する情報は、https：//www.rfc-editor.org/info/rfc8261で入手できます。 
+
+著作権表示 
+
+Copyright（c）2017 IETF Trustおよび文書作成者として特定された人物。全著作権所有。
+
+このドキュメントは、このドキュメントの公開日に有効なBCP 78およびIETFトラストのIETFドキュメントに関連する法的条項（https://trustee.ietf.org/license-info）の対象となります。これらのドキュメントは、このドキュメントに関するあなたの権利と制限を説明しているので、注意深く確認してください。このドキュメントから抽出されたコードコンポーネントには、Trust Legal Provisionsのセクション4.eに記載されているSimplified BSD Licenseテキストを含める必要があり、Simplified BSD Licenseに記載されている保証なしで提供されます。
+
+1。概要 
+
+[RFC4960]で定義されているStream Control Transmission Protocol（SCTP）は、ネットワークプロトコルIPv4 [RFC0791]またはIPv6 [RFC8200]の上で実行されるトランスポートプロトコルです。このドキュメントでは、Datagram Transport Layer Security（DTLS）プロトコル上でSCTPを使用する方法を指定します。DTLS 1.0は[RFC4347]で定義され、このRFCが公開されたときの最新バージョンであるDTLS 1.2は[RFC6347]で定義されています。このカプセル化は、たとえば、WebRTCプロトコルスイート（概要については[RTC-OVERVIEW]を参照）内で使用され、ブラウザ間で非SRTPデータを転送します。このスタックのアーキテクチャは[DATA-CHAN]で説明されています。
+
++ ---------- + | SCTP | + ---------- + | DTLS | + ---------- + | ICE / UDP | + ---------- +
+
+図1：基本的なスタック図 
+
+UDPまたはICE / UDP上のDTLS上のSCTPのこのカプセル化（[RFC5245]を参照）は、機密性、ソース認証、および整合性保護転送に加えて、NATトラバーサルソリューションを提供できます。ICEの使用は、必ずしも回線上で異なるパケット形式が使用されることを意味するわけではないことに注意してください。
+
+UDPポート番号を扱うための[RFC6951]で定義された手順はここでは適用されないことに注意してください。このドキュメントで定義されているカプセル化を使用する場合、SCTPはDTLSの下で使用されるプロトコルを認識しません。
+
+2.コンベンション 
+
+キーワード「MUST」、「MUST NOT」、「REQUIRED」、「SHALL」、「SHALL NOT」、「SHOULD」、「SHOULD NOT」、「RECOMMENDED」、「NOT RECOMMENDED」、「MAY」、および「OPTIONAL」この文書の「」は、BCP 14 [RFC2119] [RFC8174]で説明されているように、ここに示すようにすべての大文字で表示される場合にのみ解釈されます。 
+
+3.カプセル化およびカプセル化解除の手順 
+
+SCTPパケットがDTLSレイヤーに提供されると、SCTP共通ヘッダーといくつかのSCTPチャンクで構成される完全なSCTPパケットは、DTLSのアプリケーション層プロトコルのペイロードとして処理されます。DTLS層がアプリケーション層プロトコルのメッセージを含むDTLSレコードを処理すると、ペイロードがSCTP層に渡されます。SCTP層は、SCTP共通ヘッダーの後にいくつかのSCTPチャンクが続くことを想定しています。
+
+4.一般的な考慮事項 
+
+SCTP over DTLSの実装は、ICMPなしで機能してMTU推定値をSCTP / DTLSに提供するパス最大伝送ユニット（MTU）発見方法を実装および使用しなければなりません。SCTPまたはDTLSでの「パケット化レイヤーパスMTUディスカバリ」[RFC4821]の実装が推奨されます。
+
+データチャネルにSCTP over DTLSが使用されている場合、パスMTUディスカバリはSCTPによって実行されます（[DATA-CHAN]のセクション5を参照）。 
+
+5. DTLSの考慮事項 
+
+DTLS実装はDTLS 1.0 [RFC4347]をサポートする必要があり、このRFCが公開された時点でDTLS 1.2 [RFC6347]であったDTLSの最新公開バージョンをサポートする必要があります。このドキュメントの改訂がない場合、後者の要件は、RFCとして公開されるDTLSのすべての将来のバージョンに適用されます。このドキュメントは、DTLSまたはSCTPの改訂がカプセル化の改訂を必要とする場合にのみ改訂されます。
+
+SCTPは、パスMTUに基づいてセグメンテーションと再アセンブリを実行します。したがって、DTLSレイヤーは圧縮アルゴリズムを使用してはなりません。
+
+DTLSは、現在のパスMTUよりも大きいメッセージの送信をサポートする必要があります。これにより、IPレベルの断片化されたメッセージが送信される可能性があります。
+
+パスMTUディスカバリがDTLS層によって実行される場合、[RFC4821]で説明されている方法を使用する必要があります。プローブパケットの場合、[RFC6520]で定義されている拡張子を使用する必要があります。
+
+パスMTUディスカバリーがSCTPレイヤーによって実行され、IPv4がネットワークレイヤープロトコルとして使用される場合、DTLS実装は、DTLSユーザーが対応するIPv4パケットがDo n't Fragment（DF）ビットセットで送信されることを強制できるようにする必要があります。DFビットを制御できない場合（たとえば、実装上の制限のため）、SCTPスタックはパスMTUの安全な値を使用する必要があります。安全な値は1200バイトを超えないことをお勧めします。[RFC1122]では、エンドホストが断片化されたIPパケットを最大576バイトの長さで再構成できることのみが必要であることに注意してください。
+
+DTLS実装は、DTLSユーザーが、送信されるIPパケットに使用されるDiffServコードポイント（DSCP）を設定できるようにする必要があります（[RFC2474]を参照）。これには、DTLS実装が値を通過させる必要があり、この値を設定できるように下位層が必要です。下位層がDSCPの設定をサポートしていない場合、DTLSユーザーはプロトコルスタックで使用されるデフォルト値になります。同じSCTPアソシエーションに属するすべてのパケットに使用できるDSCP値は1つだけです。
+
+SCTPで明示的輻輳通知（ECN）を使用するには、DTLSレイヤーがECNビットを通過させる必要があり、その下位レイヤーが送受信パケットのアクセスを公開する必要があります（[RFC3168]を参照）。DTLSとその下位層の実装は、このサポートを提供する必要があります。これが不可能な場合（たとえば、実装の制限のため）、ECTPはSCTPで使用できません。
+
+6. SCTPに関する考慮事項 
+
+このセクションでは、基本プロトコルの使用法とさまざまなSCTP拡張機能の適用性について説明します。 
+
+6.1。基本プロトコル
+
+このドキュメントでは、SCTP [RFC4960]を以下の制限とともに使用します。これは、下位層がIPv4およびIPv6ではなくDTLSであり、SCTPがDTLSの下で使用されるIPアドレスまたはトランスポートプロトコルを処理しないことを反映するために必要です： 
+
+o SCTPアソシエーションをセットアップする前に、DTLS接続を確立する必要があります。 
+
+o複数のSCTPアソシエーションは、単一のDTLS接続で多重化できます。SCTPポート番号は、単一のDTLS接続で伝送されるSCTPアソシエーションの多重化および逆多重化に使用されます。
+
+oすべてのSCTPアソシエーションは、DTLSがその上位層にアドレス管理を公開しないため、シングルホームです。したがって、SCTPパラメータpath.max.retransをassociation.max.retransに設定することをお勧めします。
+
+o INITおよびINIT-ACKチャンクには、IPv4アドレスまたはIPv6アドレスパラメータを含めることはできません。INITチャンクには、Supported Address Typesパラメータを含めることはできません。
+
+o実装はICMPまたはICMPv6パケットの処理に依存してはならない（MUST）。これは、SCTPレイヤーがパケットのプレーンテキスト内のSCTP共通ヘッダーにアクセスできず、ICMPまたはICMPv6パケットの送信をトリガーした可能性が高いためです。これは、SCTPによって実行される場合、特にパスMTUディスカバリに適用されます。
+
+o SCTP層が下位層からパスの変更について通知された場合、SCTPはパスMTUを再テストし、輻輳状態を初期状態にリセットする必要があります。[RFC4960]で指定されたウィンドウベースの輻輳制御方法は、輻輳ウィンドウとスロースタートしきい値を初期値にリセットします。
+
+6.2。パディング拡張
+
+SCTP層が[RFC4821]で指定されたパスMTUディスカバリを実行する場合、[RFC4820]で定義されたパディング拡張をサポートし、プローブパケット（PADDINGチャンク[RFC4820]にバンドルされたHEARTBEATチャンク）に使用する必要があります。 
+
+6.3。動的アドレス再構成拡張
+
+[RFC5061]で定義された動的アドレス再構成拡張が使用される場合、ASCONFチャンクはワイルドカードアドレスのみを使用する必要があります。 
+
+6.4。SCTP認証拡張
+
+[RFC4895]で定義されているSCTP認証拡張は、DTLSカプセル化で使用できますが、追加の利点はありません。 
+
+6.5。部分信頼性拡張
+
+[RFC3758]で定義されている部分的な信頼性は、DTLSカプセル化と組み合わせて使用​​できます。[RFC7496]で定義されているポリシーなど、追加の部分的に信頼できるストリーム制御伝送プロトコル（PR-SCTP）ポリシーを使用することもできます。
+
+6.6。ストリームリセット拡張機能
+
+[RFC6525]で定義されているSCTPストリームリセット拡張は、DTLSカプセル化で使用できます。SCTPアソシエーションのライフタイム中にSCTPストリームをリセットし、SCTPストリームを追加するために使用されます。
+
+6.7。大きなユーザーメッセージのインターリーブ
+
+[RFC4960]で定義されているSCTPは、SCTP層によってフラグメント化および再構築する必要がある大きなユーザーメッセージのインターリーブをサポートしていません。[RFC8260]で定義されたプロトコル拡張はこの制限を克服し、DTLSカプセル化で使用できます。
+
+7. IANAの考慮事項 
+
+このドキュメントは、IANAアクションを必要としません。 
+
+
+
+8.セキュリティに関する考慮事項 
+
+DTLSのセキュリティに関する考慮事項は[RFC4347]で、SCTPの[RFC4960]、[RFC3758]、および[RFC6525]で指定されています。SCTPとDTLSの組み合わせでは、新しいセキュリティ上の考慮事項はありません。
+
+DTLSはそれらについての保証を提供しないため、SCTPは基礎となる通信に使用されるIPアドレスを処理すべきではありません。 
+
+ICMPまたはICMPv6メッセージを処理できないことにより、セキュリティの問題が追加されることはありません。SCTPがIPv4、IPv6、UDPなどのコネクションレスの下位層で実行される場合、SCTPをサポートしていない他のノードを保護するためにこれらのメッセージの処理が必要です。DTLSは接続指向の下位層を提供するため、この種の保護は必要ありません。
+
+9.参照 
+
+9.1。規範的参考文献
+
+[RFC1122]ブレーデン、R。、エド、「インターネットホストの要件-通信層」、STD 3、RFC 1122、DOI 10.17487 / RFC1122、1989年10月、<https://www.rfc-editor.org/info/ rfc1122>。 
+
+[RFC2119] Bradner、S.、「要件レベルを示すためにRFCで使用するキーワード」、BCP 14、RFC 2119、DOI 10.17487 / RFC2119、1997年3月、<https://www.rfc-editor.org/info/ rfc2119>。 
+
+[RFC4347] Rescorla、E。およびN. Modadugu、「データグラムトランスポート層セキュリティ」、RFC 4347、DOI 10.17487 / RFC4347、2006年4月、<https://www.rfc-editor.org/info/rfc4347>。 
+
+[RFC4820] Tuexen、M。、スチュワート、R。、およびP. Lei、「ストリーム制御伝送プロトコル（SCTP）のパディングチャンクとパラメーター」、RFC 4820、DOI 10.17487 / RFC4820、2007年3月、<https：// www.rfc-editor.org/info/rfc4820>。 
+
+[RFC4821] Mathis、M.およびJ. Heffner、「Packetization Layer Path MTU Discovery」、RFC 4821、DOI 10.17487 / RFC4821、2007年3月、<https://www.rfc-editor.org/info/rfc4821>。 
+
+[RFC4960]スチュワート、R。、編、「ストリーム制御伝送プロトコル」、RFC 4960、DOI 10.17487 / RFC4960、2007年9月、<https://www.rfc-editor.org/info/rfc4960>。 
+
+
+
+[RFC6347] Rescorla、E。およびN. Modadugu、「データグラムトランスポートレイヤーセキュリティバージョン1.2」、RFC 6347、DOI 10.17487 / RFC6347、2012年1月、<https://www.rfc-editor.org/info/rfc6347>。 
+
+[RFC6520] Seggelmann、R.、Tuexen、M。、およびM. Williams、「トランスポート層セキュリティ（TLS）およびデータグラムトランスポート層セキュリティ（DTLS）ハートビート拡張」、RFC 6520、DOI 10.17487 / RFC6520、2012年2月、<https ：//www.rfc-editor.org/info/rfc6520>。 
+
+[RFC8174] Leiba、B。、「RFC 2119キーワードの大文字と小文字のあいまいさ」、BCP 14、RFC 8174、DOI 10.17487 / RFC8174、2017年5月、<https://www.rfc-editor.org/info/ rfc8174>。 
+
+9.2。参考資料
+
+[DATA-CHAN] Jesup、R.、Loreto、S。、およびM. Tuexen、「WebRTC Data Channels」、Work in Progress、draft-ietf-rtcweb-data-channel-13、2015年1月。 
+
+[RFC0791]ポステル、J。、「インターネットプロトコル」、STD 5、RFC 791、DOI 10.17487 / RFC0791、1981年9月、<https://www.rfc-editor.org/info/rfc791>。 
+
+[RFC2474]ニコルズ、K。、ブレイク、S。、ベイカー、F。、およびD.ブラック、「IPv4およびIPv6ヘッダーのDiffServフィールド（DSフィールド）の定義」、RFC 2474、DOI 10.17487 / RFC2474、 1998年12月、<https://www.rfc-editor.org/info/rfc2474>。 
+
+[RFC3168]ラマクリシュナン、K。、フロイド、S。、およびD.ブラック、「IPへの明示的な輻輳通知（ECN）の追加」、RFC 3168、DOI 10.17487 / RFC3168、2001年9月、<https：// www。 rfc-editor.org/info/rfc3168>。 
+
+[RFC3758] Stewart、R.、Ramalho、M.、Xie、Q.、Tuexen、M。、およびP. Conrad、「ストリーム制御伝送プロトコル（SCTP）部分信頼性拡張」、RFC 3758、DOI 10.17487 / RFC3758、5月2004、<https://www.rfc-editor.org/info/rfc3758>。 
+
+[RFC4895] Tuexen、M。、スチュワート、R。、レイ、P。、およびE. Rescorla、「ストリーム制御伝送プロトコル（SCTP）の認証済みチャンク」、RFC 4895、DOI 10.17487 / RFC4895、2007年8月、<https ：//www.rfc-editor.org/info/rfc4895>。 
+
+
+
+[RFC5061] Stewart、R.、Xie、Q.、Tuexen、M.、Maruyama、S。、およびM. Kozuka、「Stream Control Transmission Protocol（SCTP）Dynamic Address Reconfiguration」、RFC 5061、DOI 10.17487 / RFC5061、9月2007、<https://www.rfc-editor.org/info/rfc5061>。 
+
+[RFC5245]ローゼンバーグ、J。、「Interactive Connectivity Establishment（ICE）：オファー/アンサープロトコルのネットワークアドレス変換（NAT）トラバーサルのプロトコル」、RFC 5245、DOI 10.17487 / RFC5245、2010年4月、<https：// www .rfc-editor.org / info / rfc5245>。 
+
+[RFC6525] Stewart、R.、Tuexen、M。、およびP. Lei、「Stream Control Transmission Protocol（SCTP）Stream Reconfiguration」、RFC 6525、DOI 10.17487 / RFC6525、2012年2月、<https：//www.rfc- editor.org/info/rfc6525>。 
+
+[RFC6951] Tuexen、M。、およびR. Stewart、「エンドホスト間通信のためのストリーム制御伝送プロトコル（SCTP）パケットのUDPカプセル化」、RFC 6951、DOI 10.17487 / RFC6951、2013年5月、<https：/ /www.rfc-editor.org/info/rfc6951>。 
+
+[RFC7496] Tuexen、M.、Seggelmann、R.、Stewart、R。、およびS. Loreto、「部分的に信頼できるストリーム制御伝送プロトコル拡張の追加ポリシー」、RFC 7496、DOI 10.17487 / RFC7496、2015年4月、<https ：//www.rfc-editor.org/info/rfc7496>。 
+
+[RFC8200] Deering、S。およびR. Hinden、「インターネットプロトコル、バージョン6（IPv6）仕様」、STD 86、RFC 8200、DOI 10.17487 / RFC8200、2017年7月、<https://www.rfc-editor.org / info / rfc8200>。 
+
+[RFC8260] Stewart、R.、Tuexen、M.、Loreto、S。、およびR. Seggelmann、「ストリーム制御伝送プロトコル用のストリームスケジューラとユーザーメッセージインターリービング」、RFC 8260、2017年11月。 
+
+[RTC-概要] Alvestrand、H.、「概要：ブラウザベースのアプリケーションのリアルタイムプロトコル」、Work in Progress、draft-ietf-rtcweb-overview-18、2017年3月。 
+
+
+
+
+
+
+
+
+
+謝辞 
+
+著者は、デビッド・ブラック、ブノワ・クレーズ、スペンサー・ドーキンス、フランシス・デュポン、ゴーリー・フェアハースト、スティーブン・ファレル、クリスター・ホルムバーグ、バリー・レイバ、エリック・レスコーラ、トム・テイラー、ジョー・タッチ、マグナス・ウェスターランドの貴重なコメントに感謝します。 
+
+著者のアドレス 
+
+Michael Tuexen Muenster応用科学大学Stegerwaldstrasse 39 48565 Steinfurtドイツ 
+
+メール：tuexen@fh-muenster.de 
+
+
+
+Randall R. Stewart Netflix、Inc. Chapin、SC 29036アメリカ合衆国 
+
+メール：randall@lakerest.net 
+
+
+
+Randell Jesup WorldGate Communications 3800 Horizo​​n Blvd、Suite＃103 Trevose、PA 19053-4947アメリカ合衆国 
+
+電話：+ 1-215-354-5166メール：randell-ietf@jesup.org 
+
+
+
+Salvatore Loreto Ericsson Hirsalantie 11 Jorvas 02420フィンランド 
+
+メール：Salvatore.Loreto@ericsson.com 

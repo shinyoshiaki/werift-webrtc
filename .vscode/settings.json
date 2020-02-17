@@ -10,8 +10,10 @@
     "rtc",
     "sctp",
     "srflx",
+    "struct",
     "tcptype",
     "transport",
+    "uint",
     "wrtct"
   ]
 }
