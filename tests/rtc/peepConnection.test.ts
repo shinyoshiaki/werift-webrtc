@@ -7,7 +7,10 @@ describe("peerConnection", () => {
 
     const dc = pc1.createDataChannel("chat", { protocol: "bob" });
 
-    const offer = await pc1.createOffer();
-    expect(offer!.type).toBe("offer");
+    const offer = (await pc1.createOffer())!;
+    expect(offer.type).toBe("offer");
+    expect(offer.sdp.includes("m=application")).toBeTruthy();
+    expect(offer.sdp.includes("a=candidate")).toBeFalsy();
+    expect(offer.sdp.includes("a=end-of-candidates")).toBeFalsy();
   });
 });
