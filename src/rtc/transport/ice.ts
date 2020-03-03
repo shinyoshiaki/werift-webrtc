@@ -78,7 +78,7 @@ function candidateToIce(x: RTCIceCandidate) {
   );
 }
 
-class RTCIceCandidate {
+export class RTCIceCandidate {
   // """
   // The :class:`RTCIceCandidate` interface represents a candidate Interactive
   // Connectivity Establishment (ICE) configuration which may be used to
@@ -101,7 +101,7 @@ class RTCIceCandidate {
   ) {}
 }
 
-class RTCIceParameters {
+export class RTCIceParameters {
   public usernameFragment?: string;
   public password?: string;
 }

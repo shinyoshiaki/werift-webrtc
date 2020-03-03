@@ -1,4 +1,6 @@
-class RTCDataChannelParameters {
+import { RTCSctpTransport } from "./transport/sctp";
+
+export class RTCDataChannelParameters {
   label = "";
   maxPacketLifeTime?: number;
   maxRetransmits?: number;
@@ -6,12 +8,13 @@ class RTCDataChannelParameters {
   protocol = "";
   negotiated = false;
   id?: number;
+  constructor() {}
 }
 
 export class RTCDataChannel {
   id = this.parameters.id;
   constructor(
-    transport: unknown,
+    transport: RTCSctpTransport,
     private parameters: RTCDataChannelParameters,
     sendOpen = true
   ) {

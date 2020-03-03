@@ -6,6 +6,7 @@ import {
   State
 } from "../const";
 import { jspack } from "jspack";
+import { RTCDtlsTransport } from "./dtls";
 
 export class RTCSctpTransport {
   private dataChannels: { [key: string]: RTCDataChannel } = {};
@@ -14,8 +15,10 @@ export class RTCSctpTransport {
     return Object.keys(this.dataChannels);
   }
   private associationState = State.CLOSED;
+  mid?: string;
+  bundled = false;
 
-  constructor() {}
+  constructor(public transport: RTCDtlsTransport, public port = 5000) {}
 
   dataChannelOpen(channel: RTCDataChannel) {
     if (channel.id) {
@@ -62,4 +65,12 @@ export class RTCSctpTransport {
   private async dataChannelFlush() {
     if (this.associationState != State.ESTABLISHED) return;
   }
+
+  static getCapabilities() {
+    return new RTCSctpCapabilities(65536);
+  }
+}
+
+export class RTCSctpCapabilities {
+  constructor(public maxMessageSize: number) {}
 }

@@ -26,3 +26,23 @@ export enum State {
   SHUTDOWN_RECEIVED = 7,
   SHUTDOWN_ACK_SENT = 8
 }
+
+export const DISCARD_HOST = "0.0.0.0";
+export const DISCARD_PORT = 9;
+export const MEDIA_KINDS = ["audio", "video"];
+
+export const DIRECTIONS = ["inactive", "sendonly", "recvonly", "sendrecv"];
+export const DTLS_ROLE_SETUP = {
+  auto: "actpass",
+  client: "active",
+  server: "passive"
+};
+export const FMTP_INT_PARAMETERS = [
+  "apt",
+  "max-fr",
+  "max-fs",
+  "maxplaybackrate",
+  "minptime",
+  "stereo",
+  "useinbandfec"
+];
