@@ -1,6 +1,7 @@
 {
   "cSpell.words": [
     "dtls",
+    "extmap",
     "howdee",
     "icet",
     "ipaddress",
@@ -15,6 +16,7 @@
     "struct",
     "tcptype",
     "transport",
+    "ufrag",
     "uint",
     "wrtct"
   ]

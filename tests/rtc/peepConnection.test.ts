@@ -12,5 +12,8 @@ describe("peerConnection", () => {
     expect(offer.sdp.includes("m=application")).toBeTruthy();
     expect(offer.sdp.includes("a=candidate")).toBeFalsy();
     expect(offer.sdp.includes("a=end-of-candidates")).toBeFalsy();
+
+    await pc1.setLocalDescription(offer);
+    expect(pc1.iceConnectionState).toBe("new");
   });
 });

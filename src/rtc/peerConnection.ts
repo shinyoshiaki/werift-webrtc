@@ -3,7 +3,6 @@ import { RTCSctpTransport } from "./transport/sctp";
 import { RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import { RTCDtlsTransport, RTCCertificate } from "./transport/dtls";
 import { SessionDescription, GroupDescription, MediaDescription } from "./sdp";
-import { range } from "../vendor/icet/utils";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { RTCSessionDescription } from "./sessionDescription";
 
@@ -19,8 +18,13 @@ export class RTCPeerConnection {
   private currentRemoteDescription?: SessionDescription;
   private pendingLocalDescription?: SessionDescription;
   private pendingRemoteDescription?: SessionDescription;
+  private _iceConnectionState = "new";
 
   constructor(private configuration: Configuration) {}
+
+  get iceConnectionState() {
+    return this._iceConnectionState;
+  }
 
   private localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
@@ -122,6 +126,11 @@ export class RTCPeerConnection {
     // todo listen
 
     return sctp;
+  }
+
+  async setLocalDescription(sessionDescription: RTCSessionDescription) {
+    const description = SessionDescription.parse(sessionDescription.sdp);
+    // description.type = sessionDescription.type;
   }
 }
 

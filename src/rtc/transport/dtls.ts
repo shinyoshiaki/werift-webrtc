@@ -54,11 +54,13 @@ function generateCertificate(): [pki.rsa.KeyPair, pki.Certificate] {
   return [keys, cert];
 }
 
-class RTCDtlsFingerprint {
+export class RTCDtlsFingerprint {
   constructor(public algorithm: string, public value: string) {}
 }
 
 export class RTCDtlsParameters {
-  constructor(public fingerprints: RTCDtlsFingerprint[] = []) {}
-  role: "auto" | "client" = "auto";
+  constructor(
+    public fingerprints: RTCDtlsFingerprint[] = [],
+    public role: "auto" | "client" | undefined = "auto"
+  ) {}
 }

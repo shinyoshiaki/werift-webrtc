@@ -37,6 +37,14 @@ export const DTLS_ROLE_SETUP = {
   client: "active",
   server: "passive"
 };
+export const DTLS_SETUP_ROLE = Object.keys(DTLS_ROLE_SETUP).reduce(
+  (acc, cur) => {
+    const key = (DTLS_ROLE_SETUP as any)[cur];
+    acc[key] = cur;
+    return acc;
+  },
+  {} as any
+);
 export const FMTP_INT_PARAMETERS = [
   "apt",
   "max-fr",

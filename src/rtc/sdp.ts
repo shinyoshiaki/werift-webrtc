@@ -1,9 +1,10 @@
 import { RTCRtpParameters } from "./parameters";
 import { RTCIceParameters, RTCIceCandidate } from "./transport/ice";
-import { RTCDtlsParameters } from "./transport/dtls";
+import { RTCDtlsParameters, RTCDtlsFingerprint } from "./transport/dtls";
 import { RTCSctpCapabilities } from "./transport/sctp";
-import { DTLS_ROLE_SETUP } from "./const";
+import { DTLS_ROLE_SETUP, DTLS_SETUP_ROLE } from "./const";
 import { isIPv4 } from "net";
+import { range } from "lodash";
 
 export class SessionDescription {
   version = 0;
@@ -15,6 +16,147 @@ export class SessionDescription {
   msidSemantic: GroupDescription[] = [];
   media: MediaDescription[] = [];
   type?: string;
+
+  static parse(sdp: string) {
+    const currentMedia = undefined;
+    const dtlsFingerprints: RTCDtlsFingerprint[] = [];
+    const iceOptions = undefined;
+
+    const [sessionLines, mediaGroups] = groupLines(sdp);
+
+    const session = new SessionDescription();
+    sessionLines.forEach(line => {
+      if (line.startsWith("v=")) {
+        session.version = parseInt(line.slice(2), 10);
+      } else if (line.startsWith("o=")) {
+        session.origin = line.slice(2);
+      } else if (line.startsWith("s=")) {
+        session.name = line.slice(2);
+      } else if (line.startsWith("c=")) {
+        session.host = ipAddressFromSdp(line.slice(2));
+      } else if (line.startsWith("t=")) {
+        session.time = line.slice(2);
+      } else if (line.startsWith("a=")) {
+        let iceOptions: string | undefined;
+
+        const [attr, value] = parseAttr(line);
+        switch (attr) {
+          case "fingerprint":
+            {
+              const [algorithm, fingerprint] = value?.split("") || [];
+              dtlsFingerprints.push(
+                new RTCDtlsFingerprint(algorithm, fingerprint)
+              );
+            }
+            break;
+          case "ice-options":
+            {
+              iceOptions = value;
+            }
+            break;
+          case "group":
+            {
+              if (!value) throw new Error("exception");
+              parseGroup(session.group, value);
+            }
+            break;
+          case "msid-semantic":
+            {
+              if (!value) throw new Error("exception");
+              parseGroup(session.msidSemantic, value);
+            }
+            break;
+        }
+
+        mediaGroups.forEach(mediaLines => {
+          const m = mediaLines[0].match(/^m=([^ ]+) ([0-9]+) ([A-Z/]+) (.+)$/);
+          if (!m) throw new Error();
+
+          const kind = m[0];
+          const fmt = m[4].split("");
+
+          const currentMedia = new MediaDescription(
+            kind,
+            parseInt(m[2]),
+            m[3],
+            fmt
+          );
+          currentMedia.dtls = new RTCDtlsParameters(
+            [...dtlsFingerprints],
+            undefined
+          );
+          currentMedia.iceOptions = iceOptions;
+          session.media.push(currentMedia);
+
+          mediaLines.slice(1).forEach(line => {
+            if (line.startsWith("c=")) {
+              currentMedia.host = ipAddressFromSdp(line.slice(2));
+            } else if (line.startsWith("a=")) {
+              const [attr, value] = parseAttr(line);
+              if (!value) throw new Error();
+              switch (attr) {
+                case "candidate":
+                  currentMedia.iceCandidates.push(candidateFromSdp(value));
+                  break;
+                case "end-of-candidates":
+                  currentMedia.iceCandidatesComplete = true;
+                  break;
+                case "fingerprint":
+                  {
+                    const [algorithm, fingerprint] = value.split("");
+                    currentMedia.dtls?.fingerprints.push(
+                      new RTCDtlsFingerprint(algorithm, fingerprint)
+                    );
+                  }
+                  break;
+                case "ice-ufrag":
+                  currentMedia.ice.usernameFragment = value;
+                  break;
+                case "ice-pwd":
+                  currentMedia.ice.password = value;
+                  break;
+                case "ice-options":
+                  currentMedia.iceOptions = value;
+                  break;
+                case "max-message-size":
+                  currentMedia.sctpCapabilities = new RTCSctpCapabilities(
+                    parseInt(value, 10)
+                  );
+                  break;
+                case "mid":
+                  currentMedia.rtp.muxId = value;
+                  break;
+                case "msid":
+                  currentMedia.msid = value;
+                  break;
+                case "setup":
+                  if (!currentMedia.dtls) throw new Error();
+                  currentMedia.dtls.role = DTLS_SETUP_ROLE[value] as any;
+                  break;
+                case "sctpmap":
+                  {
+                    const [formatId, formatDesc] = value.split(" ", 1);
+                    (currentMedia as any)[attr][
+                      parseInt(formatId)
+                    ] = formatDesc;
+                  }
+                  break;
+                case "sctp-port":
+                  currentMedia.sctpPort = parseInt(value);
+                  break;
+              }
+            }
+          });
+
+          if (!currentMedia.dtls.role) {
+            currentMedia.dtls = undefined;
+          }
+        });
+      }
+    });
+
+    return session;
+  }
 
   toString() {
     const lines = [`v=${this.version}`, `o=${this.origin}`, `s=${this.name}`];
@@ -115,6 +257,7 @@ export class MediaDescription {
           `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
         );
       });
+      if (!this.dtls.role) throw new Error();
       lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtls.role]}`);
     }
 
@@ -133,7 +276,7 @@ export class GroupDescription {
 function ipAddressFromSdp(sdp: string) {
   const m = sdp.match(/^IN (IP4|IP6) ([^ ]+)$/);
   if (!m) throw new Error("exception");
-  return Object.values(m.groups!)[2];
+  return m[2];
 }
 
 function ipAddressToSdp(addr: string) {
@@ -153,4 +296,72 @@ function candidateToSdp(c: RTCIceCandidate) {
     sdp += ` tcptype ${c.tcpType}`;
   }
   return sdp;
+}
+
+function groupLines(sdp: string): [string[], string[][]] {
+  const session: string[] = [];
+  const media: string[][] = [];
+
+  sdp.split("\n").forEach(line => {
+    if (line.startsWith("m=")) {
+      media.push([line]);
+    } else if (media.length > 0) {
+      media[media.length - 1].push(line);
+    } else {
+      session.push(line);
+    }
+  });
+
+  return [session, media];
+}
+
+function parseAttr(line: string): [string, string | undefined] {
+  if (line.includes(":")) {
+    const bits = line.slice(2).split(":", 1);
+    return [bits[0], bits[1]];
+  } else return [line.slice(2), undefined];
+}
+
+function parseGroup(
+  dest: GroupDescription[],
+  value: string,
+  type: (v: string) => string = v => v.toString()
+) {
+  const bits = value.split("");
+  if (bits.length > 0) {
+    dest.push(new GroupDescription(bits[0], bits.slice(1).map(type)));
+  }
+}
+
+function candidateFromSdp(sdp: string) {
+  const bits = sdp.split("");
+  if (bits.length >= 8) throw new Error();
+
+  const candidate = new RTCIceCandidate(
+    parseInt(bits[1], 10),
+    bits[0],
+    bits[4],
+    parseInt(bits[5], 10),
+    parseInt(bits[3], 10),
+    bits[2],
+    bits[7]
+  );
+
+  range(bits.length - 1, 8, 2)
+    .reverse()
+    .forEach(i => {
+      switch (bits[i]) {
+        case "raddr":
+          candidate.relatedAddress = bits[i + 1];
+          break;
+        case "rport":
+          candidate.relatedPort = parseInt(bits[i + 1]);
+          break;
+        case "tcptype":
+          candidate.tcpType = bits[i + 1];
+          break;
+      }
+    });
+
+  return candidate;
 }
