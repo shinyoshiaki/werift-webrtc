@@ -3,9 +3,23 @@ import { ec } from "elliptic";
 import { addDays } from "date-fns";
 import { pki } from "node-forge";
 import { randomBytes } from "crypto";
+import { Subject } from "rxjs";
+import { RTCSctpTransport } from "./sctp";
+
+export enum State {
+  NEW = 0,
+  CONNECTING = 1,
+  CONNECTED = 2,
+  CLOSED = 3,
+  FAILED = 4
+}
 
 export class RTCDtlsTransport {
+  stateChange = new Subject<State>();
+  state = State.NEW;
   private localCertificate: RTCCertificate;
+  private role = "auto";
+  private dataReceiver?: RTCSctpTransport;
 
   constructor(
     public transport: RTCIceTransport,
@@ -17,6 +31,37 @@ export class RTCDtlsTransport {
 
   getLocalParameters() {
     return new RTCDtlsParameters(this.localCertificate.getFingerprints());
+  }
+
+  async start(remoteParameters: RTCDtlsParameters) {
+    if (this.state !== State.NEW) throw new Error();
+    if (remoteParameters.fingerprints.length === 0) throw new Error();
+
+    if (this.transport.role === "controlling") {
+      this.role = "server";
+    } else {
+      this.role = "client";
+    }
+
+    this.setState(State.CONNECTING);
+  }
+
+  async sendData(data: Buffer) {
+    await this.writeSSL();
+  }
+
+  private async writeSSL() {}
+
+  private setState(state: State) {
+    if (state != this.state) {
+      this.state = state;
+      this.stateChange.next(state);
+    }
+  }
+
+  registerDataReceiver(receiver: RTCSctpTransport) {
+    if (this.dataReceiver) throw new Error();
+    this.dataReceiver = receiver;
   }
 }
 

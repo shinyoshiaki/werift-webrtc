@@ -1,16 +1,34 @@
 import { RTCDataChannelParameters, RTCDataChannel } from "./dataChannel";
 import { RTCSctpTransport } from "./transport/sctp";
-import { RTCIceGatherer, RTCIceTransport } from "./transport/ice";
-import { RTCDtlsTransport, RTCCertificate } from "./transport/dtls";
+import {
+  RTCIceGatherer,
+  RTCIceTransport,
+  RTCIceParameters
+} from "./transport/ice";
+import {
+  RTCDtlsTransport,
+  RTCCertificate,
+  State,
+  RTCDtlsParameters
+} from "./transport/dtls";
 import { SessionDescription, GroupDescription, MediaDescription } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { RTCSessionDescription } from "./sessionDescription";
+import { isEqual } from "lodash";
+import { Subject } from "rxjs";
 
 type Configuration = { stunServer?: [string, number] };
 
 export class RTCPeerConnection {
+  iceGatheringStateChange = new Subject<string>();
+  iceConnectionStateChange = new Subject<string>();
+  signalingStateChange = new Subject<string>();
+
   private certificates = [RTCCertificate.generateCertificate()];
   private sctp?: RTCSctpTransport;
+  private sctpRemotePort?: number;
+  private remoteDtls: { [key: string]: RTCDtlsParameters } = {};
+  private remoteIce: { [key: string]: RTCIceParameters } = {};
   private seenMid = new Set<string>();
   private sctpMLineIndex?: number;
 
@@ -18,12 +36,25 @@ export class RTCPeerConnection {
   private currentRemoteDescription?: SessionDescription;
   private pendingLocalDescription?: SessionDescription;
   private pendingRemoteDescription?: SessionDescription;
+  private iceTransports = new Set<RTCIceTransport>();
   private _iceConnectionState = "new";
+  private _iceGatheringState = "new";
+  private _signalingState = "stable";
+  private isClosed = false;
+  private initialOffer?: boolean;
 
   constructor(private configuration: Configuration) {}
 
   get iceConnectionState() {
     return this._iceConnectionState;
+  }
+
+  get iceGatheringState() {
+    return this._iceGatheringState;
+  }
+
+  get signalingState() {
+    return this._signalingState;
   }
 
   private localDescription() {
@@ -109,11 +140,51 @@ export class RTCPeerConnection {
     return new RTCDataChannel(this.sctp, parameters);
   }
 
+  private updateIceGatheringState() {
+    let state = "new";
+
+    const states = new Set([...this.iceTransports].map(v => v.iceGather.state));
+    if (isEqual(states, new Set(["completed"]))) {
+      state = "complete";
+    } else if (states.has("gathering")) {
+      state = "gathering";
+    }
+
+    if (state !== this._iceGatheringState) {
+      this._iceGatheringState = state;
+      this.iceGatheringStateChange.next(state);
+    }
+  }
+
+  private updateIceConnectionState() {
+    let state = "new";
+
+    const states = new Set([...this.iceTransports].map(v => v.state));
+    if (this.isClosed) {
+      state = "closed";
+    } else if (states.has("failed")) {
+      state = "failed";
+    } else if (isEqual(states, new Set(["completed"]))) {
+      state = "completed";
+    } else if (states.has("checking")) {
+      state = "checking";
+    }
+
+    if (state !== this._iceConnectionState) {
+      this._iceConnectionState = state;
+      this.iceConnectionStateChange.next(state);
+    }
+  }
+
   private createDtlsTransport() {
     const iceGatherer = new RTCIceGatherer(this.configuration.stunServer);
-    // iceGatherer.subject.subscribe
+    iceGatherer.subject.subscribe(this.updateIceGatheringState);
     const iceTransport = new RTCIceTransport(iceGatherer);
-    // iceTransport.subject.subscribe
+    iceTransport.subject.subscribe(this.updateIceConnectionState);
+    this.iceTransports.add(iceTransport);
+
+    this.updateIceGatheringState();
+    this.updateIceConnectionState();
 
     return new RTCDtlsTransport(iceTransport, this.certificates);
   }
@@ -130,7 +201,127 @@ export class RTCPeerConnection {
 
   async setLocalDescription(sessionDescription: RTCSessionDescription) {
     const description = SessionDescription.parse(sessionDescription.sdp);
-    // description.type = sessionDescription.type;
+    description.type = sessionDescription.type;
+    this.validateDescription(description, true);
+
+    if (description.type === "offer") {
+      this.setSignalingState("have-local-offer");
+    } else if (description.type === "answer") {
+      this.setSignalingState("stable");
+    }
+
+    description.media.forEach(media => {
+      const mid = media.rtp.muxId;
+      this.seenMid.add(mid);
+      if (media.kind === "application") {
+        if (!this.sctp) throw new Error();
+        this.sctp.mid = mid;
+      }
+    });
+
+    if (this.initialOffer === undefined) {
+      this.initialOffer = description.type === "offer";
+      this.iceTransports.forEach(
+        iceTransport =>
+          (iceTransport.connection.iceControlling = this.initialOffer!)
+      );
+    }
+
+    await this.gather();
+    description.media.map(media => {
+      if (media.kind === "application") {
+        if (!this.sctp) throw new Error();
+        addTransportDescription(media, this.sctp.transport);
+      }
+    });
+
+    await this.connect();
+
+    if (description.type === "answer") {
+      this.currentLocalDescription = description;
+      this.pendingLocalDescription = undefined;
+    } else {
+      this.pendingLocalDescription = description;
+    }
+  }
+
+  private async gather() {
+    await Promise.all([...this.iceTransports].map(t => t.iceGather.gather()));
+  }
+
+  private async connect() {
+    if (this.sctp) {
+      const dtlsTransport = this.sctp.transport;
+      const iceTransport = dtlsTransport.transport;
+      if (
+        iceTransport.iceGather.getLocalCandidates() &&
+        Object.keys(this.remoteIce).includes(this.sctp.uuid)
+      ) {
+        await iceTransport.start(this.remoteIce[this.sctp.uuid]);
+        if (dtlsTransport.state === State.NEW) {
+          await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
+        }
+        if (dtlsTransport.state === State.CONNECTED) {
+          if (!this.sctpRemotePort) throw new Error();
+          await this.sctp.start(this.sctpRemotePort);
+        }
+      }
+    }
+  }
+
+  private setSignalingState(state: string) {
+    this._signalingState = state;
+    this.signalingStateChange.next(state);
+  }
+
+  private validateDescription(
+    description: SessionDescription,
+    isLocal: boolean
+  ) {
+    if (isLocal) {
+      if (description.type === "offer") {
+        if (!["stable", "have-local-offer"].includes(this._signalingState))
+          throw new Error("Cannot handle offer in signaling state");
+      } else if (description.type === "answer") {
+        if (
+          !["have-remote-offer", "have-local-pranswer"].includes(
+            this.signalingState
+          )
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    } else {
+      if (description.type === "offer") {
+        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
+          throw new Error("Cannot handle offer in signaling state");
+        }
+      } else if (description.type === "answer") {
+        if (
+          !["have-local-offer", "have-remote-pranswer"].includes(
+            this.signalingState
+          )
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    }
+
+    description.media.forEach(media => {
+      if (!media.ice.usernameFragment || !media.ice.password)
+        throw new Error("ICE username fragment or password is missing");
+    });
+
+    if (["answer", "pranswer"].includes(description.type || "")) {
+      const offer = isLocal
+        ? this.remoteDescription()
+        : this.localDescription();
+      if (!offer) throw new Error();
+      const offerMedia = offer.media.map(v => [v.kind, v.rtp.muxId]);
+      const answerMedia = description.media.map(v => [v.kind, v.rtp.muxId]);
+      if (!isEqual(offerMedia, answerMedia))
+        throw new Error("Media sections in answer do not match offer");
+    }
   }
 }
 

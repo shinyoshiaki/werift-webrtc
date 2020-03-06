@@ -15,5 +15,6 @@ describe("peerConnection", () => {
 
     await pc1.setLocalDescription(offer);
     expect(pc1.iceConnectionState).toBe("new");
+    expect(pc1.iceGatheringState).toBe("complete");
   });
 });

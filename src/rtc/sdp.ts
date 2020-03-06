@@ -15,7 +15,7 @@ export class SessionDescription {
   group: GroupDescription[] = [];
   msidSemantic: GroupDescription[] = [];
   media: MediaDescription[] = [];
-  type?: string;
+  type?: "offer" | "answer";
 
   static parse(sdp: string) {
     const currentMedia = undefined;

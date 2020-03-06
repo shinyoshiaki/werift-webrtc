@@ -12,6 +12,7 @@
     "raddr",
     "rport",
     "rtc",
+    "rwnd",
     "sctp",
     "srflx",
     "struct",

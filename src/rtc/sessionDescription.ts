@@ -1,3 +1,3 @@
 export class RTCSessionDescription {
-  constructor(public sdp: string, public type: string) {}
+  constructor(public sdp: string, public type: "offer" | "answer") {}
 }

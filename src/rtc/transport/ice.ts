@@ -110,7 +110,7 @@ export class RTCIceTransport {
   subject = new Subject<IceState>();
   private _start?: Subject<unknown>;
   private _state: IceState = "new";
-  private connection = this.gather.connection;
+  connection = this.gather.connection;
 
   constructor(private gather: RTCIceGatherer) {}
 
