@@ -43,7 +43,7 @@ export class RTCIceGatherer {
 
   private setState(state: IceState) {
     this._state = state;
-    this.subject.next("stateChange");
+    this.subject.next(state);
   }
 }
 

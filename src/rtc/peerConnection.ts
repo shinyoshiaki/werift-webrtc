@@ -178,9 +178,13 @@ export class RTCPeerConnection {
 
   private createDtlsTransport() {
     const iceGatherer = new RTCIceGatherer(this.configuration.stunServer);
-    iceGatherer.subject.subscribe(this.updateIceGatheringState);
+    iceGatherer.subject.subscribe(() => {
+      this.updateIceGatheringState();
+    });
     const iceTransport = new RTCIceTransport(iceGatherer);
-    iceTransport.subject.subscribe(this.updateIceConnectionState);
+    iceTransport.subject.subscribe(() => {
+      this.updateIceConnectionState();
+    });
     this.iceTransports.add(iceTransport);
 
     this.updateIceGatheringState();
