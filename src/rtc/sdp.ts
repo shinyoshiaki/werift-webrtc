@@ -67,91 +67,90 @@ export class SessionDescription {
             }
             break;
         }
+      }
+    });
 
-        mediaGroups.forEach(mediaLines => {
-          const m = mediaLines[0].match(/^m=([^ ]+) ([0-9]+) ([A-Z/]+) (.+)$/);
-          if (!m) throw new Error();
+    mediaGroups.forEach(mediaLines => {
+      const target = mediaLines[0];
+      const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z\/]+) (.+)/);
+      if (!m) throw new Error();
 
-          const kind = m[0];
-          const fmt = m[4].split("");
+      const kind = m[0];
+      const fmt = m[4].split("");
 
-          const currentMedia = new MediaDescription(
-            kind,
-            parseInt(m[2]),
-            m[3],
-            fmt
-          );
-          currentMedia.dtls = new RTCDtlsParameters(
-            [...dtlsFingerprints],
-            undefined
-          );
-          currentMedia.iceOptions = iceOptions;
-          session.media.push(currentMedia);
+      const currentMedia = new MediaDescription(
+        kind,
+        parseInt(m[2]),
+        m[3],
+        fmt
+      );
+      currentMedia.dtls = new RTCDtlsParameters(
+        [...dtlsFingerprints],
+        undefined
+      );
+      currentMedia.iceOptions = iceOptions;
+      session.media.push(currentMedia);
 
-          mediaLines.slice(1).forEach(line => {
-            if (line.startsWith("c=")) {
-              currentMedia.host = ipAddressFromSdp(line.slice(2));
-            } else if (line.startsWith("a=")) {
-              const [attr, value] = parseAttr(line);
-              if (!value) throw new Error();
-              switch (attr) {
-                case "candidate":
-                  currentMedia.iceCandidates.push(candidateFromSdp(value));
-                  break;
-                case "end-of-candidates":
-                  currentMedia.iceCandidatesComplete = true;
-                  break;
-                case "fingerprint":
-                  {
-                    const [algorithm, fingerprint] = value.split("");
-                    currentMedia.dtls?.fingerprints.push(
-                      new RTCDtlsFingerprint(algorithm, fingerprint)
-                    );
-                  }
-                  break;
-                case "ice-ufrag":
-                  currentMedia.ice.usernameFragment = value;
-                  break;
-                case "ice-pwd":
-                  currentMedia.ice.password = value;
-                  break;
-                case "ice-options":
-                  currentMedia.iceOptions = value;
-                  break;
-                case "max-message-size":
-                  currentMedia.sctpCapabilities = new RTCSctpCapabilities(
-                    parseInt(value, 10)
-                  );
-                  break;
-                case "mid":
-                  currentMedia.rtp.muxId = value;
-                  break;
-                case "msid":
-                  currentMedia.msid = value;
-                  break;
-                case "setup":
-                  if (!currentMedia.dtls) throw new Error();
-                  currentMedia.dtls.role = DTLS_SETUP_ROLE[value] as any;
-                  break;
-                case "sctpmap":
-                  {
-                    const [formatId, formatDesc] = value.split(" ", 1);
-                    (currentMedia as any)[attr][
-                      parseInt(formatId)
-                    ] = formatDesc;
-                  }
-                  break;
-                case "sctp-port":
-                  currentMedia.sctpPort = parseInt(value);
-                  break;
+      mediaLines.slice(1).forEach(line => {
+        if (line.startsWith("c=")) {
+          currentMedia.host = ipAddressFromSdp(line.slice(2));
+        } else if (line.startsWith("a=")) {
+          const [attr, value] = parseAttr(line);
+          if (!value) throw new Error();
+          switch (attr) {
+            case "candidate":
+              currentMedia.iceCandidates.push(candidateFromSdp(value));
+              break;
+            case "end-of-candidates":
+              currentMedia.iceCandidatesComplete = true;
+              break;
+            case "fingerprint":
+              {
+                const [algorithm, fingerprint] = value.split("");
+                currentMedia.dtls?.fingerprints.push(
+                  new RTCDtlsFingerprint(algorithm, fingerprint)
+                );
               }
-            }
-          });
-
-          if (!currentMedia.dtls.role) {
-            currentMedia.dtls = undefined;
+              break;
+            case "ice-ufrag":
+              currentMedia.ice.usernameFragment = value;
+              break;
+            case "ice-pwd":
+              currentMedia.ice.password = value;
+              break;
+            case "ice-options":
+              currentMedia.iceOptions = value;
+              break;
+            case "max-message-size":
+              currentMedia.sctpCapabilities = new RTCSctpCapabilities(
+                parseInt(value, 10)
+              );
+              break;
+            case "mid":
+              currentMedia.rtp.muxId = value;
+              break;
+            case "msid":
+              currentMedia.msid = value;
+              break;
+            case "setup":
+              if (!currentMedia.dtls) throw new Error();
+              currentMedia.dtls.role = DTLS_SETUP_ROLE[value] as any;
+              break;
+            case "sctpmap":
+              {
+                const [formatId, formatDesc] = value.split(" ", 1);
+                (currentMedia as any)[attr][parseInt(formatId)] = formatDesc;
+              }
+              break;
+            case "sctp-port":
+              currentMedia.sctpPort = parseInt(value);
+              break;
           }
-        });
+        }
+      });
+
+      if (!currentMedia.dtls.role) {
+        currentMedia.dtls = undefined;
       }
     });
 
@@ -317,9 +316,11 @@ function groupLines(sdp: string): [string[], string[][]] {
 
 function parseAttr(line: string): [string, string | undefined] {
   if (line.includes(":")) {
-    const bits = line.slice(2).split(":", 1);
+    const bits = line.slice(2).split(":");
     return [bits[0], bits[1]];
-  } else return [line.slice(2), undefined];
+  } else {
+    return [line.slice(2), undefined];
+  }
 }
 
 function parseGroup(

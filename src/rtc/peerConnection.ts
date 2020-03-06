@@ -57,7 +57,11 @@ export class RTCPeerConnection {
     return this._signalingState;
   }
 
-  private localDescription() {
+  get localDescription() {
+    return wrapSessionDescription(this._localDescription());
+  }
+
+  private _localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
   }
 
@@ -86,7 +90,7 @@ export class RTCPeerConnection {
       return media.length > i ? media[i] : undefined;
     };
 
-    const localMedia = getMedia(this.localDescription());
+    const localMedia = getMedia(this._localDescription());
     const remoteMedia = getMedia(this.remoteDescription());
     [...Array(Math.max(localMedia.length, remoteMedia.length))].forEach(
       (_, i) => {
@@ -319,7 +323,7 @@ export class RTCPeerConnection {
     if (["answer", "pranswer"].includes(description.type || "")) {
       const offer = isLocal
         ? this.remoteDescription()
-        : this.localDescription();
+        : this._localDescription();
       if (!offer) throw new Error();
       const offerMedia = offer.media.map(v => [v.kind, v.rtp.muxId]);
       const answerMedia = description.media.map(v => [v.kind, v.rtp.muxId]);
