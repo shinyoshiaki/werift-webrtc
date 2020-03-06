@@ -17,5 +17,12 @@ describe("peerConnection", () => {
     expect(pc1.iceConnectionState).toBe("new");
     expect(pc1.iceGatheringState).toBe("complete");
     expect(pc1.localDescription!.sdp.includes("m=application ")).toBeTruthy();
+    expect(pc1.localDescription!.sdp.includes("a=sctp-port:5000")).toBeTruthy();
+    assertHasIceCandidate(pc1.localDescription!.sdp);
   });
 });
+
+function assertHasIceCandidate(sdp: string) {
+  expect(sdp.includes("a=candidate:")).toBeTruthy();
+  expect(sdp.includes("a=end-of-candidates")).toBeTruthy();
+}

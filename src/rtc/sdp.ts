@@ -75,7 +75,7 @@ export class SessionDescription {
       const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z\/]+) (.+)/);
       if (!m) throw new Error();
 
-      const kind = m[0];
+      const kind = m[1];
       const fmt = m[4].split("");
 
       const currentMedia = new MediaDescription(
