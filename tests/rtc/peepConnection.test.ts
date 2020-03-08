@@ -1,4 +1,5 @@
 import { RTCPeerConnection } from "../../src";
+import { RTCDataChannel } from "../../src/rtc/dataChannel";
 
 describe("peerConnection", () => {
   test(
@@ -7,7 +8,8 @@ describe("peerConnection", () => {
       const pc1 = new RTCPeerConnection({});
       const pc2 = new RTCPeerConnection({});
 
-      const dc = pc1.createDataChannel("chat", { protocol: "bob" });
+      const dc1 = pc1.createDataChannel("chat", { protocol: "bob" });
+      const dc2 = pc1.createDataChannel("chat", { protocol: "bob" });
 
       const offer = (await pc1.createOffer())!;
       expect(offer.type).toBe("offer");
@@ -45,6 +47,14 @@ describe("peerConnection", () => {
       await pc1.setRemoteDescription(pc2.localDescription!);
       const pc1Remote = pc1.remoteDescription!.sdp;
       expect(pc1Remote).toBe(pc2Local);
+      expect(pc1.iceConnectionState).toBe("checking");
+
+      await assertIceCompleted(pc1, pc2);
+
+      // await Promise.all([
+      //   await assertDataChannelOpen(dc1),
+      //   await assertDataChannelOpen(dc2)
+      // ]);
     },
     60 * 1000
   );
@@ -58,4 +68,30 @@ function assertHasIceCandidate(sdp: string) {
 function assertHasDtls(sdp: string, setup: string) {
   expect(sdp.includes("a=fingerprint:sha-256")).toBeTruthy();
   expect(sdp.includes("a=setup:" + setup)).toBeTruthy();
+}
+
+async function assertIceCompleted(
+  pc1: RTCPeerConnection,
+  pc2: RTCPeerConnection
+) {
+  const wait = (pc: RTCPeerConnection) =>
+    new Promise(r => {
+      pc.iceConnectionStateChange.subscribe(v => {
+        if (v === "completed") {
+          r();
+        }
+      });
+    });
+
+  await Promise.all([wait(pc1), wait(pc2)]);
+}
+
+async function assertDataChannelOpen(dc: RTCDataChannel) {
+  return new Promise(r => {
+    dc.subject.subscribe(v => {
+      if (v === "open") {
+        r();
+      }
+    });
+  });
 }

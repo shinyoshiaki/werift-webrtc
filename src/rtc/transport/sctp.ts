@@ -30,10 +30,11 @@ export class RTCSctpTransport {
   bundled = false;
 
   private dataChannels: { [key: string]: RTCDataChannel } = {};
-  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
-  get dataChannelKeys() {
+  get dataChannelsKeys() {
     return Object.keys(this.dataChannels);
   }
+  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
+
   private associationState = State.CLOSED;
   private started = false;
   private state = "new";
@@ -60,9 +61,20 @@ export class RTCSctpTransport {
     return this.transport.transport.role !== "controlling";
   }
 
+  dataChannelAddNegotiated(channel: RTCDataChannel) {
+    if (this.dataChannelsKeys.includes(channel.id.toString()))
+      throw new Error();
+
+    this.dataChannels[channel.id.toString()] = channel;
+
+    if (this.associationState === State.ESTABLISHED) {
+      channel.setReadyState("open");
+    }
+  }
+
   dataChannelOpen(channel: RTCDataChannel) {
     if (channel.id) {
-      if (this.dataChannelKeys.includes(channel.id.toString()))
+      if (this.dataChannelsKeys.includes(channel.id.toString()))
         throw new Error(
           `Data channel with ID ${channel.id} already registered`
         );
@@ -93,12 +105,12 @@ export class RTCSctpTransport {
       channel.label.length,
       channel.protocol.length
     ]);
-    data = Buffer.concat([
-      data,
+    const send = Buffer.concat([
+      Buffer.from(data),
       Buffer.from(channel.label, "utf8"),
       Buffer.from(channel.protocol, "utf8")
     ]);
-    this.dataChannelQueue.push([channel, WEBRTC_DCEP, data]);
+    this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
     this.dataChannelFlush();
   }
 
@@ -179,10 +191,14 @@ function serializePacket(
   ]);
   const data = chunk.bytes;
   const checksum = crc32(
-    Buffer.concat([header, Buffer.from("\x00\x00\x00\x00"), data])
+    Buffer.concat([Buffer.from(header), Buffer.from("\x00\x00\x00\x00"), data])
   );
 
-  return Buffer.concat([header, jspack.Pack("<L", [checksum]), data]);
+  return Buffer.concat([
+    Buffer.from(header),
+    Buffer.from(jspack.Pack("<L", [checksum])),
+    data
+  ]);
 }
 
 // 3.3.2.  Initiation
@@ -283,7 +299,7 @@ class ForwardTsnChunk extends Chunk {
   get body() {
     const body = jspack.Pack("!L", [this.cumulativeTsn]);
     return Buffer.concat([
-      body,
+      Buffer.from(body),
       ...this.streams.map(([id, seq]) =>
         Buffer.from(jspack.Pack("!HH", [id, seq]))
       )
@@ -310,7 +326,7 @@ function encodeParams(params: [number, Buffer][]) {
     body = Buffer.concat([
       body,
       padding,
-      jspack.Pack("!HH", [type, length]),
+      Buffer.from(jspack.Pack("!HH", [type, length])),
       value
     ]);
     padding = Buffer.concat(
