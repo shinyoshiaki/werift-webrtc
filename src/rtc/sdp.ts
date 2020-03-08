@@ -140,7 +140,8 @@ export class SessionDescription {
             case "setup":
               if (!value) throw new Error();
               if (!currentMedia.dtls) throw new Error();
-              currentMedia.dtls.role = DTLS_SETUP_ROLE[value] as any;
+              const role = DTLS_SETUP_ROLE[value];
+              currentMedia.dtls.role = role;
               break;
             case "sctpmap":
               {
@@ -309,7 +310,7 @@ function groupLines(sdp: string): [string[], string[][]] {
   const session: string[] = [];
   const media: string[][] = [];
 
-  sdp.split("\n").forEach(line => {
+  sdp.split("\r\n").forEach(line => {
     if (line.startsWith("m=")) {
       media.push([line]);
     } else if (media.length > 0) {
@@ -325,7 +326,7 @@ function groupLines(sdp: string): [string[], string[][]] {
 function parseAttr(line: string): [string, string | undefined] {
   if (line.includes(":")) {
     const bits = line.slice(2).split(":");
-    return [bits[0], bits[1]];
+    return [bits[0], bits.slice(1).join(":")];
   } else {
     return [line.slice(2), undefined];
   }
@@ -344,7 +345,9 @@ function parseGroup(
 
 function candidateFromSdp(sdp: string) {
   const bits = sdp.split(" ");
-  if (bits.length > 8) throw new Error();
+  if (bits.length < 8) {
+    throw new Error();
+  }
 
   const candidate = new RTCIceCandidate(
     parseInt(bits[1], 10),
