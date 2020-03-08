@@ -2,14 +2,15 @@ import { RTCCertificate } from "../../../../src/rtc/transport/dtls";
 
 describe("RTCCertificateTest", () => {
   test("test_generate", () => {
-    const cert = RTCCertificate.generateCertificate();
-    expect(cert).not.toBeUndefined();
+    const certificate = RTCCertificate.generateCertificate();
+    expect(certificate).not.toBeUndefined();
 
-    const expires = cert.expires;
+    const expires = certificate.expires;
     expect(expires).not.toBeUndefined();
-    // todo
-    // self.assertTrue(isinstance(expires, datetime.datetime))
 
-    const fingerprints = cert.expires;
+    const fingerprints = certificate.getFingerprints();
+    expect(fingerprints.length).toBe(1);
+    expect(fingerprints[0].algorithm).toBe("sha256");
+    expect(fingerprints[0].value).toBeTruthy();
   });
 });

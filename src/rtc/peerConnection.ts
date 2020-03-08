@@ -379,6 +379,43 @@ export class RTCPeerConnection {
       this.pendingRemoteDescription = description;
     }
   }
+
+  createAnswer() {
+    this.assertNotClosed();
+    if (
+      !["have-remote-offer", "have-local-pranswer"].includes(
+        this.signalingState
+      )
+    )
+      throw new Error();
+
+    const ntpSeconds = Date.now() >> 32;
+    const description = new SessionDescription();
+    description.origin = `${ntpSeconds} ${ntpSeconds} IN IP4 0.0.0.0`;
+    description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
+    description.type = "answer";
+
+    this._remoteDescription()?.media.forEach(remoteM => {
+      if (remoteM.kind === "application") {
+        if (!this.sctp || !this.sctp.mid) throw new Error();
+        description.media.push(
+          createMediaDescriptionForSctp(this.sctp, this.sctp.mid)
+        );
+      }
+    });
+
+    const bundle = new GroupDescription("BUNDLE", []);
+    description.media.forEach(media => {
+      bundle.items.push(media.rtp.muxId);
+    });
+    description.group.push(bundle);
+
+    return wrapSessionDescription(description);
+  }
+
+  private assertNotClosed() {
+    if (this.isClosed) throw new Error("RTCPeerConnection is closed");
+  }
 }
 
 function createMediaDescriptionForSctp(sctp: RTCSctpTransport, mid: string) {
