@@ -10,7 +10,7 @@ describe("RTCCertificateTest", () => {
 
     const fingerprints = certificate.getFingerprints();
     expect(fingerprints.length).toBe(1);
-    expect(fingerprints[0].algorithm).toBe("sha256");
+    expect(fingerprints[0].algorithm).toBe("sha-256");
     expect(fingerprints[0].value).toBeTruthy();
   });
 });

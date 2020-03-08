@@ -41,6 +41,10 @@ describe("peerConnection", () => {
       expect(pc2Local.includes("a=sctp-port:5000")).toBeTruthy();
       assertHasIceCandidate(pc2Local);
       assertHasDtls(pc2Local, "active");
+
+      await pc1.setRemoteDescription(pc2.localDescription!);
+      const pc1Remote = pc1.remoteDescription!.sdp;
+      expect(pc1Remote).toBe(pc2Local);
     },
     60 * 1000
   );
