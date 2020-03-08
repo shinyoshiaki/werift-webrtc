@@ -241,6 +241,7 @@ export class RTCPeerConnection {
     }
 
     await this.gather();
+
     description.media.map(media => {
       if (media.kind === "application") {
         if (!this.sctp) throw new Error();
@@ -248,7 +249,7 @@ export class RTCPeerConnection {
       }
     });
 
-    await this.connect();
+    this.connect();
 
     if (description.type === "answer") {
       this.currentLocalDescription = description;
@@ -259,18 +260,21 @@ export class RTCPeerConnection {
   }
 
   private async gather() {
-    await Promise.all([...this.iceTransports].map(t => t.iceGather.gather()));
+    await Promise.all(
+      [...this.iceTransports].map(async t => await t.iceGather.gather())
+    );
   }
 
   private async connect() {
     if (this.sctp) {
       const dtlsTransport = this.sctp.transport;
       const iceTransport = dtlsTransport.transport;
-      if (
-        iceTransport.iceGather.getLocalCandidates() &&
-        Object.keys(this.remoteIce).includes(this.sctp.uuid)
-      ) {
-        await iceTransport.start(this.remoteIce[this.sctp.uuid]);
+
+      const candidates = iceTransport.iceGather.getLocalCandidates();
+      const iceExist = Object.keys(this.remoteIce).includes(this.sctp.uuid);
+      if (candidates && iceExist) {
+        const params = this.remoteIce[this.sctp.uuid];
+        await iceTransport.start(params);
         if (dtlsTransport.state === State.NEW) {
           await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
         }
@@ -364,7 +368,7 @@ export class RTCPeerConnection {
       }
     });
 
-    await this.connect();
+    this.connect();
 
     if (description.type === "offer") {
       this.setSignalingState("have-remote-offer");
