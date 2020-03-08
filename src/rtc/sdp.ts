@@ -18,7 +18,6 @@ export class SessionDescription {
   type?: "offer" | "answer";
 
   static parse(sdp: string) {
-    const currentMedia = undefined;
     const dtlsFingerprints: RTCDtlsFingerprint[] = [];
     const iceOptions = undefined;
 
@@ -43,7 +42,7 @@ export class SessionDescription {
         switch (attr) {
           case "fingerprint":
             {
-              const [algorithm, fingerprint] = value?.split("") || [];
+              const [algorithm, fingerprint] = value?.split(" ") || [];
               dtlsFingerprints.push(
                 new RTCDtlsFingerprint(algorithm, fingerprint)
               );
@@ -73,10 +72,12 @@ export class SessionDescription {
     mediaGroups.forEach(mediaLines => {
       const target = mediaLines[0];
       const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z\/]+) (.+)/);
-      if (!m) throw new Error();
+      if (!m) {
+        throw new Error();
+      }
 
       const kind = m[1];
-      const fmt = m[4].split("");
+      const fmt = m[4].split(" ");
 
       const currentMedia = new MediaDescription(
         kind,
@@ -96,9 +97,10 @@ export class SessionDescription {
           currentMedia.host = ipAddressFromSdp(line.slice(2));
         } else if (line.startsWith("a=")) {
           const [attr, value] = parseAttr(line);
-          if (!value) throw new Error();
+
           switch (attr) {
             case "candidate":
+              if (!value) throw new Error();
               currentMedia.iceCandidates.push(candidateFromSdp(value));
               break;
             case "end-of-candidates":
@@ -106,7 +108,8 @@ export class SessionDescription {
               break;
             case "fingerprint":
               {
-                const [algorithm, fingerprint] = value.split("");
+                if (!value) throw new Error();
+                const [algorithm, fingerprint] = value.split(" ");
                 currentMedia.dtls?.fingerprints.push(
                   new RTCDtlsFingerprint(algorithm, fingerprint)
                 );
@@ -122,27 +125,32 @@ export class SessionDescription {
               currentMedia.iceOptions = value;
               break;
             case "max-message-size":
+              if (!value) throw new Error();
               currentMedia.sctpCapabilities = new RTCSctpCapabilities(
                 parseInt(value, 10)
               );
               break;
             case "mid":
+              if (!value) throw new Error();
               currentMedia.rtp.muxId = value;
               break;
             case "msid":
               currentMedia.msid = value;
               break;
             case "setup":
+              if (!value) throw new Error();
               if (!currentMedia.dtls) throw new Error();
               currentMedia.dtls.role = DTLS_SETUP_ROLE[value] as any;
               break;
             case "sctpmap":
               {
+                if (!value) throw new Error();
                 const [formatId, formatDesc] = value.split(" ", 1);
                 (currentMedia as any)[attr][parseInt(formatId)] = formatDesc;
               }
               break;
             case "sctp-port":
+              if (!value) throw new Error();
               currentMedia.sctpPort = parseInt(value);
               break;
           }
@@ -328,15 +336,15 @@ function parseGroup(
   value: string,
   type: (v: string) => string = v => v.toString()
 ) {
-  const bits = value.split("");
+  const bits = value.split(" ");
   if (bits.length > 0) {
     dest.push(new GroupDescription(bits[0], bits.slice(1).map(type)));
   }
 }
 
 function candidateFromSdp(sdp: string) {
-  const bits = sdp.split("");
-  if (bits.length >= 8) throw new Error();
+  const bits = sdp.split(" ");
+  if (bits.length > 8) throw new Error();
 
   const candidate = new RTCIceCandidate(
     parseInt(bits[1], 10),

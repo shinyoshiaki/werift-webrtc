@@ -1,8 +1,9 @@
 import { RTCIceTransport } from "./ice";
-import { ec } from "elliptic";
+//@ts-ignore
+import * as dtls from "@nodertc/dtls";
 import { addDays } from "date-fns";
 import { pki } from "node-forge";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { Subject } from "rxjs";
 import { RTCSctpTransport } from "./sctp";
 
@@ -44,6 +45,8 @@ export class RTCDtlsTransport {
     }
 
     this.setState(State.CONNECTING);
+
+    const options = {};
   }
 
   async sendData(data: Buffer) {
@@ -73,13 +76,28 @@ export class RTCCertificate {
   }
 
   getFingerprints(): RTCDtlsFingerprint[] {
-    return [];
-    // [new RTCDtlsFingerprint("sha-256",this.cert.)]
+    return [
+      new RTCDtlsFingerprint(
+        "sha-256",
+        certificateDigest(pki.publicKeyToPem(this.cert.publicKey))
+      )
+    ];
   }
 
   static generateCertificate() {
     return new RTCCertificate(...generateCertificate());
   }
+}
+
+function certificateDigest(x509: string) {
+  const hash = createHash("sha256")
+    .update(Buffer.from(x509))
+    .digest("hex");
+
+  const upper = (s: string) => s.toUpperCase();
+  const colon = (s: string) => s.match(/(.{2})/g)!.join(":");
+
+  return colon(upper(hash));
 }
 
 function generateCertificate(): [pki.rsa.KeyPair, pki.Certificate] {
@@ -100,7 +118,7 @@ function generateCertificate(): [pki.rsa.KeyPair, pki.Certificate] {
 }
 
 export class RTCDtlsFingerprint {
-  constructor(public algorithm: string, public value: string) {}
+  constructor(public algorithm: string, public value: unknown) {}
 }
 
 export class RTCDtlsParameters {

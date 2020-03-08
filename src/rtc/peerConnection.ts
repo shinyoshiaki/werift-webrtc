@@ -1,5 +1,5 @@
 import { RTCDataChannelParameters, RTCDataChannel } from "./dataChannel";
-import { RTCSctpTransport } from "./transport/sctp";
+import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp";
 import {
   RTCIceGatherer,
   RTCIceTransport,
@@ -27,6 +27,7 @@ export class RTCPeerConnection {
   private certificates = [RTCCertificate.generateCertificate()];
   private sctp?: RTCSctpTransport;
   private sctpRemotePort?: number;
+  private sctpRemoteCaps?: RTCSctpCapabilities;
   private remoteDtls: { [key: string]: RTCDtlsParameters } = {};
   private remoteIce: { [key: string]: RTCIceParameters } = {};
   private seenMid = new Set<string>();
@@ -61,11 +62,15 @@ export class RTCPeerConnection {
     return wrapSessionDescription(this._localDescription());
   }
 
+  get remoteDescription() {
+    return wrapSessionDescription(this._remoteDescription());
+  }
+
   private _localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
   }
 
-  private remoteDescription() {
+  private _remoteDescription() {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
@@ -91,7 +96,7 @@ export class RTCPeerConnection {
     };
 
     const localMedia = getMedia(this._localDescription());
-    const remoteMedia = getMedia(this.remoteDescription());
+    const remoteMedia = getMedia(this._remoteDescription());
     [...Array(Math.max(localMedia.length, remoteMedia.length))].forEach(
       (_, i) => {
         const localM = getMediaSection(localMedia, i);
@@ -322,13 +327,56 @@ export class RTCPeerConnection {
 
     if (["answer", "pranswer"].includes(description.type || "")) {
       const offer = isLocal
-        ? this.remoteDescription()
+        ? this._remoteDescription()
         : this._localDescription();
       if (!offer) throw new Error();
       const offerMedia = offer.media.map(v => [v.kind, v.rtp.muxId]);
       const answerMedia = description.media.map(v => [v.kind, v.rtp.muxId]);
       if (!isEqual(offerMedia, answerMedia))
         throw new Error("Media sections in answer do not match offer");
+    }
+  }
+
+  async setRemoteDescription(sessionDescription: RTCSessionDescription) {
+    const description = SessionDescription.parse(sessionDescription.sdp);
+    description.type = sessionDescription.type;
+    this.validateDescription(description, false);
+
+    description.media.forEach((media, i) => {
+      if (media.kind === "application") {
+        if (!this.sctp) {
+          this.sctp = this.createSctpTransport();
+        }
+        if (!this.sctp) throw new Error();
+        if (!this.sctp.mid) {
+          this.sctp.mid = media.rtp.muxId;
+          this.sctpMLineIndex = i;
+        }
+
+        this.sctpRemotePort = media.sctpPort;
+        this.sctpRemoteCaps = media.sctpCapabilities;
+
+        const iceTransport = this.sctp.transport.transport;
+        addRemoteCandidates(iceTransport, media);
+        if (!media.dtls) throw new Error();
+        this.remoteDtls[this.sctp.uuid] = media.dtls;
+        this.remoteIce[this.sctp.uuid] = media.ice;
+      }
+    });
+
+    await this.connect();
+
+    if (description.type === "offer") {
+      this.setSignalingState("have-remote-offer");
+    } else if (description.type === "answer") {
+      this.setSignalingState("stable");
+    }
+
+    if (description.type === "answer") {
+      this.currentRemoteDescription = description;
+      this.pendingRemoteDescription = undefined;
+    } else {
+      this.pendingRemoteDescription = description;
     }
   }
 }
@@ -376,7 +424,12 @@ function addTransportDescription(
   }
 
   // dtls
-  media.dtls;
+  media.dtls = dtlsTransport.getLocalParameters();
+  if (iceTransport.role === "controlling") {
+    media.dtls.role = "auto";
+  } else {
+    media.dtls.role = "client";
+  }
 }
 
 function allocateMid(mids: Set<string>) {
@@ -397,5 +450,17 @@ function wrapSessionDescription(sessionDescription?: SessionDescription) {
       sessionDescription.toString(),
       sessionDescription.type!
     );
+  }
+}
+
+function addRemoteCandidates(
+  iceTransport: RTCIceTransport,
+  media: MediaDescription
+) {
+  media.iceCandidates.forEach(candidate =>
+    iceTransport.addRemoteCandidate(candidate)
+  );
+  if (media.iceCandidatesComplete) {
+    iceTransport.addRemoteCandidate(undefined);
   }
 }

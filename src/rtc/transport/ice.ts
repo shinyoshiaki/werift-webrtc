@@ -139,9 +139,13 @@ export class RTCIceTransport {
     }
   }
 
-  addRemoteCandidate = (candidate: RTCIceCandidate) => {
+  addRemoteCandidate = (candidate?: RTCIceCandidate) => {
     if (!this.connection.remoteCandidatesEnd) {
-      this.connection.addRemoteCandidate(candidateToIce(candidate));
+      if (!candidate) {
+        this.connection.addRemoteCandidate(undefined);
+      } else {
+        this.connection.addRemoteCandidate(candidateToIce(candidate));
+      }
     }
   };
 

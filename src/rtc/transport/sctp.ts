@@ -138,6 +138,8 @@ export class RTCSctpTransport {
     chunk.initialTsn = this.localTsn;
     this.setExtensions(chunk.params);
     await this.sendChunk(chunk);
+
+    // TODO
   }
 
   private setExtensions(params: [number, Buffer][]) {
