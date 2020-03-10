@@ -133,18 +133,37 @@ export class RTCPeerConnection {
 
   createDataChannel(
     label: string,
-    options: Partial<{ protocol: string }> = {}
+    options: Partial<{
+      maxPacketLifeTime?: number;
+      protocol: string;
+      maxRetransmits?: number;
+      ordered: boolean;
+      negotiated: boolean;
+      id?: number;
+    }> = {}
   ) {
-    const base: Required<typeof options> = { protocol: "" };
-    const settings: typeof base = { ...base, ...options };
+    const base: typeof options = {
+      protocol: "",
+      ordered: true,
+      negotiated: false
+    };
+    const settings: Required<typeof base> = { ...base, ...options } as any;
+
+    if (settings.maxPacketLifeTime && settings.maxRetransmits)
+      throw new Error();
 
     if (!this.sctp) {
       this.sctp = this.createSctpTransport();
     }
 
     const parameters = new RTCDataChannelParameters();
-    parameters.protocol = settings.protocol;
+    parameters.id = settings.id;
     parameters.label = label;
+    parameters.maxPacketLifeTime = settings.maxPacketLifeTime;
+    parameters.maxRetransmits = settings.maxRetransmits;
+    parameters.negotiated = settings.negotiated;
+    parameters.ordered = settings.ordered;
+    parameters.protocol = settings.protocol;
 
     return new RTCDataChannel(this.sctp, parameters);
   }

@@ -19,7 +19,7 @@ export class RTCDataChannel {
   constructor(
     private transport: RTCSctpTransport,
     private parameters: RTCDataChannelParameters,
-    private sendOpen = true
+    public sendOpen = true
   ) {
     if (parameters.negotiated && (!this.id || this.id < 0 || this.id > 65534))
       throw new Error(
