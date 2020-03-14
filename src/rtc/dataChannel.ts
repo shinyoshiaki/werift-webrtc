@@ -56,6 +56,10 @@ export class RTCDataChannel {
     return this.parameters.protocol;
   }
 
+  get negotiated() {
+    return this.parameters.negotiated;
+  }
+
   setReadyState(state: string) {
     if (state !== this.readyState) {
       this.readyState = state;

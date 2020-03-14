@@ -61,6 +61,8 @@ export class RTCSctpTransport {
     return this.transport.transport.role !== "controlling";
   }
 
+  handleData(data: unknown) {}
+
   dataChannelAddNegotiated(channel: RTCDataChannel) {
     if (this.dataChannelsKeys.includes(channel.id.toString()))
       throw new Error();
@@ -175,6 +177,22 @@ export class RTCSctpTransport {
         chunk
       )
     );
+  }
+
+  private setState(state: State) {
+    if (state != this.associationState) {
+      this.associationState = state;
+    }
+    if (state === State.ESTABLISHED) {
+      this.state = "connected";
+      Object.values(this.dataChannels).forEach(channel => {
+        if (channel.negotiated && channel.readyState !== "open") {
+          channel.setReadyState("open");
+        }
+      });
+      this.dataChannelFlush();
+    } else if (state === State.CLOSED) {
+    }
   }
 }
 
@@ -307,6 +325,10 @@ class ForwardTsnChunk extends Chunk {
   }
 }
 
+export class RTCSctpCapabilities {
+  constructor(public maxMessageSize: number) {}
+}
+
 function decodeParams(body: Buffer): [number, Buffer][] {
   let params: [number, Buffer][] = [];
   let pos = 0;
@@ -341,6 +363,39 @@ function padL(l: number) {
   return m ? 4 - m : 0;
 }
 
-export class RTCSctpCapabilities {
-  constructor(public maxMessageSize: number) {}
+// const CHUNK_CLASSES = [DataChunk];
+
+function parsePacket(data: Buffer) {
+  const length = data.length;
+
+  if (length < 12) throw new Error("SCTP packet length is less than 12 bytes");
+
+  const [sourcePort, destinationPort, verificationTag] = jspack.Unpack(
+    "!HHL",
+    data
+  );
+
+  const [checkSum] = jspack.Unpack("<L", data.slice(8));
+  if (
+    !Buffer.from([checkSum]).equals(
+      crc32(
+        Buffer.concat([
+          data.slice(0, 8),
+          Buffer.from("\x00\x00\x00\x00"),
+          data.slice(12)
+        ])
+      )
+    )
+  )
+    throw new Error("SCTP packet has invalid checksum");
+
+  const chunks = [];
+  let pos = 12;
+  while (pos <= length - 4) {
+    const [chunkType, chunkFlags, chunkLength] = jspack.Unpack(
+      "!BBH",
+      data.slice(pos)
+    );
+    const chunkBody = data.slice(pos + 4, pos + chunkLength);
+  }
 }
