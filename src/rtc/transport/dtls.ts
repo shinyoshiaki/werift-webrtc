@@ -5,7 +5,7 @@ import { addDays } from "date-fns";
 import { pki } from "node-forge";
 import { randomBytes, createHash } from "crypto";
 import { Subject } from "rxjs";
-import { RTCSctpTransport } from "./sctp";
+import { RTCSctpTransport } from "./sctp/sctp";
 
 export enum State {
   NEW = 0,

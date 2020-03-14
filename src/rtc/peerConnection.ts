@@ -1,5 +1,5 @@
 import { RTCDataChannelParameters, RTCDataChannel } from "./dataChannel";
-import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp";
+import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp/sctp";
 import {
   RTCIceGatherer,
   RTCIceTransport,

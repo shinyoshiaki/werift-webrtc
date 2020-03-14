@@ -1,7 +1,7 @@
 import { RTCRtpParameters } from "./parameters";
 import { RTCIceParameters, RTCIceCandidate } from "./transport/ice";
 import { RTCDtlsParameters, RTCDtlsFingerprint } from "./transport/dtls";
-import { RTCSctpCapabilities } from "./transport/sctp";
+import { RTCSctpCapabilities } from "./transport/sctp/sctp";
 import { DTLS_ROLE_SETUP, DTLS_SETUP_ROLE } from "./const";
 import { isIPv4 } from "net";
 import { range } from "lodash";

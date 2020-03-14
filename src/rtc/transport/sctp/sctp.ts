@@ -1,13 +1,13 @@
-import { RTCDataChannel } from "../dataChannel";
+import { RTCDataChannel } from "../../dataChannel";
 import {
   DATA_CHANNEL_RELIABLE,
   DATA_CHANNEL_OPEN,
   WEBRTC_DCEP,
   State
-} from "../const";
+} from "../../const";
 import { jspack } from "jspack";
-import { RTCDtlsTransport } from "./dtls";
-import { generateUUID, random32 } from "../../utils";
+import { RTCDtlsTransport } from "../dtls";
+import { generateUUID, random32 } from "../../../utils";
 import crc32 = require("buffer-crc32");
 
 // # local constants

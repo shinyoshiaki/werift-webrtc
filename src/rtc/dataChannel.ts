@@ -1,4 +1,4 @@
-import { RTCSctpTransport } from "./transport/sctp";
+import { RTCSctpTransport } from "./transport/sctp/sctp";
 import { Subject } from "rxjs";
 
 export class RTCDataChannelParameters {
