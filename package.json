@@ -33,7 +33,8 @@
     "lodash": "^4.17.15",
     "node-forge": "^0.9.1",
     "p-cancelable": "^2.0.0",
-    "rxjs": "^6.5.4"
+    "rxjs": "^6.5.4",
+    "turbo-crc32": "^1.0.1"
   },
   "devDependencies": {
     "@types/buffer-crc32": "^0.2.0",
