@@ -9,7 +9,8 @@ import {
   ForwardTsnChunk,
   HeartbeatChunk,
   ReConfigChunk,
-  SackChunk
+  SackChunk,
+  ShutdownChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
 import {
   StreamResetOutgoingParam,
@@ -226,5 +227,15 @@ describe("SctpPacketTest", () => {
       [4, 4]
     ]);
     expect(chunk.duplicates).toEqual([2222939041]);
+  });
+
+  test("test_parse_shutdown", () => {
+    const data = load("sctp_shutdown.bin");
+    const chunk = roundtripPacket(data) as ShutdownChunk;
+
+    expect(chunk.type).toBe(ShutdownChunk.type);
+    expect(chunk.type).toBe(7);
+    expect(chunk.flags).toBe(0);
+    expect(chunk.cumulativeTsn).toBe(2696426712);
   });
 });

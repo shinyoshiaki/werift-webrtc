@@ -1,5 +1,6 @@
 import { jspack } from "jspack";
 import { range } from "lodash";
+import { from } from "rxjs";
 const crc32c = require("turbo-crc32/crc32c");
 
 export class Chunk {
@@ -296,6 +297,28 @@ export class SackChunk extends Chunk {
   }
 }
 
+export class ShutdownChunk extends Chunk {
+  static type = 7;
+  get type() {
+    return ShutdownChunk.type;
+  }
+
+  cumulativeTsn = 0;
+
+  constructor(public flags = 0, body: Buffer | undefined) {
+    super(flags, body);
+
+    if (body) {
+      this.cumulativeTsn = jspack.Unpack("!L", body)[0];
+    }
+  }
+
+  set body(_: Buffer) {}
+  get body() {
+    return Buffer.from(jspack.Pack("!L", [this.cumulativeTsn]));
+  }
+}
+
 const CHUNK_CLASSES: typeof Chunk[] = [
   DataChunk,
   InitChunk,
@@ -305,7 +328,8 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   ForwardTsnChunk,
   HeartbeatChunk,
   ReconfigChunk,
-  SackChunk
+  SackChunk,
+  ShutdownChunk
 ];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
