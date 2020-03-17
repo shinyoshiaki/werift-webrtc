@@ -175,7 +175,15 @@ export class DataChunk extends Chunk {
   }
 }
 
-const CHUNK_CLASSES: typeof Chunk[] = [DataChunk, InitChunk];
+export class CookieEchoChunk extends Chunk {
+  static type = 10;
+
+  get type() {
+    return CookieEchoChunk.type;
+  }
+}
+
+const CHUNK_CLASSES: typeof Chunk[] = [DataChunk, InitChunk, CookieEchoChunk];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
   acc[cur.type] = cur;

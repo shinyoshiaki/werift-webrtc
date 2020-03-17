@@ -1,7 +1,8 @@
 import {
   parsePacket,
   serializePacket,
-  InitChunk
+  InitChunk,
+  CookieEchoChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
 import { load } from "../../../utils";
 
@@ -45,5 +46,24 @@ describe("SctpPacketTest", () => {
     } catch (error) {
       expect(error.message).toBe("SCTP packet has invalid checksum");
     }
+  });
+
+  test("test_parse_init_truncated_packet_header", () => {
+    let data = load("sctp_init.bin").slice(0, 10);
+    try {
+      roundtripPacket(data);
+    } catch (error) {
+      expect(error.message).toBe("SCTP packet length is less than 12 bytes");
+    }
+  });
+
+  test("test_parse_cookie_echo", () => {
+    let data = load("sctp_cookie_echo.bin");
+    const chunk = roundtripPacket(data);
+
+    expect(chunk.type).toBe(CookieEchoChunk.type);
+    expect(chunk.type).toBe(10);
+    expect(chunk.flags).toBe(0);
+    expect(chunk.body!.length).toBe(8);
   });
 });
