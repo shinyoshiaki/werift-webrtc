@@ -57,3 +57,22 @@ export class StreamAddOutgoingParam {
     return new StreamAddOutgoingParam(requestSequence, newStreams);
   }
 }
+
+export class StreamResetResponseParam {
+  constructor(public requestSequence: number, public result: number) {}
+
+  get bytes() {
+    return Buffer.from(jspack.Pack("!LL", [this.requestSequence, this.result]));
+  }
+
+  static parse(data: Buffer) {
+    const [requestSequence, result] = jspack.Unpack("!LL", data);
+    return new StreamResetResponseParam(requestSequence, result);
+  }
+}
+
+export const RECONFIG_PARAM_TYPES = {
+  13: StreamResetOutgoingParam,
+  16: StreamResetResponseParam,
+  17: StreamAddOutgoingParam
+};
