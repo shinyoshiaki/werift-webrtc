@@ -183,7 +183,36 @@ export class CookieEchoChunk extends Chunk {
   }
 }
 
-const CHUNK_CLASSES: typeof Chunk[] = [DataChunk, InitChunk, CookieEchoChunk];
+export class BaseParamsChunk extends Chunk {
+  params: [number, Buffer][] = [];
+  constructor(public flags = 0, body: Buffer | undefined) {
+    super(flags, body);
+    if (body) {
+      this.params = decodeParams(body);
+    }
+  }
+
+  set body(_: Buffer) {}
+
+  get body() {
+    return encodeParams(this.params);
+  }
+}
+
+export class AbortChunk extends BaseParamsChunk {
+  static type = 6;
+
+  get type() {
+    return AbortChunk.type;
+  }
+}
+
+const CHUNK_CLASSES: typeof Chunk[] = [
+  DataChunk,
+  InitChunk,
+  CookieEchoChunk,
+  AbortChunk
+];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
   acc[cur.type] = cur;
