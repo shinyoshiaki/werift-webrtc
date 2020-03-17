@@ -8,7 +8,8 @@ import {
   ErrorChunk,
   ForwardTsnChunk,
   HeartbeatChunk,
-  ReConfigChunk
+  ReConfigChunk,
+  SackChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
 import {
   StreamResetOutgoingParam,
@@ -210,5 +211,20 @@ describe("SctpPacketTest", () => {
     expect(param.requestSequence).toBe(2438143828);
     expect(param.result).toBe(1);
     expect(param.bytes).toEqual(paramData);
+  });
+
+  test("test_parse_sack", () => {
+    const data = load("sctp_sack.bin");
+    const chunk = roundtripPacket(data) as SackChunk;
+
+    expect(chunk.type).toBe(SackChunk.type);
+    expect(chunk.type).toBe(3);
+    expect(chunk.flags).toBe(0);
+    expect(chunk.cumulativeTsn).toBe(2222939037);
+    expect(chunk.gaps).toEqual([
+      [2, 2],
+      [4, 4]
+    ]);
+    expect(chunk.duplicates).toEqual([2222939041]);
   });
 });

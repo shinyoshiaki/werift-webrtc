@@ -1,4 +1,5 @@
 import { jspack } from "jspack";
+import { range } from "lodash";
 const crc32c = require("turbo-crc32/crc32c");
 
 export class Chunk {
@@ -226,9 +227,72 @@ export class HeartbeatChunk extends BaseParamsChunk {
 
 export class ReconfigChunk extends BaseParamsChunk {
   static type = 130;
-
   get type() {
     return ReconfigChunk.type;
+  }
+}
+
+export class SackChunk extends Chunk {
+  static type = 3;
+  get type() {
+    return SackChunk.type;
+  }
+
+  gaps: [number, number][] = [];
+  duplicates: number[] = [];
+  cumulativeTsn = 0;
+  advertisedRwnd = 0;
+
+  constructor(public flags = 0, body: Buffer | undefined) {
+    super(flags, body);
+
+    if (body) {
+      const [
+        cumulativeTsn,
+        advertisedRwnd,
+        nbGaps,
+        nbDuplicates
+      ] = jspack.Unpack("!LLHH", body);
+      this.cumulativeTsn = cumulativeTsn;
+      this.advertisedRwnd = advertisedRwnd;
+
+      let pos = 12;
+
+      for (let _ of [...Array(nbGaps)]) {
+        this.gaps.push(
+          jspack.Unpack("!HH", body.slice(pos)) as [number, number]
+        );
+        pos += 4;
+      }
+      for (let _ of [...Array(nbDuplicates)]) {
+        this.duplicates.push(jspack.Unpack("!L", body.slice(pos))[0]);
+        pos += 4;
+      }
+    }
+  }
+
+  get bytes() {
+    const length = 16 + 4 * (this.gaps.length + this.duplicates.length);
+    let data = Buffer.from(
+      jspack.Pack("!BBHLLHH", [
+        this.type,
+        this.flags,
+        length,
+        this.cumulativeTsn,
+        this.advertisedRwnd,
+        this.gaps.length,
+        this.duplicates.length
+      ])
+    );
+    data = Buffer.concat([
+      data,
+      ...this.gaps.map(gap => Buffer.from(jspack.Pack("!HH", gap)))
+    ]);
+    data = Buffer.concat([
+      data,
+      ...this.duplicates.map(tsn => Buffer.from(jspack.Pack("!L", [tsn])))
+    ]);
+    return data;
   }
 }
 
@@ -240,7 +304,8 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   ErrorChunk,
   ForwardTsnChunk,
   HeartbeatChunk,
-  ReconfigChunk
+  ReconfigChunk,
+  SackChunk
 ];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
