@@ -7,14 +7,43 @@ import {
 } from "../../const";
 import { jspack } from "jspack";
 import { RTCDtlsTransport } from "../dtls";
-import { generateUUID, random32 } from "../../../utils";
-import crc32 = require("buffer-crc32");
+import {
+  generateUUID,
+  random32,
+  uint32Gte,
+  uint32Gt,
+  enumerate
+} from "../../../utils";
+
+import {
+  Chunk,
+  ForwardTsnChunk,
+  ReConfigChunk,
+  InitChunk,
+  parsePacket,
+  DataChunk,
+  serializePacket
+} from "./chunk";
 
 // # local constants
 const COOKIE_LENGTH = 24;
 const COOKIE_LIFETIME = 60;
 const MAX_STREAMS = 65535;
 const USERDATA_MAX_LENGTH = 1200;
+
+// # protocol constants
+const SCTP_DATA_LAST_FRAG = 0x01;
+const SCTP_DATA_FIRST_FRAG = 0x02;
+const SCTP_DATA_UNORDERED = 0x04;
+const SCTP_MAX_ASSOCIATION_RETRANS = 10;
+const SCTP_MAX_BURST = 4;
+const SCTP_MAX_INIT_RETRANS = 8;
+const SCTP_RTO_ALPHA = 1 / 8;
+const SCTP_RTO_BETA = 1 / 4;
+const SCTP_RTO_INITIAL = 3.0;
+const SCTP_RTO_MIN = 1;
+const SCTP_RTO_MAX = 60;
+const SCTP_TSN_MODULO = 2 ** 32;
 
 // # parameters
 const SCTP_STATE_COOKIE = 0x0007;
@@ -49,11 +78,18 @@ export class RTCSctpTransport {
   private remotePort?: number;
   private remoteVerificationTag = 0;
 
+  // inbound
   private advertisedRwnd = 1024 * 1024;
+  private inboundStreams: { [key: number]: InboundStream } = {};
+  private inboundStreamsCount = 0;
   private inboundStreamsMax = MAX_STREAMS;
+  private sackNeeded = false;
 
   private outboundStreamsCount = MAX_STREAMS;
   private localTsn = random32();
+  private lastReceivedTsn?: number;
+  private sackMisOrdered = new Set<number>();
+  private sackDuplicates: number[] = [];
 
   constructor(public transport: RTCDtlsTransport, public port = 5000) {}
 
@@ -61,7 +97,77 @@ export class RTCSctpTransport {
     return this.transport.transport.role !== "controlling";
   }
 
-  handleData(data: unknown) {}
+  async handleData(data: Buffer) {
+    try {
+      let expectedTag;
+
+      const [, , verificationTag, chunks] = parsePacket(data);
+      const initChunk = chunks.filter(v => v.type === InitChunk.type).length;
+      if (initChunk > 0) {
+        if (chunks.length != 1) throw new Error();
+        expectedTag = 0;
+      } else {
+        expectedTag = this.localVerificationTag;
+      }
+
+      if (verificationTag !== expectedTag) {
+        return;
+      }
+
+      for (let chunk of chunks) {
+        await this.receiveChunk(chunk);
+      }
+    } catch (error) {}
+  }
+
+  async receiveChunk(chunk: Chunk) {
+    switch (chunk.type) {
+      case DataChunk.type:
+        this.receiveDataChunk(chunk as DataChunk);
+        break;
+    }
+  }
+
+  private async receiveDataChunk(chunk: DataChunk) {
+    this.sackNeeded = true;
+
+    if (this.markReceived(chunk.tsn)) return;
+
+    const inboundStream = this.getInboundStream(chunk.streamId);
+
+    inboundStream.addChunk(chunk);
+    this.advertisedRwnd -= chunk.userData.length;
+    // for(let message of inboundStream)
+  }
+
+  private getInboundStream(streamId: number) {
+    if (!this.inboundStreams[streamId]) {
+      this.inboundStreams[streamId] = new InboundStream();
+    }
+    return this.inboundStreams[streamId];
+  }
+
+  private markReceived(tsn: number) {
+    if (uint32Gte(this.lastReceivedTsn!, tsn) || this.sackMisOrdered.has(tsn)) {
+      this.sackDuplicates.push(tsn);
+      return true;
+    }
+
+    this.sackMisOrdered.add(tsn);
+    for (let tsn of [...this.sackMisOrdered].sort()) {
+      if (tsn === tsnPlusOne(this.lastReceivedTsn!)) {
+      } else {
+        break;
+      }
+    }
+
+    const isObsolete = (x: number) => uint32Gt(x, this.lastReceivedTsn!);
+
+    this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
+    this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
+
+    return false;
+  }
 
   dataChannelAddNegotiated(channel: RTCDataChannel) {
     if (this.dataChannelsKeys.includes(channel.id.toString()))
@@ -196,132 +302,78 @@ export class RTCSctpTransport {
   }
 }
 
-function serializePacket(
-  sourcePort: number,
-  destinationPort: number,
-  verificationTag: number,
-  chunk: Chunk
-) {
-  const header = jspack.Pack("!HHL", [
-    sourcePort,
-    destinationPort,
-    verificationTag
-  ]);
-  const data = chunk.bytes;
-  const checksum = crc32(
-    Buffer.concat([Buffer.from(header), Buffer.from("\x00\x00\x00\x00"), data])
-  );
+class InboundStream {
+  reassembly: DataChunk[] = [];
+  sequenceNumber = 0;
 
-  return Buffer.concat([
-    Buffer.from(header),
-    Buffer.from(jspack.Pack("<L", [checksum])),
-    data
-  ]);
-}
-
-// 3.3.2.  Initiation
-class Chunk {
-  type = -1;
-
-  constructor(
-    public flags = 0,
-    public body: Buffer | undefined = Buffer.from("")
-  ) {}
-
-  get bytes() {
-    if (!this.body) throw new Error();
-    const data = Buffer.concat([
-      Buffer.from(
-        jspack.Pack("!BBH", [this.type, this.flags, this.body.length + 4])
-      ),
-      this.body,
-      ...[...Array(padL(this.body.length))].map(() => Buffer.from("\x00"))
-    ]);
-    return data;
-  }
-}
-class BaseInitChunk extends Chunk {
-  initiateTag: number;
-  advertisedRwnd: number;
-  outboundStreams: number;
-  inboundStreams: number;
-  initialTsn: number;
-  params: [number, Buffer][];
-  constructor(public flags = 0, body?: Buffer) {
-    super(flags, body);
-
-    if (body) {
-      [
-        this.initiateTag,
-        this.advertisedRwnd,
-        this.outboundStreams,
-        this.inboundStreams,
-        this.initialTsn
-      ] = jspack.Unpack("!LLHHL", body);
-      this.params = decodeParams(body.slice(16));
-    } else {
-      this.initiateTag = 0;
-      this.advertisedRwnd = 0;
-      this.outboundStreams = 0;
-      this.inboundStreams = 0;
-      this.initialTsn = 0;
-      this.params = [];
+  addChunk(chunk: DataChunk) {
+    if (
+      !(this.reassembly.length > 0) ||
+      uint32Gt(chunk.tsn, this.reassembly[this.reassembly.length - 1].tsn)
+    ) {
+      this.reassembly.push(chunk);
+      return;
     }
-  }
 
-  get body() {
-    let body = Buffer.from(
-      jspack.Pack("!LLHHL", [
-        this.initiateTag,
-        this.advertisedRwnd,
-        this.outboundStreams,
-        this.inboundStreams,
-        this.initialTsn
-      ])
-    );
-    Buffer.concat([body, encodeParams(this.params)]);
-    return body;
-  }
-}
+    for (let { i, v } of enumerate(this.reassembly)) {
+      if (v.tsn === chunk.tsn) throw new Error("duplicate chunk in reassembly");
 
-class InitChunk extends BaseInitChunk {
-  static type = 1;
-}
-
-class ReConfigChunk extends BaseInitChunk {
-  static type = 130;
-}
-
-class ForwardTsnChunk extends Chunk {
-  static type = 192;
-  streams: [number, number][] = [];
-  cumulativeTsn: number;
-
-  constructor(public flags = 0, body: Buffer | undefined) {
-    super(flags, body);
-
-    if (body) {
-      this.cumulativeTsn = jspack.Unpack("!L", body)[0];
-      let pos = 4;
-      while (pos < body.length) {
-        this.streams.push(
-          jspack.Unpack("!HH", body.slice(pos)) as [number, number]
-        );
-        pos += 4;
+      if (uint32Gt(v.tsn, chunk.tsn)) {
+        this.reassembly.splice(i, 0, chunk);
+        break;
       }
-    } else {
-      this.cumulativeTsn = 0;
     }
   }
 
-  get body() {
-    const body = jspack.Pack("!L", [this.cumulativeTsn]);
-    return Buffer.concat([
-      Buffer.from(body),
-      ...this.streams.map(([id, seq]) =>
-        Buffer.from(jspack.Pack("!HH", [id, seq]))
-      )
-    ]);
+  popMessages() {
+    let pos = 0;
+    let startPos;
+    let expectedTsn: number;
+    let ordered: boolean;
+    while (pos < this.reassembly.length) {
+      const chunk = this.reassembly[pos];
+      if (!startPos) {
+        ordered = !(chunk.flags && SCTP_DATA_UNORDERED);
+        if (!(chunk.flags & SCTP_DATA_FIRST_FRAG)) {
+          if (ordered) {
+            break;
+          } else {
+            pos++;
+            continue;
+          }
+        }
+
+        if (ordered && uint32Gt(chunk.streamSeq, this.sequenceNumber)) {
+          break;
+        }
+        expectedTsn = chunk.tsn;
+        startPos = pos;
+      } else if (chunk.tsn !== expectedTsn!) {
+        if (ordered!) {
+          break;
+        } else {
+          startPos = undefined;
+          pos++;
+          continue;
+        }
+      }
+
+      if (chunk.flags && SCTP_DATA_LAST_FRAG) {
+        const userData = Buffer.from(
+          this.reassembly
+            .slice(startPos, pos + 1)
+            .map(c => c.userData)
+            .join("")
+        );
+        this.reassembly = [
+          ...this.reassembly.slice(0, startPos),
+          ...this.reassembly.slice(pos + 1)
+        ];
+        if (ordered! && chunk.streamSeq === this.sequenceNumber) {
+          // this.sequenceNumber=
+        }
+      }
+    }
   }
 }
 
@@ -329,73 +381,10 @@ export class RTCSctpCapabilities {
   constructor(public maxMessageSize: number) {}
 }
 
-function decodeParams(body: Buffer): [number, Buffer][] {
-  let params: [number, Buffer][] = [];
-  let pos = 0;
-  while (pos <= body.length - 4) {
-    const [type, length] = jspack.Unpack("!HH", body.slice(pos));
-    params.push([type, body.slice(pos + 4, pos + length)]);
-    pos += length + padL(length);
-  }
-  return params;
+function tsnMinusOne(a: number) {
+  return (a - 1) % SCTP_TSN_MODULO;
 }
 
-function encodeParams(params: [number, Buffer][]) {
-  let body = Buffer.from("");
-  let padding = Buffer.from("");
-  params.forEach(([type, value]) => {
-    const length = value.length + 4;
-    body = Buffer.concat([
-      body,
-      padding,
-      Buffer.from(jspack.Pack("!HH", [type, length])),
-      value
-    ]);
-    padding = Buffer.concat(
-      [...Array(padL(length))].map(() => Buffer.from("\x00"))
-    );
-  });
-  return body;
-}
-
-function padL(l: number) {
-  const m = l % 4;
-  return m ? 4 - m : 0;
-}
-
-// const CHUNK_CLASSES = [DataChunk];
-
-function parsePacket(data: Buffer) {
-  const length = data.length;
-
-  if (length < 12) throw new Error("SCTP packet length is less than 12 bytes");
-
-  const [sourcePort, destinationPort, verificationTag] = jspack.Unpack(
-    "!HHL",
-    data
-  );
-
-  const [checkSum] = jspack.Unpack("<L", data.slice(8));
-  if (
-    !Buffer.from([checkSum]).equals(
-      crc32(
-        Buffer.concat([
-          data.slice(0, 8),
-          Buffer.from("\x00\x00\x00\x00"),
-          data.slice(12)
-        ])
-      )
-    )
-  )
-    throw new Error("SCTP packet has invalid checksum");
-
-  const chunks = [];
-  let pos = 12;
-  while (pos <= length - 4) {
-    const [chunkType, chunkFlags, chunkLength] = jspack.Unpack(
-      "!BBH",
-      data.slice(pos)
-    );
-    const chunkBody = data.slice(pos + 4, pos + chunkLength);
-  }
+function tsnPlusOne(a: number) {
+  return (a + 1) % SCTP_TSN_MODULO;
 }
