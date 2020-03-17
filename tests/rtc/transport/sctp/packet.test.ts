@@ -4,7 +4,8 @@ import {
   InitChunk,
   CookieEchoChunk,
   AbortChunk,
-  DataChunk
+  DataChunk,
+  ErrorChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
 import { load } from "../../../utils";
 
@@ -93,5 +94,29 @@ describe("SctpPacketTest", () => {
     expect(chunk.streamSeq).toBe(1);
     expect(chunk.protocol).toBe(51);
     expect(chunk.userData).toEqual(Buffer.from("ping"));
+  });
+
+  test("test_parse_data_padding", () => {
+    const data = load("sctp_data_padding.bin");
+    const chunk = roundtripPacket(data) as DataChunk;
+
+    expect(chunk.type).toBe(DataChunk.type);
+    expect(chunk.type).toBe(0);
+    expect(chunk.flags).toBe(3);
+    expect(chunk.tsn).toBe(2584679421);
+    expect(chunk.streamId).toBe(1);
+    expect(chunk.streamSeq).toBe(1);
+    expect(chunk.protocol).toBe(51);
+    expect(chunk.userData).toEqual(Buffer.from("M"));
+  });
+
+  test("test_parse_error", () => {
+    const data = load("sctp_error.bin");
+    const chunk = roundtripPacket(data) as ErrorChunk;
+
+    expect(chunk.type).toBe(ErrorChunk.type);
+    expect(chunk.type).toBe(9);
+    expect(chunk.flags).toBe(0);
+    expect(chunk.params).toEqual([[1, Buffer.from("\x30\x39\x00\x00")]]);
   });
 });

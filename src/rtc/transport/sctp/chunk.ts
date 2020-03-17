@@ -207,11 +207,20 @@ export class AbortChunk extends BaseParamsChunk {
   }
 }
 
+export class ErrorChunk extends BaseParamsChunk {
+  static type = 9;
+
+  get type() {
+    return ErrorChunk.type;
+  }
+}
+
 const CHUNK_CLASSES: typeof Chunk[] = [
   DataChunk,
   InitChunk,
   CookieEchoChunk,
-  AbortChunk
+  AbortChunk,
+  ErrorChunk
 ];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
