@@ -216,13 +216,31 @@ export class ErrorChunk extends BaseParamsChunk {
   }
 }
 
+export class HeartbeatChunk extends BaseParamsChunk {
+  static type = 4;
+
+  get type() {
+    return HeartbeatChunk.type;
+  }
+}
+
+export class ReconfigChunk extends BaseParamsChunk {
+  static type = 130;
+
+  get type() {
+    return ReconfigChunk.type;
+  }
+}
+
 const CHUNK_CLASSES: typeof Chunk[] = [
   DataChunk,
   InitChunk,
   CookieEchoChunk,
   AbortChunk,
   ErrorChunk,
-  ForwardTsnChunk
+  ForwardTsnChunk,
+  HeartbeatChunk,
+  ReconfigChunk
 ];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
@@ -293,9 +311,11 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
       data.slice(pos)
     );
     const chunkBody = data.slice(pos + 4, pos + chunkLength);
-    const chunkClass = CHUNK_TYPES[chunkType.toString()];
-    if (chunkClass) {
-      chunks.push(new chunkClass(chunkFlags, chunkBody));
+    const ChunkClass = CHUNK_TYPES[chunkType.toString()];
+    if (ChunkClass) {
+      chunks.push(new ChunkClass(chunkFlags, chunkBody));
+    } else {
+      throw new Error("unknown");
     }
     pos += chunkLength + padL(chunkLength);
   }

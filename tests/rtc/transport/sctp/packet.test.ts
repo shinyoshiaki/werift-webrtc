@@ -6,8 +6,11 @@ import {
   AbortChunk,
   DataChunk,
   ErrorChunk,
-  ForwardTsnChunk
+  ForwardTsnChunk,
+  HeartbeatChunk,
+  ReConfigChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
+import { StreamResetOutgoingParam } from "../../../../src/rtc/transport/sctp/param";
 import { load } from "../../../utils";
 
 describe("SctpPacketTest", () => {
@@ -130,5 +133,42 @@ describe("SctpPacketTest", () => {
     expect(chunk.flags).toBe(0);
     expect(chunk.cumulativeTsn).toBe(1234);
     expect(chunk.streams).toEqual([[12, 34]]);
+  });
+
+  test("test_parse_heartbeat", () => {
+    const data = load("sctp_heartbeat.bin");
+    const chunk = roundtripPacket(data) as HeartbeatChunk;
+
+    expect(chunk.type).toBe(HeartbeatChunk.type);
+    expect(chunk.type).toBe(4);
+    expect(chunk.flags).toBe(0);
+    // expect(chunk.params).toEqual([
+    //   [
+    //     1,
+    //     Buffer.from(
+    //       "\xb5o\xaaZvZ\x06\x00\x00\x00\x00\x00\x00\x00\x00\x00{\x10\x00\x00\x004\xeb\x07F\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    //     )
+    //   ]
+    // ]);
+  });
+
+  test("test_parse_reconfig_reset_out", () => {
+    const data = load("sctp_reconfig_reset_out.bin");
+    const chunk = roundtripPacket(data) as ReConfigChunk;
+
+    expect(chunk.type).toBe(ReConfigChunk.type);
+    expect(chunk.type).toBe(130);
+    expect(chunk.flags).toBe(0);
+    // expect(chunk.params).toEqual([
+    //   [13, Buffer.from("\x8b\xd8\n[\xe4\x8b\xecs\x8b\xd8\n^\x00\x01")]
+    // ]);
+
+    const paramData = chunk.params[0][1];
+    const param = StreamResetOutgoingParam.parse(paramData);
+    expect(param.requestSequence).toBe(2346191451);
+    expect(param.responseSequence).toBe(3834375283);
+    expect(param.lastTsn).toBe(2346191454);
+    expect(param.streams).toEqual([1]);
+    expect(param.bytes).toEqual(paramData);
   });
 });
