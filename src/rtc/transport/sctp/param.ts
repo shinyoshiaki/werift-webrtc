@@ -42,3 +42,18 @@ export class StreamResetOutgoingParam {
     );
   }
 }
+
+export class StreamAddOutgoingParam {
+  constructor(public requestSequence: number, public newStreams: number) {}
+
+  get bytes() {
+    return Buffer.from(
+      jspack.Pack("!LHH", [this.requestSequence, this.newStreams, 0])
+    );
+  }
+
+  static parse(data: Buffer) {
+    const [requestSequence, newStreams] = jspack.Unpack("!LHH", data);
+    return new StreamAddOutgoingParam(requestSequence, newStreams);
+  }
+}
