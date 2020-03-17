@@ -5,7 +5,8 @@ import {
   CookieEchoChunk,
   AbortChunk,
   DataChunk,
-  ErrorChunk
+  ErrorChunk,
+  ForwardTsnChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
 import { load } from "../../../utils";
 
@@ -118,5 +119,16 @@ describe("SctpPacketTest", () => {
     expect(chunk.type).toBe(9);
     expect(chunk.flags).toBe(0);
     expect(chunk.params).toEqual([[1, Buffer.from("\x30\x39\x00\x00")]]);
+  });
+
+  test("test_parse_forward_tsn", () => {
+    const data = load("sctp_forward_tsn.bin");
+    const chunk = roundtripPacket(data) as ForwardTsnChunk;
+
+    expect(chunk.type).toBe(ForwardTsnChunk.type);
+    expect(chunk.type).toBe(192);
+    expect(chunk.flags).toBe(0);
+    expect(chunk.cumulativeTsn).toBe(1234);
+    expect(chunk.streams).toEqual([[12, 34]]);
   });
 });

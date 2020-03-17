@@ -1,7 +1,6 @@
 import { jspack } from "jspack";
-import crc32 from "buffer-crc32";
-
 const crc32c = require("turbo-crc32/crc32c");
+
 export class Chunk {
   static type = -1;
 
@@ -116,10 +115,12 @@ export class ForwardTsnChunk extends Chunk {
     return ForwardTsnChunk.type;
   }
 
+  set body(_: Buffer) {}
+
   get body() {
-    const body = jspack.Pack("!L", [this.cumulativeTsn]);
+    const body = Buffer.from(jspack.Pack("!L", [this.cumulativeTsn]));
     return Buffer.concat([
-      Buffer.from(body),
+      body,
       ...this.streams.map(([id, seq]) =>
         Buffer.from(jspack.Pack("!HH", [id, seq]))
       )
@@ -220,7 +221,8 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   InitChunk,
   CookieEchoChunk,
   AbortChunk,
-  ErrorChunk
+  ErrorChunk,
+  ForwardTsnChunk
 ];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
