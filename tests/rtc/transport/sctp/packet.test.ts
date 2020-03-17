@@ -3,7 +3,8 @@ import {
   serializePacket,
   InitChunk,
   CookieEchoChunk,
-  AbortChunk
+  AbortChunk,
+  DataChunk
 } from "../../../../src/rtc/transport/sctp/chunk";
 import { load } from "../../../utils";
 
@@ -78,5 +79,19 @@ describe("SctpPacketTest", () => {
     expect(chunk.params).toEqual([
       [13, Buffer.from("Expected B-bit for TSN=4ce1f17f, SID=0001, SSN=0000")]
     ]);
+  });
+
+  test("test_parse_data", () => {
+    const data = load("sctp_data.bin");
+    const chunk = roundtripPacket(data) as DataChunk;
+
+    expect(chunk.type).toBe(DataChunk.type);
+    expect(chunk.type).toBe(0);
+    expect(chunk.flags).toBe(3);
+    expect(chunk.tsn).toBe(2584679421);
+    expect(chunk.streamId).toBe(1);
+    expect(chunk.streamSeq).toBe(1);
+    expect(chunk.protocol).toBe(51);
+    expect(chunk.userData).toEqual(Buffer.from("ping"));
   });
 });
