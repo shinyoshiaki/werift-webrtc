@@ -1,11 +1,17 @@
 {
   "cSpell.words": [
+    "ack",
+    "acked",
+    "cwnd",
+    "dcep",
     "dtls",
     "extmap",
     "howdee",
     "icet",
     "ipaddress",
     "kwargs",
+    "length",
+    "max",
     "msid",
     "out",
     "parse",
@@ -19,12 +25,15 @@
     "rwnd",
     "sctp",
     "srflx",
+    "ssthresh",
     "struct",
     "tcptype",
     "test",
     "transport",
     "ufrag",
     "uint",
+    "userdata",
+    "webrtc",
     "wrtct"
   ]
 }

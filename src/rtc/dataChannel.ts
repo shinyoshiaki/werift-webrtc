@@ -13,8 +13,9 @@ export class RTCDataChannelParameters {
 }
 
 export class RTCDataChannel {
-  subject = new Subject<string>();
-  id = this.parameters.id || 0;
+  state = new Subject<string>();
+  message = new Subject<string | Buffer>();
+  id?: number = this.parameters.id;
   readyState = "connecting";
   constructor(
     private transport: RTCSctpTransport,
@@ -60,10 +61,14 @@ export class RTCDataChannel {
     return this.parameters.negotiated;
   }
 
+  setId(id: number) {
+    this.id = id;
+  }
+
   setReadyState(state: string) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.subject.next(state);
+      this.state.next(state);
     }
   }
 }

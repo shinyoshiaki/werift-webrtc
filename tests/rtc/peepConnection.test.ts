@@ -88,7 +88,7 @@ async function assertIceCompleted(
 
 async function assertDataChannelOpen(dc: RTCDataChannel) {
   return new Promise(r => {
-    dc.subject.subscribe(v => {
+    dc.state.subscribe(v => {
       if (v === "open") {
         r();
       }

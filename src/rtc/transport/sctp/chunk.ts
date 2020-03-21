@@ -1,6 +1,4 @@
 import { jspack } from "jspack";
-import { range } from "lodash";
-import { from } from "rxjs";
 const crc32c = require("turbo-crc32/crc32c");
 
 export class Chunk {
@@ -140,6 +138,16 @@ export class DataChunk extends Chunk {
   streamSeq: number = 0;
   protocol: number = 0;
   userData: Buffer = Buffer.from("");
+
+  abandoned?: boolean;
+  acked?: boolean;
+  bookSize?: number;
+  expiry?: number;
+  maxRetransmits?: number;
+  misses?: number;
+  retransmit?: boolean;
+  sentCount?: number;
+  sentTime?: number;
 
   constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
