@@ -15,8 +15,11 @@ export class RTCDataChannelParameters {
 export class RTCDataChannel {
   state = new Subject<string>();
   message = new Subject<string | Buffer>();
+  bufferedAmountLow = new Subject();
   id?: number = this.parameters.id;
   readyState = "connecting";
+  private bufferedAmount = 0;
+  private _bufferedAmountLowThreshold = 0;
   constructor(
     private transport: RTCSctpTransport,
     private parameters: RTCDataChannelParameters,
@@ -61,6 +64,18 @@ export class RTCDataChannel {
     return this.parameters.negotiated;
   }
 
+  get bufferedAmountLowThreshold() {
+    return this._bufferedAmountLowThreshold;
+  }
+
+  set bufferedAmountLowThreshold(value: number) {
+    if (value < 0 || value > 4294967295)
+      throw new Error(
+        "bufferedAmountLowThreshold must be in range 0 - 4294967295"
+      );
+    this.bufferedAmountLowThreshold = value;
+  }
+
   setId(id: number) {
     this.id = id;
   }
@@ -69,6 +84,16 @@ export class RTCDataChannel {
     if (state !== this.readyState) {
       this.readyState = state;
       this.state.next(state);
+    }
+  }
+
+  addBufferedAmount(amount: number) {
+    const crossesThreshold =
+      this.bufferedAmount > this.bufferedAmountLowThreshold &&
+      this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
+    this.bufferedAmount += amount;
+    if (crossesThreshold) {
+      this.bufferedAmountLow.next();
     }
   }
 }

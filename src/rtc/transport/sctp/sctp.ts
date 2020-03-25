@@ -99,7 +99,7 @@ export class RTCSctpTransport {
   private sackMisOrdered = new Set<number>();
 
   // # outbound
-  private fastRecoveryExit?: unknown;
+  private fastRecoveryExit?: number;
   private fastRecoveryTransmit = false;
   private forwardTsnChunk?: ForwardTsnChunk;
   private flightSize = 0;
@@ -117,7 +117,7 @@ export class RTCSctpTransport {
   private t3Handle?: NodeJS.Timeout;
 
   // etc
-  private ssthresh?: unknown; // slow start threshold
+  private ssthresh?: number; // slow start threshold
   private cwnd?: number; // Congestion Window
 
   constructor(public transport: RTCDtlsTransport, public port = 5000) {}
@@ -152,9 +152,13 @@ export class RTCSctpTransport {
   async receiveChunk(chunk: Chunk) {
     switch (chunk.type) {
       case DataChunk.type:
-        this.receiveDataChunk(chunk as DataChunk);
+        await this.receiveDataChunk(chunk as DataChunk);
         break;
       case SackChunk.type:
+        await this.receiveSackChunk(chunk as SackChunk);
+        break;
+      case ForwardTsnChunk.type:
+        await this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
     }
   }
@@ -172,6 +176,175 @@ export class RTCSctpTransport {
       this.advertisedRwnd += message[2].length;
       await this.receive(...message);
     }
+  }
+
+  private async receiveSackChunk(chunk: SackChunk) {
+    if (uint32Gt(this.lastSackedTsn, chunk.cumulativeTsn)) return;
+
+    const receivedTime = Date.now();
+    this.lastSackedTsn = chunk.cumulativeTsn;
+    const cwndFullyUtilized = this.flightSize >= this.cwnd!;
+
+    let done = 0,
+      doneBytes = 0;
+
+    // # handle acknowledged data
+    while (
+      this.sentQueue &&
+      uint32Gte(this.lastSackedTsn, this.sentQueue[0].tsn)
+    ) {
+      const sChunk = this.sentQueue.shift()!;
+      done++;
+      if (!sChunk?.acked) {
+        doneBytes += sChunk.bookSize!;
+        this.flightSizeDecrease(sChunk);
+      }
+
+      if (done === 1 && sChunk.sentCount === 1) {
+        this.updateRto(receivedTime - sChunk.sentTime!);
+      }
+    }
+
+    // # handle gap blocks
+    let loss = false;
+    if (chunk.gaps.length > 0) {
+      const seen = new Set();
+      let highestSeenTsn: number;
+      chunk.gaps.forEach(gap =>
+        range(gap[0], gap[1] + 1).forEach(pos => {
+          highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
+          seen.add(highestSeenTsn);
+        })
+      );
+
+      let highestNewlyAcked = chunk.cumulativeTsn;
+      for (let sChunk of this.sentQueue) {
+        if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
+          break;
+        }
+        if (seen.has(sChunk.tsn) && !sChunk.acked) {
+          doneBytes += sChunk.bookSize!;
+          sChunk.acked = true;
+          this.flightSizeDecrease(sChunk);
+          highestNewlyAcked = sChunk.tsn;
+        }
+      }
+
+      for (let sChunk of this.sentQueue) {
+        if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
+          break;
+        }
+        if (!seen.has(sChunk.tsn)) {
+          sChunk.misses! += 1;
+          if (sChunk.misses === 3) {
+            sChunk.misses = 0;
+            if (!this.maybeAbandon(sChunk)) {
+              sChunk.retransmit = true;
+            }
+            sChunk.acked = false;
+            this.flightSizeDecrease(sChunk);
+            loss = true;
+          }
+        }
+      }
+    }
+
+    // # adjust congestion window
+    if (this.fastRecoveryExit === undefined) {
+      if (done && cwndFullyUtilized) {
+        if (this.cwnd! <= this.ssthresh!) {
+          this.cwnd! += Math.min(doneBytes, USERDATA_MAX_LENGTH);
+        } else {
+          this.partialBytesAcked += doneBytes;
+          if (this.partialBytesAcked >= this.cwnd!) {
+            this.partialBytesAcked -= this.cwnd!;
+            this.cwnd! += USERDATA_MAX_LENGTH;
+          }
+        }
+      }
+
+      if (loss) {
+        this.ssthresh = Math.max(
+          Math.floor(this.cwnd! / 2),
+          4 * USERDATA_MAX_LENGTH
+        );
+        this.cwnd = this.ssthresh;
+        this.partialBytesAcked = 0;
+        this.fastRecoveryExit = this.sentQueue[this.sentQueue.length - 1].tsn;
+        this.fastRecoveryTransmit = true;
+      }
+    } else if (uint32Gte(chunk.cumulativeTsn, this.fastRecoveryExit)) {
+      this.fastRecoveryExit = undefined;
+    }
+
+    if (this.sentQueue.length === 0) {
+      this.t3Cancel();
+    } else if (done) {
+      this.t3Restart();
+    }
+
+    this.updateAdvancedPeerAckPoint();
+    await this.dataChannelFlush();
+    await this.transmit();
+  }
+
+  async receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
+    this.sackNeeded = true;
+
+    if (uint32Gte(this.lastReceivedTsn!, chunk.cumulativeTsn)) {
+      return;
+    }
+
+    const isObsolete = (x: number) => uint32Gt(x, this.lastReceivedTsn!);
+
+    // # advance cumulative TSN
+    this.lastReceivedTsn = chunk.cumulativeTsn;
+    this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
+    for (let tsn of [...this.sackMisOrdered].sort()) {
+      if (tsn === tsnPlusOne(this.lastReceivedTsn)) {
+        this.lastReceivedTsn = tsn;
+      } else {
+        break;
+      }
+    }
+
+    // # filter out obsolete entries
+    this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
+
+    // # update reassembly
+    for (let [streamId, streamSeq] of chunk.streams) {
+      const inboundStream = this.getInboundStream(streamId);
+
+      // # advance sequence number and perform delivery
+      inboundStream.sequenceNumber = uint16Add(streamSeq, 1);
+      for (let message of inboundStream.popMessages()) {
+        this.advertisedRwnd += message[2].length;
+        await this.receive(...message);
+      }
+    }
+
+    // # prune obsolete chunks
+    Object.values(this.inboundStreams).forEach(inboundStream => {
+      this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
+    });
+  }
+
+  private srtt?: number;
+  private rttvar?: number;
+  private updateRto(R: number) {
+    if (!this.srtt) {
+      this.rttvar = R / 2;
+      this.srtt = R;
+    } else {
+      this.rttvar =
+        (1 - SCTP_RTO_BETA) * this.rttvar! +
+        SCTP_RTO_BETA * Math.abs(this.srtt - R);
+      this.srtt = (1 - SCTP_RTO_ALPHA) * this.srtt + SCTP_RTO_ALPHA * R;
+    }
+    this.rto = Math.max(
+      SCTP_RTO_MIN,
+      Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX)
+    );
   }
 
   private async receive(streamId: number, ppId: number, data: Buffer) {
@@ -322,7 +495,7 @@ export class RTCSctpTransport {
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
-    let data = jspack.Pack("!BBHLHH", [
+    const data = jspack.Pack("!BBHLHH", [
       DATA_CHANNEL_OPEN,
       channelType,
       priority,
@@ -342,13 +515,14 @@ export class RTCSctpTransport {
   private async dataChannelFlush() {
     if (this.associationState != State.ESTABLISHED) return;
 
+    let expiry: number | undefined;
     while (
       this.dataChannelQueue.length > 0 &&
       !(this.outboundQueue.length > 0)
     ) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
-      const streamId = channel.id;
+      const streamId = channel.id!;
       if (streamId === undefined) {
         if (!this.dataChannelId) throw new Error();
         while (
@@ -363,7 +537,22 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        // await this.send
+        await this.send(streamId, protocol, userData);
+      } else {
+        if (channel.maxPacketLifeTime) {
+          expiry = Date.now() + channel.maxPacketLifeTime / 1000;
+        } else {
+          expiry = undefined;
+        }
+        await this.send(
+          streamId,
+          protocol,
+          userData,
+          expiry,
+          channel.maxRetransmits,
+          channel.ordered
+        );
+        channel.addBufferedAmount(-userData.length);
       }
     }
   }
@@ -481,6 +670,10 @@ export class RTCSctpTransport {
     this.flightSize += chunk.bookSize!;
   }
 
+  private flightSizeDecrease(chunk: DataChunk) {
+    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize!);
+  }
+
   private t3Restart() {
     if (this.t3Handle) {
       clearTimeout(this.t3Handle);
@@ -514,6 +707,13 @@ export class RTCSctpTransport {
     this.cwnd = USERDATA_MAX_LENGTH;
 
     this.transmit();
+  }
+
+  t3Cancel() {
+    if (this.t3Handle) {
+      clearTimeout(this.t3Handle);
+      this.t3Handle = undefined;
+    }
   }
 
   private updateAdvancedPeerAckPoint() {
@@ -725,6 +925,27 @@ class InboundStream {
       }
       expectedTsn = tsnPlusOne(expectedTsn);
     }
+  }
+
+  pruneChunks(tsn: number) {
+    // """
+    // Prune chunks up to the given TSN.
+    // """
+
+    let pos = -1,
+      size = 0;
+
+    for (let [i, chunk] of this.reassembly.entries()) {
+      if (uint32Gte(tsn, chunk.tsn)) {
+        pos = i;
+        size += chunk.userData.length;
+      } else {
+        break;
+      }
+    }
+
+    this.reassembly = this.reassembly.slice(pos + 1);
+    return size;
   }
 }
 
