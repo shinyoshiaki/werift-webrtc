@@ -24,7 +24,7 @@ export class SessionDescription {
     const [sessionLines, mediaGroups] = groupLines(sdp);
 
     const session = new SessionDescription();
-    sessionLines.forEach(line => {
+    sessionLines.forEach((line) => {
       if (line.startsWith("v=")) {
         session.version = parseInt(line.slice(2), 10);
       } else if (line.startsWith("o=")) {
@@ -69,7 +69,7 @@ export class SessionDescription {
       }
     });
 
-    mediaGroups.forEach(mediaLines => {
+    mediaGroups.forEach((mediaLines) => {
       const target = mediaLines[0];
       const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z\/]+) (.+)/);
       if (!m) {
@@ -92,7 +92,7 @@ export class SessionDescription {
       currentMedia.iceOptions = iceOptions;
       session.media.push(currentMedia);
 
-      mediaLines.slice(1).forEach(line => {
+      mediaLines.slice(1).forEach((line) => {
         if (line.startsWith("c=")) {
           currentMedia.host = ipAddressFromSdp(line.slice(2));
         } else if (line.startsWith("a=")) {
@@ -172,11 +172,11 @@ export class SessionDescription {
       lines.concat([`c=${ipAddressFromSdp(this.host)}`]);
     }
     lines.concat([`t=${this.time}`]);
-    this.group.forEach(group => lines.concat([`a=group:${group}`]));
-    this.msidSemantic.forEach(group =>
+    this.group.forEach((group) => lines.concat([`a=group:${group}`]));
+    this.msidSemantic.forEach((group) =>
       lines.concat([`a=msid-semantic:${group}`])
     );
-    return lines.join("\r\n") + "\r\n" + this.media.map(m => m);
+    return lines.join("\r\n") + "\r\n" + this.media.map((m) => m);
   }
 }
 
@@ -213,7 +213,7 @@ export class MediaDescription {
     const lines = [];
     lines.push(
       `m=${this.kind} ${this.port} ${this.profile} ${this.fmt
-        .map(v => v.toString())
+        .map((v) => v.toString())
         .join(" ")}`
     );
     if (this.host) {
@@ -230,7 +230,7 @@ export class MediaDescription {
       lines.push(`a=msid:${this.msid}`);
     }
 
-    Object.keys(this.sctpMap).forEach(k => {
+    Object.keys(this.sctpMap).forEach((k) => {
       const v = this.sctpMap[Number(k)];
       lines.push(`a=sctpmap:${k} ${v}`);
     });
@@ -242,7 +242,7 @@ export class MediaDescription {
     }
 
     // ice
-    this.iceCandidates.forEach(candidate => {
+    this.iceCandidates.forEach((candidate) => {
       lines.push(`a=candidate:${candidateToSdp(candidate)}`);
     });
     if (this.iceCandidatesComplete) {
@@ -260,7 +260,7 @@ export class MediaDescription {
 
     // dtls
     if (this.dtls) {
-      this.dtls.fingerprints.forEach(fingerprint => {
+      this.dtls.fingerprints.forEach((fingerprint) => {
         lines.push(
           `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
         );
@@ -310,7 +310,7 @@ function groupLines(sdp: string): [string[], string[][]] {
   const session: string[] = [];
   const media: string[][] = [];
 
-  sdp.split("\r\n").forEach(line => {
+  sdp.split("\r\n").forEach((line) => {
     if (line.startsWith("m=")) {
       media.push([line]);
     } else if (media.length > 0) {
@@ -335,7 +335,7 @@ function parseAttr(line: string): [string, string | undefined] {
 function parseGroup(
   dest: GroupDescription[],
   value: string,
-  type: (v: string) => string = v => v.toString()
+  type: (v: string) => string = (v) => v.toString()
 ) {
   const bits = value.split(" ");
   if (bits.length > 0) {
@@ -361,7 +361,7 @@ function candidateFromSdp(sdp: string) {
 
   range(bits.length - 1, 8, 2)
     .reverse()
-    .forEach(i => {
+    .forEach((i) => {
       switch (bits[i]) {
         case "raddr":
           candidate.relatedAddress = bits[i + 1];

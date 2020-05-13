@@ -9,7 +9,7 @@ import {
   WEBRTC_STRING,
   WEBRTC_STRING_EMPTY,
   WEBRTC_BINARY,
-  WEBRTC_BINARY_EMPTY
+  WEBRTC_BINARY_EMPTY,
 } from "../../const";
 import { jspack } from "jspack";
 import { RTCDtlsTransport } from "../dtls";
@@ -19,7 +19,7 @@ import {
   uint32Gte,
   uint32Gt,
   enumerate,
-  uint16Add
+  uint16Add,
 } from "../../../utils";
 
 import {
@@ -30,7 +30,7 @@ import {
   parsePacket,
   DataChunk,
   serializePacket,
-  SackChunk
+  SackChunk,
 } from "./chunk";
 import { Subject } from "rxjs";
 
@@ -131,7 +131,7 @@ export class RTCSctpTransport {
       let expectedTag;
 
       const [, , verificationTag, chunks] = parsePacket(data);
-      const initChunk = chunks.filter(v => v.type === InitChunk.type).length;
+      const initChunk = chunks.filter((v) => v.type === InitChunk.type).length;
       if (initChunk > 0) {
         if (chunks.length != 1) throw new Error();
         expectedTag = 0;
@@ -210,8 +210,8 @@ export class RTCSctpTransport {
     if (chunk.gaps.length > 0) {
       const seen = new Set();
       let highestSeenTsn: number;
-      chunk.gaps.forEach(gap =>
-        range(gap[0], gap[1] + 1).forEach(pos => {
+      chunk.gaps.forEach((gap) =>
+        range(gap[0], gap[1] + 1).forEach((pos) => {
           highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
           seen.add(highestSeenTsn);
         })
@@ -324,7 +324,7 @@ export class RTCSctpTransport {
     }
 
     // # prune obsolete chunks
-    Object.values(this.inboundStreams).forEach(inboundStream => {
+    Object.values(this.inboundStreams).forEach((inboundStream) => {
       this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
     });
   }
@@ -368,7 +368,7 @@ export class RTCSctpTransport {
           priority,
           reliability,
           labelLength,
-          protocolLength
+          protocolLength,
         ] = jspack.Unpack("!BBHLHH", data);
 
         let pos = 12;
@@ -398,7 +398,7 @@ export class RTCSctpTransport {
         this.dataChannelQueue.push([
           channel,
           WEBRTC_DCEP,
-          Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK]))
+          Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
         ]);
         await this.dataChannelFlush();
 
@@ -501,12 +501,12 @@ export class RTCSctpTransport {
       priority,
       reliability,
       channel.label.length,
-      channel.protocol.length
+      channel.protocol.length,
     ]);
     const send = Buffer.concat([
       Buffer.from(data),
       Buffer.from(channel.label, "utf8"),
-      Buffer.from(channel.protocol, "utf8")
+      Buffer.from(channel.protocol, "utf8"),
     ]);
     this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
     this.dataChannelFlush();
@@ -689,7 +689,7 @@ export class RTCSctpTransport {
 
   private t3Expired() {
     this.t3Handle = undefined;
-    this.sentQueue.forEach(chunk => {
+    this.sentQueue.forEach((chunk) => {
       if (!this.maybeAbandon(chunk)) {
         chunk.retransmit = true;
       }
@@ -737,7 +737,7 @@ export class RTCSctpTransport {
       this.forwardTsnChunk.cumulativeTsn = this.advancedPeerAckTsn;
       this.forwardTsnChunk.streams = Object.entries(streams).map(([k, v]) => [
         Number(k),
-        v
+        v,
       ]);
     }
   }
@@ -750,7 +750,7 @@ export class RTCSctpTransport {
 
     if (!abandon) return false;
 
-    const chunkPos = this.sentQueue.findIndex(v => v.type === chunk.type);
+    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
     for (let pos of range(chunkPos, -1, -1)) {
       const oChunk = this.sentQueue[pos];
       oChunk.abandoned = true;
@@ -837,7 +837,7 @@ export class RTCSctpTransport {
     }
     if (state === State.ESTABLISHED) {
       this.state = "connected";
-      Object.values(this.dataChannels).forEach(channel => {
+      Object.values(this.dataChannels).forEach((channel) => {
         if (channel.negotiated && channel.readyState !== "open") {
           channel.setReadyState("open");
         }
@@ -908,12 +908,12 @@ class InboundStream {
         const userData = Buffer.from(
           this.reassembly
             .slice(startPos, pos + 1)
-            .map(c => c.userData)
+            .map((c) => c.userData)
             .join("")
         );
         this.reassembly = [
           ...this.reassembly.slice(0, startPos),
-          ...this.reassembly.slice(pos + 1)
+          ...this.reassembly.slice(pos + 1),
         ];
         if (ordered! && chunk.streamSeq === this.sequenceNumber) {
           this.sequenceNumber = uint16Add(this.sequenceNumber, 1);

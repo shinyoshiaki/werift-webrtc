@@ -24,7 +24,7 @@ export enum State {
   SHUTDOWN_PENDING = 5,
   SHUTDOWN_SENT = 6,
   SHUTDOWN_RECEIVED = 7,
-  SHUTDOWN_ACK_SENT = 8
+  SHUTDOWN_ACK_SENT = 8,
 }
 
 export const DISCARD_HOST = "0.0.0.0";
@@ -35,7 +35,7 @@ export const DIRECTIONS = ["inactive", "sendonly", "recvonly", "sendrecv"];
 export const DTLS_ROLE_SETUP = {
   auto: "actpass",
   client: "active",
-  server: "passive"
+  server: "passive",
 };
 export const DTLS_SETUP_ROLE = Object.keys(DTLS_ROLE_SETUP).reduce(
   (acc, cur) => {
@@ -52,5 +52,5 @@ export const FMTP_INT_PARAMETERS = [
   "maxplaybackrate",
   "minptime",
   "stereo",
-  "useinbandfec"
+  "useinbandfec",
 ];
