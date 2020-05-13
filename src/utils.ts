@@ -37,3 +37,7 @@ export function uint32Gte(a: number, b: number) {
 export function enumerate<T>(arr: T[]) {
   return arr.map((v, i) => ({ i, v }));
 }
+
+export async function sleep(ms: number) {
+  await new Promise(r => setTimeout(r, ms));
+}

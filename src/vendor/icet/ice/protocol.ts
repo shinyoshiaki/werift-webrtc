@@ -15,7 +15,7 @@ export class StunProtocol implements Protocol {
 
   localAddress?: string;
 
-  private socket = dgram.createSocket("udp4");
+  socket = dgram.createSocket("udp4");
   private closed = new Subject();
 
   constructor(public receiver: Connection) {}

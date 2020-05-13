@@ -169,6 +169,12 @@ export class Connection {
   get nominatedKeys() {
     return Object.keys(this.nominated).map(v => v.toString());
   }
+  get socket() {
+    return Object.values(this.nominated)[0].protocol.socket;
+  }
+  get remoteAddr() {
+    return Object.values(this.nominated)[0].remoteAddr;
+  }
   private checkListDone = false;
   private checkListState = new PQueue();
   private earlyChecks: [Message, Address, StunProtocol][] = [];

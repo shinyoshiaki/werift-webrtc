@@ -45,7 +45,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "-t test_parse_init"
+        "-t test_data"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"

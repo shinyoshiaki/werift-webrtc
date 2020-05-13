@@ -1,3 +1,5 @@
+export { RTCCertificate } from "./rtc/transport/dtls";
+
 export { RTCPeerConnection } from "./rtc/peerConnection";
 
 export { RTCSctpTransport } from "./rtc/transport/sctp/sctp";

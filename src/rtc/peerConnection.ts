@@ -3,14 +3,9 @@ import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp/sctp";
 import {
   RTCIceGatherer,
   RTCIceTransport,
-  RTCIceParameters
+  RTCIceParameters,
 } from "./transport/ice";
-import {
-  RTCDtlsTransport,
-  RTCCertificate,
-  State,
-  RTCDtlsParameters
-} from "./transport/dtls";
+import { RTCDtlsTransport, State, RTCDtlsParameters } from "./transport/dtls";
 import { SessionDescription, GroupDescription, MediaDescription } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { RTCSessionDescription } from "./sessionDescription";
@@ -20,11 +15,12 @@ import { Subject } from "rxjs";
 type Configuration = { stunServer?: [string, number] };
 
 export class RTCPeerConnection {
+  datachannel = new Subject<RTCDataChannel>();
   iceGatheringStateChange = new Subject<string>();
   iceConnectionStateChange = new Subject<string>();
   signalingStateChange = new Subject<string>();
 
-  private certificates = [RTCCertificate.generateCertificate()];
+  private certificates = [];
   private sctp?: RTCSctpTransport;
   private sctpRemotePort?: number;
   private sctpRemoteCaps?: RTCSctpCapabilities;
@@ -145,7 +141,7 @@ export class RTCPeerConnection {
     const base: typeof options = {
       protocol: "",
       ordered: true,
-      negotiated: false
+      negotiated: false,
     };
     const settings: Required<typeof base> = { ...base, ...options } as any;
 
@@ -171,7 +167,9 @@ export class RTCPeerConnection {
   private updateIceGatheringState() {
     let state = "new";
 
-    const states = new Set([...this.iceTransports].map(v => v.iceGather.state));
+    const states = new Set(
+      [...this.iceTransports].map((v) => v.iceGather.state)
+    );
     if (isEqual(states, new Set(["completed"]))) {
       state = "complete";
     } else if (states.has("gathering")) {
@@ -187,7 +185,7 @@ export class RTCPeerConnection {
   private updateIceConnectionState() {
     let state = "new";
 
-    const states = new Set([...this.iceTransports].map(v => v.state));
+    const states = new Set([...this.iceTransports].map((v) => v.state));
     if (this.isClosed) {
       state = "closed";
     } else if (states.has("failed")) {
@@ -226,7 +224,7 @@ export class RTCPeerConnection {
     sctp.bundled = false;
     sctp.mid = undefined;
 
-    // todo listen
+    sctp.datachannel.subscribe((dc) => this.datachannel.next(dc));
 
     return sctp;
   }
@@ -242,7 +240,7 @@ export class RTCPeerConnection {
       this.setSignalingState("stable");
     }
 
-    description.media.forEach(media => {
+    description.media.forEach((media) => {
       const mid = media.rtp.muxId;
       this.seenMid.add(mid);
       if (media.kind === "application") {
@@ -254,14 +252,14 @@ export class RTCPeerConnection {
     if (this.initialOffer === undefined) {
       this.initialOffer = description.type === "offer";
       this.iceTransports.forEach(
-        iceTransport =>
+        (iceTransport) =>
           (iceTransport.connection.iceControlling = this.initialOffer!)
       );
     }
 
     await this.gather();
 
-    description.media.map(media => {
+    description.media.map((media) => {
       if (media.kind === "application") {
         if (!this.sctp) throw new Error();
         addTransportDescription(media, this.sctp.transport);
@@ -280,7 +278,7 @@ export class RTCPeerConnection {
 
   private async gather() {
     await Promise.all(
-      [...this.iceTransports].map(async t => await t.iceGather.gather())
+      [...this.iceTransports].map(async (t) => await t.iceGather.gather())
     );
   }
 
@@ -294,12 +292,15 @@ export class RTCPeerConnection {
       if (candidates && iceExist) {
         const params = this.remoteIce[this.sctp.uuid];
         await iceTransport.start(params);
-        if (dtlsTransport.state === State.NEW) {
-          await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
-        }
-        if (dtlsTransport.state === State.CONNECTED) {
-          if (!this.sctpRemotePort) throw new Error();
-          await this.sctp.start(this.sctpRemotePort);
+
+        if (!this.sctpRemotePort) throw new Error();
+        switch (dtlsTransport.state) {
+          case State.NEW:
+            await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
+            break;
+          case State.CONNECTED:
+            await this.sctp.start(this.sctpRemotePort!);
+            break;
         }
       }
     }
@@ -343,7 +344,7 @@ export class RTCPeerConnection {
       }
     }
 
-    description.media.forEach(media => {
+    description.media.forEach((media) => {
       if (!media.ice.usernameFragment || !media.ice.password)
         throw new Error("ICE username fragment or password is missing");
     });
@@ -353,18 +354,20 @@ export class RTCPeerConnection {
         ? this._remoteDescription()
         : this._localDescription();
       if (!offer) throw new Error();
-      const offerMedia = offer.media.map(v => [v.kind, v.rtp.muxId]);
-      const answerMedia = description.media.map(v => [v.kind, v.rtp.muxId]);
+      const offerMedia = offer.media.map((v) => [v.kind, v.rtp.muxId]);
+      const answerMedia = description.media.map((v) => [v.kind, v.rtp.muxId]);
       if (!isEqual(offerMedia, answerMedia))
         throw new Error("Media sections in answer do not match offer");
     }
   }
 
   async setRemoteDescription(sessionDescription: RTCSessionDescription) {
+    // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
     this.validateDescription(description, false);
 
+    // # apply description
     description.media.forEach((media, i) => {
       if (media.kind === "application") {
         if (!this.sctp) {
@@ -376,9 +379,11 @@ export class RTCPeerConnection {
           this.sctpMLineIndex = i;
         }
 
+        // # configure sctp
         this.sctpRemotePort = media.sctpPort;
         this.sctpRemoteCaps = media.sctpCapabilities;
 
+        // # configure transport
         const iceTransport = this.sctp.transport.transport;
         addRemoteCandidates(iceTransport, media);
         if (!media.dtls) throw new Error();
@@ -389,10 +394,13 @@ export class RTCPeerConnection {
 
     this.connect();
 
-    if (description.type === "offer") {
-      this.setSignalingState("have-remote-offer");
-    } else if (description.type === "answer") {
-      this.setSignalingState("stable");
+    switch (description.type) {
+      case "offer":
+        this.setSignalingState("have-remote-offer");
+        break;
+      case "answer":
+        this.setSignalingState("stable");
+        break;
     }
 
     if (description.type === "answer") {
@@ -418,7 +426,7 @@ export class RTCPeerConnection {
     description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
     description.type = "answer";
 
-    this._remoteDescription()?.media.forEach(remoteM => {
+    this._remoteDescription()?.media.forEach((remoteM) => {
       if (remoteM.kind === "application") {
         if (!this.sctp || !this.sctp.mid) throw new Error();
         description.media.push(
@@ -428,7 +436,7 @@ export class RTCPeerConnection {
     });
 
     const bundle = new GroupDescription("BUNDLE", []);
-    description.media.forEach(media => {
+    description.media.forEach((media) => {
       bundle.items.push(media.rtp.muxId);
     });
     description.group.push(bundle);
@@ -517,7 +525,7 @@ function addRemoteCandidates(
   iceTransport: RTCIceTransport,
   media: MediaDescription
 ) {
-  media.iceCandidates.forEach(candidate =>
+  media.iceCandidates.forEach((candidate) =>
     iceTransport.addRemoteCandidate(candidate)
   );
   if (media.iceCandidatesComplete) {
