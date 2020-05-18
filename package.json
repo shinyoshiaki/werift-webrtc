@@ -22,6 +22,7 @@
     "format": "prettier --write src/**/*.ts"
   },
   "dependencies": {
+    "@fidm/x509": "^1.2.1",
     "buffer-crc32": "^0.2.13",
     "date-fns": "^2.13.0",
     "dgram": "^1.0.1",

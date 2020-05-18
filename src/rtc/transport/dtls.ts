@@ -86,12 +86,12 @@ export class RTCCertificate {
       ),
     ];
   }
+
+  static generateCertificate() {}
 }
 
 function certificateDigest(x509: string) {
-  const hash = createHash("sha256")
-    .update(Buffer.from(x509))
-    .digest("hex");
+  const hash = createHash("sha256").update(Buffer.from(x509)).digest("hex");
 
   const upper = (s: string) => s.toUpperCase();
   const colon = (s: string) => s.match(/(.{2})/g)!.join(":");
