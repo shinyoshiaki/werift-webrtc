@@ -1,18 +1,18 @@
 import {
-  range,
   difference,
   randomString,
   PQueue,
   sleep,
   Future,
-  future
+  future,
 } from "../utils";
+import { range } from "lodash";
 import { Message, methods, classes, parseMessage } from "../stun/stun";
 import { Address, Protocol } from "../model";
 import {
   Candidate,
   candidatePriority,
-  candidateFoundation
+  candidateFoundation,
 } from "../candidate";
 import { randomBytes } from "crypto";
 import { TransactionError } from "../exceptions";
@@ -104,7 +104,7 @@ export enum CandidatePairState {
   WAITING = 1,
   IN_PROGRESS = 2,
   SUCCEEDED = 3,
-  FAILED = 4
+  FAILED = 4,
 }
 
 export class CandidatePair {
@@ -145,7 +145,7 @@ const defaultOptions: Options = {
   stunServer: undefined,
   useIpv4: true,
   useIpv6: true,
-  log: false
+  log: false,
 };
 
 export class Connection {
@@ -167,7 +167,7 @@ export class Connection {
   // P2P接続完了したソケット
   private nominated: { [key: number]: CandidatePair } = {};
   get nominatedKeys() {
-    return Object.keys(this.nominated).map(v => v.toString());
+    return Object.keys(this.nominated).map((v) => v.toString());
   }
   get socket() {
     return Object.values(this.nominated)[0].protocol.socket;
@@ -189,7 +189,7 @@ export class Connection {
   constructor(public iceControlling: boolean, options?: Partial<Options>) {
     this.options = {
       ...defaultOptions,
-      ...options
+      ...options,
     };
     const { components, stunServer, useIpv4, useIpv6 } = this.options;
     this.stunServer = stunServer;
@@ -225,7 +225,9 @@ export class Connection {
   }
 
   private pruneComponents() {
-    const seenComponents = new Set(this.remoteCandidates.map(v => v.component));
+    const seenComponents = new Set(
+      this.remoteCandidates.map((v) => v.component)
+    );
     const missingComponents = [...difference(this._components, seenComponents)];
     if (missingComponents.length > 0) {
       this._components = seenComponents;
@@ -238,7 +240,7 @@ export class Connection {
 
   dataReceived(data: Buffer, component: number) {
     this.log("dataReceived", data, component);
-    this.dataQueue.put(new Promise(r => r([data, component])));
+    this.dataQueue.put(new Promise((r) => r([data, component])));
 
     // data stream
     this.onData.next(data);
@@ -246,7 +248,7 @@ export class Connection {
 
   private findPair(protocol: Protocol, remoteCandidate: Candidate) {
     const pair = this.checkList.find(
-      pair =>
+      (pair) =>
         isEqual(pair.protocol, protocol) &&
         isEqual(pair.remoteCandidate, remoteCandidate)
     );
@@ -258,7 +260,7 @@ export class Connection {
       (a, b) => a.priority - b.priority
     );
     const candidate = candidates.find(
-      candidate => candidate.component === component
+      (candidate) => candidate.component === component
     );
     return candidate;
   }
@@ -315,7 +317,7 @@ export class Connection {
       if (this.nominatedKeys.length === this._components.size) {
         if (!this.checkListDone) {
           this.log("ICE completed");
-          this.checkListState.put(new Promise(r => r(ICE_COMPLETED)));
+          this.checkListState.put(new Promise((r) => r(ICE_COMPLETED)));
           this.checkListDone = true;
         }
         return;
@@ -348,7 +350,7 @@ export class Connection {
 
     if (!this.checkListDone) {
       this.log("ICE failed");
-      this.checkListState.put(new Promise(r => r(ICE_FAILED)));
+      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
       this.checkListDone = true;
     }
   }
@@ -629,7 +631,7 @@ export class Connection {
         const fs = (
           await Promise.all<Candidate>(
             this.protocols.map(
-              protocol =>
+              (protocol) =>
                 new Promise(async (r, f) => {
                   setTimeout(f, timeout * 1000);
                   if (
@@ -647,7 +649,7 @@ export class Connection {
                 })
             )
           )
-        ).filter(v => v);
+        ).filter((v) => v);
         candidates = [...candidates, ...fs];
       } catch (error) {
         this.log("query STUN server", error);
@@ -664,7 +666,7 @@ export class Connection {
       for (let component of this._components) {
         this.localCandidates = [
           ...this.localCandidates,
-          ...(await this.getComponentCandidates(component, address))
+          ...(await this.getComponentCandidates(component, address)),
         ];
       }
       this._localCandidatesEnd = true;
@@ -674,7 +676,7 @@ export class Connection {
   private unfreezeInitial() {
     // # unfreeze first pair for the first component
     const firstPair = this.checkList.find(
-      pair => pair.component === Math.min(...[...this._components])
+      (pair) => pair.component === Math.min(...[...this._components])
     );
     if (!firstPair) return;
     if (firstPair.state === CandidatePairState.FROZEN) {
@@ -701,7 +703,7 @@ export class Connection {
     {
       // # find the highest-priority pair that is in the waiting state
       const pair = this.checkList.find(
-        pair => pair.state === CandidatePairState.WAITING
+        (pair) => pair.state === CandidatePairState.WAITING
       );
       if (pair) {
         pair.handle = future(this.checkStart(pair));
@@ -712,7 +714,7 @@ export class Connection {
     {
       // # find the highest-priority pair that is in the frozen state
       const pair = this.checkList.find(
-        pair => pair.state === CandidatePairState.FROZEN
+        (pair) => pair.state === CandidatePairState.FROZEN
       );
       if (pair) {
         pair.handle = future(this.checkStart(pair));
@@ -745,7 +747,7 @@ export class Connection {
 
     // # stop check list
     if (this.checkList && !this.checkListDone) {
-      this.checkListState.put(new Promise(r => r(ICE_FAILED)));
+      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
     }
 
     this.nominated = {};
@@ -850,7 +852,7 @@ export class Connection {
     }
 
     // # cancel remaining checks
-    this.checkList.forEach(check => check.handle?.cancel());
+    this.checkList.forEach((check) => check.handle?.cancel());
 
     if (res !== ICE_COMPLETED) {
       throw new Error("ICE negotiation failed");
@@ -887,6 +889,15 @@ export class Connection {
     } else {
       throw new Error("Cannot send data, not connected");
     }
+  }
+
+  get connectedSocket() {
+    const activePair = this.nominated[1];
+    return {
+      socket: activePair.protocol.socket,
+      address: activePair.remoteAddr[0],
+      port: activePair.remoteAddr[1],
+    };
   }
 
   async recv() {

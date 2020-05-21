@@ -1,4 +1,4 @@
-import { range } from "./utils";
+import { range } from "lodash";
 import { isIPv4 } from "net";
 import { createHash } from "crypto";
 
@@ -35,7 +35,7 @@ export class Candidate {
       priority: Number(bits[3]),
       host: bits[4],
       port: Number(bits[5]),
-      type: bits[7]
+      type: bits[7],
     };
 
     for (let i of range(8, bits.length - 1, 2)) {
@@ -56,7 +56,7 @@ export class Candidate {
       priority,
       host,
       port,
-      type
+      type,
     } = kwargs;
 
     return new Candidate(
@@ -110,9 +110,7 @@ export function candidateFoundation(
   // See RFC 5245 - 4.1.1.3. Computing Foundations
   // """
   const key = `${candidateType}|${candidateTransport}|${baseAddress}`;
-  return createHash("md5")
-    .update(key, "ascii")
-    .digest("hex");
+  return createHash("md5").update(key, "ascii").digest("hex");
 }
 
 export function candidatePriority(

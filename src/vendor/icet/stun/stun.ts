@@ -6,14 +6,14 @@ import {
   ATTRIBUTES,
   COOKIE,
   RETRY_RTO,
-  RETRY_MAX
+  RETRY_MAX,
 } from "./const";
 import { jspack } from "jspack";
 import {
   ATTRIBUTES_BY_TYPE,
   unpackXorAddress,
   ATTRIBUTES_BY_NAME,
-  packXorAddress
+  packXorAddress,
 } from "./attributes";
 import { createHmac } from "crypto";
 import crc32 from "buffer-crc32";
@@ -27,7 +27,7 @@ const setBodyLength = (data: Buffer, length: number) => {
   return Buffer.concat([
     data.slice(0, 2),
     Buffer.from(jspack.Pack("!H", [length])),
-    data.slice(4)
+    data.slice(4),
   ]);
 };
 
@@ -49,9 +49,7 @@ function messageIntegrity(data: Buffer, key: Buffer) {
     data.length - HEADER_LENGTH + INTEGRITY_LENGTH
   );
   return Buffer.from(
-    createHmac("sha1", key)
-      .update(checkData)
-      .digest("hex"),
+    createHmac("sha1", key).update(checkData).digest("hex"),
     "hex"
   );
 }
@@ -116,7 +114,7 @@ export enum classes {
   REQUEST = 0x000,
   INDICATION = 0x010,
   RESPONSE = 0x100,
-  ERROR = 0x110
+  ERROR = 0x110,
 }
 
 export enum methods {
@@ -127,7 +125,7 @@ export enum methods {
   SEND = 0x6,
   DATA = 0x7,
   CREATE_PERMISSION = 0x8,
-  CHANNEL_BIND = 0x9
+  CHANNEL_BIND = 0x9,
 }
 
 export class Message {
@@ -161,14 +159,14 @@ export class Message {
         data,
         Buffer.from(jspack.Pack("!HH", [attrType, attrLen])),
         v,
-        ...[...Array(padLen)].map(() => Buffer.from("\x00"))
+        ...[...Array(padLen)].map(() => Buffer.from("\x00")),
       ]);
     }
     const buf = Buffer.from(
       jspack.Pack("!HHI", [
         this.messageMethod | this.messageClass,
         data.length,
-        COOKIE
+        COOKIE,
       ])
     );
 

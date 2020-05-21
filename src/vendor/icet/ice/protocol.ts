@@ -36,7 +36,7 @@ export class StunProtocol implements Protocol {
       this.socket = dgram.createSocket("udp6");
     }
     this.socket.bind();
-    await new Promise(r => this.socket.once("listening", r));
+    await new Promise((r) => this.socket.once("listening", r));
     this.socket.on("message", (data, info) => {
       this.datagramReceived(data, [info.address, info.port]);
     });
@@ -117,7 +117,7 @@ export class StunProtocol implements Protocol {
   }
 
   async close() {
-    await new Promise(r => {
+    await new Promise((r) => {
       this.socket.once("close", r);
       this.socket.close();
     });

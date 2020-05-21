@@ -12,13 +12,6 @@ export function randomTransactionId() {
   return randomBytes(12);
 }
 
-export const range = (from: number, to: number, step = 1) =>
-  from < to || (!to && from > 0)
-    ? [...Array(to ? Math.ceil((to - from) / step) : from)].map((_, i) =>
-        to ? from + i * step : i
-      )
-    : [];
-
 export function bufferXor(a: Buffer, b: Buffer): Buffer {
   if (a.length !== b.length) {
     throw new TypeError(

@@ -18,5 +18,5 @@ export const ATTRIBUTES = [
   "USE-CANDIDATE",
   "ICE-CONTROLLED",
   "ERROR-CODE",
-  "XOR-MAPPED-ADDRESS"
+  "XOR-MAPPED-ADDRESS",
 ] as const;

@@ -1,6 +1,6 @@
 import { jspack } from "jspack";
 import * as nodeIp from "ip";
-import { range } from "../utils";
+import { range } from "lodash";
 import { IPV6_PROTOCOL, IPV4_PROTOCOL, COOKIE } from "./const";
 import { Int64BE } from "int64-buffer";
 
@@ -13,7 +13,7 @@ function packAddress(value: [string, number]) {
   }
   return Buffer.concat([
     Buffer.from(jspack.Pack("!BBH", [0, protocol, value[1]])),
-    nodeIp.toBuffer(address)
+    nodeIp.toBuffer(address),
   ]);
 }
 
@@ -46,7 +46,7 @@ function unpackAddress(data: Buffer): [string, number] {
 function xorAddress(data: Buffer, transactionId: Buffer) {
   const xPad = [
     ...jspack.Pack("!HI", [COOKIE >> 16, COOKIE]),
-    ...transactionId
+    ...transactionId,
   ];
   let xData = data.slice(0, 2);
 
@@ -81,7 +81,7 @@ const unpackUnsigned = (data: Buffer) => jspack.Unpack("!I", data)[0];
 const packUnsignedShort = (value: number) =>
   Buffer.concat([
     Buffer.from(jspack.Pack("!H", [value])),
-    Buffer.from("\x00\x00")
+    Buffer.from("\x00\x00"),
   ]);
 const unpackUnsignedShort = (data: Buffer) =>
   jspack.Unpack("!H", data.slice(0, 2))[0];
@@ -133,7 +133,7 @@ const ATTRIBUTES: ATTRIBUTE[] = [
   [0x8029, "ICE-CONTROLLED", packUnsigned64, unpackUnsigned64],
   [0x802a, "ICE-CONTROLLING", packUnsigned64, unpackUnsigned64],
   [0x802b, "RESPONSE-ORIGIN", packAddress, unpackAddress],
-  [0x802c, "OTHER-ADDRESS", packAddress, unpackAddress]
+  [0x802c, "OTHER-ADDRESS", packAddress, unpackAddress],
 ];
 
 export const ATTRIBUTES_BY_TYPE = ATTRIBUTES.reduce((acc, cur) => {
