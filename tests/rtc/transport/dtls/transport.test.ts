@@ -6,28 +6,32 @@ import { RTCIceGatherer, RTCIceTransport } from "../../../../src";
 import { sleep } from "../../../../src/utils";
 
 describe("RTCDtlsTransportTest", () => {
-  test("test_data", async () => {
-    const [transport1, transport2] = await iceTransportPair();
+  test(
+    "test_data",
+    async () => {
+      const [transport1, transport2] = await iceTransportPair();
 
-    const certificate1 = RTCCertificate.generateCertificate();
-    const session1 = new RTCDtlsTransport(transport1, [certificate1]);
-    const receiver1 = new DummyDataReceiver();
-    session1.registerDataReceiver(receiver1 as any);
+      const certificate1 = RTCCertificate.generateCertificate();
+      const session1 = new RTCDtlsTransport(transport1, [certificate1]);
+      const receiver1 = new DummyDataReceiver();
+      session1.registerDataReceiver(receiver1 as any);
 
-    const certificate2 = RTCCertificate.generateCertificate();
-    const session2 = new RTCDtlsTransport(transport2, [certificate2]);
-    const receiver2 = new DummyDataReceiver();
-    session2.registerDataReceiver(receiver2 as any);
+      const certificate2 = RTCCertificate.generateCertificate();
+      const session2 = new RTCDtlsTransport(transport2, [certificate2]);
+      const receiver2 = new DummyDataReceiver();
+      session2.registerDataReceiver(receiver2 as any);
 
-    await Promise.all([
-      session1.start(session2.getLocalParameters()),
-      session2.start(session1.getLocalParameters()),
-    ]);
+      await Promise.all([
+        session1.start(session2.getLocalParameters()),
+        session2.start(session1.getLocalParameters()),
+      ]);
 
-    session1.sendData(Buffer.from("ping"));
-    await sleep(100);
-    expect(receiver2.data).toEqual([Buffer.from("ping")]);
-  });
+      session1.sendData(Buffer.from("ping"));
+      await sleep(100);
+      expect(receiver2.data).toEqual([Buffer.from("ping")]);
+    },
+    10 * 1000
+  );
 });
 
 class DummyDataReceiver {

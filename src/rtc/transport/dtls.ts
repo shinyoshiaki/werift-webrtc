@@ -52,25 +52,28 @@ export class RTCDtlsTransport {
 
     this.setState(State.CONNECTING);
 
-    if (this.role === "server") {
-      this.dtls = new DtlsServer({
-        cert: this.localCertificate.cert,
-        key: this.localCertificate.privateKey,
-        ...this.transport.connection.connectedSocket,
-      });
-    } else {
-      await sleep(100);
-      this.dtls = new DtlsClient({
-        ...this.transport.connection.connectedSocket,
-      });
-    }
-    this.dtls.onData = (buf) => {
-      this.dataReceiver?.handleData(buf);
-    };
-    await new Promise((r) => {
-      this.dtls!.onConnect = () => {
+    await new Promise(async (r) => {
+      if (this.role === "server") {
+        this.dtls = new DtlsServer({
+          cert: this.localCertificate.cert,
+          key: this.localCertificate.privateKey,
+          ...this.transport.connection.connectedSocket,
+        });
+      } else {
+        this.dtls = new DtlsClient({
+          ...this.transport.connection.connectedSocket,
+        });
+      }
+      this.dtls.onData = (buf) => {
+        this.dataReceiver?.handleData(buf);
+      };
+      this.dtls.onConnect = () => {
         r();
       };
+      if ((this.dtls as any).connect) {
+        await sleep(100);
+        (this.dtls as any).connect();
+      }
     });
   }
 

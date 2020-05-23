@@ -22,6 +22,9 @@ export class DtlsClient extends DtlsSocket {
     super(options);
     this.cipher.sessionType = SessionType.CLIENT;
     this.udp.socket.on("message", this.udpOnMessage);
+  }
+
+  connect() {
     flight1(this.udp, this.dtls, this.record, this.cipher);
   }
 
