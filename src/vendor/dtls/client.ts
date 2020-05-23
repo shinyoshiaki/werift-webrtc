@@ -1,7 +1,5 @@
 import { Socket } from "dgram";
 import { flight1 } from "./flight/client/flight1";
-import { DtlsContext } from "./context/dtls";
-import { UdpContext } from "./context/udp";
 import { parsePacket } from "./record/receive";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { flight3 } from "./flight/client/flight3";
@@ -12,33 +10,21 @@ import { Certificate } from "./handshake/message/certificate";
 import { Flight5 } from "./flight/client/flight5";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { ServerKeyExchange } from "./handshake/message/server/keyExchange";
-import { RecordContext } from "./context/record";
-import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
-import { CipherContext } from "./context/cipher";
 import { SessionType } from "./cipher/suites/abstract";
+import { DtlsSocket } from "./socket";
 
-export type Options = { address: string; port: number; socket: Socket };
+type Options = { address: string; port: number; socket: Socket };
 
-export class DtlsClient {
-  onConnect?: () => void;
-  onData: (buf: Buffer) => void = () => {};
-
-  udp = new UdpContext(this.options.socket, this.options);
-  dtls = new DtlsContext();
-  record = new RecordContext();
-  cipher = new CipherContext();
-  constructor(private options: Options) {
-    this.udp.socket.on("message", this.udpOnMessage);
-    this.udpOnListening();
+export class DtlsClient extends DtlsSocket {
+  private flight4Buffer: FragmentedHandshake[] = [];
+  constructor(options: Options) {
+    super(options);
     this.cipher.sessionType = SessionType.CLIENT;
+    this.udp.socket.on("message", this.udpOnMessage);
+    flight1(this.udp, this.dtls, this.record, this.cipher);
   }
 
-  private udpOnListening = () => {
-    flight1(this.udp, this.dtls, this.record, this.cipher);
-  };
-
-  private flight4Buffer: FragmentedHandshake[] = [];
   private udpOnMessage = (data: Buffer) => {
     const messages = parsePacket(this.dtls, this.cipher)(data);
     if (messages.length === 0) {
@@ -61,7 +47,7 @@ export class DtlsClient {
     }
   };
 
-  handleHandshakes(handshakes: FragmentedHandshake[]) {
+  private handleHandshakes(handshakes: FragmentedHandshake[]) {
     if (handshakes[0].msg_type === HandshakeType.server_hello) {
       this.flight4Buffer = handshakes;
     }
@@ -130,17 +116,5 @@ export class DtlsClient {
         }
         break;
     }
-  }
-
-  send(buf: Buffer) {
-    const pkt = createPlaintext(this.dtls)(
-      [{ type: ContentType.applicationData, fragment: buf }],
-      ++this.record.recordSequenceNumber
-    )[0];
-    this.udp.send(this.cipher.encryptPacket(pkt).serialize());
-  }
-
-  close() {
-    this.udp.socket.close();
   }
 }
