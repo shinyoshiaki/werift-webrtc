@@ -5,7 +5,12 @@ import {
   RTCIceTransport,
   RTCIceParameters,
 } from "./transport/ice";
-import { RTCDtlsTransport, State, RTCDtlsParameters } from "./transport/dtls";
+import {
+  RTCDtlsTransport,
+  State,
+  RTCDtlsParameters,
+  RTCCertificate,
+} from "./transport/dtls";
 import { SessionDescription, GroupDescription, MediaDescription } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { RTCSessionDescription } from "./sessionDescription";
@@ -20,7 +25,7 @@ export class RTCPeerConnection {
   iceConnectionStateChange = new Subject<string>();
   signalingStateChange = new Subject<string>();
 
-  private certificates = [];
+  private certificates = [RTCCertificate.generateCertificate()];
   private sctp?: RTCSctpTransport;
   private sctpRemotePort?: number;
   private sctpRemoteCaps?: RTCSctpCapabilities;

@@ -1,6 +1,6 @@
 import {
   RTCCertificate,
-  RTCDtlsTransport
+  RTCDtlsTransport,
 } from "../../../../src/rtc/transport/dtls";
 import { RTCIceGatherer, RTCIceTransport } from "../../../../src";
 import { sleep } from "../../../../src/utils";
@@ -21,7 +21,7 @@ describe("RTCDtlsTransportTest", () => {
 
     await Promise.all([
       session1.start(session2.getLocalParameters()),
-      session2.start(session1.getLocalParameters())
+      session2.start(session1.getLocalParameters()),
     ]);
 
     session1.sendData(Buffer.from("ping"));
@@ -53,7 +53,7 @@ const iceTransportPair = async () => {
 
   await Promise.all([
     transport1.start(gatherer2.getLocalParameters()),
-    transport2.start(gatherer1.getLocalParameters())
+    transport2.start(gatherer1.getLocalParameters()),
   ]);
 
   return [transport1, transport2];
