@@ -1,25 +1,41 @@
 {
   "name": "icet",
   "version": "0.0.3",
-  "main": "lib/index.js",
-  "files": [
-    "lib",
-    "src"
-  ],
   "homepage": "https://github.com/shinyoshiaki/icet",
   "repository": {
     "type": "git",
     "url": "https://github.com/shinyoshiaki/icet.git"
   },
   "license": "MIT",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "src"
+  ],
   "scripts": {
     "build": "rm -rf lib && tsc",
-    "test": "npm run type && jest --forceExit",
     "ci": "jest --runInBand --forceExit",
-    "type": "tsc --noEmit --project ./tsconfig.json",
+    "format": "prettier --write src/**/*.ts",
     "publish": "npm publish --access=public",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
-    "format": "prettier --write src/**/*.ts"
+    "test": "npm run type && jest --forceExit",
+    "type": "tsc --noEmit --project ./tsconfig.json"
+  },
+  "jest": {
+    "globals": {
+      "ts-jest": {
+        "tsConfig": "tsconfig.json"
+      }
+    },
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js"
+    ],
+    "preset": "ts-jest",
+    "testMatch": [
+      "**/*.test.ts"
+    ]
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
@@ -50,26 +66,11 @@
     "@types/ws": "^7.2.4",
     "jest": "^26.0.0",
     "prettier": "^2.0.5",
+    "python-shell": "^2.0.1",
     "ts-jest": "^25.5.1",
     "ts-node": "^8.10.1",
     "tslib": "^1.12.0",
     "typescript": "^3.9.2",
     "ws": "^7.3.0"
-  },
-  "jest": {
-    "preset": "ts-jest",
-    "moduleFileExtensions": [
-      "ts",
-      "tsx",
-      "js"
-    ],
-    "globals": {
-      "ts-jest": {
-        "tsConfig": "tsconfig.json"
-      }
-    },
-    "testMatch": [
-      "**/*.test.ts"
-    ]
   }
 }

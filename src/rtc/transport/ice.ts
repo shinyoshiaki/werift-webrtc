@@ -47,7 +47,7 @@ export class RTCIceGatherer {
   }
 }
 
-function candidateFromIce(c: Candidate) {
+export function candidateFromIce(c: Candidate) {
   const candidate = new RTCIceCandidate(
     c.component,
     c.foundation,
@@ -63,7 +63,7 @@ function candidateFromIce(c: Candidate) {
   return candidate;
 }
 
-function candidateToIce(x: RTCIceCandidate) {
+export function candidateToIce(x: RTCIceCandidate) {
   return new Candidate(
     x.foundation,
     x.component,
