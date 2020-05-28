@@ -1,4 +1,4 @@
-import { UdpContext } from "../../context/udp";
+import { TransportContext } from "../../context/transport";
 import { DtlsContext } from "../../context/dtls";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
@@ -6,7 +6,7 @@ import { createFragments, createPlaintext } from "../../record/builder";
 import { RecordContext } from "../../context/record";
 
 export const flight3 = (
-  udp: UdpContext,
+  udp: TransportContext,
   client: DtlsContext,
   record: RecordContext
 ) => (verifyReq: ServerHelloVerifyRequest) => {

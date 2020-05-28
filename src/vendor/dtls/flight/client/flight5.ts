@@ -11,7 +11,7 @@ import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { RecordContext } from "../../context/record";
-import { UdpContext } from "../../context/udp";
+import { TransportContext } from "../../context/transport";
 import { DtlsRandom } from "../../handshake/random";
 import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
@@ -20,7 +20,7 @@ import { CipherContext } from "../../context/cipher";
 
 export class Flight5 {
   constructor(
-    private udp: UdpContext,
+    private udp: TransportContext,
     private dtls: DtlsContext,
     private record: RecordContext,
     private cipher: CipherContext

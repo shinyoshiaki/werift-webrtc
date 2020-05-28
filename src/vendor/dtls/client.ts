@@ -1,4 +1,3 @@
-import { Socket } from "dgram";
 import { flight1 } from "./flight/client/flight1";
 import { parsePacket } from "./record/receive";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
@@ -13,15 +12,16 @@ import { ServerKeyExchange } from "./handshake/message/server/keyExchange";
 import { ContentType } from "./record/const";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket } from "./socket";
+import { Transport } from "./transport";
 
-type Options = { address: string; port: number; socket: Socket };
+type Options = { socket: Transport };
 
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
   constructor(options: Options) {
     super(options);
     this.cipher.sessionType = SessionType.CLIENT;
-    this.udp.socket.on("message", this.udpOnMessage);
+    this.udp.socket.onData = this.udpOnMessage;
   }
 
   connect() {

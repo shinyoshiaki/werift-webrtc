@@ -6,7 +6,7 @@ import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { RecordContext } from "../../context/record";
-import { UdpContext } from "../../context/udp";
+import { TransportContext } from "../../context/transport";
 import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
 import { CipherSuite } from "../../cipher/const";
@@ -16,7 +16,7 @@ import { DtlsPlaintext } from "../../record/message/plaintext";
 
 export class Flight6 {
   constructor(
-    private udp: UdpContext,
+    private udp: TransportContext,
     private dtls: DtlsContext,
     private record: RecordContext,
     private cipher: CipherContext
@@ -119,4 +119,6 @@ handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
   );
 };
 
-handlers[HandshakeType.finished] = () => () => {};
+handlers[HandshakeType.finished] = () => (message: Finished) => {
+  console.log(message);
+};

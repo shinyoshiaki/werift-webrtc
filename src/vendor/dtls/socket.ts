@@ -1,27 +1,25 @@
-import { UdpContext } from "./context/udp";
-import { Socket } from "dgram";
+import { TransportContext } from "./context/transport";
 import { DtlsContext } from "./context/dtls";
 import { RecordContext } from "./context/record";
 import { CipherContext } from "./context/cipher";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
+import { Transport } from "./transport";
 
 type Options = {
-  port?: number;
-  address?: string;
-  socket: Socket;
+  socket: Transport;
 };
 
 export abstract class DtlsSocket {
   onConnect: () => void = () => {};
   onData: (buf: Buffer) => void = () => {};
-  udp: UdpContext;
+  udp: TransportContext;
   dtls = new DtlsContext();
   record = new RecordContext();
   cipher = new CipherContext();
 
   constructor(options: Options) {
-    this.udp = new UdpContext(options.socket, options);
+    this.udp = new TransportContext(options.socket);
   }
 
   send(buf: Buffer) {

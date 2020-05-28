@@ -1,4 +1,3 @@
-import { RemoteInfo, Socket } from "dgram";
 import { parsePacket } from "./record/receive";
 import { HandshakeType } from "./handshake/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -9,13 +8,12 @@ import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket } from "./socket";
+import { Transport } from "./transport";
 
 type Options = {
-  port?: number;
-  address?: string;
   cert: string;
   key: string;
-  socket: Socket;
+  socket: Transport;
 };
 
 export class DtlsServer extends DtlsSocket {
@@ -24,11 +22,10 @@ export class DtlsServer extends DtlsSocket {
     this.cipher.certPem = options.cert;
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.SERVER;
-    this.udp.socket.on("message", this.udpOnMessage);
+    this.udp.socket.onData = this.udpOnMessage;
   }
 
-  private udpOnMessage = (data: Buffer, rInfo: RemoteInfo) => {
-    this.udp.rinfo = rInfo;
+  private udpOnMessage = (data: Buffer) => {
     const messages = parsePacket(this.dtls, this.cipher)(data);
     if (messages.length === 0) return;
     switch (messages[0].type) {
@@ -51,7 +48,8 @@ export class DtlsServer extends DtlsSocket {
     switch (handshakes[0].msg_type) {
       case HandshakeType.client_hello:
         {
-          const clientHello = ClientHello.deSerialize(handshakes[0].fragment);
+          const assemble = FragmentedHandshake.assemble(handshakes);
+          const clientHello = ClientHello.deSerialize(assemble.fragment);
           if (this.dtls.flight === 1) {
             flight2(this.udp, this.dtls, this.record, this.cipher)(clientHello);
           } else {

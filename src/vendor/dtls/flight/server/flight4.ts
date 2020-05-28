@@ -1,5 +1,5 @@
 import { createFragments, createPlaintext } from "../../record/builder";
-import { UdpContext } from "../../context/udp";
+import { TransportContext } from "../../context/transport";
 import { DtlsContext } from "../../context/dtls";
 import { RecordContext } from "../../context/record";
 import { CipherContext } from "../../context/cipher";
@@ -12,7 +12,7 @@ import { SignatureAlgorithm, HashAlgorithm } from "../../cipher/const";
 
 export class Flight4 {
   constructor(
-    private udp: UdpContext,
+    private udp: TransportContext,
     private dtls: DtlsContext,
     private record: RecordContext,
     private cipher: CipherContext

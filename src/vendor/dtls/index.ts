@@ -1,3 +1,11 @@
+export {
+  createIceTransport,
+  createUdpTransport,
+  Transport,
+  UdpTransport,
+  IceTransport,
+} from "./transport";
+
 export { DtlsSocket } from "./socket";
 
 export { DtlsServer } from "./server";
