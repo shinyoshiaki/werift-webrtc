@@ -9,7 +9,7 @@ import {
   DtlsSocket,
   createIceTransport,
 } from "../../vendor/dtls";
-import { sleep } from "../../utils";
+import { sleep, fingerprint } from "../../utils";
 
 export enum State {
   NEW = 0,
@@ -111,7 +111,12 @@ export class RTCCertificate {
   }
 
   getFingerprints(): RTCDtlsFingerprint[] {
-    return [new RTCDtlsFingerprint("sha-256", this.publicKey)];
+    return [
+      new RTCDtlsFingerprint(
+        "sha-256",
+        fingerprint(Certificate.fromPEM(Buffer.from(this.cert)).raw, "sha256")
+      ),
+    ];
   }
 
   static generateCertificate() {

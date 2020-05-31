@@ -83,9 +83,8 @@ describe("aio", () => {
       const fingerprint: string = await new Promise((r) =>
         ws.once("message", (data) => r(data))
       );
-      const { fingerprints, role } = JSON.parse(
-        fingerprint
-      ) as FingerprintMessage;
+      const receiveParams = JSON.parse(fingerprint) as FingerprintMessage;
+      const { fingerprints, role } = receiveParams;
 
       const certificate = RTCCertificate.generateCertificate();
       const session = new RTCDtlsTransport(transport, [certificate]);
@@ -97,14 +96,13 @@ describe("aio", () => {
       }
       const receiver = new Dummy();
       session.registerDataReceiver(receiver as any);
-      ws.send(
-        JSON.stringify({
-          fingerprints: session
-            .getLocalParameters()
-            .fingerprints.map((v) => `${v.algorithm} ${v.value}`),
-          role: session.getLocalParameters().role,
-        })
-      );
+      const sendParams = {
+        fingerprints: session
+          .getLocalParameters()
+          .fingerprints.map((v) => `${v.algorithm} ${v.value}`),
+        role: session.getLocalParameters().role,
+      };
+      ws.send(JSON.stringify(sendParams));
 
       const dtlsParams = new RTCDtlsParameters(
         fingerprints.map((v) => {
@@ -117,7 +115,7 @@ describe("aio", () => {
 
       await sleep(100);
       const msg = receiver.data;
-      console.log(msg);
+      console.log(msg.toString());
       server.kill();
       client.kill();
       ws.close();

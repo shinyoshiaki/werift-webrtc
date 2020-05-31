@@ -1,5 +1,5 @@
 import { jspack } from "jspack";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 
 export function generateUUID(): string {
   return new Array(4)
@@ -39,5 +39,14 @@ export function enumerate<T>(arr: T[]) {
 }
 
 export async function sleep(ms: number) {
-  await new Promise(r => setTimeout(r, ms));
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+const upper = (s: string) => s.toUpperCase();
+const colon = (s: any) => s.match(/(.{2})/g).join(":");
+
+export function fingerprint(file: Buffer, hashname: string) {
+  const hash = createHash(hashname).update(file).digest("hex");
+
+  return colon(upper(hash));
 }
