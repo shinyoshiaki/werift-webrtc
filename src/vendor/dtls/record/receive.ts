@@ -3,6 +3,7 @@ import { FragmentedHandshake } from "./message/fragment";
 import { DtlsContext } from "../context/dtls";
 import { CipherContext } from "../context/cipher";
 import { ContentType } from "./const";
+import { Alert } from "../handshake/message/alert";
 
 export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
   data: Buffer
@@ -47,7 +48,9 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
         };
       }
       case ContentType.alert: {
-        console.log("ContentType.alert", p);
+        console.log("ContentType.alert", p, data);
+        let buf = data;
+        const alert = Alert.deSerialize(p.fragment);
         throw new Error("alert");
       }
       default: {

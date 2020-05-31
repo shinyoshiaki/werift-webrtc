@@ -113,10 +113,10 @@ describe("aio", () => {
         }),
         role as any
       );
-      // await session.start(dtlsParams);
+      await session.start(dtlsParams);
 
-      // await sleep(100);
-      // console.log(receiver.data);
+      await sleep(100);
+      console.log(receiver.data);
       server.kill();
       client.kill();
       ws.close();

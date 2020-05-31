@@ -1,19 +1,12 @@
 import { encode, types, decode } from "binary-data";
 
-const AlertLevel = types.uint8;
-const AlertDescription = types.uint8;
-
 export class Alert {
   static readonly spec = {
-    level: AlertLevel,
-    description: AlertDescription,
+    level: types.uint8,
+    description: types.uint8,
   };
 
-  constructor(public verifyData: Buffer) {}
-
-  static createEmpty() {
-    return new Alert(undefined as any);
-  }
+  constructor(public level: number, public description: number) {}
 
   static deSerialize(buf: Buffer) {
     return new Alert(

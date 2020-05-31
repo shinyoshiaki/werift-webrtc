@@ -3,7 +3,12 @@ import { createHash } from "crypto";
 import { Subject } from "rxjs";
 import { RTCSctpTransport } from "./sctp/sctp";
 import { Certificate, PrivateKey } from "@fidm/x509";
-import { DtlsServer, DtlsClient, DtlsSocket } from "../../vendor/dtls";
+import {
+  DtlsServer,
+  DtlsClient,
+  DtlsSocket,
+  createIceTransport,
+} from "../../vendor/dtls";
 import { sleep } from "../../utils";
 
 export enum State {
@@ -57,11 +62,11 @@ export class RTCDtlsTransport {
         this.dtls = new DtlsServer({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          ...this.transport.connection.connectedSocket,
+          socket: createIceTransport(this.transport.connection as any),
         });
       } else {
         this.dtls = new DtlsClient({
-          ...this.transport.connection.connectedSocket,
+          socket: createIceTransport(this.transport.connection as any),
         });
       }
       this.dtls.onData = (buf) => {
@@ -70,9 +75,9 @@ export class RTCDtlsTransport {
       this.dtls.onConnect = () => {
         r();
       };
-      if ((this.dtls as any).connect) {
-        await sleep(100);
-        (this.dtls as any).connect();
+      if (((this.dtls as any) as DtlsClient).connect!!) {
+        // await sleep(100);
+        ((this.dtls as any) as DtlsClient).connect();
       }
     });
   }
