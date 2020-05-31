@@ -45,7 +45,7 @@ export class Flight4 {
       [] // extensions
     );
     const fragments = createFragments(this.dtls)([serverHello]);
-    this.dtls.bufferHandshake(
+    this.dtls.bufferHandshakeCache(
       fragments.map((v) => v.fragment),
       true,
       4
@@ -65,7 +65,7 @@ export class Flight4 {
     this.cipher.localPrivateKey = sign.key;
     const certificate = new Certificate([Buffer.from(sign.cert)]);
     const fragments = createFragments(this.dtls)([certificate]);
-    this.dtls.bufferHandshake(
+    this.dtls.bufferHandshakeCache(
       fragments.map((v) => v.fragment),
       true,
       4
@@ -109,7 +109,7 @@ export class Flight4 {
       signature
     );
     const fragments = createFragments(this.dtls)([keyExchange]);
-    this.dtls.bufferHandshake(
+    this.dtls.bufferHandshakeCache(
       fragments.map((v) => v.fragment),
       true,
       4
@@ -125,7 +125,7 @@ export class Flight4 {
   sendServerHelloDone() {
     const handshake = new ServerHelloDone();
     const fragments = createFragments(this.dtls)([handshake]);
-    this.dtls.bufferHandshake(
+    this.dtls.bufferHandshakeCache(
       fragments.map((v) => v.fragment),
       true,
       4

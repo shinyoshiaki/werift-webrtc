@@ -13,7 +13,7 @@ export const flight3 = (
   const hello = client.lastFlight[0] as ClientHello;
   hello.cookie = verifyReq.cookie;
   const fragments = createFragments(client)([hello]);
-  client.bufferHandshake(
+  client.bufferHandshakeCache(
     fragments.map((v) => v.fragment),
     true,
     3

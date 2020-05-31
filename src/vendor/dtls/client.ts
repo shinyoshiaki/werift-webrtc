@@ -87,7 +87,7 @@ export class DtlsClient extends DtlsSocket {
             })
             .filter((v) => v);
           this.flight4Buffer = [];
-          this.dtls.bufferHandshake(
+          this.dtls.bufferHandshakeCache(
             fragments.map((v) => v.serialize()),
             false,
             4
@@ -101,6 +101,8 @@ export class DtlsClient extends DtlsSocket {
                 return Certificate.deSerialize(handshake.fragment);
               case HandshakeType.server_key_exchange:
                 return ServerKeyExchange.deSerialize(handshake.fragment);
+              case HandshakeType.certificate_request:
+                return (undefined as any) as ServerHello;
               case HandshakeType.server_hello_done:
                 return ServerHelloDone.deSerialize(handshake.fragment);
               default:

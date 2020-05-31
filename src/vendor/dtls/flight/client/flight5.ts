@@ -55,7 +55,7 @@ export class Flight5 {
       this.cipher.localKeyPair.publicKey
     );
     const fragments = createFragments(this.dtls)([clientKeyExchange]);
-    this.dtls.bufferHandshake(
+    this.dtls.bufferHandshakeCache(
       fragments.map((v) => v.fragment),
       true,
       5
