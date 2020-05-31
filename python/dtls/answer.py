@@ -4,6 +4,9 @@ from aioice import (Candidate)
 import asyncio
 import websockets
 import json
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 WEBSOCKET_URI = "ws://127.0.0.1:8765"
 
@@ -111,6 +114,7 @@ async def main():
                                )
     print("params %s" % {repr(params)})
     await session.start(params)
+    print("state %s" % {repr(session._state)})
     await session._send_data(b"ping")
 
     await websocket.close()

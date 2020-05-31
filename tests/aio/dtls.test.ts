@@ -116,7 +116,8 @@ describe("aio", () => {
       await session.start(dtlsParams);
 
       await sleep(100);
-      console.log(receiver.data);
+      const msg = receiver.data;
+      console.log(msg);
       server.kill();
       client.kill();
       ws.close();

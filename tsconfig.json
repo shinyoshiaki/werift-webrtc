@@ -17,5 +17,5 @@
     "strictNullChecks": true,
     "noImplicitAny": true
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "examples"]
 }
