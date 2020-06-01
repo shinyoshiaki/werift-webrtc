@@ -13,6 +13,7 @@ import { ContentType } from "./record/const";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket } from "./socket";
 import { Transport } from "./transport";
+import { ServerCertificateRequest } from "./handshake/message/server/certificateRequest";
 
 type Options = { socket: Transport };
 
@@ -102,7 +103,8 @@ export class DtlsClient extends DtlsSocket {
               case HandshakeType.server_key_exchange:
                 return ServerKeyExchange.deSerialize(handshake.fragment);
               case HandshakeType.certificate_request:
-                return (undefined as any) as ServerHello;
+                // todo impl
+                return ServerCertificateRequest.deSerialize(handshake.fragment);
               case HandshakeType.server_hello_done:
                 return ServerHelloDone.deSerialize(handshake.fragment);
               default:
