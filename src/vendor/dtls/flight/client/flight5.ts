@@ -17,6 +17,7 @@ import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
 import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
+import { ServerCertificateRequest } from '../../handshake/message/server/certificateRequest';
 
 export class Flight5 {
   constructor(
@@ -32,6 +33,7 @@ export class Flight5 {
       | Certificate
       | ServerKeyExchange
       | ServerHelloDone
+      | ServerCertificateRequest
     )[]
   ) {
     if (this.dtls.flight === 5) return;
