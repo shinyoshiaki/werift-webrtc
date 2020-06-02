@@ -66,6 +66,8 @@ export class RTCDtlsTransport {
         });
       } else {
         this.dtls = new DtlsClient({
+          cert: this.localCertificate.cert,
+          key: this.localCertificate.privateKey,
           socket: createIceTransport(this.transport.connection as any),
         });
       }
