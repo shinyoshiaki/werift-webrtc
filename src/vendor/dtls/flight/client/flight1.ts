@@ -13,6 +13,7 @@ import {
   NamedCurveAlgorithm,
 } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
+import { ContentType } from "../../record/const";
 
 export const flight1 = async (
   udp: TransportContext,
@@ -27,8 +28,8 @@ export const flight1 = async (
   ];
   const signature = Signature.createEmpty();
   signature.data = [
-    { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
     { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
+    { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
   ];
 
   const hello = new ClientHello(
@@ -45,8 +46,12 @@ export const flight1 = async (
   );
 
   const fragments = createFragments(dtls)([hello]);
+  dtls.bufferHandshakeCache(fragments, true, 1);
   const packets = createPlaintext(dtls)(
-    fragments,
+    fragments.map((fragment) => ({
+      type: ContentType.handshake,
+      fragment: fragment.serialize(),
+    })),
     ++record.recordSequenceNumber
   );
   const buf = Buffer.concat(packets.map((v) => v.serialize()));

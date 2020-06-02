@@ -4,22 +4,23 @@ import { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { RecordContext } from "../../context/record";
+import { ContentType } from "../../record/const";
 
 export const flight3 = (
   udp: TransportContext,
-  client: DtlsContext,
+  dtls: DtlsContext,
   record: RecordContext
 ) => (verifyReq: ServerHelloVerifyRequest) => {
-  const hello = client.lastFlight[0] as ClientHello;
+  const hello = dtls.lastFlight[0] as ClientHello;
   hello.cookie = verifyReq.cookie;
-  const fragments = createFragments(client)([hello]);
-  client.bufferHandshakeCache(
-    fragments.map((v) => v.fragment),
-    true,
-    3
-  );
-  const packets = createPlaintext(client)(
-    fragments,
+  const fragments = createFragments(dtls)([hello]);
+  dtls.handshakeCache = [];
+  dtls.bufferHandshakeCache(fragments, true, 3);
+  const packets = createPlaintext(dtls)(
+    fragments.map((fragment) => ({
+      type: ContentType.handshake,
+      fragment: fragment.serialize(),
+    })),
     ++record.recordSequenceNumber
   );
   const buf = Buffer.concat(packets.map((v) => v.serialize()));

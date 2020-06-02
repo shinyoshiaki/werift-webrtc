@@ -1,9 +1,8 @@
-import { ContentType } from "./const";
 import { DtlsPlaintext } from "./message/plaintext";
 import { DtlsContext } from "../context/dtls";
 import { Handshake } from "../typings/domain";
 
-export type Fragment = { type: number; fragment: Buffer };
+export type Message = { type: number; fragment: Buffer };
 
 export const createFragments = (client: DtlsContext) => (
   handshakes: Handshake[]
@@ -14,17 +13,14 @@ export const createFragments = (client: DtlsContext) => (
     .map((handshake) => {
       handshake.messageSeq = client.sequenceNumber++;
       const fragment = handshake.toFragment();
-      const fragments = fragment.chunk().map((f) => ({
-        type: ContentType.handshake,
-        fragment: f.serialize(),
-      }));
+      const fragments = fragment.chunk();
       return fragments;
     })
     .flatMap((v) => v);
 };
 
 export const createPlaintext = (client: DtlsContext) => (
-  fragments: Fragment[],
+  fragments: Message[],
   recordSequenceNumber: number
 ) => {
   return fragments.map((msg) => {

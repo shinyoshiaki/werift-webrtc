@@ -6,7 +6,8 @@ import { ProtocolVersion } from "../handshake/binary";
 import { encode, decode, types } from "binary-data";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
 import { SessionType } from "../cipher/suites/abstract";
-import { PrivateKey } from "@fidm/x509";
+import { PrivateKey, RSAPrivateKey } from "@fidm/x509";
+import { createSign } from "crypto";
 
 export class CipherContext {
   sessionType?: SessionType;
@@ -58,5 +59,13 @@ export class CipherContext {
   verifyData(buf: Buffer, isClient = true) {
     if (isClient) return prfVerifyDataClient(this.masterSecret!, buf);
     else return prfVerifyDataServer(this.masterSecret!, buf);
+  }
+
+  signatureData(data: Buffer, hash: string) {
+    const signature = createSign(hash).update(data);
+    const privKey = RSAPrivateKey.fromPrivateKey(this.localPrivateKey!);
+    const key = privKey.toPEM().toString()!;
+    const signed = signature.sign(key);
+    return signed;
   }
 }

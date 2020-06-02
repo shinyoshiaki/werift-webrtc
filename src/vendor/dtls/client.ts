@@ -15,12 +15,18 @@ import { DtlsSocket } from "./socket";
 import { Transport } from "./transport";
 import { ServerCertificateRequest } from "./handshake/message/server/certificateRequest";
 
-type Options = { socket: Transport };
+type Options = {
+  socket: Transport;
+  cert?: string; // when Server CertificateRequest
+  key?: string; // when Server CertificateRequest
+};
 
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
   constructor(options: Options) {
     super(options);
+    this.cipher.certPem = options.cert;
+    this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.CLIENT;
     this.udp.socket.onData = this.udpOnMessage;
   }
@@ -88,11 +94,8 @@ export class DtlsClient extends DtlsSocket {
             })
             .filter((v) => v);
           this.flight4Buffer = [];
-          this.dtls.bufferHandshakeCache(
-            fragments.map((v) => v.serialize()),
-            false,
-            4
-          );
+          this.dtls.bufferHandshakeCache(fragments, false, 4);
+          console.log(this.dtls.bufferHandshakeCache.length);
 
           const messages = fragments.map((handshake) => {
             switch (handshake.msg_type) {

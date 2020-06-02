@@ -48,11 +48,7 @@ export class Flight6 {
       );
       return fragment;
     });
-    this.dtls.bufferHandshakeCache(
-      fragments.map((h) => h.serialize()),
-      false,
-      5
-    );
+    this.dtls.bufferHandshakeCache(fragments, false, 5);
 
     this.sendChangeCipherSpec();
     this.sendFinished();
@@ -69,14 +65,19 @@ export class Flight6 {
   }
 
   sendFinished() {
-    const cache = Buffer.concat(this.dtls.handshakeCache.map((v) => v.data));
+    const cache = Buffer.concat(
+      this.dtls.handshakeCache.map((v) => v.data.serialize())
+    );
 
     const localVerifyData = this.cipher.verifyData(cache, false);
     const finish = new Finished(localVerifyData);
     const fragments = createFragments(this.dtls)([finish]);
     this.dtls.epoch = 1;
     const pkt = createPlaintext(this.dtls)(
-      fragments,
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
       ++this.record.recordSequenceNumber
     )[0];
     this.record.recordSequenceNumber = 0;

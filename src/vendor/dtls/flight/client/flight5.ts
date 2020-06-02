@@ -17,7 +17,9 @@ import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
 import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
-import { ServerCertificateRequest } from '../../handshake/message/server/certificateRequest';
+import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
+import { parseX509 } from "../../cipher/x509";
+import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
 
 export class Flight5 {
   constructor(
@@ -40,14 +42,37 @@ export class Flight5 {
     this.dtls.flight = 5;
 
     messages.forEach((message) => {
-      handlers[message.msgType]({ client: this.dtls, cipher: this.cipher })(
+      handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
         message
       );
     });
 
+    if (this.dtls.requestedCertificateTypes.length > 0) this.sendCertificate();
     this.sendClientKeyExchange();
+    if (this.dtls.requestedCertificateTypes.length > 0)
+      this.sendCertificateVerify();
     this.sendChangeCipherSpec();
     this.sendFinished();
+  }
+
+  sendCertificate() {
+    console.log("client certificate");
+    if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
+
+    const sign = parseX509(this.cipher.certPem, this.cipher.keyPem);
+    this.cipher.localPrivateKey = sign.key;
+    const certificate = new Certificate([Buffer.from(sign.cert)]);
+    const fragments = createFragments(this.dtls)([certificate]);
+    this.dtls.bufferHandshakeCache(fragments, true, 5);
+    const packets = createPlaintext(this.dtls)(
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
+      ++this.record.recordSequenceNumber
+    );
+    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+    this.udp.send(buf);
   }
 
   sendClientKeyExchange() {
@@ -57,13 +82,30 @@ export class Flight5 {
       this.cipher.localKeyPair.publicKey
     );
     const fragments = createFragments(this.dtls)([clientKeyExchange]);
-    this.dtls.bufferHandshakeCache(
-      fragments.map((v) => v.fragment),
-      true,
-      5
-    );
+    this.dtls.bufferHandshakeCache(fragments, true, 5);
     const packets = createPlaintext(this.dtls)(
-      fragments,
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
+      ++this.record.recordSequenceNumber
+    );
+    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+    this.udp.send(buf);
+  }
+
+  sendCertificateVerify() {
+    const caches = this.dtls.handshakeCache.map((v) => v.data);
+    const cache = Buffer.concat(caches.map((v) => v.serialize()));
+    const signed = this.cipher.signatureData(cache, "sha256");
+    const certificateVerify = new CertificateVerify(0x0401, signed);
+    const fragments = createFragments(this.dtls)([certificateVerify]);
+    this.dtls.bufferHandshakeCache(fragments, true, 5);
+    const packets = createPlaintext(this.dtls)(
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
       ++this.record.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
@@ -81,14 +123,19 @@ export class Flight5 {
   }
 
   sendFinished() {
-    const cache = Buffer.concat(this.dtls.handshakeCache.map((v) => v.data));
+    const cache = Buffer.concat(
+      this.dtls.handshakeCache.map((v) => v.data.serialize())
+    );
 
     const localVerifyData = this.cipher.verifyData(cache);
     const finish = new Finished(localVerifyData);
     const fragments = createFragments(this.dtls)([finish]);
     this.dtls.epoch = 1;
     const pkt = createPlaintext(this.dtls)(
-      fragments,
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
       ++this.record.recordSequenceNumber
     )[0];
     this.record.recordSequenceNumber = 0;
@@ -100,7 +147,7 @@ export class Flight5 {
 
 const handlers: {
   [key: number]: (contexts: {
-    client: DtlsContext;
+    dtls: DtlsContext;
     cipher: CipherContext;
   }) => (message: any) => void;
 } = {};
@@ -146,3 +193,10 @@ handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
 };
 
 handlers[HandshakeType.server_hello_done] = () => () => {};
+
+handlers[HandshakeType.certificate_request] = ({ dtls }) => (
+  message: ServerCertificateRequest
+) => {
+  dtls.requestedCertificateTypes = message.certificateTypes;
+  dtls.requestedSignatureAlgorithms = message.signatures;
+};

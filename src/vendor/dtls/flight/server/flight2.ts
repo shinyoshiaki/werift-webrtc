@@ -11,6 +11,7 @@ import { CipherContext } from "../../context/cipher";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { randomBytes } from "crypto";
 import { CipherSuite, NamedCurveAlgorithm } from "../../cipher/const";
+import { ContentType } from "../../record/const";
 
 export const flight2 = (
   udp: TransportContext,
@@ -48,7 +49,10 @@ export const flight2 = (
   );
   const fragments = createFragments(dtls)([helloVerifyReq]);
   const packets = createPlaintext(dtls)(
-    fragments,
+    fragments.map((fragment) => ({
+      type: ContentType.handshake,
+      fragment: fragment.serialize(),
+    })),
     ++record.recordSequenceNumber
   );
   const buf = Buffer.concat(packets.map((v) => v.serialize()));

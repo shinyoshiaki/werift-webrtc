@@ -53,7 +53,7 @@ export class DtlsServer extends DtlsSocket {
           if (this.dtls.flight === 1) {
             flight2(this.udp, this.dtls, this.record, this.cipher)(clientHello);
           } else {
-            this.dtls.bufferHandshakeCache([assemble.serialize()], false, 4);
+            this.dtls.bufferHandshakeCache([assemble], false, 4);
             new Flight4(this.udp, this.dtls, this.record, this.cipher).exec();
           }
         }
