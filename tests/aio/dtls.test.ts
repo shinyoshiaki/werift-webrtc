@@ -112,13 +112,15 @@ describe("aio", () => {
         role as any
       );
       await session.start(dtlsParams);
-
-      await sleep(100);
+      session.sendData(Buffer.from("ping"));
+      await sleep(150);
       const msg = receiver.data;
-      console.log(msg.toString());
+
       server.kill();
       client.kill();
       ws.close();
+      expect(msg.toString()).toBe("pong");
+
       done();
     },
     1000 * 60 * 10

@@ -115,9 +115,13 @@ async def main():
     print("params %s" % {repr(params)})
     await session.start(params)
     print("state %s" % {repr(session._state)})
-    await session._send_data(b"ping")
 
     await websocket.close()
+
+    await asyncio.sleep(0.1)
+
+    if receiver.data == [b"ping"]:
+        await session._send_data(b"pong")
 
 
 asyncio.get_event_loop().run_until_complete(main())

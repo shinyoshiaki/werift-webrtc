@@ -18,6 +18,6 @@ export const ASN11Cert = buffer(uint24be);
 export const ClientCertificateType = uint8;
 export const DistinguishedName = string(uint16be);
 
-export const SignatureAlgorithm = uint16be;
+export const SignatureAlgorithm = { hash: uint8, signature: uint8 };
 
 export const ProtocolVersion = { major: uint8, minor: uint8 };
