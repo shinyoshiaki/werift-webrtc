@@ -78,7 +78,7 @@ export class RTCDtlsTransport {
         r();
       };
       if (((this.dtls as any) as DtlsClient).connect!!) {
-        // await sleep(100);
+        await sleep(100);
         ((this.dtls as any) as DtlsClient).connect();
       }
     });

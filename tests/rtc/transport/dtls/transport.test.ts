@@ -7,7 +7,7 @@ import { sleep } from "../../../../src/utils";
 
 describe("RTCDtlsTransportTest", () => {
   test(
-    "test_data",
+    "dtls_test_data",
     async () => {
       const [transport1, transport2] = await iceTransportPair();
 

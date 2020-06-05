@@ -45,7 +45,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "-t aio_dtls"
+        "-t dtls_test_data"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
