@@ -45,7 +45,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "-t aio_dtls"
+        "-t test_connect_then_client_creates_data_channel"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
