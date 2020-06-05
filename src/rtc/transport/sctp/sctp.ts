@@ -683,7 +683,7 @@ export class RTCSctpTransport {
     this.flightSize = Math.max(0, this.flightSize - chunk.bookSize!);
   }
 
-  private async t1Expired() {
+  private t1Expired = async () => {
     this.t1Failures++;
     this.t1Handle = undefined;
     if (this.t1Failures > SCTP_MAX_INIT_RETRANS) this.setState(State.CLOSED);
@@ -691,7 +691,7 @@ export class RTCSctpTransport {
       await this.sendChunk(this.t1Chunk!);
       this.t1Handle = setTimeout(this.t1Expired, this.rto);
     }
-  }
+  };
 
   private t1Start(chunk: Chunk) {
     if (this.t1Handle) throw new Error();
@@ -713,7 +713,7 @@ export class RTCSctpTransport {
     this.t3Handle = setTimeout(this.t3Expired, this.rto);
   }
 
-  private t3Expired() {
+  private t3Expired = () => {
     this.t3Handle = undefined;
     this.sentQueue.forEach((chunk) => {
       if (!this.maybeAbandon(chunk)) {
@@ -733,7 +733,7 @@ export class RTCSctpTransport {
     this.cwnd = USERDATA_MAX_LENGTH;
 
     this.transmit();
-  }
+  };
 
   t3Cancel() {
     if (this.t3Handle) {

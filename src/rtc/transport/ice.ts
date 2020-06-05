@@ -15,7 +15,7 @@ export class RTCIceGatherer {
   private _state: IceState = "new";
   connection: Connection;
   constructor(stunServer?: [string, number]) {
-    this.connection = new Connection(false, { stunServer });
+    this.connection = new Connection(true, { stunServer });
   }
 
   get state() {

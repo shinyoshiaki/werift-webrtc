@@ -77,6 +77,7 @@ export class RTCDtlsTransport {
       this.dtls.onConnect = () => {
         r();
       };
+
       if (((this.dtls as any) as DtlsClient).connect!!) {
         await sleep(100);
         ((this.dtls as any) as DtlsClient).connect();
