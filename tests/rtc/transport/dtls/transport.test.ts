@@ -5,6 +5,27 @@ import {
 import { RTCIceGatherer, RTCIceTransport } from "../../../../src";
 import { sleep } from "../../../../src/utils";
 
+export async function dtlsTransportPair() {
+  const [transport1, transport2] = await iceTransportPair();
+
+  const certificate1 = RTCCertificate.generateCertificate();
+  const session1 = new RTCDtlsTransport(transport1, [certificate1]);
+
+  const certificate2 = RTCCertificate.generateCertificate();
+  const session2 = new RTCDtlsTransport(transport2, [certificate2]);
+
+  await Promise.all([
+    session1.start(session2.getLocalParameters()),
+    session2.start(session1.getLocalParameters()),
+  ]);
+
+  if (session1.role === "client") {
+    return [session1, session2];
+  } else {
+    return [session2, session1];
+  }
+}
+
 describe("RTCDtlsTransportTest", () => {
   test(
     "test_data",

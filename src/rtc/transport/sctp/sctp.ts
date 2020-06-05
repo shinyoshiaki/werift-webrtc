@@ -74,7 +74,7 @@ export class RTCSctpTransport {
   }
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
 
-  private associationState = State.CLOSED;
+  associationState = State.CLOSED;
   private started = false;
   private state = "new";
 
@@ -114,7 +114,10 @@ export class RTCSctpTransport {
 
   // timers
   private rto = SCTP_RTO_INITIAL;
-  private t3Handle?: NodeJS.Timeout;
+  private t1Handle?: any;
+  private t1Chunk?: Chunk;
+  private t1Failures = 0;
+  private t3Handle?: any;
 
   // etc
   private ssthresh?: number; // slow start threshold
@@ -557,6 +560,12 @@ export class RTCSctpTransport {
     }
   }
 
+  async datachannelSend(channel: RTCDataChannel, data: Buffer) {
+    channel.addBufferedAmount(data.length);
+    this.dataChannelQueue.push([channel, WEBRTC_BINARY, data]);
+    await this.dataChannelFlush();
+  }
+
   private async send(
     streamId: number,
     ppId: number,
@@ -672,6 +681,23 @@ export class RTCSctpTransport {
 
   private flightSizeDecrease(chunk: DataChunk) {
     this.flightSize = Math.max(0, this.flightSize - chunk.bookSize!);
+  }
+
+  private async t1Expired() {
+    this.t1Failures++;
+    this.t1Handle = undefined;
+    if (this.t1Failures > SCTP_MAX_INIT_RETRANS) this.setState(State.CLOSED);
+    else {
+      await this.sendChunk(this.t1Chunk!);
+      this.t1Handle = setTimeout(this.t1Expired, this.rto);
+    }
+  }
+
+  private t1Start(chunk: Chunk) {
+    if (this.t1Handle) throw new Error();
+    this.t1Chunk = chunk;
+    this.t1Failures = 0;
+    this.t1Handle = setTimeout(this.t1Expired, this.rto);
   }
 
   private t3Restart() {
@@ -805,7 +831,8 @@ export class RTCSctpTransport {
     this.setExtensions(chunk.params);
     await this.sendChunk(chunk);
 
-    // TODO
+    this.t1Start(chunk);
+    this.setState(State.COOKIE_WAIT);
   }
 
   private setExtensions(params: [number, Buffer][]) {
@@ -821,7 +848,7 @@ export class RTCSctpTransport {
 
   private async sendChunk(chunk: Chunk) {
     if (!this.remotePort) throw new Error();
-    await this.transport.sendData(
+    this.transport.sendData(
       serializePacket(
         this.localPort,
         this.remotePort,

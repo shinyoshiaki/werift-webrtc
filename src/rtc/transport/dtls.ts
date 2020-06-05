@@ -23,7 +23,7 @@ export class RTCDtlsTransport {
   stateChange = new Subject<State>();
   state = State.NEW;
   private localCertificate: RTCCertificate;
-  private role = "auto";
+  role = "auto";
   private dataReceiver?: RTCSctpTransport;
 
   constructor(

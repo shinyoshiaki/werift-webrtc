@@ -59,7 +59,7 @@
     "@types/elliptic": "^6.4.12",
     "@types/ip": "^1.1.0",
     "@types/jest": "^25.2.1",
-    "@types/lodash": "^4.14.150",
+    "@types/lodash": "^4.14.155",
     "@types/node": "^14.0.1",
     "@types/node-forge": "^0.9.3",
     "@types/utf8": "^2.1.6",

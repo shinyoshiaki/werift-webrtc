@@ -9,7 +9,11 @@ export class RTCDataChannelParameters {
   protocol = "";
   negotiated = false;
   id?: number;
-  constructor() {}
+  constructor(props: Partial<RTCDataChannelParameters> = {}) {
+    Object.keys(props as any).forEach((key: string) => {
+      (this as any)[key] = (props as any)[key];
+    });
+  }
 }
 
 export class RTCDataChannel {
@@ -95,5 +99,10 @@ export class RTCDataChannel {
     if (crossesThreshold) {
       this.bufferedAmountLow.next();
     }
+  }
+
+  send(data: Buffer) {
+    if (this.readyState !== "open") throw new Error();
+    this.transport.datachannelSend(this, data);
   }
 }
