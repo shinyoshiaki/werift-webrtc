@@ -113,6 +113,7 @@ export function candidateFoundation(
   return createHash("md5").update(key, "ascii").digest("hex");
 }
 
+// priorityを決める
 export function candidatePriority(
   candidateComponent: number,
   candidateType: string,

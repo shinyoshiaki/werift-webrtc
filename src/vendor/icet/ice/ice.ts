@@ -184,7 +184,7 @@ export class Connection {
   private dataQueue = new PQueue<[Buffer, number]>();
   _components: Set<number>;
   _localCandidatesEnd = false;
-  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toNumber());
+  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
 
   constructor(public iceControlling: boolean, options?: Partial<Options>) {
     this.options = {
@@ -385,7 +385,8 @@ export class Connection {
           } else if (request.attributesKeys.includes("ICE-CONTROLLING")) {
             this.switchRole(false);
           }
-          r(await this.checkStart(pair));
+          await this.checkStart(pair);
+          r();
           return;
         } else {
           this.checkState(pair, CandidatePairState.FAILED);
@@ -569,10 +570,10 @@ export class Connection {
       !this.iceControlling &&
       message.attributesKeys.includes("ICE-CONTROLLED")
     ) {
-      if (this._tieBreaker >= message.attributes["ICE-CONTROLLED"]) {
-        this.switchRole(true);
-      } else {
+      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
         this.respondError(message, addr, protocol, [487, "Role Conflict"]);
+      } else {
+        this.switchRole(true);
         return;
       }
     }

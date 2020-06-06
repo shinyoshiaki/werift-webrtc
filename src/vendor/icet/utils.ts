@@ -3,9 +3,7 @@ import { Subject } from "rxjs";
 import PCancelable from "p-cancelable";
 
 export function randomString(length: number) {
-  return randomBytes(length)
-    .toString("hex")
-    .substring(0, length);
+  return randomBytes(length).toString("hex").substring(0, length);
 }
 
 export function randomTransactionId() {
@@ -30,7 +28,7 @@ export function bufferXor(a: Buffer, b: Buffer): Buffer {
 }
 
 export function difference<T>(x: Set<T>, y: Set<T>) {
-  return new Set([...x].filter(e => !y.has(e)));
+  return new Set([...x].filter((e) => !y.has(e)));
 }
 
 // infinite size queue
@@ -48,8 +46,8 @@ export class PQueue<T> {
   get(): Promise<T> {
     const v = this.queue.shift();
     if (!v) {
-      return new Promise(r => {
-        this.wait.subscribe(v => {
+      return new Promise((r) => {
+        this.wait.subscribe((v) => {
           this.queue.shift();
           r(v);
         });
@@ -70,7 +68,7 @@ export const future = (pCancel: PCancelable<any>) => {
     .then(() => {
       state.done = true;
     })
-    .catch(error => {
+    .catch((error) => {
       if (error !== "cancel") {
         console.log(error);
       }
@@ -81,4 +79,4 @@ export const future = (pCancel: PCancelable<any>) => {
 
 export type Future = ReturnType<typeof future>;
 
-export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

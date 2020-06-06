@@ -15,7 +15,7 @@ export class RTCIceGatherer {
   private _state: IceState = "new";
   connection: Connection;
   constructor(stunServer?: [string, number]) {
-    this.connection = new Connection(true, { stunServer });
+    this.connection = new Connection(false, { stunServer });
   }
 
   get state() {
@@ -152,6 +152,7 @@ export class RTCIceTransport {
   async start(remoteParameters: RTCIceParameters) {
     if (this.state === "closed") throw new Error("RTCIceTransport is closed");
 
+    if (this._start) await this._start?.toPromise();
     this._start = new Subject();
 
     this.setState("checking");
@@ -165,7 +166,7 @@ export class RTCIceTransport {
       this.setState("failed");
     }
 
-    this._start.next();
+    this._start.complete();
   }
 
   async stop() {
