@@ -75,6 +75,7 @@ export class RTCDtlsTransport {
         this.dataReceiver?.handleData(buf);
       };
       this.dtls.onConnect = () => {
+        this.setState(State.CONNECTED);
         r();
       };
 

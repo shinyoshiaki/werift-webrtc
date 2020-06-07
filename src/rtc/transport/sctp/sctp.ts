@@ -1089,6 +1089,11 @@ export class RTCSctpTransport {
       });
       this.dataChannelFlush();
     } else if (state === State.CLOSED) {
+      // todo
+      // this.t1Cancel();
+      // this.t2Cancel();
+      // this.t3Cancel();
+      // this.state = "closed";
     }
   }
 }

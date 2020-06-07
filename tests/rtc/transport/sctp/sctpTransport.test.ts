@@ -51,6 +51,10 @@ describe("RTCSctpTransportTest", () => {
       const serverChannels = trackChannels(server);
       serverChannels.event.subscribe((channel) => {
         channel.send(Buffer.from("ping"));
+        channel.message.subscribe((data) => {
+          expect(data.toString()).toBe("pong");
+          done();
+        });
       });
 
       const channel = new RTCDataChannel(
@@ -59,7 +63,7 @@ describe("RTCSctpTransportTest", () => {
       );
       channel.message.subscribe((data) => {
         expect(data.toString()).toBe("ping");
-        done();
+        channel.send(Buffer.from("pong"));
       });
     },
     60 * 60 * 1000

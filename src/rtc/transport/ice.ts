@@ -111,6 +111,7 @@ export class RTCIceTransport {
   private _start?: Subject<unknown>;
   private _state: IceState = "new";
   connection = this.gather.connection;
+  roleSet = false;
 
   constructor(private gather: RTCIceGatherer) {}
 
@@ -164,6 +165,7 @@ export class RTCIceTransport {
       this.setState("completed");
     } catch (error) {
       this.setState("failed");
+      throw new Error(error);
     }
 
     this._start.complete();

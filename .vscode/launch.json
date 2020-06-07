@@ -45,7 +45,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "-t test_connect_then_client_creates_data_channel"
+        "-t test_connect_datachannel_modern_sdp"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"

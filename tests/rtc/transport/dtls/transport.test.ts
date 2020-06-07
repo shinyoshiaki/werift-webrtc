@@ -39,7 +39,7 @@ describe("RTCDtlsTransportTest", () => {
       await sleep(100);
       expect(receiver2.data).toEqual([Buffer.from("ping")]);
     },
-    10 * 1000
+    60 * 1000
   );
 });
 

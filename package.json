@@ -18,7 +18,7 @@
     "format": "prettier --write src/**/*.ts",
     "publish": "npm publish --access=public",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
-    "test": "npm run type && jest --forceExit",
+    "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json"
   },
   "jest": {
