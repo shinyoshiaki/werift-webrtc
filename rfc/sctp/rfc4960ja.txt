@@ -1,4 +1,153 @@
-1.はじめに 
+   1. Introduction ....................................................5
+      1.1. Motivation .................................................5
+      1.2. Architectural View of SCTP .................................6
+      1.3. Key Terms ..................................................6
+      1.4. Abbreviations .............................................10
+      1.5. Functional View of SCTP ...................................10
+           1.5.1. Association Startup and Takedown ...................11
+           1.5.2. Sequenced Delivery within Streams ..................12
+           1.5.3. User Data Fragmentation ............................12
+           1.5.4. Acknowledgement and Congestion Avoidance ...........12
+           1.5.5. Chunk Bundling .....................................13
+           1.5.6. Packet Validation ..................................13
+           1.5.7. Path Management ....................................13
+      1.6. Serial Number Arithmetic ..................................14
+      1.7. Changes from RFC 2960 .....................................15
+   2. Conventions ....................................................15
+   3. SCTP Packet Format .............................................15
+      3.1. SCTP Common Header Field Descriptions .....................16
+      3.2. Chunk Field Descriptions ..................................17
+           3.2.1. Optional/Variable-Length Parameter Format ..........19
+           3.2.2. Reporting of Unrecognized Parameters ...............21
+      3.3. SCTP Chunk Definitions ....................................21
+           3.3.1. Payload Data (DATA) (0) ............................22
+           3.3.2. Initiation (INIT) (1) ..............................24
+                  3.3.2.1. Optional/Variable-Length
+                           Parameters in INIT ........................27
+           3.3.3. Initiation Acknowledgement (INIT ACK) (2) ..........30
+                  3.3.3.1. Optional or Variable-Length Parameters ....33
+           3.3.4. Selective Acknowledgement (SACK) (3) ...............34
+           3.3.5. Heartbeat Request (HEARTBEAT) (4) ..................38
+           3.3.6. Heartbeat Acknowledgement (HEARTBEAT ACK) (5) ......39
+           3.3.7. Abort Association (ABORT) (6) ......................40
+           3.3.8. Shutdown Association (SHUTDOWN) (7) ................41
+           3.3.9. Shutdown Acknowledgement (SHUTDOWN ACK) (8) ........41
+           3.3.10. Operation Error (ERROR) (9) .......................42
+                  3.3.10.1. Invalid Stream Identifier (1) ............44
+                  3.3.10.2. Missing Mandatory Parameter (2) ..........44
+                  3.3.10.3. Stale Cookie Error (3) ...................45
+                  3.3.10.4. Out of Resource (4) ......................45
+                  3.3.10.5. Unresolvable Address (5) .................46
+                  3.3.10.6. Unrecognized Chunk Type (6) ..............46
+                  3.3.10.7. Invalid Mandatory Parameter (7) ..........47
+                  3.3.10.8. Unrecognized Parameters (8) ..............47
+                  3.3.10.9. No User Data (9) .........................48
+                  3.3.10.10. Cookie Received While Shutting
+                             Down (10) ...............................48
+                  3.3.10.11. Restart of an Association with
+                             New Addresses (11) ......................49
+                  3.3.10.12. User-Initiated Abort (12) ...............49
+                  3.3.10.13. Protocol Violation (13) .................50
+           3.3.11. Cookie Echo (COOKIE ECHO) (10) ....................50
+           3.3.12. Cookie Acknowledgement (COOKIE ACK) (11) ..........51
+           3.3.13. Shutdown Complete (SHUTDOWN COMPLETE) (14) ........51
+   4. SCTP Association State Diagram .................................52
+   5. Association Initialization .....................................56
+      5.1. Normal Establishment of an Association ....................56
+           5.1.1. Handle Stream Parameters ...........................58
+           5.1.2. Handle Address Parameters ..........................58
+           5.1.3. Generating State Cookie ............................61
+           5.1.4. State Cookie Processing ............................62
+           5.1.5. State Cookie Authentication ........................62
+           5.1.6. An Example of Normal Association Establishment .....64
+      5.2. Handle Duplicate or Unexpected INIT, INIT ACK,
+           COOKIE ECHO, and ..........................................65
+           5.2.1. INIT Received in COOKIE-WAIT or
+                  COOKIE-ECHOED State (Item B) .......................66
+           5.2.2. Unexpected INIT in States Other than
+                  CLOSED, COOKIE-ECHOED, .............................66
+           5.2.3. Unexpected INIT ACK ................................67
+           5.2.4. Handle a COOKIE ECHO when a TCB Exists .............67
+                  5.2.4.1. An Example of a Association Restart .......69
+           5.2.5. Handle Duplicate COOKIE-ACK. .......................71
+           5.2.6. Handle Stale COOKIE Error ..........................71
+      5.3. Other Initialization Issues ...............................72
+           5.3.1. Selection of Tag Value .............................72
+      5.4. Path Verification .........................................72
+   6. User Data Transfer .............................................73
+      6.1. Transmission of DATA Chunks ...............................75
+      6.2. Acknowledgement on Reception of DATA Chunks ...............78
+           6.2.1. Processing a Received SACK .........................81
+      6.3. Management of Retransmission Timer ........................83
+           6.3.1. RTO Calculation ....................................83
+           6.3.2. Retransmission Timer Rules .........................85
+           6.3.3. Handle T3-rtx Expiration ...........................86
+      6.4. Multi-Homed SCTP Endpoints ................................87
+           6.4.1. Failover from an Inactive Destination Address ......88
+      6.5. Stream Identifier and Stream Sequence Number ..............88
+      6.6. Ordered and Unordered Delivery ............................88
+      6.7. Report Gaps in Received DATA TSNs .........................89
+      6.8. CRC32c Checksum Calculation ...............................90
+      6.9. Fragmentation and Reassembly ..............................91
+      6.10. Bundling .................................................92
+   7. Congestion Control .............................................93
+      7.1. SCTP Differences from TCP Congestion Control ..............94
+      7.2. SCTP Slow-Start and Congestion Avoidance ..................95
+           7.2.1. Slow-Start .........................................96
+           7.2.2. Congestion Avoidance ...............................97
+           7.2.3. Congestion Control .................................98
+           7.2.4. Fast Retransmit on Gap Reports .....................98
+      7.3. Path MTU Discovery .......................................100
+   8. Fault Management ..............................................100
+      8.1. Endpoint Failure Detection ...............................100
+      8.2. Path Failure Detection ...................................101
+      8.3. Path Heartbeat ...........................................102
+      8.4. Handle "Out of the Blue" Packets .........................104
+      8.5. Verification Tag .........................................105
+           8.5.1. Exceptions in Verification Tag Rules ..............105
+   9. Termination of Association ....................................106
+      9.1. Abort of an Association ..................................107
+      9.2. Shutdown of an Association ...............................107
+   10. Interface with Upper Layer ...................................110
+      10.1. ULP-to-SCTP .............................................110
+      10.2. SCTP-to-ULP .............................................120
+   11. Security Considerations ......................................123
+      11.1. Security Objectives .....................................123
+      11.2. SCTP Responses to Potential Threats .....................124
+           11.2.1. Countering Insider Attacks .......................124
+           11.2.2. Protecting against Data Corruption in the
+                   Network ..........................................124
+           11.2.3. Protecting Confidentiality .......................124
+           11.2.4. Protecting against Blind
+                   Denial-of-Service Attacks ........................125
+                  11.2.4.1. Flooding ................................125
+                  11.2.4.2. Blind Masquerade ........................126
+                  11.2.4.3. Improper Monopolization of Services .....127
+      11.3. SCTP Interactions with Firewalls ........................127
+      11.4. Protection of Non-SCTP-Capable Hosts ....................128
+   12. Network Management Considerations ............................128
+   13. Recommended Transmission Control Block (TCB) Parameters ......129
+      13.1. Parameters Necessary for the SCTP Instance ..............129
+      13.2. Parameters Necessary per Association (i.e., the TCB) ....129
+      13.3. Per Transport Address Data ..............................131
+      13.4. General Parameters Needed ...............................132
+   14. IANA Considerations ..........................................132
+      14.1. IETF-defined Chunk Extension ............................132
+      14.2. IETF-Defined Chunk Parameter Extension ..................133
+      14.3. IETF-Defined Additional Error Causes ....................133
+      14.4. Payload Protocol Identifiers ............................134
+      14.5. Port Numbers Registry ...................................134
+   15. Suggested SCTP Protocol Parameter Values .....................136
+   16. Acknowledgements .............................................137
+   Appendix A. Explicit Congestion Notification .....................139
+   Appendix B. CRC32c Checksum Calculation ..........................140
+   Appendix C. ICMP Handling ........................................142
+   References .......................................................149
+      Normative References ..........................................149
+      Informative References ........................................150
+
+
+1. はじめに 
 
 このセクションでは、Stream Control Transmission Protocol（SCTP）の開発の背後にある理由、それが提供するサービス、およびプロトコルの詳細な説明を理解するために必要な基本概念について説明します.  
 
@@ -1739,7 +1888,9 @@ INITまたはCOOKIE ECHOチャンクが送信された後にT1-initタイマー�
 
 INITを再送信する場合、エンドポイントはセクション6.3で定義されたルールに従って、適切なタイマー値を決定する必要があります.  
 
-5.2. 重複または予期しないINIT、INIT ACK、COOKIE ECHO、COOKIE A​​CKの処理
+5.2.  Handle Duplicate or Unexpected INIT, INIT ACK, COOKIE ECHO, and
+      COOKIE ACK
+重複または予期しないINIT、INIT ACK、COOKIE ECHO、COOKIE A​​CKの処理
 
 アソシエーションの有効期間中（可能な状態の1つ）、エンドポイントはピアエンドポイントからセットアップチャンク（INIT、INIT ACK、COOKIE ECHO、COOKIE A​​CK）のいずれかを受信する場合があります. 受信者は、このような設定チャンクを複製として扱い、このセクションで説明されているように処理します. 
 

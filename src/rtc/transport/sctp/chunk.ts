@@ -21,7 +21,7 @@ export class Chunk {
         jspack.Pack("!BBH", [this.type, this.flags, this.body.length + 4])
       ),
       this.body,
-      ...[...Array(padL(this.body.length))].map(() => Buffer.from("\x00"))
+      ...[...Array(padL(this.body.length))].map(() => Buffer.from("\x00")),
     ]);
     return data;
   }
@@ -43,7 +43,7 @@ export class BaseInitChunk extends Chunk {
         this.advertisedRwnd,
         this.outboundStreams,
         this.inboundStreams,
-        this.initialTsn
+        this.initialTsn,
       ] = jspack.Unpack("!LLHHL", body);
       this.params = decodeParams(body.slice(16));
     } else {
@@ -65,7 +65,7 @@ export class BaseInitChunk extends Chunk {
         this.advertisedRwnd,
         this.outboundStreams,
         this.inboundStreams,
-        this.initialTsn
+        this.initialTsn,
       ])
     );
     body = Buffer.concat([body, encodeParams(this.params)]);
@@ -78,6 +78,14 @@ export class InitChunk extends BaseInitChunk {
 
   get type() {
     return InitChunk.type;
+  }
+}
+
+export class InitAckChunk extends BaseInitChunk {
+  static type = 2;
+
+  get type() {
+    return InitAckChunk.type;
   }
 }
 
@@ -123,7 +131,7 @@ export class ForwardTsnChunk extends Chunk {
       body,
       ...this.streams.map(([id, seq]) =>
         Buffer.from(jspack.Pack("!HH", [id, seq]))
-      )
+      ),
     ]);
   }
 }
@@ -171,15 +179,15 @@ export class DataChunk extends Chunk {
           this.tsn,
           this.streamId,
           this.streamSeq,
-          this.protocol
+          this.protocol,
         ])
       ),
-      this.userData
+      this.userData,
     ]);
     if (length % 4) {
       data = Buffer.concat([
         data,
-        ...[...Array(padL(length))].map(() => Buffer.from("\x00"))
+        ...[...Array(padL(length))].map(() => Buffer.from("\x00")),
       ]);
     }
     return data;
@@ -191,6 +199,14 @@ export class CookieEchoChunk extends Chunk {
 
   get type() {
     return CookieEchoChunk.type;
+  }
+}
+
+export class CookieAckChunk extends Chunk {
+  static type = 11;
+
+  get type() {
+    return CookieAckChunk.type;
   }
 }
 
@@ -234,6 +250,14 @@ export class HeartbeatChunk extends BaseParamsChunk {
   }
 }
 
+export class HeartbeatAckChunk extends BaseParamsChunk {
+  static type = 5;
+
+  get type() {
+    return HeartbeatChunk.type;
+  }
+}
+
 export class ReconfigChunk extends BaseParamsChunk {
   static type = 130;
   get type() {
@@ -260,7 +284,7 @@ export class SackChunk extends Chunk {
         cumulativeTsn,
         advertisedRwnd,
         nbGaps,
-        nbDuplicates
+        nbDuplicates,
       ] = jspack.Unpack("!LLHH", body);
       this.cumulativeTsn = cumulativeTsn;
       this.advertisedRwnd = advertisedRwnd;
@@ -290,16 +314,16 @@ export class SackChunk extends Chunk {
         this.cumulativeTsn,
         this.advertisedRwnd,
         this.gaps.length,
-        this.duplicates.length
+        this.duplicates.length,
       ])
     );
     data = Buffer.concat([
       data,
-      ...this.gaps.map(gap => Buffer.from(jspack.Pack("!HH", gap)))
+      ...this.gaps.map((gap) => Buffer.from(jspack.Pack("!HH", gap))),
     ]);
     data = Buffer.concat([
       data,
-      ...this.duplicates.map(tsn => Buffer.from(jspack.Pack("!L", [tsn])))
+      ...this.duplicates.map((tsn) => Buffer.from(jspack.Pack("!L", [tsn]))),
     ]);
     return data;
   }
@@ -327,17 +351,29 @@ export class ShutdownChunk extends Chunk {
   }
 }
 
+export class ShutdownAckChunk extends Chunk {
+  static type = 8;
+  get type() {
+    return ShutdownAckChunk.type;
+  }
+}
+
 const CHUNK_CLASSES: typeof Chunk[] = [
   DataChunk,
   InitChunk,
-  CookieEchoChunk,
-  AbortChunk,
-  ErrorChunk,
-  ForwardTsnChunk,
-  HeartbeatChunk,
-  ReconfigChunk,
+  InitAckChunk,
   SackChunk,
-  ShutdownChunk
+  HeartbeatChunk,
+  HeartbeatAckChunk,
+  AbortChunk,
+  ShutdownChunk,
+  ShutdownAckChunk,
+  ErrorChunk,
+  CookieEchoChunk,
+  CookieAckChunk,
+  // ShutdownCompleteChunk,
+  ReconfigChunk,
+  ForwardTsnChunk,
 ];
 
 export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
@@ -359,7 +395,7 @@ function encodeParams(params: [number, Buffer][]) {
       body,
       padding,
       Buffer.from(jspack.Pack("!HH", [type, length])),
-      value
+      value,
     ]);
     padding = Buffer.concat(
       [...Array(padL(length))].map(() => Buffer.from("\x00"))
@@ -394,7 +430,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
     Buffer.concat([
       data.slice(0, 8),
       Buffer.from("\x00\x00\x00\x00"),
-      data.slice(12)
+      data.slice(12),
     ])
   );
 

@@ -23,7 +23,7 @@ describe("RTCSctpTransportTest", () => {
     server: RTCSctpTransport
   ) {
     const final = [State.ESTABLISHED];
-    for (let i of range(100)) {
+    for (let _ of range(100)) {
       if (
         final.includes(client.associationState) &&
         final.includes(server.associationState)
@@ -42,27 +42,26 @@ describe("RTCSctpTransportTest", () => {
 
       const client = new RTCSctpTransport(clientTransport);
       const server = new RTCSctpTransport(serverTransport);
-      done();
 
-      // await Promise.all([server.start(client.port), client.start(server.port)]);
+      await Promise.all([server.start(client.port), client.start(server.port)]);
 
-      // await waitForOutcome(client, server);
+      await waitForOutcome(client, server);
 
-      // // const clientChannels = trackChannels(client);
-      // const serverChannels = trackChannels(server);
-      // serverChannels.event.subscribe((channel) => {
-      //   channel.send(Buffer.from("ping"));
-      // });
+      // const clientChannels = trackChannels(client);
+      const serverChannels = trackChannels(server);
+      serverChannels.event.subscribe((channel) => {
+        channel.send(Buffer.from("ping"));
+      });
 
-      // const channel = new RTCDataChannel(
-      //   client,
-      //   new RTCDataChannelParameters({ label: "chat", id: 1 })
-      // );
-      // channel.message.subscribe((data) => {
-      //   expect(data.toString()).toBe("ping");
-      //   done();
-      // });
+      const channel = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "chat", id: 1 })
+      );
+      channel.message.subscribe((data) => {
+        expect(data.toString()).toBe("ping");
+        done();
+      });
     },
-    30 * 1000
+    60 * 60 * 1000
   );
 });

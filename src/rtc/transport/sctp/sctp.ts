@@ -31,8 +31,19 @@ import {
   DataChunk,
   serializePacket,
   SackChunk,
+  HeartbeatChunk,
+  HeartbeatAckChunk,
+  AbortChunk,
+  ShutdownChunk,
+  ShutdownAckChunk,
+  ReconfigChunk,
+  InitAckChunk,
+  CookieAckChunk,
+  ErrorChunk,
+  CookieEchoChunk,
 } from "./chunk";
 import { Subject } from "rxjs";
+import { Hmac, createHmac, randomBytes } from "crypto";
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -62,6 +73,9 @@ const SCTP_STR_RESET_ADD_OUT_STREAMS = 0x0011;
 const SCTP_SUPPORTED_CHUNK_EXT = 0x8008;
 const SCTP_PRSCTP_SUPPORTED = 0xc000;
 
+const SCTP_CAUSE_INVALID_STREAM = 0x0001;
+const SCTP_CAUSE_STALE_COOKIE = 0x0003;
+
 export class RTCSctpTransport {
   datachannel = new Subject<RTCDataChannel>();
   uuid = generateUUID();
@@ -77,7 +91,7 @@ export class RTCSctpTransport {
   associationState = State.CLOSED;
   private started = false;
   private state = "new";
-
+  private hmacKey = randomBytes(16);
   private dataChannelId?: number;
 
   private localPartialReliability = true;
@@ -117,11 +131,20 @@ export class RTCSctpTransport {
   private t1Handle?: any;
   private t1Chunk?: Chunk;
   private t1Failures = 0;
+  private t2Handle?: any;
+  private t2Chunk?: Chunk;
+  private t2Failures = 0;
   private t3Handle?: any;
 
   // etc
   private ssthresh?: number; // slow start threshold
-  private cwnd?: number; // Congestion Window
+  private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
+
+  // # reconfiguration
+  private reconfig_queue: number[] = [];
+  private reconfig_request?: unknown;
+  private reconfig_request_seq = this.localTsn;
+  private reconfig_response_seq = 0;
 
   constructor(public transport: RTCDtlsTransport, public port = 5000) {}
 
@@ -129,6 +152,7 @@ export class RTCSctpTransport {
     return this.transport.transport.role !== "controlling";
   }
 
+  // call from dtls transport
   async handleData(data: Buffer) {
     try {
       let expectedTag;
@@ -153,6 +177,8 @@ export class RTCSctpTransport {
   }
 
   async receiveChunk(chunk: Chunk) {
+    console.log(chunk.type);
+    //todo impl
     switch (chunk.type) {
       case DataChunk.type:
         await this.receiveDataChunk(chunk as DataChunk);
@@ -163,6 +189,155 @@ export class RTCSctpTransport {
       case ForwardTsnChunk.type:
         await this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
+      case HeartbeatChunk.type:
+        {
+          const ack = new HeartbeatAckChunk(0, undefined);
+          ack.params = (chunk as HeartbeatChunk).params;
+          await this.sendChunk(ack);
+        }
+        break;
+      case AbortChunk.type:
+        this.setState(State.CLOSED);
+        break;
+      case ShutdownChunk.type:
+        {
+          this.t2Cancel();
+          this.setState(State.SHUTDOWN_RECEIVED);
+          const ack = new ShutdownAckChunk();
+          await this.sendChunk(ack);
+          this.t2Start(ack);
+          this.setState(State.SHUTDOWN_SENT);
+        }
+        break;
+      // case "ShutdownCompleteChunk"
+      case ReconfigChunk.type:
+        break;
+      case InitChunk.type:
+        const initChunk = chunk as InitChunk;
+        if (this.isServer) {
+          this.lastReceivedTsn = tsnMinusOne(initChunk.initialTsn);
+          this.reconfig_response_seq = tsnMinusOne(initChunk.initialTsn);
+          this.remoteVerificationTag = initChunk.initiateTag;
+          this.ssthresh = initChunk.advertisedRwnd;
+          this.getExtensions(initChunk.params);
+
+          this.inboundStreamsCount = Math.min(
+            initChunk.outboundStreams,
+            this.inboundStreamsMax
+          );
+          this.outboundStreamsCount = Math.min(
+            this.outboundStreamsCount,
+            initChunk.inboundStreams
+          );
+
+          const ack = new InitAckChunk();
+          ack.initiateTag = this.localVerificationTag;
+          ack.advertisedRwnd = this.advertisedRwnd;
+          ack.outboundStreams = this.outboundStreamsCount;
+          ack.inboundStreams = this.inboundStreamsCount;
+          ack.initialTsn = this.localTsn;
+          this.setExtensions(ack.params);
+
+          const time = Date.now() / 1000;
+          let cookie = Buffer.from(jspack.Pack("!L", [time]));
+          cookie = Buffer.concat([
+            cookie,
+            createHmac("sha1", this.hmacKey).update(cookie).digest(),
+          ]);
+          ack.params.push([SCTP_STATE_COOKIE, cookie]);
+          await this.sendChunk(ack);
+        }
+        break;
+      case CookieEchoChunk.type:
+        const data = chunk as CookieEchoChunk;
+        if (this.isServer) {
+          const cookie = data.body!;
+          const digest = createHmac("sha1", this.hmacKey)
+            .update(cookie.slice(0, 4))
+            .digest();
+          if (
+            cookie?.length != COOKIE_LENGTH ||
+            !cookie.slice(4).equals(digest)
+          ) {
+            console.log("x State cookie is invalid");
+            return;
+          }
+
+          const now = Date.now() / 1000;
+          const stamp = jspack.Unpack("!L", cookie)[0];
+          if (stamp < now - COOKIE_LIFETIME || stamp > now) {
+            const error = new ErrorChunk(0, undefined);
+            error.params.push([
+              SCTP_CAUSE_STALE_COOKIE,
+              Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
+            ]);
+            await this.sendChunk(error);
+            return;
+          }
+
+          const ack = new CookieAckChunk();
+          await this.sendChunk(ack);
+          this.setState(State.ESTABLISHED);
+        }
+        break;
+      case InitAckChunk.type:
+        if (this.associationState === State.COOKIE_WAIT) {
+          const data = chunk as InitAckChunk;
+          this.t1Cancel();
+          this.lastReceivedTsn = tsnMinusOne(data.initialTsn);
+          this.reconfig_request_seq = tsnMinusOne(data.initialTsn);
+          this.remoteVerificationTag = data.initiateTag;
+          this.ssthresh = data.advertisedRwnd;
+          this.getExtensions(data.params);
+
+          this.inboundStreamsCount = Math.min(
+            data.outboundStreams,
+            this.inboundStreamsMax
+          );
+          this.outboundStreamsCount = Math.min(
+            this.outboundStreamsCount,
+            data.inboundStreams
+          );
+
+          const echo = new CookieEchoChunk();
+          for (let [k, v] of data.params) {
+            if (k === SCTP_STATE_COOKIE) {
+              echo.body = v;
+              break;
+            }
+          }
+          await this.sendChunk(echo);
+
+          this.t1Start(echo);
+          this.setState(State.COOKIE_ECHOED);
+        }
+        break;
+      case CookieAckChunk.type:
+        if (this.associationState === State.COOKIE_ECHOED) {
+          this.t1Cancel();
+          this.setState(State.ESTABLISHED);
+        }
+        break;
+      case ErrorChunk.type:
+        if (
+          [State.COOKIE_WAIT, State.COOKIE_ECHOED].indexOf(
+            this.associationState
+          )
+        ) {
+          this.t1Cancel();
+          this.setState(State.CLOSED);
+        }
+        break;
+    }
+  }
+
+  private getExtensions(params: [number, Buffer][]) {
+    for (let [k, v] of params) {
+      if (k === SCTP_PRSCTP_SUPPORTED) {
+        this.remotePartialReliability = true;
+      } else if (SCTP_SUPPORTED_CHUNK_EXT) {
+        // this.reomtee
+      }
     }
   }
 
@@ -313,6 +488,7 @@ export class RTCSctpTransport {
 
     // # filter out obsolete entries
     this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
+    this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
     // # update reassembly
     for (let [streamId, streamSeq] of chunk.streams) {
@@ -516,6 +692,14 @@ export class RTCSctpTransport {
   }
 
   private async dataChannelFlush() {
+    // """
+    // Try to flush buffered data to the SCTP layer.
+
+    // We wait until the association is established, as we need to know
+    // whether we are a client or a server to correctly assign an odd/even ID
+    // to the data channels.
+    // """
+
     if (this.associationState != State.ESTABLISHED) return;
 
     let expiry: number | undefined;
@@ -525,17 +709,14 @@ export class RTCSctpTransport {
     ) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
-      const streamId = channel.id!;
+      let streamId = channel.id!;
       if (streamId === undefined) {
         if (!this.dataChannelId) throw new Error();
-        while (
-          Object.keys(this.dataChannels).includes(this.dataChannelId.toString())
-        ) {
-          this.dataChannelId += 2;
+        streamId = this.dataChannelId;
+        while (Object.keys(this.dataChannels).includes(streamId.toString())) {
+          streamId += 2;
         }
-        const streamId = this.dataChannelId;
         this.dataChannels[streamId.toString()] = channel;
-        this.dataChannelId += 2;
         channel.setId(streamId);
       }
 
@@ -574,7 +755,8 @@ export class RTCSctpTransport {
     maxRetransmits: number | undefined = undefined,
     ordered = true
   ) {
-    const streamSeq = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
+    const streamSeq = ordered ? this.outboundStreamSeq[streamId] : 0;
+
     const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
     let pos = 0;
 
@@ -636,7 +818,9 @@ export class RTCSctpTransport {
     } else {
       burstSize = 4 * USERDATA_MAX_LENGTH;
     }
-    const cwnd = Math.min(this.flightSize + burstSize, this.cwnd!);
+
+    if (!this.cwnd) throw new Error();
+    const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
     let retransmitEarliest = true;
     for (let chunk of this.sentQueue) {
@@ -699,6 +883,40 @@ export class RTCSctpTransport {
     this.t1Failures = 0;
     this.t1Handle = setTimeout(this.t1Expired, this.rto);
   }
+
+  private t1Cancel() {
+    if (this.t1Handle) {
+      clearTimeout(this.t1Handle);
+      this.t1Handle = undefined;
+      this.t1Chunk = undefined;
+    }
+  }
+
+  private t2Cancel() {
+    if (this.t2Handle) {
+      clearTimeout(this.t2Handle);
+      this.t2Handle = undefined;
+      this.t2Chunk = undefined;
+    }
+  }
+
+  private t2Start(chunk: Chunk) {
+    if (this.t2Handle) throw new Error();
+    this.t2Chunk = chunk;
+    this.t2Failures = 0;
+    this.t2Handle = setTimeout(this.t2Expired, this.rto);
+  }
+
+  private t2Expired = () => {
+    this.t2Failures++;
+    this.t2Handle = undefined;
+    if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS)
+      this.setState(State.CLOSED);
+    else {
+      this.sendChunk(this.t2Chunk!);
+      this.t2Handle = setTimeout(this.t2Expired, this.rto);
+    }
+  };
 
   private t3Restart() {
     if (this.t3Handle) {
