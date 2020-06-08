@@ -4,9 +4,16 @@ import { RTCDataChannel } from "../../src/rtc/dataChannel";
 describe("peerConnection", () => {
   test(
     "test_connect_datachannel_modern_sdp",
-    async () => {
+    async (done) => {
       const pc1 = new RTCPeerConnection({});
       const pc2 = new RTCPeerConnection({});
+
+      pc2.datachannel.subscribe((channel) => {
+        channel.message.subscribe((data) => {
+          expect(data.toString()).toBe("hello");
+          done();
+        });
+      });
 
       const dc = pc1.createDataChannel("chat", { protocol: "bob" });
       expect(dc.label).toBe("chat");
@@ -16,7 +23,13 @@ describe("peerConnection", () => {
       expect(dc.protocol).toBe("bob");
       expect(dc.readyState).toBe("connecting");
 
-      const offer = (await pc1.createOffer())!;
+      dc.state.subscribe((state) => {
+        if (state === "open") {
+          dc.send(Buffer.from("hello"));
+        }
+      });
+
+      const offer = pc1.createOffer()!;
       expect(offer.type).toBe("offer");
       expect(offer.sdp.includes("m=application")).toBeTruthy();
       expect(offer.sdp.includes("a=candidate")).toBeFalsy();
@@ -24,47 +37,45 @@ describe("peerConnection", () => {
 
       await pc1.setLocalDescription(offer);
       expect(pc1.iceConnectionState).toBe("new");
-      expect(pc1.iceGatheringState).toBe("complete");
-      const pc1Local = pc1.localDescription!.sdp;
-      expect(pc1Local.includes("m=application ")).toBeTruthy();
-      expect(pc1Local.includes("a=sctp-port:5000")).toBeTruthy();
-      assertHasIceCandidate(pc1Local);
-      // assertHasDtls(pc1Local, "actpass");
+      // expect(pc1.iceGatheringState).toBe("complete");
+
+      expect(pc1.localDescription!.sdp.includes("m=application ")).toBeTruthy();
+      expect(
+        pc1.localDescription!.sdp.includes("a=sctp-port:5000")
+      ).toBeTruthy();
+      assertHasIceCandidate(pc1.localDescription!.sdp);
+      assertHasDtls(pc1.localDescription!.sdp, "actpass");
 
       // # handle offer
       await pc2.setRemoteDescription(pc1.localDescription!);
-      const pc2Remote = pc2.remoteDescription!.sdp;
-      expect(pc2Remote).toBe(pc1Local);
+      expect(pc2.remoteDescription!.sdp).toBe(pc1.localDescription!.sdp);
 
       // # create answer
       const answer = pc2.createAnswer()!;
       expect(answer.sdp.includes("m=application")).toBeTruthy();
-      expect(answer.sdp.includes("a=candidate")).toBeFalsy();
-      expect(answer.sdp.includes("a=end-of-candidates")).toBeFalsy();
+      // expect(answer.sdp.includes("a=candidate")).toBeFalsy();
+      // expect(answer.sdp.includes("a=end-of-candidates")).toBeFalsy();
 
       await pc2.setLocalDescription(answer);
-      expect(pc2.iceConnectionState).toBe("checking");
-      expect(pc2.iceGatheringState).toBe("complete");
-      const pc2Local = pc2.localDescription!.sdp;
-      expect(pc2Local.includes("m=application ")).toBeTruthy();
-      expect(pc2Local.includes("a=sctp-port:5000")).toBeTruthy();
-      assertHasIceCandidate(pc2Local);
-      // assertHasDtls(pc2Local, "active");
+      // expect(pc2.iceConnectionState).toBe("checking");
+      // expect(pc2.iceGatheringState).toBe("complete");
+      expect(pc2.localDescription!.sdp.includes("m=application ")).toBeTruthy();
+      expect(
+        pc2.localDescription!.sdp.includes("a=sctp-port:5000")
+      ).toBeTruthy();
+      assertHasIceCandidate(pc2.localDescription!.sdp);
+      assertHasDtls(pc2.localDescription!.sdp, "active");
 
       // # handle answer
       await pc1.setRemoteDescription(pc2.localDescription!);
-      const pc1Remote = pc1.remoteDescription!.sdp;
-      expect(pc1Remote).toBe(pc2Local);
+      expect(pc1.remoteDescription!.sdp).toBe(pc2.localDescription!.sdp);
       expect(pc1.iceConnectionState).toBe("checking");
 
       await assertIceCompleted(pc1, pc2);
 
-      // await Promise.all([
-      //   await assertDataChannelOpen(dc1),
-      //   await assertDataChannelOpen(dc2)
-      // ]);
+      await assertDataChannelOpen(dc);
     },
-    60 * 1000
+    60 * 1000 * 60
   );
 });
 

@@ -45,9 +45,9 @@ describe("RTCSctpTransportTest", () => {
 
       await Promise.all([server.start(client.port), client.start(server.port)]);
 
+      // wait for sctp connected
       await waitForOutcome(client, server);
 
-      // const clientChannels = trackChannels(client);
       const serverChannels = trackChannels(server);
       serverChannels.event.subscribe((channel) => {
         channel.send(Buffer.from("ping"));

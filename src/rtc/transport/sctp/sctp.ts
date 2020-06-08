@@ -711,8 +711,7 @@ export class RTCSctpTransport {
 
       let streamId = channel.id!;
       if (streamId === undefined) {
-        if (!this.dataChannelId) throw new Error();
-        streamId = this.dataChannelId;
+        streamId = this.dataChannelId!;
         while (Object.keys(this.dataChannels).includes(streamId.toString())) {
           streamId += 2;
         }

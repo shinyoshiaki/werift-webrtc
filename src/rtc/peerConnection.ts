@@ -16,6 +16,8 @@ import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { RTCSessionDescription } from "./sessionDescription";
 import { isEqual } from "lodash";
 import { Subject } from "rxjs";
+import { range } from "lodash";
+import { sleep } from "../utils";
 
 type Configuration = { stunServer?: [string, number] };
 
@@ -75,7 +77,7 @@ export class RTCPeerConnection {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
-  async createOffer() {
+  createOffer() {
     if (!this.sctp)
       throw new Error(
         "Cannot create an offer with no media and no data channels"
@@ -233,7 +235,9 @@ export class RTCPeerConnection {
     sctp.bundled = false;
     sctp.mid = undefined;
 
-    sctp.datachannel.subscribe((dc) => this.datachannel.next(dc));
+    sctp.datachannel.subscribe((dc) => {
+      this.datachannel.next(dc);
+    });
 
     return sctp;
   }
@@ -264,10 +268,15 @@ export class RTCPeerConnection {
     // # set ICE role
     if (description.type === "offer") {
       this.iceTransports.forEach((iceTransport) => {
-        if (!iceTransport.role) {
-          iceTransport.connection.iceControlling = true;
-          iceTransport.roleSet = true;
-        }
+        // todo fix
+        iceTransport.connection.iceControlling = true;
+        iceTransport.roleSet = true;
+      });
+    } else {
+      this.iceTransports.forEach((iceTransport) => {
+        // todo fix
+        iceTransport.connection.iceControlling = false;
+        iceTransport.roleSet = true;
       });
     }
 
@@ -313,6 +322,15 @@ export class RTCPeerConnection {
 
         if (dtlsTransport.state === State.NEW) {
           await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
+          // todo fix
+          await this.sctp.start(this.sctpRemotePort!);
+          for (let _ of range(100)) {
+            if (this.sctp.associationState === 4) {
+              break;
+            }
+            await sleep(100);
+          }
+          console.log();
         } else if (dtlsTransport.state === State.CONNECTED) {
           await this.sctp.start(this.sctpRemotePort!);
         }
