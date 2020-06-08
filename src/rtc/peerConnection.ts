@@ -465,9 +465,9 @@ export class RTCPeerConnection {
     )
       throw new Error();
 
-    const ntpSeconds = Date.now() >> 32;
+    const ntpSeconds = (Date.now() / 1000) >> 32;
     const description = new SessionDescription();
-    description.origin = `${ntpSeconds} ${ntpSeconds} IN IP4 0.0.0.0`;
+    description.origin = `- ${ntpSeconds} ${ntpSeconds} IN IP4 0.0.0.0`;
     description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
     description.type = "answer";
 

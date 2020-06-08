@@ -63,7 +63,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/aio/dtls.ts"
+        "${workspaceRoot}/examples/datachannel.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

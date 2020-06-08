@@ -5,7 +5,6 @@ const server = new Server({ port: 8888 });
 
 server.on("connection", (socket) => {
   socket.on("message", async (data) => {
-    console.log("answer", data);
     const offer = JSON.parse(data as string);
 
     const pc = new RTCPeerConnection({});
