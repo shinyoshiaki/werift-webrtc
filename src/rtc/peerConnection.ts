@@ -330,7 +330,6 @@ export class RTCPeerConnection {
             }
             await sleep(100);
           }
-          console.log();
         } else if (dtlsTransport.state === State.CONNECTED) {
           await this.sctp.start(this.sctpRemotePort!);
         }

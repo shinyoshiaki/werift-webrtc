@@ -177,7 +177,6 @@ export class RTCSctpTransport {
   }
 
   async receiveChunk(chunk: Chunk) {
-    console.log(chunk.type);
     //todo impl
     switch (chunk.type) {
       case DataChunk.type:
