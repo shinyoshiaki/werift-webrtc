@@ -169,14 +169,16 @@ export class SessionDescription {
   toString() {
     const lines = [`v=${this.version}`, `o=${this.origin}`, `s=${this.name}`];
     if (this.host) {
-      lines.concat([`c=${ipAddressFromSdp(this.host)}`]);
+      lines.push(`c=${ipAddressFromSdp(this.host)}`);
     }
-    lines.concat([`t=${this.time}`]);
-    this.group.forEach((group) => lines.concat([`a=group:${group}`]));
+    lines.push(`t=${this.time}`);
+    this.group.forEach((group) => lines.push(`a=group:${group.str()}`));
     this.msidSemantic.forEach((group) =>
-      lines.concat([`a=msid-semantic:${group}`])
+      lines.push(`a=msid-semantic:${group.str()}`)
     );
-    return lines.join("\r\n") + "\r\n" + this.media.map((m) => m);
+    const sdp = lines.join("\r\n") + "\r\n" + this.media.map((m) => m);
+    console.log(sdp);
+    return sdp;
   }
 }
 
