@@ -177,7 +177,6 @@ export class SessionDescription {
       lines.push(`a=msid-semantic:${group.str()}`)
     );
     const sdp = lines.join("\r\n") + "\r\n" + this.media.map((m) => m);
-    console.log(sdp);
     return sdp;
   }
 }

@@ -16,7 +16,7 @@ server.on("connection", (socket) => {
     pc.datachannel.subscribe((channel) => {
       channel.message.subscribe((data) => {
         console.log("answer message", data.toString());
-        channel.send(Buffer.from("pong"));
+        setInterval(() => channel.send(Buffer.from("pong")), 1000);
       });
     });
   });

@@ -37,10 +37,18 @@
         };
 
         const channel = peer.createDataChannel("chat");
-        channel.onmessage = (ev) => console.log(ev);
+        channel.onmessage = (ev) => {
+          console.log(ev.data);
+        };
         channel.onopen = () => {
           console.log("open");
           channel.send("ping");
+        };
+        channel.onclose = () => {
+          console.log("close");
+        };
+        channel.onerror = (e) => {
+          console.log("error", e);
         };
 
         await new Promise((r) => (peer.onnegotiationneeded = r));

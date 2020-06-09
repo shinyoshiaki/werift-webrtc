@@ -34,14 +34,14 @@ describe("aio", () => {
         "python/signaling-server.py",
         undefined,
         (err) => {
-          console.log(err);
+          if (err) console.log(err);
         }
       );
       const client = PythonShell.run(
         "python/dtls/answer.py",
         undefined,
         (err) => {
-          console.log(err);
+          if (err) console.log(err);
         }
       );
 
@@ -77,8 +77,6 @@ describe("aio", () => {
       params.usernameFragment = username;
 
       await transport.start(params);
-
-      console.log("ice connected");
 
       const fingerprint: string = await new Promise((r) =>
         ws.once("message", (data) => r(data))

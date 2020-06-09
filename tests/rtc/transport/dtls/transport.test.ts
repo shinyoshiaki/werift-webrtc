@@ -8,6 +8,8 @@ import { sleep } from "../../../../src/utils";
 export async function dtlsTransportPair() {
   const [transport1, transport2] = await iceTransportPair();
   await sleep(100);
+  transport1.connection.iceControlling = true;
+  transport2.connection.iceControlling = false;
 
   const certificate1 = RTCCertificate.generateCertificate();
   const session1 = new RTCDtlsTransport(transport1, [certificate1]);

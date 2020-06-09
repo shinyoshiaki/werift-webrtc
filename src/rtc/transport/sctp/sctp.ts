@@ -358,16 +358,15 @@ export class RTCSctpTransport {
   private async receiveSackChunk(chunk: SackChunk) {
     if (uint32Gt(this.lastSackedTsn, chunk.cumulativeTsn)) return;
 
-    const receivedTime = Date.now();
+    const receivedTime = Date.now() / 1000;
     this.lastSackedTsn = chunk.cumulativeTsn;
     const cwndFullyUtilized = this.flightSize >= this.cwnd!;
-
     let done = 0,
       doneBytes = 0;
 
     // # handle acknowledged data
     while (
-      this.sentQueue &&
+      this.sentQueue.length > 0 &&
       uint32Gte(this.lastSackedTsn, this.sentQueue[0].tsn)
     ) {
       const sChunk = this.sentQueue.shift()!;

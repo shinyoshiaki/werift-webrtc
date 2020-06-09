@@ -56,7 +56,6 @@ export class Flight5 {
   }
 
   sendCertificate() {
-    console.log("client certificate");
     if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
 
     const sign = parseX509(this.cipher.certPem, this.cipher.keyPem);

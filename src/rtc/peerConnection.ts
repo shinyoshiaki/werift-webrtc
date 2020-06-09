@@ -303,7 +303,6 @@ export class RTCPeerConnection {
   private async gather() {
     const transports = [...this.iceTransports];
     await Promise.all(transports.map((t) => t.iceGather.gather()));
-    console.log("gather done");
   }
 
   private async connect() {

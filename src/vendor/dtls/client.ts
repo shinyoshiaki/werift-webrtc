@@ -95,7 +95,6 @@ export class DtlsClient extends DtlsSocket {
             .filter((v) => v);
           this.flight4Buffer = [];
           this.dtls.bufferHandshakeCache(fragments, false, 4);
-          console.log(this.dtls.bufferHandshakeCache.length);
 
           const messages = fragments.map((handshake) => {
             switch (handshake.msg_type) {
