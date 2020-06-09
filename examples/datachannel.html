@@ -42,10 +42,12 @@
         };
         channel.onopen = () => {
           console.log("open");
-          channel.send("ping");
+          setInterval(() => {
+            channel.send("ping");
+          }, 3000);
         };
-        channel.onclose = () => {
-          console.log("close");
+        channel.onclose = (e) => {
+          console.log("close", e);
         };
         channel.onerror = (e) => {
           console.log("error", e);

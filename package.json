@@ -17,7 +17,7 @@
     "ci": "jest --runInBand --forceExit",
     "format": "prettier --write src/**/*.ts",
     "publish": "npm publish --access=public",
-    "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
+    "start": "ts-node --files --project ./tsconfig.json ./examples/datachannel.ts",
     "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json"
   },

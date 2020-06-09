@@ -22,7 +22,7 @@ export class StunProtocol implements Protocol {
 
   private log(...args: any[]) {
     if (this.receiver.options.log) {
-      console.log(...args);
+      console.log("log", ...args);
     }
   }
 

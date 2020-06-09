@@ -2,6 +2,7 @@ import { RTCPeerConnection } from "../src";
 import WS, { Server } from "ws";
 
 const server = new Server({ port: 8888 });
+console.log("start");
 
 server.on("connection", (socket) => {
   socket.on("message", async (data) => {

@@ -200,7 +200,7 @@ export class Connection {
 
   private log(...args: any[]) {
     if (this.options.log) {
-      console.log(...args);
+      console.log("log", ...args);
     }
   }
 

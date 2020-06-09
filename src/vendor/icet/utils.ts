@@ -70,7 +70,7 @@ export const future = (pCancel: PCancelable<any>) => {
     })
     .catch((error) => {
       if (error !== "cancel") {
-        console.log(error);
+        console.log("future", error);
       }
     });
 
