@@ -20,6 +20,7 @@ describe.only("SctpStreamTest", () => {
     expect(stream.reassembly).toEqual([chunks[0]]);
     expect(stream.sequenceNumber).toBe(0);
 
+    const messages = [...stream.popMessages()];
     try {
       stream.addChunk(chunks[0]);
     } catch (error) {
