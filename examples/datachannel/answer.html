@@ -36,28 +36,12 @@
           }
         };
 
-        // const channel = peer.createDataChannel("chat");
-        // channel.onmessage = (ev) => {
-        //   console.log(new TextDecoder("utf-8").decode(ev.data));
-        // };
-        // channel.onopen = () => {
-        //   console.log("open");
-        //   setInterval(() => {
-        //     console.log("send");
-        //     channel.send("ping");
-        //   }, 1000);
-        // };
-        // channel.onclose = (e) => {
-        //   console.log("close", e);
-        // };
-        // channel.onerror = (e) => {
-        //   console.log("error", e);
-        // };
-
         peer.ondatachannel = (ev) => {
           const channel = ev.channel;
           channel.onmessage = (ev) => {
-            console.log(new TextDecoder("utf-8").decode(ev.data));
+            console.log(
+              new TextDecoder("utf-8").decode(new Uint8Array(ev.data))
+            );
             channel.send("pong");
           };
         };
@@ -72,7 +56,7 @@
       })();
 
       const App = () => {
-        return <div>hi</div>;
+        return <div>answer</div>;
       };
 
       ReactDOM.render(App(), document.getElementById("app1"));
