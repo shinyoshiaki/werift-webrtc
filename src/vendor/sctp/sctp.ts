@@ -116,7 +116,11 @@ export class SCTP {
   reconfig_request_seq = this.localTsn;
   reconfig_response_seq = 0;
 
-  constructor(public transport: Transport, public port = 5000) {}
+  constructor(public transport: Transport, public port = 5000) {
+    this.transport.onData = (buf) => {
+      this.handleData(buf);
+    };
+  }
 
   isServer = true;
   static client(transport: Transport, port = 5000) {
@@ -858,9 +862,7 @@ export class SCTP {
       this.started = true;
       this.state = "connecting";
       this.remotePort = remotePort;
-      this.transport.onData = (buf) => {
-        this.handleData(buf);
-      };
+
       if (!this.isServer) {
         await this.init();
       }
@@ -911,9 +913,9 @@ export class SCTP {
     }
     if (state === SCTP_STATE.ESTABLISHED) {
       this.state = "connected";
-      console.log(this.state);
       this.connected.next();
     } else if (state === SCTP_STATE.CLOSED) {
+      console.log("closed");
       // todo
       // this.t1Cancel();
       // this.t2Cancel();

@@ -74,8 +74,9 @@ describe("peerConnection", () => {
       await assertIceCompleted(pc1, pc2);
 
       await assertDataChannelOpen(dc);
+      expect(true).toBe(true);
     },
-    60 * 1000 * 60
+    60 * 1000
   );
 });
 

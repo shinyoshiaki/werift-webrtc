@@ -1,5 +1,5 @@
 import { RTCDataChannelParameters, RTCDataChannel } from "./dataChannel";
-import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp/sctp";
+import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp";
 import {
   RTCIceGatherer,
   RTCIceTransport,
@@ -323,14 +323,15 @@ export class RTCPeerConnection {
           await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
           // todo fix
           await this.sctp.start(this.sctpRemotePort!);
-          for (let _ of range(100)) {
-            if (this.sctp.associationState === 4) {
-              break;
-            }
-            await sleep(100);
-          }
+          await new Promise((r) =>
+            this.sctp?.sctp.connected.subscribe(() => {
+              r();
+            })
+          );
+          return;
         } else if (dtlsTransport.state === State.CONNECTED) {
           await this.sctp.start(this.sctpRemotePort!);
+          return;
         }
       }
     }

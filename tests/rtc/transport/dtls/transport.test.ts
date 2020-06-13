@@ -35,7 +35,7 @@ describe("RTCDtlsTransportTest", () => {
     async () => {
       const [session1, session2] = await dtlsTransportPair();
       const receiver2 = new DummyDataReceiver();
-      session2.registerDataReceiver(receiver2 as any);
+      session2.dataReceiver = receiver2.handleData;
 
       session1.sendData(Buffer.from("ping"));
       await sleep(100);
@@ -47,9 +47,9 @@ describe("RTCDtlsTransportTest", () => {
 
 class DummyDataReceiver {
   data: Buffer[] = [];
-  handleData(data: Buffer) {
+  handleData = (data: Buffer) => {
     this.data.push(data);
-  }
+  };
 }
 
 const iceTransportPair = async () => {

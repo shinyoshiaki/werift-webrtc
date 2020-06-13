@@ -16,17 +16,6 @@ export const WEBRTC_BINARY = 53;
 export const WEBRTC_STRING_EMPTY = 56;
 export const WEBRTC_BINARY_EMPTY = 57;
 
-export enum State {
-  CLOSED = 1,
-  COOKIE_WAIT = 2,
-  COOKIE_ECHOED = 3,
-  ESTABLISHED = 4,
-  SHUTDOWN_PENDING = 5,
-  SHUTDOWN_SENT = 6,
-  SHUTDOWN_RECEIVED = 7,
-  SHUTDOWN_ACK_SENT = 8,
-}
-
 export const DISCARD_HOST = "0.0.0.0";
 export const DISCARD_PORT = 9;
 export const MEDIA_KINDS = ["audio", "video"];

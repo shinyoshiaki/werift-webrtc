@@ -1,7 +1,6 @@
 import { RTCIceTransport } from "./ice";
 import { createHash } from "crypto";
 import { Subject } from "rxjs";
-import { RTCSctpTransport } from "./sctp/sctp";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import {
   DtlsServer,
@@ -24,7 +23,7 @@ export class RTCDtlsTransport {
   state = State.NEW;
   private localCertificate: RTCCertificate;
   role = "auto";
-  private dataReceiver?: RTCSctpTransport;
+  dataReceiver?: (buf: Buffer) => void;
 
   constructor(
     public transport: RTCIceTransport,
@@ -72,7 +71,7 @@ export class RTCDtlsTransport {
         });
       }
       this.dtls.onData = (buf) => {
-        this.dataReceiver?.handleData(buf);
+        if (this.dataReceiver) this.dataReceiver(buf);
       };
       this.dtls.onConnect = () => {
         this.setState(State.CONNECTED);
@@ -95,11 +94,6 @@ export class RTCDtlsTransport {
       this.state = state;
       this.stateChange.next(state);
     }
-  }
-
-  registerDataReceiver(receiver: RTCSctpTransport) {
-    if (this.dataReceiver) throw new Error();
-    this.dataReceiver = receiver;
   }
 }
 

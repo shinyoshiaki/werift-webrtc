@@ -4,9 +4,10 @@ import {
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../../../../src/rtc/dataChannel";
-import { State } from "../../../../src/rtc/const";
 import { range } from "lodash";
 import { sleep } from "../../../../src/utils";
+import { SCTP_STATE } from "../../../../src/vendor/sctp/const";
+
 describe("RTCSctpTransportTest", () => {
   function trackChannels(transport: RTCSctpTransport) {
     const channels: RTCDataChannel[] = [];
@@ -22,11 +23,10 @@ describe("RTCSctpTransportTest", () => {
     client: RTCSctpTransport,
     server: RTCSctpTransport
   ) {
-    const final = [State.ESTABLISHED];
     for (let _ of range(100)) {
       if (
-        final.includes(client.associationState) &&
-        final.includes(server.associationState)
+        SCTP_STATE.ESTABLISHED === client.sctp.associationState &&
+        SCTP_STATE.ESTABLISHED === server.sctp.associationState
       ) {
         break;
       }
@@ -66,6 +66,6 @@ describe("RTCSctpTransportTest", () => {
         channel.send(Buffer.from("pong"));
       });
     },
-    60 * 60 * 1000
+    60 * 1000
   );
 });
