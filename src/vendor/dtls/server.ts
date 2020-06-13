@@ -63,9 +63,7 @@ export class DtlsServer extends DtlsSocket {
           new Flight6(this.udp, this.dtls, this.record, this.cipher).exec(
             handshakes
           );
-          setTimeout(() => {
-            if (this.onConnect) this.onConnect();
-          }, 100);
+          if (this.onConnect) this.onConnect();
         }
         break;
     }

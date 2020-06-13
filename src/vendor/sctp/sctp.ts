@@ -896,7 +896,7 @@ export class SCTP {
   }
 
   private async sendChunk(chunk: Chunk) {
-    if (!this.remotePort) throw new Error();
+    if (this.remotePort === undefined) throw new Error("invalid remote port");
     this.transport.send(
       serializePacket(
         this.localPort,
