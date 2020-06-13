@@ -38,13 +38,14 @@
 
         const channel = peer.createDataChannel("chat");
         channel.onmessage = (ev) => {
-          console.log(ev.data);
+          console.log(new TextDecoder("utf-8").decode(ev.data));
         };
         channel.onopen = () => {
           console.log("open");
           setInterval(() => {
+            console.log("send");
             channel.send("ping");
-          }, 3000);
+          }, 1000);
         };
         channel.onclose = (e) => {
           console.log("close", e);

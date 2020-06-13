@@ -70,12 +70,12 @@ type FingerprintMessage = {
   const session = new RTCDtlsTransport(transport, [certificate]);
   class Dummy {
     data: Buffer[] = [];
-    handleData(buf: Buffer) {
+    handleData = (buf: Buffer) => {
       this.data.push(buf);
-    }
+    };
   }
   const receiver = new Dummy();
-  session.registerDataReceiver(receiver as any);
+  session.dataReceiver = receiver.handleData;
   ws.send(
     JSON.stringify({
       fingerprints: session
