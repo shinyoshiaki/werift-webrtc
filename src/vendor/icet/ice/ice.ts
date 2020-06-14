@@ -204,22 +204,6 @@ export class Connection {
     }
   }
 
-  set remoteCandidates(value: Candidate[]) {
-    if (this.remoteCandidatesEnd)
-      throw new Error("Cannot set remote candidates after end-of-candidates.");
-    this.remoteCandidates_ = [];
-    for (let remoteCandidate of value) {
-      try {
-        validateRemoteCandidate(remoteCandidate);
-      } catch (error) {
-        continue;
-      }
-      this.remoteCandidates.push(remoteCandidate);
-    }
-    this.pruneComponents();
-    this.remoteCandidatesEnd = true;
-  }
-
   get remoteCandidates() {
     return this.remoteCandidates_;
   }
@@ -495,6 +479,11 @@ export class Connection {
       return;
     }
 
+    if (remoteCandidate.host.includes(".local")) {
+      console.log("we don't support m-dns for now");
+      return;
+    }
+
     try {
       validateRemoteCandidate(remoteCandidate);
     } catch (error) {
@@ -601,7 +590,7 @@ export class Connection {
     addresses: string[],
     timeout = 5
   ) {
-    let candidates = [];
+    let candidates: Candidate[] = [];
 
     for (let address of addresses) {
       // # create transport

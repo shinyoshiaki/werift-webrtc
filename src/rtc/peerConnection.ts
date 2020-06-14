@@ -11,13 +11,16 @@ import {
   RTCDtlsParameters,
   RTCCertificate,
 } from "./transport/dtls";
-import { SessionDescription, GroupDescription, MediaDescription } from "./sdp";
+import {
+  SessionDescription,
+  GroupDescription,
+  MediaDescription,
+  RTCSessionDescription,
+} from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
-import { RTCSessionDescription } from "./sessionDescription";
+
 import { isEqual } from "lodash";
 import { Subject } from "rxjs";
-import { range } from "lodash";
-import { sleep } from "../utils";
 
 type Configuration = { stunServer?: [string, number] };
 
@@ -289,6 +292,7 @@ export class RTCPeerConnection {
     });
 
     // # connect
+    // if (description.type === "offer")
     this.connect();
 
     // # replace description
@@ -440,6 +444,7 @@ export class RTCPeerConnection {
       }
     }
 
+    // if (description.type === "answer")
     this.connect();
 
     if (description.type === "offer") {
@@ -534,8 +539,10 @@ function addTransportDescription(
   media.ice = iceGatherer.getLocalParameters();
 
   if (media.iceCandidates.length > 0) {
-    media.host = media.iceCandidates[0].ip;
-    media.port = media.iceCandidates[0].port;
+    // select srflx
+    const candidate = media.iceCandidates[media.iceCandidates.length - 1];
+    media.host = candidate.ip;
+    media.port = candidate.port;
   } else {
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;
