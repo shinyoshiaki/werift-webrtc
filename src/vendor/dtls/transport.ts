@@ -1,5 +1,5 @@
 import { Socket, RemoteInfo } from "dgram";
-import { Connection } from "icet";
+import { Connection } from "../ice";
 
 export interface Transport {
   onData?: (buf: Buffer) => void;

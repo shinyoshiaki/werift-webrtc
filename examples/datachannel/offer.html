@@ -43,7 +43,6 @@
         channel.onopen = () => {
           console.log("open");
           setInterval(() => {
-            console.log("send");
             channel.send("ping");
           }, 1000);
         };
