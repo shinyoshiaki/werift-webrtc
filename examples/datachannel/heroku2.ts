@@ -25,7 +25,7 @@ socket.on("sdp", async (data: any) => {
   pc.datachannel.subscribe((channel) => {
     channel.message.subscribe((data) => {
       console.log("answer message", data.toString());
-      setInterval(() => channel.send(Buffer.from("pong")), 1000);
     });
+    setInterval(() => channel.send(Buffer.from("ping")), 1000);
   });
 });

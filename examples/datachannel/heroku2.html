@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>Heroku</title>
+    <title>Heroku2</title>
     <script
       crossorigin
       src="https://unpkg.com/react@16/umd/react.development.js"
@@ -43,13 +43,10 @@
         const channel = peer.createDataChannel("chat");
         channel.onmessage = (ev) => {
           console.log(new TextDecoder("utf-8").decode(ev.data));
+          channel.send("pong");
         };
         channel.onopen = () => {
           console.log("open");
-          setInterval(() => {
-            console.log("send");
-            channel.send("ping");
-          }, 1000);
         };
         channel.onclose = (e) => {
           console.log("close", e);
