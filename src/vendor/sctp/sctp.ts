@@ -204,6 +204,7 @@ export class SCTP {
         }
         break;
       case AbortChunk.type:
+        console.log("AbortChunk");
         this.setState(SCTP_STATE.CLOSED);
         break;
       case ShutdownChunk.type:
@@ -333,6 +334,7 @@ export class SCTP {
             this.associationState
           )
         ) {
+          console.log("ErrorChunk");
           this.t1Cancel();
           this.setState(SCTP_STATE.CLOSED);
         }
@@ -711,9 +713,10 @@ export class SCTP {
   private t1Expired = async () => {
     this.t1Failures++;
     this.t1Handle = undefined;
-    if (this.t1Failures > SCTP_MAX_INIT_RETRANS)
+    if (this.t1Failures > SCTP_MAX_INIT_RETRANS) {
+      console.log("t1Expired");
       this.setState(SCTP_STATE.CLOSED);
-    else {
+    } else {
       this.sendChunk(this.t1Chunk!);
       this.t1Handle = setTimeout(this.t1Expired, this.rto);
     }
@@ -737,9 +740,10 @@ export class SCTP {
   private t2Expired = () => {
     this.t2Failures++;
     this.t2Handle = undefined;
-    if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS)
+    if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
+      console.log("t2Expired");
       this.setState(SCTP_STATE.CLOSED);
-    else {
+    } else {
       this.sendChunk(this.t2Chunk!);
       this.t2Handle = setTimeout(this.t2Expired, this.rto);
     }
