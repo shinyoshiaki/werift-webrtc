@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>Reactサンプル</title>
+    <title>Offer</title>
     <script
       crossorigin
       src="https://unpkg.com/react@16/umd/react.development.js"
@@ -24,7 +24,7 @@
     <script type="text/babel">
       let rtc;
       (async () => {
-        const socket = new WebSocket("ws://localhost:8888");
+        const socket = new WebSocket("ws://35.224.98.130:8888");
         await new Promise((r) => socket.addEventListener("open", r));
 
         const peer = (rtc = new RTCPeerConnection({
@@ -61,7 +61,7 @@
 
         socket.addEventListener("message", async (ev) => {
           const answer = JSON.parse(ev.data);
-          console.log({ answer });
+          console.log(answer);
           await peer.setRemoteDescription(answer);
         });
       })();

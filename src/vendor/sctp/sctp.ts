@@ -915,7 +915,7 @@ export class SCTP {
       this.state = "connected";
       this.connected.next();
     } else if (state === SCTP_STATE.CLOSED) {
-      console.log("closed");
+      console.log("sctp closed");
       // todo
       // this.t1Cancel();
       // this.t2Cancel();
