@@ -14,6 +14,8 @@ server.on("connection", async (socket) => {
   const answer = JSON.parse(
     await new Promise((r) => socket.on("message", (data) => r(data as string)))
   );
+  console.log(answer);
+
   await pc.setRemoteDescription(answer);
   dc.state.subscribe((v) => {
     if (v === "open") {
