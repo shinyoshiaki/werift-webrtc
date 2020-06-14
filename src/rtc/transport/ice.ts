@@ -1,4 +1,4 @@
-import { Connection, Candidate } from "../../vendor/icet";
+import { Connection, Candidate } from "../../vendor/ice";
 import { Subject } from "rxjs";
 
 type IceState =

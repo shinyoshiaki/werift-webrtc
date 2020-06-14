@@ -5,7 +5,7 @@ import {
   candidateFromIce,
   RTCIceParameters,
 } from "../../src/rtc/transport/ice";
-import { Candidate } from "../../src/vendor/icet";
+import { Candidate } from "../../src/vendor/ice";
 import {
   RTCDtlsTransport,
   RTCDtlsParameters,
