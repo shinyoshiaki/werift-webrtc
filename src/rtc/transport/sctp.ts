@@ -13,9 +13,7 @@ import { jspack } from "jspack";
 import { RTCDtlsTransport } from "./dtls";
 import { generateUUID } from "../../utils";
 import { Subject } from "rxjs";
-import { SCTP } from "../../vendor/sctp/sctp";
-import { Transport } from "../../vendor/sctp/transport";
-import { SCTP_STATE } from "../../vendor/sctp/const";
+import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
 
 // # protocol constants
 export const SCTP_DATA_LAST_FRAG = 0x01;

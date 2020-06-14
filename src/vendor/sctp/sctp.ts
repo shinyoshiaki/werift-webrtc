@@ -204,7 +204,6 @@ export class SCTP {
         }
         break;
       case AbortChunk.type:
-        console.log("AbortChunk");
         this.setState(SCTP_STATE.CLOSED);
         break;
       case ShutdownChunk.type:
@@ -269,7 +268,7 @@ export class SCTP {
             cookie?.length != COOKIE_LENGTH ||
             !cookie.slice(4).equals(digest)
           ) {
-            console.log("x State cookie is invalid");
+            // console.log("x State cookie is invalid");
             return;
           }
 
@@ -334,7 +333,6 @@ export class SCTP {
             this.associationState
           )
         ) {
-          console.log("ErrorChunk");
           this.t1Cancel();
           this.setState(SCTP_STATE.CLOSED);
         }
@@ -714,7 +712,6 @@ export class SCTP {
     this.t1Failures++;
     this.t1Handle = undefined;
     if (this.t1Failures > SCTP_MAX_INIT_RETRANS) {
-      console.log("t1Expired");
       this.setState(SCTP_STATE.CLOSED);
     } else {
       this.sendChunk(this.t1Chunk!);
@@ -741,7 +738,6 @@ export class SCTP {
     this.t2Failures++;
     this.t2Handle = undefined;
     if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
-      console.log("t2Expired");
       this.setState(SCTP_STATE.CLOSED);
     } else {
       this.sendChunk(this.t2Chunk!);
@@ -919,7 +915,6 @@ export class SCTP {
       this.state = "connected";
       this.connected.next();
     } else if (state === SCTP_STATE.CLOSED) {
-      console.log("sctp closed");
       // todo
       // this.t1Cancel();
       // this.t2Cancel();
