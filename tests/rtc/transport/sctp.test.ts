@@ -1,12 +1,12 @@
-import { RTCSctpTransport } from "../../../../src";
-import { dtlsTransportPair } from "../dtls/transport.test";
+import { RTCSctpTransport } from "../../../src";
+import { dtlsTransportPair } from "./dtls.test";
 import {
   RTCDataChannel,
   RTCDataChannelParameters,
-} from "../../../../src/rtc/dataChannel";
+} from "../../../src/rtc/dataChannel";
 import { range } from "lodash";
-import { sleep } from "../../../../src/utils";
-import { SCTP_STATE } from "../../../../src/vendor/sctp/const";
+import { sleep } from "../../../src/utils";
+import { SCTP_STATE } from "../../../src/vendor/sctp/const";
 
 describe("RTCSctpTransportTest", () => {
   function trackChannels(transport: RTCSctpTransport) {

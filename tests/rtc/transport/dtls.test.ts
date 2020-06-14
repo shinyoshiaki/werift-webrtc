@@ -1,9 +1,9 @@
 import {
   RTCCertificate,
   RTCDtlsTransport,
-} from "../../../../src/rtc/transport/dtls";
-import { RTCIceGatherer, RTCIceTransport } from "../../../../src";
-import { sleep } from "../../../../src/utils";
+} from "../../../src/rtc/transport/dtls";
+import { RTCIceGatherer, RTCIceTransport } from "../../../src";
+import { sleep } from "../../../src/utils";
 
 export async function dtlsTransportPair() {
   const [transport1, transport2] = await iceTransportPair();
