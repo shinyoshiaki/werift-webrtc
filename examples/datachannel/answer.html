@@ -24,7 +24,7 @@
     <script type="text/babel">
       let rtc;
       (async () => {
-        const socket = new WebSocket("ws://35.224.98.130:8888");
+        const socket = new WebSocket("ws://localhost:8888");
         await new Promise((r) => socket.addEventListener("open", r));
 
         const peer = (rtc = new RTCPeerConnection({
