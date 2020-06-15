@@ -5,7 +5,7 @@ WebRTC Implementation for TypeScript (Node.js)
 | feature      | progress  |
 | ------------ | --------- |
 | DataChannel  | supported |
-| MediaChannel | wip       |
+| MediaChannel | todo       |
 
 
 
