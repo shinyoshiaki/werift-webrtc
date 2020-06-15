@@ -153,6 +153,7 @@ export class Connection {
   remoteUsername: string = "";
   localUserName = randomString(4);
   localPassword = randomString(22);
+  remoteIsLite = false;
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
   stunServer?: Address;
@@ -169,6 +170,7 @@ export class Connection {
   get nominatedKeys() {
     return Object.keys(this.nominated).map((v) => v.toString());
   }
+  private nominating = new Set<number>();
   get socket() {
     return Object.values(this.nominated)[0].protocol.socket;
   }
@@ -202,6 +204,23 @@ export class Connection {
     if (this.options.log) {
       console.log("log", ...args);
     }
+  }
+
+  // for test only
+  set remoteCandidates(value: Candidate[]) {
+    if (this.remoteCandidatesEnd)
+      throw new Error("Cannot set remote candidates after end-of-candidates.");
+    this.remoteCandidates_ = [];
+    for (let remoteCandidate of value) {
+      try {
+        validateRemoteCandidate(remoteCandidate);
+      } catch (error) {
+        continue;
+      }
+      this.remoteCandidates.push(remoteCandidate);
+    }
+    this.pruneComponents();
+    this.remoteCandidatesEnd = true;
   }
 
   get remoteCandidates() {
@@ -253,14 +272,16 @@ export class Connection {
     pair.state = state;
   }
 
-  buildRequest(pair: CandidatePair) {
+  buildRequest(pair: CandidatePair, nominate: boolean) {
     const txUsername = `${this.remoteUsername}:${this.localUserName}`;
     const request = new Message(methods.BINDING, classes.REQUEST);
     request.attributes["USERNAME"] = txUsername;
     request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
     if (this.iceControlling) {
       request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
-      request.attributes["USE-CANDIDATE"] = null;
+      if (nominate) {
+        request.attributes["USE-CANDIDATE"] = null;
+      }
     } else {
       request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
     }
@@ -349,7 +370,9 @@ export class Connection {
       // """
 
       this.checkState(pair, CandidatePairState.IN_PROGRESS);
-      const request = this.buildRequest(pair);
+
+      const nominate = this.iceControlling && !this.remoteIsLite;
+      const request = this.buildRequest(pair, nominate);
 
       const result: { response?: Message; addr?: Address } = {};
       try {
@@ -389,10 +412,26 @@ export class Connection {
       }
 
       // # success
-      this.checkState(pair, CandidatePairState.SUCCEEDED);
-      if (this.iceControlling || pair.remoteNominated) {
+      if (nominate || pair.remoteNominated) {
+        pair.nominated = true;
+      } else if (this.iceControlling && !this.nominating.has(pair.component)) {
+        this.nominating.add(pair.component);
+        const request = this.buildRequest(pair, true);
+        try {
+          await pair.protocol.request(
+            request,
+            pair.remoteAddr,
+            Buffer.from(this.remotePassword, "utf8")
+          );
+        } catch (error) {
+          this.checkState(pair, CandidatePairState.FAILED);
+          this.checkComplete(pair);
+          return;
+        }
         pair.nominated = true;
       }
+
+      this.checkState(pair, CandidatePairState.SUCCEEDED);
       this.checkComplete(pair);
       r();
     });
@@ -769,7 +808,7 @@ export class Connection {
 
         for (let key of this.nominatedKeys) {
           const pair = this.nominated[Number(key)];
-          const request = this.buildRequest(pair);
+          const request = this.buildRequest(pair, false);
           try {
             await pair.protocol.request(
               request,
