@@ -9,7 +9,7 @@ WebRTC Implementation for TypeScript (Node.js)
 
 
 
-# Components
+# components
 
 - ICE  https://github.com/shinyoshiaki/rainy-ice
 - DTLS https://github.com/shinyoshiaki/rainy-dtls
