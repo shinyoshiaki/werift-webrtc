@@ -5,6 +5,8 @@ import { RTCSctpCapabilities } from "./transport/sctp";
 import { DTLS_ROLE_SETUP, DTLS_SETUP_ROLE } from "./const";
 import { isIPv4 } from "net";
 import { range } from "lodash";
+import { randomBytes } from "crypto";
+import { Uint64BE } from "int64-buffer";
 
 export class SessionDescription {
   version = 0;
@@ -381,4 +383,17 @@ function candidateFromSdp(sdp: string) {
 
 export class RTCSessionDescription {
   constructor(public sdp: string, public type: "offer" | "answer") {}
+}
+
+export function addSDPHeader(
+  type: "offer" | "answer",
+  description: SessionDescription
+) {
+  const username = "-";
+  const sessionId = new Uint64BE(randomBytes(64)).toString();
+  const sessionVersion = 0;
+
+  description.origin = `${username} ${sessionId} ${sessionVersion} IN IP4 0.0.0.0`;
+  description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
+  description.type = type;
 }

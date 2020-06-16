@@ -37,7 +37,7 @@ export class RTCSctpTransport {
   sctp: SCTP;
 
   constructor(public transport: RTCDtlsTransport, public port = 5000) {
-    const bridge = new Bridge(this.transport);
+    const bridge = new Bridge(transport);
     this.sctp = new SCTP(bridge, port);
 
     this.sctp.onRecieve = (streamId, ppId, data) => {
@@ -53,7 +53,7 @@ export class RTCSctpTransport {
     });
   }
 
-  get isServer() {
+  private get isServer() {
     return this.transport.transport.role !== "controlling";
   }
 
@@ -165,7 +165,7 @@ export class RTCSctpTransport {
     }
 
     let channelType = DATA_CHANNEL_RELIABLE;
-    let priority = 0;
+    const priority = 0;
     let reliability = 0;
 
     if (!channel.ordered) {
@@ -211,11 +211,11 @@ export class RTCSctpTransport {
     let expiry: number | undefined;
     while (
       this.dataChannelQueue.length > 0 &&
-      !(this.sctp.outboundQueue.length > 0)
+      this.sctp.outboundQueue.length === 0
     ) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
-      let streamId = channel.id!;
+      let streamId = channel.id;
       if (streamId === undefined) {
         streamId = this.dataChannelId!;
         while (Object.keys(this.dataChannels).includes(streamId.toString())) {
@@ -229,7 +229,7 @@ export class RTCSctpTransport {
         await this.sctp.send(streamId, protocol, userData);
       } else {
         if (channel.maxPacketLifeTime) {
-          expiry = Date.now() + channel.maxPacketLifeTime / 1000;
+          expiry = Date.now() / 1000 + channel.maxPacketLifeTime;
         } else {
           expiry = undefined;
         }

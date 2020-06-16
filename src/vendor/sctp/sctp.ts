@@ -681,7 +681,7 @@ export class SCTP {
 
       // # update counters
       chunk.sentCount!++;
-      chunk.sentTime = Date.now();
+      chunk.sentTime = Date.now() / 1000;
 
       await this.sendChunk(chunk);
       if (!this.t3Handle) {
@@ -827,7 +827,7 @@ export class SCTP {
     if (chunk.abandoned) return true;
     const abandon =
       (chunk.maxRetransmits && chunk.sentCount! > chunk.maxRetransmits) ||
-      (chunk.expiry && chunk.expiry < Date.now());
+      (chunk.expiry && chunk.expiry < Date.now() / 1000);
 
     if (!abandon) return false;
 

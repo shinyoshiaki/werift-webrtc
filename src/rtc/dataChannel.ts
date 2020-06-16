@@ -3,7 +3,7 @@ import { Subject } from "rxjs";
 
 export class RTCDataChannelParameters {
   label = "";
-  maxPacketLifeTime?: number;
+  maxPacketLifeTime?: number; // sec
   maxRetransmits?: number;
   ordered = true;
   protocol = "";

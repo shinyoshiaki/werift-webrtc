@@ -22,8 +22,9 @@ server.on("connection", async (socket) => {
   dc.state.subscribe((v) => {
     if (v === "open") {
       console.log("open");
+      let index = 0;
       setInterval(() => {
-        dc.send(Buffer.from("ping"));
+        dc.send(Buffer.from("ping" + index++));
       }, 1000);
     }
   });

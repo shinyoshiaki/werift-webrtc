@@ -16,6 +16,7 @@ import {
   GroupDescription,
   MediaDescription,
   RTCSessionDescription,
+  addSDPHeader,
 } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 
@@ -87,11 +88,9 @@ export class RTCPeerConnection {
       );
 
     const mids = [...this.seenMid];
-    const ntpSeconds = (Date.now() / 1000) >> 32;
+
     const description = new SessionDescription();
-    description.origin = `- ${ntpSeconds} ${ntpSeconds} IN IP4 0.0.0.0`;
-    description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
-    description.type = "offer";
+    addSDPHeader("offer", description);
 
     const getMedia = (description?: SessionDescription) => {
       return description?.media || [];
@@ -470,11 +469,8 @@ export class RTCPeerConnection {
     )
       throw new Error();
 
-    const ntpSeconds = (Date.now() / 1000) >> 32;
     const description = new SessionDescription();
-    description.origin = `- ${ntpSeconds} ${ntpSeconds} IN IP4 0.0.0.0`;
-    description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
-    description.type = "answer";
+    addSDPHeader("answer", description);
 
     this._remoteDescription()?.media.forEach((remoteM) => {
       let dtlsTransport: RTCDtlsTransport;
