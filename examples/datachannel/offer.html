@@ -60,7 +60,7 @@
 
         socket.addEventListener("message", async (ev) => {
           const answer = JSON.parse(ev.data);
-          console.log(answer);
+          console.log(answer.sdp);
           await peer.setRemoteDescription(answer);
         });
       })();

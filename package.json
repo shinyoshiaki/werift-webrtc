@@ -1,10 +1,10 @@
 {
-  "name": "icet",
-  "version": "0.0.3",
-  "homepage": "https://github.com/shinyoshiaki/icet",
+  "name": "rainy-webrtc",
+  "version": "0.0.2",
+  "homepage": "https://github.com/shinyoshiaki/rainy-webrtc",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shinyoshiaki/icet.git"
+    "url": "https://github.com/shinyoshiaki/rainy-webrtc.git"
   },
   "license": "MIT",
   "main": "lib/index.js",
@@ -13,14 +13,15 @@
     "src"
   ],
   "scripts": {
+    "answer": "ts-node --files examples/datachannel/answer.ts",
     "build": "rm -rf lib && tsc",
     "ci": "jest --runInBand --forceExit",
     "format": "prettier --write src/**/*.ts",
+    "offer": "ts-node --files examples/datachannel/offer.ts",
+    "deploy": "yarn format && yarn test && yarn build",
     "publish": "npm publish --access=public",
     "test": "npm run type && jest --runInBand --forceExit",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "offer": "ts-node --files examples/datachannel/offer.ts",
-    "answer": "ts-node --files examples/datachannel/answer.ts"
+    "type": "tsc --noEmit --project ./tsconfig.json"
   },
   "jest": {
     "globals": {

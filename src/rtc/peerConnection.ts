@@ -161,14 +161,15 @@ export class RTCPeerConnection {
       this.sctp = this.createSctpTransport();
     }
 
-    const parameters = new RTCDataChannelParameters();
-    parameters.id = settings.id;
-    parameters.label = label;
-    parameters.maxPacketLifeTime = settings.maxPacketLifeTime;
-    parameters.maxRetransmits = settings.maxRetransmits;
-    parameters.negotiated = settings.negotiated;
-    parameters.ordered = settings.ordered;
-    parameters.protocol = settings.protocol;
+    const parameters = new RTCDataChannelParameters({
+      id: settings.id,
+      label,
+      maxPacketLifeTime: settings.maxPacketLifeTime,
+      maxRetransmits: settings.maxRetransmits,
+      negotiated: settings.negotiated,
+      ordered: settings.ordered,
+      protocol: settings.protocol,
+    });
 
     return new RTCDataChannel(this.sctp, parameters);
   }

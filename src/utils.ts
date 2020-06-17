@@ -50,3 +50,9 @@ export function fingerprint(file: Buffer, hashname: string) {
 
   return colon(upper(hash));
 }
+
+export function assignClassProperties(ctx: any, props: any) {
+  Object.keys(props).forEach((key: string) => {
+    ctx[key] = props[key];
+  });
+}

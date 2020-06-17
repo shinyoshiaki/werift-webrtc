@@ -1,5 +1,6 @@
 import { RTCSctpTransport } from "./transport/sctp";
 import { Subject } from "rxjs";
+import { assignClassProperties } from "../utils";
 
 export class RTCDataChannelParameters {
   label = "";
@@ -10,9 +11,7 @@ export class RTCDataChannelParameters {
   negotiated = false;
   id?: number;
   constructor(props: Partial<RTCDataChannelParameters> = {}) {
-    Object.keys(props as any).forEach((key: string) => {
-      (this as any)[key] = (props as any)[key];
-    });
+    assignClassProperties(this, props);
   }
 }
 
