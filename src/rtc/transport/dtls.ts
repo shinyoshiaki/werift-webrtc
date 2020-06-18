@@ -1,5 +1,4 @@
 import { RTCIceTransport } from "./ice";
-import { createHash } from "crypto";
 import { Subject } from "rxjs";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import {
@@ -10,7 +9,7 @@ import {
 } from "../../vendor/dtls";
 import { sleep, fingerprint } from "../../utils";
 
-export enum State {
+export enum DtlsState {
   NEW = 0,
   CONNECTING = 1,
   CONNECTED = 2,
@@ -19,8 +18,8 @@ export enum State {
 }
 
 export class RTCDtlsTransport {
-  stateChange = new Subject<State>();
-  state = State.NEW;
+  stateChange = new Subject<DtlsState>();
+  state = DtlsState.NEW;
   private localCertificate: RTCCertificate;
   role = "auto";
   dataReceiver?: (buf: Buffer) => void;
@@ -43,7 +42,7 @@ export class RTCDtlsTransport {
   dtls?: DtlsSocket;
 
   async start(remoteParameters: RTCDtlsParameters) {
-    if (this.state !== State.NEW) throw new Error();
+    if (this.state !== DtlsState.NEW) throw new Error();
     if (remoteParameters.fingerprints.length === 0) {
       throw new Error();
     }
@@ -54,7 +53,7 @@ export class RTCDtlsTransport {
       this.role = "client";
     }
 
-    this.setState(State.CONNECTING);
+    this.setState(DtlsState.CONNECTING);
 
     await new Promise(async (r) => {
       if (this.role === "server") {
@@ -74,7 +73,7 @@ export class RTCDtlsTransport {
         if (this.dataReceiver) this.dataReceiver(buf);
       };
       this.dtls.onConnect = () => {
-        this.setState(State.CONNECTED);
+        this.setState(DtlsState.CONNECTED);
         r();
       };
 
@@ -89,7 +88,7 @@ export class RTCDtlsTransport {
     this.dtls!.send(data);
   }
 
-  private setState(state: State) {
+  private setState(state: DtlsState) {
     if (state != this.state) {
       this.state = state;
       this.stateChange.next(state);
@@ -170,15 +169,6 @@ export class RTCCertificate {
     `
     );
   }
-}
-
-function certificateDigest(x509: string) {
-  const hash = createHash("sha256").update(Buffer.from(x509)).digest("hex");
-
-  const upper = (s: string) => s.toUpperCase();
-  const colon = (s: string) => s.match(/(.{2})/g)!.join(":");
-
-  return colon(upper(hash));
 }
 
 export class RTCDtlsFingerprint {

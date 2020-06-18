@@ -7,7 +7,7 @@ import {
 } from "./transport/ice";
 import {
   RTCDtlsTransport,
-  State,
+  DtlsState,
   RTCDtlsParameters,
   RTCCertificate,
 } from "./transport/dtls";
@@ -323,18 +323,15 @@ export class RTCPeerConnection {
 
         if (!this.sctpRemotePort) throw new Error();
 
-        if (dtlsTransport.state === State.NEW) {
+        if (dtlsTransport.state === DtlsState.NEW) {
           await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
           // todo fix
           await this.sctp.start(this.sctpRemotePort!);
-          await new Promise((r) =>
-            this.sctp?.sctp.connected.subscribe(() => {
-              r();
-            })
-          );
+          await new Promise((r) => this.sctp?.sctp.connected.subscribe(r));
           return;
-        } else if (dtlsTransport.state === State.CONNECTED) {
+        } else if (dtlsTransport.state === DtlsState.CONNECTED) {
           await this.sctp.start(this.sctpRemotePort!);
+          await new Promise((r) => this.sctp?.sctp.connected.subscribe(r));
           return;
         }
       }

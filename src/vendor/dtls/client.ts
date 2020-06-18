@@ -105,7 +105,6 @@ export class DtlsClient extends DtlsSocket {
               case HandshakeType.server_key_exchange:
                 return ServerKeyExchange.deSerialize(handshake.fragment);
               case HandshakeType.certificate_request:
-                // todo impl
                 return ServerCertificateRequest.deSerialize(handshake.fragment);
               case HandshakeType.server_hello_done:
                 return ServerHelloDone.deSerialize(handshake.fragment);

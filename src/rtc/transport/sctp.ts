@@ -15,11 +15,6 @@ import { generateUUID } from "../../utils";
 import { Subject } from "rxjs";
 import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
 
-// # protocol constants
-export const SCTP_DATA_LAST_FRAG = 0x01;
-export const SCTP_DATA_FIRST_FRAG = 0x02;
-export const SCTP_DATA_UNORDERED = 0x04;
-
 export class RTCSctpTransport {
   datachannel = new Subject<RTCDataChannel>();
   uuid = generateUUID();
