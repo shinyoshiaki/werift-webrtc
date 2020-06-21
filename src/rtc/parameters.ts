@@ -14,11 +14,19 @@ export class RTCRtpCodecParameters {
   payloadType?: number;
   rtcpFeedback: RTCRtcpFeedback[] = [];
   parameters: number[] = [];
+
+  constructor(props: Partial<RTCRtpCodecParameters> = {}) {
+    assignClassProperties(this, props);
+  }
 }
 
 export class RTCRtpHeaderExtensionParameters {
   id: number;
   uri: string;
+
+  constructor(props: Partial<RTCRtpHeaderExtensionParameters>) {
+    assignClassProperties(this, props);
+  }
 }
 
 export class RTCRtcpParameters {

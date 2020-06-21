@@ -1,12 +1,23 @@
-import { RTCRtpParameters, RTCRtcpFeedback } from "./parameters";
+import {
+  RTCRtpParameters,
+  RTCRtcpFeedback,
+  RTCRtpHeaderExtensionParameters,
+  RTCRtpCodecParameters,
+} from "./parameters";
 import { RTCIceParameters, RTCIceCandidate } from "./transport/ice";
 import { RTCDtlsParameters, RTCDtlsFingerprint } from "./transport/dtls";
 import { RTCSctpCapabilities } from "./transport/sctp";
-import { DTLS_ROLE_SETUP, DTLS_SETUP_ROLE, FMTP_INT_PARAMETERS } from "./const";
+import {
+  DTLS_ROLE_SETUP,
+  DTLS_SETUP_ROLE,
+  FMTP_INT_PARAMETERS,
+  SSRC_INFO_ATTRS,
+} from "./const";
 import { isIPv4 } from "net";
 import { range } from "lodash";
 import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
+import { assignClassProperties } from "../utils";
 
 export class SessionDescription {
   version = 0;
@@ -21,7 +32,11 @@ export class SessionDescription {
 
   static parse(sdp: string) {
     const dtlsFingerprints: RTCDtlsFingerprint[] = [];
+    let dtlsRole = "";
     let iceOptions = undefined;
+    let iceLite = false;
+    let icePassword = "";
+    let iceUsernameFragment = "";
 
     const [sessionLines, mediaGroups] = groupLines(sdp);
 
@@ -41,29 +56,33 @@ export class SessionDescription {
         const [attr, value] = parseAttr(line);
         switch (attr) {
           case "fingerprint":
-            {
-              const [algorithm, fingerprint] = value?.split(" ") || [];
-              dtlsFingerprints.push(
-                new RTCDtlsFingerprint(algorithm, fingerprint)
-              );
-            }
+            const [algorithm, fingerprint] = value?.split(" ") || [];
+            dtlsFingerprints.push(
+              new RTCDtlsFingerprint(algorithm, fingerprint)
+            );
+            break;
+          case "ice-lite":
+            iceLite = true;
             break;
           case "ice-options":
-            {
-              iceOptions = value;
-            }
+            iceOptions = value;
+            break;
+          case "ice-pwd":
+            icePassword = value;
+            break;
+          case "ice-ufrag":
+            iceUsernameFragment = value;
             break;
           case "group":
-            {
-              if (!value) throw new Error("exception");
-              parseGroup(session.group, value);
-            }
+            if (!value) throw new Error("exception");
+            parseGroup(session.group, value);
             break;
           case "msid-semantic":
-            {
-              if (!value) throw new Error("exception");
-              parseGroup(session.msidSemantic, value);
-            }
+            if (!value) throw new Error("exception");
+            parseGroup(session.msidSemantic, value);
+            break;
+          case "setup":
+            dtlsRole = DTLS_ROLE_SETUP[value];
             break;
         }
       }
@@ -78,18 +97,26 @@ export class SessionDescription {
 
       const kind = m[1];
       const fmt = m[4].split(" ");
+      // todo fix
+      const fmtInt = ["audio", "video"].includes(kind)
+        ? fmt.map((v) => Number(v))
+        : undefined;
 
       const currentMedia = new MediaDescription(
         kind,
         parseInt(m[2]),
         m[3],
-        fmt
+        fmtInt || fmt
       );
       currentMedia.dtls = new RTCDtlsParameters(
         [...dtlsFingerprints],
-        undefined
+        dtlsRole as any
       );
-      currentMedia.ice = new RTCIceParameters({});
+      currentMedia.ice = new RTCIceParameters({
+        iceLite,
+        usernameFragment: iceUsernameFragment,
+        password: icePassword,
+      });
       currentMedia.iceOptions = iceOptions;
       session.media.push(currentMedia);
 
@@ -107,53 +134,98 @@ export class SessionDescription {
             case "end-of-candidates":
               currentMedia.iceCandidatesComplete = true;
               break;
-            case "fingerprint":
-              {
-                if (!value) throw new Error();
-                const [algorithm, fingerprint] = value.split(" ");
-                currentMedia.dtls?.fingerprints.push(
-                  new RTCDtlsFingerprint(algorithm, fingerprint)
-                );
+            case "extmap":
+              let [extId, extUri] = value.split(" ");
+              if (extId.includes("/")) {
+                [extId] = extId.split("/");
               }
+              currentMedia.rtp.headerExtensions.push(
+                new RTCRtpHeaderExtensionParameters({
+                  id: parseInt(extId),
+                  uri: extUri,
+                })
+              );
               break;
-            case "ice-ufrag":
-              currentMedia.ice.usernameFragment = value;
-              break;
-            case "ice-pwd":
-              currentMedia.ice.password = value;
+            case "fingerprint":
+              if (!value) throw new Error();
+              const [algorithm, fingerprint] = value.split(" ");
+              currentMedia.dtls?.fingerprints.push(
+                new RTCDtlsFingerprint(algorithm, fingerprint)
+              );
               break;
             case "ice-options":
               currentMedia.iceOptions = value;
               break;
+            case "ice-pwd":
+              currentMedia.ice.password = value;
+              break;
+            case "ice-ufrag":
+              currentMedia.ice.usernameFragment = value;
+              break;
             case "max-message-size":
-              if (!value) throw new Error();
               currentMedia.sctpCapabilities = new RTCSctpCapabilities(
                 parseInt(value, 10)
               );
               break;
             case "mid":
-              if (!value) throw new Error();
               currentMedia.rtp.muxId = value;
               break;
             case "msid":
               currentMedia.msid = value;
               break;
+            case "rtcp":
+              const [port, rest] = value.split(" ", 1);
+              currentMedia.rtcpPort = parseInt(port);
+              currentMedia.rtcpHost = ipAddressFromSdp(rest);
+              break;
+            case "rtcp-mux":
+              currentMedia.rtcpMux = true;
+              break;
             case "setup":
-              if (!value) throw new Error();
-              if (!currentMedia.dtls) throw new Error();
-              const role = DTLS_SETUP_ROLE[value];
-              currentMedia.dtls.role = role;
+              currentMedia.dtls.role = DTLS_SETUP_ROLE[value];
+              break;
+            case "rtpmap":
+              {
+                const [formatId, formatDesc] = value.split(" ", 1);
+                const bits = formatDesc.split("/");
+                let channels: number | undefined;
+                if (currentMedia.kind === "audio") {
+                  channels = bits.length > 2 ? parseInt(bits[2]) : 1;
+                }
+                const codec = new RTCRtpCodecParameters({
+                  mimeType: currentMedia.kind + "/" + bits[0],
+                  channels,
+                  clockRate: parseInt(bits[1]),
+                  payloadType: parseInt(formatId),
+                });
+                currentMedia.rtp.codecs.push(codec);
+              }
               break;
             case "sctpmap":
-              {
-                if (!value) throw new Error();
-                const [formatId, formatDesc] = value.split(" ", 1);
-                (currentMedia as any)[attr][parseInt(formatId)] = formatDesc;
-              }
+              if (!value) throw new Error();
+              const [formatId, formatDesc] = value.split(" ", 1);
+              (currentMedia as any)[attr][parseInt(formatId)] = formatDesc;
               break;
             case "sctp-port":
               if (!value) throw new Error();
               currentMedia.sctpPort = parseInt(value);
+              break;
+            case "ssrc-group":
+              // todo fix
+              parseGroup(currentMedia.ssrcGroup, value, parseInt);
+              break;
+            case "ssrc":
+              const [ssrcStr, ssrcDesc] = value.split(" ", 1);
+              const ssrc = parseInt(ssrcStr);
+              const [ssrcAttr, ssrcValue] = ssrcDesc.split(":", 1);
+              let ssrcInfo = currentMedia.ssrc.find((v) => v.ssrc === ssrc);
+              if (!ssrcInfo) {
+                ssrcInfo = new SsrcDescription({ ssrc });
+                currentMedia.ssrc.push(ssrcInfo);
+              }
+              if (SSRC_INFO_ATTRS.includes(ssrcAttr)) {
+                ssrcInfo[ssrcAttr] = ssrcValue;
+              }
               break;
           }
         }
@@ -214,6 +286,15 @@ export class MediaDescription {
   direction?: string;
   msid?: string;
 
+  // rtcp
+  rtcpPort?: number;
+  rtcpHost?: string;
+  rtcpMux = false;
+
+  // ssrc
+  ssrc: SsrcDescription[] = [];
+  ssrcGroup: GroupDescription[] = [];
+
   // formats
   rtp = new RTCRtpParameters();
 
@@ -234,13 +315,13 @@ export class MediaDescription {
     public kind: string,
     public port: number,
     public profile: string,
-    public fmt: string[]
+    public fmt: string[] | number[]
   ) {}
 
   toString() {
     const lines = [];
     lines.push(
-      `m=${this.kind} ${this.port} ${this.profile} ${this.fmt
+      `m=${this.kind} ${this.port} ${this.profile} ${(this.fmt as number[])
         .map((v) => v.toString())
         .join(" ")}`
     );
@@ -363,7 +444,7 @@ function parseAttr(line: string): [string, string | undefined] {
 function parseGroup(
   dest: GroupDescription[],
   value: string,
-  type: (v: string) => string = (v) => v.toString()
+  type: (v: string) => any = (v) => v.toString()
 ) {
   const bits = value.split(" ");
   if (bits.length > 0) {
@@ -440,4 +521,16 @@ function parametersFromSdp(sdp: string): number[] {
   return Object.keys(parameters)
     .sort()
     .map((i) => parameters[i]);
+}
+
+export class SsrcDescription {
+  ssrc: number;
+  cname?: string;
+  msid?: string;
+  msLabel?: string;
+  label?: string;
+
+  constructor(props: Partial<SsrcDescription>) {
+    assignClassProperties(this, props);
+  }
 }

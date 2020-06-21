@@ -25,6 +25,7 @@ import { Subject } from "rxjs";
 import { RTCRtpTransceiver } from "./media/rtpTransceiver";
 import { RTCRtpReceiver } from "./media/rtpReceiver";
 import { RTCRtpSender } from "./media/rtpSender";
+import { enumerate } from "../utils";
 
 type Configuration = { stunServer?: [string, number] };
 
@@ -404,8 +405,7 @@ export class RTCPeerConnection {
     this.validateDescription(description, false);
 
     // # apply description
-    for (let i = 0; i < description.media.length; i++) {
-      const media = description.media[i];
+    for (let [i, media] of enumerate(description.media)) {
       let dtlsTransport: RTCDtlsTransport | undefined;
 
       if (["audio", "video"].includes(media.kind)) {

@@ -43,3 +43,5 @@ export const FMTP_INT_PARAMETERS = [
   "stereo",
   "useinbandfec",
 ];
+
+export const SSRC_INFO_ATTRS = ["cname", "msid", "mslabel", "label"];
