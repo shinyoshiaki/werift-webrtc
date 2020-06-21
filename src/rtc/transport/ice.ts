@@ -1,5 +1,6 @@
 import { Connection, Candidate } from "../../vendor/ice";
 import { Subject } from "rxjs";
+import { assignClassProperties } from "../../utils";
 
 type IceState =
   | "new"
@@ -35,9 +36,11 @@ export class RTCIceGatherer {
   }
 
   getLocalParameters() {
-    const params = new RTCIceParameters();
-    params.usernameFragment = this.connection.localUserName;
-    params.password = this.connection.localPassword;
+    const params = new RTCIceParameters({
+      usernameFragment: this.connection.localUserName,
+      password: this.connection.localPassword,
+    });
+
     return params;
   }
 
@@ -102,8 +105,13 @@ export class RTCIceCandidate {
 }
 
 export class RTCIceParameters {
-  public usernameFragment?: string;
-  public password?: string;
+  iceLite: boolean;
+  usernameFragment?: string;
+  password?: string;
+
+  constructor(props: Partial<RTCIceParameters>) {
+    assignClassProperties(this, props);
+  }
 }
 
 export class RTCIceTransport {

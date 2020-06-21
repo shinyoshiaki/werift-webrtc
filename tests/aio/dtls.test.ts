@@ -72,9 +72,10 @@ describe("aio", () => {
       candidates.forEach((sdp) => {
         transport.addRemoteCandidate(candidateFromIce(Candidate.fromSdp(sdp)));
       });
-      const params = new RTCIceParameters();
-      params.password = password;
-      params.usernameFragment = username;
+      const params = new RTCIceParameters({
+        password,
+        usernameFragment: username,
+      });
 
       await transport.start(params);
 

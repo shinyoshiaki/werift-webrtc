@@ -1,3 +1,4 @@
+import * as uuid from "uuid";
 import { RTCDataChannelParameters, RTCDataChannel } from "./dataChannel";
 import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp";
 import {
@@ -19,9 +20,11 @@ import {
   addSDPHeader,
 } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
-
 import { isEqual } from "lodash";
 import { Subject } from "rxjs";
+import { RTCRtpTransceiver } from "./media/rtpTransceiver";
+import { RTCRtpReceiver } from "./media/rtpReceiver";
+import { RTCRtpSender } from "./media/rtpSender";
 
 type Configuration = { stunServer?: [string, number] };
 
@@ -49,7 +52,8 @@ export class RTCPeerConnection {
   private _iceGatheringState = "new";
   private _signalingState = "stable";
   private isClosed = false;
-  private initialOffer?: boolean;
+  private streamId = uuid.v4();
+  private transceivers: RTCRtpTransceiver[] = [];
 
   constructor(private configuration: Configuration) {}
 
@@ -403,7 +407,19 @@ export class RTCPeerConnection {
     for (let i = 0; i < description.media.length; i++) {
       const media = description.media[i];
       let dtlsTransport: RTCDtlsTransport | undefined;
-      if (media.kind === "application") {
+
+      if (["audio", "video"].includes(media.kind)) {
+        const transceiver =
+          this.transceivers.find(
+            (t) =>
+              t.kind === media.kind &&
+              [undefined, media.rtp.muxId].includes(t.mid)
+          ) || this.createTransceiver("recvonly", media.kind);
+        if (!transceiver.mid) {
+          transceiver.mid = media.rtp.muxId;
+          transceiver.mLineIndex = i;
+        }
+      } else if (media.kind === "application") {
         if (!this.sctp) {
           this.sctp = this.createSctpTransport();
         }
@@ -456,6 +472,26 @@ export class RTCPeerConnection {
     } else {
       this.pendingRemoteDescription = description;
     }
+  }
+
+  private createTransceiver(
+    direction: string,
+    kind: string,
+    senderTrack = undefined
+  ) {
+    const dtlsTransport = this.createDtlsTransport();
+    const transceiver = new RTCRtpTransceiver(
+      kind,
+      new RTCRtpReceiver(kind, dtlsTransport),
+      new RTCRtpSender(senderTrack || kind, dtlsTransport),
+      direction
+    );
+    transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
+    transceiver.sender.streamId = this.streamId;
+    transceiver.bundled = false;
+    transceiver.transport = dtlsTransport;
+    this.transceivers.push(transceiver);
+    return transceiver;
   }
 
   createAnswer() {

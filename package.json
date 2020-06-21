@@ -51,7 +51,8 @@
     "lodash": "^4.17.15",
     "p-cancelable": "^2.0.0",
     "rxjs": "^6.5.5",
-    "turbo-crc32": "^1.0.1"
+    "turbo-crc32": "^1.0.1",
+    "uuid": "^8.1.0"
   },
   "devDependencies": {
     "@types/buffer-crc32": "^0.2.0",
@@ -63,6 +64,7 @@
     "@types/node-forge": "^0.9.4",
     "@types/socket.io-client": "^1.4.33",
     "@types/utf8": "^2.1.6",
+    "@types/uuid": "^8.0.0",
     "@types/ws": "^7.2.5",
     "jest": "^26.0.0",
     "prettier": "^2.0.5",

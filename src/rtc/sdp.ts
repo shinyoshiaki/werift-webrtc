@@ -1,8 +1,8 @@
-import { RTCRtpParameters } from "./parameters";
+import { RTCRtpParameters, RTCRtcpFeedback } from "./parameters";
 import { RTCIceParameters, RTCIceCandidate } from "./transport/ice";
 import { RTCDtlsParameters, RTCDtlsFingerprint } from "./transport/dtls";
 import { RTCSctpCapabilities } from "./transport/sctp";
-import { DTLS_ROLE_SETUP, DTLS_SETUP_ROLE } from "./const";
+import { DTLS_ROLE_SETUP, DTLS_SETUP_ROLE, FMTP_INT_PARAMETERS } from "./const";
 import { isIPv4 } from "net";
 import { range } from "lodash";
 import { randomBytes } from "crypto";
@@ -21,7 +21,7 @@ export class SessionDescription {
 
   static parse(sdp: string) {
     const dtlsFingerprints: RTCDtlsFingerprint[] = [];
-    const iceOptions = undefined;
+    let iceOptions = undefined;
 
     const [sessionLines, mediaGroups] = groupLines(sdp);
 
@@ -38,8 +38,6 @@ export class SessionDescription {
       } else if (line.startsWith("t=")) {
         session.time = line.slice(2);
       } else if (line.startsWith("a=")) {
-        let iceOptions: string | undefined;
-
         const [attr, value] = parseAttr(line);
         switch (attr) {
           case "fingerprint":
@@ -91,6 +89,7 @@ export class SessionDescription {
         [...dtlsFingerprints],
         undefined
       );
+      currentMedia.ice = new RTCIceParameters({});
       currentMedia.iceOptions = iceOptions;
       session.media.push(currentMedia);
 
@@ -163,6 +162,32 @@ export class SessionDescription {
       if (!currentMedia.dtls.role) {
         currentMedia.dtls = undefined;
       }
+
+      const findCodec = (pt: number) =>
+        currentMedia.rtp.codecs.find((v) => v.payloadType === pt);
+
+      mediaLines.slice(1).forEach((line) => {
+        if (line.startsWith("a=")) {
+          const [attr, value] = parseAttr(line);
+          if (attr === "fmtp") {
+            const [formatId, formatDesc] = value.split(" ", 1);
+            const codec = findCodec(Number(formatId));
+            codec.parameters = parametersFromSdp(formatDesc);
+          } else if (attr === "rtcp-fb") {
+            const bits = value.split(" ", 2);
+            currentMedia.rtp.codecs.forEach((codec) => {
+              if (["*", codec.payloadType].includes(bits[0])) {
+                codec.rtcpFeedback.push(
+                  new RTCRtcpFeedback({
+                    type: bits[1],
+                    parameter: bits.length > 2 ? bits[2] : undefined,
+                  })
+                );
+              }
+            });
+          }
+        }
+      });
     });
 
     return session;
@@ -201,7 +226,7 @@ export class MediaDescription {
   dtls?: RTCDtlsParameters;
 
   // ICE
-  ice = new RTCIceParameters();
+  ice?: RTCIceParameters;
   iceCandidates: RTCIceCandidate[] = [];
   iceCandidatesComplete = false;
   iceOptions?: string;
@@ -396,4 +421,23 @@ export function addSDPHeader(
   description.origin = `${username} ${sessionId} ${sessionVersion} IN IP4 0.0.0.0`;
   description.msidSemantic.push(new GroupDescription("WMS", ["*"]));
   description.type = type;
+}
+
+function parametersFromSdp(sdp: string): number[] {
+  const parameters = {};
+  sdp.split(";").forEach((param) => {
+    if (param.includes("=")) {
+      const [k, v] = param.split("=", 1);
+      if (FMTP_INT_PARAMETERS.includes(k)) {
+        parameters[k] = Number(v);
+      } else {
+        parameters[k] = v;
+      }
+    } else {
+      parameters[param] = undefined;
+    }
+  });
+  return Object.keys(parameters)
+    .sort()
+    .map((i) => parameters[i]);
 }
