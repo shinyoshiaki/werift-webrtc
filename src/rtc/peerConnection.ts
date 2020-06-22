@@ -419,6 +419,9 @@ export class RTCPeerConnection {
           transceiver.mid = media.rtp.muxId;
           transceiver.mLineIndex = i;
         }
+
+        // const common=
+        //todo
       } else if (media.kind === "application") {
         if (!this.sctp) {
           this.sctp = this.createSctpTransport();
@@ -616,3 +619,5 @@ async function addRemoteCandidates(
     iceTransport.addRemoteCandidate(undefined);
   }
 }
+
+function filterPreferredCodecs() {}
