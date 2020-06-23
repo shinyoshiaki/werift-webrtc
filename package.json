@@ -1,6 +1,6 @@
 {
   "name": "rainy-webrtc",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "homepage": "https://github.com/shinyoshiaki/rainy-webrtc",
   "repository": {
     "type": "git",
@@ -18,7 +18,6 @@
     "ci": "jest --runInBand --forceExit",
     "format": "prettier --write src/**/*.ts",
     "offer": "ts-node --files examples/datachannel/offer.ts",
-    "deploy": "yarn format && yarn test && yarn build",
     "publish": "npm publish --access=public",
     "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json"
@@ -44,7 +43,7 @@
     "binary-data": "^0.6.0",
     "buffer-crc32": "^0.2.13",
     "dgram": "^1.0.1",
-    "elliptic": "^6.5.2",
+    "elliptic": "^6.5.3",
     "int64-buffer": "^0.99.1007",
     "ip": "^1.1.5",
     "jspack": "^0.0.4",
@@ -59,7 +58,7 @@
     "@types/elliptic": "^6.4.12",
     "@types/ip": "^1.1.0",
     "@types/jest": "^26.0.0",
-    "@types/lodash": "^4.14.155",
+    "@types/lodash": "^4.14.156",
     "@types/node": "^14.0.13",
     "@types/node-forge": "^0.9.4",
     "@types/socket.io-client": "^1.4.33",
@@ -70,7 +69,7 @@
     "prettier": "^2.0.5",
     "python-shell": "^2.0.1",
     "socket.io-client": "^2.3.0",
-    "ts-jest": "^26.1.0",
+    "ts-jest": "^26.1.1",
     "ts-node": "^8.10.2",
     "tslib": "^2.0.0",
     "typescript": "^3.9.5",

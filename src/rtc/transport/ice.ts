@@ -1,8 +1,8 @@
 import { Connection, Candidate } from "../../vendor/ice";
 import { Subject } from "rxjs";
-import { assignClassProperties } from "../../utils";
+import { assignClassProperties } from "../../helper";
 
-type IceState =
+export type IceState =
   | "new"
   | "gathering"
   | "stateChange"

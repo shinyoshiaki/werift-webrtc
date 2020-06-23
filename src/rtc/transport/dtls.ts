@@ -7,7 +7,8 @@ import {
   DtlsSocket,
   createIceTransport,
 } from "../../vendor/dtls";
-import { sleep, fingerprint } from "../../utils";
+import { fingerprint } from "../../utils";
+import { sleep } from "../../helper";
 
 export enum DtlsState {
   NEW = 0,
@@ -17,11 +18,13 @@ export enum DtlsState {
   FAILED = 4,
 }
 
+type DtlsRole = "auto" | "server" | "client";
+
 export class RTCDtlsTransport {
   stateChange = new Subject<DtlsState>();
   state = DtlsState.NEW;
   private localCertificate: RTCCertificate;
-  role = "auto";
+  role: DtlsRole = "auto";
   dataReceiver?: (buf: Buffer) => void;
 
   constructor(
@@ -178,6 +181,6 @@ export class RTCDtlsFingerprint {
 export class RTCDtlsParameters {
   constructor(
     public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | undefined = "auto"
+    public role: "auto" | "client" | "server" | undefined = "auto"
   ) {}
 }

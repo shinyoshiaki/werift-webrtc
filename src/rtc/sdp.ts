@@ -17,7 +17,7 @@ import { isIPv4 } from "net";
 import { range } from "lodash";
 import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
-import { assignClassProperties } from "../utils";
+import { assignClassProperties } from "../helper";
 
 export class SessionDescription {
   version = 0;

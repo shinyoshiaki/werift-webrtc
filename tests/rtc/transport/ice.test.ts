@@ -4,9 +4,11 @@ describe("iceTransport", () => {
   test("test_connect", async () => {
     const gatherer1 = new RTCIceGatherer();
     const transport1 = new RTCIceTransport(gatherer1);
+    transport1.connection.iceControlling = true;
 
     const gatherer2 = new RTCIceGatherer();
     const transport2 = new RTCIceTransport(gatherer2);
+    transport2.connection.iceControlling = false;
 
     await Promise.all([gatherer1.gather(), gatherer2.gather()]);
 
@@ -17,7 +19,7 @@ describe("iceTransport", () => {
 
     await Promise.all([
       transport1.start(gatherer2.getLocalParameters()),
-      transport2.start(gatherer1.getLocalParameters())
+      transport2.start(gatherer1.getLocalParameters()),
     ]);
     expect(transport1.state).toBe("completed");
     expect(transport2.state).toBe("completed");

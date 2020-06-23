@@ -12,7 +12,7 @@ import {
   RTCDtlsParameters,
   RTCDtlsFingerprint,
 } from "../../src/rtc/transport/dtls";
-import { sleep } from "../../src/utils";
+import { sleep } from "../../src/helper";
 const WEBSOCKET_URI = "ws://127.0.0.1:8765";
 
 type CandidateMessage = {

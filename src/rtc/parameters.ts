@@ -1,4 +1,4 @@
-import { assignClassProperties } from "../utils";
+import { assignClassProperties } from "../helper";
 
 export class RTCRtpParameters {
   codecs: RTCRtpCodecParameters[] = [];

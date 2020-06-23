@@ -1,6 +1,6 @@
 import { RTCSctpTransport } from "./transport/sctp";
 import { Subject } from "rxjs";
-import { assignClassProperties } from "../utils";
+import { assignClassProperties } from "../helper";
 
 export class RTCDataChannelParameters {
   label = "";

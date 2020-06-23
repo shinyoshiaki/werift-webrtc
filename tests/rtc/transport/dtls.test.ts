@@ -3,7 +3,7 @@ import {
   RTCDtlsTransport,
 } from "../../../src/rtc/transport/dtls";
 import { RTCIceGatherer, RTCIceTransport } from "../../../src";
-import { sleep } from "../../../src/utils";
+import { sleep } from "../../../src/helper";
 
 export async function dtlsTransportPair() {
   const [transport1, transport2] = await iceTransportPair();
@@ -55,9 +55,10 @@ class DummyDataReceiver {
 const iceTransportPair = async () => {
   const gatherer1 = new RTCIceGatherer();
   const transport1 = new RTCIceTransport(gatherer1);
-
+  transport1.connection.iceControlling = true;
   const gatherer2 = new RTCIceGatherer();
   const transport2 = new RTCIceTransport(gatherer2);
+  transport2.connection.iceControlling = false;
 
   await Promise.all([gatherer1.gather(), gatherer2.gather()]);
 

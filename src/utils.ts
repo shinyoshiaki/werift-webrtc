@@ -34,14 +34,6 @@ export function uint32Gte(a: number, b: number) {
   return a === b || uint32Gt(a, b);
 }
 
-export function enumerate<T>(arr: T[]): [number, T][] {
-  return arr.map((v, i) => [i, v]);
-}
-
-export async function sleep(ms: number) {
-  await new Promise((r) => setTimeout(r, ms));
-}
-
 const upper = (s: string) => s.toUpperCase();
 const colon = (s: any) => s.match(/(.{2})/g).join(":");
 
@@ -49,10 +41,4 @@ export function fingerprint(file: Buffer, hashname: string) {
   const hash = createHash(hashname).update(file).digest("hex");
 
   return colon(upper(hash));
-}
-
-export function assignClassProperties(ctx: any, props: any) {
-  Object.keys(props).forEach((key: string) => {
-    ctx[key] = props[key];
-  });
 }
