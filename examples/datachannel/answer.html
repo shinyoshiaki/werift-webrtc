@@ -23,43 +23,57 @@
     </div>
     <script type="text/babel">
       let rtc;
-      (async () => {
-        const socket = new WebSocket("ws://localhost:8888");
-        await new Promise((r) => socket.addEventListener("open", r));
-
-        const peer = (rtc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        }));
-        peer.onicecandidate = ({ candidate }) => {
-          if (!candidate) {
-            socket.send(JSON.stringify(peer.localDescription));
-          }
-        };
-
-        peer.ondatachannel = (ev) => {
-          const channel = ev.channel;
-          channel.onmessage = (ev) => {
-            console.log(
-              new TextDecoder("utf-8").decode(new Uint8Array(ev.data))
-            );
-            channel.send("pong");
-          };
-        };
-
-        socket.addEventListener("message", async (ev) => {
-          const offer = JSON.parse(ev.data);
-          console.log(offer.sdp);
-          await peer.setRemoteDescription(offer);
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-        });
-      })();
 
       const App = () => {
-        return <div>answer</div>;
+        const [log, setLog] = React.useState([]);
+
+        React.useEffect(() => {
+          (async () => {
+            const socket = new WebSocket("ws://localhost:8888");
+            await new Promise((r) => socket.addEventListener("open", r));
+
+            const peer = (rtc = new RTCPeerConnection({
+              iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            }));
+            peer.onicecandidate = ({ candidate }) => {
+              if (!candidate) {
+                socket.send(JSON.stringify(peer.localDescription));
+              }
+            };
+
+            peer.ondatachannel = (ev) => {
+              const channel = ev.channel;
+              channel.onmessage = (ev) => {
+                const text = new TextDecoder("utf-8").decode(ev.data);
+                console.log(text);
+                setLog((prev) => [...prev, text]);
+                channel.send("pong");
+              };
+            };
+
+            socket.addEventListener("message", async (ev) => {
+              const offer = JSON.parse(ev.data);
+              console.log(offer.sdp);
+              await peer.setRemoteDescription(offer);
+              const answer = await peer.createAnswer();
+              await peer.setLocalDescription(answer);
+            });
+          })();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <div>
+              {log.slice(-10).map((v, i) => (
+                <div key={i}>{v}</div>
+              ))}
+            </div>
+          </div>
+        );
       };
 
-      ReactDOM.render(App(), document.getElementById("app1"));
+      ReactDOM.render(<App />, document.getElementById("app1"));
     </script>
   </body>
 </html>
