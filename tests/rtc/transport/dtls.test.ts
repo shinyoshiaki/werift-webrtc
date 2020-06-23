@@ -30,19 +30,15 @@ export async function dtlsTransportPair() {
 }
 
 describe("RTCDtlsTransportTest", () => {
-  test(
-    "dtls_test_data",
-    async () => {
-      const [session1, session2] = await dtlsTransportPair();
-      const receiver2 = new DummyDataReceiver();
-      session2.dataReceiver = receiver2.handleData;
+  test("dtls_test_data", async () => {
+    const [session1, session2] = await dtlsTransportPair();
+    const receiver2 = new DummyDataReceiver();
+    session2.dataReceiver = receiver2.handleData;
 
-      session1.sendData(Buffer.from("ping"));
-      await sleep(100);
-      expect(receiver2.data).toEqual([Buffer.from("ping")]);
-    },
-    60 * 1000
-  );
+    session1.sendData(Buffer.from("ping"));
+    await sleep(100);
+    expect(receiver2.data).toEqual([Buffer.from("ping")]);
+  });
 });
 
 class DummyDataReceiver {
