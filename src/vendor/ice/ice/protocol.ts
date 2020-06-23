@@ -1,4 +1,4 @@
-import { Subject } from "rxjs";
+import { Event } from "rx.mini";
 import { Address, Protocol } from "../model";
 import { Message, Transaction, parseMessage, classes } from "../stun/stun";
 import * as dgram from "dgram";
@@ -16,7 +16,7 @@ export class StunProtocol implements Protocol {
   localAddress?: string;
 
   socket = dgram.createSocket("udp4");
-  private closed = new Subject();
+  private closed = new Event();
 
   constructor(public receiver: Connection) {}
 
@@ -27,7 +27,7 @@ export class StunProtocol implements Protocol {
   }
 
   connectionLost(exc: any) {
-    this.closed.next(true);
+    this.closed.execute();
     this.closed.complete();
   }
 

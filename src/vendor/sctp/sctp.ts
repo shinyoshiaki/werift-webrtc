@@ -2,7 +2,6 @@ import { range } from "lodash";
 import { SCTP_STATE } from "./const";
 import { jspack } from "jspack";
 import { random32, uint32Gte, uint32Gt, enumerate, uint16Add } from "./utils";
-
 import {
   Chunk,
   ForwardTsnChunk,
@@ -25,7 +24,7 @@ import {
 } from "./chunk";
 import { createHmac, randomBytes } from "crypto";
 import { Transport } from "./transport";
-import { Subject } from "rxjs";
+import { Event } from "rx.mini";
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -59,7 +58,7 @@ const SCTP_CAUSE_INVALID_STREAM = 0x0001;
 const SCTP_CAUSE_STALE_COOKIE = 0x0003;
 
 export class SCTP {
-  connected = new Subject();
+  connected = new Event();
   associationState = SCTP_STATE.CLOSED;
   started = false;
   state = "new";
@@ -913,7 +912,7 @@ export class SCTP {
     }
     if (state === SCTP_STATE.ESTABLISHED) {
       this.state = "connected";
-      this.connected.next();
+      this.connected.execute();
     } else if (state === SCTP_STATE.CLOSED) {
       // todo
       this.t1Cancel();

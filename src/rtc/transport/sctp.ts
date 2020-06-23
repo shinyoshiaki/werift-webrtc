@@ -12,11 +12,11 @@ import {
 import { jspack } from "jspack";
 import { RTCDtlsTransport } from "./dtls";
 import { generateUUID } from "../../utils";
-import { Subject } from "rxjs";
+import { Event } from "rx.mini";
 import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
 
 export class RTCSctpTransport {
-  datachannel = new Subject<RTCDataChannel>();
+  datachannel = new Event<RTCDataChannel>();
   uuid = generateUUID();
   mid?: string;
   bundled = false;
@@ -108,7 +108,7 @@ export class RTCSctpTransport {
             ]);
             await this.dataChannelFlush();
 
-            this.datachannel.next(channel);
+            this.datachannel.execute(channel);
           }
           break;
         case DATA_CHANNEL_ACK:
@@ -122,16 +122,16 @@ export class RTCSctpTransport {
       if (channel) {
         switch (ppId) {
           case WEBRTC_STRING:
-            channel.message.next(data.toString("utf8"));
+            channel.message.execute(data.toString("utf8"));
             break;
           case WEBRTC_STRING_EMPTY:
-            channel.message.next("");
+            channel.message.execute("");
             break;
           case WEBRTC_BINARY:
-            channel.message.next(data);
+            channel.message.execute(data);
             break;
           case WEBRTC_BINARY_EMPTY:
-            channel.message.next(Buffer.from(""));
+            channel.message.execute(Buffer.from(""));
             break;
         }
       }

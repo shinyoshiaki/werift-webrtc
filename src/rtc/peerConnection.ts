@@ -22,20 +22,20 @@ import {
 } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { isEqual } from "lodash";
-import { Subject } from "rxjs";
 import { RTCRtpTransceiver } from "./media/rtpTransceiver";
 import { RTCRtpReceiver } from "./media/rtpReceiver";
 import { RTCRtpSender } from "./media/rtpSender";
 import { enumerate } from "../helper";
+import Event from "rx.mini";
 
 type Configuration = { stunServer?: [string, number] };
 type SignalingState = "stable" | "have-local-offer" | "have-remote-offer";
 
 export class RTCPeerConnection {
-  datachannel = new Subject<RTCDataChannel>();
-  iceGatheringStateChange = new Subject<IceState>();
-  iceConnectionStateChange = new Subject<IceState>();
-  signalingStateChange = new Subject<string>();
+  datachannel = new Event<RTCDataChannel>();
+  iceGatheringStateChange = new Event<IceState>();
+  iceConnectionStateChange = new Event<IceState>();
+  signalingStateChange = new Event<string>();
 
   private certificates = [RTCCertificate.generateCertificate()];
   private sctp?: RTCSctpTransport;
@@ -194,7 +194,7 @@ export class RTCPeerConnection {
 
     if (state !== this._iceGatheringState) {
       this._iceGatheringState = state;
-      this.iceGatheringStateChange.next(state);
+      this.iceGatheringStateChange.execute(state);
     }
   }
 
@@ -214,7 +214,7 @@ export class RTCPeerConnection {
 
     if (state !== this._iceConnectionState) {
       this._iceConnectionState = state;
-      this.iceConnectionStateChange.next(state);
+      this.iceConnectionStateChange.execute(state);
     }
   }
 
@@ -226,7 +226,7 @@ export class RTCPeerConnection {
       }
     });
     const iceTransport = new RTCIceTransport(iceGatherer);
-    iceTransport.subject.subscribe((state) => {
+    iceTransport.iceState.subscribe((state) => {
       if (state === "stateChange") {
         this.updateIceConnectionState();
       }
@@ -245,7 +245,7 @@ export class RTCPeerConnection {
     sctp.mid = undefined;
 
     sctp.datachannel.subscribe((dc) => {
-      this.datachannel.next(dc);
+      this.datachannel.execute(dc);
     });
 
     return sctp;
@@ -345,7 +345,7 @@ export class RTCPeerConnection {
 
   private setSignalingState(state: SignalingState) {
     this._signalingState = state;
-    this.signalingStateChange.next(state);
+    this.signalingStateChange.execute(state);
   }
 
   private validateDescription(

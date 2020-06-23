@@ -18,7 +18,7 @@ import {
 import { createHmac } from "crypto";
 import crc32 from "buffer-crc32";
 import { bufferXor, randomTransactionId } from "../utils";
-import { Subject } from "rxjs";
+import { Event } from "rx.mini";
 import { Address } from "../model";
 import { TransactionFailed, TransactionTimeout } from "../exceptions";
 import { StunProtocol } from "../ice/protocol";
@@ -189,7 +189,7 @@ export class Transaction {
   private tries = 0;
   private triesMax =
     1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
-  private future = new Subject<[Message, Address]>();
+  private future = new Event<[Message, Address]>();
 
   constructor(
     private request: Message,
@@ -199,9 +199,9 @@ export class Transaction {
   ) {}
 
   responseReceived = (message: Message, addr: Address) => {
-    if (!this.future.closed) {
+    if (this.future.length > 0) {
       if (message.messageClass === classes.RESPONSE) {
-        this.future.next([message, addr]);
+        this.future.execute([message, addr]);
         this.future.complete();
       } else {
         this.future.error(new TransactionFailed(message));
@@ -212,7 +212,7 @@ export class Transaction {
   run = async () => {
     try {
       this.retry();
-      return await this.future.toPromise();
+      return await this.future.asPromise();
     } catch (error) {
       throw error;
     } finally {

@@ -1,6 +1,6 @@
 import { RTCSctpTransport } from "./transport/sctp";
-import { Subject } from "rxjs";
 import { assignClassProperties } from "../helper";
+import { Event } from "rx.mini";
 
 export class RTCDataChannelParameters {
   label = "";
@@ -16,9 +16,10 @@ export class RTCDataChannelParameters {
 }
 
 export class RTCDataChannel {
-  state = new Subject<string>();
-  message = new Subject<string | Buffer>();
-  bufferedAmountLow = new Subject();
+  state = new Event<string>();
+  message = new Event<string | Buffer>();
+  // who use this?
+  bufferedAmountLow = new Event();
   id?: number = this.parameters.id;
   readyState = "connecting";
   private bufferedAmount = 0;
@@ -86,7 +87,7 @@ export class RTCDataChannel {
   setReadyState(state: string) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.state.next(state);
+      this.state.execute(state);
     }
   }
 
@@ -96,7 +97,7 @@ export class RTCDataChannel {
       this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
     this.bufferedAmount += amount;
     if (crossesThreshold) {
-      this.bufferedAmountLow.next();
+      this.bufferedAmountLow.execute();
     }
   }
 

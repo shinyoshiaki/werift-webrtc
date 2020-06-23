@@ -3261,12 +3261,10 @@ rsvp@^4.8.4:
   resolved "https://registry.yarnpkg.com/rsvp/-/rsvp-4.8.5.tgz#c8f155311d167f68f21e168df71ec5b083113734"
   integrity sha512-nfMOlASu9OnRJo1mbEk2cz0D56a1MBNrJ7orjRZQG10XDyuvwksKbuXNp6qa+kbn839HwjwhBzhFmdsaEAfauA==
 
-rxjs@^6.5.5:
-  version "6.5.5"
-  resolved "https://registry.yarnpkg.com/rxjs/-/rxjs-6.5.5.tgz#c5c884e3094c8cfee31bf27eb87e54ccfc87f9ec"
-  integrity sha512-WfQI+1gohdf0Dai/Bbmk5L5ItH5tYqm3ki2c5GdWhKjalzjg93N3avFjVStyZZz+A2Em+ZxKH5bNghw9UeylGQ==
-  dependencies:
-    tslib "^1.9.0"
+rx.mini@^0.1.1:
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-0.1.1.tgz#86d648043b4e8debcf6e42b69ce20bdb568dad23"
+  integrity sha512-o8hudkWb3rxdJo46SiXdErQzM2dgu1e3q9eGEFIpADvt62mcIWxJCK1K+0ByXtpVbX+vsEYCFA4ZEKU1joX1CA==
 
 safe-buffer@^5.0.1, safe-buffer@^5.1.2:
   version "5.2.0"
@@ -3750,11 +3748,6 @@ ts-node@^8.10.2:
     make-error "^1.1.1"
     source-map-support "^0.5.17"
     yn "3.1.1"
-
-tslib@^1.9.0:
-  version "1.10.0"
-  resolved "https://registry.yarnpkg.com/tslib/-/tslib-1.10.0.tgz#c3c19f95973fb0a62973fb09d90d961ee43e5c8a"
-  integrity sha512-qOebF53frne81cf0S9B41ByenJ3/IuH8yJKngAX35CmiZySA0khhkovshKK+jGCaMnVomla7gVlIcc3EvKPbTQ==
 
 tslib@^2.0.0:
   version "2.0.0"

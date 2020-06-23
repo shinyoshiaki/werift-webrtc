@@ -21,7 +21,7 @@ import { StunProtocol } from "./protocol";
 import { isIPv4 } from "net";
 import { isEqual } from "lodash";
 import PCancelable from "p-cancelable";
-import { Subject } from "rxjs";
+import { Event } from "rx.mini";
 import { Uint64BE } from "int64-buffer";
 
 const ICE_COMPLETED = 1;
@@ -160,7 +160,7 @@ export class Connection {
   useIpv4: boolean;
   useIpv6: boolean;
   options: Options;
-  onData = new Subject<Buffer>();
+  onData = new Event<Buffer>();
   remoteCandidatesEnd = false;
 
   private remoteCandidates_: Candidate[] = [];
@@ -246,7 +246,7 @@ export class Connection {
     this.dataQueue.put(new Promise((r) => r([data, component])));
 
     // data stream
-    this.onData.next(data);
+    this.onData.execute(data);
   }
 
   private findPair(protocol: Protocol, remoteCandidate: Candidate) {

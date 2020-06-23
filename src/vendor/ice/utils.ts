@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { Subject } from "rxjs";
+import { Event } from "rx.mini";
 import PCancelable from "p-cancelable";
 
 export function randomString(length: number) {
@@ -34,12 +34,12 @@ export function difference<T>(x: Set<T>, y: Set<T>) {
 // infinite size queue
 export class PQueue<T> {
   private queue: Promise<T>[] = [];
-  private wait = new Subject<Promise<T>>();
+  private wait = new Event<Promise<T>>();
 
   put(v: Promise<T>) {
     this.queue.push(v);
     if (this.queue.length === 1) {
-      this.wait.next(v);
+      this.wait.execute(v);
     }
   }
 

@@ -1,6 +1,6 @@
 import { Connection, Candidate } from "../../vendor/ice";
-import { Subject } from "rxjs";
 import { assignClassProperties } from "../../helper";
+import Event from "rx.mini";
 
 export type IceState =
   | "new"
@@ -12,7 +12,7 @@ export type IceState =
   | "failed";
 
 export class RTCIceGatherer {
-  subject = new Subject<IceState>();
+  subject = new Event<IceState>();
   private _state: IceState = "new";
   connection: Connection;
   constructor(stunServer?: [string, number]) {
@@ -46,7 +46,7 @@ export class RTCIceGatherer {
 
   private setState(state: IceState) {
     this._state = state;
-    this.subject.next(state);
+    this.subject.execute(state);
   }
 }
 
@@ -115,8 +115,8 @@ export class RTCIceParameters {
 }
 
 export class RTCIceTransport {
-  subject = new Subject<IceState>();
-  private _start?: Subject<unknown>;
+  iceState = new Event<IceState>();
+  private waitStart?: Event;
   private _state: IceState = "new";
   connection = this.gather.connection;
   roleSet = false;
@@ -139,11 +139,11 @@ export class RTCIceTransport {
   private setState(state: IceState) {
     if (state !== this.state) {
       this._state = state;
-      this.subject.next("stateChange");
+      this.iceState.execute("stateChange");
 
       if (state === "closed") {
         this.iceGather.subject.complete();
-        this.subject.complete();
+        this.iceState.complete();
       }
     }
   }
@@ -161,8 +161,8 @@ export class RTCIceTransport {
   async start(remoteParameters: RTCIceParameters) {
     if (this.state === "closed") throw new Error("RTCIceTransport is closed");
 
-    if (this._start) await this._start?.toPromise();
-    this._start = new Subject();
+    if (this.waitStart) await this.waitStart.asPromise();
+    this.waitStart = new Event();
 
     this.setState("checking");
     this.connection.remoteUsername = remoteParameters.usernameFragment!;
@@ -176,7 +176,7 @@ export class RTCIceTransport {
       throw new Error(error);
     }
 
-    this._start.complete();
+    this.waitStart.complete();
   }
 
   async stop() {

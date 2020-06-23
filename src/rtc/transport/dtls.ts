@@ -1,5 +1,4 @@
 import { RTCIceTransport } from "./ice";
-import { Subject } from "rxjs";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import {
   DtlsServer,
@@ -9,6 +8,7 @@ import {
 } from "../../vendor/dtls";
 import { fingerprint } from "../../utils";
 import { sleep } from "../../helper";
+import Event from "rx.mini";
 
 export enum DtlsState {
   NEW = 0,
@@ -21,7 +21,7 @@ export enum DtlsState {
 type DtlsRole = "auto" | "server" | "client";
 
 export class RTCDtlsTransport {
-  stateChange = new Subject<DtlsState>();
+  stateChange = new Event<DtlsState>();
   state = DtlsState.NEW;
   private localCertificate: RTCCertificate;
   role: DtlsRole = "auto";
@@ -94,7 +94,7 @@ export class RTCDtlsTransport {
   private setState(state: DtlsState) {
     if (state != this.state) {
       this.state = state;
-      this.stateChange.next(state);
+      this.stateChange.execute(state);
     }
   }
 }
