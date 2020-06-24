@@ -97,6 +97,10 @@ export class RTCDtlsTransport {
       this.stateChange.execute(state);
     }
   }
+
+  stop() {
+    this.setState(DtlsState.CLOSED);
+  }
 }
 
 export class RTCCertificate {

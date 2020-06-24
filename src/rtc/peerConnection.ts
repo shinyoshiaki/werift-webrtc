@@ -214,6 +214,10 @@ export class RTCPeerConnection {
       state = "completed";
     } else if (states.has("checking")) {
       state = "checking";
+    } else if (states.has("disconnected")) {
+      state = "disconnected";
+    } else if (states.has("closed")) {
+      state = "closed";
     }
 
     if (state !== this._iceConnectionState) {
@@ -551,11 +555,12 @@ export class RTCPeerConnection {
 
     if (this.sctp) {
       this.sctp.stop();
+      this.sctp.transport.stop();
       await this.sctp.transport.transport.stop();
     }
 
     this.updateIceConnectionState();
-    this.removeAllListeners();
+    // this.removeAllListeners();
   }
 
   private assertNotClosed() {

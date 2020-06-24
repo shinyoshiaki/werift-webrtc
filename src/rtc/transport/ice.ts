@@ -9,7 +9,8 @@ export type IceState =
   | "completed"
   | "closed"
   | "checking"
-  | "failed";
+  | "failed"
+  | "disconnected";
 
 export class RTCIceGatherer {
   subject = new Event<IceState>();
@@ -121,7 +122,11 @@ export class RTCIceTransport {
   connection = this.gather.connection;
   roleSet = false;
 
-  constructor(private gather: RTCIceGatherer) {}
+  constructor(private gather: RTCIceGatherer) {
+    this.connection.stateChanged.subscribe((state) => {
+      this.setState(state);
+    });
+  }
 
   get iceGather() {
     return this.gather;
@@ -142,7 +147,9 @@ export class RTCIceTransport {
       this.iceState.execute("stateChange");
 
       if (state === "closed") {
+        this.iceGather.subject.execute();
         this.iceGather.subject.complete();
+        this.iceState.execute();
         this.iceState.complete();
       }
     }
