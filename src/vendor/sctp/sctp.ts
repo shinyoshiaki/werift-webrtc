@@ -25,6 +25,7 @@ import {
 import { createHmac, randomBytes } from "crypto";
 import { Transport } from "./transport";
 import { Event } from "rx.mini";
+import { Unpacked, createEventsFromList } from "../../helper";
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -57,14 +58,22 @@ const SCTP_PRSCTP_SUPPORTED = 0xc000;
 const SCTP_CAUSE_INVALID_STREAM = 0x0001;
 const SCTP_CAUSE_STALE_COOKIE = 0x0003;
 
-type SCTPConnection = "new" | "closed" | "connected" | "connecting";
+const SCTPConnectionStates = [
+  "new",
+  "closed",
+  "connected",
+  "connecting",
+] as const;
+type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
-  connected = new Event();
-  closed = new Event();
+  stateChanged: { [key in SCTPConnectionState]: Event } = createEventsFromList(
+    SCTPConnectionStates
+  );
+
   associationState = SCTP_STATE.CLOSED;
   started = false;
-  state: SCTPConnection = "new";
+  state: SCTPConnectionState = "new";
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
   private localPort = this.port;
@@ -915,7 +924,7 @@ export class SCTP {
     }
     if (state === SCTP_STATE.ESTABLISHED) {
       this.state = "connected";
-      this.connected.execute();
+      this.stateChanged.connected.execute();
     } else if (state === SCTP_STATE.CLOSED) {
       this.t1Cancel();
       this.t2Cancel();
@@ -926,7 +935,7 @@ export class SCTP {
   }
 
   private removeAllListeners() {
-    this.connected.allUnsubscribe();
+    Object.values(this.stateChanged).forEach((v) => v.allUnsubscribe());
   }
 }
 

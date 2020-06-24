@@ -39,7 +39,7 @@ export class RTCSctpTransport {
     this.sctp.onRecieve = (streamId, ppId, data) => {
       this.datachannelReceive(streamId, ppId, data);
     };
-    this.sctp.connected.subscribe(() => {
+    this.sctp.stateChanged.connected.subscribe(() => {
       Object.values(this.dataChannels).forEach((channel) => {
         if (channel.negotiated && channel.readyState !== "open") {
           channel.setReadyState("open");

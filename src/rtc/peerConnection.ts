@@ -336,11 +336,11 @@ export class RTCPeerConnection {
           await dtlsTransport.start(this.remoteDtls[this.sctp.uuid]);
           // todo fix
           await this.sctp.start(this.sctpRemotePort!);
-          await new Promise((r) => this.sctp?.sctp.connected.subscribe(r));
+          await this.sctp?.sctp.stateChanged.connected.asPromise();
           return;
         } else if (dtlsTransport.state === DtlsState.CONNECTED) {
           await this.sctp.start(this.sctpRemotePort!);
-          await new Promise((r) => this.sctp?.sctp.connected.subscribe(r));
+          await this.sctp?.sctp.stateChanged.connected.asPromise();
           return;
         }
       }
