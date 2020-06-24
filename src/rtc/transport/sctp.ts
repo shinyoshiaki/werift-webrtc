@@ -14,6 +14,7 @@ import { RTCDtlsTransport } from "./dtls";
 import { generateUUID } from "../../utils";
 import { Event } from "rx.mini";
 import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
+import { AbortChunk } from "../../vendor/sctp/chunk";
 
 export class RTCSctpTransport {
   datachannel = new Event<RTCDataChannel>();
@@ -263,6 +264,23 @@ export class RTCSctpTransport {
     this.sctp.isServer = this.isServer;
 
     this.sctp.start(remotePort);
+  }
+
+  stop() {
+    if (this.sctp.associationState !== SCTP_STATE.CLOSED) {
+      this.abort();
+    }
+    this.transport.dataReceiver = undefined;
+    this.sctp.setState(SCTP_STATE.CLOSED);
+    Object.values(this.dataChannels).forEach((dc) => {
+      dc.setReadyState("closed");
+    });
+    this.dataChannels = {};
+  }
+
+  abort() {
+    const chunk = new AbortChunk();
+    this.sctp.sendChunk(chunk);
   }
 }
 

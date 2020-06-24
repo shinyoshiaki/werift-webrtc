@@ -29,7 +29,11 @@ import { enumerate } from "../helper";
 import Event from "rx.mini";
 
 type Configuration = { stunServer?: [string, number] };
-type SignalingState = "stable" | "have-local-offer" | "have-remote-offer";
+type SignalingState =
+  | "stable"
+  | "have-local-offer"
+  | "have-remote-offer"
+  | "closed";
 
 export class RTCPeerConnection {
   datachannel = new Event<RTCDataChannel>();
@@ -539,8 +543,30 @@ export class RTCPeerConnection {
     return wrapSessionDescription(description);
   }
 
+  async close() {
+    if (this.isClosed) return;
+
+    this.isClosed = true;
+    this.setSignalingState("closed");
+
+    if (this.sctp) {
+      this.sctp.stop();
+      await this.sctp.transport.transport.stop();
+    }
+
+    this.updateIceConnectionState();
+    this.removeAllListeners();
+  }
+
   private assertNotClosed() {
     if (this.isClosed) throw new Error("RTCPeerConnection is closed");
+  }
+
+  private removeAllListeners() {
+    this.datachannel.allUnsubscribe();
+    this.iceGatheringStateChange.allUnsubscribe();
+    this.iceConnectionStateChange.allUnsubscribe();
+    this.signalingStateChange.allUnsubscribe();
   }
 }
 

@@ -255,6 +255,9 @@ export class BaseParamsChunk extends Chunk {
 
 export class AbortChunk extends BaseParamsChunk {
   static type = 6;
+  constructor() {
+    super(0, undefined);
+  }
 
   get type() {
     return AbortChunk.type;

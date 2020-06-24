@@ -63,8 +63,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/datachannel/manual.ts",
-        "{\"type\":\"offer\",\"sdp\":\"v=0\\r\\no=- 631470005506166316 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\na=group:BUNDLE 0\\r\\na=msid-semantic: WMS\\r\\nm=application 55698 UDP/DTLS/SCTP webrtc-datachannel\\r\\nc=IN IP4 60.157.78.84\\r\\na=candidate:1603072777 1 udp 2113937151 ab3bc4e1-5844-4cd5-9aa5-c72b7668f282.local 55698 typ host generation 0 network-cost 999\\r\\na=candidate:842163049 1 udp 1677729535 60.157.78.84 55698 typ srflx raddr 0.0.0.0 rport 0 generation 0 network-cost 999\\r\\na=ice-ufrag:rg2v\\r\\na=ice-pwd:KN1E1EISBLkyK5vIHWpcIg+s\\r\\na=ice-options:trickle\\r\\na=fingerprint:sha-256 DF:EB:16:AE:4A:6E:3D:1B:05:63:1E:CA:84:F7:C4:EA:EE:59:E0:88:B7:7D:7B:28:64:50:C8:0A:84:1B:6C:92\\r\\na=setup:actpass\\r\\na=mid:0\\r\\na=sctp-port:5000\\r\\na=max-message-size:262144\\r\\n\"}\r\n"
+        "${workspaceRoot}/examples/datachannel/offer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

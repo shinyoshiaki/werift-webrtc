@@ -57,13 +57,15 @@ const SCTP_PRSCTP_SUPPORTED = 0xc000;
 const SCTP_CAUSE_INVALID_STREAM = 0x0001;
 const SCTP_CAUSE_STALE_COOKIE = 0x0003;
 
+type SCTPConnection = "new" | "closed" | "connected" | "connecting";
+
 export class SCTP {
   connected = new Event();
+  closed = new Event();
   associationState = SCTP_STATE.CLOSED;
   started = false;
-  state = "new";
+  state: SCTPConnection = "new";
   private hmacKey = randomBytes(16);
-
   private localPartialReliability = true;
   private localPort = this.port;
   private localVerificationTag = random32();
@@ -894,8 +896,9 @@ export class SCTP {
     params.push([SCTP_SUPPORTED_CHUNK_EXT, Buffer.from(extensions)]);
   }
 
-  private async sendChunk(chunk: Chunk) {
+  sendChunk(chunk: Chunk) {
     if (this.remotePort === undefined) throw new Error("invalid remote port");
+    if (this.state === "closed") return;
     this.transport.send(
       serializePacket(
         this.localPort,
@@ -906,7 +909,7 @@ export class SCTP {
     );
   }
 
-  private setState(state: SCTP_STATE) {
+  setState(state: SCTP_STATE) {
     if (state != this.associationState) {
       this.associationState = state;
     }
@@ -914,12 +917,16 @@ export class SCTP {
       this.state = "connected";
       this.connected.execute();
     } else if (state === SCTP_STATE.CLOSED) {
-      // todo
       this.t1Cancel();
       this.t2Cancel();
       this.t3Cancel();
       this.state = "closed";
+      this.removeAllListeners();
     }
+  }
+
+  private removeAllListeners() {
+    this.connected.allUnsubscribe();
   }
 }
 
