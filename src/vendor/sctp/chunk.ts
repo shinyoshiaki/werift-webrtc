@@ -290,6 +290,9 @@ export class HeartbeatAckChunk extends BaseParamsChunk {
 
 export class ReconfigChunk extends BaseParamsChunk {
   static type = 130;
+  constructor() {
+    super(0, undefined);
+  }
   get type() {
     return ReconfigChunk.type;
   }
@@ -386,6 +389,13 @@ export class ShutdownAckChunk extends Chunk {
   static type = 8;
   get type() {
     return ShutdownAckChunk.type;
+  }
+}
+
+export class ShutdownCompleteChunk extends Chunk {
+  static type = 14;
+  get type() {
+    return ShutdownCompleteChunk.type;
   }
 }
 

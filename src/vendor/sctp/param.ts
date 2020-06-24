@@ -2,6 +2,8 @@ import { jspack } from "jspack";
 import { range } from "lodash";
 
 export class StreamResetOutgoingParam {
+  static type = 13;
+
   constructor(
     public requestSequence: number,
     public responseSequence: number,
@@ -9,6 +11,10 @@ export class StreamResetOutgoingParam {
     public lastTsn: number,
     public streams: number[]
   ) {}
+
+  get type() {
+    return StreamResetOutgoingParam.type;
+  }
 
   get bytes() {
     const data = Buffer.from(
@@ -44,7 +50,12 @@ export class StreamResetOutgoingParam {
 }
 
 export class StreamAddOutgoingParam {
+  static type = 17;
   constructor(public requestSequence: number, public newStreams: number) {}
+
+  get type() {
+    return StreamAddOutgoingParam.type;
+  }
 
   get bytes() {
     return Buffer.from(
@@ -59,7 +70,12 @@ export class StreamAddOutgoingParam {
 }
 
 export class StreamResetResponseParam {
+  static type = 16;
   constructor(public requestSequence: number, public result: number) {}
+
+  get type() {
+    return StreamResetResponseParam.type;
+  }
 
   get bytes() {
     return Buffer.from(jspack.Pack("!LL", [this.requestSequence, this.result]));
@@ -76,3 +92,8 @@ export const RECONFIG_PARAM_TYPES = {
   16: StreamResetResponseParam,
   17: StreamAddOutgoingParam,
 };
+
+export type StreamParam =
+  | StreamResetOutgoingParam
+  | StreamAddOutgoingParam
+  | StreamResetResponseParam;

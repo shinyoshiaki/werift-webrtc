@@ -50,8 +50,9 @@
             channel.onopen = () => {
               console.log("open");
               setInterval(() => {
-                channel.send("ping" + index++);
-                if (index > 4) channel.close();
+                if (index > 3) {
+                  peer.close();
+                } else channel.send("ping" + index++);
               }, 1000);
             };
             channel.onclose = (e) => {
