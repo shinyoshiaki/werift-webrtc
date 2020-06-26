@@ -21,7 +21,8 @@ export enum DtlsState {
 type DtlsRole = "auto" | "server" | "client";
 
 export class RTCDtlsTransport {
-  stateChange = new Event<DtlsState>();
+  dtls?: DtlsSocket;
+  stateChanged = new Event<DtlsState>();
   state = DtlsState.NEW;
   private localCertificate: RTCCertificate;
   role: DtlsRole = "auto";
@@ -41,8 +42,6 @@ export class RTCDtlsTransport {
       this.localCertificate ? this.localCertificate.getFingerprints() : []
     );
   }
-
-  dtls?: DtlsSocket;
 
   async start(remoteParameters: RTCDtlsParameters) {
     if (this.state !== DtlsState.NEW) throw new Error();
@@ -79,6 +78,9 @@ export class RTCDtlsTransport {
         this.setState(DtlsState.CONNECTED);
         r();
       };
+      this.dtls.onClose = () => {
+        this.setState(DtlsState.CLOSED);
+      };
 
       if (((this.dtls as any) as DtlsClient).connect!!) {
         await sleep(100);
@@ -94,7 +96,7 @@ export class RTCDtlsTransport {
   private setState(state: DtlsState) {
     if (state != this.state) {
       this.state = state;
-      this.stateChange.execute(state);
+      this.stateChanged.execute(state);
     }
   }
 

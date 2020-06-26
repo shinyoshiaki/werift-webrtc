@@ -21,7 +21,7 @@ describe("peerConnection", () => {
     expect(dc.protocol).toBe("bob");
     expect(dc.readyState).toBe("connecting");
 
-    dc.state.subscribe((state) => {
+    dc.stateChanged.subscribe((state) => {
       if (state === "open") {
         dc.send(Buffer.from("hello"));
       }
@@ -100,7 +100,7 @@ async function assertIceCompleted(
 
 async function assertDataChannelOpen(dc: RTCDataChannel) {
   return new Promise((r) => {
-    dc.state.subscribe((v) => {
+    dc.stateChanged.subscribe((v) => {
       if (v === "open") {
         r();
       }

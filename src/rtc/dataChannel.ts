@@ -18,9 +18,8 @@ export class RTCDataChannelParameters {
 }
 
 export class RTCDataChannel {
-  state = new Event<DCState>();
+  stateChanged = new Event<DCState>();
   message = new Event<string | Buffer>();
-  // who use this?
   bufferedAmountLow = new Event();
   id?: number = this.parameters.id;
   readyState: DCState = "connecting";
@@ -89,7 +88,7 @@ export class RTCDataChannel {
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.state.execute(state);
+      this.stateChanged.execute(state);
     }
   }
 

@@ -21,11 +21,17 @@ import {
   CookieAckChunk,
   ErrorChunk,
   CookieEchoChunk,
+  ShutdownCompleteChunk,
 } from "./chunk";
 import { createHmac, randomBytes } from "crypto";
 import { Transport } from "./transport";
 import { Event } from "rx.mini";
 import { Unpacked, createEventsFromList } from "../../helper";
+import {
+  StreamResetOutgoingParam,
+  RECONFIG_PARAM_TYPES,
+  StreamParam,
+} from "./param";
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -46,6 +52,8 @@ const SCTP_RTO_INITIAL = 3 * 1000;
 const SCTP_RTO_MIN = 1;
 const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
+
+const RECONFIG_MAX_STREAMS = 135;
 
 // # parameters
 const SCTP_STATE_COOKIE = 0x0007;
@@ -123,8 +131,10 @@ export class SCTP {
 
   // # reconfiguration
 
-  reconfig_request_seq = this.localTsn;
-  reconfig_response_seq = 0;
+  reconfigRequestSeq = this.localTsn;
+  reconfigResponseSeq = 0;
+  reconfigRequest?: StreamResetOutgoingParam;
+  reconfigQueue: number[] = [];
 
   constructor(public transport: Transport, public port = 5000) {
     this.transport.onData = (buf) => {
@@ -146,10 +156,11 @@ export class SCTP {
   }
 
   // call from dtls transport
-  async handleData(data: Buffer) {
+  private handleData(data: Buffer) {
     let expectedTag;
 
     const [, , verificationTag, chunks] = parsePacket(data);
+
     const initChunk = chunks.filter((v) => v.type === InitChunk.type).length;
     if (initChunk > 0) {
       if (chunks.length != 1) throw new Error();
@@ -163,15 +174,15 @@ export class SCTP {
     }
 
     for (const chunk of chunks) {
-      await this.receiveChunk(chunk);
+      this.receiveChunk(chunk);
     }
 
     if (this.sackNeeded) {
-      await this.sendSack();
+      this.sendSack();
     }
   }
 
-  private async sendSack() {
+  private sendSack() {
     const gaps: [number, number][] = [];
     let gapNext: number;
     [...this.sackMisOrdered].sort().forEach((tsn) => {
@@ -189,28 +200,28 @@ export class SCTP {
     sack.duplicates = [...this.sackDuplicates];
     sack.gaps = gaps;
 
-    await this.sendChunk(sack);
+    this.sendChunk(sack);
 
     this.sackDuplicates = [];
     this.sackNeeded = false;
   }
 
-  private async receiveChunk(chunk: Chunk) {
+  private receiveChunk(chunk: Chunk) {
     switch (chunk.type) {
       case DataChunk.type:
-        await this.receiveDataChunk(chunk as DataChunk);
+        this.receiveDataChunk(chunk as DataChunk);
         break;
       case SackChunk.type:
-        await this.receiveSackChunk(chunk as SackChunk);
+        this.receiveSackChunk(chunk as SackChunk);
         break;
       case ForwardTsnChunk.type:
-        await this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
+        this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
       case HeartbeatChunk.type:
         {
-          const ack = new HeartbeatAckChunk(0, undefined);
+          const ack = new HeartbeatAckChunk();
           ack.params = (chunk as HeartbeatChunk).params;
-          await this.sendChunk(ack);
+          this.sendChunk(ack);
         }
         break;
       case AbortChunk.type:
@@ -221,21 +232,33 @@ export class SCTP {
           this.t2Cancel();
           this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
           const ack = new ShutdownAckChunk();
-          await this.sendChunk(ack);
+          this.sendChunk(ack);
           this.t2Start(ack);
           this.setState(SCTP_STATE.SHUTDOWN_SENT);
         }
         break;
-      // todo
-      // case "ShutdownCompleteChunk"
+      case ShutdownCompleteChunk.type:
+        if (this.associationState === SCTP_STATE.SHUTDOWN_ACK_SENT) {
+          this.t2Cancel();
+          this.setState(SCTP_STATE.CLOSED);
+        }
+        break;
       case ReconfigChunk.type:
-        // todo
+        if (this.associationState === SCTP_STATE.ESTABLISHED) {
+          const reconfig = chunk as ReConfigChunk;
+          for (const param of reconfig.params) {
+            const target = RECONFIG_PARAM_TYPES[param[0]];
+            if (target) {
+              this.receiveReconfigParam(target.parse(param[1]));
+            }
+          }
+        }
         break;
       case InitChunk.type:
         const initChunk = chunk as InitChunk;
         if (this.isServer) {
           this.lastReceivedTsn = tsnMinusOne(initChunk.initialTsn);
-          this.reconfig_response_seq = tsnMinusOne(initChunk.initialTsn);
+          this.reconfigResponseSeq = tsnMinusOne(initChunk.initialTsn);
           this.remoteVerificationTag = initChunk.initiateTag;
           this.ssthresh = initChunk.advertisedRwnd;
           this.getExtensions(initChunk.params);
@@ -264,7 +287,7 @@ export class SCTP {
             createHmac("sha1", this.hmacKey).update(cookie).digest(),
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
-          await this.sendChunk(ack);
+          this.sendChunk(ack);
         }
         break;
       case CookieEchoChunk.type:
@@ -290,12 +313,12 @@ export class SCTP {
               SCTP_CAUSE_STALE_COOKIE,
               Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
             ]);
-            await this.sendChunk(error);
+            this.sendChunk(error);
             return;
           }
 
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack);
+          this.sendChunk(ack);
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
@@ -304,7 +327,7 @@ export class SCTP {
           const data = chunk as InitAckChunk;
           this.t1Cancel();
           this.lastReceivedTsn = tsnMinusOne(data.initialTsn);
-          this.reconfig_request_seq = tsnMinusOne(data.initialTsn);
+          this.reconfigRequestSeq = tsnMinusOne(data.initialTsn);
           this.remoteVerificationTag = data.initiateTag;
           this.ssthresh = data.advertisedRwnd;
           this.getExtensions(data.params);
@@ -325,7 +348,7 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo);
+          this.sendChunk(echo);
 
           this.t1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
@@ -361,7 +384,16 @@ export class SCTP {
     }
   }
 
-  private async receiveDataChunk(chunk: DataChunk) {
+  private receiveReconfigParam(param: StreamParam) {
+    switch (param.type) {
+      case StreamResetOutgoingParam.type:
+        // todo
+        // for(const streamId of){}
+        break;
+    }
+  }
+
+  private receiveDataChunk(chunk: DataChunk) {
     this.sackNeeded = true;
 
     if (this.markReceived(chunk.tsn)) return;
@@ -372,11 +404,11 @@ export class SCTP {
     this.advertisedRwnd -= chunk.userData.length;
     for (const message of inboundStream.popMessages()) {
       this.advertisedRwnd += message[2].length;
-      await this.receive(...message);
+      this.receive(...message);
     }
   }
 
-  private async receiveSackChunk(chunk: SackChunk) {
+  private receiveSackChunk(chunk: SackChunk) {
     // """
     // Handle a SACK chunk.
     // """
@@ -485,10 +517,10 @@ export class SCTP {
     }
 
     this.updateAdvancedPeerAckPoint();
-    await this.transmit();
+    this.transmit();
   }
 
-  async receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
+  receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
     this.sackNeeded = true;
 
     if (uint32Gte(this.lastReceivedTsn!, chunk.cumulativeTsn)) {
@@ -520,7 +552,7 @@ export class SCTP {
       inboundStream.sequenceNumber = uint16Add(streamSeq, 1);
       for (const message of inboundStream.popMessages()) {
         this.advertisedRwnd += message[2].length;
-        await this.receive(...message);
+        this.receive(...message);
       }
     }
 
@@ -549,7 +581,7 @@ export class SCTP {
   }
 
   onRecieve?: (streamId: number, ppId: number, data: Buffer) => void;
-  private async receive(streamId: number, ppId: number, data: Buffer) {
+  private receive(streamId: number, ppId: number, data: Buffer) {
     if (this.onRecieve) this.onRecieve(streamId, ppId, data);
   }
 
@@ -582,7 +614,7 @@ export class SCTP {
     return false;
   }
 
-  async send(
+  send(
     streamId: number,
     ppId: number,
     userData: Buffer,
@@ -615,7 +647,6 @@ export class SCTP {
       chunk.streamSeq = streamSeq;
       chunk.protocol = ppId;
       chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
-
       chunk.abandoned = false;
       chunk.acked = false;
       chunk.bookSize = chunk.userData.length;
@@ -636,18 +667,18 @@ export class SCTP {
     }
 
     if (!this.t3Handle) {
-      await this.transmit();
+      this.transmit();
     }
   }
 
-  private async transmit() {
+  private transmit() {
     // """
     // Transmit outbound data.
     // """
 
     // # send FORWARD TSN
     if (this.forwardTsnChunk) {
-      await this.sendChunk(this.forwardTsnChunk);
+      this.sendChunk(this.forwardTsnChunk);
       this.forwardTsnChunk = undefined;
 
       if (!this.t3Handle) {
@@ -675,7 +706,7 @@ export class SCTP {
         chunk.misses = 0;
         chunk.retransmit = false;
         chunk.sentCount!++;
-        await this.sendChunk(chunk);
+        this.sendChunk(chunk);
 
         if (retransmitEarliest) {
           this.t3Restart();
@@ -693,11 +724,38 @@ export class SCTP {
       chunk.sentCount!++;
       chunk.sentTime = Date.now() / 1000;
 
-      await this.sendChunk(chunk);
+      this.sendChunk(chunk);
       if (!this.t3Handle) {
         this.t3Start();
       }
     }
+  }
+
+  transmitReconfig() {
+    if (
+      (this.associationState === SCTP_STATE.ESTABLISHED &&
+        this.reconfigQueue.length > 0,
+      !this.reconfigRequest)
+    ) {
+      const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
+      this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
+      const param = new StreamResetOutgoingParam(
+        this.reconfigRequestSeq,
+        this.reconfigResponseSeq,
+        tsnMinusOne(this.localTsn),
+        streams
+      );
+      this.reconfigRequest = param;
+      this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
+
+      this.sendReconfigParam(param);
+    }
+  }
+
+  private sendReconfigParam(param: StreamParam) {
+    const chunk = new ReconfigChunk();
+    chunk.params.push([param.type, param.bytes]);
+    this.sendChunk(chunk);
   }
 
   private flightSizeIncrease(chunk: DataChunk) {
@@ -718,7 +776,7 @@ export class SCTP {
     }
   }
 
-  private t1Expired = async () => {
+  private t1Expired = () => {
     this.t1Failures++;
     this.t1Handle = undefined;
     if (this.t1Failures > SCTP_MAX_INIT_RETRANS) {
@@ -867,19 +925,19 @@ export class SCTP {
     return new RTCSctpCapabilities(65536);
   }
 
-  async start(remotePort: number) {
+  start(remotePort: number) {
     if (!this.started) {
       this.started = true;
-      this.state = "connecting";
+      this.setConnectionState("connecting");
       this.remotePort = remotePort;
 
       if (!this.isServer) {
-        await this.init();
+        this.init();
       }
     }
   }
 
-  private async init() {
+  private init() {
     const chunk = new InitChunk();
     chunk.initiateTag = this.localVerificationTag;
     chunk.advertisedRwnd = this.advertisedRwnd;
@@ -887,7 +945,7 @@ export class SCTP {
     chunk.inboundStreams = this.inboundStreamsMax;
     chunk.initialTsn = this.localTsn;
     this.setExtensions(chunk.params);
-    await this.sendChunk(chunk);
+    this.sendChunk(chunk);
 
     // # start T1 timer and enter COOKIE-WAIT state
     this.t1Start(chunk);
@@ -923,15 +981,31 @@ export class SCTP {
       this.associationState = state;
     }
     if (state === SCTP_STATE.ESTABLISHED) {
-      this.state = "connected";
-      this.stateChanged.connected.execute();
+      this.setConnectionState("connected");
     } else if (state === SCTP_STATE.CLOSED) {
       this.t1Cancel();
       this.t2Cancel();
       this.t3Cancel();
-      this.state = "closed";
+      this.setConnectionState("closed");
       this.removeAllListeners();
     }
+  }
+
+  setConnectionState(state: SCTPConnectionState) {
+    this.state = state;
+    this.stateChanged[state].execute();
+  }
+
+  stop() {
+    if (this.associationState !== SCTP_STATE.CLOSED) {
+      this.abort();
+    }
+    this.setState(SCTP_STATE.CLOSED);
+  }
+
+  abort() {
+    const chunk = new AbortChunk();
+    this.sendChunk(chunk);
   }
 
   private removeAllListeners() {
@@ -952,7 +1026,7 @@ export class InboundStream {
       return;
     }
 
-    for (const { i, v } of enumerate(this.reassembly)) {
+    for (const [i, v] of enumerate(this.reassembly)) {
       if (v.tsn === chunk.tsn) throw new Error("duplicate chunk in reassembly");
 
       if (uint32Gt(v.tsn, chunk.tsn)) {

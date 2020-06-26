@@ -239,7 +239,7 @@ export class CookieAckChunk extends Chunk {
 
 export class BaseParamsChunk extends Chunk {
   params: [number, Buffer][] = [];
-  constructor(public flags = 0, body: Buffer | undefined) {
+  constructor(public flags = 0, body: Buffer | undefined = undefined) {
     super(flags, body);
     if (body) {
       this.params = decodeParams(body);
@@ -284,7 +284,7 @@ export class HeartbeatAckChunk extends BaseParamsChunk {
   static type = 5;
 
   get type() {
-    return HeartbeatChunk.type;
+    return HeartbeatAckChunk.type;
   }
 }
 
@@ -412,7 +412,7 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   ErrorChunk,
   CookieEchoChunk,
   CookieAckChunk,
-  // ShutdownCompleteChunk,
+  ShutdownCompleteChunk,
   ReconfigChunk,
   ForwardTsnChunk,
 ];

@@ -30,7 +30,7 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
       }
       case ContentType.handshake: {
         let raw = p.fragment;
-        if (p.recordLayerHeader.epoch != 0) {
+        if (p.recordLayerHeader.epoch > 0) {
           if (changeCipherSpec && dtls.flight < 5) {
             return { type: -1, data: p }; // expect client finished
           }

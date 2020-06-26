@@ -34,8 +34,8 @@ export function uint32Gte(a: number, b: number) {
   return a === b || uint32Gt(a, b);
 }
 
-export function enumerate<T>(arr: T[]) {
-  return arr.map((v, i) => ({ i, v }));
+export function enumerate<T>(arr: T[]): [number, T][] {
+  return arr.map((v, i) => [i, v]);
 }
 
 export async function sleep(ms: number) {
