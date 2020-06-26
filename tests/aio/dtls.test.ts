@@ -49,7 +49,7 @@ describe("aio", () => {
       const transport = new RTCIceTransport(gatherer);
       await gatherer.gather();
 
-      await sleep(3000);
+      await sleep(5000);
       const ws = new WS(WEBSOCKET_URI);
       await new Promise((r) => ws.once("open", r));
 
@@ -122,6 +122,6 @@ describe("aio", () => {
 
       done();
     },
-    10 * 1000
+    15 * 1000
   );
 });
