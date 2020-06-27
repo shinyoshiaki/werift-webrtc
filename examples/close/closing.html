@@ -46,13 +46,16 @@
               console.log(text);
               setLog((prev) => [...prev, text]);
             };
+
             let index = 0;
             channel.onopen = () => {
               console.log("open");
               setInterval(() => {
-                if (index > 3) {
+                if (index < 3) channel.send("ping" + index++);
+                if (index === 3) {
                   peer.close();
-                } else channel.send("ping" + index++);
+                  index++;
+                }
               }, 1000);
             };
             channel.onclose = (e) => {

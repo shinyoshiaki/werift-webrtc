@@ -29,7 +29,7 @@ export class RTCDtlsTransport {
   dataReceiver?: (buf: Buffer) => void;
 
   constructor(
-    public transport: RTCIceTransport,
+    public iceTransport: RTCIceTransport,
     certificates: RTCCertificate[]
   ) {
     const certificate = certificates[0];
@@ -49,7 +49,7 @@ export class RTCDtlsTransport {
       throw new Error();
     }
 
-    if (this.transport.role === "controlling") {
+    if (this.iceTransport.role === "controlling") {
       this.role = "server";
     } else {
       this.role = "client";
@@ -62,13 +62,13 @@ export class RTCDtlsTransport {
         this.dtls = new DtlsServer({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          socket: createIceTransport(this.transport.connection as any),
+          socket: createIceTransport(this.iceTransport.connection as any),
         });
       } else {
         this.dtls = new DtlsClient({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          socket: createIceTransport(this.transport.connection as any),
+          socket: createIceTransport(this.iceTransport.connection as any),
         });
       }
       this.dtls.onData = (buf) => {

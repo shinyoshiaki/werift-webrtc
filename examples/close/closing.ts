@@ -23,8 +23,11 @@ server.on("connection", async (socket) => {
     if (v === "open") {
       let index = 0;
       setInterval(() => {
-        dc.send(Buffer.from("ping" + index++));
-        if (index > 4) pc.close();
+        if (index < 4) dc.send(Buffer.from("ping" + index++));
+        if (index === 4) {
+          pc.close();
+          index++;
+        }
       }, 1000);
     }
   });

@@ -68,7 +68,7 @@ export class RTCSctpTransport {
   }
 
   private get isServer() {
-    return this.dtlsTransport.transport.role !== "controlling";
+    return this.dtlsTransport.iceTransport.role !== "controlling";
   }
 
   private async datachannelReceive(

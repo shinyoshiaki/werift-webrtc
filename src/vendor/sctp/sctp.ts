@@ -209,7 +209,6 @@ export class SCTP {
   }
 
   private receiveChunk(chunk: Chunk) {
-    // console.log("chunk.type", chunk.type);
     switch (chunk.type) {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
@@ -400,15 +399,6 @@ export class SCTP {
         this.sendReconfigParam(res);
         break;
       }
-      case StreamAddOutgoingParam.type:
-        {
-          const add = param as StreamAddOutgoingParam;
-          this.inboundStreamsCount += add.newStreams;
-          const res = new StreamResetResponseParam(add.requestSequence, 1);
-          this.reconfigResponseSeq = add.requestSequence;
-          this.sendReconfigParam(res);
-        }
-        break;
       case StreamResetResponseParam.type:
         {
           const reset = param as StreamResetResponseParam;
@@ -420,10 +410,19 @@ export class SCTP {
               delete this.outboundStreamSeq[streamId];
               return streamId;
             });
-            this.onDeleteStreams(streamIds);
             this.reconfigRequest = undefined;
             this.transmitReconfig();
+            this.onDeleteStreams(streamIds);
           }
+        }
+        break;
+      case StreamAddOutgoingParam.type:
+        {
+          const add = param as StreamAddOutgoingParam;
+          this.inboundStreamsCount += add.newStreams;
+          const res = new StreamResetResponseParam(add.requestSequence, 1);
+          this.reconfigResponseSeq = add.requestSequence;
+          this.sendReconfigParam(res);
         }
         break;
     }

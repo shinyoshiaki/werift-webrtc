@@ -40,6 +40,8 @@
                 socket.send(JSON.stringify(peer.localDescription));
               }
             };
+            peer.oniceconnectionstatechange = () =>
+              console.log(peer.iceConnectionState);
 
             peer.ondatachannel = (ev) => {
               const channel = ev.channel;

@@ -330,7 +330,7 @@ export class RTCPeerConnection {
   private async connect() {
     if (this.sctpTransport) {
       const dtlsTransport = this.sctpTransport.dtlsTransport;
-      const iceTransport = dtlsTransport.transport;
+      const iceTransport = dtlsTransport.iceTransport;
 
       const candidates = iceTransport.iceGather.getLocalCandidates();
       const iceExist = !!this.remoteIce[this.sctpTransport.uuid];
@@ -457,7 +457,7 @@ export class RTCPeerConnection {
       }
 
       if (dtlsTransport) {
-        const iceTransport = this.sctpTransport!.dtlsTransport.transport;
+        const iceTransport = this.sctpTransport!.dtlsTransport.iceTransport;
         await addRemoteCandidates(iceTransport, media);
 
         if (description.type === "offer" && !iceTransport.roleSet) {
@@ -564,7 +564,7 @@ export class RTCPeerConnection {
     if (this.sctpTransport) {
       this.sctpTransport.stop();
       this.sctpTransport.dtlsTransport.stop();
-      await this.sctpTransport.dtlsTransport.transport.stop();
+      await this.sctpTransport.dtlsTransport.iceTransport.stop();
     }
 
     this.updateIceConnectionState();
@@ -603,7 +603,7 @@ function addTransportDescription(
   media: MediaDescription,
   dtlsTransport: RTCDtlsTransport
 ) {
-  const iceTransport = dtlsTransport.transport;
+  const iceTransport = dtlsTransport.iceTransport;
   const iceGatherer = iceTransport.iceGather;
 
   media.iceCandidates = iceGatherer.getLocalCandidates();

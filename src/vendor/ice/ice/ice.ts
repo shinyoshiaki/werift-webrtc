@@ -763,7 +763,6 @@ export class Connection {
   }
 
   async close() {
-    this.stateChanged.execute("closed");
     // """
     // Close the connection.
     // """
@@ -790,6 +789,8 @@ export class Connection {
 
     this.protocols = [];
     this.localCandidates = [];
+
+    this.stateChanged.execute("closed");
   }
 
   // 生存確認
@@ -798,7 +799,6 @@ export class Connection {
       let failures = 0;
 
       onCancel(() => {
-        console.log("cancelled");
         failures += CONSENT_FAILURES;
         f("cancel");
       });

@@ -440,7 +440,7 @@ function encodeParams(params: [number, Buffer][]) {
   return body;
 }
 
-function decodeParams(body: Buffer): [number, Buffer][] {
+export function decodeParams(body: Buffer): [number, Buffer][] {
   const params: [number, Buffer][] = [];
   let pos = 0;
   while (pos <= body.length - 4) {
