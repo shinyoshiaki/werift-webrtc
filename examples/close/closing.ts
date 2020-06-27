@@ -19,7 +19,7 @@ server.on("connection", async (socket) => {
   console.log(answer);
 
   await pc.setRemoteDescription(answer);
-  dc.state.subscribe((v) => {
+  dc.stateChanged.subscribe((v) => {
     if (v === "open") {
       let index = 0;
       setInterval(() => {
@@ -34,5 +34,5 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("iceConnectionStateChange", v)
   );
-  dc.state.subscribe((v) => console.log("dc.state", v));
+  dc.stateChanged.subscribe((v) => console.log("dc.state", v));
 });

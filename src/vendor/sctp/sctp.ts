@@ -31,6 +31,8 @@ import {
   StreamResetOutgoingParam,
   RECONFIG_PARAM_TYPES,
   StreamParam,
+  StreamResetResponseParam,
+  StreamAddOutgoingParam,
 } from "./param";
 
 // # local constants
@@ -207,7 +209,7 @@ export class SCTP {
   }
 
   private receiveChunk(chunk: Chunk) {
-    console.log("chunk.type", chunk.type);
+    // console.log("chunk.type", chunk.type);
     switch (chunk.type) {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
@@ -382,11 +384,47 @@ export class SCTP {
     }
   }
 
+  onDeleteStreams = (streamIds: number[]) => {};
+
   private receiveReconfigParam(param: StreamParam) {
     switch (param.type) {
-      case StreamResetOutgoingParam.type:
-        // todo
-        // for(const streamId of){}
+      case StreamResetOutgoingParam.type: {
+        const reset = param as StreamResetOutgoingParam;
+        const streamIds = reset.streams.map((streamId) => {
+          delete this.inboundStreams[streamId];
+          return streamId;
+        });
+        this.onDeleteStreams(streamIds);
+        const res = new StreamResetResponseParam(reset.requestSequence, 1);
+        this.reconfigResponseSeq = reset.requestSequence;
+        this.sendReconfigParam(res);
+        break;
+      }
+      case StreamAddOutgoingParam.type:
+        {
+          const add = param as StreamAddOutgoingParam;
+          this.inboundStreamsCount += add.newStreams;
+          const res = new StreamResetResponseParam(add.requestSequence, 1);
+          this.reconfigResponseSeq = add.requestSequence;
+          this.sendReconfigParam(res);
+        }
+        break;
+      case StreamResetResponseParam.type:
+        {
+          const reset = param as StreamResetResponseParam;
+          if (
+            this.reconfigRequest &&
+            reset.responseSequence === this.reconfigRequest.requestSequence
+          ) {
+            const streamIds = this.reconfigRequest.streams.map((streamId) => {
+              delete this.outboundStreamSeq[streamId];
+              return streamId;
+            });
+            this.onDeleteStreams(streamIds);
+            this.reconfigRequest = undefined;
+            this.transmitReconfig();
+          }
+        }
         break;
     }
   }
@@ -964,14 +1002,13 @@ export class SCTP {
   sendChunk(chunk: Chunk) {
     if (this.remotePort === undefined) throw new Error("invalid remote port");
     if (this.state === "closed") return;
-    this.transport.send(
-      serializePacket(
-        this.localPort,
-        this.remotePort,
-        this.remoteVerificationTag,
-        chunk
-      )
+    const packet = serializePacket(
+      this.localPort,
+      this.remotePort,
+      this.remoteVerificationTag,
+      chunk
     );
+    this.transport.send(packet);
   }
 
   setState(state: SCTP_STATE) {

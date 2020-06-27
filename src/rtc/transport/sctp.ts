@@ -38,6 +38,14 @@ export class RTCSctpTransport {
     this.sctp.onRecieve = (streamId, ppId, data) => {
       this.datachannelReceive(streamId, ppId, data);
     };
+    this.sctp.onDeleteStreams = (ids: number[]) => {
+      ids.forEach((id) => {
+        const dc = this.dataChannels[id.toString()];
+        delete this.dataChannels[id.toString()];
+        dc.setReadyState("closed");
+      });
+    };
+
     this.sctp.stateChanged.connected.subscribe(() => {
       Object.values(this.dataChannels).forEach((channel) => {
         if (channel.negotiated && channel.readyState !== "open") {
@@ -282,7 +290,7 @@ export class RTCSctpTransport {
   }
 
   dataChannelClose(channel: RTCDataChannel) {
-    if (["closing", "closed"].includes(channel.readyState)) {
+    if (!["closing", "closed"].includes(channel.readyState)) {
       channel.setReadyState("closing");
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {

@@ -106,4 +106,8 @@ export class RTCDataChannel {
     if (this.readyState !== "open") return;
     this.transport.datachannelSend(this, data);
   }
+
+  close() {
+    this.transport.dataChannelClose(this);
+  }
 }

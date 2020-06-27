@@ -71,14 +71,16 @@ export class StreamAddOutgoingParam {
 
 export class StreamResetResponseParam {
   static type = 16;
-  constructor(public requestSequence: number, public result: number) {}
+  constructor(public responseSequence: number, public result: number) {}
 
   get type() {
     return StreamResetResponseParam.type;
   }
 
   get bytes() {
-    return Buffer.from(jspack.Pack("!LL", [this.requestSequence, this.result]));
+    return Buffer.from(
+      jspack.Pack("!LL", [this.responseSequence, this.result])
+    );
   }
 
   static parse(data: Buffer) {

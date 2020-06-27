@@ -23,7 +23,7 @@ server.on("connection", (socket) => {
         console.log("answer message", data.toString());
         channel.send(Buffer.from("pong" + index++));
       });
-      channel.state.subscribe((v) => console.log("dc.state", v));
+      channel.stateChanged.subscribe((v) => console.log("dc.state", v));
     });
 
     pc.iceConnectionStateChange.subscribe((v) =>
