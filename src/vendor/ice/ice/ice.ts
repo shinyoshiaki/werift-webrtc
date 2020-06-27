@@ -148,6 +148,8 @@ const defaultOptions: Options = {
   log: false,
 };
 
+type IceState = "disconnected" | "closed";
+
 export class Connection {
   remotePassword: string = "";
   remoteUsername: string = "";
@@ -162,6 +164,7 @@ export class Connection {
   options: Options;
   onData = new Event<Buffer>();
   remoteCandidatesEnd = false;
+  stateChanged = new Event<IceState>();
 
   private remoteCandidates_: Candidate[] = [];
 
@@ -786,6 +789,8 @@ export class Connection {
 
     this.protocols = [];
     this.localCandidates = [];
+
+    this.stateChanged.execute("closed");
   }
 
   // 生存確認
@@ -804,7 +809,8 @@ export class Connection {
 
       while (true) {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
+        // await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
+        await sleep(0);
 
         for (let key of this.nominatedKeys) {
           const pair = this.nominated[Number(key)];
@@ -819,10 +825,12 @@ export class Connection {
             failures = 0;
           } catch (error) {
             failures++;
+            this.stateChanged.execute("disconnected");
           }
           if (failures >= CONSENT_FAILURES) {
             this.log("Consent to send expired");
             this.queryConsentHandle = undefined;
+            // 切断検知
             r(await this.close());
             return;
           }

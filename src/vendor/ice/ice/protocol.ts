@@ -48,6 +48,7 @@ export class StunProtocol implements Protocol {
       message = parseMessage(data);
     } catch (error) {
       // some data received
+      // console.log(data);
       this.receiver.dataReceived(data, this.localCandidate?.component!);
       return;
     }

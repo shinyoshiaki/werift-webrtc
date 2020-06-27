@@ -21,7 +21,7 @@ describe("peerConnection", () => {
     expect(dc.protocol).toBe("bob");
     expect(dc.readyState).toBe("connecting");
 
-    dc.state.subscribe((state) => {
+    dc.stateChanged.subscribe((state) => {
       if (state === "open") {
         dc.send(Buffer.from("hello"));
       }
@@ -70,6 +70,58 @@ describe("peerConnection", () => {
     await assertDataChannelOpen(dc);
     expect(true).toBe(true);
   });
+
+  test(
+    "test_close_datachannel",
+    async (done) => {
+      const pcOffer = new RTCPeerConnection({});
+      const pcAnswer = new RTCPeerConnection({});
+
+      const dc = pcOffer.createDataChannel("chat");
+
+      pcAnswer.datachannel.subscribe((channel) => {
+        channel.message.subscribe(async (data) => {
+          expect(data.toString()).toBe("hello");
+          channel.close();
+          await Promise.all([
+            new Promise((r) => {
+              dc.stateChanged.subscribe((state) => {
+                if (state === "closed") {
+                  r();
+                }
+              });
+            }),
+            new Promise((r) => {
+              channel.stateChanged.subscribe((state) => {
+                if (state === "closed") {
+                  r();
+                }
+              });
+            }),
+          ]);
+          done();
+        });
+      });
+
+      dc.stateChanged.subscribe((state) => {
+        if (state === "open") {
+          dc.send(Buffer.from("hello"));
+        }
+      });
+
+      const offer = pcOffer.createOffer()!;
+      await pcOffer.setLocalDescription(offer);
+      await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
+
+      const answer = pcAnswer.createAnswer()!;
+      await pcAnswer.setLocalDescription(answer);
+      await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
+
+      await assertIceCompleted(pcOffer, pcAnswer);
+      await assertDataChannelOpen(dc);
+    },
+    600 * 1000
+  );
 });
 
 function assertHasIceCandidate(sdp: string) {
@@ -100,7 +152,7 @@ async function assertIceCompleted(
 
 async function assertDataChannelOpen(dc: RTCDataChannel) {
   return new Promise((r) => {
-    dc.state.subscribe((v) => {
+    dc.stateChanged.subscribe((v) => {
       if (v === "open") {
         r();
       }

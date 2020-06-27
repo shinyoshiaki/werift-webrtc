@@ -21,14 +21,15 @@ export enum DtlsState {
 type DtlsRole = "auto" | "server" | "client";
 
 export class RTCDtlsTransport {
-  stateChange = new Event<DtlsState>();
+  dtls?: DtlsSocket;
+  stateChanged = new Event<DtlsState>();
   state = DtlsState.NEW;
   private localCertificate: RTCCertificate;
   role: DtlsRole = "auto";
   dataReceiver?: (buf: Buffer) => void;
 
   constructor(
-    public transport: RTCIceTransport,
+    public iceTransport: RTCIceTransport,
     certificates: RTCCertificate[]
   ) {
     const certificate = certificates[0];
@@ -42,15 +43,13 @@ export class RTCDtlsTransport {
     );
   }
 
-  dtls?: DtlsSocket;
-
   async start(remoteParameters: RTCDtlsParameters) {
     if (this.state !== DtlsState.NEW) throw new Error();
     if (remoteParameters.fingerprints.length === 0) {
       throw new Error();
     }
 
-    if (this.transport.role === "controlling") {
+    if (this.iceTransport.role === "controlling") {
       this.role = "server";
     } else {
       this.role = "client";
@@ -63,13 +62,13 @@ export class RTCDtlsTransport {
         this.dtls = new DtlsServer({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          socket: createIceTransport(this.transport.connection as any),
+          socket: createIceTransport(this.iceTransport.connection as any),
         });
       } else {
         this.dtls = new DtlsClient({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          socket: createIceTransport(this.transport.connection as any),
+          socket: createIceTransport(this.iceTransport.connection as any),
         });
       }
       this.dtls.onData = (buf) => {
@@ -78,6 +77,9 @@ export class RTCDtlsTransport {
       this.dtls.onConnect = () => {
         this.setState(DtlsState.CONNECTED);
         r();
+      };
+      this.dtls.onClose = () => {
+        this.setState(DtlsState.CLOSED);
       };
 
       if (((this.dtls as any) as DtlsClient).connect!!) {
@@ -94,8 +96,12 @@ export class RTCDtlsTransport {
   private setState(state: DtlsState) {
     if (state != this.state) {
       this.state = state;
-      this.stateChange.execute(state);
+      this.stateChanged.execute(state);
     }
+  }
+
+  stop() {
+    this.setState(DtlsState.CLOSED);
   }
 }
 

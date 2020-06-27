@@ -30,7 +30,7 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
       }
       case ContentType.handshake: {
         let raw = p.fragment;
-        if (p.recordLayerHeader.epoch != 0) {
+        if (p.recordLayerHeader.epoch > 0) {
           if (changeCipherSpec && dtls.flight < 5) {
             return { type: -1, data: p }; // expect client finished
           }
@@ -48,13 +48,11 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
         };
       }
       case ContentType.alert: {
-        console.log("ContentType.alert", p, data);
-        let buf = data;
         const alert = Alert.deSerialize(p.fragment);
-        throw new Error("alert");
+        console.log("ContentType.alert", alert);
+        if (alert.level > 1) throw new Error("alert fatal error");
       }
       default: {
-        console.log("default", p);
         return { type: ContentType.alert, data: undefined };
       }
     }

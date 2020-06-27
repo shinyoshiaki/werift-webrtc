@@ -239,7 +239,7 @@ export class CookieAckChunk extends Chunk {
 
 export class BaseParamsChunk extends Chunk {
   params: [number, Buffer][] = [];
-  constructor(public flags = 0, body: Buffer | undefined) {
+  constructor(public flags = 0, body: Buffer | undefined = undefined) {
     super(flags, body);
     if (body) {
       this.params = decodeParams(body);
@@ -281,12 +281,13 @@ export class HeartbeatAckChunk extends BaseParamsChunk {
   static type = 5;
 
   get type() {
-    return HeartbeatChunk.type;
+    return HeartbeatAckChunk.type;
   }
 }
 
 export class ReconfigChunk extends BaseParamsChunk {
   static type = 130;
+
   get type() {
     return ReconfigChunk.type;
   }
@@ -386,6 +387,13 @@ export class ShutdownAckChunk extends Chunk {
   }
 }
 
+export class ShutdownCompleteChunk extends Chunk {
+  static type = 14;
+  get type() {
+    return ShutdownCompleteChunk.type;
+  }
+}
+
 const CHUNK_CLASSES: typeof Chunk[] = [
   DataChunk,
   InitChunk,
@@ -399,7 +407,7 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   ErrorChunk,
   CookieEchoChunk,
   CookieAckChunk,
-  // ShutdownCompleteChunk,
+  ShutdownCompleteChunk,
   ReconfigChunk,
   ForwardTsnChunk,
 ];
@@ -432,7 +440,7 @@ function encodeParams(params: [number, Buffer][]) {
   return body;
 }
 
-function decodeParams(body: Buffer): [number, Buffer][] {
+export function decodeParams(body: Buffer): [number, Buffer][] {
   const params: [number, Buffer][] = [];
   let pos = 0;
   while (pos <= body.length - 4) {

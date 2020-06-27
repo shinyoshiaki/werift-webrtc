@@ -21,14 +21,21 @@ server.on("connection", async (socket) => {
   await pc.setRemoteDescription(answer);
   dc.stateChanged.subscribe((v) => {
     if (v === "open") {
-      console.log("open");
       let index = 0;
       setInterval(() => {
-        dc.send(Buffer.from("ping" + index++));
+        if (index < 4) dc.send(Buffer.from("ping" + index++));
+        if (index === 4) {
+          pc.close();
+          index++;
+        }
       }, 1000);
     }
   });
   dc.message.subscribe((data) => {
     console.log("message", data.toString());
   });
+  pc.iceConnectionStateChange.subscribe((v) =>
+    console.log("iceConnectionStateChange", v)
+  );
+  dc.stateChanged.subscribe((v) => console.log("dc.state", v));
 });

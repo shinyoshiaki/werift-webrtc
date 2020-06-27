@@ -41,6 +41,9 @@ export class DtlsServer extends DtlsSocket {
           this.onData(messages[0].data as Buffer);
         }
         break;
+      case ContentType.alert:
+        this.onClose();
+        break;
     }
   };
 

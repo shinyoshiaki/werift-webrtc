@@ -2,6 +2,8 @@ import { RTCSctpTransport } from "./transport/sctp";
 import { assignClassProperties } from "../helper";
 import { Event } from "rx.mini";
 
+type DCState = "open" | "closed" | "connecting" | "closing";
+
 export class RTCDataChannelParameters {
   label = "";
   maxPacketLifeTime?: number; // sec
@@ -16,12 +18,11 @@ export class RTCDataChannelParameters {
 }
 
 export class RTCDataChannel {
-  state = new Event<string>();
+  stateChanged = new Event<DCState>();
   message = new Event<string | Buffer>();
-  // who use this?
   bufferedAmountLow = new Event();
   id?: number = this.parameters.id;
-  readyState = "connecting";
+  readyState: DCState = "connecting";
   private bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
   constructor(
@@ -84,10 +85,10 @@ export class RTCDataChannel {
     this.id = id;
   }
 
-  setReadyState(state: string) {
+  setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.state.execute(state);
+      this.stateChanged.execute(state);
     }
   }
 
@@ -102,7 +103,11 @@ export class RTCDataChannel {
   }
 
   send(data: Buffer) {
-    if (this.readyState !== "open") throw new Error();
+    if (this.readyState !== "open") return;
     this.transport.datachannelSend(this, data);
+  }
+
+  close() {
+    this.transport.dataChannelClose(this);
   }
 }

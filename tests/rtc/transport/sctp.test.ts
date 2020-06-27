@@ -21,8 +21,8 @@ describe("RTCSctpTransportTest", () => {
     server: RTCSctpTransport
   ) {
     await Promise.all([
-      new Promise((r) => client.sctp.connected.subscribe(r)),
-      new Promise((r) => server.sctp.connected.subscribe(r)),
+      client.sctp.stateChanged.connected.asPromise(),
+      server.sctp.stateChanged.connected.asPromise(),
     ]);
   }
 

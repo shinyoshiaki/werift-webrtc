@@ -13,6 +13,7 @@ type Options = {
 export abstract class DtlsSocket {
   onConnect: () => void = () => {};
   onData: (buf: Buffer) => void = () => {};
+  onClose: () => void = () => {};
   udp: TransportContext;
   dtls = new DtlsContext();
   record = new RecordContext();
