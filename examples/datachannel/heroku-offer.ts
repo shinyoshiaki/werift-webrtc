@@ -8,7 +8,7 @@ const socket = io("https://serene-anchorage-28732.herokuapp.com/");
     stunServer: ["stun.l.google.com", 19302],
   });
   const dc = pc.createDataChannel("chat", { protocol: "bob" });
-  dc.state.subscribe((v) => {
+  dc.stateChanged.subscribe((v) => {
     if (v === "open") {
       console.log("open");
       setInterval(() => {

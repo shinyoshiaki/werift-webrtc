@@ -207,52 +207,10 @@ export class SCTP {
   }
 
   private receiveChunk(chunk: Chunk) {
+    console.log("chunk.type", chunk.type);
     switch (chunk.type) {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
-        break;
-      case SackChunk.type:
-        this.receiveSackChunk(chunk as SackChunk);
-        break;
-      case ForwardTsnChunk.type:
-        this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
-        break;
-      case HeartbeatChunk.type:
-        {
-          const ack = new HeartbeatAckChunk();
-          ack.params = (chunk as HeartbeatChunk).params;
-          this.sendChunk(ack);
-        }
-        break;
-      case AbortChunk.type:
-        this.setState(SCTP_STATE.CLOSED);
-        break;
-      case ShutdownChunk.type:
-        {
-          this.t2Cancel();
-          this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
-          const ack = new ShutdownAckChunk();
-          this.sendChunk(ack);
-          this.t2Start(ack);
-          this.setState(SCTP_STATE.SHUTDOWN_SENT);
-        }
-        break;
-      case ShutdownCompleteChunk.type:
-        if (this.associationState === SCTP_STATE.SHUTDOWN_ACK_SENT) {
-          this.t2Cancel();
-          this.setState(SCTP_STATE.CLOSED);
-        }
-        break;
-      case ReconfigChunk.type:
-        if (this.associationState === SCTP_STATE.ESTABLISHED) {
-          const reconfig = chunk as ReConfigChunk;
-          for (const param of reconfig.params) {
-            const target = RECONFIG_PARAM_TYPES[param[0]];
-            if (target) {
-              this.receiveReconfigParam(target.parse(param[1]));
-            }
-          }
-        }
         break;
       case InitChunk.type:
         const initChunk = chunk as InitChunk;
@@ -290,38 +248,6 @@ export class SCTP {
           this.sendChunk(ack);
         }
         break;
-      case CookieEchoChunk.type:
-        const data = chunk as CookieEchoChunk;
-        if (this.isServer) {
-          const cookie = data.body!;
-          const digest = createHmac("sha1", this.hmacKey)
-            .update(cookie.slice(0, 4))
-            .digest();
-          if (
-            cookie?.length != COOKIE_LENGTH ||
-            !cookie.slice(4).equals(digest)
-          ) {
-            // console.log("x State cookie is invalid");
-            return;
-          }
-
-          const now = Date.now() / 1000;
-          const stamp = jspack.Unpack("!L", cookie)[0];
-          if (stamp < now - COOKIE_LIFETIME || stamp > now) {
-            const error = new ErrorChunk(0, undefined);
-            error.params.push([
-              SCTP_CAUSE_STALE_COOKIE,
-              Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
-            ]);
-            this.sendChunk(error);
-            return;
-          }
-
-          const ack = new CookieAckChunk();
-          this.sendChunk(ack);
-          this.setState(SCTP_STATE.ESTABLISHED);
-        }
-        break;
       case InitAckChunk.type:
         if (this.associationState === SCTP_STATE.COOKIE_WAIT) {
           const data = chunk as InitAckChunk;
@@ -354,10 +280,25 @@ export class SCTP {
           this.setState(SCTP_STATE.COOKIE_ECHOED);
         }
         break;
-      case CookieAckChunk.type:
-        if (this.associationState === SCTP_STATE.COOKIE_ECHOED) {
-          this.t1Cancel();
-          this.setState(SCTP_STATE.ESTABLISHED);
+      case SackChunk.type:
+        this.receiveSackChunk(chunk as SackChunk);
+        break;
+      case HeartbeatChunk.type:
+        const ack = new HeartbeatAckChunk();
+        ack.params = (chunk as HeartbeatChunk).params;
+        this.sendChunk(ack);
+        break;
+      case AbortChunk.type:
+        this.setState(SCTP_STATE.CLOSED);
+        break;
+      case ShutdownChunk.type:
+        {
+          this.t2Cancel();
+          this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
+          const ack = new ShutdownAckChunk();
+          this.sendChunk(ack);
+          this.t2Start(ack);
+          this.setState(SCTP_STATE.SHUTDOWN_SENT);
         }
         break;
       case ErrorChunk.type:
@@ -369,6 +310,63 @@ export class SCTP {
           this.t1Cancel();
           this.setState(SCTP_STATE.CLOSED);
         }
+        break;
+      case CookieEchoChunk.type:
+        const data = chunk as CookieEchoChunk;
+        if (this.isServer) {
+          const cookie = data.body!;
+          const digest = createHmac("sha1", this.hmacKey)
+            .update(cookie.slice(0, 4))
+            .digest();
+          if (
+            cookie?.length != COOKIE_LENGTH ||
+            !cookie.slice(4).equals(digest)
+          ) {
+            // console.log("x State cookie is invalid");
+            return;
+          }
+          const now = Date.now() / 1000;
+          const stamp = jspack.Unpack("!L", cookie)[0];
+          if (stamp < now - COOKIE_LIFETIME || stamp > now) {
+            const error = new ErrorChunk(0, undefined);
+            error.params.push([
+              SCTP_CAUSE_STALE_COOKIE,
+              Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
+            ]);
+            this.sendChunk(error);
+            return;
+          }
+          const ack = new CookieAckChunk();
+          this.sendChunk(ack);
+          this.setState(SCTP_STATE.ESTABLISHED);
+        }
+        break;
+      case CookieAckChunk.type:
+        if (this.associationState === SCTP_STATE.COOKIE_ECHOED) {
+          this.t1Cancel();
+          this.setState(SCTP_STATE.ESTABLISHED);
+        }
+        break;
+      case ShutdownCompleteChunk.type:
+        if (this.associationState === SCTP_STATE.SHUTDOWN_ACK_SENT) {
+          this.t2Cancel();
+          this.setState(SCTP_STATE.CLOSED);
+        }
+        break;
+      // extensions
+      case ReconfigChunk.type:
+        if (this.associationState === SCTP_STATE.ESTABLISHED) {
+          const reconfig = chunk as ReConfigChunk;
+          for (const param of reconfig.params) {
+            const target = RECONFIG_PARAM_TYPES[param[0]];
+            if (target) {
+              this.receiveReconfigParam(target.parse(param[1]));
+            }
+          }
+        }
+        break;
+      case ForwardTsnChunk.type:
+        this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
     }
   }

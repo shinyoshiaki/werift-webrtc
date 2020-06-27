@@ -19,7 +19,7 @@ server.on("connection", async (socket) => {
   console.log(answer);
 
   await pc.setRemoteDescription(answer);
-  dc.state.subscribe((v) => {
+  dc.stateChanged.subscribe((v) => {
     if (v === "open") {
       console.log("open");
       let index = 0;
