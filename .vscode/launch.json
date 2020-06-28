@@ -63,7 +63,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/close/closing.ts"
+        "${workspaceRoot}/examples/datachannel/answer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

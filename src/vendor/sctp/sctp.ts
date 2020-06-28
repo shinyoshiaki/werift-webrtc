@@ -214,27 +214,26 @@ export class SCTP {
   }
 
   private receiveChunk(chunk: Chunk) {
-    console.log("chunk.type", this.isServer ? "server" : "client", chunk.type);
     switch (chunk.type) {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
         break;
       case InitChunk.type:
-        const initChunk = chunk as InitChunk;
+        const init = chunk as InitChunk;
         if (this.isServer) {
-          this.lastReceivedTsn = tsnMinusOne(initChunk.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(initChunk.initialTsn);
-          this.remoteVerificationTag = initChunk.initiateTag;
-          this.ssthresh = initChunk.advertisedRwnd;
-          this.getExtensions(initChunk.params);
+          this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
+          this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+          this.remoteVerificationTag = init.initiateTag;
+          this.ssthresh = init.advertisedRwnd;
+          this.getExtensions(init.params);
 
           this._inboundStreamsCount = Math.min(
-            initChunk.outboundStreams,
+            init.outboundStreams,
             this._inboundStreamsMax
           );
           this._outboundStreamsCount = Math.min(
             this._outboundStreamsCount,
-            initChunk.inboundStreams
+            init.inboundStreams
           );
 
           const ack = new InitAckChunk();
@@ -257,25 +256,25 @@ export class SCTP {
         break;
       case InitAckChunk.type:
         if (this.associationState === SCTP_STATE.COOKIE_WAIT) {
-          const data = chunk as InitAckChunk;
+          const initAck = chunk as InitAckChunk;
           this.t1Cancel();
-          this.lastReceivedTsn = tsnMinusOne(data.initialTsn);
-          this.reconfigRequestSeq = tsnMinusOne(data.initialTsn);
-          this.remoteVerificationTag = data.initiateTag;
-          this.ssthresh = data.advertisedRwnd;
-          this.getExtensions(data.params);
+          this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
+          this.reconfigRequestSeq = tsnMinusOne(initAck.initialTsn);
+          this.remoteVerificationTag = initAck.initiateTag;
+          this.ssthresh = initAck.advertisedRwnd;
+          this.getExtensions(initAck.params);
 
           this._inboundStreamsCount = Math.min(
-            data.outboundStreams,
+            initAck.outboundStreams,
             this._inboundStreamsMax
           );
           this._outboundStreamsCount = Math.min(
             this._outboundStreamsCount,
-            data.inboundStreams
+            initAck.inboundStreams
           );
 
           const echo = new CookieEchoChunk();
-          for (const [k, v] of data.params) {
+          for (const [k, v] of initAck.params) {
             if (k === SCTP_STATE_COOKIE) {
               echo.body = v;
               break;
@@ -455,7 +454,7 @@ export class SCTP {
 
     if (uint32Gt(this.lastSackedTsn, chunk.cumulativeTsn)) return;
 
-    const receivedTime = Date.now();
+    const receivedTime = Date.now() / 1000;
     this.lastSackedTsn = chunk.cumulativeTsn;
     const cwndFullyUtilized = this.flightSize >= this.cwnd!;
     let done = 0,
@@ -639,6 +638,7 @@ export class SCTP {
     this.sackMisOrdered.add(tsn);
     for (const tsn of [...this.sackMisOrdered].sort()) {
       if (tsn === tsnPlusOne(this.lastReceivedTsn!)) {
+        this.lastReceivedTsn = tsn;
       } else {
         break;
       }
@@ -1019,10 +1019,6 @@ export class SCTP {
       this.remoteVerificationTag,
       chunk
     );
-    console.log("sent", this.isServer ? "server" : "client", chunk.type);
-    if (chunk.type === 0) {
-      console.log((chunk as DataChunk).userData);
-    }
     this.transport.send(packet);
   }
 

@@ -53,6 +53,7 @@
               setInterval(() => {
                 if (index < 4) channel.send("ping" + index++);
                 if (index === 4) {
+                  console.log("start closing");
                   channel.close();
                   index++;
                 }
