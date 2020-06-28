@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>Answer</title>
+    <title>Offer</title>
     <script
       crossorigin
       src="https://unpkg.com/react@16/umd/react.development.js"
@@ -23,7 +23,6 @@
     </div>
     <script type="text/babel">
       let rtc;
-
       const App = () => {
         const [log, setLog] = React.useState([]);
 
@@ -40,51 +39,49 @@
                 socket.send(JSON.stringify(peer.localDescription));
               }
             };
-            peer.oniceconnectionstatechange = () => {
-              console.log(
-                "oniceconnectionstatechange",
-                peer.iceConnectionState
-              );
+
+            const channel = peer.createDataChannel("chat");
+            channel.onmessage = (ev) => {
+              const text = new TextDecoder("utf-8").decode(ev.data);
+              console.log(text);
+              setLog((prev) => [...prev, text]);
             };
 
-            peer.ondatachannel = (ev) => {
-              const channel = ev.channel;
-              let index = 0;
+            let index = 0;
+            channel.onopen = () => {
+              console.log("open");
               setInterval(() => {
                 if (index < 4) channel.send("ping" + index++);
                 if (index === 4) {
-                  console.log("close channel");
+                  console.log("start closing");
                   channel.close();
                   index++;
                 }
               }, 1000);
-
-              channel.onmessage = (ev) => {
-                const text = new TextDecoder("utf-8").decode(ev.data);
-                console.log(text);
-                setLog((prev) => [...prev, text]);
-              };
-              channel.onclose = (e) => {
-                console.log("close", e);
-              };
-              channel.onerror = (e) => {
-                console.log("error", e);
-              };
+            };
+            channel.onclose = (e) => {
+              console.log("close", e);
+            };
+            channel.onerror = (e) => {
+              console.log("error", e);
             };
 
+            await new Promise((r) => (peer.onnegotiationneeded = r));
+
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+
             socket.addEventListener("message", async (ev) => {
-              const offer = JSON.parse(ev.data);
-              console.log(offer.sdp);
-              await peer.setRemoteDescription(offer);
-              const answer = await peer.createAnswer();
-              await peer.setLocalDescription(answer);
+              const answer = JSON.parse(ev.data);
+              console.log(answer.sdp);
+              await peer.setRemoteDescription(answer);
             });
           })();
         }, []);
 
         return (
           <div>
-            answer
+            offer
             <div>
               {log.slice(-10).map((v, i) => (
                 <div key={i}>{v}</div>

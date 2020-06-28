@@ -21,7 +21,7 @@ export class RTCSctpTransport {
   mid?: string;
   bundled = false;
 
-  private dataChannels: { [key: string]: RTCDataChannel } = {};
+  private dataChannels: { [key: number]: RTCDataChannel } = {};
   get dataChannelsKeys() {
     return Object.keys(this.dataChannels);
   }
@@ -40,9 +40,11 @@ export class RTCSctpTransport {
     };
     this.sctp.onDeleteStreams = (ids: number[]) => {
       ids.forEach((id) => {
-        const dc = this.dataChannels[id.toString()];
-        delete this.dataChannels[id.toString()];
-        dc.setReadyState("closed");
+        const dc = this.dataChannels[id];
+        if (dc) {
+          dc.setReadyState("closed");
+          delete this.dataChannels[id];
+        }
       });
     };
 
@@ -118,20 +120,20 @@ export class RTCSctpTransport {
             });
             const channel = new RTCDataChannel(this, parameters, false);
             channel.setReadyState("open");
-            this.dataChannels[streamId.toString()] = channel;
+            this.dataChannels[streamId] = channel;
 
             this.dataChannelQueue.push([
               channel,
               WEBRTC_DCEP,
               Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
             ]);
-            await this.dataChannelFlush();
+            this.dataChannelFlush();
 
             this.datachannel.execute(channel);
           }
           break;
         case DATA_CHANNEL_ACK:
-          const channel = this.dataChannels[streamId.toString()];
+          const channel = this.dataChannels[streamId];
           if (!channel) throw new Error();
           channel.setReadyState("open");
           break;
@@ -162,7 +164,7 @@ export class RTCSctpTransport {
     if (this.dataChannelsKeys.includes(channel.id.toString()))
       throw new Error();
 
-    this.dataChannels[channel.id.toString()] = channel;
+    this.dataChannels[channel.id] = channel;
 
     if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
       channel.setReadyState("open");
@@ -175,7 +177,7 @@ export class RTCSctpTransport {
         throw new Error(
           `Data channel with ID ${channel.id} already registered`
         );
-      this.dataChannels[channel.id.toString()] = channel;
+      this.dataChannels[channel.id] = channel;
     }
 
     let channelType = DATA_CHANNEL_RELIABLE;
@@ -211,7 +213,7 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
-  private async dataChannelFlush() {
+  private dataChannelFlush() {
     // """
     // Try to flush buffered data to the SCTP layer.
 
@@ -235,19 +237,19 @@ export class RTCSctpTransport {
         while (Object.keys(this.dataChannels).includes(streamId.toString())) {
           streamId += 2;
         }
-        this.dataChannels[streamId.toString()] = channel;
+        this.dataChannels[streamId] = channel;
         channel.setId(streamId);
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData);
+        this.sctp.send(streamId, protocol, userData);
       } else {
         if (channel.maxPacketLifeTime) {
-          expiry = Date.now() / 1000 + channel.maxPacketLifeTime;
+          expiry = Date.now() + channel.maxPacketLifeTime / 1000;
         } else {
           expiry = undefined;
         }
-        await this.sctp.send(
+        this.sctp.send(
           streamId,
           protocol,
           userData,
@@ -307,6 +309,7 @@ export class RTCSctpTransport {
         }
         channel.setReadyState("closed");
       }
+      // this.sctp.sendResetRequest(channel.id);
     }
   }
 }

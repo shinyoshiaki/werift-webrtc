@@ -39,21 +39,25 @@
                 socket.send(JSON.stringify(peer.localDescription));
               }
             };
+            peer.oniceconnectionstatechange = () => {
+              console.log(
+                "oniceconnectionstatechange",
+                peer.iceConnectionState
+              );
+            };
 
             const channel = peer.createDataChannel("chat");
             channel.onmessage = (ev) => {
               const text = new TextDecoder("utf-8").decode(ev.data);
               console.log(text);
               setLog((prev) => [...prev, text]);
+              if (channel.readyState === "open") channel.send("ping");
             };
             channel.onopen = () => {
               console.log("open");
-              setInterval(() => {
-                channel.send("ping");
-              }, 1000);
             };
             channel.onclose = (e) => {
-              console.log("close", e);
+              console.log("close");
             };
             channel.onerror = (e) => {
               console.log("error", e);

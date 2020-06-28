@@ -40,35 +40,19 @@
                 socket.send(JSON.stringify(peer.localDescription));
               }
             };
-            peer.oniceconnectionstatechange = () => {
-              console.log(
-                "oniceconnectionstatechange",
-                peer.iceConnectionState
-              );
-            };
+            peer.oniceconnectionstatechange = () =>
+              console.log(peer.iceConnectionState);
 
             peer.ondatachannel = (ev) => {
               const channel = ev.channel;
-              let index = 0;
-              setInterval(() => {
-                if (index < 4) channel.send("ping" + index++);
-                if (index === 4) {
-                  console.log("close channel");
-                  channel.close();
-                  index++;
-                }
-              }, 1000);
-
               channel.onmessage = (ev) => {
                 const text = new TextDecoder("utf-8").decode(ev.data);
                 console.log(text);
                 setLog((prev) => [...prev, text]);
+                channel.send("pong");
               };
-              channel.onclose = (e) => {
-                console.log("close", e);
-              };
-              channel.onerror = (e) => {
-                console.log("error", e);
+              channel.onclose = () => {
+                console.log("dc closed");
               };
             };
 
