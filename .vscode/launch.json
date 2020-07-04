@@ -45,6 +45,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
+        "./tests/aio/peerConnection.test.ts",
         "-t test_close_datachannel"
       ],
       "windows": {
@@ -63,7 +64,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/datachannel/answer.ts"
+        "${workspaceRoot}/examples/aio/offer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

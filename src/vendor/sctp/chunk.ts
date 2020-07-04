@@ -29,11 +29,17 @@ import { jspack } from "jspack";
 const crc32c = require("turbo-crc32/crc32c");
 
 export class Chunk {
+  public get body(): Buffer | undefined {
+    return this._body;
+  }
+  public set body(value: Buffer | undefined) {
+    this._body = value;
+  }
   static type = -1;
 
   constructor(
     public flags = 0,
-    public body: Buffer | undefined = Buffer.from("")
+    private _body: Buffer | undefined = Buffer.from("")
   ) {}
 
   get type() {
@@ -82,8 +88,6 @@ export class BaseInitChunk extends Chunk {
       this.params = [];
     }
   }
-
-  set body(_: Buffer) {}
 
   get body() {
     let body = Buffer.from(
@@ -246,8 +250,6 @@ export class BaseParamsChunk extends Chunk {
     }
   }
 
-  set body(_: Buffer) {}
-
   get body() {
     return encodeParams(this.params);
   }
@@ -374,7 +376,6 @@ export class ShutdownChunk extends Chunk {
     }
   }
 
-  set body(_: Buffer) {}
   get body() {
     return Buffer.from(jspack.Pack("!L", [this.cumulativeTsn]));
   }

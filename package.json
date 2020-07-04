@@ -15,7 +15,6 @@
   "scripts": {
     "answer": "ts-node --files examples/datachannel/answer.ts",
     "build": "rm -rf lib && tsc",
-    "ci": "jest --runInBand --forceExit",
     "format": "prettier --write src/**/*.ts",
     "offer": "ts-node --files examples/datachannel/offer.ts",
     "publish": "npm publish --access=public",
@@ -72,7 +71,7 @@
     "ts-jest": "^26.1.1",
     "ts-node": "^8.10.2",
     "tslib": "^2.0.0",
-    "typescript": "^3.9.5",
+    "typescript": "^4.0.0-beta",
     "ws": "^7.3.0"
   }
 }

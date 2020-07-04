@@ -31,14 +31,14 @@ describe("aio", () => {
     "aio_dtls",
     async (done) => {
       const server = PythonShell.run(
-        "python/signaling-server.py",
+        "tests/python/signaling-server.py",
         undefined,
         (err) => {
           if (err) console.log(err);
         }
       );
       const client = PythonShell.run(
-        "python/dtls/answer.py",
+        "tests/python/dtls/answer.py",
         undefined,
         (err) => {
           if (err) console.log(err);

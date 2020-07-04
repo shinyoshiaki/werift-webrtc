@@ -62,7 +62,7 @@ export class RTCPeerConnection {
   private streamId = uuid.v4();
   private transceivers: RTCRtpTransceiver[] = [];
 
-  constructor(private configuration: Configuration) {}
+  constructor(private configuration: Configuration = {}) {}
 
   get iceConnectionState() {
     return this._iceConnectionState;
