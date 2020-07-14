@@ -3,7 +3,7 @@ import {
   RTCRtcpFeedback,
   RTCRtpHeaderExtensionParameters,
   RTCRtpCodecParameters,
-} from "./parameters";
+} from "./media/parameters";
 import { RTCIceParameters, RTCIceCandidate } from "./transport/ice";
 import { RTCDtlsParameters, RTCDtlsFingerprint } from "./transport/dtls";
 import { RTCSctpCapabilities } from "./transport/sctp";
@@ -264,6 +264,21 @@ export class SessionDescription {
     return session;
   }
 
+  webrtcTrackId(media: MediaDescription) {
+    if (media.msid && media.msid.includes(" ")) {
+      const bits = media.msid.split(" ");
+      for (const group of this.msidSemantic) {
+        if (
+          group.semantic === "WMS" &&
+          (group.items.includes(bits[0]) || group.items.includes("*"))
+        ) {
+          return bits[1];
+        }
+      }
+    }
+    return;
+  }
+
   toString() {
     const lines = [`v=${this.version}`, `o=${this.origin}`, `s=${this.name}`];
     if (this.host) {
@@ -282,7 +297,7 @@ export class SessionDescription {
 export class MediaDescription {
   // rtp
   host?: string;
-  direction?: string;
+  direction?: "sendrecv" | "recvonly" | "sendonly";
   msid?: string;
 
   // rtcp
