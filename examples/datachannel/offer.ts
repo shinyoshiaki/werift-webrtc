@@ -12,7 +12,9 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
 
-  const dc = pc.createDataChannel("chat", { protocol: "bob" });
+  const dc = pc.createDataChannel("chat", {
+    protocol: "bob",
+  });
   dc.stateChanged.subscribe((v) => {
     console.log("dc.stateChanged", v);
     if (v === "open") {
