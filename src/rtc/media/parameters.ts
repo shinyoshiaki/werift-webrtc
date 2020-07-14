@@ -5,16 +5,40 @@ export class RTCRtpParameters {
   rtcp: RTCRtcpParameters;
 }
 
+export class RTCRtpCodecCapability {
+  mimeType: string;
+  clockRate: number;
+  channels?: number;
+  parameters = {};
+  constructor(parameters: Partial<RTCRtpCodecCapability> = {}) {
+    Object.assign(this, parameters);
+  }
+
+  get name() {
+    return this.mimeType.split("/")[1];
+  }
+}
+
 export class RTCRtpCodecParameters {
   mimeType: string;
   clockRate: number;
   channels?: number;
   payloadType?: number;
-  rtcpFeedback: RTCRtcpFeedback[] = [];
-  parameters: number[] = [];
+  rtcpFeedback = [];
+  parameters = {};
 
   constructor(props: Partial<RTCRtpCodecParameters> = {}) {
     Object.assign(this, props);
+  }
+
+  get name() {
+    return this.mimeType.split("/")[1];
+  }
+
+  get str() {
+    let s = `${this.name}/${this.clockRate}`;
+    if (this.channels === 2) s += "/2";
+    return s;
   }
 }
 
