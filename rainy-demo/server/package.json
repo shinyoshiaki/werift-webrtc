@@ -13,6 +13,7 @@
   },
   "main": "./lib/index.js",
   "scripts": {
+    "start": "ts-node --files src/rainy.ts",
     "build": "tsc",
     "ci": "yarn type && yarn lint && yarn test",
     "fix": "eslint src/**/*.ts --fix",

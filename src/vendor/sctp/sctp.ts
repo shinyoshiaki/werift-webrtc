@@ -554,7 +554,7 @@ export class SCTP {
 
     if (this.sentQueue.length === 0) {
       this.t3Cancel();
-    } else if (done) {
+    } else if (done > 0) {
       this.t3Restart();
     }
 
@@ -753,7 +753,7 @@ export class SCTP {
       retransmitEarliest = false;
     }
 
-    // for more performance
+    // for performance
     while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.shift()!;
       this.sentQueue.push(chunk);
@@ -816,6 +816,7 @@ export class SCTP {
 
   // # timers
 
+  // t1 is wait for initAck or cookieAck
   private t1Cancel() {
     if (this.t1Handle) {
       clearTimeout(this.t1Handle);
@@ -842,6 +843,7 @@ export class SCTP {
     this.t1Handle = setTimeout(this.t1Expired, this.rto * 1000);
   }
 
+  // t2 is wait for shutdown
   private t2Cancel() {
     if (this.t2Handle) {
       clearTimeout(this.t2Handle);
@@ -868,6 +870,7 @@ export class SCTP {
     this.t2Handle = setTimeout(this.t2Expired, this.rto * 1000);
   }
 
+  // t3 is wait for data sack
   private t3Expired = () => {
     this.t3Handle = undefined;
 
@@ -894,11 +897,9 @@ export class SCTP {
   };
 
   private t3Restart() {
-    if (this.t3Handle) {
-      clearTimeout(this.t3Handle);
-      this.t3Handle = undefined;
-    }
-    this.t3Handle = setTimeout(this.t3Expired, this.rto * 1000);
+    this.t3Cancel();
+    // for performance
+    this.t3Handle = setTimeout(this.t3Expired, this.rto);
   }
 
   private t3Start() {
