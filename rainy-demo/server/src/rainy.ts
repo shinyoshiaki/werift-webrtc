@@ -10,7 +10,10 @@ server.on("connection", async (socket) => {
     stunServer: ["stun.l.google.com", 19302],
   });
 
-  const dc = pc.createDataChannel("chat", {});
+  const dc = pc.createDataChannel("chat", {
+    ordered: false,
+    maxRetransmits: 3,
+  });
 
   dc.stateChanged.subscribe(async (v) => {
     if (v === "open") {
