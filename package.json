@@ -41,6 +41,7 @@
     "@fidm/x509": "^1.2.1",
     "binary-data": "^0.6.0",
     "buffer-crc32": "^0.2.13",
+    "date-fns": "^2.14.0",
     "dgram": "^1.0.1",
     "elliptic": "^6.5.3",
     "int64-buffer": "^0.99.1007",

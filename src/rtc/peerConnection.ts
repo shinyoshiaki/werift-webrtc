@@ -169,7 +169,7 @@ export class RTCPeerConnection {
     const settings: Required<typeof base> = { ...base, ...options } as any;
 
     if (settings.maxPacketLifeTime && settings.maxRetransmits)
-      throw new Error();
+      throw new Error("can not select both");
 
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
