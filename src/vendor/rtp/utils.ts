@@ -1,5 +1,9 @@
-export function assignClassProperties(ctx: any, props: any) {
-  Object.keys(props).forEach((key: string) => {
-    ctx[key] = props[key];
-  });
+export function setBit(
+  bits: { v: number },
+  value: number,
+  i: number,
+  bit: number = 1
+) {
+  const shift = 8 - (i + bit);
+  bits.v |= value << shift;
 }
