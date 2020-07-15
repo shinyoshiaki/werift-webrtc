@@ -18,11 +18,7 @@ server.on("connection", (socket) => {
     pc.datachannel.subscribe((channel) => {
       let index = 0;
       setInterval(() => {
-        if (index < 4) channel.send(Buffer.from("ping" + index++));
-        if (index === 4) {
-          channel.close();
-          index++;
-        }
+        channel.send(Buffer.from("ping" + index++));
       }, 1000);
 
       channel.message.subscribe((data) => {

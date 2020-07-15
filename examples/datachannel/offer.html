@@ -46,12 +46,13 @@
               );
             };
 
+            let index = 0;
             const channel = peer.createDataChannel("chat");
             channel.onmessage = (ev) => {
               const text = new TextDecoder("utf-8").decode(ev.data);
               console.log(text);
               setLog((prev) => [...prev, text]);
-              if (channel.readyState === "open") channel.send("ping");
+              if (channel.readyState === "open") channel.send("pong" + index++);
             };
             channel.onopen = () => {
               console.log("open");

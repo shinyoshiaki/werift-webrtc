@@ -51,12 +51,7 @@
               const channel = ev.channel;
               let index = 0;
               setInterval(() => {
-                if (index < 4) channel.send("ping" + index++);
-                if (index === 4) {
-                  console.log("close channel");
-                  channel.close();
-                  index++;
-                }
+                channel.send("ping" + index++);
               }, 1000);
 
               channel.onmessage = (ev) => {

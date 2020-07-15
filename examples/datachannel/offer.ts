@@ -19,14 +19,15 @@ server.on("connection", async (socket) => {
     console.log("dc.stateChanged", v);
     if (v === "open") {
       console.log("open");
-      let index = 0;
-      setInterval(() => {
-        dc.send(Buffer.from("ping" + index++));
-      }, 1000);
     }
   });
+
+  let index = 0;
   dc.message.subscribe((data) => {
     console.log("message", data.toString());
+    setInterval(() => {
+      dc.send(Buffer.from("pong" + index++));
+    }, 1000);
   });
 
   const offer = pc.createOffer()!;
