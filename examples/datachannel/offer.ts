@@ -25,9 +25,7 @@ server.on("connection", async (socket) => {
   let index = 0;
   dc.message.subscribe((data) => {
     console.log("message", data.toString());
-    setInterval(() => {
-      dc.send(Buffer.from("pong" + index++));
-    }, 1000);
+    dc.send(Buffer.from("pong" + index++));
   });
 
   const offer = pc.createOffer()!;
