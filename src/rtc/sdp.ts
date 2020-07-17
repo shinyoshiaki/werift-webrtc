@@ -17,7 +17,6 @@ import { isIPv4 } from "net";
 import { range } from "lodash";
 import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
-import { assignClassProperties } from "../helper";
 
 export class SessionDescription {
   version = 0;
@@ -531,6 +530,6 @@ export class SsrcDescription {
   label?: string;
 
   constructor(props: Partial<SsrcDescription>) {
-    assignClassProperties(this, props);
+    Object.assign(this, props);
   }
 }

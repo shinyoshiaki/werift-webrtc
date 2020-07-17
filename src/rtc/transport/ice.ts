@@ -1,5 +1,4 @@
 import { Connection, Candidate } from "../../vendor/ice";
-import { assignClassProperties } from "../../helper";
 import Event from "rx.mini";
 
 export type IceState =
@@ -111,7 +110,7 @@ export class RTCIceParameters {
   password?: string;
 
   constructor(props: Partial<RTCIceParameters>) {
-    assignClassProperties(this, props);
+    Object.assign(this, props);
   }
 }
 

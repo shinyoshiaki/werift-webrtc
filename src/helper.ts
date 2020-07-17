@@ -8,12 +8,6 @@ export async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-export function assignClassProperties(ctx: any, props: any) {
-  Object.keys(props).forEach((key: string) => {
-    ctx[key] = props[key];
-  });
-}
-
 export type Unpacked<T> = T extends { [K in keyof T]: infer U } ? U : never;
 
 export function createEventsFromList(list: any) {

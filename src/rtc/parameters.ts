@@ -1,5 +1,3 @@
-import { assignClassProperties } from "../helper";
-
 export class RTCRtpParameters {
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
@@ -16,7 +14,7 @@ export class RTCRtpCodecParameters {
   parameters: number[] = [];
 
   constructor(props: Partial<RTCRtpCodecParameters> = {}) {
-    assignClassProperties(this, props);
+    Object.assign(this, props);
   }
 }
 
@@ -24,8 +22,8 @@ export class RTCRtpHeaderExtensionParameters {
   id: number;
   uri: string;
 
-  constructor(props: Partial<RTCRtpHeaderExtensionParameters>) {
-    assignClassProperties(this, props);
+  constructor(props: Partial<RTCRtpHeaderExtensionParameters> = {}) {
+    Object.assign(this, props);
   }
 }
 
@@ -39,7 +37,7 @@ export class RTCRtcpFeedback {
   type: string;
   parameter?: string;
 
-  constructor(props: Partial<RTCRtcpFeedback>) {
-    assignClassProperties(this, props);
+  constructor(props: Partial<RTCRtcpFeedback> = {}) {
+    Object.assign(this, props);
   }
 }
