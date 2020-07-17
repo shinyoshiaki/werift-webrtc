@@ -28,7 +28,12 @@ import { RTCRtpSender } from "./media/rtpSender";
 import { enumerate } from "../helper";
 import Event from "rx.mini";
 
-type Configuration = { stunServer?: [string, number] };
+type Configuration = {
+  stunServer: [string, number];
+  privateKey: string;
+  certificate: string;
+};
+
 type SignalingState =
   | "stable"
   | "have-local-offer"
@@ -41,7 +46,7 @@ export class RTCPeerConnection {
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
 
-  private certificates = [RTCCertificate.generateCertificate()];
+  private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
   private sctpRemotePort?: number;
   private sctpRemoteCaps?: RTCSctpCapabilities;
@@ -62,7 +67,13 @@ export class RTCPeerConnection {
   private streamId = uuid.v4();
   private transceivers: RTCRtpTransceiver[] = [];
 
-  constructor(private configuration: Configuration = {}) {}
+  constructor(private configuration: Partial<Configuration> = {}) {
+    if (configuration.certificate && configuration.privateKey) {
+      this.certificates = [
+        new RTCCertificate(configuration.privateKey, configuration.certificate),
+      ];
+    }
+  }
 
   get iceConnectionState() {
     return this._iceConnectionState;
@@ -658,5 +669,3 @@ async function addRemoteCandidates(
     iceTransport.addRemoteCandidate(undefined);
   }
 }
-
-function filterPreferredCodecs() {}

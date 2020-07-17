@@ -125,7 +125,7 @@ export class RTCCertificate {
     ];
   }
 
-  static generateCertificate() {
+  static unsafe_useDefaultCertificate() {
     return new RTCCertificate(
       `-----BEGIN PRIVATE KEY-----
     MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCsUhdMfiOlixc5

@@ -64,7 +64,7 @@ type FingerprintMessage = {
   );
   const { fingerprints, role } = JSON.parse(fingerprint) as FingerprintMessage;
 
-  const certificate = RTCCertificate.generateCertificate();
+  const certificate = RTCCertificate.unsafe_useDefaultCertificate();
   const session = new RTCDtlsTransport(transport, [certificate]);
   class Dummy {
     data: Buffer[] = [];

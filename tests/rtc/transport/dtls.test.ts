@@ -11,10 +11,10 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
-  const certificate1 = RTCCertificate.generateCertificate();
+  const certificate1 = RTCCertificate.unsafe_useDefaultCertificate();
   const session1 = new RTCDtlsTransport(transport1, [certificate1]);
 
-  const certificate2 = RTCCertificate.generateCertificate();
+  const certificate2 = RTCCertificate.unsafe_useDefaultCertificate();
   const session2 = new RTCDtlsTransport(transport2, [certificate2]);
 
   await Promise.all([
