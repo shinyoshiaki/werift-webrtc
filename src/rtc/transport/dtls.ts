@@ -45,9 +45,7 @@ export class RTCDtlsTransport {
 
   async start(remoteParameters: RTCDtlsParameters) {
     if (this.state !== DtlsState.NEW) throw new Error();
-    if (remoteParameters.fingerprints.length === 0) {
-      throw new Error();
-    }
+    if (remoteParameters.fingerprints.length === 0) throw new Error();
 
     if (this.iceTransport.role === "controlling") {
       this.role = "server";
@@ -62,13 +60,13 @@ export class RTCDtlsTransport {
         this.dtls = new DtlsServer({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          socket: createIceTransport(this.iceTransport.connection as any),
+          socket: createIceTransport(this.iceTransport.connection),
         });
       } else {
         this.dtls = new DtlsClient({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
-          socket: createIceTransport(this.iceTransport.connection as any),
+          socket: createIceTransport(this.iceTransport.connection),
         });
       }
       this.dtls.onData = (buf) => {
