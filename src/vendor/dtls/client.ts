@@ -11,14 +11,20 @@ import { FragmentedHandshake } from "./record/message/fragment";
 import { ServerKeyExchange } from "./handshake/message/server/keyExchange";
 import { ContentType } from "./record/const";
 import { SessionType } from "./cipher/suites/abstract";
-import { DtlsSocket, Options } from "./socket";
+import { DtlsSocket } from "./socket";
 import { Transport } from "./transport";
 import { ServerCertificateRequest } from "./handshake/message/server/certificateRequest";
 
+type Options = {
+  socket: Transport;
+  cert?: string; // when Server CertificateRequest
+  key?: string; // when Server CertificateRequest
+};
+
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
-  constructor(socket: Transport, options: Partial<Options> = {}) {
-    super(socket, options);
+  constructor(options: Options) {
+    super(options);
     this.cipher.certPem = options.cert;
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.CLIENT;

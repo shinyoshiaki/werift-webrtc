@@ -6,10 +6,8 @@ import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { Transport } from "./transport";
 
-export type Options = {
-  cert: string; // when Server CertificateRequest
-  key: string; // when Server CertificateRequest
-  srtpProfiles: number[];
+type Options = {
+  socket: Transport;
 };
 
 export abstract class DtlsSocket {
@@ -21,8 +19,8 @@ export abstract class DtlsSocket {
   record = new RecordContext();
   cipher = new CipherContext();
 
-  constructor(socket: Transport, public options: Partial<Options> = {}) {
-    this.udp = new TransportContext(socket);
+  constructor(options: Options) {
+    this.udp = new TransportContext(options.socket);
   }
 
   send(buf: Buffer) {
