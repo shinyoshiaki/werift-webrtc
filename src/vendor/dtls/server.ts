@@ -7,18 +7,12 @@ import { flight2 } from "./flight/server/flight2";
 import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { SessionType } from "./cipher/suites/abstract";
-import { DtlsSocket } from "./socket";
+import { DtlsSocket, Options } from "./socket";
 import { Transport } from "./transport";
 
-type Options = {
-  cert: string;
-  key: string;
-  socket: Transport;
-};
-
 export class DtlsServer extends DtlsSocket {
-  constructor(options: Options) {
-    super(options);
+  constructor(socket: Transport, options: Partial<Options>) {
+    super(socket, options);
     this.cipher.certPem = options.cert;
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.SERVER;
