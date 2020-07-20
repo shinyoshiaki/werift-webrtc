@@ -1,13 +1,13 @@
+import { PrivateKey, RSAPrivateKey } from "@fidm/x509";
+import { decode, encode, types } from "binary-data";
+import { createSign } from "crypto";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
-import { DtlsRandom } from "../handshake/random";
-import AEADCipher from "../cipher/suites/aead";
-import { DtlsPlaintext } from "../record/message/plaintext";
-import { ProtocolVersion } from "../handshake/binary";
-import { encode, decode, types } from "binary-data";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
 import { SessionType } from "../cipher/suites/abstract";
-import { PrivateKey, RSAPrivateKey } from "@fidm/x509";
-import { createSign } from "crypto";
+import AEADCipher from "../cipher/suites/aead";
+import { ProtocolVersion } from "../handshake/binary";
+import { DtlsRandom } from "../handshake/random";
+import { DtlsPlaintext } from "../record/message/plaintext";
 
 export class CipherContext {
   sessionType?: SessionType;

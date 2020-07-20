@@ -1,5 +1,5 @@
+import { decode, encode, types } from "binary-data";
 import { randomBytes } from "crypto";
-import { encode, types, decode } from "binary-data";
 
 export class DtlsRandom {
   static readonly spec = {

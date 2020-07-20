@@ -1,5 +1,5 @@
-import { encode, types } from "binary-data";
 import { Certificate, PrivateKey } from "@fidm/x509";
+import { encode, types } from "binary-data";
 
 export function parseX509(certPem: string, keyPem: string) {
   const cert = Certificate.fromPEM(Buffer.from(certPem));

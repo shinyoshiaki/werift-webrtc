@@ -7,7 +7,7 @@ import { ContentType } from "./record/const";
 import { Transport } from "./transport";
 
 type Options = {
-  socket: Transport;
+  transport: Transport;
 };
 
 export abstract class DtlsSocket {
@@ -20,7 +20,7 @@ export abstract class DtlsSocket {
   cipher = new CipherContext();
 
   constructor(options: Options) {
-    this.udp = new TransportContext(options.socket);
+    this.udp = new TransportContext(options.transport);
   }
 
   send(buf: Buffer) {

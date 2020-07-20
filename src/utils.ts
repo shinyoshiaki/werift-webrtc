@@ -1,5 +1,7 @@
 import { jspack } from "jspack";
 import { randomBytes, createHash } from "crypto";
+import { Transport } from "./vendor/dtls";
+import { Connection } from "./vendor/ice";
 
 export function generateUUID(): string {
   return new Array(4)
@@ -42,3 +44,22 @@ export function fingerprint(file: Buffer, hashname: string) {
 
   return colon(upper(hash));
 }
+
+export class IceTransport implements Transport {
+  constructor(private ice: Connection) {
+    ice.onData.subscribe((buf) => {
+      if (this.onData) this.onData(buf);
+    });
+  }
+  onData?: (buf: Buffer) => void;
+
+  send(buf: Buffer) {
+    this.ice.send(buf);
+  }
+
+  close() {
+    this.ice.close();
+  }
+}
+
+export const createIceTransport = (ice: Connection) => new IceTransport(ice);

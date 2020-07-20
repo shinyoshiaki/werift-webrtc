@@ -5,10 +5,12 @@ import {
   DistinguishedName,
   SignatureAlgorithm,
 } from "../../binary";
+import { Handshake } from "../../../typings/domain";
+import { FragmentedHandshake } from "../../../record/message/fragment";
 
 // 7.4.4.  Certificate Request
 
-export class ServerCertificateRequest {
+export class ServerCertificateRequest implements Handshake {
   msgType = HandshakeType.certificate_request;
   messageSeq?: number;
   static readonly spec = {
@@ -19,7 +21,7 @@ export class ServerCertificateRequest {
 
   constructor(
     public certificateTypes: number[],
-    public signatures: number[],
+    public signatures: { hash: number; signature: number }[],
     public authorities: number[]
   ) {}
 
@@ -41,5 +43,17 @@ export class ServerCertificateRequest {
   serialize() {
     const res = encode(this, ServerCertificateRequest.spec).slice();
     return Buffer.from(res);
+  }
+
+  toFragment() {
+    const body = this.serialize();
+    return new FragmentedHandshake(
+      this.msgType,
+      body.length,
+      this.messageSeq!,
+      0,
+      body.length,
+      body
+    );
   }
 }

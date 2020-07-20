@@ -1,10 +1,4 @@
-export {
-  createIceTransport,
-  createUdpTransport,
-  Transport,
-  UdpTransport,
-  IceTransport,
-} from "./transport";
+export { createUdpTransport, Transport, UdpTransport } from "./transport";
 
 export { DtlsSocket } from "./socket";
 

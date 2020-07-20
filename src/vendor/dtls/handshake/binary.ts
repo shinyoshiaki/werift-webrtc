@@ -1,5 +1,5 @@
 import { types } from "binary-data";
-const { uint16be, uint24be, buffer, array, uint32be, uint8, string } = types;
+const { uint16be, uint24be, buffer, array, uint8, string } = types;
 
 // export const Random = {
 //   gmt_unix_time: uint32be,

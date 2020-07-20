@@ -1,9 +1,9 @@
-import { DtlsPlaintext } from "./message/plaintext";
-import { FragmentedHandshake } from "./message/fragment";
-import { DtlsContext } from "../context/dtls";
 import { CipherContext } from "../context/cipher";
-import { ContentType } from "./const";
+import { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
+import { ContentType } from "./const";
+import { FragmentedHandshake } from "./message/fragment";
+import { DtlsPlaintext } from "./message/plaintext";
 
 export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
   data: Buffer

@@ -1,12 +1,12 @@
-import AEADCipher from "./suites/aead";
 import {
-  createRSAKeyExchange,
-  createECDHERSAKeyExchange,
   createECDHEECDSAKeyExchange,
-  createPSKKeyExchange,
   createECDHEPSKKeyExchange,
+  createECDHERSAKeyExchange,
+  createPSKKeyExchange,
+  createRSAKeyExchange,
   KeyExchange,
 } from "./key-exchange";
+import AEADCipher from "./suites/aead";
 
 const cipherSuites = {
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b,

@@ -1,6 +1,6 @@
-import { DtlsPlaintext } from "./message/plaintext";
 import { DtlsContext } from "../context/dtls";
 import { Handshake } from "../typings/domain";
+import { DtlsPlaintext } from "./message/plaintext";
 
 export type Message = { type: number; fragment: Buffer };
 

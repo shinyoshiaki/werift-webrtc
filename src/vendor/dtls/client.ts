@@ -16,7 +16,7 @@ import { Transport } from "./transport";
 import { ServerCertificateRequest } from "./handshake/message/server/certificateRequest";
 
 type Options = {
-  socket: Transport;
+  transport: Transport;
   cert?: string; // when Server CertificateRequest
   key?: string; // when Server CertificateRequest
 };

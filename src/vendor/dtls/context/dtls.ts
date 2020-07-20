@@ -1,5 +1,5 @@
-import { Handshake } from "../typings/domain";
 import { FragmentedHandshake } from "../record/message/fragment";
+import { Handshake } from "../typings/domain";
 
 export class DtlsContext {
   version = { major: 255 - 1, minor: 255 - 2 };
@@ -14,7 +14,7 @@ export class DtlsContext {
   }[] = [];
   cookie?: Buffer;
   requestedCertificateTypes: number[] = [];
-  requestedSignatureAlgorithms: number[] = [];
+  requestedSignatureAlgorithms: { hash: number; signature: number }[] = [];
 
   bufferHandshakeCache(
     handshakes: FragmentedHandshake[],

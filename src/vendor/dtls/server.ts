@@ -13,11 +13,12 @@ import { Transport } from "./transport";
 type Options = {
   cert: string;
   key: string;
-  socket: Transport;
+  transport: Transport;
+  certificateRequest?: boolean;
 };
 
 export class DtlsServer extends DtlsSocket {
-  constructor(options: Options) {
+  constructor(private options: Options) {
     super(options);
     this.cipher.certPem = options.cert;
     this.cipher.keyPem = options.key;
@@ -57,7 +58,9 @@ export class DtlsServer extends DtlsSocket {
             flight2(this.udp, this.dtls, this.record, this.cipher)(clientHello);
           } else {
             this.dtls.bufferHandshakeCache([assemble], false, 4);
-            new Flight4(this.udp, this.dtls, this.record, this.cipher).exec();
+            new Flight4(this.udp, this.dtls, this.record, this.cipher).exec(
+              this.options.certificateRequest
+            );
           }
         }
         break;

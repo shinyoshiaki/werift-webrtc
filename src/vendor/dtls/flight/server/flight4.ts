@@ -10,6 +10,8 @@ import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { SignatureAlgorithm, HashAlgorithm } from "../../cipher/const";
 import { ContentType } from "../../record/const";
+import { Handshake } from "../../typings/domain";
+import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 
 export class Flight4 {
   constructor(
@@ -19,7 +21,7 @@ export class Flight4 {
     private cipher: CipherContext
   ) {}
 
-  exec() {
+  exec(certificateRequest: boolean = false) {
     if (this.dtls.flight === 4) return;
     this.dtls.flight = 4;
     this.dtls.sequenceNumber = 1;
@@ -28,9 +30,26 @@ export class Flight4 {
       this.sendServerHello(),
       this.sendCertificate(),
       this.sendServerKeyExchange(),
+      certificateRequest && this.sendCertificateRequest(),
       this.sendServerHelloDone(),
     ];
-    messages.forEach((buf) => this.udp.send(buf));
+    messages.forEach((buf) => {
+      if (buf) this.udp.send(buf);
+    });
+  }
+
+  createPacket(handshakes: Handshake[]) {
+    const fragments = createFragments(this.dtls)(handshakes);
+    this.dtls.bufferHandshakeCache(fragments, true, 4);
+    const packets = createPlaintext(this.dtls)(
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
+      ++this.record.recordSequenceNumber
+    );
+    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+    return buf;
   }
 
   sendServerHello() {
@@ -45,16 +64,7 @@ export class Flight4 {
       0, // compression
       [] // extensions
     );
-    const fragments = createFragments(this.dtls)([serverHello]);
-    this.dtls.bufferHandshakeCache(fragments, true, 4);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.record.recordSequenceNumber
-    );
-    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+    const buf = this.createPacket([serverHello]);
     return buf;
   }
 
@@ -64,16 +74,8 @@ export class Flight4 {
     const sign = parseX509(this.cipher.certPem, this.cipher.keyPem);
     this.cipher.localPrivateKey = sign.key;
     const certificate = new Certificate([Buffer.from(sign.cert)]);
-    const fragments = createFragments(this.dtls)([certificate]);
-    this.dtls.bufferHandshakeCache(fragments, true, 4);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.record.recordSequenceNumber
-    );
-    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+
+    const buf = this.createPacket([certificate]);
     return buf;
   }
 
@@ -107,31 +109,31 @@ export class Flight4 {
       signature.length,
       signature
     );
-    const fragments = createFragments(this.dtls)([keyExchange]);
-    this.dtls.bufferHandshakeCache(fragments, true, 4);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.record.recordSequenceNumber
+
+    const buf = this.createPacket([keyExchange]);
+    return buf;
+  }
+
+  sendCertificateRequest() {
+    const handshake = new ServerCertificateRequest(
+      [
+        1, // clientCertificateTypeRSASign
+        64, // clientCertificateTypeECDSASign
+      ],
+      [
+        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
+        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
+      ],
+      []
     );
-    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+    const buf = this.createPacket([handshake]);
     return buf;
   }
 
   sendServerHelloDone() {
     const handshake = new ServerHelloDone();
-    const fragments = createFragments(this.dtls)([handshake]);
-    this.dtls.bufferHandshakeCache(fragments, true, 4);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.record.recordSequenceNumber
-    );
-    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+
+    const buf = this.createPacket([handshake]);
     return buf;
   }
 }
