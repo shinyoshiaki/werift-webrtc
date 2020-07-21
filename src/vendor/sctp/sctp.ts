@@ -417,9 +417,9 @@ export class SCTP {
               delete this.outboundStreamSeq[streamId];
               return streamId;
             });
+            this.onDeleteStreams(streamIds);
             this.reconfigRequest = undefined;
             this.transmitReconfig();
-            this.onDeleteStreams(streamIds);
           }
         }
         break;
@@ -772,9 +772,9 @@ export class SCTP {
 
   transmitReconfig() {
     if (
-      (this.associationState === SCTP_STATE.ESTABLISHED &&
-        this.reconfigQueue.length > 0,
-      !this.reconfigRequest)
+      this.associationState === SCTP_STATE.ESTABLISHED &&
+      this.reconfigQueue.length > 0 &&
+      !this.reconfigRequest
     ) {
       const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
       this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
@@ -786,7 +786,6 @@ export class SCTP {
       );
       this.reconfigRequest = param;
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
-
       this.sendReconfigParam(param);
     }
   }
