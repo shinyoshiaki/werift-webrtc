@@ -27,7 +27,7 @@
   "dependencies": {
     "binary-data": "^0.6.0",
     "camera-capture": "^0.0.11",
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.19",
     "puppeteer": "^5.1.0",
     "rainy-webrtc": "^0.0.4",
     "wrtc": "^0.4.5",
