@@ -15,6 +15,7 @@ export function prfPreMasterSecret(
       const pub = elliptic.keyFromPublic(publicKey).getPublic();
       const x = pub.getX();
       const y = pub.getY();
+      // todo impl
 
       return;
 
@@ -61,6 +62,20 @@ export function prfMasterSecret(
     serverRandom,
   ]);
   return prfPHash(preMasterSecret, seed, 48);
+}
+
+export function exportKeyingMaterial(
+  label: string,
+  length: number,
+  masterSecret: Buffer,
+  localRandom: Buffer,
+  remoteRandom: Buffer,
+  isClient: boolean
+) {
+  const clientRandom = isClient ? localRandom : remoteRandom;
+  const serverRandom = isClient ? remoteRandom : localRandom;
+  const seed = Buffer.concat([Buffer.from(label), clientRandom, serverRandom]);
+  return prfPHash(masterSecret, seed, length);
 }
 
 export function hash(algorithm: string, data: Buffer) {

@@ -3,14 +3,11 @@ import { DtlsContext } from "../../context/dtls";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { createFragments, createPlaintext } from "../../record/builder";
-import { RecordContext } from "../../context/record";
 import { ContentType } from "../../record/const";
 
-export const flight3 = (
-  udp: TransportContext,
-  dtls: DtlsContext,
-  record: RecordContext
-) => (verifyReq: ServerHelloVerifyRequest) => {
+export const flight3 = (udp: TransportContext, dtls: DtlsContext) => (
+  verifyReq: ServerHelloVerifyRequest
+) => {
   const hello = dtls.lastFlight[0] as ClientHello;
   hello.cookie = verifyReq.cookie;
   const fragments = createFragments(dtls)([hello]);
@@ -21,7 +18,7 @@ export const flight3 = (
       type: ContentType.handshake,
       fragment: fragment.serialize(),
     })),
-    ++record.recordSequenceNumber
+    ++dtls.recordSequenceNumber
   );
   const buf = Buffer.concat(packets.map((v) => v.serialize()));
   udp.send(buf);

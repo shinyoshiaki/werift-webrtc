@@ -10,7 +10,6 @@ import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
 import { createFragments, createPlaintext } from "../../record/builder";
-import { RecordContext } from "../../context/record";
 import { TransportContext } from "../../context/transport";
 import { DtlsRandom } from "../../handshake/random";
 import { ContentType } from "../../record/const";
@@ -20,13 +19,15 @@ import { CipherContext } from "../../context/cipher";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 import { parseX509 } from "../../cipher/x509";
 import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
+import { UseSRTP } from "../../handshake/extensions/useSrtp";
+import { SrtpContext } from "../../context/srtp";
 
 export class Flight5 {
   constructor(
     private udp: TransportContext,
     private dtls: DtlsContext,
-    private record: RecordContext,
-    private cipher: CipherContext
+    private cipher: CipherContext,
+    private srtp: SrtpContext
   ) {}
 
   exec(
@@ -42,9 +43,11 @@ export class Flight5 {
     this.dtls.flight = 5;
 
     messages.forEach((message) => {
-      handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
-        message
-      );
+      handlers[message.msgType]({
+        dtls: this.dtls,
+        cipher: this.cipher,
+        srtp: this.srtp,
+      })(message);
     });
 
     if (this.dtls.requestedCertificateTypes.length > 0) this.sendCertificate();
@@ -68,7 +71,7 @@ export class Flight5 {
         type: ContentType.handshake,
         fragment: fragment.serialize(),
       })),
-      ++this.record.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     this.udp.send(buf);
@@ -87,7 +90,7 @@ export class Flight5 {
         type: ContentType.handshake,
         fragment: fragment.serialize(),
       })),
-      ++this.record.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     this.udp.send(buf);
@@ -105,7 +108,7 @@ export class Flight5 {
         type: ContentType.handshake,
         fragment: fragment.serialize(),
       })),
-      ++this.record.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     this.udp.send(buf);
@@ -115,7 +118,7 @@ export class Flight5 {
     const changeCipherSpec = ChangeCipherSpec.createEmpty().serialize();
     const packets = createPlaintext(this.dtls)(
       [{ type: ContentType.changeCipherSpec, fragment: changeCipherSpec }],
-      ++this.record.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     this.udp.send(buf);
@@ -135,9 +138,9 @@ export class Flight5 {
         type: ContentType.handshake,
         fragment: fragment.serialize(),
       })),
-      ++this.record.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber
     )[0];
-    this.record.recordSequenceNumber = 0;
+    this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(pkt).serialize();
     this.udp.send(buf);
@@ -148,14 +151,30 @@ const handlers: {
   [key: number]: (contexts: {
     dtls: DtlsContext;
     cipher: CipherContext;
+    srtp: SrtpContext;
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.server_hello] = ({ cipher }) => (
+handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
   message: ServerHello
 ) => {
   cipher.remoteRandom = DtlsRandom.from(message.random);
   cipher.cipherSuite = message.cipherSuite;
+  if (message.extensions) {
+    message.extensions.forEach((extension) => {
+      switch (extension.type) {
+        case UseSRTP.type:
+          const useSrtp = UseSRTP.fromData(extension.data);
+          const profile = SrtpContext.findMatchingSRTPProfile(
+            useSrtp.profiles,
+            dtls.options.srtpProfiles!
+          );
+          if (profile === undefined) return;
+          srtp.srtpProfile = profile;
+          break;
+      }
+    });
+  }
 };
 
 handlers[HandshakeType.certificate] = ({ cipher }) => (
