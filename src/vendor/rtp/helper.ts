@@ -6,12 +6,6 @@ export async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-export function assignClassProperties(ctx: any, props: any) {
-  Object.keys(props).forEach((key: string) => {
-    ctx[key] = props[key];
-  });
-}
-
 export function bufferWriter(bytes: number[], values: (number | bigint)[]) {
   const length = bytes.reduce((acc, cur) => acc + cur, 0);
   const buf = Buffer.alloc(length);
@@ -41,4 +35,10 @@ export function bufferReader(buf: Buffer, bytes: number[]) {
 
     return read as any;
   });
+}
+
+export function growBufferSize(buf: Buffer, size: number) {
+  const glow = Buffer.alloc(size);
+  buf.copy(glow);
+  return glow;
 }

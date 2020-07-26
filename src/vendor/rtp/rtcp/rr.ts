@@ -1,5 +1,5 @@
-import { assignClassProperties, bufferWriter, bufferReader } from "../helper";
-import { RtcpPacket } from "./packet";
+import { bufferWriter, bufferReader } from "../helper";
+import { RtcpPacket } from "./rtcp";
 import { range } from "lodash";
 
 export class RtcpRrPacket {
@@ -8,7 +8,7 @@ export class RtcpRrPacket {
   static type = 201;
 
   constructor(props: Partial<RtcpRrPacket> = {}) {
-    assignClassProperties(this, props);
+    Object.assign(this, props);
   }
 
   serialize() {
@@ -46,7 +46,7 @@ export class RtcpReceiverInfo {
   dlsr: number;
 
   constructor(props: Partial<RtcpReceiverInfo> = {}) {
-    assignClassProperties(this, props);
+    Object.assign(this, props);
   }
 
   serialize() {
