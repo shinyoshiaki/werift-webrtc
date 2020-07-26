@@ -1,4 +1,5 @@
 import { encode, types, decode } from "binary-data";
+import { Extension } from "../../typings/domain";
 
 export class EllipticCurves {
   static type = 10;
@@ -7,38 +8,36 @@ export class EllipticCurves {
     data: types.array(types.uint16be, types.uint16be, "bytes"),
   };
 
-  constructor(public type: number, public data: number[]) {
-    this.type = EllipticCurves.type;
+  public type: number = EllipticCurves.type;
+  public data: number[] = [];
+
+  constructor(props: Partial<EllipticCurves> = {}) {
+    Object.assign(this, props);
   }
 
   static createEmpty() {
-    const v = new EllipticCurves(undefined as any, undefined as any);
-    return v;
+    return new EllipticCurves();
   }
 
   static fromData(buf: Buffer) {
-    return new EllipticCurves(
-      EllipticCurves.type,
-      decode(buf, EllipticCurves.spec.data)
-    );
+    return new EllipticCurves({
+      type: EllipticCurves.type,
+      data: decode(buf, EllipticCurves.spec.data),
+    });
   }
 
   static deSerialize(buf: Buffer) {
-    return new EllipticCurves(
-      //@ts-ignore
-      ...Object.values(decode(buf, EllipticCurves.spec))
-    );
+    return new EllipticCurves(decode(buf, EllipticCurves.spec));
   }
 
   serialize() {
-    const res = encode(this, EllipticCurves.spec).slice();
-    return Buffer.from(res);
+    return Buffer.from(encode(this, EllipticCurves.spec).slice());
   }
 
-  get extension() {
+  get extension(): Extension {
     return {
       type: this.type,
-      data: Buffer.from(encode(this.data, EllipticCurves.spec.data).slice()),
+      data: this.serialize().slice(2),
     };
   }
 }

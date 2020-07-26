@@ -1,8 +1,8 @@
 import { encode, types, decode } from "binary-data";
 import { HandshakeType } from "../../const";
-import { ProtocolVersion } from "../../binary";
+import { ProtocolVersion, ExtensionList } from "../../binary";
 import { DtlsRandom } from "../../random";
-import { Version, Random, Handshake } from "../../../typings/domain";
+import { Version, Random, Handshake, Extension } from "../../../typings/domain";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 
 // 7.4.1.3.  Server Hello
@@ -24,7 +24,7 @@ export class ServerHello implements Handshake {
     public sessionId: Buffer,
     public cipherSuite: number,
     public compressionMethod: number,
-    public extensions: any
+    public extensions: Extension[]
   ) {}
 
   static createEmpty() {
@@ -40,33 +40,30 @@ export class ServerHello implements Handshake {
 
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ServerHello.spec);
-    return new ServerHello(
+    const cls = new ServerHello(
       //@ts-ignore
       ...Object.values(res)
     );
-  }
-
-  static deSerializeWithExtensions(buf: Buffer) {
-    const res = decode(buf, {
-      ...ServerHello.spec,
-      extensions: types.buffer(types.uint16be),
-    });
-    return new ServerHello(
-      //@ts-ignore
-      ...Object.values(res)
-    );
+    const expect = cls.serialize();
+    if (expect.length < buf.length) {
+      return new ServerHello(
+        //@ts-ignore
+        ...Object.values(
+          decode(buf, { ...ServerHello.spec, extensions: ExtensionList })
+        )
+      );
+    }
+    return cls;
   }
 
   serialize() {
-    const res = encode(this, ServerHello.spec).slice();
-    return Buffer.from(res);
-  }
-
-  serializeWithExtensions() {
-    const res = encode(this, {
-      ...ServerHello.spec,
-      extensions: types.buffer(types.uint16be),
-    }).slice();
+    const res =
+      this.extensions === undefined
+        ? encode(this, ServerHello.spec).slice()
+        : encode(this, {
+            ...ServerHello.spec,
+            extensions: ExtensionList,
+          }).slice();
     return Buffer.from(res);
   }
 

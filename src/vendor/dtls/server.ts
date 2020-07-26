@@ -7,19 +7,11 @@ import { flight2 } from "./flight/server/flight2";
 import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { SessionType } from "./cipher/suites/abstract";
-import { DtlsSocket } from "./socket";
-import { Transport } from "./transport";
-
-type Options = {
-  cert: string;
-  key: string;
-  transport: Transport;
-  certificateRequest?: boolean;
-};
+import { DtlsSocket, Options } from "./socket";
 
 export class DtlsServer extends DtlsSocket {
-  constructor(private options: Options) {
-    super(options);
+  constructor(options: Options) {
+    super(options, false);
     this.cipher.certPem = options.cert;
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.SERVER;
@@ -55,10 +47,10 @@ export class DtlsServer extends DtlsSocket {
           const assemble = FragmentedHandshake.assemble(handshakes);
           const clientHello = ClientHello.deSerialize(assemble.fragment);
           if (this.dtls.flight === 1) {
-            flight2(this.udp, this.dtls, this.record, this.cipher)(clientHello);
+            flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
           } else {
             this.dtls.bufferHandshakeCache([assemble], false, 4);
-            new Flight4(this.udp, this.dtls, this.record, this.cipher).exec(
+            new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
               this.options.certificateRequest
             );
           }
@@ -66,9 +58,7 @@ export class DtlsServer extends DtlsSocket {
         break;
       case HandshakeType.client_key_exchange:
         {
-          new Flight6(this.udp, this.dtls, this.record, this.cipher).exec(
-            handshakes
-          );
+          new Flight6(this.udp, this.dtls, this.cipher).exec(handshakes);
           if (this.onConnect) this.onConnect();
         }
         break;

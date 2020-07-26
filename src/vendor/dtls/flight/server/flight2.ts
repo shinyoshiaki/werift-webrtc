@@ -6,18 +6,19 @@ import { DtlsContext } from "../../context/dtls";
 import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { Signature } from "../../handshake/extensions/signature";
 import { generateKeyPair } from "../../cipher/namedCurve";
-import { RecordContext } from "../../context/record";
 import { CipherContext } from "../../context/cipher";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { randomBytes } from "crypto";
 import { CipherSuite, NamedCurveAlgorithm } from "../../cipher/const";
 import { ContentType } from "../../record/const";
+import { UseSRTP } from "../../handshake/extensions/useSrtp";
+import { SrtpContext } from "../../context/srtp";
 
 export const flight2 = (
   udp: TransportContext,
   dtls: DtlsContext,
-  record: RecordContext,
-  cipher: CipherContext
+  cipher: CipherContext,
+  srtp: SrtpContext
 ) => (clientHello: ClientHello) => {
   clientHello.extensions.forEach((extension) => {
     switch (extension.type) {
@@ -30,6 +31,19 @@ export const flight2 = (
       case Signature.type:
         {
           const signature = Signature.fromData(extension.data).data;
+        }
+        break;
+      case UseSRTP.type:
+        {
+          const useSrtp = UseSRTP.fromData(extension.data);
+          const profile = SrtpContext.findMatchingSRTPProfile(
+            useSrtp.profiles,
+            dtls.options?.srtpProfiles!
+          );
+          if (!profile) {
+            throw new Error();
+          }
+          srtp.srtpProfile = profile;
         }
         break;
     }
@@ -53,7 +67,7 @@ export const flight2 = (
       type: ContentType.handshake,
       fragment: fragment.serialize(),
     })),
-    ++record.recordSequenceNumber
+    ++dtls.recordSequenceNumber
   );
   const buf = Buffer.concat(packets.map((v) => v.serialize()));
   dtls.flight = 2;

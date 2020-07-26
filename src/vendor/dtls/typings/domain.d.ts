@@ -10,3 +10,8 @@ type Handshake = {
   serialize: () => Buffer;
   toFragment: () => FragmentedHandshake;
 };
+
+type Extension = {
+  type: number;
+  data: Buffer;
+};

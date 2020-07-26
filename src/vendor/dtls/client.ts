@@ -11,20 +11,13 @@ import { FragmentedHandshake } from "./record/message/fragment";
 import { ServerKeyExchange } from "./handshake/message/server/keyExchange";
 import { ContentType } from "./record/const";
 import { SessionType } from "./cipher/suites/abstract";
-import { DtlsSocket } from "./socket";
-import { Transport } from "./transport";
+import { DtlsSocket, Options } from "./socket";
 import { ServerCertificateRequest } from "./handshake/message/server/certificateRequest";
-
-type Options = {
-  transport: Transport;
-  cert?: string; // when Server CertificateRequest
-  key?: string; // when Server CertificateRequest
-};
 
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
   constructor(options: Options) {
-    super(options);
+    super(options, true);
     this.cipher.certPem = options.cert;
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.CLIENT;
@@ -32,7 +25,7 @@ export class DtlsClient extends DtlsSocket {
   }
 
   connect() {
-    flight1(this.udp, this.dtls, this.record, this.cipher);
+    flight1(this.udp, this.dtls, this.cipher, this.extensions);
   }
 
   private udpOnMessage = (data: Buffer) => {
@@ -74,7 +67,7 @@ export class DtlsClient extends DtlsSocket {
           const verifyReq = ServerHelloVerifyRequest.deSerialize(
             handshakes[0].fragment
           );
-          flight3(this.udp, this.dtls, this.record)(verifyReq);
+          flight3(this.udp, this.dtls)(verifyReq);
         }
         break;
       case HandshakeType.server_hello_done:
@@ -116,7 +109,7 @@ export class DtlsClient extends DtlsSocket {
             }
           });
 
-          new Flight5(this.udp, this.dtls, this.record, this.cipher).exec(
+          new Flight5(this.udp, this.dtls, this.cipher, this.srtp).exec(
             messages
           );
         }

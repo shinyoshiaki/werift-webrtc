@@ -11,23 +11,20 @@ export class Signature {
     ),
   };
 
-  constructor(
-    public type: number,
-    public data: { hash: number; signature: number }[]
-  ) {
-    this.type = Signature.type;
+  public type: number = Signature.type;
+  public data: { hash: number; signature: number }[] = [];
+
+  constructor(props: Partial<Signature> = {}) {
+    Object.assign(this, props);
   }
 
   static createEmpty() {
-    const v = new Signature(undefined as any, undefined as any);
+    const v = new Signature();
     return v;
   }
 
   static deSerialize(buf: Buffer) {
-    return new Signature(
-      //@ts-ignore
-      ...Object.values(decode(buf, Signature.spec))
-    );
+    return new Signature(decode(buf, Signature.spec));
   }
 
   serialize() {
@@ -36,13 +33,15 @@ export class Signature {
   }
 
   static fromData(buf: Buffer) {
-    return new Signature(Signature.type, decode(buf, Signature.spec.data));
+    const type = Buffer.alloc(2);
+    type.writeUInt16BE(Signature.type);
+    return Signature.deSerialize(Buffer.concat([type, buf]));
   }
 
   get extension() {
     return {
       type: this.type,
-      data: Buffer.from(encode(this.data, Signature.spec.data).slice()),
+      data: this.serialize().slice(2),
     };
   }
 }
