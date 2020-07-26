@@ -1,23 +1,13 @@
-import { setBit } from "../utils";
+import { setBit, getBit } from "../utils";
 
 type Extension = { id: number; payload: Buffer };
 
-const versionShift = 6;
-const paddingShift = 5;
-const paddingMask = 0x1;
-const extensionShift = 4;
-const extensionMask = 0x1;
 const extensionProfileOneByte = 0xbede;
 const extensionProfileTwoByte = 0x1000;
-const ccMask = 0xf;
-const markerShift = 7;
-const ptMask = 0x7f;
+
 const seqNumOffset = 2;
-const seqNumLength = 2;
 const timestampOffset = 4;
-const timestampLength = 4;
 const ssrcOffset = 8;
-const ssrcLength = 4;
 const csrcOffset = 12;
 const csrcLength = 4;
 
@@ -36,30 +26,32 @@ const csrcLength = 4;
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  */
 
-class Header {
-  version: number;
+export class RtpHeader {
+  version: number = 0;
   padding: boolean;
   paddingSize: number = 0;
   extension: boolean;
   marker: boolean;
-  payloadOffset: number;
-  payloadType: number;
-  sequenceNumber: number;
-  timestamp: number;
-  ssrc: number;
+  payloadOffset: number = 0;
+  payloadType: number = 0;
+  sequenceNumber: number = 0;
+  timestamp: number = 0;
+  ssrc: number = 0;
   csrc: number[] = [];
-  extensionProfile: number;
+  extensionProfile: number = 0;
   extensions: Extension[] = [];
-  constructor() {}
+  constructor(props: Partial<RtpHeader> = {}) {
+    Object.assign(this, props);
+  }
 
   static deSerialize(rawPacket: Buffer) {
-    const h = new Header();
+    const h = new RtpHeader();
     let currOffset = 0;
     const v_p_x_cc = rawPacket[currOffset++];
-    h.version = v_p_x_cc >> versionShift;
-    h.padding = ((v_p_x_cc >> paddingShift) & paddingMask) > 0;
-    h.extension = ((v_p_x_cc >> extensionShift) & extensionMask) > 0;
-    const cc = v_p_x_cc & ccMask;
+    h.version = getBit(v_p_x_cc, 0, 2);
+    h.padding = getBit(v_p_x_cc, 2) > 0;
+    h.extension = getBit(v_p_x_cc, 3) > 0;
+    const cc = getBit(v_p_x_cc, 4, 4);
     h.csrc = [...Array(cc)].map(() => {
       const csrc = rawPacket.readUInt32BE(currOffset);
       currOffset += 4;
@@ -68,8 +60,8 @@ class Header {
     currOffset += csrcOffset - 1;
 
     const m_pt = rawPacket[1];
-    h.marker = m_pt >> markerShift > 0;
-    h.payloadType = m_pt & ptMask;
+    h.marker = getBit(m_pt, 0) > 0;
+    h.payloadType = getBit(m_pt, 1, 7);
 
     h.sequenceNumber = rawPacket.readInt16BE(seqNumOffset);
     h.timestamp = rawPacket.readUInt32BE(timestampOffset);
@@ -187,17 +179,17 @@ class Header {
     const buf = Buffer.alloc(size);
     let offset = 0;
 
-    const v_p_x_cc = { v: 0 };
+    const v_p_x_cc = { ref: 0 };
     setBit(v_p_x_cc, this.version, 1);
     if (this.padding) setBit(v_p_x_cc, 1, 2);
     if (this.extension) setBit(v_p_x_cc, 1, 3);
     setBit(v_p_x_cc, this.csrc.length, 4, 4);
-    buf.writeUInt8(v_p_x_cc.v, offset++);
+    buf.writeUInt8(v_p_x_cc.ref, offset++);
 
-    const m_pt = { v: 0 };
+    const m_pt = { ref: 0 };
     if (this.marker) setBit(m_pt, 1, 0);
     setBit(m_pt, this.payloadType, 1, 7);
-    buf.writeUInt8(m_pt.v, offset++);
+    buf.writeUInt8(m_pt.ref, offset++);
 
     buf.writeUInt16BE(this.sequenceNumber, seqNumOffset);
     offset += 2;
@@ -260,7 +252,7 @@ class Header {
 }
 
 export class RtpPacket {
-  constructor(public header: Header, public payload: Buffer) {}
+  constructor(public header: RtpHeader, public payload: Buffer) {}
 
   get serializeSize() {
     return this.header.serializeSize + this.payload.length;
@@ -282,7 +274,7 @@ export class RtpPacket {
   }
 
   static deSerialize(buf: Buffer) {
-    const header = Header.deSerialize(buf);
+    const header = RtpHeader.deSerialize(buf);
     const p = new RtpPacket(
       header,
       buf.slice(header.payloadOffset, buf.length - header.paddingSize)
