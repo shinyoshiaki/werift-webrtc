@@ -1,46 +1,55 @@
 import { encode, types, decode } from "binary-data";
 import { Extension } from "../../typings/domain";
+import { times } from "lodash";
 
 export class UseSRTP {
   static type = 14; // 9.  IANA Considerations
   static readonly spec = {
     type: types.uint16be,
-    mkiLength: types.uint16be,
-    profileLength: types.uint16be,
-    profiles: types.array(
-      types.uint16be,
-      (ctx: any) => ctx.current.profileLength / 2
-    ),
-    mki: types.buffer(
-      (ctx: any) => ctx.current.mkiLength - ctx.current.profileLength - 2
-    ),
+    data: types.buffer(types.uint16be),
   };
+
   type: number = UseSRTP.type;
-  mkiLength: number = 0;
-  profileLength: number = 0;
+  data: Buffer = Buffer.from([]);
   profiles: number[] = [];
-  mki: Buffer = Buffer.from([]);
+  mki?: Buffer;
 
   constructor(props: Partial<UseSRTP> = {}) {
     Object.assign(this, props);
   }
 
   static create(profiles: number[], mki: Buffer) {
-    const profileLength = profiles.length * 2;
     const v = new UseSRTP({
       profiles,
-      profileLength,
       mki,
-      mkiLength: mki.length + profileLength + 2,
     });
     return v;
   }
 
   static deSerialize(buf: Buffer) {
-    return new UseSRTP(decode(buf, UseSRTP.spec));
+    const useSrtp = new UseSRTP(decode(buf, UseSRTP.spec));
+    const profileLength = useSrtp.data.readUInt16BE();
+    const profiles = times(profileLength / 2).map((i) => {
+      return useSrtp.data.readUInt16BE(i * 2 + 2);
+    });
+    useSrtp.profiles = profiles;
+    useSrtp.mki = useSrtp.data.slice(profileLength + 2);
+    return useSrtp;
   }
 
   serialize() {
+    const profileLength = Buffer.alloc(2);
+    profileLength.writeUInt16BE(this.profiles.length * 2);
+    const data = Buffer.concat([
+      profileLength,
+      ...this.profiles.map((profile) => {
+        const buf = Buffer.alloc(2);
+        buf.writeUInt16BE(profile);
+        return buf;
+      }),
+      Buffer.from([0x00]),
+    ]);
+    this.data = data;
     const res = encode(this, UseSRTP.spec).slice();
     return Buffer.from(res);
   }
