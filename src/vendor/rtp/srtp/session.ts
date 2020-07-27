@@ -1,4 +1,3 @@
-import { Transport } from "../transport";
 import { Context } from "./context/context";
 
 export type SessionKeys = {
@@ -18,15 +17,14 @@ export class Session<T extends Context> {
   remoteContext: T;
   onData?: (buf: Buffer) => void;
 
-  constructor(public transport: Transport, private ContextCls: any) {}
+  constructor(private ContextCls: any) {}
 
   start(
     localMasterKey: Buffer,
     localMasterSalt: Buffer,
     remoteMasterKey: Buffer,
     remoteMasterSalt: Buffer,
-    profile: number,
-    decrypt: (buf: Buffer) => Buffer
+    profile: number
   ) {
     this.localContext = new this.ContextCls(
       localMasterKey,
@@ -38,10 +36,5 @@ export class Session<T extends Context> {
       remoteMasterSalt,
       profile
     );
-
-    this.transport.onData = (data) => {
-      const dec = decrypt(data);
-      this.onData(dec);
-    };
   }
 }
