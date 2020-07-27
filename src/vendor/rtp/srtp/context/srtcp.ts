@@ -54,6 +54,7 @@ export class SrtcpContext extends Context {
       this.srtcpSessionSalt
     );
     const cipher = createCipheriv("aes-128-ctr", this.srtcpSessionKey, counter);
+    // Encrypt everything after header
     const buf = cipher.update(out.slice(8));
     buf.copy(out, 8);
     out = Buffer.concat([out, Buffer.alloc(4)]);

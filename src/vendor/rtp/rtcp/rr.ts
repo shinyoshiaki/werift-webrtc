@@ -3,9 +3,10 @@ import { RtcpPacket } from "./rtcp";
 import { range } from "lodash";
 
 export class RtcpRrPacket {
-  ssrc: number;
+  ssrc: number = 0;
   reports: RtcpReceiverInfo[] = [];
   static type = 201;
+  type = RtcpRrPacket.type;
 
   constructor(props: Partial<RtcpRrPacket> = {}) {
     Object.assign(this, props);
