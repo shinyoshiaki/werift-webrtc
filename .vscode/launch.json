@@ -27,7 +27,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "${workspaceRoot}/tests/aio/dtls.test.ts"
+        "${workspaceRoot}/tests/rtc/transport/srtp.test.ts"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"

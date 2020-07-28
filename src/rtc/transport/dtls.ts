@@ -1,9 +1,9 @@
-import { RTCIceTransport } from "./ice";
 import { Certificate, PrivateKey } from "@fidm/x509";
+import Event from "rx.mini";
+import { RTCIceTransport } from "./ice";
 import { DtlsServer, DtlsClient, DtlsSocket } from "../../vendor/dtls";
 import { fingerprint, createIceTransport } from "../../utils";
 import { sleep } from "../../helper";
-import Event from "rx.mini";
 
 export enum DtlsState {
   NEW = 0,
@@ -25,14 +25,14 @@ export class RTCDtlsTransport {
 
   constructor(
     public iceTransport: RTCIceTransport,
-    certificates: RTCCertificate[]
+    certificates: RTCCertificate[],
+    public srtpProfiles: number[] = []
   ) {
     const certificate = certificates[0];
     this.localCertificate = certificate;
   }
 
   getLocalParameters() {
-    // todo fix
     return new RTCDtlsParameters(
       this.localCertificate ? this.localCertificate.getFingerprints() : []
     );
@@ -56,12 +56,14 @@ export class RTCDtlsTransport {
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
           transport: createIceTransport(this.iceTransport.connection),
+          srtpProfiles: this.srtpProfiles,
         });
       } else {
         this.dtls = new DtlsClient({
           cert: this.localCertificate.cert,
           key: this.localCertificate.privateKey,
           transport: createIceTransport(this.iceTransport.connection),
+          srtpProfiles: this.srtpProfiles,
         });
       }
       this.dtls.onData = (buf) => {

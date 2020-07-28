@@ -48,7 +48,7 @@ class DummyDataReceiver {
   };
 }
 
-const iceTransportPair = async () => {
+export const iceTransportPair = async () => {
   const gatherer1 = new RTCIceGatherer();
   const transport1 = new RTCIceTransport(gatherer1);
   transport1.connection.iceControlling = true;

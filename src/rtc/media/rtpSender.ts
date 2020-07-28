@@ -68,7 +68,7 @@ export class RTCRtpSender {
     this.octetCount += rtp.payload.length;
     this.packetCount++;
 
-    this.srtpTransport.sendRtp(rtp.header, rawRtp);
+    this.srtpTransport.sendRtp(rawRtp, rtp.header);
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {

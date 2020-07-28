@@ -20,7 +20,7 @@ import {
   RTCSessionDescription,
   addSDPHeader,
 } from "./sdp";
-import { DISCARD_PORT, DISCARD_HOST } from "./const";
+import { DISCARD_PORT, DISCARD_HOST, SRTP_PROFILE } from "./const";
 import { isEqual } from "lodash";
 import { RTCRtpTransceiver, Direction } from "./media/rtpTransceiver";
 import { RTCRtpReceiver } from "./media/rtpReceiver";
@@ -249,7 +249,7 @@ export class RTCPeerConnection {
     }
   }
 
-  private createDtlsTransport() {
+  private createDtlsTransport(srtpProfiles: number[] = []) {
     const iceGatherer = new RTCIceGatherer(this.configuration.stunServer);
     iceGatherer.subject.subscribe((state) => {
       if (state === "stateChange") {
@@ -267,7 +267,7 @@ export class RTCPeerConnection {
     this.updateIceGatheringState();
     this.updateIceConnectionState();
 
-    return new RTCDtlsTransport(iceTransport, this.certificates);
+    return new RTCDtlsTransport(iceTransport, this.certificates, srtpProfiles);
   }
 
   private createSctpTransport() {
@@ -566,7 +566,9 @@ export class RTCPeerConnection {
     kind: string,
     senderTrack: unknown | undefined = undefined // recvonly unnecessary track
   ) {
-    const dtlsTransport = this.createDtlsTransport();
+    const dtlsTransport = this.createDtlsTransport([
+      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+    ]);
     const transceiver = new RTCRtpTransceiver(
       kind,
       new RTCRtpReceiver(kind, dtlsTransport),
