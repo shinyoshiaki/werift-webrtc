@@ -19,8 +19,8 @@ export class SrtcpSession extends Session<SrtcpContext> {
     return decrypted;
   };
 
-  encrypt(payload: Buffer) {
-    const enc = this.localContext.encryptRTCP(payload);
+  encrypt(rawRtcp: Buffer) {
+    const enc = this.localContext.encryptRTCP(rawRtcp);
     return enc;
   }
 }
