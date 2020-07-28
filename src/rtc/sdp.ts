@@ -17,6 +17,7 @@ import { isIPv4 } from "net";
 import { range } from "lodash";
 import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
+import { Kind } from "../typings/domain";
 
 export class SessionDescription {
   version = 0;
@@ -94,7 +95,7 @@ export class SessionDescription {
         throw new Error();
       }
 
-      const kind = m[1];
+      const kind = m[1] as Kind;
       const fmt = m[4].split(" ");
       // todo fix
       const fmtInt = ["audio", "video"].includes(kind)
@@ -326,7 +327,7 @@ export class MediaDescription {
   iceCandidatesComplete = false;
   iceOptions?: string;
   constructor(
-    public kind: string,
+    public kind: Kind,
     public port: number,
     public profile: string,
     public fmt: string[] | number[]

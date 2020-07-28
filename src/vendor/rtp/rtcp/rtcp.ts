@@ -18,7 +18,7 @@ export class RtcpPacketConverter {
 
   static deSerialize(data: Buffer) {
     let pos = 0;
-    const packets = [];
+    const packets: RtcpPacket[] = [];
 
     while (pos < data.length) {
       const header = RtcpHeader.deSerialize(data.slice(pos, pos + 4));
