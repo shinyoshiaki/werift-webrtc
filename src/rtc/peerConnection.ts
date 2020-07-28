@@ -22,7 +22,7 @@ import {
 } from "./sdp";
 import { DISCARD_PORT, DISCARD_HOST } from "./const";
 import { isEqual } from "lodash";
-import { RTCRtpTransceiver } from "./media/rtpTransceiver";
+import { RTCRtpTransceiver, Direction } from "./media/rtpTransceiver";
 import { RTCRtpReceiver } from "./media/rtpReceiver";
 import { RTCRtpSender } from "./media/rtpSender";
 import { enumerate } from "../helper";
@@ -562,15 +562,15 @@ export class RTCPeerConnection {
   }
 
   private createTransceiver(
-    direction: string,
+    direction: Direction,
     kind: string,
-    senderTrack = undefined
+    senderTrack: unknown | undefined = undefined // recvonly unnecessary track
   ) {
     const dtlsTransport = this.createDtlsTransport();
     const transceiver = new RTCRtpTransceiver(
       kind,
       new RTCRtpReceiver(kind, dtlsTransport),
-      new RTCRtpSender(senderTrack || kind, dtlsTransport),
+      new RTCRtpSender(kind, senderTrack, dtlsTransport),
       direction
     );
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
@@ -730,7 +730,7 @@ async function addRemoteCandidates(
   }
 }
 
-function reverseDirection(direction: string) {
+function reverseDirection(direction: Direction) {
   if (direction == "sendonly") return "recvonly";
   else if (direction == "recvonly") return "sendonly";
   return direction;

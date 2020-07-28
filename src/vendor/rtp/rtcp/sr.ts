@@ -1,7 +1,7 @@
 import { bufferWriter, bufferReader } from "../helper";
 import { range } from "lodash";
 import { RtcpReceiverInfo } from "./rr";
-import { RtcpPacket } from "./rtcp";
+import { RtcpPacketConverter } from "./rtcp";
 
 export class RtcpSrPacket {
   ssrc: number = 0;
@@ -22,7 +22,7 @@ export class RtcpSrPacket {
       payload,
       ...this.reports.map((report) => report.serialize()),
     ]);
-    return RtcpPacket.serialize(
+    return RtcpPacketConverter.serialize(
       RtcpSrPacket.type,
       this.reports.length,
       payload
@@ -42,7 +42,7 @@ export class RtcpSrPacket {
   }
 }
 
-class RtcpSenderInfo {
+export class RtcpSenderInfo {
   ntpTimestamp: bigint;
   rtpTimestamp: number;
   packetCount: number;
