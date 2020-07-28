@@ -7,6 +7,8 @@ import {
 } from "./parameters";
 import * as uuid from "uuid";
 
+export type Direction = "sendonly" | "sendrecv" | "recvonly";
+
 export class RTCRtpTransceiver {
   uuid = uuid.v4();
   bundled = false;
@@ -15,13 +17,15 @@ export class RTCRtpTransceiver {
   transport?: RTCDtlsTransport;
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  currentDirection?: string;
-  offerDirection?: string;
+  currentDirection?: Direction;
+  offerDirection?: Direction;
 
   constructor(
     public kind: string,
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
-    public direction: string
+    public direction: Direction
   ) {}
+
+  stop() {}
 }

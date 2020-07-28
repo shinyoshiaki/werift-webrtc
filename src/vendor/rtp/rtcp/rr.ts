@@ -1,5 +1,5 @@
 import { bufferWriter, bufferReader } from "../helper";
-import { RtcpPacket } from "./rtcp";
+import { RtcpPacketConverter } from "./rtcp";
 import { range } from "lodash";
 
 export class RtcpRrPacket {
@@ -18,7 +18,7 @@ export class RtcpRrPacket {
       payload,
       ...this.reports.map((report) => report.serialize()),
     ]);
-    return RtcpPacket.serialize(
+    return RtcpPacketConverter.serialize(
       RtcpRrPacket.type,
       this.reports.length,
       payload
@@ -43,7 +43,7 @@ export class RtcpReceiverInfo {
   packetsLost: number;
   highestSequence: number;
   jitter: number;
-  lsr: number;
+  lsr: bigint;
   dlsr: number;
 
   constructor(props: Partial<RtcpReceiverInfo> = {}) {

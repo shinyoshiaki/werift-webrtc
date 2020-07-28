@@ -2,7 +2,9 @@ import { RtcpSrPacket } from "./sr";
 import { RtcpRrPacket } from "./rr";
 import { RtcpHeader } from "./header";
 
-export class RtcpPacket {
+export type RtcpPacket = RtcpRrPacket | RtcpSrPacket;
+
+export class RtcpPacketConverter {
   static serialize(type: number, count: number, payload: Buffer) {
     const header = new RtcpHeader({
       type,
