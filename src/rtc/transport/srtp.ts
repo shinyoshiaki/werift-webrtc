@@ -10,6 +10,7 @@ export class RTCSrtpTransport {
   onSrtp = new Event<RtpPacket>();
   srtcp: SrtcpSession;
   onSrtcp = new Event<RtcpPacket[]>();
+  iceTransport = this.dtlsTransport.iceTransport;
 
   constructor(public dtlsTransport: RTCDtlsTransport) {
     const dtls = dtlsTransport.dtls;
@@ -30,7 +31,7 @@ export class RTCSrtpTransport {
       profile: dtls.srtp.srtpProfile,
     });
 
-    this.dtlsTransport.iceTransport.connection.onData.subscribe((data) => {
+    this.iceTransport.connection.onData.subscribe((data) => {
       if (!isMedia(data)) return;
       if (isRtcp(data)) {
         const dec = this.srtcp.decrypt(data);
@@ -46,12 +47,13 @@ export class RTCSrtpTransport {
 
   sendRtp(header: RtpHeader, rawRtp: Buffer) {
     const enc = this.srtp.encrypt(header, rawRtp);
-    this.dtlsTransport.iceTransport.connection.send(enc);
+    this.iceTransport.connection.send(enc);
   }
 
   sendRtcp(packets: RtcpPacket[]) {
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
-    this.srtcp.encrypt(payload);
+    const enc = this.srtcp.encrypt(payload);
+    this.iceTransport.connection.send(enc);
   }
 }
 
