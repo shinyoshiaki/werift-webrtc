@@ -20,8 +20,7 @@ export class RTCSrtpTransport {
       remoteKey,
       remoteSalt,
     } = dtls.extractSessionKeys();
-
-    this.srtp = new SrtpSession({
+    const config = {
       keys: {
         localMasterKey: localKey,
         localMasterSalt: localSalt,
@@ -29,7 +28,9 @@ export class RTCSrtpTransport {
         remoteMasterSalt: remoteSalt,
       },
       profile: dtls.srtp.srtpProfile,
-    });
+    };
+    this.srtp = new SrtpSession(config);
+    this.srtcp = new SrtcpSession(config);
 
     this.iceTransport.connection.onData.subscribe((data) => {
       if (!isMedia(data)) return;
@@ -45,8 +46,8 @@ export class RTCSrtpTransport {
     });
   }
 
-  sendRtp(header: RtpHeader, rawRtp: Buffer) {
-    const enc = this.srtp.encrypt(header, rawRtp);
+  sendRtp(rawRtp: Buffer, header?: RtpHeader) {
+    const enc = this.srtp.encrypt(rawRtp, header);
     this.iceTransport.connection.send(enc);
   }
 

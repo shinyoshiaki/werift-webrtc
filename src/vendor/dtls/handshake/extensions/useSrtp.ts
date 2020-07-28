@@ -12,7 +12,7 @@ export class UseSRTP {
   type: number = UseSRTP.type;
   data: Buffer = Buffer.from([]);
   profiles: number[] = [];
-  mki?: Buffer;
+  mki: Buffer = Buffer.from([0x00]);
 
   constructor(props: Partial<UseSRTP> = {}) {
     Object.assign(this, props);
@@ -47,7 +47,7 @@ export class UseSRTP {
         buf.writeUInt16BE(profile);
         return buf;
       }),
-      Buffer.from([0x00]),
+      this.mki,
     ]);
     this.data = data;
     const res = encode(this, UseSRTP.spec).slice();
