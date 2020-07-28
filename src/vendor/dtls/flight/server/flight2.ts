@@ -35,8 +35,10 @@ export const flight2 = (
         break;
       case UseSRTP.type:
         {
-          const useSrtp = UseSRTP.fromData(extension.data);
           if (!dtls.options?.srtpProfiles) return;
+          if (dtls.options?.srtpProfiles.length === 0) return;
+
+          const useSrtp = UseSRTP.fromData(extension.data);
           const profile = SrtpContext.findMatchingSRTPProfile(
             useSrtp.profiles,
             dtls.options?.srtpProfiles
