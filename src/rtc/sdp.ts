@@ -18,6 +18,7 @@ import { range } from "lodash";
 import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
 import { Kind } from "../typings/domain";
+import { divide } from "../helper";
 
 export class SessionDescription {
   version = 0;
@@ -74,11 +75,9 @@ export class SessionDescription {
             iceUsernameFragment = value;
             break;
           case "group":
-            if (!value) throw new Error("exception");
             parseGroup(session.group, value);
             break;
           case "msid-semantic":
-            if (!value) throw new Error("exception");
             parseGroup(session.msidSemantic, value);
             break;
           case "setup":
@@ -174,7 +173,7 @@ export class SessionDescription {
               currentMedia.msid = value;
               break;
             case "rtcp":
-              const [port, rest] = value.split(" ", 1);
+              let [port, rest] = divide(value, " ");
               currentMedia.rtcpPort = parseInt(port);
               currentMedia.rtcpHost = ipAddressFromSdp(rest);
               break;
@@ -186,7 +185,7 @@ export class SessionDescription {
               break;
             case "rtpmap":
               {
-                const [formatId, formatDesc] = value.split(" ", 1);
+                const [formatId, formatDesc] = divide(value, " ");
                 const bits = formatDesc.split("/");
                 let channels: number | undefined;
                 if (currentMedia.kind === "audio") {
@@ -203,7 +202,7 @@ export class SessionDescription {
               break;
             case "sctpmap":
               if (!value) throw new Error();
-              const [formatId, formatDesc] = value.split(" ", 1);
+              const [formatId, formatDesc] = divide(value, " ");
               (currentMedia as any)[attr][parseInt(formatId)] = formatDesc;
               break;
             case "sctp-port":
@@ -215,9 +214,9 @@ export class SessionDescription {
               parseGroup(currentMedia.ssrcGroup, value, parseInt);
               break;
             case "ssrc":
-              const [ssrcStr, ssrcDesc] = value.split(" ", 1);
+              const [ssrcStr, ssrcDesc] = divide(value, " ");
               const ssrc = parseInt(ssrcStr);
-              const [ssrcAttr, ssrcValue] = ssrcDesc.split(":", 1);
+              const [ssrcAttr, ssrcValue] = divide(ssrcDesc, ":");
               let ssrcInfo = currentMedia.ssrc.find((v) => v.ssrc === ssrc);
               if (!ssrcInfo) {
                 ssrcInfo = new SsrcDescription({ ssrc });
@@ -242,11 +241,11 @@ export class SessionDescription {
         if (line.startsWith("a=")) {
           const [attr, value] = parseAttr(line);
           if (attr === "fmtp") {
-            const [formatId, formatDesc] = value.split(" ", 1);
+            const [formatId, formatDesc] = divide(value, " ");
             const codec = findCodec(Number(formatId));
             codec.parameters = parametersFromSdp(formatDesc);
           } else if (attr === "rtcp-fb") {
-            const bits = value.split(" ", 2);
+            const bits = value.split(" ");
             currentMedia.rtp.codecs.forEach((codec) => {
               if (["*", codec.payloadType].includes(bits[0])) {
                 codec.rtcpFeedback.push(
@@ -354,6 +353,32 @@ export class MediaDescription {
       lines.push(`a=msid:${this.msid}`);
     }
 
+    if (this.rtcpPort && this.rtcpHost) {
+      lines.push(`a=rtcp:${this.rtcpPort} ${ipAddressToSdp(this.rtcpHost)}`);
+      if (this.rtcpMux) {
+        lines.push("a=rtcp-mux");
+      }
+    }
+
+    this.ssrcGroup.forEach((group) => {
+      lines.push(`a=ssrc-group:${group}`);
+    });
+    this.ssrc.forEach((ssrcInfo) => {
+      SSRC_INFO_ATTRS.forEach((ssrcAttr) => {
+        const ssrcValue = ssrcInfo[ssrcAttr];
+        if (ssrcValue !== undefined) {
+          lines.push(`a=ssrc:${ssrcInfo.ssrc} ${ssrcAttr}:${ssrcValue}`);
+        }
+      });
+    });
+
+    this.rtp.codecs.forEach((codec) => {
+      lines.push(`a=rtpmap:${codec.payloadType} ${codec.str}`);
+
+      // todo
+      // codec.rtcpFeedback.forEach
+    });
+
     Object.keys(this.sctpMap).forEach((k) => {
       const v = this.sctpMap[Number(k)];
       lines.push(`a=sctpmap:${k} ${v}`);
@@ -449,8 +474,8 @@ function groupLines(sdp: string): [string[], string[][]] {
 
 function parseAttr(line: string): [string, string | undefined] {
   if (line.includes(":")) {
-    const bits = line.slice(2).split(":");
-    return [bits[0], bits.slice(1).join(":")];
+    const bits = divide(line.slice(2), ":");
+    return [bits[0], bits[1]];
   } else {
     return [line.slice(2), undefined];
   }
@@ -523,7 +548,7 @@ function parametersFromSdp(sdp: string): number[] {
   const parameters = {};
   sdp.split(";").forEach((param) => {
     if (param.includes("=")) {
-      const [k, v] = param.split("=", 1);
+      const [k, v] = divide(param, "=");
       if (FMTP_INT_PARAMETERS.includes(k)) {
         parameters[k] = Number(v);
       } else {
