@@ -35,7 +35,7 @@ export class RTCSctpTransport {
     const bridge = new Bridge(dtlsTransport);
     this.sctp = new SCTP(bridge, port);
 
-    this.sctp.onRecieve = (streamId, ppId, data) => {
+    this.sctp.onReceive = (streamId, ppId, data) => {
       this.datachannelReceive(streamId, ppId, data);
     };
     this.sctp.onDeleteStreams = (ids: number[]) => {

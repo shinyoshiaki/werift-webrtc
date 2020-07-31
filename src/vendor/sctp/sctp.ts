@@ -620,9 +620,9 @@ export class SCTP {
     );
   }
 
-  onRecieve?: (streamId: number, ppId: number, data: Buffer) => void;
+  onReceive?: (streamId: number, ppId: number, data: Buffer) => void;
   private receive(streamId: number, ppId: number, data: Buffer) {
-    if (this.onRecieve) this.onRecieve(streamId, ppId, data);
+    if (this.onReceive) this.onReceive(streamId, ppId, data);
   }
 
   private getInboundStream(streamId: number) {
