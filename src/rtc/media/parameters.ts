@@ -3,6 +3,24 @@ export class RTCRtpParameters {
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   muxId = "";
   rtcp: RTCRtcpParameters;
+
+  constructor(props: Partial<RTCRtpParameters> = {}) {
+    Object.assign(this, props);
+  }
+}
+
+export class RTCRtpCodecCapability {
+  mimeType: string;
+  clockRate: number;
+  channels?: number;
+  parameters = {};
+  constructor(parameters: Partial<RTCRtpCodecCapability> = {}) {
+    Object.assign(this, parameters);
+  }
+
+  get name() {
+    return this.mimeType.split("/")[1];
+  }
 }
 
 export class RTCRtpCodecParameters {
@@ -10,11 +28,21 @@ export class RTCRtpCodecParameters {
   clockRate: number;
   channels?: number;
   payloadType?: number;
-  rtcpFeedback: RTCRtcpFeedback[] = [];
-  parameters: number[] = [];
+  rtcpFeedback = [];
+  parameters = {};
 
   constructor(props: Partial<RTCRtpCodecParameters> = {}) {
     Object.assign(this, props);
+  }
+
+  get name() {
+    return this.mimeType.split("/")[1];
+  }
+
+  get str() {
+    let s = `${this.name}/${this.clockRate}`;
+    if (this.channels === 2) s += "/2";
+    return s;
   }
 }
 
@@ -31,6 +59,10 @@ export class RTCRtcpParameters {
   cname?: string;
   mux: boolean = false;
   ssrc?: number;
+
+  constructor(props: Partial<RTCRtcpParameters> = {}) {
+    Object.assign(this, props);
+  }
 }
 
 export class RTCRtcpFeedback {

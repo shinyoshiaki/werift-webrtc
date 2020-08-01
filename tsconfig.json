@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "es6",
     "module": "commonjs",
-    "lib": ["esnext"],
+    "lib": ["esnext","ES2020"],
     "declaration": true,
     "outDir": "lib",
     "strict": true,

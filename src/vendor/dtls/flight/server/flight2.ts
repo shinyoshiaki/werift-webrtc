@@ -13,6 +13,7 @@ import { CipherSuite, NamedCurveAlgorithm } from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
+import { Flight4 } from "./flight4";
 
 export const flight2 = (
   udp: TransportContext,
@@ -35,8 +36,10 @@ export const flight2 = (
         break;
       case UseSRTP.type:
         {
-          const useSrtp = UseSRTP.fromData(extension.data);
           if (!dtls.options?.srtpProfiles) return;
+          if (dtls.options.srtpProfiles.length === 0) return;
+
+          const useSrtp = UseSRTP.fromData(extension.data);
           const profile = SrtpContext.findMatchingSRTPProfile(
             useSrtp.profiles,
             dtls.options?.srtpProfiles
@@ -53,6 +56,11 @@ export const flight2 = (
   cipher.remoteRandom = DtlsRandom.from(clientHello.random);
   cipher.cipherSuite = CipherSuite.EcdheRsaWithAes128GcmSha256;
   cipher.localKeyPair = generateKeyPair(cipher.namedCurve!);
+
+  // if (dtls.options.srtpProfiles) {
+  //   new Flight4(udp, dtls, cipher, srtp).exec(dtls.options.certificateRequest);
+  //   return;
+  // }
 
   dtls.cookie = randomBytes(20);
   const helloVerifyReq = new ServerHelloVerifyRequest(

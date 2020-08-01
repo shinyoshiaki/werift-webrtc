@@ -35,7 +35,7 @@ export class DtlsServer extends DtlsSocket {
         }
         break;
       case ContentType.alert:
-        this.onClose();
+        // this.onClose();
         break;
     }
   };
@@ -46,13 +46,15 @@ export class DtlsServer extends DtlsSocket {
         {
           const assemble = FragmentedHandshake.assemble(handshakes);
           const clientHello = ClientHello.deSerialize(assemble.fragment);
-          if (this.dtls.flight === 1) {
-            flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
-          } else {
+
+          if (this.dtls.cookie && this.dtls.cookie.equals(clientHello.cookie)) {
             this.dtls.bufferHandshakeCache([assemble], false, 4);
+
             new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
               this.options.certificateRequest
             );
+          } else {
+            flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
           }
         }
         break;

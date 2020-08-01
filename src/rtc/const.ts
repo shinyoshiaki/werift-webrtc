@@ -45,3 +45,7 @@ export const FMTP_INT_PARAMETERS = [
 ];
 
 export const SSRC_INFO_ATTRS = ["cname", "msid", "mslabel", "label"];
+
+export enum SRTP_PROFILE {
+  SRTP_AES128_CM_HMAC_SHA1_80 = 1,
+}

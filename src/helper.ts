@@ -16,3 +16,8 @@ export function createEventsFromList(list: any) {
     return acc;
   }, {} as any);
 }
+
+export function divide(from: string, split: string): [string, string] {
+  const arr = from.split(split);
+  return [arr[0], arr.slice(1).join(split)];
+}
