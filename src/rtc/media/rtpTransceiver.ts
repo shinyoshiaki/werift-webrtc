@@ -6,6 +6,7 @@ import {
   RTCRtpHeaderExtensionParameters,
 } from "./parameters";
 import * as uuid from "uuid";
+import { Kind } from "../../typings/domain";
 
 export type Direction = "sendonly" | "sendrecv" | "recvonly";
 
@@ -21,7 +22,7 @@ export class RTCRtpTransceiver {
   offerDirection?: Direction;
 
   constructor(
-    public kind: string,
+    public kind: Kind,
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     public direction: Direction

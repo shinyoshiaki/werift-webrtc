@@ -15,7 +15,7 @@ const RTT_ALPHA = 0.85;
 export class RTCRtpSender {
   ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   streamId = uuid.v4();
-  srtpTransport: RTCSrtpTransport;
+  trackId = uuid.v4();
 
   // # stats
   private lsr?: bigint;
@@ -29,10 +29,8 @@ export class RTCRtpSender {
   constructor(
     public kind: string,
     public track: unknown,
-    public dtlsTransport: RTCDtlsTransport
-  ) {
-    this.srtpTransport = new RTCSrtpTransport(dtlsTransport);
-  }
+    public srtpTransport: RTCSrtpTransport
+  ) {}
 
   haltRtcp = true;
   async runRtcp() {

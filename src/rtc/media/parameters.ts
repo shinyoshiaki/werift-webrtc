@@ -3,6 +3,10 @@ export class RTCRtpParameters {
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   muxId = "";
   rtcp: RTCRtcpParameters;
+
+  constructor(props: Partial<RTCRtpParameters> = {}) {
+    Object.assign(this, props);
+  }
 }
 
 export class RTCRtpCodecCapability {
@@ -55,6 +59,10 @@ export class RTCRtcpParameters {
   cname?: string;
   mux: boolean = false;
   ssrc?: number;
+
+  constructor(props: Partial<RTCRtcpParameters> = {}) {
+    Object.assign(this, props);
+  }
 }
 
 export class RTCRtcpFeedback {

@@ -60,7 +60,7 @@ export class Flight4 {
     const extensions = [];
     if (this.srtp.srtpProfile) {
       extensions.push(
-        UseSRTP.create([this.srtp.srtpProfile], Buffer.from([])).extension
+        UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension
       );
     }
 

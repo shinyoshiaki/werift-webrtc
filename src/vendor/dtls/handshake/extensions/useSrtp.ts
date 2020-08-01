@@ -55,15 +55,16 @@ export class UseSRTP {
   }
 
   static fromData(buf: Buffer) {
-    const type = Buffer.alloc(2);
-    type.writeUInt16BE(UseSRTP.type);
-    return UseSRTP.deSerialize(Buffer.concat([type, buf]));
+    const head = Buffer.alloc(4);
+    head.writeUInt16BE(UseSRTP.type);
+    head.writeUInt16BE(buf.length, 2);
+    return UseSRTP.deSerialize(Buffer.concat([head, buf]));
   }
 
   get extension(): Extension {
     return {
       type: this.type,
-      data: this.serialize().slice(2),
+      data: this.serialize().slice(4),
     };
   }
 }

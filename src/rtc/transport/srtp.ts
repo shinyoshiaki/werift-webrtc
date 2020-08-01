@@ -3,17 +3,34 @@ import Event from "rx.mini";
 import { RtpHeader, RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { SrtcpSession } from "../../vendor/rtp/srtp/srtcp";
 import { RtcpPacket, RtcpPacketConverter } from "../../vendor/rtp/rtcp/rtcp";
-import { RTCDtlsTransport } from "./dtls";
+import { RTCDtlsTransport, DtlsState } from "./dtls";
+import { RTCRtpReceiver } from "../media/rtpReceiver";
+import { RTCIceTransport } from "./ice";
 
 export class RTCSrtpTransport {
   srtp: SrtpSession;
   onSrtp = new Event<RtpPacket>();
   srtcp: SrtcpSession;
   onSrtcp = new Event<RtcpPacket[]>();
-  iceTransport = this.dtlsTransport.iceTransport;
+  iceTransport: RTCIceTransport;
+  rtpRouter = new RtpRouter();
 
   constructor(public dtlsTransport: RTCDtlsTransport) {
-    const dtls = dtlsTransport.dtls;
+    if (dtlsTransport.state === DtlsState.CONNECTED) {
+      this.start();
+      return;
+    }
+    const { unSubscribe } = dtlsTransport.stateChanged.subscribe((state) => {
+      if (state === DtlsState.CONNECTED) {
+        this.start();
+        unSubscribe();
+      }
+    });
+  }
+
+  private start() {
+    this.iceTransport = this.dtlsTransport.iceTransport;
+    const dtls = this.dtlsTransport.dtls;
     const {
       localKey,
       localSalt,
@@ -66,4 +83,22 @@ function isRtcp(buf: Buffer) {
   return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
 }
 
-class RtpRouter {}
+class RtpRouter {
+  receivers: { [key: string]: RTCRtpReceiver } = {};
+  ssrcTable: { [key: number]: RTCRtpReceiver } = {};
+
+  registerReceiver(receiver: RTCRtpReceiver, ssrcs: number[]) {
+    this.receivers[receiver.uuid] = receiver;
+    ssrcs.forEach((ssrc) => {
+      this.ssrcTable[ssrc] = receiver;
+    });
+  }
+
+  routeRtp(packet: RtpPacket) {
+    const ssrcReceiver = this.ssrcTable[packet.header.ssrc];
+
+    // todo impl
+
+    return ssrcReceiver;
+  }
+}

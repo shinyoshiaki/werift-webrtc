@@ -3,6 +3,7 @@ import { HandshakeType } from "../../const";
 import { ExtensionList } from "../../binary";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import { DtlsRandom } from "../../random";
+import { Extension } from "../../../typings/domain";
 
 // 7.4.1.2.  Client Hello
 
@@ -26,7 +27,7 @@ export class ClientHello {
     public cookie: Buffer,
     public cipherSuites: number[],
     public compressionMethods: number[],
-    public extensions: { type: number; data: Buffer }[]
+    public extensions: Extension[]
   ) {}
 
   static createEmpty() {
@@ -46,11 +47,6 @@ export class ClientHello {
       //@ts-ignore
       ...Object.values(decode(buf, ClientHello.spec))
     );
-  }
-
-  static from(spec: typeof ClientHello.spec) {
-    //@ts-ignore
-    return new ClientHello(...Object.values(spec));
   }
 
   serialize() {

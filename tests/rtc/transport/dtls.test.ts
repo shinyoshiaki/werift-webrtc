@@ -5,6 +5,18 @@ import {
 import { RTCIceGatherer, RTCIceTransport } from "../../../src";
 import { sleep } from "../../../src/helper";
 
+describe("RTCDtlsTransportTest", () => {
+  test("dtls_test_data", async () => {
+    const [session1, session2] = await dtlsTransportPair();
+    const receiver2 = new DummyDataReceiver();
+    session2.dataReceiver = receiver2.handleData;
+
+    session1.sendData(Buffer.from("ping"));
+    await sleep(100);
+    expect(receiver2.data).toEqual([Buffer.from("ping")]);
+  });
+});
+
 export async function dtlsTransportPair() {
   const [transport1, transport2] = await iceTransportPair();
   await sleep(100);
@@ -28,18 +40,6 @@ export async function dtlsTransportPair() {
     return [session2, session1];
   }
 }
-
-describe("RTCDtlsTransportTest", () => {
-  test("dtls_test_data", async () => {
-    const [session1, session2] = await dtlsTransportPair();
-    const receiver2 = new DummyDataReceiver();
-    session2.dataReceiver = receiver2.handleData;
-
-    session1.sendData(Buffer.from("ping"));
-    await sleep(100);
-    expect(receiver2.data).toEqual([Buffer.from("ping")]);
-  });
-});
 
 class DummyDataReceiver {
   data: Buffer[] = [];

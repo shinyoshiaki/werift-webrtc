@@ -64,7 +64,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/rainy-demo/server/src/rainy.ts"
+        "${workspaceRoot}/examples/mediachannel/offer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
