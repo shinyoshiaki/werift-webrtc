@@ -16,7 +16,6 @@ export class ServerHello implements Handshake {
     sessionId: types.buffer(types.uint8),
     cipherSuite: types.uint16be,
     compressionMethod: types.uint8,
-    extensions: ExtensionList,
   };
 
   constructor(
@@ -40,14 +39,31 @@ export class ServerHello implements Handshake {
   }
 
   static deSerialize(buf: Buffer) {
-    return new ServerHello(
+    const res = decode(buf, ServerHello.spec);
+    const cls = new ServerHello(
       //@ts-ignore
-      ...Object.values(decode(buf, ServerHello.spec))
+      ...Object.values(res)
     );
+    const expect = cls.serialize();
+    if (expect.length < buf.length) {
+      return new ServerHello(
+        //@ts-ignore
+        ...Object.values(
+          decode(buf, { ...ServerHello.spec, extensions: ExtensionList })
+        )
+      );
+    }
+    return cls;
   }
 
   serialize() {
-    const res = encode(this, ServerHello.spec).slice();
+    const res =
+      this.extensions === undefined
+        ? encode(this, ServerHello.spec).slice()
+        : encode(this, {
+            ...ServerHello.spec,
+            extensions: ExtensionList,
+          }).slice();
     return Buffer.from(res);
   }
 

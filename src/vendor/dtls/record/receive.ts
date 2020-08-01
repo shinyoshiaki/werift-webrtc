@@ -50,7 +50,7 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
       case ContentType.alert: {
         const alert = Alert.deSerialize(p.fragment);
         console.log("ContentType.alert", alert);
-        // if (alert.level > 1) throw new Error("alert fatal error");
+        if (alert.level > 1) throw new Error("alert fatal error");
       }
       default: {
         return { type: ContentType.alert, data: undefined };

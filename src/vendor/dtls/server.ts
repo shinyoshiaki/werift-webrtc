@@ -35,7 +35,7 @@ export class DtlsServer extends DtlsSocket {
         }
         break;
       case ContentType.alert:
-        // this.onClose();
+        this.onClose();
         break;
     }
   };
