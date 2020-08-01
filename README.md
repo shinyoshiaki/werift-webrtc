@@ -1,6 +1,9 @@
-# rainy-webrtc
+# werift 
 
-WebRTC Implementation for TypeScript (Node.js)
+werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
+
+werift is a WebRTC Implementation for TypeScript (Node.js)
+
 
 | feature      | progress  |
 | ------------ | --------- |
@@ -8,10 +11,10 @@ WebRTC Implementation for TypeScript (Node.js)
 | MediaChannel | todo       |
 
 # install 
-```npm install rainy-webrtc``` 
+```npm install werift``` 
 
 # examples 
-https://github.com/shinyoshiaki/rainy-webrtc/tree/master/examples 
+https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples 
 
 # demo
 run
@@ -19,7 +22,7 @@ run
 yarn ts-node --files examples/datachannel/offer.ts
 ```
 open
-https://shinyoshiaki.github.io/rainy-webrtc/examples/datachannel/answer
+https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
 
 see console & chrome://webrtc-internals/
 
