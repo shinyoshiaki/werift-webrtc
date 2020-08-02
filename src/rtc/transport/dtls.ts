@@ -1,9 +1,15 @@
 import { Certificate, PrivateKey } from "@fidm/x509";
 import Event from "rx.mini";
 import { RTCIceTransport } from "./ice";
-import { DtlsServer, DtlsClient, DtlsSocket } from "../../vendor/dtls";
-import { fingerprint, createIceTransport } from "../../utils";
+import {
+  DtlsServer,
+  DtlsClient,
+  DtlsSocket,
+  Transport,
+} from "../../vendor/dtls";
+import { fingerprint } from "../../utils";
 import { sleep } from "../../helper";
+import { Connection } from "../../vendor/ice";
 
 export enum DtlsState {
   NEW = 0,
@@ -185,3 +191,29 @@ export class RTCDtlsParameters {
     public role: "auto" | "client" | "server" | undefined = "auto"
   ) {}
 }
+
+export class IceTransport implements Transport {
+  constructor(private ice: Connection) {
+    ice.onData.subscribe((buf) => {
+      if (isDtls(buf)) {
+        if (this.onData) this.onData(buf);
+      }
+    });
+  }
+  onData?: (buf: Buffer) => void;
+
+  send(buf: Buffer) {
+    this.ice.send(buf);
+  }
+
+  close() {
+    this.ice.close();
+  }
+}
+
+function isDtls(buf: Buffer) {
+  const firstByte = buf[0];
+  return firstByte > 19 && firstByte < 64;
+}
+
+export const createIceTransport = (ice: Connection) => new IceTransport(ice);
