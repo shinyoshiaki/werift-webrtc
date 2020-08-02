@@ -114,6 +114,10 @@ export class RTCPeerConnection {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
+  private getTransceiverByMid(mid: string) {
+    return this.transceivers.find((transceiver) => transceiver.mid === mid);
+  }
+
   createOffer() {
     if (!this.sctpTransport && this.transceivers.length === 0)
       throw new Error(
@@ -353,7 +357,7 @@ export class RTCPeerConnection {
 
   private async connect() {
     for (const transceiver of this.transceivers) {
-      const dtlsTransport = transceiver.transport;
+      const dtlsTransport = transceiver.dtlsTransport;
       const iceTransport = dtlsTransport.iceTransport;
       const iceParam = this.remoteIce[transceiver.uuid];
       if (iceTransport.iceGather.getLocalCandidates() && iceParam) {
@@ -514,7 +518,7 @@ export class RTCPeerConnection {
           );
         }
 
-        dtlsTransport = transceiver.transport;
+        dtlsTransport = transceiver.dtlsTransport;
         this.remoteDtls[transceiver.uuid] = media.dtls;
         this.remoteIce[transceiver.uuid] = media.ice;
       } else if (media.kind === "application") {
@@ -590,7 +594,7 @@ export class RTCPeerConnection {
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
     transceiver.sender.streamId = this.streamId;
     transceiver.bundled = false;
-    transceiver.transport = dtlsTransport;
+    transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
     return transceiver;
   }
@@ -611,7 +615,16 @@ export class RTCPeerConnection {
       let dtlsTransport: RTCDtlsTransport;
       let media: MediaDescription;
 
-      if (remoteM.kind === "application") {
+      if (["audio", "video"].includes(remoteM.kind)) {
+        const transceiver = this.getTransceiverByMid(remoteM.rtp.muxId);
+        media = createMediaDescriptionForTransceiver(
+          transceiver,
+          this.cname,
+          transceiver.direction,
+          transceiver.mid
+        );
+        dtlsTransport = transceiver.dtlsTransport;
+      } else if (remoteM.kind === "application") {
         if (!this.sctpTransport || !this.sctpTransport.mid) throw new Error();
         media = createMediaDescriptionForSctp(
           this.sctpTransport,
@@ -687,7 +700,7 @@ function createMediaDescriptionForTransceiver(
   media.rtcpPort = 9;
   media.rtcpMux = true;
   media.ssrc = [new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname })];
-  addTransportDescription(media, transceiver.transport);
+  addTransportDescription(media, transceiver.dtlsTransport);
   return media;
 }
 

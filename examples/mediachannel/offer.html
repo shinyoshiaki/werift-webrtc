@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>Answer</title>
+    <title>Offer</title>
     <script
       crossorigin
       src="https://unpkg.com/react@16/umd/react.development.js"
@@ -23,23 +23,20 @@
     </div>
     <script type="text/babel">
       let rtc;
-
       const App = () => {
         const [log, setLog] = React.useState([]);
 
         React.useEffect(() => {
           (async () => {
             const socket = new WebSocket("ws://localhost:8888");
-            await new Promise((r) => (socket.onopen = r));
-            console.log("open websocket");
+            await new Promise((r) => socket.addEventListener("open", r));
+
             const peer = (rtc = new RTCPeerConnection({
               iceServers: [],
             }));
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
-                const sdp = JSON.stringify(peer.localDescription);
-                console.log(sdp);
-                socket.send(sdp);
+                socket.send(JSON.stringify(peer.localDescription));
               }
             };
             peer.oniceconnectionstatechange = () => {
@@ -57,19 +54,22 @@
               .forEach((track) => peer.addTrack(track, localStream));
             console.log(localStream);
 
-            socket.onmessage = async (ev) => {
-              const offer = JSON.parse(ev.data);
-              console.log(offer.sdp);
-              await peer.setRemoteDescription(offer);
-              const answer = await peer.createAnswer();
-              await peer.setLocalDescription(answer);
-            };
+            await new Promise((r) => (peer.onnegotiationneeded = r));
+
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+
+            socket.addEventListener("message", async (ev) => {
+              const answer = JSON.parse(ev.data);
+              console.log(answer.sdp);
+              await peer.setRemoteDescription(answer);
+            });
           })();
         }, []);
 
         return (
           <div>
-            answer
+            offer
             <div>
               {log.slice(-10).map((v, i) => (
                 <div key={i}>{v}</div>
