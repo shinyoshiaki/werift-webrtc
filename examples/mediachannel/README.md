@@ -1,1 +1,1 @@
-ffplay -i rtp-forwarder.sdp -protocol_whitelist file,udp,rtp
+gst-launch-1.0 -v udpsrc port=4002 caps = "application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)VP8, payload=(int)97" ! rtpvp8depay ! decodebin ! videoconvert ! autovideosink

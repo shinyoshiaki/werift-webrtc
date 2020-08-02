@@ -49,7 +49,7 @@
               );
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
-              video: true,
+              video: { frameRate: 25 },
               audio: false,
             });
             localStream
