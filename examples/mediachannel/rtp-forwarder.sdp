@@ -1,0 +1,7 @@
+v=0
+o=- 0 0 IN IP4 127.0.0.1
+s=Pion WebRTC
+c=IN IP4 127.0.0.1
+t=0 0
+m=video 4002 RTP/AVP 97
+a=rtpmap:97 VP8/90000

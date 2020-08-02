@@ -4,10 +4,12 @@ import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { v4 as uuid } from "uuid";
 import { RTCSrtpTransport } from "../transport/srtp";
+import Event from "rx.mini";
 
 export class RTCRtpReceiver {
   uuid = uuid();
   track?: RemoteStreamTrack;
+  onRtp = new Event<RtpPacket>();
 
   // # RTCP
   lsr: { [key: number]: BigInt } = {};
@@ -17,6 +19,9 @@ export class RTCRtpReceiver {
   constructor(public kind: string, public srtpTransport: RTCSrtpTransport) {
     srtpTransport.onSrtp.subscribe((rtp) => {
       this.handleRtpPacket(rtp);
+    });
+    srtpTransport.onSrtcp.subscribe((rtcpArr) => {
+      rtcpArr.forEach((rtcp) => this.handleRtcpPacket(rtcp));
     });
   }
 
@@ -40,6 +45,7 @@ export class RTCRtpReceiver {
   handleRtpPacket(packet: RtpPacket) {
     const codec = packet.header.payloadType;
     // 97 is vp8
-    console.log("handleRtpPacket", codec, packet.payload);
+
+    this.onRtp.execute(packet);
   }
 }
