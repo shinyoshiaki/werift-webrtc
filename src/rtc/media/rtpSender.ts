@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { jspack } from "jspack";
 import * as uuid from "uuid";
-import { RTCSrtpTransport } from "../transport/srtp";
 import { RtpHeader, RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { RtcpPacketConverter, RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtcpSrPacket, RtcpSenderInfo } from "../../vendor/rtp/rtcp/sr";
@@ -29,7 +28,7 @@ export class RTCRtpSender {
   constructor(
     public kind: string,
     public track: unknown,
-    public srtpTransport: RTCSrtpTransport
+    public dtlsTransport: RTCDtlsTransport
   ) {}
 
   haltRtcp = true;
@@ -53,7 +52,7 @@ export class RTCRtpSender {
       this.lsr = (this.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
       this.lsrTime = Date.now() / 1000;
 
-      this.srtpTransport.sendRtcp(packets);
+      this.dtlsTransport.sendRtcp(packets);
     }
   }
 
@@ -66,7 +65,7 @@ export class RTCRtpSender {
     this.octetCount += rtp.payload.length;
     this.packetCount++;
 
-    this.srtpTransport.sendRtp(rawRtp, rtp.header);
+    this.dtlsTransport.sendRtp(rawRtp, rtp.header);
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {

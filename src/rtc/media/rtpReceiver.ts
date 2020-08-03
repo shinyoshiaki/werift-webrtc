@@ -3,8 +3,8 @@ import { RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { v4 as uuid } from "uuid";
-import { RTCSrtpTransport } from "../transport/srtp";
 import Event from "rx.mini";
+import { RTCDtlsTransport } from "../transport/dtls";
 
 export class RTCRtpReceiver {
   uuid = uuid();
@@ -16,9 +16,9 @@ export class RTCRtpReceiver {
   lsrTime: { [key: number]: number } = {};
   private rtcpSsrc?: number;
 
-  constructor(public kind: string, public srtpTransport: RTCSrtpTransport) {
-    srtpTransport.onSrtp.subscribe(this.handleRtpPacket);
-    srtpTransport.onSrtcp.subscribe(this.handleRtcpPackets);
+  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
+    dtlsTransport.onSrtp.subscribe(this.handleRtpPacket);
+    dtlsTransport.onSrtcp.subscribe(this.handleRtcpPackets);
   }
 
   receive() {}

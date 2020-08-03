@@ -148,7 +148,7 @@ const defaultOptions: Options = {
   log: false,
 };
 
-type IceState = "disconnected" | "closed";
+type IceState = "disconnected" | "closed" | "completed";
 
 export class Connection {
   remotePassword: string = "";
@@ -897,6 +897,8 @@ export class Connection {
 
     // # start consent freshness tests
     this.queryConsentHandle = future(this.queryConsent());
+
+    this.stateChanged.execute("completed");
   }
 
   async send(data: Buffer) {

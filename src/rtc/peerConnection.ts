@@ -32,7 +32,6 @@ import { CODECS } from "./media/const";
 import { RTCRtpParameters, RTCRtpCodecParameters } from "./media/parameters";
 import { RemoteStreamTrack } from "./media/mediastream";
 import { RTCTrackEvent } from "./media/events";
-import { RTCSrtpTransport } from "./transport/srtp";
 import { Kind } from "../typings/domain";
 
 type Configuration = {
@@ -585,11 +584,11 @@ export class RTCPeerConnection {
     const dtlsTransport = this.createDtlsTransport([
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
-    const srtpTransport = new RTCSrtpTransport(dtlsTransport);
+
     const transceiver = new RTCRtpTransceiver(
       kind,
-      new RTCRtpReceiver(kind, srtpTransport),
-      new RTCRtpSender(kind, senderTrack, srtpTransport),
+      new RTCRtpReceiver(kind, dtlsTransport),
+      new RTCRtpSender(kind, senderTrack, dtlsTransport),
       direction
     );
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
