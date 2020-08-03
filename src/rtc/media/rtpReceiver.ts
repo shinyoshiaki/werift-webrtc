@@ -17,12 +17,8 @@ export class RTCRtpReceiver {
   private rtcpSsrc?: number;
 
   constructor(public kind: string, public srtpTransport: RTCSrtpTransport) {
-    srtpTransport.onSrtp.subscribe((rtp) => {
-      this.handleRtpPacket(rtp);
-    });
-    srtpTransport.onSrtcp.subscribe((rtcpArr) => {
-      rtcpArr.forEach((rtcp) => this.handleRtcpPacket(rtcp));
-    });
+    srtpTransport.onSrtp.subscribe(this.handleRtpPacket);
+    srtpTransport.onSrtcp.subscribe(this.handleRtcpPackets);
   }
 
   receive() {}
@@ -31,21 +27,20 @@ export class RTCRtpReceiver {
     this.rtcpSsrc = ssrc;
   }
 
-  handleRtcpPacket(packet: RtcpPacket) {
-    switch (packet.type) {
-      case RtcpSrPacket.type:
-        const sr = packet as RtcpSrPacket;
-        this.lsr[sr.ssrc] =
-          (sr.senderInfo.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
-        this.lsrTime[packet.ssrc] = Date.now() / 1000;
-        break;
-    }
-  }
+  handleRtcpPackets = (packets: RtcpPacket[]) => {
+    packets.forEach((packet) => {
+      switch (packet.type) {
+        case RtcpSrPacket.type:
+          const sr = packet as RtcpSrPacket;
+          this.lsr[sr.ssrc] =
+            (sr.senderInfo.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
+          this.lsrTime[packet.ssrc] = Date.now() / 1000;
+          break;
+      }
+    });
+  };
 
-  handleRtpPacket(packet: RtpPacket) {
-    const codec = packet.header.payloadType;
-    // 97 is vp8
-
+  handleRtpPacket = (packet: RtpPacket) => {
     this.onRtp.execute(packet);
-  }
+  };
 }

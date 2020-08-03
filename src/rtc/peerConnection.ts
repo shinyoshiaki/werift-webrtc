@@ -481,7 +481,8 @@ export class RTCPeerConnection {
             (t) =>
               t.kind === media.kind &&
               [undefined, media.rtp.muxId].includes(t.mid)
-          ) || this.addTransceiver(media.kind, "recvonly");
+          ) || this.addTransceiver(media.kind, "recvonly"); // 自動的にrecieverを足す
+
         if (!transceiver.mid) {
           transceiver.mid = media.rtp.muxId;
           transceiver.mLineIndex = i;
@@ -749,15 +750,13 @@ function addTransportDescription(
 }
 
 function allocateMid(mids: Set<string>) {
-  let i = 0;
+  let mid = "";
   while (true) {
-    const mid = i.toString();
-    if (![...mids].includes(mid)) {
-      mids.add(mid);
-      return mid;
-    }
-    i++;
+    mid = Math.random().toString().slice(2);
+    if (!mids.has(mid)) break;
   }
+  mids.add(mid);
+  return mid;
 }
 
 function wrapSessionDescription(sessionDescription?: SessionDescription) {
