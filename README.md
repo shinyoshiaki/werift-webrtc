@@ -8,7 +8,7 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 | feature      | progress  |
 | ------------ | --------- |
 | DataChannel  | supported |
-| MediaChannel | todo       |
+| MediaChannel | WIP       |
 
 # install 
 ```npm install werift``` 
@@ -28,10 +28,10 @@ see console & chrome://webrtc-internals/
 
 # components
 
-- ICE  https://github.com/shinyoshiaki/rainy-ice
-- DTLS https://github.com/shinyoshiaki/rainy-dtls
-- SCTP https://github.com/shinyoshiaki/rainy-sctp
-
+- ICE  https://github.com/shinyoshiaki/werift-ice
+- DTLS https://github.com/shinyoshiaki/werift-dtls
+- SCTP https://github.com/shinyoshiaki/werift-sctp
+- RTP,RTCP,SRTP,SRTCP https://github.com/shinyoshiaki/werift-rtp
 
 # reference
 
