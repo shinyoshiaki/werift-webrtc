@@ -17,7 +17,6 @@ server.on("connection", async (socket) => {
   transceiver.receiver.onRtp.subscribe((packet) => {
     udp.send(packet.serialize(), 4002, "127.0.0.1");
   });
-  // pc.addTransceiver("video", "recvonly");
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);

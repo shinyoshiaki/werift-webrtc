@@ -57,18 +57,18 @@
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: true,
-              audio: false,
+              audio: true,
             });
             localStream
-              .getVideoTracks()
+              .getTracks()
               .forEach((track) => peer.addTrack(track, localStream));
-            const localStream2 = await navigator.mediaDevices.getUserMedia({
-              video: { frameRate: 5, width: 120 },
-              audio: false,
-            });
-            localStream2
-              .getVideoTracks()
-              .forEach((track) => peer.addTrack(track, localStream2));
+            // const localStream2 = await navigator.mediaDevices.getUserMedia({
+            //   video: { frameRate: 5, width: 120 },
+            //   audio: false,
+            // });
+            // localStream2
+            //   .getVideoTracks()
+            //   .forEach((track) => peer.addTrack(track, localStream2));
 
             await peer.setRemoteDescription(offer);
             const answer = await peer.createAnswer();

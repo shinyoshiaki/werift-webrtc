@@ -16,7 +16,7 @@ server.on("connection", async (socket) => {
   pc.addTransceiver("video", "recvonly").receiver.onRtp.subscribe((packet) => {
     udp.send(packet.serialize(), 4002, "127.0.0.1");
   });
-  pc.addTransceiver("video", "recvonly").receiver.onRtp.subscribe((packet) => {
+  pc.addTransceiver("audio", "recvonly").receiver.onRtp.subscribe((packet) => {
     udp.send(packet.serialize(), 4003, "127.0.0.1");
   });
 
