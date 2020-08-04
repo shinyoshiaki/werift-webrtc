@@ -51,7 +51,7 @@
               audio: false,
             });
             const localStream2 = await navigator.mediaDevices.getUserMedia({
-              video: { frameRate: 20 },
+              video: { width: 100 },
             });
             localStream
               .getVideoTracks()

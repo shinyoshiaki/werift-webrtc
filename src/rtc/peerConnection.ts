@@ -58,6 +58,7 @@ export class RTCPeerConnection {
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
+  onTrack = new Event<RTCRtpTransceiver>();
   router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
@@ -622,6 +623,7 @@ export class RTCPeerConnection {
     transceiver.bundled = false;
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
+    this.onTrack.execute(transceiver);
 
     return transceiver;
   }

@@ -17,9 +17,12 @@ server.on("connection", (socket) => {
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );
-    const transceiver = pc.addTransceiver("video", "recvonly");
-    transceiver.receiver.onRtp.subscribe((packet) => {
-      udp.send(packet.serialize(), 4002, "127.0.0.1");
+    let initialPort = 4002;
+    pc.onTrack.subscribe((transceiver) => {
+      const port = initialPort++;
+      transceiver.receiver.onRtp.subscribe((packet) => {
+        udp.send(packet.serialize(), port, "127.0.0.1");
+      });
     });
 
     await pc.setRemoteDescription(offer);
