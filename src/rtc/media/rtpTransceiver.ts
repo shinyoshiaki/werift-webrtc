@@ -15,7 +15,7 @@ export class RTCRtpTransceiver {
   bundled = false;
   mid?: string;
   mLineIndex?: number;
-  transport?: RTCDtlsTransport;
+  dtlsTransport?: RTCDtlsTransport;
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   currentDirection?: Direction;

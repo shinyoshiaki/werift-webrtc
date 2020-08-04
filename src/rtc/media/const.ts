@@ -14,12 +14,6 @@ export const CODECS = {
       mimeType: "video/VP8",
       clockRate: 90000,
       payloadType: 97,
-      rtcpFeedback: [
-        new RTCRtcpFeedback({ type: "nack" }),
-        new RTCRtcpFeedback({ type: "nack", parameter: "pli" }),
-        new RTCRtcpFeedback({ type: "goog-remb" }),
-      ],
-      parameters: {},
     }),
   ],
 };

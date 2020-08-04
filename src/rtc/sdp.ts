@@ -289,7 +289,8 @@ export class SessionDescription {
     this.msidSemantic.forEach((group) =>
       lines.push(`a=msid-semantic:${group.str()}`)
     );
-    const sdp = lines.join("\r\n") + "\r\n" + this.media.map((m) => m);
+    const media = this.media.map((m) => m.toString()).join("");
+    const sdp = lines.join("\r\n") + "\r\n" + media;
     return sdp;
   }
 }

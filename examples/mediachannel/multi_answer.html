@@ -26,6 +26,7 @@
 
       const App = () => {
         const [log, setLog] = React.useState([]);
+        const canvasRef = React.useRef();
 
         React.useEffect(() => {
           (async () => {
@@ -44,7 +45,7 @@
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
                 const sdp = JSON.stringify(peer.localDescription);
-                console.log(sdp);
+                console.log("answer", peer.localDescription.sdp);
                 socket.send(sdp);
               }
             };
@@ -56,12 +57,18 @@
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: true,
-              audio: false,
+              audio: true,
             });
             localStream
-              .getVideoTracks()
+              .getTracks()
               .forEach((track) => peer.addTrack(track, localStream));
-            console.log(localStream);
+            // const localStream2 = await navigator.mediaDevices.getUserMedia({
+            //   video: { frameRate: 5, width: 120 },
+            //   audio: false,
+            // });
+            // localStream2
+            //   .getVideoTracks()
+            //   .forEach((track) => peer.addTrack(track, localStream2));
 
             await peer.setRemoteDescription(offer);
             const answer = await peer.createAnswer();
@@ -77,6 +84,7 @@
                 <div key={i}>{v}</div>
               ))}
             </div>
+            <canvas ref={canvasRef} />
           </div>
         );
       };

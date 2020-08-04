@@ -63,7 +63,7 @@ export class RtpHeader {
     h.marker = getBit(m_pt, 0) > 0;
     h.payloadType = getBit(m_pt, 1, 7);
 
-    h.sequenceNumber = rawPacket.readInt16BE(seqNumOffset);
+    h.sequenceNumber = rawPacket.readUInt16BE(seqNumOffset);
     h.timestamp = rawPacket.readUInt32BE(timestampOffset);
     h.ssrc = rawPacket.readUInt32BE(ssrcOffset);
 
