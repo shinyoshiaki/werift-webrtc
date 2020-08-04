@@ -598,7 +598,7 @@ export class RTCPeerConnection {
       }
       if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
         const params = this.remoteRtp(transceiver);
-        transceiver.receiver.receive(params);
+        this.router.registerRtpReceiver(transceiver.receiver, params);
       }
     });
   }
@@ -614,7 +614,7 @@ export class RTCPeerConnection {
 
     const transceiver = new RTCRtpTransceiver(
       kind,
-      new RTCRtpReceiver(kind, dtlsTransport),
+      new RTCRtpReceiver(kind),
       new RTCRtpSender(kind, senderTrack, dtlsTransport),
       direction
     );
