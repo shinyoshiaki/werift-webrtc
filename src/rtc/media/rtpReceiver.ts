@@ -5,6 +5,7 @@ import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { v4 as uuid } from "uuid";
 import Event from "rx.mini";
 import { RTCDtlsTransport } from "../transport/dtls";
+import { RTCRtpReceiveParameters } from "./parameters";
 
 export class RTCRtpReceiver {
   uuid = uuid();
@@ -16,12 +17,11 @@ export class RTCRtpReceiver {
   lsrTime: { [key: number]: number } = {};
   private rtcpSsrc?: number;
 
-  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
-    dtlsTransport.onSrtp.subscribe(this.handleRtpPacket);
-    dtlsTransport.onSrtcp.subscribe(this.handleRtcpPackets);
-  }
+  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
 
-  receive() {}
+  receive(params: RTCRtpReceiveParameters) {
+    this.dtlsTransport.router.registerRtpReceiver(this, params);
+  }
 
   setRtcpSsrc(ssrc: number) {
     this.rtcpSsrc = ssrc;

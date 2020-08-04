@@ -32,6 +32,12 @@
             const socket = new WebSocket("ws://localhost:8888");
             await new Promise((r) => (socket.onopen = r));
             console.log("open websocket");
+
+            const offer = await new Promise(
+              (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+            );
+            console.log("offer", offer.sdp);
+
             const peer = (rtc = new RTCPeerConnection({
               iceServers: [],
             }));
@@ -57,13 +63,9 @@
               .forEach((track) => peer.addTrack(track, localStream));
             console.log(localStream);
 
-            socket.onmessage = async (ev) => {
-              const offer = JSON.parse(ev.data);
-              console.log(offer.sdp);
-              await peer.setRemoteDescription(offer);
-              const answer = await peer.createAnswer();
-              await peer.setLocalDescription(answer);
-            };
+            await peer.setRemoteDescription(offer);
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
           })();
         }, []);
 

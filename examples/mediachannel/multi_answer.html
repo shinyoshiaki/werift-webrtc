@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>Offer</title>
+    <title>Answer</title>
     <script
       crossorigin
       src="https://unpkg.com/react@16/umd/react.development.js"
@@ -23,21 +23,30 @@
     </div>
     <script type="text/babel">
       let rtc;
+
       const App = () => {
         const [log, setLog] = React.useState([]);
+        const canvasRef = React.useRef();
 
         React.useEffect(() => {
           (async () => {
             const socket = new WebSocket("ws://localhost:8888");
-            await new Promise((r) => socket.addEventListener("open", r));
+            await new Promise((r) => (socket.onopen = r));
+            console.log("open websocket");
+
+            const offer = await new Promise(
+              (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+            );
+            console.log("offer", offer.sdp);
 
             const peer = (rtc = new RTCPeerConnection({
               iceServers: [],
             }));
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
-                console.log("offer", peer.localDescription.sdp);
-                socket.send(JSON.stringify(peer.localDescription));
+                const sdp = JSON.stringify(peer.localDescription);
+                console.log("answer", peer.localDescription.sdp);
+                socket.send(sdp);
               }
             };
             peer.oniceconnectionstatechange = () => {
@@ -53,28 +62,29 @@
             localStream
               .getVideoTracks()
               .forEach((track) => peer.addTrack(track, localStream));
-
-            await new Promise((r) => (peer.onnegotiationneeded = r));
-
-            const offer = await peer.createOffer();
-            await peer.setLocalDescription(offer);
-
-            socket.addEventListener("message", async (ev) => {
-              const answer = JSON.parse(ev.data);
-              console.log("answer", answer.sdp);
-              await peer.setRemoteDescription(answer);
+            const localStream2 = await navigator.mediaDevices.getUserMedia({
+              video: { frameRate: 5, width: 120 },
+              audio: false,
             });
+            localStream2
+              .getVideoTracks()
+              .forEach((track) => peer.addTrack(track, localStream2));
+
+            await peer.setRemoteDescription(offer);
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
           })();
         }, []);
 
         return (
           <div>
-            offer
+            answer
             <div>
               {log.slice(-10).map((v, i) => (
                 <div key={i}>{v}</div>
               ))}
             </div>
+            <canvas ref={canvasRef} />
           </div>
         );
       };

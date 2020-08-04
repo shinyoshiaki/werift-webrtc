@@ -73,3 +73,29 @@ export class RTCRtcpFeedback {
     Object.assign(this, props);
   }
 }
+export class RTCRtpRtxParameters {
+  ssrc: number;
+
+  constructor(props: Partial<RTCRtpRtxParameters> = {}) {
+    Object.assign(this, props);
+  }
+}
+
+export class RTCRtpCodingParameters {
+  ssrc: number;
+  payloadType: number;
+  rtx?: RTCRtpRtxParameters;
+
+  constructor(props: Partial<RTCRtpCodingParameters> = {}) {
+    Object.assign(this, props);
+  }
+}
+
+export class RTCRtpReceiveParameters extends RTCRtpParameters {
+  encodings: RTCRtpCodingParameters[];
+
+  constructor(props: Partial<RTCRtpReceiveParameters> = {}) {
+    super(props);
+    Object.assign(this, props);
+  }
+}

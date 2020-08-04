@@ -15,6 +15,7 @@ import { SrtpSession } from "../../vendor/rtp/srtp/srtp";
 import { SrtcpSession } from "../../vendor/rtp/srtp/srtcp";
 import { RtcpPacketConverter, RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtpPacket, RtpHeader } from "../../vendor/rtp/rtp/rtp";
+import { RtpRouter } from "../media/router";
 
 export enum DtlsState {
   NEW = 0,
@@ -33,6 +34,11 @@ export class RTCDtlsTransport {
   private localCertificate: RTCCertificate;
   role: DtlsRole = "auto";
   dataReceiver?: (buf: Buffer) => void;
+  srtp: SrtpSession;
+  srtcp: SrtcpSession;
+  onSrtp = new Event<RtpPacket>();
+  onSrtcp = new Event<RtcpPacket[]>();
+  router?: RtpRouter;
 
   constructor(
     public iceTransport: RTCIceTransport,
@@ -99,10 +105,6 @@ export class RTCDtlsTransport {
     }
   }
 
-  srtp: SrtpSession;
-  srtcp: SrtcpSession;
-  onSrtp = new Event<RtpPacket>();
-  onSrtcp = new Event<RtcpPacket[]>();
   startSrtp() {
     const {
       localKey,
@@ -128,10 +130,12 @@ export class RTCDtlsTransport {
         const dec = this.srtcp.decrypt(data);
         const srtcp = RtcpPacketConverter.deSerialize(dec);
         this.onSrtcp.execute(srtcp);
+        this.router.routeRtcp(srtcp);
       } else {
         const dec = this.srtp.decrypt(data);
         const rtp = RtpPacket.deSerialize(dec);
         this.onSrtp.execute(rtp);
+        this.router.routeRtp(rtp);
       }
     });
   }

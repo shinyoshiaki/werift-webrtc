@@ -50,9 +50,15 @@
               video: true,
               audio: false,
             });
+            const localStream2 = await navigator.mediaDevices.getUserMedia({
+              video: { frameRate: 20 },
+            });
             localStream
               .getVideoTracks()
               .forEach((track) => peer.addTrack(track, localStream));
+            localStream2
+              .getVideoTracks()
+              .forEach((track) => peer.addTrack(track, localStream2));
 
             await new Promise((r) => (peer.onnegotiationneeded = r));
 

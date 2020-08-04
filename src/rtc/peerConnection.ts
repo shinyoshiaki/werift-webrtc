@@ -29,10 +29,16 @@ import { RTCRtpSender } from "./media/rtpSender";
 import { enumerate } from "../helper";
 import Event from "rx.mini";
 import { CODECS } from "./media/const";
-import { RTCRtpParameters, RTCRtpCodecParameters } from "./media/parameters";
+import {
+  RTCRtpParameters,
+  RTCRtpCodecParameters,
+  RTCRtpReceiveParameters,
+  RTCRtpCodingParameters,
+} from "./media/parameters";
 import { RemoteStreamTrack } from "./media/mediastream";
 import { RTCTrackEvent } from "./media/events";
 import { Kind } from "../typings/domain";
+import { RtpRouter } from "./media/router";
 
 type Configuration = {
   stunServer: [string, number];
@@ -52,7 +58,7 @@ export class RTCPeerConnection {
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
-
+  router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
   private sctpRemotePort?: number;
@@ -264,7 +270,13 @@ export class RTCPeerConnection {
     this.updateIceGatheringState();
     this.updateIceConnectionState();
 
-    return new RTCDtlsTransport(iceTransport, this.certificates, srtpProfiles);
+    const dtls = new RTCDtlsTransport(
+      iceTransport,
+      this.certificates,
+      srtpProfiles
+    );
+    dtls.router = this.router;
+    return dtls;
   }
 
   private createSctpTransport() {
@@ -323,7 +335,7 @@ export class RTCPeerConnection {
     // # configure direction
     this.transceivers.forEach((t) => {
       if (["answer", "pranswer"].includes(description.type)) {
-        // todo
+        t.currentDirection = t.direction;
       }
     });
 
@@ -338,7 +350,6 @@ export class RTCPeerConnection {
     });
 
     // # connect
-    // if (description.type === "offer")
     this.connect();
 
     // # replace description
@@ -363,15 +374,6 @@ export class RTCPeerConnection {
         await iceTransport.start(iceParam);
         if (dtlsTransport.state === DtlsState.NEW) {
           await dtlsTransport.start(this.remoteDtls[transceiver.uuid]);
-        }
-        if (dtlsTransport.state === DtlsState.CONNECTED) {
-          if (["sendonly", "sendrecv"].includes(transceiver.currentDirection)) {
-            // todo
-          }
-          if (["recvonly", "sendrecv"].includes(transceiver.currentDirection)) {
-            // todo impl
-            transceiver.receiver.receive();
-          }
         }
       }
     }
@@ -406,6 +408,20 @@ export class RTCPeerConnection {
 
   private remoteRtp(transceiver: RTCRtpTransceiver) {
     const media = this._remoteDescription().media[transceiver.mLineIndex];
+    const receiveParameters = new RTCRtpReceiveParameters({
+      codecs: transceiver.codecs,
+      muxId: media.rtp.muxId,
+      rtcp: media.rtp.rtcp,
+    });
+    const encodings = transceiver.codecs.map(
+      (codec) =>
+        new RTCRtpCodingParameters({
+          ssrc: media.ssrc[0].ssrc,
+          payloadType: codec.payloadType,
+        })
+    );
+    receiveParameters.encodings = encodings;
+    return receiveParameters;
   }
 
   private setSignalingState(state: SignalingState) {
@@ -574,6 +590,16 @@ export class RTCPeerConnection {
     } else {
       this.pendingRemoteDescription = description;
     }
+
+    this.transceivers.forEach((transceiver) => {
+      if (["sendonly", "sendrecv"].includes(transceiver.direction)) {
+        // todo
+      }
+      if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+        const params = this.remoteRtp(transceiver);
+        transceiver.receiver.receive(params);
+      }
+    });
   }
 
   addTransceiver(
@@ -596,6 +622,7 @@ export class RTCPeerConnection {
     transceiver.bundled = false;
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
+
     return transceiver;
   }
 
