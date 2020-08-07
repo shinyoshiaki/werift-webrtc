@@ -38,9 +38,9 @@ export class SrtpContext extends Context {
     return [dst, header];
   }
 
-  encryptRTP(rawRtp: Buffer, header?: RtpHeader): [Buffer, RtpHeader] {
-    header = header || RtpHeader.deSerialize(rawRtp);
-    const payload = rawRtp.slice(header.payloadOffset);
+  encryptRTP(payload: Buffer, header: RtpHeader) {
+    // header = header || RtpHeader.deSerialize(rawRtp);
+    // const payload = rawRtp.slice(header.payloadOffset);
 
     let dst = Buffer.from([]);
     dst = growBufferSize(dst, header.serializeSize + payload.length + 10);
@@ -68,6 +68,6 @@ export class SrtpContext extends Context {
       s.rolloverCounter
     );
     authTag.copy(dst, n);
-    return [dst, header];
+    return dst;
   }
 }

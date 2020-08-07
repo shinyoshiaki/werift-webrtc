@@ -44,6 +44,7 @@ type Configuration = {
   stunServer: [string, number];
   privateKey: string;
   certificate: string;
+  codecs: { audio: RTCRtpCodecParameters[]; video: RTCRtpCodecParameters[] };
 };
 
 type SignalingState =
@@ -90,6 +91,9 @@ export class RTCPeerConnection {
         new RTCCertificate(configuration.privateKey, configuration.certificate),
       ];
     }
+    if (!configuration.codecs) {
+      configuration.codecs = CODECS;
+    }
   }
 
   get iceConnectionState() {
@@ -131,7 +135,7 @@ export class RTCPeerConnection {
       );
 
     this.transceivers.forEach((transceiver) => {
-      transceiver.codecs = CODECS[transceiver.kind];
+      transceiver.codecs = this.configuration.codecs[transceiver.kind];
     });
 
     const mids = [...this.seenMid];
@@ -505,7 +509,9 @@ export class RTCPeerConnection {
         }
 
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
-          (CODECS[media.kind] as RTCRtpCodecParameters[]).find(
+          (this.configuration.codecs[
+            media.kind
+          ] as RTCRtpCodecParameters[]).find(
             (localCodec) => localCodec.mimeType === remoteCodec.mimeType
           )
         );

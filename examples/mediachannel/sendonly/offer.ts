@@ -3,6 +3,7 @@ import { Server } from "ws";
 import { createSocket } from "dgram";
 import { DtlsState } from "../../../src/rtc/transport/dtls";
 import { Direction } from "../../../src/rtc/media/rtpTransceiver";
+import { RTCRtpCodecParameters } from "../../../src/rtc/media/parameters";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -12,6 +13,16 @@ udp.bind(5000);
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
+    codecs: {
+      audio: [],
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+      ],
+    },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)

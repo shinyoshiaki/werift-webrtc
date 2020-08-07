@@ -25,11 +25,7 @@ export class RTCRtpSender {
   private packetCount = 0;
   private rtt?: number;
 
-  constructor(
-    public kind: string,
-    public track: unknown,
-    public dtlsTransport: RTCDtlsTransport
-  ) {}
+  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
 
   haltRtcp = true;
   async runRtcp() {
@@ -59,13 +55,15 @@ export class RTCRtpSender {
   // call from track
   sendRtp(rawRtp: Buffer) {
     const rtp = RtpPacket.deSerialize(rawRtp);
+    const header = rtp.header;
+    header.ssrc = this.ssrc;
 
-    this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
-    this.rtpTimestamp = rtp.header.timestamp;
-    this.octetCount += rtp.payload.length;
-    this.packetCount++;
+    // this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
+    // this.rtpTimestamp = rtp.header.timestamp;
+    // this.octetCount += rtp.payload.length;
+    // this.packetCount++;
 
-    this.dtlsTransport.sendRtp(rawRtp, rtp.header);
+    this.dtlsTransport.sendRtp(rtp.payload, header);
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {
