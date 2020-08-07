@@ -19,6 +19,7 @@ import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
 import { Kind } from "../typings/domain";
 import { divide } from "../helper";
+import { Direction } from "./media/rtpTransceiver";
 
 export class SessionDescription {
   version = 0;
@@ -183,6 +184,11 @@ export class SessionDescription {
             case "setup":
               currentMedia.dtls.role = DTLS_SETUP_ROLE[value];
               break;
+            case Direction.recvonly:
+            case Direction.sendonly:
+            case Direction.sendrecv:
+              currentMedia.direction = attr;
+              break;
             case "rtpmap":
               {
                 const [formatId, formatDesc] = divide(value, " ");
@@ -298,7 +304,7 @@ export class SessionDescription {
 export class MediaDescription {
   // rtp
   host?: string;
-  direction?: "sendrecv" | "recvonly" | "sendonly";
+  direction?: Direction;
   msid?: string;
 
   // rtcp

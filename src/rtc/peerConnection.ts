@@ -497,7 +497,7 @@ export class RTCPeerConnection {
             (t) =>
               t.kind === media.kind &&
               [undefined, media.rtp.muxId].includes(t.mid)
-          ) || this.addTransceiver(media.kind, "recvonly"); // 自動的にrecieverを足す
+          ) || this.addTransceiver(media.kind, Direction.recvonly); // 自動的にrecieverを足す
 
         if (!transceiver.mid) {
           transceiver.mid = media.rtp.muxId;
@@ -603,11 +603,7 @@ export class RTCPeerConnection {
     });
   }
 
-  addTransceiver(
-    kind: Kind,
-    direction: Direction,
-    senderTrack: unknown | undefined = undefined // recvonly unnecessary track
-  ) {
+  addTransceiver(kind: Kind, direction: Direction) {
     const dtlsTransport = this.createDtlsTransport([
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
@@ -615,7 +611,7 @@ export class RTCPeerConnection {
     const transceiver = new RTCRtpTransceiver(
       kind,
       new RTCRtpReceiver(kind),
-      new RTCRtpSender(kind, senderTrack, dtlsTransport),
+      new RTCRtpSender(kind, dtlsTransport),
       direction
     );
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
@@ -808,7 +804,7 @@ async function addRemoteCandidates(
 }
 
 function reverseDirection(direction: Direction) {
-  if (direction == "sendonly") return "recvonly";
-  else if (direction == "recvonly") return "sendonly";
+  if (direction == Direction.sendonly) return Direction.recvonly;
+  else if (direction == Direction.recvonly) return Direction.sendonly;
   return direction;
 }
