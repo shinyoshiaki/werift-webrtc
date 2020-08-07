@@ -1,7 +1,6 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
-import { DtlsState } from "../../../src/rtc/transport/dtls";
 import { Direction } from "../../../src/rtc/media/rtpTransceiver";
 import { RTCRtpCodecParameters } from "../../../src/rtc/media/parameters";
 
@@ -38,13 +37,7 @@ server.on("connection", async (socket) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
 
-  await new Promise((r) => {
-    transceiver.dtlsTransport.stateChanged.subscribe((state) => {
-      if (state === DtlsState.CONNECTED) {
-        r();
-      }
-    });
-  });
+  await transceiver.sender.onReady.asPromise();
   udp.on("message", (data) => {
     transceiver.sender.sendRtp(data);
   });

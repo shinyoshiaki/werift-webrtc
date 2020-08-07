@@ -501,7 +501,7 @@ export class RTCPeerConnection {
             (t) =>
               t.kind === media.kind &&
               [undefined, media.rtp.muxId].includes(t.mid)
-          ) || this.addTransceiver(media.kind, Direction.recvonly); // 自動的にrecieverを足す
+          ) || this.addTransceiver(media.kind, Direction.recvonly);
 
         if (!transceiver.mid) {
           transceiver.mid = media.rtp.muxId;

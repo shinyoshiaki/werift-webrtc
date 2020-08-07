@@ -6,7 +6,8 @@ import { RtcpPacketConverter, RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtcpSrPacket, RtcpSenderInfo } from "../../vendor/rtp/rtcp/sr";
 import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { sleep } from "../../helper";
-import { RTCDtlsTransport } from "../transport/dtls";
+import { RTCDtlsTransport, DtlsState } from "../transport/dtls";
+import Event from "rx.mini";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -24,8 +25,15 @@ export class RTCRtpSender {
   private octetCount = 0;
   private packetCount = 0;
   private rtt?: number;
+  onReady = new Event();
 
-  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
+  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
+    dtlsTransport.stateChanged.subscribe((state) => {
+      if (state === DtlsState.CONNECTED) {
+        this.onReady.execute();
+      }
+    });
+  }
 
   haltRtcp = true;
   async runRtcp() {
