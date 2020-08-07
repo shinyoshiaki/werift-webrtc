@@ -145,7 +145,6 @@ export class RTCDtlsTransport {
   }
 
   sendRtp(payload: Buffer, header: RtpHeader) {
-    if (!this.srtp) return;
     const enc = this.srtp.encrypt(payload, header);
     this.iceTransport.connection.send(enc);
   }

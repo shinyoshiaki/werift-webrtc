@@ -621,7 +621,7 @@ export class RTCPeerConnection {
       direction
     );
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
-    transceiver.sender.streamId = this.streamId;
+    // transceiver.sender.streamId = this.streamId;
     transceiver.bundled = false;
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
