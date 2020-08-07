@@ -1,6 +1,7 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
+import { Direction } from "../../../src/rtc/media/rtpTransceiver";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -13,12 +14,16 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  pc.addTransceiver("video", "recvonly").receiver.onRtp.subscribe((packet) => {
-    udp.send(packet.serialize(), 4002, "127.0.0.1");
-  });
-  pc.addTransceiver("audio", "recvonly").receiver.onRtp.subscribe((packet) => {
-    udp.send(packet.serialize(), 4003, "127.0.0.1");
-  });
+  pc.addTransceiver("video", Direction.recvonly).receiver.onRtp.subscribe(
+    (packet) => {
+      udp.send(packet.serialize(), 4002, "127.0.0.1");
+    }
+  );
+  pc.addTransceiver("audio", Direction.recvonly).receiver.onRtp.subscribe(
+    (packet) => {
+      udp.send(packet.serialize(), 4003, "127.0.0.1");
+    }
+  );
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);

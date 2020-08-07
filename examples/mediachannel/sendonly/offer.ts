@@ -1,6 +1,8 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
+import { DtlsState } from "../../../src/rtc/transport/dtls";
+import { Direction } from "../../../src/rtc/media/rtpTransceiver";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -14,7 +16,7 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  const transceiver = pc.addTransceiver("video", "sendonly");
+  const transceiver = pc.addTransceiver("video", Direction.sendonly);
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -26,8 +28,8 @@ server.on("connection", async (socket) => {
   });
 
   await new Promise((r) => {
-    pc.iceConnectionStateChange.subscribe((state) => {
-      if (state === "completed") {
+    transceiver.dtlsTransport.stateChanged.subscribe((state) => {
+      if (state === DtlsState.CONNECTED) {
         r();
       }
     });
