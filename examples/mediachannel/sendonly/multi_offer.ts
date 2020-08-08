@@ -29,7 +29,11 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
   const transceiver1 = pc.addTransceiver("video", Direction.sendonly);
-  const transceiver2 = pc.addTransceiver("video", Direction.sendonly);
+  const transceiver2 = pc.addTransceiver(
+    "video",
+    Direction.sendonly,
+    transceiver1
+  );
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -44,7 +48,6 @@ server.on("connection", async (socket) => {
   udp1.on("message", (data) => {
     transceiver1.sender.sendRtp(data);
   });
-  transceiver2.sender.dtlsTransport = transceiver1.sender.dtlsTransport;
   udp2.on("message", (data) => {
     transceiver2.sender.sendRtp(data);
   });

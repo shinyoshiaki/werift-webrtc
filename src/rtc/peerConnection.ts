@@ -35,8 +35,6 @@ import {
   RTCRtpReceiveParameters,
   RTCRtpCodingParameters,
 } from "./media/parameters";
-import { RemoteStreamTrack } from "./media/mediastream";
-import { RTCTrackEvent } from "./media/events";
 import { Kind } from "../typings/domain";
 import { RtpRouter } from "./media/router";
 
@@ -522,24 +520,6 @@ export class RTCPeerConnection {
         } else {
           transceiver.offerDirection = direction;
         }
-        // todo
-
-        if (
-          ["recvonly", "sendrecv"].includes(direction) &&
-          !transceiver.receiver.track
-        ) {
-          transceiver.receiver.track = new RemoteStreamTrack(
-            media.kind,
-            description.webrtcTrackId(media)
-          );
-          trackEvents.push(
-            new RTCTrackEvent({
-              receiver: transceiver.receiver,
-              track: transceiver.receiver.track,
-              transceiver,
-            })
-          );
-        }
 
         dtlsTransport = transceiver.dtlsTransport;
         this.remoteDtls[transceiver.uuid] = media.dtls;
@@ -609,10 +589,10 @@ export class RTCPeerConnection {
     });
   }
 
-  addTransceiver(kind: Kind, direction: Direction) {
-    const dtlsTransport = this.createDtlsTransport([
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
+  addTransceiver(kind: Kind, direction: Direction, bundle?: RTCRtpTransceiver) {
+    const dtlsTransport = bundle
+      ? bundle.dtlsTransport
+      : this.createDtlsTransport([SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80]);
 
     const transceiver = new RTCRtpTransceiver(
       kind,
@@ -620,11 +600,11 @@ export class RTCPeerConnection {
       new RTCRtpSender(kind, dtlsTransport),
       direction
     );
+    if (bundle) transceiver.bundled = true;
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
-    // transceiver.sender.streamId = this.streamId;
-    transceiver.bundled = false;
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
+
     this.onTrack.execute(transceiver);
 
     return transceiver;
