@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
 

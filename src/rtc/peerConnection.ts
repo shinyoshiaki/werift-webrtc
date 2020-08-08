@@ -35,8 +35,6 @@ import {
   RTCRtpReceiveParameters,
   RTCRtpCodingParameters,
 } from "./media/parameters";
-import { RemoteStreamTrack } from "./media/mediastream";
-import { RTCTrackEvent } from "./media/events";
 import { Kind } from "../typings/domain";
 import { RtpRouter } from "./media/router";
 
@@ -44,6 +42,7 @@ type Configuration = {
   stunServer: [string, number];
   privateKey: string;
   certificate: string;
+  codecs: { audio: RTCRtpCodecParameters[]; video: RTCRtpCodecParameters[] };
 };
 
 type SignalingState =
@@ -90,6 +89,9 @@ export class RTCPeerConnection {
         new RTCCertificate(configuration.privateKey, configuration.certificate),
       ];
     }
+    if (!configuration.codecs) {
+      configuration.codecs = CODECS;
+    }
   }
 
   get iceConnectionState() {
@@ -131,7 +133,7 @@ export class RTCPeerConnection {
       );
 
     this.transceivers.forEach((transceiver) => {
-      transceiver.codecs = CODECS[transceiver.kind];
+      transceiver.codecs = this.configuration.codecs[transceiver.kind];
     });
 
     const mids = [...this.seenMid];
@@ -497,7 +499,7 @@ export class RTCPeerConnection {
             (t) =>
               t.kind === media.kind &&
               [undefined, media.rtp.muxId].includes(t.mid)
-          ) || this.addTransceiver(media.kind, "recvonly"); // 自動的にrecieverを足す
+          ) || this.addTransceiver(media.kind, Direction.recvonly);
 
         if (!transceiver.mid) {
           transceiver.mid = media.rtp.muxId;
@@ -505,7 +507,9 @@ export class RTCPeerConnection {
         }
 
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
-          (CODECS[media.kind] as RTCRtpCodecParameters[]).find(
+          (this.configuration.codecs[
+            media.kind
+          ] as RTCRtpCodecParameters[]).find(
             (localCodec) => localCodec.mimeType === remoteCodec.mimeType
           )
         );
@@ -515,24 +519,6 @@ export class RTCPeerConnection {
           transceiver.currentDirection = direction;
         } else {
           transceiver.offerDirection = direction;
-        }
-        // todo
-
-        if (
-          ["recvonly", "sendrecv"].includes(direction) &&
-          !transceiver.receiver.track
-        ) {
-          transceiver.receiver.track = new RemoteStreamTrack(
-            media.kind,
-            description.webrtcTrackId(media)
-          );
-          trackEvents.push(
-            new RTCTrackEvent({
-              receiver: transceiver.receiver,
-              track: transceiver.receiver.track,
-              transceiver,
-            })
-          );
         }
 
         dtlsTransport = transceiver.dtlsTransport;
@@ -603,26 +589,22 @@ export class RTCPeerConnection {
     });
   }
 
-  addTransceiver(
-    kind: Kind,
-    direction: Direction,
-    senderTrack: unknown | undefined = undefined // recvonly unnecessary track
-  ) {
-    const dtlsTransport = this.createDtlsTransport([
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
+  addTransceiver(kind: Kind, direction: Direction, bundle?: RTCRtpTransceiver) {
+    const dtlsTransport = bundle
+      ? bundle.dtlsTransport
+      : this.createDtlsTransport([SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80]);
 
     const transceiver = new RTCRtpTransceiver(
       kind,
       new RTCRtpReceiver(kind),
-      new RTCRtpSender(kind, senderTrack, dtlsTransport),
+      new RTCRtpSender(kind, dtlsTransport),
       direction
     );
+    if (bundle) transceiver.bundled = true;
     transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
-    transceiver.sender.streamId = this.streamId;
-    transceiver.bundled = false;
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
+
     this.onTrack.execute(transceiver);
 
     return transceiver;
@@ -808,7 +790,7 @@ async function addRemoteCandidates(
 }
 
 function reverseDirection(direction: Direction) {
-  if (direction == "sendonly") return "recvonly";
-  else if (direction == "recvonly") return "sendonly";
+  if (direction == Direction.sendonly) return Direction.recvonly;
+  else if (direction == Direction.recvonly) return Direction.sendonly;
   return direction;
 }

@@ -1,4 +1,3 @@
-import { RemoteStreamTrack } from "./mediastream";
 import { RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
@@ -7,7 +6,6 @@ import Event from "rx.mini";
 
 export class RTCRtpReceiver {
   uuid = uuid();
-  track?: RemoteStreamTrack;
   onRtp = new Event<RtpPacket>();
 
   // # RTCP

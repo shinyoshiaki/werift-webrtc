@@ -87,7 +87,6 @@ export class RTCDtlsTransport {
         if (this.dataReceiver) this.dataReceiver(buf);
       };
       this.dtls.onConnect = () => {
-        this.setState(DtlsState.CONNECTED);
         r();
       };
       this.dtls.onClose = () => {
@@ -103,6 +102,7 @@ export class RTCDtlsTransport {
     if (this.srtpProfiles.length > 0) {
       this.startSrtp();
     }
+    this.setState(DtlsState.CONNECTED);
   }
 
   startSrtp() {
@@ -144,8 +144,8 @@ export class RTCDtlsTransport {
     this.dtls!.send(data);
   }
 
-  sendRtp(rawRtp: Buffer, header?: RtpHeader) {
-    const enc = this.srtp.encrypt(rawRtp, header);
+  sendRtp(payload: Buffer, header: RtpHeader) {
+    const enc = this.srtp.encrypt(payload, header);
     this.iceTransport.connection.send(enc);
   }
 
