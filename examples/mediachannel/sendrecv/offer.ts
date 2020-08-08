@@ -14,11 +14,7 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  pc.addTransceiver("video", Direction.recvonly).receiver.onRtp.subscribe(
-    (packet) => {
-      udp.send(packet.serialize(), 4002, "127.0.0.1");
-    }
-  );
+  const transceiver = pc.addTransceiver("video", Direction.sendrecv);
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -27,5 +23,11 @@ server.on("connection", async (socket) => {
 
   socket.on("message", (data: any) => {
     pc.setRemoteDescription(JSON.parse(data));
+  });
+
+  await transceiver.sender.onReady.asPromise();
+  transceiver.receiver.onRtp.subscribe((rtp) => {
+    udp.send(rtp.serialize(), 4002, "127.0.0.1");
+    transceiver.sender.sendRtp(rtp.serialize());
   });
 });
