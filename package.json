@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "homepage": "https://github.com/shinyoshiaki/rainy-webrtc",
   "repository": {
     "type": "git",
@@ -18,6 +18,7 @@
     "format": "prettier --write src/**/*.ts",
     "offer": "ts-node --files examples/datachannel/offer.ts",
     "publish": "npm publish --access=public",
+    "deploy": "./build.sh && yarn publish",
     "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json"
   },
