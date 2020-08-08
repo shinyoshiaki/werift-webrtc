@@ -2,9 +2,8 @@
 rm -rf lib
 yarn format
 yarn build
-cd lib/src
-mv * ..
-cd ..
+cd lib
+mv src/* .
 rm -rf examples
 rm -rf tests
 rm -rf src
