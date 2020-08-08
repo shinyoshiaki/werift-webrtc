@@ -1,42 +1,42 @@
+import { isEqual } from "lodash";
+import Event from "rx.mini";
 import * as uuid from "uuid";
-import { RTCDataChannelParameters, RTCDataChannel } from "./dataChannel";
-import { RTCSctpTransport, RTCSctpCapabilities } from "./transport/sctp";
+import { enumerate } from "../helper";
+import { Kind } from "../typings/domain";
+import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
+import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import { CODECS } from "./media/const";
 import {
-  RTCIceGatherer,
-  RTCIceTransport,
-  RTCIceParameters,
-  IceState,
-} from "./transport/ice";
+  RTCRtpCodecParameters,
+  RTCRtpCodingParameters,
+  RTCRtpParameters,
+  RTCRtpReceiveParameters,
+} from "./media/parameters";
+import { RtpRouter } from "./media/router";
+import { RTCRtpReceiver } from "./media/rtpReceiver";
+import { RTCRtpSender } from "./media/rtpSender";
+import { Direction, RTCRtpTransceiver } from "./media/rtpTransceiver";
 import {
-  RTCDtlsTransport,
-  DtlsState,
-  RTCDtlsParameters,
-  RTCCertificate,
-} from "./transport/dtls";
-import {
-  SessionDescription,
+  addSDPHeader,
   GroupDescription,
   MediaDescription,
   RTCSessionDescription,
-  addSDPHeader,
+  SessionDescription,
   SsrcDescription,
 } from "./sdp";
-import { DISCARD_PORT, DISCARD_HOST, SRTP_PROFILE } from "./const";
-import { isEqual } from "lodash";
-import { RTCRtpTransceiver, Direction } from "./media/rtpTransceiver";
-import { RTCRtpReceiver } from "./media/rtpReceiver";
-import { RTCRtpSender } from "./media/rtpSender";
-import { enumerate } from "../helper";
-import Event from "rx.mini";
-import { CODECS } from "./media/const";
 import {
-  RTCRtpParameters,
-  RTCRtpCodecParameters,
-  RTCRtpReceiveParameters,
-  RTCRtpCodingParameters,
-} from "./media/parameters";
-import { Kind } from "../typings/domain";
-import { RtpRouter } from "./media/router";
+  DtlsState,
+  RTCCertificate,
+  RTCDtlsParameters,
+  RTCDtlsTransport,
+} from "./transport/dtls";
+import {
+  IceState,
+  RTCIceGatherer,
+  RTCIceParameters,
+  RTCIceTransport,
+} from "./transport/ice";
+import { RTCSctpCapabilities, RTCSctpTransport } from "./transport/sctp";
 
 type Configuration = {
   stunServer: [string, number];

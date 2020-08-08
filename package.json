@@ -15,12 +15,13 @@
   "scripts": {
     "answer": "ts-node --files examples/datachannel/answer.ts",
     "build": "rm -rf lib && tsc",
+    "deploy": "./build.sh && yarn publish",
     "format": "prettier --write src/**/*.ts",
     "offer": "ts-node --files examples/datachannel/offer.ts",
     "publish": "npm publish --access=public",
-    "deploy": "./build.sh && yarn publish",
     "test": "npm run type && jest --runInBand --forceExit",
-    "type": "tsc --noEmit --project ./tsconfig.json"
+    "type": "tsc --noEmit --project ./tsconfig.json",
+    "unused": "organize-imports-cli src/**/*.ts"
   },
   "jest": {
     "globals": {
@@ -45,7 +46,6 @@
     "binary-data": "^0.6.0",
     "buffer-crc32": "^0.2.13",
     "date-fns": "^2.15.0",
-    "dgram": "^1.0.1",
     "elliptic": "^6.5.3",
     "int64-buffer": "^0.99.1007",
     "ip": "^1.1.5",
@@ -71,6 +71,7 @@
     "@types/uuid": "^8.0.0",
     "@types/ws": "^7.2.6",
     "jest": "^26.1.0",
+    "organize-imports-cli": "^0.7.0",
     "prettier": "^2.0.5",
     "python-shell": "^2.0.1",
     "socket.io-client": "^2.3.0",

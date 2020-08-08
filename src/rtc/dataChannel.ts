@@ -1,5 +1,5 @@
-import { RTCSctpTransport } from "./transport/sctp";
 import { Event } from "rx.mini";
+import { RTCSctpTransport } from "./transport/sctp";
 
 type DCState = "open" | "closed" | "connecting" | "closing";
 
