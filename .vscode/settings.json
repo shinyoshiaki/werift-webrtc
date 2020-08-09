@@ -38,6 +38,7 @@
     "uint",
     "userdata",
     "webrtc",
+    "werift",
     "wrtct"
   ],
   "liveServer.settings.port": 5501,

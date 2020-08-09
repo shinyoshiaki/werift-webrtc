@@ -33,11 +33,7 @@ server.on("connection", (socket) => {
       console.log("pc.iceConnectionStateChange", v)
     );
     const transceiver1 = pc.addTransceiver("video", Direction.sendonly);
-    const transceiver2 = pc.addTransceiver(
-      "video",
-      Direction.sendonly,
-      transceiver1
-    );
+    const transceiver2 = pc.addTransceiver("video", Direction.sendonly);
 
     await pc.setRemoteDescription(offer);
     const answer = pc.createAnswer();

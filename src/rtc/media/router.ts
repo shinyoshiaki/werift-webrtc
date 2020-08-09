@@ -6,18 +6,14 @@ import { RTCRtpReceiveParameters } from "./parameters";
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver } = {};
 
-  private registerReceiver(receiver: RTCRtpReceiver, ssrcs: number[]) {
-    ssrcs.forEach((ssrc) => {
-      this.ssrcTable[ssrc] = receiver;
-    });
-  }
-
   registerRtpReceiver(
     receiver: RTCRtpReceiver,
     params: RTCRtpReceiveParameters
   ) {
     const ssrcs = params.encodings.map((encode) => encode.ssrc);
-    this.registerReceiver(receiver, ssrcs);
+    ssrcs.forEach((ssrc) => {
+      this.ssrcTable[ssrc] = receiver;
+    });
   }
 
   routeRtp = (packet: RtpPacket) => {

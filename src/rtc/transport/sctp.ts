@@ -11,13 +11,13 @@ import {
 } from "../const";
 import { jspack } from "jspack";
 import { RTCDtlsTransport, DtlsState } from "./dtls";
-import { generateUUID } from "../../utils";
 import { Event } from "rx.mini";
 import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
+import * as uuid from "uuid";
 
 export class RTCSctpTransport {
   datachannel = new Event<RTCDataChannel>();
-  uuid = generateUUID();
+  uuid = uuid.v4();
   mid?: string;
   bundled = false;
 

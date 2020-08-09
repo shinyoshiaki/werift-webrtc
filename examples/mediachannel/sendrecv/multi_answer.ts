@@ -1,6 +1,5 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
-import { RTCRtpCodecParameters } from "../../../src/rtc/media/parameters";
 import { Direction } from "../../../src/rtc/media/rtpTransceiver";
 
 const server = new Server({ port: 8888 });
@@ -19,11 +18,7 @@ server.on("connection", (socket) => {
     );
 
     const transceiver1 = pc.addTransceiver("video", Direction.sendrecv);
-    const transceiver2 = pc.addTransceiver(
-      "video",
-      Direction.sendrecv,
-      transceiver1
-    );
+    const transceiver2 = pc.addTransceiver("video", Direction.sendrecv);
 
     await pc.setRemoteDescription(offer);
     const answer = pc.createAnswer();

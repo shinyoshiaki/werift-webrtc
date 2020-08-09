@@ -31,11 +31,7 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
   const transceiver1 = pc.addTransceiver("video", Direction.sendonly);
-  const transceiver2 = pc.addTransceiver(
-    "video",
-    Direction.sendonly,
-    transceiver1
-  );
+  const transceiver2 = pc.addTransceiver("video", Direction.sendonly);
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);

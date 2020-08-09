@@ -23,8 +23,6 @@ export class RTCRtpTransceiver {
   dtlsTransport?: RTCDtlsTransport;
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  currentDirection?: Direction;
-  offerDirection?: Direction;
 
   constructor(
     public kind: Kind,
@@ -32,6 +30,4 @@ export class RTCRtpTransceiver {
     public sender: RTCRtpSender,
     public direction: Direction
   ) {}
-
-  stop() {}
 }

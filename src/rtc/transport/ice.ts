@@ -105,11 +105,11 @@ export class RTCIceCandidate {
 }
 
 export class RTCIceParameters {
-  iceLite: boolean;
+  iceLite: boolean = false;
   usernameFragment?: string;
   password?: string;
 
-  constructor(props: Partial<RTCIceParameters>) {
+  constructor(props: Partial<RTCIceParameters> = {}) {
     Object.assign(this, props);
   }
 }
