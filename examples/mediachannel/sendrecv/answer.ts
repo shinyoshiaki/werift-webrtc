@@ -18,7 +18,7 @@ server.on("connection", (socket) => {
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );
-    const transceiver = pc.addTransceiver("video", Direction.sendrecv);
+    const transceiver = pc.addTransceiver("video", "sendrecv");
 
     await pc.setRemoteDescription(offer);
     const answer = pc.createAnswer();

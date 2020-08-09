@@ -27,7 +27,7 @@ const csrcLength = 4;
  */
 
 export class RtpHeader {
-  version: number = 0;
+  version: number = 2;
   padding: boolean;
   paddingSize: number = 0;
   extension: boolean;

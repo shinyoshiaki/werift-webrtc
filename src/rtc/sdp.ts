@@ -184,9 +184,9 @@ export class SessionDescription {
             case "setup":
               currentMedia.dtls.role = DTLS_SETUP_ROLE[value];
               break;
-            case Direction.recvonly:
-            case Direction.sendonly:
-            case Direction.sendrecv:
+            case "recvonly":
+            case "sendonly":
+            case "sendrecv":
               currentMedia.direction = attr;
               break;
             case "rtpmap":

@@ -495,7 +495,7 @@ export class RTCPeerConnection {
             [undefined, media.rtp.muxId].includes(t.mid)
         );
         if (!transceiver) {
-          transceiver = this.addTransceiver(media.kind, Direction.recvonly);
+          transceiver = this.addTransceiver(media.kind, "recvonly");
           this.onTrack.execute(transceiver);
         }
 

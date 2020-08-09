@@ -8,12 +8,7 @@ import {
 import * as uuid from "uuid";
 import { Kind } from "../../typings/domain";
 
-export enum Direction {
-  sendonly = "sendonly",
-  sendrecv = "sendrecv",
-  recvonly = "recvonly",
-}
-// export type Direction = "sendonly" | "sendrecv" | "recvonly";
+export type Direction = "sendonly" | "sendrecv" | "recvonly";
 
 export class RTCRtpTransceiver {
   uuid = uuid.v4();

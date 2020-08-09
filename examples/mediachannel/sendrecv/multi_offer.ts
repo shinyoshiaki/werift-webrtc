@@ -1,4 +1,4 @@
-import { RTCPeerConnection, Direction } from "../../../src";
+import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
@@ -12,8 +12,8 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
 
-  const transceiver1 = pc.addTransceiver("video", Direction.sendrecv);
-  const transceiver2 = pc.addTransceiver("video", Direction.sendrecv);
+  const transceiver1 = pc.addTransceiver("video", "sendrecv");
+  const transceiver2 = pc.addTransceiver("video", "sendrecv");
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);

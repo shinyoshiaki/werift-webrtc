@@ -45,8 +45,8 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "./tests/aio/peerConnection.test.ts",
-        "-t test_close_datachannel"
+        "./tests/rtc/peepConnection.test.ts",
+        "-t test_sendonly_recvonly"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"

@@ -1,7 +1,6 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
-import { Direction } from "../../../src/rtc/media/rtpTransceiver";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -14,7 +13,7 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  const transceiver = pc.addTransceiver("video", Direction.sendrecv);
+  const transceiver = pc.addTransceiver("video", "sendrecv");
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);

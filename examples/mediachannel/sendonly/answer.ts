@@ -30,7 +30,7 @@ server.on("connection", (socket) => {
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );
-    const transceiver = pc.addTransceiver("video", Direction.sendonly);
+    const transceiver = pc.addTransceiver("video", "sendonly");
 
     await pc.setRemoteDescription(offer);
     const answer = pc.createAnswer();

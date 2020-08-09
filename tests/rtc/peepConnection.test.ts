@@ -1,5 +1,7 @@
 import { RTCPeerConnection } from "../../src";
 import { RTCDataChannel } from "../../src/rtc/dataChannel";
+import { RtpPacket, RtpHeader } from "../../src/vendor/rtp/rtp/rtp";
+import { isMedia } from "../../src/utils";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async (done) => {
@@ -71,57 +73,80 @@ describe("peerConnection", () => {
     expect(true).toBe(true);
   });
 
-  test(
-    "test_close_datachannel",
-    async (done) => {
-      const pcOffer = new RTCPeerConnection({});
-      const pcAnswer = new RTCPeerConnection({});
+  test("test_close_datachannel", async (done) => {
+    const pcOffer = new RTCPeerConnection({});
+    const pcAnswer = new RTCPeerConnection({});
 
-      const dc = pcOffer.createDataChannel("chat");
+    const dc = pcOffer.createDataChannel("chat");
 
-      pcAnswer.datachannel.subscribe((channel) => {
-        channel.message.subscribe(async (data) => {
-          expect(data.toString()).toBe("hello");
-          channel.close();
-          await Promise.all([
-            new Promise((r) => {
-              dc.stateChanged.subscribe((state) => {
-                if (state === "closed") {
-                  r();
-                }
-              });
-            }),
-            new Promise((r) => {
-              channel.stateChanged.subscribe((state) => {
-                if (state === "closed") {
-                  r();
-                }
-              });
-            }),
-          ]);
-          done();
-        });
+    pcAnswer.datachannel.subscribe((channel) => {
+      channel.message.subscribe(async (data) => {
+        expect(data.toString()).toBe("hello");
+        channel.close();
+        await Promise.all([
+          new Promise((r) => {
+            dc.stateChanged.subscribe((state) => {
+              if (state === "closed") {
+                r();
+              }
+            });
+          }),
+          new Promise((r) => {
+            channel.stateChanged.subscribe((state) => {
+              if (state === "closed") {
+                r();
+              }
+            });
+          }),
+        ]);
+        done();
       });
+    });
 
-      dc.stateChanged.subscribe((state) => {
-        if (state === "open") {
-          dc.send(Buffer.from("hello"));
-        }
+    dc.stateChanged.subscribe((state) => {
+      if (state === "open") {
+        dc.send(Buffer.from("hello"));
+      }
+    });
+
+    const offer = pcOffer.createOffer()!;
+    await pcOffer.setLocalDescription(offer);
+    await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
+
+    const answer = pcAnswer.createAnswer()!;
+    await pcAnswer.setLocalDescription(answer);
+    await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
+
+    await assertIceCompleted(pcOffer, pcAnswer);
+    await assertDataChannelOpen(dc);
+  });
+
+  test("test_sendonly_recvonly", async (done) => {
+    const sendonly = new RTCPeerConnection();
+    const transceiver = sendonly.addTransceiver("video", "sendonly");
+    transceiver.sender.onReady.subscribe(() => {
+      const rtpPacket = new RtpPacket(
+        new RtpHeader(),
+        Buffer.from("test")
+      ).serialize();
+      expect(isMedia(rtpPacket)).toBe(true);
+      transceiver.sender.sendRtp(rtpPacket);
+    });
+    await sendonly.setLocalDescription(sendonly.createOffer());
+
+    const recvonly = new RTCPeerConnection();
+    recvonly.onTrack.subscribe((transceiver) => {
+      transceiver.receiver.onRtp.subscribe((rtp) => {
+        expect(rtp.payload).toEqual(Buffer.from("test"));
+        done();
       });
+    });
 
-      const offer = pcOffer.createOffer()!;
-      await pcOffer.setLocalDescription(offer);
-      await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
+    await recvonly.setRemoteDescription(sendonly.localDescription);
+    await recvonly.setLocalDescription(recvonly.createAnswer());
 
-      const answer = pcAnswer.createAnswer()!;
-      await pcAnswer.setLocalDescription(answer);
-      await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
-
-      await assertIceCompleted(pcOffer, pcAnswer);
-      await assertDataChannelOpen(dc);
-    },
-    600 * 1000
-  );
+    await sendonly.setRemoteDescription(recvonly.localDescription);
+  });
 });
 
 function assertHasIceCandidate(sdp: string) {
