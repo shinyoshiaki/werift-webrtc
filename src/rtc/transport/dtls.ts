@@ -36,8 +36,6 @@ export class RTCDtlsTransport {
   dataReceiver?: (buf: Buffer) => void;
   srtp: SrtpSession;
   srtcp: SrtcpSession;
-  onSrtp = new Event<RtpPacket>();
-  onSrtcp = new Event<RtcpPacket[]>();
   router?: RtpRouter;
 
   constructor(
@@ -128,13 +126,11 @@ export class RTCDtlsTransport {
       if (!isMedia(data)) return;
       if (isRtcp(data)) {
         const dec = this.srtcp.decrypt(data);
-        const srtcp = RtcpPacketConverter.deSerialize(dec);
-        this.onSrtcp.execute(srtcp);
-        this.router.routeRtcp(srtcp);
+        const rtcp = RtcpPacketConverter.deSerialize(dec);
+        this.router.routeRtcp(rtcp);
       } else {
         const dec = this.srtp.decrypt(data);
         const rtp = RtpPacket.deSerialize(dec);
-        this.onSrtp.execute(rtp);
         this.router.routeRtp(rtp);
       }
     });
