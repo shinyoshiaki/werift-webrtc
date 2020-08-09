@@ -496,6 +496,9 @@ export class RTCPeerConnection {
         );
         if (!transceiver) {
           transceiver = this.addTransceiver(media.kind, "recvonly");
+        }
+
+        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
           this.onTrack.execute(transceiver);
         }
 

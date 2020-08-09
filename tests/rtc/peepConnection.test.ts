@@ -132,7 +132,6 @@ describe("peerConnection", () => {
       expect(isMedia(rtpPacket)).toBe(true);
       transceiver.sender.sendRtp(rtpPacket);
     });
-    await sendonly.setLocalDescription(sendonly.createOffer());
 
     const recvonly = new RTCPeerConnection();
     recvonly.onTrack.subscribe((transceiver) => {
@@ -142,10 +141,64 @@ describe("peerConnection", () => {
       });
     });
 
+    await sendonly.setLocalDescription(sendonly.createOffer());
     await recvonly.setRemoteDescription(sendonly.localDescription);
     await recvonly.setLocalDescription(recvonly.createAnswer());
-
     await sendonly.setRemoteDescription(recvonly.localDescription);
+  });
+
+  test("test_sendrecv_sendrecv", async (done) => {
+    const pc1 = new RTCPeerConnection();
+    {
+      const transceiver = pc1.addTransceiver("video", "sendrecv");
+      transceiver.sender.onReady.subscribe(() => {
+        const rtpPacket = new RtpPacket(
+          new RtpHeader(),
+          Buffer.from("pc1")
+        ).serialize();
+        expect(isMedia(rtpPacket)).toBe(true);
+        transceiver.sender.sendRtp(rtpPacket);
+      });
+    }
+    const pc2 = new RTCPeerConnection();
+    {
+      const transceiver = pc2.addTransceiver("video", "sendrecv");
+      transceiver.sender.onReady.subscribe(() => {
+        const rtpPacket = new RtpPacket(
+          new RtpHeader(),
+          Buffer.from("pc2")
+        ).serialize();
+        expect(isMedia(rtpPacket)).toBe(true);
+        transceiver.sender.sendRtp(rtpPacket);
+      });
+    }
+
+    (async () => {
+      await Promise.all([
+        new Promise((r) => {
+          pc1.onTrack.subscribe((transceiver) => {
+            transceiver.receiver.onRtp.subscribe((rtp) => {
+              expect(rtp.payload).toEqual(Buffer.from("pc2"));
+              r();
+            });
+          });
+        }),
+        new Promise((r) => {
+          pc2.onTrack.subscribe((transceiver) => {
+            transceiver.receiver.onRtp.subscribe((rtp) => {
+              expect(rtp.payload).toEqual(Buffer.from("pc1"));
+              r();
+            });
+          });
+        }),
+      ]);
+      done();
+    })();
+
+    await pc1.setLocalDescription(pc1.createOffer());
+    await pc2.setRemoteDescription(pc1.localDescription);
+    await pc2.setLocalDescription(pc2.createAnswer());
+    await pc1.setRemoteDescription(pc2.localDescription);
   });
 });
 
