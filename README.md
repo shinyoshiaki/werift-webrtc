@@ -8,11 +8,11 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 
 - [x] STUN
 - [ ] TURN
-- [ ] ICE
+- [x] ICE
   - [x] Vanilla ICE
   - [ ] Trickle ICE
 - [x] DataChannel
-- [ ] MediaChannel
+- [x] MediaChannel
   - [x] sendonly
   - [x] recvonly
   - [x] sendrecv
