@@ -4,7 +4,7 @@ werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
 
 werift is a WebRTC Implementation for TypeScript (Node.js)
 
-# Current state
+# current state
 
 - [x] STUN
 - [ ] TURN
