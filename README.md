@@ -4,23 +4,38 @@ werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
 
 werift is a WebRTC Implementation for TypeScript (Node.js)
 
+# Current state
 
-| feature      | progress  |
-| ------------ | --------- |
-| DataChannel  | supported |
-| MediaChannel | WIP       |
+- [x] STUN
+- [ ] TURN
+- [ ] ICE
+  - [x] Vanilla ICE
+  - [ ] Trickle ICE
+- [x] DataChannel
+- [ ] MediaChannel
+  - [x] sendonly
+  - [x] recvonly
+  - [x] sendrecv
+  - [x] multi track
+  - [ ] RTCP
+  - [ ] Simulcast
 
 # install 
+
 ```npm install werift``` 
 
 # examples 
+
 https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples 
 
 # demo
+
 run
+
 ```sh
 yarn ts-node --files examples/datachannel/offer.ts
 ```
+
 open
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
 
