@@ -39,6 +39,6 @@ server.on("connection", async (socket) => {
 
   await transceiver.sender.onReady.asPromise();
   udp.on("message", (data) => {
-    transceiver.sender.sendRtp(data);
+    transceiver.sendRtp(data);
   });
 });

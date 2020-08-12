@@ -27,6 +27,6 @@ server.on("connection", async (socket) => {
   await transceiver.sender.onReady.asPromise();
   transceiver.receiver.onRtp.subscribe((rtp) => {
     udp.send(rtp.serialize(), 4002, "127.0.0.1");
-    transceiver.sender.sendRtp(rtp.serialize());
+    transceiver.sendRtp(rtp.serialize());
   });
 });

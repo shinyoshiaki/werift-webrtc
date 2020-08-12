@@ -4,6 +4,7 @@ import { RTCDtlsTransport } from "../transport/dtls";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
+  RTCRtpParameters,
 } from "./parameters";
 import * as uuid from "uuid";
 import { Kind } from "../../typings/domain";
@@ -18,6 +19,7 @@ export class RTCRtpTransceiver {
   dtlsTransport?: RTCDtlsTransport;
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  parameters: RTCRtpParameters;
 
   constructor(
     public kind: Kind,
@@ -25,4 +27,15 @@ export class RTCRtpTransceiver {
     public sender: RTCRtpSender,
     public direction: Direction
   ) {}
+
+  onRtp = this.receiver.onRtp;
+
+  sendRtp(rawRTP: Buffer) {
+    if (!this.parameters)
+      this.parameters = new RTCRtpParameters({
+        muxId: this.mid,
+        headerExtensions: this.headerExtensions,
+      });
+    this.sender.sendRtp(rawRTP, this.parameters);
+  }
 }

@@ -39,9 +39,6 @@ export class SrtpContext extends Context {
   }
 
   encryptRTP(payload: Buffer, header: RtpHeader) {
-    // header = header || RtpHeader.deSerialize(rawRtp);
-    // const payload = rawRtp.slice(header.payloadOffset);
-
     let dst = Buffer.from([]);
     dst = growBufferSize(dst, header.serializeSize + payload.length + 10);
 

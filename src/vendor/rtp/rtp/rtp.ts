@@ -220,7 +220,7 @@ export class RtpHeader {
             offset += extension.payload.length;
           });
           break;
-        case extensionProfileTwoByte:
+        case extensionProfileTwoByte: // 1バイトで収まらなくなった歴史的経緯
           this.extensions.forEach((extension) => {
             buf.writeUInt8(extension.id, offset++);
             buf.writeUInt8(extension.payload.length, offset++);
