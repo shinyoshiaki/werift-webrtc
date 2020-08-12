@@ -100,6 +100,9 @@ export class RTCPeerConnection {
     if (!configuration.codecs) {
       configuration.codecs = CODECS;
     }
+    if (!configuration.headerExtensions) {
+      configuration.headerExtensions = { audio: [], video: [] };
+    }
   }
 
   get iceConnectionState() {
