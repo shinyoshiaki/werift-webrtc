@@ -352,7 +352,9 @@ export class MediaDescription {
     if (this.direction) {
       lines.push(`a=${this.direction}`);
     }
-
+    this.rtp.headerExtensions.forEach((extension) =>
+      lines.push(`a=extmap:${extension.id} ${extension.uri}`)
+    );
     if (this.rtp.muxId) {
       lines.push(`a=mid:${this.rtp.muxId}`);
     }

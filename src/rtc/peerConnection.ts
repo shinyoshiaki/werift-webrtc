@@ -11,6 +11,7 @@ import {
   RTCRtpCodingParameters,
   RTCRtpParameters,
   RTCRtpReceiveParameters,
+  RTCRtpHeaderExtensionParameters,
 } from "./media/parameters";
 import { RtpRouter } from "./media/router";
 import { RTCRtpReceiver } from "./media/rtpReceiver";
@@ -42,7 +43,14 @@ type Configuration = {
   stunServer: [string, number];
   privateKey: string;
   certificate: string;
-  codecs: { audio: RTCRtpCodecParameters[]; video: RTCRtpCodecParameters[] };
+  codecs: Partial<{
+    audio: RTCRtpCodecParameters[];
+    video: RTCRtpCodecParameters[];
+  }>;
+  headerExtensions: Partial<{
+    audio: RTCRtpHeaderExtensionParameters[];
+    video: RTCRtpHeaderExtensionParameters[];
+  }>;
 };
 
 type SignalingState =
@@ -92,6 +100,9 @@ export class RTCPeerConnection {
     if (!configuration.codecs) {
       configuration.codecs = CODECS;
     }
+    if (!configuration.headerExtensions) {
+      configuration.headerExtensions = { audio: [], video: [] };
+    }
   }
 
   get iceConnectionState() {
@@ -114,7 +125,7 @@ export class RTCPeerConnection {
     return wrapSessionDescription(this._remoteDescription());
   }
 
-  private _localDescription() {
+  _localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
   }
 
@@ -140,6 +151,9 @@ export class RTCPeerConnection {
 
     this.transceivers.forEach((transceiver) => {
       transceiver.codecs = this.configuration.codecs[transceiver.kind];
+      transceiver.headerExtensions = this.configuration.headerExtensions[
+        transceiver.kind
+      ];
     });
 
     const mids = [...this.seenMid];
@@ -420,6 +434,7 @@ export class RTCPeerConnection {
         })
     );
     receiveParameters.encodings = encodings;
+    receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
   }
 
@@ -511,13 +526,16 @@ export class RTCPeerConnection {
 
         // # negotiate codecs
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
-          (this.configuration.codecs[
-            media.kind
-          ] as RTCRtpCodecParameters[]).find(
+          this.configuration.codecs[media.kind as "audio" | "video"].find(
             (localCodec) => localCodec.mimeType === remoteCodec.mimeType
           )
         );
-        transceiver.headerExtensions = [];
+        transceiver.headerExtensions = media.rtp.headerExtensions.filter(
+          (extension) =>
+            this.configuration.headerExtensions[
+              media.kind as "video" | "audio"
+            ].find((v) => v.uri === extension.uri)
+        );
 
         this.remoteDtls[transceiver.uuid] = media.dtls;
         this.remoteIce[transceiver.uuid] = media.ice;
@@ -721,7 +739,11 @@ function createMediaDescriptionForTransceiver(
   );
   media.direction = direction;
   media.msid = `${transceiver.sender.streamId} ${transceiver.sender.trackId}`;
-  media.rtp = new RTCRtpParameters({ codecs: transceiver.codecs, muxId: mid });
+  media.rtp = new RTCRtpParameters({
+    codecs: transceiver.codecs,
+    headerExtensions: transceiver.headerExtensions,
+    muxId: mid,
+  });
   media.rtcpHost = "0.0.0.0";
   media.rtcpPort = 9;
   media.rtcpMux = true;

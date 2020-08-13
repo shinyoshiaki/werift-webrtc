@@ -1,13 +1,14 @@
 import { randomBytes } from "crypto";
 import { jspack } from "jspack";
 import * as uuid from "uuid";
-import { RtpHeader, RtpPacket } from "../../vendor/rtp/rtp/rtp";
-import { RtcpPacketConverter, RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
+import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
+import { RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtcpSrPacket, RtcpSenderInfo } from "../../vendor/rtp/rtcp/sr";
 import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { sleep } from "../../helper";
 import { RTCDtlsTransport, DtlsState } from "../transport/dtls";
 import Event from "rx.mini";
+import { RTCRtpParameters } from "./parameters";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -60,11 +61,22 @@ export class RTCRtpSender {
     }
   }
 
-  // call from track
-  sendRtp(rawRtp: Buffer) {
+  sendRtp(rawRtp: Buffer, parameters: RTCRtpParameters) {
     const rtp = RtpPacket.deSerialize(rawRtp);
     const header = rtp.header;
     header.ssrc = this.ssrc;
+
+    // todo refactor
+    header.extensions = parameters.headerExtensions.map((extension) => {
+      const id = extension.id;
+      let payload: Buffer;
+      switch (extension.uri) {
+        case "urn:ietf:params:rtp-hdrext:sdes:mid":
+          payload = Buffer.from(parameters.muxId);
+          break;
+      }
+      return { id, payload };
+    });
 
     // this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
     // this.rtpTimestamp = rtp.header.timestamp;

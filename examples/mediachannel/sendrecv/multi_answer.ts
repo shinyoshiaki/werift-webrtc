@@ -26,11 +26,11 @@ server.on("connection", (socket) => {
     socket.send(JSON.stringify(answer));
 
     await transceiver1.sender.onReady.asPromise();
-    transceiver1.receiver.onRtp.subscribe((rtp) => {
-      transceiver1.sender.sendRtp(rtp.serialize());
+    transceiver1.onRtp.subscribe((rtp) => {
+      transceiver1.sendRtp(rtp.serialize());
     });
-    transceiver2.receiver.onRtp.subscribe((rtp) => {
-      transceiver2.sender.sendRtp(rtp.serialize());
+    transceiver2.onRtp.subscribe((rtp) => {
+      transceiver2.sendRtp(rtp.serialize());
     });
   });
 });

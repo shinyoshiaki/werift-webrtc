@@ -44,9 +44,9 @@ server.on("connection", async (socket) => {
 
   await transceiver1.sender.onReady.asPromise();
   udp1.on("message", (data) => {
-    transceiver1.sender.sendRtp(data);
+    transceiver1.sendRtp(data);
   });
   udp2.on("message", (data) => {
-    transceiver2.sender.sendRtp(data);
+    transceiver2.sendRtp(data);
   });
 });

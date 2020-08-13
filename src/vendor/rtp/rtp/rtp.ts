@@ -38,7 +38,7 @@ export class RtpHeader {
   timestamp: number = 0;
   ssrc: number = 0;
   csrc: number[] = [];
-  extensionProfile: number = 0;
+  extensionProfile: number = extensionProfileOneByte;
   extensions: Extension[] = [];
   constructor(props: Partial<RtpHeader> = {}) {
     Object.assign(this, props);
@@ -182,6 +182,7 @@ export class RtpHeader {
     const v_p_x_cc = { ref: 0 };
     setBit(v_p_x_cc, this.version, 1);
     if (this.padding) setBit(v_p_x_cc, 1, 2);
+    if (this.extensions.length > 0) this.extension = true;
     if (this.extension) setBit(v_p_x_cc, 1, 3);
     setBit(v_p_x_cc, this.csrc.length, 4, 4);
     buf.writeUInt8(v_p_x_cc.ref, offset++);
@@ -220,7 +221,7 @@ export class RtpHeader {
             offset += extension.payload.length;
           });
           break;
-        case extensionProfileTwoByte:
+        case extensionProfileTwoByte: // 1バイトで収まらなくなった歴史的経緯
           this.extensions.forEach((extension) => {
             buf.writeUInt8(extension.id, offset++);
             buf.writeUInt8(extension.payload.length, offset++);

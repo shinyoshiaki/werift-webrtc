@@ -46,7 +46,7 @@
         "--forceExit",
         "--detectOpenHandles",
         "./tests/rtc/peepConnection.test.ts",
-        "-t test_sendonly_recvonly"
+        "-t rtp_extension"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
@@ -64,7 +64,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/sendonly/offer.ts"
+        "${workspaceRoot}/examples/mediachannel/extension/offer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
