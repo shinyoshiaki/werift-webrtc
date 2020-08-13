@@ -12,6 +12,7 @@ export class RTCRtpReceiver {
   lsr: { [key: number]: BigInt } = {};
   lsrTime: { [key: number]: number } = {};
   private rtcpSsrc?: number;
+  sdesMid: string;
 
   constructor(public kind: string) {}
 

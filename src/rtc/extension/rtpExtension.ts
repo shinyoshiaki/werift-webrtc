@@ -1,8 +1,8 @@
 import { RTCRtpHeaderExtensionParameters } from "../media/parameters";
 
-export function createSdesMid() {
+export function useSdesMid(id = 1) {
   return new RTCRtpHeaderExtensionParameters({
-    id: 1,
+    id,
     uri: "urn:ietf:params:rtp-hdrext:sdes:mid",
   });
 }

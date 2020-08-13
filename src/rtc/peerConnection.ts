@@ -434,6 +434,7 @@ export class RTCPeerConnection {
         })
     );
     receiveParameters.encodings = encodings;
+    receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
   }
 

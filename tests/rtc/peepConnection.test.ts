@@ -2,7 +2,7 @@ import { RTCPeerConnection } from "../../src";
 import { RTCDataChannel } from "../../src/rtc/dataChannel";
 import { RtpPacket, RtpHeader } from "../../src/vendor/rtp/rtp/rtp";
 import { isMedia } from "../../src/utils";
-import { createSdesMid } from "../../src/rtc/extension/rtp";
+import { useSdesMid } from "../../src/rtc/extension/rtpExtension";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async (done) => {
@@ -204,23 +204,23 @@ describe("peerConnection", () => {
 
   test("rtp_extension", async () => {
     const pc1 = new RTCPeerConnection({
-      headerExtensions: { video: [createSdesMid()] },
+      headerExtensions: { video: [useSdesMid()] },
     });
     pc1.addTransceiver("video", "sendrecv");
     const pc2 = new RTCPeerConnection({
-      headerExtensions: { video: [createSdesMid()] },
+      headerExtensions: { video: [useSdesMid()] },
     });
 
     await pc1.setLocalDescription(pc1.createOffer());
     const pc1Local = pc1._localDescription();
     expect(pc1Local.media[0].rtp.headerExtensions[0].uri).toBe(
-      createSdesMid().uri
+      useSdesMid().uri
     );
     await pc2.setRemoteDescription(pc1.localDescription);
     await pc2.setLocalDescription(pc2.createAnswer());
     const pc2Local = pc2._localDescription();
     expect(pc2Local.media[0].rtp.headerExtensions[0].uri).toBe(
-      createSdesMid().uri
+      useSdesMid().uri
     );
     await pc1.setRemoteDescription(pc2.localDescription);
   });
