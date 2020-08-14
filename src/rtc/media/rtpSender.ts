@@ -74,6 +74,10 @@ export class RTCRtpSender {
         case "urn:ietf:params:rtp-hdrext:sdes:mid":
           payload = Buffer.from(parameters.muxId);
           break;
+        case "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id":
+          // todo fix
+          payload = Buffer.from("dummy");
+          break;
       }
       return { id, payload };
     });

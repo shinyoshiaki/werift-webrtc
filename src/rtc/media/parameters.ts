@@ -99,3 +99,11 @@ export class RTCRtpReceiveParameters extends RTCRtpParameters {
     Object.assign(this, props);
   }
 }
+
+export class RTCRtpSimulcastParameters {
+  rid: string;
+  direction: string;
+  constructor(props: Partial<RTCRtpSimulcastParameters> = {}) {
+    Object.assign(this, props);
+  }
+}

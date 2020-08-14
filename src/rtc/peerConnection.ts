@@ -66,6 +66,7 @@ export class RTCPeerConnection {
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
   onTrack = new Event<RTCRtpTransceiver>();
+  onReceiver = new Event<RTCRtpReceiver>();
   router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
@@ -429,7 +430,7 @@ export class RTCPeerConnection {
     const encodings = transceiver.codecs.map(
       (codec) =>
         new RTCRtpCodingParameters({
-          ssrc: media.ssrc[0].ssrc,
+          ssrc: media.ssrc[0]?.ssrc,
           payloadType: codec.payloadType,
         })
     );
@@ -512,6 +513,12 @@ export class RTCPeerConnection {
         if (!transceiver) {
           transceiver = this.addTransceiver(media.kind, "recvonly");
         }
+
+        media.simulcastParameters.forEach((param) => {
+          const receiver = new RTCRtpReceiver(media.kind);
+          this.router.ridTable[param.rid] = receiver;
+          this.onReceiver.execute(receiver);
+        });
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
           this.onTrack.execute(transceiver);
@@ -684,7 +691,7 @@ export class RTCPeerConnection {
       } else {
         media!.dtls!.role = dtlsTransport!.role;
       }
-
+      media.simulcastParameters = remoteM.simulcastParameters;
       description.media.push(media!);
     });
 
