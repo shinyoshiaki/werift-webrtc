@@ -27,15 +27,17 @@ export class RTCRtpSender {
   private packetCount = 0;
   private rtt?: number;
   onReady = new Event();
-  ready = false;
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
     dtlsTransport.stateChanged.subscribe((state) => {
       if (state === DtlsState.CONNECTED) {
-        this.ready = true;
         this.onReady.execute();
       }
     });
+  }
+
+  get ready() {
+    return this.dtlsTransport.state === DtlsState.CONNECTED;
   }
 
   haltRtcp = true;
