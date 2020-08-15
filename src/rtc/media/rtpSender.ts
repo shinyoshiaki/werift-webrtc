@@ -88,10 +88,10 @@ export class RTCRtpSender {
       return { id, payload };
     });
 
-    // this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
-    // this.rtpTimestamp = rtp.header.timestamp;
-    // this.octetCount += rtp.payload.length;
-    // this.packetCount++;
+    this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
+    this.rtpTimestamp = rtp.header.timestamp;
+    this.octetCount += rtp.payload.length;
+    this.packetCount++;
 
     this.dtlsTransport.sendRtp(rtp.payload, header);
   }

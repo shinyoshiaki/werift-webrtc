@@ -24,18 +24,16 @@ export class RTCRtpReceiver {
     this.onTrack.execute(track);
   }
 
-  handleRtcpPackets = (packets: RtcpPacket[]) => {
-    packets.forEach((packet) => {
-      switch (packet.type) {
-        case RtcpSrPacket.type:
-          const sr = packet as RtcpSrPacket;
-          this.lsr[sr.ssrc] =
-            (sr.senderInfo.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
-          this.lsrTime[packet.ssrc] = Date.now() / 1000;
-          break;
-      }
-    });
-  };
+  handleRtcpPacket(packet: RtcpPacket) {
+    switch (packet.type) {
+      case RtcpSrPacket.type:
+        const sr = packet as RtcpSrPacket;
+        this.lsr[sr.ssrc] =
+          (sr.senderInfo.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
+        this.lsrTime[packet.ssrc] = Date.now() / 1000;
+        break;
+    }
+  }
 
   handleRtpBySsrc = (packet: RtpPacket, ssrc: number) => {
     const track = this.tracks.find((track) => track.ssrc === ssrc);
