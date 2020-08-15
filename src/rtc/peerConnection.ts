@@ -38,6 +38,7 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpCapabilities, RTCSctpTransport } from "./transport/sctp";
+import { RtpTrack } from "./media/track";
 
 type Configuration = {
   stunServer: [string, number];
@@ -65,8 +66,7 @@ export class RTCPeerConnection {
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
-  onTrack = new Event<RTCRtpTransceiver>();
-  onReceiver = new Event<RTCRtpReceiver>();
+  onTransceiver = new Event<RTCRtpTransceiver>();
   router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
@@ -514,14 +514,14 @@ export class RTCPeerConnection {
           transceiver = this.addTransceiver(media.kind, "recvonly");
         }
 
+        // simulcast
         media.simulcastParameters.forEach((param) => {
-          const receiver = new RTCRtpReceiver(media.kind);
-          this.router.ridTable[param.rid] = receiver;
-          this.onReceiver.execute(receiver);
+          transceiver.receiver.addTrack(new RtpTrack({ rid: param.rid }));
+          this.router.ridTable[param.rid] = transceiver.receiver;
         });
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-          this.onTrack.execute(transceiver);
+          this.onTransceiver.execute(transceiver);
         }
 
         dtlsTransport = transceiver.dtlsTransport;
@@ -643,7 +643,6 @@ export class RTCPeerConnection {
       new RTCRtpSender(kind, dtlsTransport),
       direction
     );
-    transceiver.receiver.setRtcpSsrc(transceiver.sender.ssrc);
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
 

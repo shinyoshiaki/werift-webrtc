@@ -2,6 +2,7 @@ import { RTCRtpReceiver } from "./rtpReceiver";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RTCRtpReceiveParameters } from "./parameters";
+import { RtpTrack } from "./track";
 
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver } = {};
@@ -17,6 +18,7 @@ export class RtpRouter {
       .filter((v) => v);
     ssrcs.forEach((ssrc) => {
       this.ssrcTable[ssrc] = receiver;
+      receiver.addTrack(new RtpTrack({ ssrc }));
     });
 
     params.headerExtensions.forEach((extension) => {
@@ -42,14 +44,14 @@ export class RtpRouter {
 
     let ssrcReceiver = this.ssrcTable[packet.header.ssrc];
     if (!ssrcReceiver) {
-      // todo rid
       const rid = extensions["urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"];
       ssrcReceiver = this.ridTable[rid];
+      ssrcReceiver.handleRtpByRid(packet, rid);
+    } else {
+      ssrcReceiver.handleRtpBySsrc(packet, packet.header.ssrc);
     }
 
     ssrcReceiver.sdesMid = extensions["urn:ietf:params:rtp-hdrext:sdes:mid"];
-
-    ssrcReceiver.handleRtpPacket(packet);
   };
 
   routeRtcp = (packets: RtcpPacket[]) => {

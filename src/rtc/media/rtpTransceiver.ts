@@ -28,7 +28,7 @@ export class RTCRtpTransceiver {
     public direction: Direction
   ) {}
 
-  onRtp = this.receiver.onRtp;
+  onTrack = this.receiver.onTrack;
 
   sendRtp(rawRTP: Buffer) {
     if (!this.parameters)

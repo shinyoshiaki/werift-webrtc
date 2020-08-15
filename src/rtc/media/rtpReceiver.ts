@@ -3,21 +3,25 @@ import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { v4 as uuid } from "uuid";
 import Event from "rx.mini";
+import { RtpTrack } from "./track";
 
 export class RTCRtpReceiver {
   uuid = uuid();
-  onRtp = new Event<RtpPacket>();
+  readonly tracks: RtpTrack[] = [];
+  onTrack = new Event<RtpTrack>();
 
   // # RTCP
   lsr: { [key: number]: BigInt } = {};
   lsrTime: { [key: number]: number } = {};
-  private rtcpSsrc?: number;
+
   sdesMid: string;
+  rid: string;
 
   constructor(public kind: string) {}
 
-  setRtcpSsrc(ssrc: number) {
-    this.rtcpSsrc = ssrc;
+  addTrack(track: RtpTrack) {
+    this.tracks.push(track);
+    this.onTrack.execute(track);
   }
 
   handleRtcpPackets = (packets: RtcpPacket[]) => {
@@ -33,7 +37,13 @@ export class RTCRtpReceiver {
     });
   };
 
-  handleRtpPacket = (packet: RtpPacket) => {
-    this.onRtp.execute(packet);
+  handleRtpBySsrc = (packet: RtpPacket, ssrc: number) => {
+    const track = this.tracks.find((track) => track.ssrc === ssrc);
+    track.onRtp.execute(packet);
+  };
+
+  handleRtpByRid = (packet: RtpPacket, rid: string) => {
+    const track = this.tracks.find((track) => track.rid === rid);
+    track.onRtp.execute(packet);
   };
 }

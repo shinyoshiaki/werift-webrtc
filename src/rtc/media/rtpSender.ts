@@ -27,10 +27,12 @@ export class RTCRtpSender {
   private packetCount = 0;
   private rtt?: number;
   onReady = new Event();
+  ready = false;
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
     dtlsTransport.stateChanged.subscribe((state) => {
       if (state === DtlsState.CONNECTED) {
+        this.ready = true;
         this.onReady.execute();
       }
     });
@@ -62,6 +64,8 @@ export class RTCRtpSender {
   }
 
   sendRtp(rawRtp: Buffer, parameters: RTCRtpParameters) {
+    if (!this.ready) return;
+
     const rtp = RtpPacket.deSerialize(rawRtp);
     const header = rtp.header;
     header.ssrc = this.ssrc;
