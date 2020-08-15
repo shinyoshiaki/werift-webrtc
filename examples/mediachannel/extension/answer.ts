@@ -20,7 +20,7 @@ server.on("connection", (socket) => {
         audio: [],
       },
     });
-    pc.addTransceiver("video", "recvonly");
+    const receiver = pc.addTransceiver("video", "recvonly").receiver;
     const f = pc.addTransceiver("video", "sendonly");
     const h = pc.addTransceiver("video", "sendonly");
     const q = pc.addTransceiver("video", "sendonly");
@@ -28,10 +28,9 @@ server.on("connection", (socket) => {
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );
-    pc.onReceiver.subscribe((receiver) => {
-      receiver.onRtp.subscribe((rtp) => {
-        const rid = rtp.header.extensions[1].payload.toString();
-        switch (rid) {
+    receiver.onTrack.subscribe((track) => {
+      track.onRtp.subscribe((rtp) => {
+        switch (track.rid) {
           case "f":
             f.sendRtp(rtp.serialize());
             break;

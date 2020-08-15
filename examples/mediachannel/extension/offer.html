@@ -27,6 +27,7 @@
         const [log, setLog] = React.useState([]);
         const videoRef = React.useRef();
         const videoRef2 = React.useRef();
+        const videoRef3 = React.useRef();
 
         React.useEffect(() => {
           (async () => {
@@ -53,6 +54,7 @@
             peer.ontrack = (e) => {
               console.log("ontrack", e);
               const stream = e.streams[0];
+              console.log(i);
               switch (i++) {
                 case 0:
                   videoRef.current.srcObject = stream;
@@ -61,6 +63,7 @@
                   videoRef2.current.srcObject = stream;
                   break;
                 case 2:
+                  videoRef3.current.srcObject = stream;
                   break;
               }
             };
@@ -79,27 +82,28 @@
               },
               audio: false,
             });
-            localStream.getVideoTracks().forEach((track) =>
-              peer.addTransceiver(track, {
-                streams: [localStream],
-                direction: "sendonly",
-                sendEncodings: [
-                  {
-                    rid: "f",
-                  },
-                  {
-                    rid: "h",
-                    scaleResolutionDownBy: 2.0,
-                  },
-                  {
-                    rid: "q",
-                    scaleResolutionDownBy: 4.0,
-                  },
-                ],
-              })
-            );
-            peer.addTransceiver("video");
-            peer.addTransceiver("video");
+
+            peer.addTransceiver(localStream.getVideoTracks()[0], {
+              streams: [localStream],
+              direction: "sendonly",
+              sendEncodings: [
+                {
+                  rid: "f",
+                },
+                {
+                  rid: "h",
+                  scaleResolutionDownBy: 2.0,
+                },
+                {
+                  rid: "q",
+                  scaleResolutionDownBy: 4.0,
+                },
+              ],
+            });
+
+            peer.addTransceiver("video", { direction: "recvonly" });
+            peer.addTransceiver("video", { direction: "recvonly" });
+            peer.addTransceiver("video", { direction: "recvonly" });
 
             await new Promise((r) => (peer.onnegotiationneeded = r));
 
@@ -119,6 +123,7 @@
             offer
             <video ref={videoRef} autoPlay muted />
             <video ref={videoRef2} autoPlay muted />
+            <video ref={videoRef3} autoPlay muted />
           </div>
         );
       };

@@ -1,10 +1,8 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
-import { createSocket } from "dgram";
 
 const server = new Server({ port: 8888 });
 console.log("start");
-const udp = createSocket("udp4");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
@@ -24,9 +22,9 @@ server.on("connection", async (socket) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
 
-  await transceiver.sender.onReady.asPromise();
-  transceiver.receiver.onRtp.subscribe((rtp) => {
-    udp.send(rtp.serialize(), 4002, "127.0.0.1");
-    transceiver.sendRtp(rtp.serialize());
-  });
+  transceiver.receiver.onTrack.subscribe((track) =>
+    track.onRtp.subscribe((rtp) => {
+      transceiver.sendRtp(rtp.serialize());
+    })
+  );
 });
