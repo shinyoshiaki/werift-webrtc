@@ -87,16 +87,18 @@
               streams: [localStream],
               direction: "sendonly",
               sendEncodings: [
+                { rid: "h", active: true, maxBitrate: 900000 },
                 {
-                  rid: "f",
+                  rid: "m",
+                  active: true,
+                  maxBitrate: 300000,
+                  scaleResolutionDownBy: 2,
                 },
                 {
-                  rid: "h",
-                  scaleResolutionDownBy: 2.0,
-                },
-                {
-                  rid: "q",
-                  scaleResolutionDownBy: 4.0,
+                  rid: "l",
+                  active: true,
+                  maxBitrate: 100000,
+                  scaleResolutionDownBy: 4,
                 },
               ],
             });

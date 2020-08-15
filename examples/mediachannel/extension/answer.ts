@@ -21,9 +21,9 @@ server.on("connection", (socket) => {
       },
     });
     const receiver = pc.addTransceiver("video", "recvonly").receiver;
-    const f = pc.addTransceiver("video", "sendonly");
     const h = pc.addTransceiver("video", "sendonly");
-    const q = pc.addTransceiver("video", "sendonly");
+    const m = pc.addTransceiver("video", "sendonly");
+    const l = pc.addTransceiver("video", "sendonly");
 
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
@@ -31,14 +31,14 @@ server.on("connection", (socket) => {
     receiver.onTrack.subscribe((track) => {
       track.onRtp.subscribe((rtp) => {
         switch (track.rid) {
-          case "f":
-            f.sendRtp(rtp.serialize());
-            break;
           case "h":
             h.sendRtp(rtp.serialize());
             break;
-          case "q":
-            q.sendRtp(rtp.serialize());
+          case "m":
+            m.sendRtp(rtp.serialize());
+            break;
+          case "l":
+            l.sendRtp(rtp.serialize());
             break;
         }
       });
