@@ -70,6 +70,8 @@ export class RtpRouter {
         });
         break;
     }
-    recipients.forEach((recipient) => recipient.handleRtcpPacket(packet));
+    recipients
+      .filter((v) => v)
+      .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
 }

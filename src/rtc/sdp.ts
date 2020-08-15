@@ -238,7 +238,10 @@ export class SessionDescription {
                 const [rid, direction] = divide(value, " ");
 
                 currentMedia.simulcastParameters.push(
-                  new RTCRtpSimulcastParameters({ rid, direction })
+                  new RTCRtpSimulcastParameters({
+                    rid,
+                    direction: direction as any,
+                  })
                 );
               }
               break;

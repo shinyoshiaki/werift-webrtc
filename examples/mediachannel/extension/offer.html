@@ -24,100 +24,102 @@
     <script type="text/babel">
       let rtc;
       const App = () => {
-        const [log, setLog] = React.useState([]);
         const videoRef = React.useRef();
         const videoRef2 = React.useRef();
         const videoRef3 = React.useRef();
 
-        React.useEffect(() => {
-          (async () => {
-            const socket = new WebSocket("ws://localhost:8888");
-            await new Promise((r) => socket.addEventListener("open", r));
-            console.log("open websocket");
+        const main = async () => {
+          const socket = new WebSocket("ws://localhost:8888");
+          await new Promise((r) => socket.addEventListener("open", r));
+          console.log("open websocket");
 
-            const peer = (rtc = new RTCPeerConnection({
-              iceServers: [],
-            }));
-            peer.onicecandidate = ({ candidate }) => {
-              if (!candidate) {
-                console.log("offer", peer.localDescription.sdp);
-                socket.send(JSON.stringify(peer.localDescription));
-              }
-            };
-            peer.oniceconnectionstatechange = () => {
-              console.log(
-                "oniceconnectionstatechange",
-                peer.iceConnectionState
-              );
-            };
-            let i = 0;
-            peer.ontrack = (e) => {
-              console.log("ontrack", e);
-              const stream = e.streams[0];
-              console.log(i);
-              switch (i++) {
-                case 0:
-                  videoRef.current.srcObject = stream;
-                  break;
-                case 1:
-                  videoRef2.current.srcObject = stream;
-                  break;
-                case 2:
-                  videoRef3.current.srcObject = stream;
-                  break;
-              }
-            };
-            const localStream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                width: {
-                  ideal: 4096,
-                },
-                height: {
-                  ideal: 2160,
-                },
-                frameRate: {
-                  ideal: 60,
-                  min: 10,
-                },
-              },
-              audio: false,
-            });
+          const peer = (rtc = new RTCPeerConnection({
+            iceServers: [],
+          }));
 
-            peer.addTransceiver(localStream.getVideoTracks()[0], {
-              streams: [localStream],
-              direction: "sendonly",
-              sendEncodings: [
-                { rid: "h", active: true, maxBitrate: 900000 },
-                {
-                  rid: "m",
-                  active: true,
-                  maxBitrate: 300000,
-                  scaleResolutionDownBy: 2,
-                },
-                {
-                  rid: "l",
-                  active: true,
-                  maxBitrate: 100000,
-                  scaleResolutionDownBy: 4,
-                },
-              ],
-            });
+          socket.addEventListener("message", async (ev) => {
+            const answer = JSON.parse(ev.data);
+            console.log("answer", answer.sdp);
+            await peer.setRemoteDescription(answer);
+          });
 
-            peer.addTransceiver("video", { direction: "recvonly" });
-            peer.addTransceiver("video", { direction: "recvonly" });
-            peer.addTransceiver("video", { direction: "recvonly" });
+          peer.oniceconnectionstatechange = () => {
+            console.log("oniceconnectionstatechange", peer.iceConnectionState);
+          };
+          peer.onicecandidate = (ev) => {
+            if (!ev.candidate) {
+              console.log("offer", peer.localDescription.sdp);
+              socket.send(JSON.stringify(peer.localDescription));
+            }
+          };
 
-            await new Promise((r) => (peer.onnegotiationneeded = r));
-
+          peer.onnegotiationneeded = async () => {
             const offer = await peer.createOffer();
             await peer.setLocalDescription(offer);
+          };
 
-            socket.addEventListener("message", async (ev) => {
-              const answer = JSON.parse(ev.data);
-              console.log("answer", answer.sdp);
-              await peer.setRemoteDescription(answer);
-            });
-          })();
+          let i = 0;
+          peer.ontrack = (e) => {
+            console.log("ontrack", e);
+            const stream = e.streams[0];
+            console.log(i);
+            switch (i++) {
+              case 0:
+                videoRef.current.srcObject = stream;
+                break;
+              case 1:
+                videoRef2.current.srcObject = stream;
+                break;
+              case 2:
+                videoRef3.current.srcObject = stream;
+                break;
+            }
+          };
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: {
+                ideal: 4096,
+              },
+              height: {
+                ideal: 2160,
+              },
+              frameRate: {
+                ideal: 60,
+                min: 10,
+              },
+            },
+            audio: false,
+          });
+
+          peer.addTransceiver(stream.getVideoTracks()[0], {
+            streams: [stream],
+            direction: "sendonly",
+            sendEncodings: [
+              {
+                rid: "high",
+                maxBitrate: 900000,
+                scaleResolutionDownBy: 1,
+              },
+              {
+                rid: "middle",
+                maxBitrate: 100000,
+                scaleResolutionDownBy: 3,
+              },
+              {
+                rid: "low",
+                maxBitrate: 100000,
+                scaleResolutionDownBy: 4,
+              },
+            ],
+          });
+          peer.addTransceiver("video", { direction: "recvonly" });
+          peer.addTransceiver("video", { direction: "recvonly" });
+          peer.addTransceiver("video", { direction: "recvonly" });
+        };
+
+        React.useEffect(() => {
+          main();
         }, []);
 
         return (

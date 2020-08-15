@@ -21,26 +21,19 @@ server.on("connection", (socket) => {
       },
     });
     const receiver = pc.addTransceiver("video", "recvonly").receiver;
-    const h = pc.addTransceiver("video", "sendonly");
-    const m = pc.addTransceiver("video", "sendonly");
-    const l = pc.addTransceiver("video", "sendonly");
+    const simulcast = {
+      high: pc.addTransceiver("video", "sendonly"),
+      middle: pc.addTransceiver("video", "sendonly"),
+      low: pc.addTransceiver("video", "sendonly"),
+    };
 
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );
     receiver.onTrack.subscribe((track) => {
       track.onRtp.subscribe((rtp) => {
-        switch (track.rid) {
-          case "h":
-            h.sendRtp(rtp.serialize());
-            break;
-          case "m":
-            m.sendRtp(rtp.serialize());
-            break;
-          case "l":
-            l.sendRtp(rtp.serialize());
-            break;
-        }
+        const sender = simulcast[track.rid];
+        sender.sendRtp(rtp.serialize());
       });
     });
 

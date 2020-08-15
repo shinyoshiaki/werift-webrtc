@@ -639,10 +639,11 @@ export class RTCPeerConnection {
 
     const transceiver = new RTCRtpTransceiver(
       kind,
-      new RTCRtpReceiver(kind),
+      new RTCRtpReceiver(kind, dtlsTransport),
       new RTCRtpSender(kind, dtlsTransport),
       direction
     );
+    transceiver.receiver.rtcpSsrc = transceiver.sender.ssrc;
     transceiver.dtlsTransport = dtlsTransport;
     this.transceivers.push(transceiver);
 
