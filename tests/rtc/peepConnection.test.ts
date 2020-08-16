@@ -135,10 +135,12 @@ describe("peerConnection", () => {
     });
 
     const recvonly = new RTCPeerConnection();
-    recvonly.onTrack.subscribe((transceiver) => {
-      transceiver.receiver.onRtp.subscribe((rtp) => {
-        expect(rtp.payload).toEqual(Buffer.from("test"));
-        done();
+    recvonly.onTransceiver.subscribe((transceiver) => {
+      transceiver.onTrack.subscribe((track) => {
+        track.onRtp.subscribe((rtp) => {
+          expect(rtp.payload).toEqual(Buffer.from("test"));
+          done();
+        });
       });
     });
 
@@ -177,18 +179,22 @@ describe("peerConnection", () => {
     (async () => {
       await Promise.all([
         new Promise((r) => {
-          pc1.onTrack.subscribe((transceiver) => {
-            transceiver.receiver.onRtp.subscribe((rtp) => {
-              expect(rtp.payload).toEqual(Buffer.from("pc2"));
-              r();
+          pc1.onTransceiver.subscribe((transceiver) => {
+            transceiver.onTrack.subscribe((track) => {
+              track.onRtp.subscribe((rtp) => {
+                expect(rtp.payload).toEqual(Buffer.from("pc2"));
+                r();
+              });
             });
           });
         }),
         new Promise((r) => {
-          pc2.onTrack.subscribe((transceiver) => {
-            transceiver.receiver.onRtp.subscribe((rtp) => {
-              expect(rtp.payload).toEqual(Buffer.from("pc1"));
-              r();
+          pc2.onTransceiver.subscribe((transceiver) => {
+            transceiver.onTrack.subscribe((track) => {
+              track.onRtp.subscribe((rtp) => {
+                expect(rtp.payload).toEqual(Buffer.from("pc1"));
+                r();
+              });
             });
           });
         }),

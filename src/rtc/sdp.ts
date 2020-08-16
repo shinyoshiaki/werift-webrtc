@@ -15,11 +15,13 @@ import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpParameters,
+  RTCRtpSimulcastParameters,
 } from "./media/parameters";
 import { Direction } from "./media/rtpTransceiver";
 import { RTCDtlsFingerprint, RTCDtlsParameters } from "./transport/dtls";
 import { RTCIceCandidate, RTCIceParameters } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
+import { reverseSimulcastDirection } from "../utils";
 
 export class SessionDescription {
   version = 0;
@@ -232,6 +234,18 @@ export class SessionDescription {
                 ssrcInfo[ssrcAttr] = ssrcValue;
               }
               break;
+            case "rid":
+              {
+                const [rid, direction] = divide(value, " ");
+
+                currentMedia.simulcastParameters.push(
+                  new RTCRtpSimulcastParameters({
+                    rid,
+                    direction: direction as any,
+                  })
+                );
+              }
+              break;
           }
         }
       });
@@ -332,6 +346,10 @@ export class MediaDescription {
   iceCandidates: RTCIceCandidate[] = [];
   iceCandidatesComplete = false;
   iceOptions?: string;
+
+  // Simulcast
+  simulcastParameters: RTCRtpSimulcastParameters[] = [];
+
   constructor(
     public kind: Kind,
     public port: number,
@@ -349,12 +367,37 @@ export class MediaDescription {
     if (this.host) {
       lines.push(`c=${ipAddressToSdp(this.host)}`);
     }
+    // ice
+    this.iceCandidates.forEach((candidate) => {
+      lines.push(`a=candidate:${candidateToSdp(candidate)}`);
+    });
+    if (this.iceCandidatesComplete) {
+      lines.push("a=end-of-candidates");
+    }
+    if (this.ice.usernameFragment) {
+      lines.push(`a=ice-ufrag:${this.ice.usernameFragment}`);
+    }
+    if (this.ice.password) {
+      lines.push(`a=ice-pwd:${this.ice.password}`);
+    }
+    if (this.iceOptions) {
+      lines.push(`a=ice-options:${this.iceOptions}`);
+    }
+
+    // dtls
+    if (this.dtls) {
+      this.dtls.fingerprints.forEach((fingerprint) => {
+        lines.push(
+          `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
+        );
+      });
+      if (!this.dtls.role) throw new Error();
+      lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtls.role]}`);
+    }
+
     if (this.direction) {
       lines.push(`a=${this.direction}`);
     }
-    this.rtp.headerExtensions.forEach((extension) =>
-      lines.push(`a=extmap:${extension.id} ${extension.uri}`)
-    );
     if (this.rtp.muxId) {
       lines.push(`a=mid:${this.rtp.muxId}`);
     }
@@ -399,32 +442,23 @@ export class MediaDescription {
       lines.push(`a=max-message-size:${this.sctpCapabilities.maxMessageSize}`);
     }
 
-    // ice
-    this.iceCandidates.forEach((candidate) => {
-      lines.push(`a=candidate:${candidateToSdp(candidate)}`);
-    });
-    if (this.iceCandidatesComplete) {
-      lines.push("a=end-of-candidates");
-    }
-    if (this.ice.usernameFragment) {
-      lines.push(`a=ice-ufrag:${this.ice.usernameFragment}`);
-    }
-    if (this.ice.password) {
-      lines.push(`a=ice-pwd:${this.ice.password}`);
-    }
-    if (this.iceOptions) {
-      lines.push(`a=ice-options:${this.iceOptions}`);
-    }
+    // rtp extension
+    this.rtp.headerExtensions.forEach((extension) =>
+      lines.push(`a=extmap:${extension.id} ${extension.uri}`)
+    );
 
-    // dtls
-    if (this.dtls) {
-      this.dtls.fingerprints.forEach((fingerprint) => {
+    // simulcast
+    if (this.simulcastParameters.length) {
+      this.simulcastParameters.forEach((param) => {
         lines.push(
-          `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
+          `a=rid:${param.rid} ${reverseSimulcastDirection(param.direction)}`
         );
       });
-      if (!this.dtls.role) throw new Error();
-      lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtls.role]}`);
+      lines.push(
+        `a=simulcast:recv ${this.simulcastParameters
+          .map((param) => param.rid)
+          .join(";")}`
+      );
     }
 
     return lines.join("\r\n") + "\r\n";

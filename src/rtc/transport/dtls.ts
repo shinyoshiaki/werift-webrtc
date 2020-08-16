@@ -126,8 +126,8 @@ export class RTCDtlsTransport {
       if (!isMedia(data)) return;
       if (isRtcp(data)) {
         const dec = this.srtcp.decrypt(data);
-        const rtcp = RtcpPacketConverter.deSerialize(dec);
-        this.router.routeRtcp(rtcp);
+        const rtcps = RtcpPacketConverter.deSerialize(dec);
+        rtcps.forEach((rtcp) => this.router.routeRtcp(rtcp));
       } else {
         const dec = this.srtp.decrypt(data);
         const rtp = RtpPacket.deSerialize(dec);

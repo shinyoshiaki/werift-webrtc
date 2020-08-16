@@ -25,10 +25,10 @@ server.on("connection", async (socket) => {
   });
 
   await transceiver1.sender.onReady.asPromise();
-  transceiver1.onRtp.subscribe((rtp) => {
+  transceiver1.receiver.tracks[0].onRtp.subscribe((rtp) => {
     transceiver1.sendRtp(rtp.serialize());
   });
-  transceiver2.onRtp.subscribe((rtp) => {
+  transceiver2.receiver.tracks[0].onRtp.subscribe((rtp) => {
     transceiver2.sendRtp(rtp.serialize());
   });
 });

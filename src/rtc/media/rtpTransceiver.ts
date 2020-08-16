@@ -8,6 +8,9 @@ import {
 } from "./parameters";
 import * as uuid from "uuid";
 import { Kind } from "../../typings/domain";
+import { RtpTrack } from "./track";
+import Event from "rx.mini";
+import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 
 export type Direction = "sendonly" | "sendrecv" | "recvonly";
 
@@ -20,6 +23,7 @@ export class RTCRtpTransceiver {
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   parameters: RTCRtpParameters;
+  onTrack = new Event<RtpTrack>();
 
   constructor(
     public kind: Kind,
@@ -28,14 +32,17 @@ export class RTCRtpTransceiver {
     public direction: Direction
   ) {}
 
-  onRtp = this.receiver.onRtp;
+  addTrack(track: RtpTrack) {
+    this.receiver.tracks.push(track);
+    this.onTrack.execute(track);
+  }
 
-  sendRtp(rawRTP: Buffer) {
+  sendRtp = (rtp: Buffer | RtpPacket) => {
     if (!this.parameters)
       this.parameters = new RTCRtpParameters({
         muxId: this.mid,
         headerExtensions: this.headerExtensions,
       });
-    this.sender.sendRtp(rawRTP, this.parameters);
-  }
+    this.sender.sendRtp(rtp, this.parameters);
+  };
 }
