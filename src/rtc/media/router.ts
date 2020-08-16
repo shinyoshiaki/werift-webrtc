@@ -58,8 +58,9 @@ export class RtpRouter {
       }, {} as { [uri: string]: any });
 
     let ssrcReceiver = this.ssrcTable[packet.header.ssrc];
-    if (!ssrcReceiver) {
-      const rid = extensions["urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"];
+    const rid = extensions["urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"];
+
+    if (rid) {
       ssrcReceiver = this.ridTable[rid];
       ssrcReceiver.handleRtpByRid(packet, rid);
     } else {

@@ -822,7 +822,7 @@ function addTransportDescription(
 function allocateMid(mids: Set<string>) {
   let mid = "";
   while (true) {
-    mid = Math.random().toString().slice(2);
+    mid = Math.random().toString().slice(2).slice(0, 8);
     if (!mids.has(mid)) break;
   }
   mids.add(mid);

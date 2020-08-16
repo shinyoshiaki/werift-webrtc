@@ -1,9 +1,7 @@
 import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
-import {
-  useSdesRTPStreamID,
-  useSdesMid,
-} from "../../../src/rtc/extension/rtpExtension";
+import { useSdesRTPStreamID } from "../../../src/rtc/extension/rtpExtension";
+import { RTCRtpTransceiver } from "../../../src/rtc/media/rtpTransceiver";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -12,7 +10,7 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
     headerExtensions: {
-      video: [useSdesMid(), useSdesRTPStreamID()],
+      video: [useSdesRTPStreamID()],
       audio: [],
     },
   });
@@ -34,8 +32,7 @@ server.on("connection", async (socket) => {
   };
   transceiver.onTrack.subscribe((track) => {
     track.onRtp.subscribe((rtp) => {
-      const sender = multiCast[track.rid];
-      console.log(track.rid, !!sender);
+      const sender = multiCast[track.rid] as RTCRtpTransceiver;
       sender.sendRtp(rtp);
     });
   });

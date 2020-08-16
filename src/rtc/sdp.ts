@@ -589,7 +589,7 @@ export function addSDPHeader(
   description: SessionDescription
 ) {
   const username = "-";
-  const sessionId = new Uint64BE(randomBytes(64)).toString();
+  const sessionId = new Uint64BE(randomBytes(64)).toString().slice(0, 8);
   const sessionVersion = 0;
 
   description.origin = `${username} ${sessionId} ${sessionVersion} IN IP4 0.0.0.0`;
