@@ -66,6 +66,7 @@ type SignalingState =
 
 export class RTCPeerConnection {
   cname = uuid.v4();
+  masterTransport: RTCDtlsTransport;
   datachannel = new Event<RTCDataChannel>();
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
@@ -76,11 +77,8 @@ export class RTCPeerConnection {
   private sctpTransport?: RTCSctpTransport;
   private sctpRemotePort?: number;
   private sctpRemoteCaps?: RTCSctpCapabilities;
-  private remoteDtls: { [key: string]: RTCDtlsParameters } = {};
-  private remoteIce: { [key: string]: RTCIceParameters } = {};
-  get remoteIceKeys() {
-    return Object.keys(this.remoteIce);
-  }
+  private remoteDtls: RTCDtlsParameters;
+  private remoteIce: RTCIceParameters;
   private seenMid = new Set<string>();
   private sctpMLineIndex?: number;
 
@@ -281,6 +279,8 @@ export class RTCPeerConnection {
   }
 
   private createDtlsTransport(srtpProfiles: number[] = []) {
+    if (this.masterTransport) return this.masterTransport;
+
     const iceGatherer = new RTCIceGatherer(this.configuration.stunServer);
     iceGatherer.subject.subscribe((state) => {
       if (state === "stateChange") {
@@ -304,6 +304,9 @@ export class RTCPeerConnection {
       srtpProfiles
     );
     dtls.router = this.router;
+
+    this.masterTransport = dtls;
+
     return dtls;
   }
 
@@ -367,9 +370,6 @@ export class RTCPeerConnection {
       }
     });
 
-    // # connect
-    this.connect();
-
     // # replace description
     if (description.type === "answer") {
       this.currentLocalDescription = description;
@@ -384,42 +384,20 @@ export class RTCPeerConnection {
   }
 
   private async connect() {
-    for (const transceiver of this.transceivers) {
-      const dtlsTransport = transceiver.dtlsTransport;
-      const iceTransport = dtlsTransport.iceTransport;
-      const iceParam = this.remoteIce[transceiver.uuid];
-      if (iceTransport.iceGather.getLocalCandidates() && iceParam) {
-        await iceTransport.start(iceParam);
-        if (dtlsTransport.state === DtlsState.NEW) {
-          await dtlsTransport.start(this.remoteDtls[transceiver.uuid]);
-        }
-      }
-    }
+    const dtlsTransport = this.masterTransport;
+    const iceTransport = dtlsTransport.iceTransport;
 
-    if (this.sctpTransport) {
-      const dtlsTransport = this.sctpTransport.dtlsTransport;
-      const iceTransport = dtlsTransport.iceTransport;
+    if (
+      iceTransport.iceGather.getLocalCandidates() &&
+      this.remoteIce &&
+      this.remoteDtls
+    ) {
+      await iceTransport.start(this.remoteIce);
+      await dtlsTransport.start(this.remoteDtls);
 
-      const candidates = iceTransport.iceGather.getLocalCandidates();
-      const iceExist = !!this.remoteIce[this.sctpTransport.uuid];
-
-      if (candidates && iceExist) {
-        const params = this.remoteIce[this.sctpTransport.uuid];
-        await iceTransport.start(params);
-
-        if (!this.sctpRemotePort) throw new Error();
-
-        if (dtlsTransport.state === DtlsState.NEW) {
-          await dtlsTransport.start(this.remoteDtls[this.sctpTransport.uuid]);
-          // todo fix
-          await this.sctpTransport.start(this.sctpRemotePort!);
-          await this.sctpTransport?.sctp.stateChanged.connected.asPromise();
-          return;
-        } else if (dtlsTransport.state === DtlsState.CONNECTED) {
-          await this.sctpTransport.start(this.sctpRemotePort!);
-          await this.sctpTransport?.sctp.stateChanged.connected.asPromise();
-          return;
-        }
+      if (this.sctpTransport) {
+        await this.sctpTransport.start(this.sctpRemotePort);
+        await this.sctpTransport.sctp.stateChanged.connected.asPromise();
       }
     }
   }
@@ -547,8 +525,8 @@ export class RTCPeerConnection {
             ].find((v) => v.uri === extension.uri)
         );
 
-        this.remoteDtls[transceiver.uuid] = media.dtls;
-        this.remoteIce[transceiver.uuid] = media.ice;
+        this.remoteDtls = media.dtls;
+        this.remoteIce = media.ice;
       } else if (media.kind === "application") {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
@@ -565,8 +543,8 @@ export class RTCPeerConnection {
         this.sctpRemotePort = media.sctpPort;
         this.sctpRemoteCaps = media.sctpCapabilities;
 
-        this.remoteDtls[this.sctpTransport.uuid] = media.dtls;
-        this.remoteIce[this.sctpTransport.uuid] = media.ice;
+        this.remoteDtls = media.dtls;
+        this.remoteIce = media.ice;
       }
 
       if (dtlsTransport) {
@@ -582,32 +560,6 @@ export class RTCPeerConnection {
         if (description.type === "answer") {
           dtlsTransport.role =
             media.dtls?.role === "client" ? "server" : "client";
-        }
-      }
-
-      const bundle = description.group.find((v) => v.semantic === "BUNDLE");
-
-      if (bundle && bundle.items.length) {
-        const [masterMid] = bundle.items;
-        let masterTransport: RTCDtlsTransport;
-        const transceiver = this.transceivers.find(
-          (transceiver) => transceiver.mid === masterMid
-        );
-        if (transceiver) {
-          masterTransport = transceiver.dtlsTransport;
-        }
-        if (this.sctpTransport && this.sctpTransport.mid === masterMid) {
-          masterTransport = this.sctpTransport.dtlsTransport;
-        }
-
-        this.transceivers.forEach((transceiver) => {
-          transceiver.dtlsTransport = masterTransport;
-          transceiver.sender.dtlsTransport = masterTransport;
-          transceiver.bundled = true;
-        });
-        if (this.sctpTransport) {
-          this.sctpTransport.dtlsTransport = masterTransport;
-          this.sctpTransport.bundled = true;
         }
       }
     }
