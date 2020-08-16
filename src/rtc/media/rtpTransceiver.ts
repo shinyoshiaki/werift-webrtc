@@ -14,6 +14,10 @@ import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 
 export type Direction = "sendonly" | "sendrecv" | "recvonly";
 
+export type TransceiverOptions = {
+  simulcast: { direction: "send" | "recv"; rid: string }[];
+};
+
 export class RTCRtpTransceiver {
   uuid = uuid.v4();
   bundled = false;
@@ -24,6 +28,7 @@ export class RTCRtpTransceiver {
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   parameters: RTCRtpParameters;
   onTrack = new Event<RtpTrack>();
+  options: Partial<TransceiverOptions> = {};
 
   constructor(
     public kind: Kind,

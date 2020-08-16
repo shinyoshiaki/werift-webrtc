@@ -12,11 +12,16 @@ import {
   RTCRtpParameters,
   RTCRtpReceiveParameters,
   RTCRtpHeaderExtensionParameters,
+  RTCRtpSimulcastParameters,
 } from "./media/parameters";
 import { RtpRouter } from "./media/router";
 import { RTCRtpReceiver } from "./media/rtpReceiver";
 import { RTCRtpSender } from "./media/rtpSender";
-import { Direction, RTCRtpTransceiver } from "./media/rtpTransceiver";
+import {
+  Direction,
+  RTCRtpTransceiver,
+  TransceiverOptions,
+} from "./media/rtpTransceiver";
 import {
   addSDPHeader,
   GroupDescription,
@@ -38,7 +43,6 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpCapabilities, RTCSctpTransport } from "./transport/sctp";
-import { RtpTrack } from "./media/track";
 
 type Configuration = {
   stunServer: [string, number];
@@ -631,7 +635,11 @@ export class RTCPeerConnection {
     });
   }
 
-  addTransceiver(kind: Kind, direction: Direction) {
+  addTransceiver(
+    kind: Kind,
+    direction: Direction,
+    options: Partial<TransceiverOptions> = {}
+  ) {
     const dtlsTransport = this.createDtlsTransport([
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
@@ -644,6 +652,8 @@ export class RTCPeerConnection {
     );
     transceiver.receiver.rtcpSsrc = transceiver.sender.ssrc;
     transceiver.dtlsTransport = dtlsTransport;
+    transceiver.options = options;
+
     this.transceivers.push(transceiver);
 
     return transceiver;
@@ -754,6 +764,13 @@ function createMediaDescriptionForTransceiver(
   media.rtcpPort = 9;
   media.rtcpMux = true;
   media.ssrc = [new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname })];
+
+  if (transceiver.options.simulcast) {
+    media.simulcastParameters = transceiver.options.simulcast.map(
+      (o) => new RTCRtpSimulcastParameters(o)
+    );
+  }
+
   addTransportDescription(media, transceiver.dtlsTransport);
   return media;
 }
