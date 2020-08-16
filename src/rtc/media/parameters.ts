@@ -1,7 +1,8 @@
 export class RTCRtpParameters {
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  muxId = "";
+  muxId?: string;
+  rid?: string;
   rtcp: RTCRtcpParameters;
 
   constructor(props: Partial<RTCRtpParameters> = {}) {

@@ -2,7 +2,6 @@ import { RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
 import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { v4 as uuid } from "uuid";
-import Event from "rx.mini";
 import { RtpTrack } from "./track";
 import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { RTCDtlsTransport } from "../transport/dtls";
@@ -11,7 +10,6 @@ import { sleep } from "../../helper";
 export class RTCRtpReceiver {
   uuid = uuid();
   readonly tracks: RtpTrack[] = [];
-  onTrack = new Event<RtpTrack>();
 
   // # RTCP
   lsr: { [key: number]: BigInt } = {};
@@ -35,11 +33,6 @@ export class RTCRtpReceiver {
       const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
       this.dtlsTransport.sendRtcp([packet]);
     }
-  }
-
-  addTrack(track: RtpTrack) {
-    this.tracks.push(track);
-    this.onTrack.execute(track);
   }
 
   handleRtcpPacket(packet: RtcpPacket) {

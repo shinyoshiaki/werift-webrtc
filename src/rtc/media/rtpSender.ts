@@ -65,28 +65,27 @@ export class RTCRtpSender {
     }
   }
 
-  sendRtp(rawRtp: Buffer, parameters: RTCRtpParameters) {
+  sendRtp(rtp: Buffer | RtpPacket, parameters: RTCRtpParameters) {
     if (!this.ready) return;
 
-    const rtp = RtpPacket.deSerialize(rawRtp);
+    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
     const header = rtp.header;
     header.ssrc = this.ssrc;
 
-    // todo refactor
-    header.extensions = parameters.headerExtensions.map((extension) => {
-      const id = extension.id;
-      let payload: Buffer;
-      switch (extension.uri) {
-        case "urn:ietf:params:rtp-hdrext:sdes:mid":
-          payload = Buffer.from(parameters.muxId);
-          break;
-        case "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id":
-          // todo fix
-          payload = Buffer.from("dummy");
-          break;
-      }
-      return { id, payload };
-    });
+    header.extensions = parameters.headerExtensions
+      .map((extension) => {
+        let payload: Buffer;
+        switch (extension.uri) {
+          case "urn:ietf:params:rtp-hdrext:sdes:mid":
+            if (parameters.muxId) payload = Buffer.from(parameters.muxId);
+            break;
+          case "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id":
+            if (parameters.rid) payload = Buffer.from(parameters.rid);
+            break;
+        }
+        if (payload) return { id: extension.id, payload };
+      })
+      .filter((v) => v);
 
     this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
     this.rtpTimestamp = rtp.header.timestamp;

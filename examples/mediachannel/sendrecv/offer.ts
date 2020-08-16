@@ -22,9 +22,7 @@ server.on("connection", async (socket) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
 
-  transceiver.receiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe((rtp) => {
-      transceiver.sendRtp(rtp.serialize());
-    })
+  transceiver.onTrack.subscribe((track) =>
+    track.onRtp.subscribe(transceiver.sendRtp)
   );
 });

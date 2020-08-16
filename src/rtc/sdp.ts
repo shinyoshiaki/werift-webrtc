@@ -21,6 +21,7 @@ import { Direction } from "./media/rtpTransceiver";
 import { RTCDtlsFingerprint, RTCDtlsParameters } from "./transport/dtls";
 import { RTCIceCandidate, RTCIceParameters } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
+import { reverseSimulcastDirection } from "../utils";
 
 export class SessionDescription {
   version = 0;
@@ -449,8 +450,9 @@ export class MediaDescription {
     // simulcast
     if (this.simulcastParameters.length) {
       this.simulcastParameters.forEach((param) => {
-        // todo fix
-        lines.push(`a=rid:${param.rid} recv`);
+        lines.push(
+          `a=rid:${param.rid} ${reverseSimulcastDirection(param.direction)}`
+        );
       });
       lines.push(
         `a=simulcast:recv ${this.simulcastParameters

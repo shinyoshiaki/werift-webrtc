@@ -1,32 +1,44 @@
 import { RTCRtpReceiver } from "./rtpReceiver";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 import { RtcpPacket } from "../../vendor/rtp/rtcp/rtcp";
-import { RTCRtpReceiveParameters } from "./parameters";
+import {
+  RTCRtpReceiveParameters,
+  RTCRtpSimulcastParameters,
+} from "./parameters";
 import { RtpTrack } from "./track";
 import { RTCRtpSender } from "./rtpSender";
 import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
+import { RTCRtpTransceiver } from "./rtpTransceiver";
 
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver } = {};
   ridTable: { [rid: string]: RTCRtpReceiver } = {};
   extIdUriMap: { [id: number]: string } = {};
 
-  registerRtpReceiver(
-    receiver: RTCRtpReceiver,
+  registerRtpReceiverBySsrc(
+    transceiver: RTCRtpTransceiver,
     params: RTCRtpReceiveParameters
   ) {
     const ssrcs = params.encodings
       .map((encode) => encode.ssrc)
       .filter((v) => v);
     ssrcs.forEach((ssrc) => {
-      this.ssrcTable[ssrc] = receiver;
-      receiver.addTrack(new RtpTrack({ ssrc }));
+      this.ssrcTable[ssrc] = transceiver.receiver;
+      transceiver.addTrack(new RtpTrack({ ssrc }));
     });
 
     params.headerExtensions.forEach((extension) => {
       this.extIdUriMap[extension.id] = extension.uri;
     });
+  }
+
+  registerRtpReceiverByRid(
+    transceiver: RTCRtpTransceiver,
+    param: RTCRtpSimulcastParameters
+  ) {
+    transceiver.addTrack(new RtpTrack({ rid: param.rid }));
+    this.ridTable[param.rid] = transceiver.receiver;
   }
 
   routeRtp = (packet: RtpPacket) => {

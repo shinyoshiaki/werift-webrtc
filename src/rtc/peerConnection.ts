@@ -516,8 +516,7 @@ export class RTCPeerConnection {
 
         // simulcast
         media.simulcastParameters.forEach((param) => {
-          transceiver.receiver.addTrack(new RtpTrack({ rid: param.rid }));
-          this.router.ridTable[param.rid] = transceiver.receiver;
+          this.router.registerRtpReceiverByRid(transceiver, param);
         });
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
@@ -627,7 +626,7 @@ export class RTCPeerConnection {
     this.transceivers.forEach((transceiver) => {
       if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
         const params = this.remoteRtp(transceiver);
-        this.router.registerRtpReceiver(transceiver.receiver, params);
+        this.router.registerRtpReceiverBySsrc(transceiver, params);
       }
     });
   }
