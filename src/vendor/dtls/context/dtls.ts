@@ -8,7 +8,7 @@ export class DtlsContext {
   recordSequenceNumber = 0;
   sequenceNumber = 0;
   epoch = 0;
-  flight = 1;
+  flight = 0;
   handshakeCache: {
     isLocal: boolean;
     data: FragmentedHandshake;

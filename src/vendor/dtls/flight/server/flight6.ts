@@ -23,6 +23,7 @@ export class Flight6 {
   exec(handshakes: (FragmentedHandshake | DtlsPlaintext)[]) {
     if (this.dtls.flight === 6) return;
     this.dtls.flight = 6;
+    console.log("flight6");
 
     const fragments = handshakes.map((handshake) => {
       let fragment: FragmentedHandshake = handshake as FragmentedHandshake;

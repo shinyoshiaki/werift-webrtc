@@ -8,7 +8,6 @@ console.log("start");
 server.on("connection", (socket) => {
   socket.on("message", async (data) => {
     const offer = JSON.parse(data as string);
-    console.log(offer);
 
     const pc = new RTCPeerConnection({
       stunServer: ["stun.l.google.com", 19302],

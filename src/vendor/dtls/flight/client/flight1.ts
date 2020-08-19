@@ -14,6 +14,10 @@ export const flight1 = async (
   cipher: CipherContext,
   extensions: Extension[]
 ) => {
+  if (dtls.flight === 1) return;
+  dtls.flight = 1;
+  console.log("flight1");
+
   const hello = new ClientHello(
     { major: 255 - 1, minor: 255 - 2 },
     new DtlsRandom(),

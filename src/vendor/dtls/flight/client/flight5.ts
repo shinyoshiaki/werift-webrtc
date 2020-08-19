@@ -41,6 +41,7 @@ export class Flight5 {
   ) {
     if (this.dtls.flight === 5) return;
     this.dtls.flight = 5;
+    console.log("flight5");
 
     messages.forEach((message) => {
       handlers[message.msgType]({

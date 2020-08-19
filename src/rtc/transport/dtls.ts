@@ -84,9 +84,7 @@ export class RTCDtlsTransport {
       this.dtls.onData = (buf) => {
         if (this.dataReceiver) this.dataReceiver(buf);
       };
-      this.dtls.onConnect = () => {
-        r();
-      };
+      this.dtls.onConnect = r;
       this.dtls.onClose = () => {
         this.setState(DtlsState.CLOSED);
       };

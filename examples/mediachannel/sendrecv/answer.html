@@ -44,7 +44,7 @@
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
                 const sdp = JSON.stringify(peer.localDescription);
-                console.log(sdp);
+                console.log(peer.localDescription.sdp);
                 socket.send(sdp);
               }
             };

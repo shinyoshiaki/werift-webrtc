@@ -362,12 +362,9 @@ export class RTCPeerConnection {
 
     // # gather candidates
     await this.gather();
+
     description.media.map((media) => {
-      if (["audio", "video"].includes(media.kind)) {
-        // todo
-      } else if (media.kind === "application") {
-        addTransportDescription(media, this.sctpTransport.dtlsTransport);
-      }
+      addTransportDescription(media, this.masterTransport);
     });
 
     // # replace description
@@ -738,8 +735,8 @@ function createMediaDescriptionForSctp(sctp: RTCSctpTransport, mid: string) {
 
   media.rtp.muxId = mid;
   media.sctpCapabilities = RTCSctpTransport.getCapabilities();
-  addTransportDescription(media, sctp.dtlsTransport);
 
+  addTransportDescription(media, sctp.dtlsTransport);
   return media;
 }
 
@@ -755,7 +752,6 @@ function addTransportDescription(
   media.ice = iceGatherer.getLocalParameters();
 
   if (media.iceCandidates.length > 0) {
-    // select srflx
     const candidate = media.iceCandidates[media.iceCandidates.length - 1];
     media.host = candidate.ip;
     media.port = candidate.port;
@@ -766,7 +762,7 @@ function addTransportDescription(
 
   if (!media.dtls) {
     media.dtls = dtlsTransport.getLocalParameters();
-  } else {
+  } else if (!media.dtls.fingerprints) {
     media.dtls.fingerprints = dtlsTransport.getLocalParameters().fingerprints;
   }
 }
