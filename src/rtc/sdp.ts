@@ -110,11 +110,11 @@ export class SessionDescription {
         m[3],
         fmtInt || fmt
       );
-      currentMedia.dtls = new RTCDtlsParameters(
+      currentMedia.dtlsParams = new RTCDtlsParameters(
         [...dtlsFingerprints],
         dtlsRole as any
       );
-      currentMedia.ice = new RTCIceParameters({
+      currentMedia.iceParams = new RTCIceParameters({
         iceLite,
         usernameFragment: iceUsernameFragment,
         password: icePassword,
@@ -151,7 +151,7 @@ export class SessionDescription {
             case "fingerprint":
               if (!value) throw new Error();
               const [algorithm, fingerprint] = value.split(" ");
-              currentMedia.dtls?.fingerprints.push(
+              currentMedia.dtlsParams?.fingerprints.push(
                 new RTCDtlsFingerprint(algorithm, fingerprint)
               );
               break;
@@ -159,10 +159,10 @@ export class SessionDescription {
               currentMedia.iceOptions = value;
               break;
             case "ice-pwd":
-              currentMedia.ice.password = value;
+              currentMedia.iceParams.password = value;
               break;
             case "ice-ufrag":
-              currentMedia.ice.usernameFragment = value;
+              currentMedia.iceParams.usernameFragment = value;
               break;
             case "max-message-size":
               currentMedia.sctpCapabilities = new RTCSctpCapabilities(
@@ -184,7 +184,7 @@ export class SessionDescription {
               currentMedia.rtcpMux = true;
               break;
             case "setup":
-              currentMedia.dtls.role = DTLS_SETUP_ROLE[value];
+              currentMedia.dtlsParams.role = DTLS_SETUP_ROLE[value];
               break;
             case "recvonly":
             case "sendonly":
@@ -250,8 +250,8 @@ export class SessionDescription {
         }
       });
 
-      if (!currentMedia.dtls.role) {
-        currentMedia.dtls = undefined;
+      if (!currentMedia.dtlsParams.role) {
+        currentMedia.dtlsParams = undefined;
       }
 
       const findCodec = (pt: number) =>
@@ -339,10 +339,10 @@ export class MediaDescription {
   sctpPort?: number;
 
   // DTLS
-  dtls?: RTCDtlsParameters;
+  dtlsParams?: RTCDtlsParameters;
 
   // ICE
-  ice?: RTCIceParameters;
+  iceParams?: RTCIceParameters;
   iceCandidates: RTCIceCandidate[] = [];
   iceCandidatesComplete = false;
   iceOptions?: string;
@@ -374,25 +374,25 @@ export class MediaDescription {
     if (this.iceCandidatesComplete) {
       lines.push("a=end-of-candidates");
     }
-    if (this.ice.usernameFragment) {
-      lines.push(`a=ice-ufrag:${this.ice.usernameFragment}`);
+    if (this.iceParams.usernameFragment) {
+      lines.push(`a=ice-ufrag:${this.iceParams.usernameFragment}`);
     }
-    if (this.ice.password) {
-      lines.push(`a=ice-pwd:${this.ice.password}`);
+    if (this.iceParams.password) {
+      lines.push(`a=ice-pwd:${this.iceParams.password}`);
     }
     if (this.iceOptions) {
       lines.push(`a=ice-options:${this.iceOptions}`);
     }
 
     // dtls
-    if (this.dtls) {
-      this.dtls.fingerprints.forEach((fingerprint) => {
+    if (this.dtlsParams) {
+      this.dtlsParams.fingerprints.forEach((fingerprint) => {
         lines.push(
           `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
         );
       });
-      if (!this.dtls.role) throw new Error();
-      lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtls.role]}`);
+      if (!this.dtlsParams.role) throw new Error();
+      lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtlsParams.role]}`);
     }
 
     if (this.direction) {

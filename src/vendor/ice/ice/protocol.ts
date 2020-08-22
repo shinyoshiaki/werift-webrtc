@@ -15,7 +15,7 @@ export class StunProtocol implements Protocol {
 
   localAddress?: string;
 
-  socket = dgram.createSocket("udp4");
+  socket: dgram.Socket;
   private closed = new Event();
 
   constructor(public receiver: Connection) {}
@@ -31,13 +31,17 @@ export class StunProtocol implements Protocol {
     this.closed.complete();
   }
 
-  connectionMade = async (useIpv4: boolean) => {
+  connectionMade = async (useIpv4: boolean, port?: number) => {
     if (!useIpv4) {
       this.socket = dgram.createSocket("udp6");
     }
-    this.socket.bind();
+    this.socket = dgram.createSocket("udp4");
+
+    this.socket.bind(port);
+
     await new Promise((r) => this.socket.once("listening", r));
     this.socket.on("message", (data, info) => {
+      // console.log(data);
       this.datagramReceived(data, [info.address, info.port]);
     });
   };
@@ -48,7 +52,6 @@ export class StunProtocol implements Protocol {
       message = parseMessage(data);
     } catch (error) {
       // some data received
-      // console.log(data);
       this.receiver.dataReceived(data, this.localCandidate?.component!);
       return;
     }

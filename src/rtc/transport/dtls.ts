@@ -41,7 +41,7 @@ export class RTCDtlsTransport {
   constructor(
     public iceTransport: RTCIceTransport,
     certificates: RTCCertificate[],
-    public srtpProfiles: number[] = []
+    private srtpProfiles: number[] = []
   ) {
     const certificate = certificates[0];
     this.localCertificate = certificate;

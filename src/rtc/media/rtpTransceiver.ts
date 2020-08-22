@@ -38,8 +38,14 @@ export class RTCRtpTransceiver {
   ) {}
 
   addTrack(track: RtpTrack) {
-    this.receiver.tracks.push(track);
-    this.onTrack.execute(track);
+    const exist = this.receiver.tracks.find((t) => {
+      if (t.rid) return t.rid === track.rid;
+      if (t.ssrc) return t.ssrc === track.ssrc;
+    });
+    if (!exist) {
+      this.receiver.tracks.push(track);
+      this.onTrack.execute(track);
+    }
   }
 
   sendRtp = (rtp: Buffer | RtpPacket) => {

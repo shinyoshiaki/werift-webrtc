@@ -31,7 +31,6 @@ import {
   SsrcDescription,
 } from "./sdp";
 import {
-  DtlsState,
   RTCCertificate,
   RTCDtlsParameters,
   RTCDtlsTransport,
@@ -42,7 +41,7 @@ import {
   RTCIceParameters,
   RTCIceTransport,
 } from "./transport/ice";
-import { RTCSctpCapabilities, RTCSctpTransport } from "./transport/sctp";
+import { RTCSctpTransport } from "./transport/sctp";
 
 type Configuration = {
   stunServer: [string, number];
@@ -67,6 +66,7 @@ type SignalingState =
 export class RTCPeerConnection {
   cname = uuid.v4();
   masterTransport: RTCDtlsTransport;
+  masterTransportEstablished = false;
   datachannel = new Event<RTCDataChannel>();
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
@@ -76,12 +76,9 @@ export class RTCPeerConnection {
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
   private sctpRemotePort?: number;
-  private sctpRemoteCaps?: RTCSctpCapabilities;
   private remoteDtls: RTCDtlsParameters;
   private remoteIce: RTCIceParameters;
   private seenMid = new Set<string>();
-  private sctpMLineIndex?: number;
-
   private currentLocalDescription?: SessionDescription;
   private currentRemoteDescription?: SessionDescription;
   private pendingLocalDescription?: SessionDescription;
@@ -164,8 +161,35 @@ export class RTCPeerConnection {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
 
+    // # handle existing transceivers / sctp
+
+    const media = this._localDescription()
+      ? this._localDescription().media
+      : [];
+
+    media.forEach((m, i) => {
+      const mid = m.rtp.muxId;
+      if (m.kind === "application") {
+        description.media.push(
+          createMediaDescriptionForSctp(this.sctpTransport, mid)
+        );
+      } else {
+        const transceiver = this.getTransceiverByMid(mid);
+        transceiver.mLineIndex = i;
+        description.media.push(
+          createMediaDescriptionForTransceiver(
+            transceiver,
+            this.cname,
+            transceiver.direction,
+            mid
+          )
+        );
+      }
+    });
+
+    // # handle new transceivers / sctp
     this.transceivers
-      .filter((t) => t.mid === undefined)
+      .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
         transceiver.mLineIndex = description.media.length;
         description.media.push(
@@ -178,8 +202,7 @@ export class RTCPeerConnection {
         );
       });
 
-    if (this.sctpTransport && !this.sctpTransport.mid) {
-      this.sctpMLineIndex = description.media.length;
+    if (this.sctpTransport) {
       description.media.push(
         createMediaDescriptionForSctp(
           this.sctpTransport,
@@ -188,10 +211,10 @@ export class RTCPeerConnection {
       );
     }
 
-    const bundle = new GroupDescription("BUNDLE", []);
-    for (let media of description.media) {
-      bundle.items.push(media.rtp.muxId);
-    }
+    const bundle = new GroupDescription(
+      "BUNDLE",
+      description.media.map((m) => m.rtp.muxId)
+    );
     description.group.push(bundle);
 
     return wrapSessionDescription(description);
@@ -377,10 +400,13 @@ export class RTCPeerConnection {
   }
 
   private async gather() {
+    if (this.masterTransportEstablished) return;
     await Promise.all([...this.iceTransports].map((t) => t.iceGather.gather()));
   }
 
   private async connect() {
+    if (this.masterTransportEstablished) return;
+
     const dtlsTransport = this.masterTransport;
     const iceTransport = dtlsTransport.iceTransport;
 
@@ -396,6 +422,8 @@ export class RTCPeerConnection {
         await this.sctpTransport.start(this.sctpRemotePort);
         await this.sctpTransport.sctp.stateChanged.connected.asPromise();
       }
+
+      this.masterTransportEstablished = true;
     }
   }
 
@@ -427,37 +455,37 @@ export class RTCPeerConnection {
     description: SessionDescription,
     isLocal: boolean
   ) {
-    if (isLocal) {
-      if (description.type === "offer") {
-        if (!["stable", "have-local-offer"].includes(this._signalingState))
-          throw new Error("Cannot handle offer in signaling state");
-      } else if (description.type === "answer") {
-        if (
-          !["have-remote-offer", "have-local-pranswer"].includes(
-            this.signalingState
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    } else {
-      if (description.type === "offer") {
-        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
-          throw new Error("Cannot handle offer in signaling state");
-        }
-      } else if (description.type === "answer") {
-        if (
-          !["have-local-offer", "have-remote-pranswer"].includes(
-            this.signalingState
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    }
+    // if (isLocal) {
+    //   if (description.type === "offer") {
+    //     if (!["stable", "have-local-offer"].includes(this._signalingState))
+    //       throw new Error("Cannot handle offer in signaling state");
+    //   } else if (description.type === "answer") {
+    //     if (
+    //       !["have-remote-offer", "have-local-pranswer"].includes(
+    //         this.signalingState
+    //       )
+    //     ) {
+    //       throw new Error("Cannot handle answer in signaling state");
+    //     }
+    //   }
+    // } else {
+    //   if (description.type === "offer") {
+    //     if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
+    //       throw new Error("Cannot handle offer in signaling state");
+    //     }
+    //   } else if (description.type === "answer") {
+    //     if (
+    //       !["have-local-offer", "have-remote-pranswer"].includes(
+    //         this.signalingState
+    //       )
+    //     ) {
+    //       throw new Error("Cannot handle answer in signaling state");
+    //     }
+    //   }
+    // }
 
     description.media.forEach((media) => {
-      if (!media.ice.usernameFragment || !media.ice.password)
+      if (!media.iceParams.usernameFragment || !media.iceParams.password)
         throw new Error("ICE username fragment or password is missing");
     });
 
@@ -491,16 +519,16 @@ export class RTCPeerConnection {
         );
         if (!transceiver) {
           transceiver = this.addTransceiver(media.kind, "recvonly");
+
+          if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+            this.onTransceiver.execute(transceiver);
+          }
         }
 
         // simulcast
         media.simulcastParameters.forEach((param) => {
           this.router.registerRtpReceiverByRid(transceiver, param);
         });
-
-        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-          this.onTransceiver.execute(transceiver);
-        }
 
         dtlsTransport = transceiver.dtlsTransport;
 
@@ -522,8 +550,10 @@ export class RTCPeerConnection {
             ].find((v) => v.uri === extension.uri)
         );
 
-        this.remoteDtls = media.dtls;
-        this.remoteIce = media.ice;
+        if (media.dtlsParams && media.iceParams) {
+          this.remoteDtls = media.dtlsParams;
+          this.remoteIce = media.iceParams;
+        }
       } else if (media.kind === "application") {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
@@ -533,15 +563,15 @@ export class RTCPeerConnection {
 
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = media.rtp.muxId;
-          this.sctpMLineIndex = i;
         }
 
         // # configure sctp
         this.sctpRemotePort = media.sctpPort;
-        this.sctpRemoteCaps = media.sctpCapabilities;
 
-        this.remoteDtls = media.dtls;
-        this.remoteIce = media.ice;
+        if (media.dtlsParams && media.iceParams) {
+          this.remoteDtls = media.dtlsParams;
+          this.remoteIce = media.iceParams;
+        }
       }
 
       if (dtlsTransport) {
@@ -550,13 +580,13 @@ export class RTCPeerConnection {
         await addRemoteCandidates(iceTransport, media);
 
         if (description.type === "offer" && !iceTransport.roleSet) {
-          iceTransport.connection.iceControlling = media.ice.iceLite;
+          iceTransport.connection.iceControlling = media.iceParams.iceLite;
           iceTransport.roleSet = true;
         }
 
         if (description.type === "answer") {
           dtlsTransport.role =
-            media.dtls?.role === "client" ? "server" : "client";
+            media.dtlsParams.role === "client" ? "server" : "client";
         }
       }
     }
@@ -610,12 +640,12 @@ export class RTCPeerConnection {
 
   createAnswer() {
     this.assertNotClosed();
-    if (
-      !["have-remote-offer", "have-local-pranswer"].includes(
-        this.signalingState
-      )
-    )
-      throw new Error();
+    // if (
+    //   !["have-remote-offer", "have-local-pranswer"].includes(
+    //     this.signalingState
+    //   )
+    // )
+    //   throw new Error();
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
@@ -644,10 +674,10 @@ export class RTCPeerConnection {
       }
 
       // # determine DTLS role, or preserve the currently configured role
-      if (dtlsTransport!.role === "auto") {
-        media!.dtls!.role = "client";
+      if (dtlsTransport.role === "auto") {
+        media.dtlsParams.role = "client";
       } else {
-        media!.dtls!.role = dtlsTransport!.role;
+        media.dtlsParams.role = dtlsTransport.role;
       }
       media.simulcastParameters = remoteM.simulcastParameters;
       description.media.push(media!);
@@ -749,7 +779,7 @@ function addTransportDescription(
 
   media.iceCandidates = iceGatherer.getLocalCandidates();
   media.iceCandidatesComplete = iceGatherer.state === "completed";
-  media.ice = iceGatherer.getLocalParameters();
+  media.iceParams = iceGatherer.getLocalParameters();
 
   if (media.iceCandidates.length > 0) {
     const candidate = media.iceCandidates[media.iceCandidates.length - 1];
@@ -760,10 +790,11 @@ function addTransportDescription(
     media.port = DISCARD_PORT;
   }
 
-  if (!media.dtls) {
-    media.dtls = dtlsTransport.getLocalParameters();
-  } else if (!media.dtls.fingerprints) {
-    media.dtls.fingerprints = dtlsTransport.getLocalParameters().fingerprints;
+  if (!media.dtlsParams) {
+    media.dtlsParams = dtlsTransport.getLocalParameters();
+    if (!media.dtlsParams.fingerprints) {
+      media.dtlsParams.fingerprints = dtlsTransport.getLocalParameters().fingerprints;
+    }
   }
 }
 
