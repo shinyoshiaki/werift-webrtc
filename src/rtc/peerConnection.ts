@@ -83,12 +83,10 @@ export class RTCPeerConnection {
   private currentRemoteDescription?: SessionDescription;
   private pendingLocalDescription?: SessionDescription;
   private pendingRemoteDescription?: SessionDescription;
-  private iceTransports = new Set<RTCIceTransport>();
   private _iceConnectionState: IceState = "new";
   private _iceGatheringState: IceState = "new";
   private _signalingState: SignalingState = "stable";
   private isClosed = false;
-  private streamId = uuid.v4();
   private transceivers: RTCRtpTransceiver[] = [];
 
   constructor(private configuration: Partial<Configuration> = {}) {
@@ -259,17 +257,7 @@ export class RTCPeerConnection {
   }
 
   private updateIceGatheringState() {
-    let state: IceState = "new";
-
-    const states = new Set(
-      [...this.iceTransports].map((v) => v.iceGather.state)
-    );
-    if (isEqual([...states], ["completed"])) {
-      state = "completed";
-    }
-    if (states.has("gathering")) {
-      state = "gathering";
-    }
+    const state = this.masterTransport.iceTransport.state;
 
     if (state !== this._iceGatheringState) {
       this._iceGatheringState = state;
@@ -278,22 +266,7 @@ export class RTCPeerConnection {
   }
 
   private updateIceConnectionState() {
-    let state: IceState = "new";
-
-    const states = new Set([...this.iceTransports].map((v) => v.state));
-    if (this.isClosed) {
-      state = "closed";
-    } else if (states.has("failed")) {
-      state = "failed";
-    } else if (isEqual([...states], ["completed"])) {
-      state = "completed";
-    } else if (states.has("checking")) {
-      state = "checking";
-    } else if (states.has("disconnected")) {
-      state = "disconnected";
-    } else if (states.has("closed")) {
-      state = "closed";
-    }
+    const state = this.masterTransport.iceTransport.state;
 
     if (state !== this._iceConnectionState) {
       this._iceConnectionState = state;
@@ -316,10 +289,6 @@ export class RTCPeerConnection {
         this.updateIceConnectionState();
       }
     });
-    this.iceTransports.add(iceTransport);
-
-    this.updateIceGatheringState();
-    this.updateIceConnectionState();
 
     const dtls = new RTCDtlsTransport(
       iceTransport,
@@ -327,8 +296,10 @@ export class RTCPeerConnection {
       srtpProfiles
     );
     dtls.router = this.router;
-
     this.masterTransport = dtls;
+
+    this.updateIceGatheringState();
+    this.updateIceConnectionState();
 
     return dtls;
   }
@@ -371,20 +342,17 @@ export class RTCPeerConnection {
     });
 
     // # set ICE role
+    const iceTransport = this.masterTransport.iceTransport;
     if (description.type === "offer") {
-      this.iceTransports.forEach((iceTransport) => {
-        iceTransport.connection.iceControlling = true;
-        iceTransport.roleSet = true;
-      });
+      iceTransport.connection.iceControlling = true;
+      iceTransport.roleSet = true;
     } else {
-      this.iceTransports.forEach((iceTransport) => {
-        iceTransport.connection.iceControlling = false;
-        iceTransport.roleSet = true;
-      });
+      iceTransport.connection.iceControlling = false;
+      iceTransport.roleSet = true;
     }
 
     // # gather candidates
-    await this.gather();
+    if (!this.masterTransportEstablished) await this.gather();
 
     description.media.map((media) => {
       addTransportDescription(media, this.masterTransport);
@@ -401,7 +369,7 @@ export class RTCPeerConnection {
 
   private async gather() {
     if (this.masterTransportEstablished) return;
-    await Promise.all([...this.iceTransports].map((t) => t.iceGather.gather()));
+    await this.masterTransport.iceTransport.iceGather.gather();
   }
 
   private async connect() {
@@ -591,6 +559,7 @@ export class RTCPeerConnection {
       }
     }
 
+    // connect transports
     this.connect();
 
     if (description.type === "offer") {

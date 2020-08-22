@@ -25,8 +25,8 @@
       let rtc;
 
       const App = () => {
-        const videoRef = React.useRef();
-        const videoRef2 = React.useRef();
+        const videos = React.useRef([]);
+        const [streams, setStreams] = React.useState([]);
 
         React.useEffect(() => {
           (async () => {
@@ -55,17 +55,9 @@
                 peer.iceConnectionState
               );
             };
-            let i = 0;
             peer.ontrack = (e) => {
               const stream = e.streams[0];
-              console.log("ontrack", i);
-              switch (i++) {
-                case 0:
-                  videoRef.current.srcObject = stream;
-                  break;
-                case 1:
-                  videoRef2.current.srcObject = stream;
-              }
+              setStreams((streams) => [...streams, stream]);
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: { width: 100 },
@@ -79,7 +71,10 @@
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
 
-            setTimeout(async () => {
+            let times = 0;
+            setInterval(async () => {
+              if (times++ >= 5) return;
+
               socket.onmessage = async ({ data }) => {
                 const answer = JSON.parse(data);
                 console.log("answer", answer.sdp);
@@ -98,15 +93,36 @@
               localStream
                 .getVideoTracks()
                 .forEach((track) => peer.addTrack(track, localStream));
+              console.log("re signaling");
             }, 3000);
           })();
         }, []);
 
+        React.useEffect(() => {
+          videos.current.forEach((v, i) => {
+            v.srcObject = streams[i];
+          });
+        }, [streams]);
+
         return (
           <div>
             answer
-            <video ref={videoRef} autoPlay muted />
-            <video ref={videoRef2} autoPlay muted />
+            <div style={{ display: "flex" }}>
+              {streams.map((_, i) => (
+                <div key={i}>
+                  {i}
+                  <video
+                    ref={(ref) => {
+                      const arr = videos.current;
+                      arr[i] = ref;
+                      videos.current = arr;
+                    }}
+                    autoPlay
+                    muted
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         );
       };

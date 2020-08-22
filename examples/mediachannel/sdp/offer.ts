@@ -10,14 +10,10 @@ server.on("connection", async (socket) => {
     stunServer: ["stun.l.google.com", 19302],
   });
 
-  let mIndex = 0;
   const onTransceiver = async (transceiver: RTCRtpTransceiver) => {
-    const id = mIndex++;
-    console.log("on transceiver", transceiver.sender.ssrc, id);
     const track = await transceiver.onTrack.asPromise();
-    console.log("ontrack", transceiver.sender.ssrc, track.ssrc, id);
+
     track.onRtp.subscribe((rtp) => {
-      console.log(id, rtp.header.ssrc, transceiver.sender.ssrc);
       transceiver.sendRtp(rtp);
     });
   };
@@ -36,8 +32,9 @@ server.on("connection", async (socket) => {
   await pc.setRemoteDescription(JSON.parse(data));
 
   socket.onmessage = async ({ data }) => {
-    // pc.resetMasterTransport();
-    await pc.setRemoteDescription(JSON.parse(data.toString()));
+    const offer = JSON.parse(data.toString());
+    onTransceiver(pc.addTransceiver("video", "sendrecv"));
+    await pc.setRemoteDescription(offer);
     const answer = pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.send(JSON.stringify(pc.localDescription));

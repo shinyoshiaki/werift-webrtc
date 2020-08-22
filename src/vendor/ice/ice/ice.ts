@@ -794,6 +794,7 @@ export class Connection {
   }
 
   // 生存確認
+  // life check
   private queryConsent = () =>
     new PCancelable(async (r, f, onCancel) => {
       let failures = 0;
@@ -810,7 +811,7 @@ export class Connection {
       while (true) {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
         // await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
-        await sleep(0);
+        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
 
         for (let key of this.nominatedKeys) {
           const pair = this.nominated[Number(key)];
@@ -822,13 +823,14 @@ export class Connection {
               Buffer.from(this.remotePassword, "utf8"),
               0
             );
+            console.log("ping");
             failures = 0;
           } catch (error) {
             failures++;
             this.stateChanged.execute("disconnected");
           }
           if (failures >= CONSENT_FAILURES) {
-            this.log("Consent to send expired");
+            console.log("Consent to send expired");
             this.queryConsentHandle = undefined;
             // 切断検知
             r(await this.close());
