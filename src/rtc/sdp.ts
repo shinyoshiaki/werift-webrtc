@@ -189,6 +189,7 @@ export class SessionDescription {
             case "recvonly":
             case "sendonly":
             case "sendrecv":
+            case "inactive":
               currentMedia.direction = attr;
               break;
             case "rtpmap":

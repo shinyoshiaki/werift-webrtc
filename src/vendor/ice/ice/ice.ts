@@ -823,7 +823,6 @@ export class Connection {
               Buffer.from(this.remotePassword, "utf8"),
               0
             );
-            console.log("ping");
             failures = 0;
           } catch (error) {
             failures++;

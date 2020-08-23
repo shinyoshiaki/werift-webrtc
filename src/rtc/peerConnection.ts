@@ -154,8 +154,6 @@ export class RTCPeerConnection {
       ];
     });
 
-    const mids = [...this.seenMid];
-
     const description = new SessionDescription();
     addSDPHeader("offer", description);
 
@@ -195,16 +193,19 @@ export class RTCPeerConnection {
             transceiver,
             this.cname,
             transceiver.direction,
-            allocateMid(new Set(mids))
+            allocateMid(this.seenMid)
           )
         );
       });
 
-    if (this.sctpTransport) {
+    if (
+      this.sctpTransport &&
+      !description.media.find((m) => this.sctpTransport.mid === m.rtp.muxId)
+    ) {
       description.media.push(
         createMediaDescriptionForSctp(
           this.sctpTransport,
-          allocateMid(new Set(mids))
+          allocateMid(this.seenMid)
         )
       );
     }
@@ -768,11 +769,13 @@ function addTransportDescription(
 }
 
 function allocateMid(mids: Set<string>) {
+  let i = 0;
   let mid = "";
   while (true) {
-    mid = Math.random().toString().slice(2).slice(0, 8);
+    mid = (i++).toString();
     if (!mids.has(mid)) break;
   }
+  console.log(mid);
   mids.add(mid);
   return mid;
 }

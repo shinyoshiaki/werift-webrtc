@@ -60,7 +60,7 @@
               setStreams((streams) => [...streams, stream]);
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
-              video: { width: 100 },
+              video: true,
               audio: false,
             });
             localStream
