@@ -1,6 +1,7 @@
 #!/bin/sh
 rm -rf lib
 yarn format
+yarn test
 yarn build
 cd lib
 mv src/* .
