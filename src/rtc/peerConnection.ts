@@ -31,7 +31,6 @@ import {
   SsrcDescription,
 } from "./sdp";
 import {
-  DtlsState,
   RTCCertificate,
   RTCDtlsParameters,
   RTCDtlsTransport,
@@ -42,7 +41,7 @@ import {
   RTCIceParameters,
   RTCIceTransport,
 } from "./transport/ice";
-import { RTCSctpCapabilities, RTCSctpTransport } from "./transport/sctp";
+import { RTCSctpTransport } from "./transport/sctp";
 
 type Configuration = {
   stunServer: [string, number];
@@ -67,6 +66,7 @@ type SignalingState =
 export class RTCPeerConnection {
   cname = uuid.v4();
   masterTransport: RTCDtlsTransport;
+  masterTransportEstablished = false;
   datachannel = new Event<RTCDataChannel>();
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
@@ -76,22 +76,17 @@ export class RTCPeerConnection {
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
   private sctpRemotePort?: number;
-  private sctpRemoteCaps?: RTCSctpCapabilities;
   private remoteDtls: RTCDtlsParameters;
   private remoteIce: RTCIceParameters;
   private seenMid = new Set<string>();
-  private sctpMLineIndex?: number;
-
   private currentLocalDescription?: SessionDescription;
   private currentRemoteDescription?: SessionDescription;
   private pendingLocalDescription?: SessionDescription;
   private pendingRemoteDescription?: SessionDescription;
-  private iceTransports = new Set<RTCIceTransport>();
   private _iceConnectionState: IceState = "new";
   private _iceGatheringState: IceState = "new";
   private _signalingState: SignalingState = "stable";
   private isClosed = false;
-  private streamId = uuid.v4();
   private transceivers: RTCRtpTransceiver[] = [];
 
   constructor(private configuration: Partial<Configuration> = {}) {
@@ -159,13 +154,38 @@ export class RTCPeerConnection {
       ];
     });
 
-    const mids = [...this.seenMid];
-
     const description = new SessionDescription();
     addSDPHeader("offer", description);
 
+    // # handle existing transceivers / sctp
+
+    const media = this._localDescription()
+      ? this._localDescription().media
+      : [];
+
+    media.forEach((m, i) => {
+      const mid = m.rtp.muxId;
+      if (m.kind === "application") {
+        description.media.push(
+          createMediaDescriptionForSctp(this.sctpTransport, mid)
+        );
+      } else {
+        const transceiver = this.getTransceiverByMid(mid);
+        transceiver.mLineIndex = i;
+        description.media.push(
+          createMediaDescriptionForTransceiver(
+            transceiver,
+            this.cname,
+            transceiver.direction,
+            mid
+          )
+        );
+      }
+    });
+
+    // # handle new transceivers / sctp
     this.transceivers
-      .filter((t) => t.mid === undefined)
+      .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
         transceiver.mLineIndex = description.media.length;
         description.media.push(
@@ -173,25 +193,27 @@ export class RTCPeerConnection {
             transceiver,
             this.cname,
             transceiver.direction,
-            allocateMid(new Set(mids))
+            allocateMid(this.seenMid)
           )
         );
       });
 
-    if (this.sctpTransport && !this.sctpTransport.mid) {
-      this.sctpMLineIndex = description.media.length;
+    if (
+      this.sctpTransport &&
+      !description.media.find((m) => this.sctpTransport.mid === m.rtp.muxId)
+    ) {
       description.media.push(
         createMediaDescriptionForSctp(
           this.sctpTransport,
-          allocateMid(new Set(mids))
+          allocateMid(this.seenMid)
         )
       );
     }
 
-    const bundle = new GroupDescription("BUNDLE", []);
-    for (let media of description.media) {
-      bundle.items.push(media.rtp.muxId);
-    }
+    const bundle = new GroupDescription(
+      "BUNDLE",
+      description.media.map((m) => m.rtp.muxId)
+    );
     description.group.push(bundle);
 
     return wrapSessionDescription(description);
@@ -236,17 +258,7 @@ export class RTCPeerConnection {
   }
 
   private updateIceGatheringState() {
-    let state: IceState = "new";
-
-    const states = new Set(
-      [...this.iceTransports].map((v) => v.iceGather.state)
-    );
-    if (isEqual([...states], ["completed"])) {
-      state = "completed";
-    }
-    if (states.has("gathering")) {
-      state = "gathering";
-    }
+    const state = this.masterTransport.iceTransport.state;
 
     if (state !== this._iceGatheringState) {
       this._iceGatheringState = state;
@@ -255,22 +267,7 @@ export class RTCPeerConnection {
   }
 
   private updateIceConnectionState() {
-    let state: IceState = "new";
-
-    const states = new Set([...this.iceTransports].map((v) => v.state));
-    if (this.isClosed) {
-      state = "closed";
-    } else if (states.has("failed")) {
-      state = "failed";
-    } else if (isEqual([...states], ["completed"])) {
-      state = "completed";
-    } else if (states.has("checking")) {
-      state = "checking";
-    } else if (states.has("disconnected")) {
-      state = "disconnected";
-    } else if (states.has("closed")) {
-      state = "closed";
-    }
+    const state = this.masterTransport.iceTransport.state;
 
     if (state !== this._iceConnectionState) {
       this._iceConnectionState = state;
@@ -293,10 +290,6 @@ export class RTCPeerConnection {
         this.updateIceConnectionState();
       }
     });
-    this.iceTransports.add(iceTransport);
-
-    this.updateIceGatheringState();
-    this.updateIceConnectionState();
 
     const dtls = new RTCDtlsTransport(
       iceTransport,
@@ -304,8 +297,10 @@ export class RTCPeerConnection {
       srtpProfiles
     );
     dtls.router = this.router;
-
     this.masterTransport = dtls;
+
+    this.updateIceGatheringState();
+    this.updateIceConnectionState();
 
     return dtls;
   }
@@ -348,20 +343,17 @@ export class RTCPeerConnection {
     });
 
     // # set ICE role
+    const iceTransport = this.masterTransport.iceTransport;
     if (description.type === "offer") {
-      this.iceTransports.forEach((iceTransport) => {
-        iceTransport.connection.iceControlling = true;
-        iceTransport.roleSet = true;
-      });
+      iceTransport.connection.iceControlling = true;
+      iceTransport.roleSet = true;
     } else {
-      this.iceTransports.forEach((iceTransport) => {
-        iceTransport.connection.iceControlling = false;
-        iceTransport.roleSet = true;
-      });
+      iceTransport.connection.iceControlling = false;
+      iceTransport.roleSet = true;
     }
 
     // # gather candidates
-    await this.gather();
+    if (!this.masterTransportEstablished) await this.gather();
 
     description.media.map((media) => {
       addTransportDescription(media, this.masterTransport);
@@ -377,10 +369,13 @@ export class RTCPeerConnection {
   }
 
   private async gather() {
-    await Promise.all([...this.iceTransports].map((t) => t.iceGather.gather()));
+    if (this.masterTransportEstablished) return;
+    await this.masterTransport.iceTransport.iceGather.gather();
   }
 
   private async connect() {
+    if (this.masterTransportEstablished) return;
+
     const dtlsTransport = this.masterTransport;
     const iceTransport = dtlsTransport.iceTransport;
 
@@ -396,6 +391,8 @@ export class RTCPeerConnection {
         await this.sctpTransport.start(this.sctpRemotePort);
         await this.sctpTransport.sctp.stateChanged.connected.asPromise();
       }
+
+      this.masterTransportEstablished = true;
     }
   }
 
@@ -457,7 +454,7 @@ export class RTCPeerConnection {
     }
 
     description.media.forEach((media) => {
-      if (!media.ice.usernameFragment || !media.ice.password)
+      if (!media.iceParams.usernameFragment || !media.iceParams.password)
         throw new Error("ICE username fragment or password is missing");
     });
 
@@ -491,16 +488,16 @@ export class RTCPeerConnection {
         );
         if (!transceiver) {
           transceiver = this.addTransceiver(media.kind, "recvonly");
+
+          if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+            this.onTransceiver.execute(transceiver);
+          }
         }
 
         // simulcast
         media.simulcastParameters.forEach((param) => {
           this.router.registerRtpReceiverByRid(transceiver, param);
         });
-
-        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-          this.onTransceiver.execute(transceiver);
-        }
 
         dtlsTransport = transceiver.dtlsTransport;
 
@@ -522,8 +519,10 @@ export class RTCPeerConnection {
             ].find((v) => v.uri === extension.uri)
         );
 
-        this.remoteDtls = media.dtls;
-        this.remoteIce = media.ice;
+        if (media.dtlsParams && media.iceParams) {
+          this.remoteDtls = media.dtlsParams;
+          this.remoteIce = media.iceParams;
+        }
       } else if (media.kind === "application") {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
@@ -533,15 +532,15 @@ export class RTCPeerConnection {
 
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = media.rtp.muxId;
-          this.sctpMLineIndex = i;
         }
 
         // # configure sctp
         this.sctpRemotePort = media.sctpPort;
-        this.sctpRemoteCaps = media.sctpCapabilities;
 
-        this.remoteDtls = media.dtls;
-        this.remoteIce = media.ice;
+        if (media.dtlsParams && media.iceParams) {
+          this.remoteDtls = media.dtlsParams;
+          this.remoteIce = media.iceParams;
+        }
       }
 
       if (dtlsTransport) {
@@ -550,17 +549,18 @@ export class RTCPeerConnection {
         await addRemoteCandidates(iceTransport, media);
 
         if (description.type === "offer" && !iceTransport.roleSet) {
-          iceTransport.connection.iceControlling = media.ice.iceLite;
+          iceTransport.connection.iceControlling = media.iceParams.iceLite;
           iceTransport.roleSet = true;
         }
 
         if (description.type === "answer") {
           dtlsTransport.role =
-            media.dtls?.role === "client" ? "server" : "client";
+            media.dtlsParams.role === "client" ? "server" : "client";
         }
       }
     }
 
+    // connect transports
     this.connect();
 
     if (description.type === "offer") {
@@ -644,10 +644,10 @@ export class RTCPeerConnection {
       }
 
       // # determine DTLS role, or preserve the currently configured role
-      if (dtlsTransport!.role === "auto") {
-        media!.dtls!.role = "client";
+      if (dtlsTransport.role === "auto") {
+        media.dtlsParams.role = "client";
       } else {
-        media!.dtls!.role = dtlsTransport!.role;
+        media.dtlsParams.role = dtlsTransport.role;
       }
       media.simulcastParameters = remoteM.simulcastParameters;
       description.media.push(media!);
@@ -749,7 +749,7 @@ function addTransportDescription(
 
   media.iceCandidates = iceGatherer.getLocalCandidates();
   media.iceCandidatesComplete = iceGatherer.state === "completed";
-  media.ice = iceGatherer.getLocalParameters();
+  media.iceParams = iceGatherer.getLocalParameters();
 
   if (media.iceCandidates.length > 0) {
     const candidate = media.iceCandidates[media.iceCandidates.length - 1];
@@ -760,19 +760,22 @@ function addTransportDescription(
     media.port = DISCARD_PORT;
   }
 
-  if (!media.dtls) {
-    media.dtls = dtlsTransport.getLocalParameters();
-  } else if (!media.dtls.fingerprints) {
-    media.dtls.fingerprints = dtlsTransport.getLocalParameters().fingerprints;
+  if (!media.dtlsParams) {
+    media.dtlsParams = dtlsTransport.getLocalParameters();
+    if (!media.dtlsParams.fingerprints) {
+      media.dtlsParams.fingerprints = dtlsTransport.getLocalParameters().fingerprints;
+    }
   }
 }
 
 function allocateMid(mids: Set<string>) {
+  let i = 0;
   let mid = "";
   while (true) {
-    mid = Math.random().toString().slice(2).slice(0, 8);
+    mid = (i++).toString();
     if (!mids.has(mid)) break;
   }
+  console.log(mid);
   mids.add(mid);
   return mid;
 }

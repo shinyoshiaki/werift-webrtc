@@ -49,12 +49,12 @@ export class RTCRtpReceiver {
   handleRtpBySsrc = (packet: RtpPacket, ssrc: number) => {
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
-    this.runRtcp();
+    // this.runRtcp();
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string) => {
     const track = this.tracks.find((track) => track.rid === rid);
     track.onRtp.execute(packet);
-    this.runRtcp();
+    // this.runRtcp();
   };
 }

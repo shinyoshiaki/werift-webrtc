@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      let rtc;
+      let channel;
+      const App = () => {
+        const videos = React.useRef([]);
+        const [streams, setStreams] = React.useState([]);
+
+        const main = async () => {
+          const socket = new WebSocket("ws://localhost:8888");
+          await new Promise((r) => (socket.onopen = r));
+          console.log("open websocket");
+
+          const offer = await new Promise(
+            (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+          );
+          console.log("offer", offer.sdp);
+
+          const peer = (rtc = new RTCPeerConnection({
+            iceServers: [],
+          }));
+
+          peer.onicecandidate = ({ candidate }) => {
+            if (!candidate) {
+              const sdp = JSON.stringify(peer.localDescription);
+              console.log(peer.localDescription.sdp);
+              socket.send(sdp);
+            }
+          };
+
+          peer.oniceconnectionstatechange = () => {
+            console.log("oniceconnectionstatechange", peer.iceConnectionState);
+          };
+
+          peer.ontrack = (e) => {
+            const stream = e.streams[0];
+            console.log(stream.getTracks());
+            setStreams((streams) => [...streams, stream]);
+          };
+
+          peer.ondatachannel = (e) => {
+            channel = e.channel;
+          };
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: {
+                ideal: 4096,
+              },
+              height: {
+                ideal: 2160,
+              },
+              frameRate: {
+                ideal: 60,
+                min: 10,
+              },
+            },
+            audio: false,
+          });
+          await peer.setRemoteDescription(offer);
+
+          peer.addTrack(stream.getVideoTracks()[0], stream);
+          const transceiver = peer.getTransceivers()[0];
+          const params = transceiver.sender.getParameters();
+          params.encodings = [
+            {
+              rid: "high",
+              maxBitrate: 200000,
+              scaleResolutionDownBy: 1,
+            },
+            {
+              rid: "middle",
+              maxBitrate: 100000 / 2,
+              scaleResolutionDownBy: 2,
+            },
+            {
+              rid: "low",
+              maxBitrate: 100000 / 4,
+              scaleResolutionDownBy: 4,
+            },
+          ];
+          transceiver.sender.setParameters(params);
+
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+
+          socket.onmessage = async ({ data }) => {
+            const offer = JSON.parse(data);
+            console.log("offer", offer.sdp);
+
+            await peer.setRemoteDescription(offer);
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+          };
+        };
+
+        React.useEffect(() => {
+          main();
+        }, []);
+
+        React.useEffect(() => {
+          videos.current.forEach((v, i) => {
+            v.srcObject = streams[i];
+          });
+        }, [streams]);
+
+        return (
+          <div>
+            answer
+            <div>
+              <button onClick={() => channel.send("high")}>high</button>
+              <button onClick={() => channel.send("middle")}>middle</button>
+              <button onClick={() => channel.send("low")}>low</button>
+            </div>
+            <div style={{ display: "flex", width: "100%" }}>
+              {streams.map((_, i) => (
+                <div key={i}>
+                  {i}
+                  <video
+                    ref={(ref) => {
+                      const arr = videos.current;
+                      arr[i] = ref;
+                      videos.current = arr;
+                    }}
+                    autoPlay
+                    muted
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

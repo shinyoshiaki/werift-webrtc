@@ -152,49 +152,42 @@ describe("peerConnection", () => {
 
   test("test_sendrecv_sendrecv", async (done) => {
     const pc1 = new RTCPeerConnection();
-    {
-      const transceiver = pc1.addTransceiver("video", "sendrecv");
-      transceiver.sender.onReady.subscribe(() => {
-        const rtpPacket = new RtpPacket(
-          new RtpHeader(),
-          Buffer.from("pc1")
-        ).serialize();
-        expect(isMedia(rtpPacket)).toBe(true);
-        transceiver.sendRtp(rtpPacket);
-      });
-    }
     const pc2 = new RTCPeerConnection();
-    {
-      const transceiver = pc2.addTransceiver("video", "sendrecv");
-      transceiver.sender.onReady.subscribe(() => {
-        const rtpPacket = new RtpPacket(
-          new RtpHeader(),
-          Buffer.from("pc2")
-        ).serialize();
-        expect(isMedia(rtpPacket)).toBe(true);
-        transceiver.sendRtp(rtpPacket);
-      });
-    }
 
     (async () => {
       await Promise.all([
         new Promise((r) => {
-          pc1.onTransceiver.subscribe((transceiver) => {
-            transceiver.onTrack.subscribe((track) => {
-              track.onRtp.subscribe((rtp) => {
-                expect(rtp.payload).toEqual(Buffer.from("pc2"));
-                r();
-              });
+          const transceiver = pc1.addTransceiver("video", "sendrecv");
+          transceiver.onTrack.subscribe((track) => {
+            track.onRtp.subscribe((rtp) => {
+              expect(rtp.payload).toEqual(Buffer.from("pc2"));
+              r();
             });
+          });
+          transceiver.sender.onReady.subscribe(() => {
+            const rtpPacket = new RtpPacket(
+              new RtpHeader(),
+              Buffer.from("pc1")
+            ).serialize();
+            expect(isMedia(rtpPacket)).toBe(true);
+            transceiver.sendRtp(rtpPacket);
           });
         }),
         new Promise((r) => {
-          pc2.onTransceiver.subscribe((transceiver) => {
-            transceiver.onTrack.subscribe((track) => {
-              track.onRtp.subscribe((rtp) => {
-                expect(rtp.payload).toEqual(Buffer.from("pc1"));
-                r();
-              });
+          const transceiver = pc2.addTransceiver("video", "sendrecv");
+          transceiver.sender.onReady.subscribe(() => {
+            const rtpPacket = new RtpPacket(
+              new RtpHeader(),
+              Buffer.from("pc2")
+            ).serialize();
+            expect(isMedia(rtpPacket)).toBe(true);
+            transceiver.sendRtp(rtpPacket);
+          });
+
+          transceiver.onTrack.subscribe((track) => {
+            track.onRtp.subscribe((rtp) => {
+              expect(rtp.payload).toEqual(Buffer.from("pc1"));
+              r();
             });
           });
         }),

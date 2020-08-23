@@ -12,7 +12,7 @@ import { RtpTrack } from "./track";
 import Event from "rx.mini";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 
-export type Direction = "sendonly" | "sendrecv" | "recvonly";
+export type Direction = "sendonly" | "sendrecv" | "recvonly" | "inactive";
 
 export type TransceiverOptions = {
   simulcast: { direction: "send" | "recv"; rid: string }[];
@@ -38,11 +38,18 @@ export class RTCRtpTransceiver {
   ) {}
 
   addTrack(track: RtpTrack) {
-    this.receiver.tracks.push(track);
-    this.onTrack.execute(track);
+    const exist = this.receiver.tracks.find((t) => {
+      if (t.rid) return t.rid === track.rid;
+      if (t.ssrc) return t.ssrc === track.ssrc;
+    });
+    if (!exist) {
+      this.receiver.tracks.push(track);
+      this.onTrack.execute(track);
+    }
   }
 
   sendRtp = (rtp: Buffer | RtpPacket) => {
+    if (this.direction === "inactive") return;
     if (!this.parameters)
       this.parameters = new RTCRtpParameters({
         muxId: this.mid,
