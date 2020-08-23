@@ -424,34 +424,34 @@ export class RTCPeerConnection {
     description: SessionDescription,
     isLocal: boolean
   ) {
-    // if (isLocal) {
-    //   if (description.type === "offer") {
-    //     if (!["stable", "have-local-offer"].includes(this._signalingState))
-    //       throw new Error("Cannot handle offer in signaling state");
-    //   } else if (description.type === "answer") {
-    //     if (
-    //       !["have-remote-offer", "have-local-pranswer"].includes(
-    //         this.signalingState
-    //       )
-    //     ) {
-    //       throw new Error("Cannot handle answer in signaling state");
-    //     }
-    //   }
-    // } else {
-    //   if (description.type === "offer") {
-    //     if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
-    //       throw new Error("Cannot handle offer in signaling state");
-    //     }
-    //   } else if (description.type === "answer") {
-    //     if (
-    //       !["have-local-offer", "have-remote-pranswer"].includes(
-    //         this.signalingState
-    //       )
-    //     ) {
-    //       throw new Error("Cannot handle answer in signaling state");
-    //     }
-    //   }
-    // }
+    if (isLocal) {
+      if (description.type === "offer") {
+        if (!["stable", "have-local-offer"].includes(this._signalingState))
+          throw new Error("Cannot handle offer in signaling state");
+      } else if (description.type === "answer") {
+        if (
+          !["have-remote-offer", "have-local-pranswer"].includes(
+            this.signalingState
+          )
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    } else {
+      if (description.type === "offer") {
+        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
+          throw new Error("Cannot handle offer in signaling state");
+        }
+      } else if (description.type === "answer") {
+        if (
+          !["have-local-offer", "have-remote-pranswer"].includes(
+            this.signalingState
+          )
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    }
 
     description.media.forEach((media) => {
       if (!media.iceParams.usernameFragment || !media.iceParams.password)
@@ -610,12 +610,12 @@ export class RTCPeerConnection {
 
   createAnswer() {
     this.assertNotClosed();
-    // if (
-    //   !["have-remote-offer", "have-local-pranswer"].includes(
-    //     this.signalingState
-    //   )
-    // )
-    //   throw new Error();
+    if (
+      !["have-remote-offer", "have-local-pranswer"].includes(
+        this.signalingState
+      )
+    )
+      throw new Error();
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
