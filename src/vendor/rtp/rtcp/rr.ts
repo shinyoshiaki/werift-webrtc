@@ -82,7 +82,7 @@ export class RtcpReceiverInfo {
       packetsLost,
       highestSequence,
       jitter,
-      lsr,
+      lsr: BigInt(lsr),
       dlsr,
     });
   }

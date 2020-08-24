@@ -8,6 +8,7 @@ import { RTCDtlsTransport } from "../transport/dtls";
 import { sleep } from "../../helper";
 
 export class RTCRtpReceiver {
+  type = "receiver";
   uuid = uuid();
   readonly tracks: RtpTrack[] = [];
 

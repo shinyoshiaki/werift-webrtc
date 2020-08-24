@@ -14,6 +14,7 @@ const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
+  type = "sender";
   ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   streamId = uuid.v4();
   trackId = uuid.v4();
@@ -40,11 +41,12 @@ export class RTCRtpSender {
     return this.dtlsTransport.state === DtlsState.CONNECTED;
   }
 
-  haltRtcp = true;
+  rtcpRunner = false;
   async runRtcp() {
-    this.haltRtcp = false;
+    if (this.rtcpRunner) return;
+    this.rtcpRunner = true;
 
-    while (!this.haltRtcp) {
+    while (this.rtcpRunner) {
       await sleep(500 + Math.random() * 1000);
 
       const packets = [
@@ -60,7 +62,6 @@ export class RTCRtpSender {
       ];
       this.lsr = (this.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
       this.lsrTime = Date.now() / 1000;
-
       this.dtlsTransport.sendRtcp(packets);
     }
   }
@@ -93,12 +94,14 @@ export class RTCRtpSender {
     this.packetCount++;
 
     this.dtlsTransport.sendRtp(rtp.payload, header);
+    this.runRtcp();
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {
     switch (rtcpPacket.type) {
       case RtcpSrPacket.type:
       case RtcpRrPacket.type:
+        console.log(rtcpPacket.type);
         const packet = rtcpPacket as RtcpSrPacket | RtcpRrPacket;
         packet.reports
           .filter((report) => report.ssrc === this.ssrc)
@@ -111,6 +114,7 @@ export class RTCRtpSender {
               } else {
                 this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
               }
+              console.log(this.rtt);
             }
           });
         break;

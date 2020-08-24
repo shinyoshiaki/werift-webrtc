@@ -602,6 +602,7 @@ export class RTCPeerConnection {
     transceiver.receiver.rtcpSsrc = transceiver.sender.ssrc;
     transceiver.dtlsTransport = dtlsTransport;
     transceiver.options = options;
+    this.router.ssrcTable[transceiver.sender.ssrc] = transceiver.sender;
 
     this.transceivers.push(transceiver);
 

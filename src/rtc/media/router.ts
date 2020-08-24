@@ -12,8 +12,8 @@ import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
 
 export class RtpRouter {
-  ssrcTable: { [ssrc: number]: RTCRtpReceiver } = {};
-  ridTable: { [rid: string]: RTCRtpReceiver } = {};
+  ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
+  ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
   extIdUriMap: { [id: number]: string } = {};
 
   registerRtpReceiverBySsrc(
@@ -57,11 +57,11 @@ export class RtpRouter {
         return acc;
       }, {} as { [uri: string]: any });
 
-    let ssrcReceiver = this.ssrcTable[packet.header.ssrc];
+    let ssrcReceiver = this.ssrcTable[packet.header.ssrc] as RTCRtpReceiver;
     const rid = extensions["urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"];
 
     if (rid) {
-      ssrcReceiver = this.ridTable[rid];
+      ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
       ssrcReceiver.handleRtpByRid(packet, rid);
     } else {
       ssrcReceiver.handleRtpBySsrc(packet, packet.header.ssrc);
@@ -71,20 +71,18 @@ export class RtpRouter {
   };
 
   routeRtcp = (packet: RtcpPacket) => {
-    const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
+    let recipient: RTCRtpReceiver | RTCRtpSender;
     switch (packet.type) {
       case RtcpSrPacket.type:
-        recipients.push(this.ssrcTable[packet.ssrc]);
+        recipient = this.ssrcTable[packet.ssrc];
         break;
       case RtcpRrPacket.type:
         const rr = packet as RtcpRrPacket;
         rr.reports.forEach((report) => {
-          recipients.push(this.ssrcTable[report.ssrc]);
+          recipient = this.ssrcTable[report.ssrc];
         });
         break;
     }
-    recipients
-      .filter((v) => v)
-      .forEach((recipient) => recipient.handleRtcpPacket(packet));
+    recipient.handleRtcpPacket(packet);
   };
 }
