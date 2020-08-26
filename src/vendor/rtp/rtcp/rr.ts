@@ -43,7 +43,7 @@ export class RtcpReceiverInfo {
   packetsLost: number;
   highestSequence: number;
   jitter: number;
-  lsr: bigint;
+  lsr: number;
   dlsr: number;
 
   constructor(props: Partial<RtcpReceiverInfo> = {}) {
@@ -82,7 +82,7 @@ export class RtcpReceiverInfo {
       packetsLost,
       highestSequence,
       jitter,
-      lsr: BigInt(lsr),
+      lsr,
       dlsr,
     });
   }
