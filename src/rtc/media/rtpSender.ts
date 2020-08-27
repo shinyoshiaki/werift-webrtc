@@ -101,12 +101,11 @@ export class RTCRtpSender {
     switch (rtcpPacket.type) {
       case RtcpSrPacket.type:
       case RtcpRrPacket.type:
-        console.log(rtcpPacket.type);
         const packet = rtcpPacket as RtcpSrPacket | RtcpRrPacket;
         packet.reports
           .filter((report) => report.ssrc === this.ssrc)
           .forEach((report) => {
-            if (this.lsr === report.lsr && report.dlsr) {
+            if (this.lsr === BigInt(report.lsr) && report.dlsr) {
               const rtt =
                 Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
               if (this.rtt === undefined) {
@@ -114,7 +113,6 @@ export class RTCRtpSender {
               } else {
                 this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
               }
-              console.log(this.rtt);
             }
           });
         break;

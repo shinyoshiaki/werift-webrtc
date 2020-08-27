@@ -71,18 +71,19 @@ export class RtpRouter {
   };
 
   routeRtcp = (packet: RtcpPacket) => {
-    let recipient: RTCRtpReceiver | RTCRtpSender;
+    const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
+
     switch (packet.type) {
       case RtcpSrPacket.type:
-        recipient = this.ssrcTable[packet.ssrc];
+        recipients.push(this.ssrcTable[packet.ssrc]);
         break;
       case RtcpRrPacket.type:
         const rr = packet as RtcpRrPacket;
         rr.reports.forEach((report) => {
-          recipient = this.ssrcTable[report.ssrc];
+          recipients.push(this.ssrcTable[report.ssrc]);
         });
         break;
     }
-    recipient.handleRtcpPacket(packet);
+    recipients.forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
 }

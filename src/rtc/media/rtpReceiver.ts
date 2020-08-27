@@ -22,10 +22,10 @@ export class RTCRtpReceiver {
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
 
-  rtcpRunner = false;
+  rtcpRunning = false;
   async runRtcp() {
-    if (this.rtcpRunner) return;
-    this.rtcpRunner = true;
+    if (this.rtcpRunning) return;
+    this.rtcpRunning = true;
 
     while (true) {
       await sleep(500 + Math.random() * 1000);
@@ -50,12 +50,12 @@ export class RTCRtpReceiver {
   handleRtpBySsrc = (packet: RtpPacket, ssrc: number) => {
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
-    // this.runRtcp();
+    this.runRtcp();
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string) => {
     const track = this.tracks.find((track) => track.rid === rid);
     track.onRtp.execute(packet);
-    // this.runRtcp();
+    this.runRtcp();
   };
 }

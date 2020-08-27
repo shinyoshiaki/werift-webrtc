@@ -29,7 +29,7 @@ export class RTCRtpCodecParameters {
   clockRate: number;
   channels?: number;
   payloadType?: number;
-  rtcpFeedback = [];
+  rtcpFeedback: { type: string; parameter?: string }[] = [];
   parameters = {};
 
   constructor(props: Partial<RTCRtpCodecParameters> = {}) {
