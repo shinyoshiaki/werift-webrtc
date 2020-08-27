@@ -241,7 +241,7 @@ export class RtpHeader {
       const extSize = offset - startExtensionsPos;
       const roundedExtSize = Math.floor((extSize + 3) / 4) * 4;
 
-      buf.writeInt16BE(Math.floor(roundedExtSize / 4), extHeaderPos + 2);
+      buf.writeUInt16BE(Math.floor(roundedExtSize / 4), extHeaderPos + 2);
       for (let i = 0; i < roundedExtSize - extSize; i++) {
         buf.writeUInt8(0, offset);
         offset++;
