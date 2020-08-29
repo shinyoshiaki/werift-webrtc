@@ -41,7 +41,7 @@ server.on("connection", async (socket) => {
       if (ssrc) {
         transceiver.receiver.sendRtcpPLI(ssrc);
       }
-    }, 2000);
+    }, 1000);
   });
 
   pc.createDataChannel("dc").message.subscribe(async (v) => {
