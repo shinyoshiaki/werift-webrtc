@@ -223,7 +223,8 @@ export class Transaction {
   };
 
   private retry = () => {
-    if (this.tries >= this.triesMax) {
+    // todo fix
+    if (this.tries >= this.triesMax * 2) {
       this.future.error(new TransactionTimeout());
       return;
     }
