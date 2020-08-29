@@ -73,7 +73,7 @@
 
             let times = 0;
             setInterval(async () => {
-              if (times++ >= 5) return;
+              if (times++ >= 1) return;
 
               socket.onmessage = async ({ data }) => {
                 const answer = JSON.parse(data);

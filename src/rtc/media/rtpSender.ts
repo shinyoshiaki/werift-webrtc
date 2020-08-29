@@ -9,6 +9,11 @@ import { sleep } from "../../helper";
 import { RTCDtlsTransport, DtlsState } from "../transport/dtls";
 import Event from "rx.mini";
 import { RTCRtpParameters } from "./parameters";
+import {
+  RtcpSourceDescriptionPacket,
+  SourceDescriptionChunk,
+  SourceDescriptionItem,
+} from "../../vendor/rtp/rtcp/sdes";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -18,6 +23,7 @@ export class RTCRtpSender {
   ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   streamId = uuid.v4();
   trackId = uuid.v4();
+  private cname = "";
 
   // # stats
   private lsr?: bigint;
@@ -49,7 +55,7 @@ export class RTCRtpSender {
     while (this.rtcpRunner) {
       await sleep(500 + Math.random() * 1000);
 
-      const packets = [
+      const packets: RtcpPacket[] = [
         new RtcpSrPacket({
           ssrc: this.ssrc,
           senderInfo: new RtcpSenderInfo({
@@ -60,6 +66,20 @@ export class RTCRtpSender {
           }),
         }),
       ];
+      if (this.cname) {
+        packets.push(
+          new RtcpSourceDescriptionPacket({
+            chunks: [
+              new SourceDescriptionChunk({
+                source: this.ssrc,
+                items: [
+                  new SourceDescriptionItem({ type: 1, text: this.cname }),
+                ],
+              }),
+            ],
+          })
+        );
+      }
       this.lsr = (this.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
       this.lsrTime = Date.now() / 1000;
       this.dtlsTransport.sendRtcp(packets);
@@ -72,6 +92,8 @@ export class RTCRtpSender {
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
     const header = rtp.header;
     header.ssrc = this.ssrc;
+
+    this.cname = parameters.rtcp.cname;
 
     header.extensions = parameters.headerExtensions
       .map((extension) => {

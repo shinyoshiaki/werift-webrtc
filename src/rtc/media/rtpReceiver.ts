@@ -6,6 +6,8 @@ import { RtpTrack } from "./track";
 import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { sleep } from "../../helper";
+import { RtcpPayloadSpecificFeedback } from "../../vendor/rtp/rtcp/psfb";
+import { PictureLossIndication } from "../../vendor/rtp/rtcp/psfb/pictureLossIndication";
 
 export class RTCRtpReceiver {
   type = "receiver";
@@ -36,13 +38,23 @@ export class RTCRtpReceiver {
     }
   }
 
+  sendRtcpPLI(mediaSsrc: number) {
+    const packet = new RtcpPayloadSpecificFeedback({
+      feedback: new PictureLossIndication({
+        senderSsrc: this.rtcpSsrc,
+        mediaSsrc,
+      }),
+    });
+    this.dtlsTransport.sendRtcp([packet]);
+  }
+
   handleRtcpPacket(packet: RtcpPacket) {
     switch (packet.type) {
       case RtcpSrPacket.type:
         const sr = packet as RtcpSrPacket;
         this.lsr[sr.ssrc] =
           (sr.senderInfo.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
-        this.lsrTime[packet.ssrc] = Date.now() / 1000;
+        this.lsrTime[sr.ssrc] = Date.now() / 1000;
         break;
     }
   }
@@ -51,6 +63,7 @@ export class RTCRtpReceiver {
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
     this.runRtcp();
+    this.sendRtcpPLI(track.ssrc);
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string) => {

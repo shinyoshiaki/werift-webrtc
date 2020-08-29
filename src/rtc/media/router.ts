@@ -10,6 +10,8 @@ import { RTCRtpSender } from "./rtpSender";
 import { RtcpSrPacket } from "../../vendor/rtp/rtcp/sr";
 import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
+import { RtcpPayloadSpecificFeedback } from "../../vendor/rtp/rtcp/psfb";
+import { RtcpSourceDescriptionPacket } from "../../vendor/rtp/rtcp/sdes";
 
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
@@ -75,15 +77,35 @@ export class RtpRouter {
 
     switch (packet.type) {
       case RtcpSrPacket.type:
-        recipients.push(this.ssrcTable[packet.ssrc]);
+        {
+          packet = packet as RtcpSrPacket;
+          recipients.push(this.ssrcTable[packet.ssrc]);
+        }
         break;
       case RtcpRrPacket.type:
-        const rr = packet as RtcpRrPacket;
-        rr.reports.forEach((report) => {
-          recipients.push(this.ssrcTable[report.ssrc]);
-        });
+        {
+          packet = packet as RtcpRrPacket;
+          packet.reports.forEach((report) => {
+            recipients.push(this.ssrcTable[report.ssrc]);
+          });
+        }
+        break;
+      case RtcpSourceDescriptionPacket.type:
+        {
+          const sdes = packet as RtcpSourceDescriptionPacket;
+          // console.log("sdes", JSON.stringify(sdes.chunks));
+        }
+        break;
+      case RtcpPayloadSpecificFeedback.type:
+        {
+          const psfb = packet as RtcpPayloadSpecificFeedback;
+          if (psfb.feedback)
+            recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
+        }
         break;
     }
-    recipients.forEach((recipient) => recipient.handleRtcpPacket(packet));
+    recipients
+      .filter((v) => v) // todo simulcast
+      .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
 }

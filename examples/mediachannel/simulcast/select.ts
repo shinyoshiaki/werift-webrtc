@@ -29,12 +29,19 @@ server.on("connection", async (socket) => {
 
   let sender = pc.addTransceiver("video", "sendonly");
   transceiver.onTrack.subscribe((track) => {
+    let ssrc = 0;
     track.onRtp.subscribe((rtp) => {
+      ssrc = rtp.header.ssrc;
       if (track.rid === source) {
-        // console.log(track.rid);
         sender.sendRtp(rtp);
       }
     });
+
+    setInterval(() => {
+      if (ssrc) {
+        transceiver.receiver.sendRtcpPLI(ssrc);
+      }
+    }, 2000);
   });
 
   pc.createDataChannel("dc").message.subscribe(async (v) => {
