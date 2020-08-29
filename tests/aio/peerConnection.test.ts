@@ -51,6 +51,6 @@ describe("aio_peerConnection", () => {
       const answer = JSON.parse(msg);
       await pc.setRemoteDescription(answer);
     },
-    15 * 1000
+    20 * 1000
   );
 });

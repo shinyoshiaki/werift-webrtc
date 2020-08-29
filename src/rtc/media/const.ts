@@ -14,6 +14,11 @@ export const CODECS = {
       mimeType: "video/VP8",
       clockRate: 90000,
       payloadType: 97,
+      rtcpFeedback: [
+        { type: "ccm", parameter: "fir" },
+        { type: "nack" },
+        { type: "nack", parameter: "pli" },
+      ],
     }),
   ],
 };

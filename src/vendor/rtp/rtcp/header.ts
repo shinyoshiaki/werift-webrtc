@@ -1,5 +1,7 @@
-import { bufferWriter, bufferReader } from "../helper";
-import { setBit, getBit } from "../utils";
+import { bufferReader, bufferWriter } from "../helper";
+import { getBit, setBit } from "../utils";
+
+export const HEADER_SIZE = 4;
 
 export class RtcpHeader {
   version: number = 0;

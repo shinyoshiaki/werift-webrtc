@@ -396,6 +396,14 @@ export class RTCPeerConnection {
     }
   }
 
+  private localRtp(transceiver: RTCRtpTransceiver) {
+    const rtp = new RTCRtpParameters({
+      headerExtensions: transceiver.headerExtensions,
+      rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
+    });
+    return rtp;
+  }
+
   private remoteRtp(transceiver: RTCRtpTransceiver) {
     const media = this._remoteDescription().media[transceiver.mLineIndex];
     const receiveParameters = new RTCRtpReceiveParameters({
@@ -577,6 +585,9 @@ export class RTCPeerConnection {
     }
 
     this.transceivers.forEach((transceiver) => {
+      if (["sendonly", "sendrecv"].includes(transceiver.direction)) {
+        transceiver.senderParams = this.localRtp(transceiver);
+      }
       if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
         const params = this.remoteRtp(transceiver);
         this.router.registerRtpReceiverBySsrc(transceiver, params);
@@ -602,6 +613,7 @@ export class RTCPeerConnection {
     transceiver.receiver.rtcpSsrc = transceiver.sender.ssrc;
     transceiver.dtlsTransport = dtlsTransport;
     transceiver.options = options;
+    this.router.ssrcTable[transceiver.sender.ssrc] = transceiver.sender;
 
     this.transceivers.push(transceiver);
 

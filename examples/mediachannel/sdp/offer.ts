@@ -16,6 +16,10 @@ server.on("connection", async (socket) => {
     track.onRtp.subscribe((rtp) => {
       transceiver.sendRtp(rtp);
     });
+
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 3000);
   };
 
   onTransceiver(pc.addTransceiver("video", "sendrecv"));

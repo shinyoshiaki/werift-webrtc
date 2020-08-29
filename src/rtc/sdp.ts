@@ -266,13 +266,13 @@ export class SessionDescription {
             const codec = findCodec(Number(formatId));
             codec.parameters = parametersFromSdp(formatDesc);
           } else if (attr === "rtcp-fb") {
-            const bits = value.split(" ");
+            const [payloadType, feedbackType, feedbackParam] = value.split(" ");
             currentMedia.rtp.codecs.forEach((codec) => {
-              if (["*", codec.payloadType].includes(bits[0])) {
+              if (["*", codec.payloadType.toString()].includes(payloadType)) {
                 codec.rtcpFeedback.push(
                   new RTCRtcpFeedback({
-                    type: bits[1],
-                    parameter: bits.length > 2 ? bits[2] : undefined,
+                    type: feedbackType,
+                    parameter: feedbackParam,
                   })
                 );
               }
@@ -428,8 +428,11 @@ export class MediaDescription {
     this.rtp.codecs.forEach((codec) => {
       lines.push(`a=rtpmap:${codec.payloadType} ${codec.str}`);
 
-      // todo
-      // codec.rtcpFeedback.forEach
+      codec.rtcpFeedback.forEach((feedback) => {
+        let value = feedback.type;
+        if (feedback.parameter) value += ` ${feedback.parameter}`;
+        lines.push(`a=rtcp-fb:${codec.payloadType} ${value}`);
+      });
     });
 
     Object.keys(this.sctpMap).forEach((k) => {
