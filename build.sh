@@ -1,5 +1,6 @@
 #!/bin/sh
 rm -rf lib
+yarn unused
 yarn format
 yarn test
 yarn build

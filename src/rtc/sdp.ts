@@ -4,6 +4,7 @@ import { range } from "lodash";
 import { isIPv4 } from "net";
 import { divide } from "../helper";
 import { Kind } from "../typings/domain";
+import { reverseSimulcastDirection } from "../utils";
 import {
   DTLS_ROLE_SETUP,
   DTLS_SETUP_ROLE,
@@ -21,7 +22,6 @@ import { Direction } from "./media/rtpTransceiver";
 import { RTCDtlsFingerprint, RTCDtlsParameters } from "./transport/dtls";
 import { RTCIceCandidate, RTCIceParameters } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
-import { reverseSimulcastDirection } from "../utils";
 
 export class SessionDescription {
   version = 0;
