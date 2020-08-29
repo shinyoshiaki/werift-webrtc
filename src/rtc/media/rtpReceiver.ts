@@ -63,7 +63,6 @@ export class RTCRtpReceiver {
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
     this.runRtcp();
-    this.sendRtcpPLI(track.ssrc);
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string) => {
