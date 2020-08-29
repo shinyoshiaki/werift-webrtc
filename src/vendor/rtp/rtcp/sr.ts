@@ -1,5 +1,5 @@
-import { bufferWriter, bufferReader } from "../helper";
 import { range } from "lodash";
+import { bufferReader, bufferWriter } from "../helper";
 import { RtcpReceiverInfo } from "./rr";
 import { RtcpPacketConverter } from "./rtcp";
 
@@ -25,17 +25,18 @@ export class RtcpSrPacket {
     return RtcpPacketConverter.serialize(
       RtcpSrPacket.type,
       this.reports.length,
-      payload
+      payload,
+      Math.floor(payload.length / 4)
     );
   }
 
-  static deSerialize(data: Buffer, count: number) {
-    const ssrc = data.readUInt32BE();
-    const senderInfo = RtcpSenderInfo.deSerialize(data.slice(4, 24));
+  static deSerialize(payload: Buffer, count: number) {
+    const ssrc = payload.readUInt32BE();
+    const senderInfo = RtcpSenderInfo.deSerialize(payload.slice(4, 24));
     let pos = 24;
     const reports = [];
     for (const _ of range(count)) {
-      reports.push(RtcpReceiverInfo.deSerialize(data.slice(pos, pos + 24)));
+      reports.push(RtcpReceiverInfo.deSerialize(payload.slice(pos, pos + 24)));
       pos += 24;
     }
     return new RtcpSrPacket({ ssrc, senderInfo, reports });
