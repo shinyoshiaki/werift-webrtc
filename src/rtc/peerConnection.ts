@@ -579,7 +579,13 @@ export class RTCPeerConnection {
       if (dtlsTransport) {
         // # add ICE candidates
         const iceTransport = dtlsTransport.iceTransport;
-        await addRemoteCandidates(iceTransport, media);
+        media.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+
+        await iceTransport.iceGather.gather();
+
+        if (media.iceCandidatesComplete) {
+          iceTransport.addRemoteCandidate(undefined);
+        }
 
         if (description.type === "offer" && !iceTransport.roleSet) {
           iceTransport.connection.iceControlling = media.iceParams.iceLite;
@@ -822,16 +828,5 @@ function wrapSessionDescription(sessionDescription?: SessionDescription) {
       sessionDescription.toString(),
       sessionDescription.type!
     );
-  }
-}
-
-async function addRemoteCandidates(
-  iceTransport: RTCIceTransport,
-  media: MediaDescription
-) {
-  media.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-  await iceTransport.iceGather.gather();
-  if (media.iceCandidatesComplete) {
-    iceTransport.addRemoteCandidate(undefined);
   }
 }
