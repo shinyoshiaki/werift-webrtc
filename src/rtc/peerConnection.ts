@@ -37,6 +37,8 @@ import {
 } from "./transport/dtls";
 import {
   IceState,
+  RTCIceCandidate,
+  RTCIceCandidateJSON,
   RTCIceGatherer,
   RTCIceParameters,
   RTCIceTransport,
@@ -72,6 +74,7 @@ export class RTCPeerConnection {
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
   onTransceiver = new Event<RTCRtpTransceiver>();
+  onIceCandidate = new Event<RTCIceCandidate>();
   router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
@@ -290,6 +293,13 @@ export class RTCPeerConnection {
         this.updateIceConnectionState();
       }
     });
+    iceTransport.iceGather.onIceCandidate = (candidate) => {
+      const sdp = SessionDescription.parse(this.localDescription.sdp);
+      const media = sdp.media[0];
+      candidate.sdpMLineIndex = 0;
+      candidate.sdpMid = media.rtp.muxId;
+      this.onIceCandidate.execute(candidate);
+    };
 
     const dtls = new RTCDtlsTransport(
       iceTransport,
@@ -352,20 +362,34 @@ export class RTCPeerConnection {
       iceTransport.roleSet = true;
     }
 
+    this.setLocal(description);
+
     // # gather candidates
-    if (!this.masterTransportEstablished) await this.gather();
+    await this.gather();
 
     description.media.map((media) => {
       addTransportDescription(media, this.masterTransport);
     });
 
-    // # replace description
+    this.setLocal(description);
+  }
+
+  private setLocal(description: SessionDescription) {
     if (description.type === "answer") {
       this.currentLocalDescription = description;
       this.pendingLocalDescription = undefined;
     } else {
       this.pendingLocalDescription = description;
     }
+  }
+
+  async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
+    if (!this.masterTransport) throw new Error();
+
+    const candidate = RTCIceCandidate.fromJSON(candidateMessage);
+
+    const iceTransport = this.masterTransport.iceTransport;
+    iceTransport.addRemoteCandidate(candidate);
   }
 
   private async gather() {

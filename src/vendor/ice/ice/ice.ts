@@ -630,7 +630,8 @@ export class Connection {
   async getComponentCandidates(
     component: number,
     addresses: string[],
-    timeout = 5
+    timeout = 5,
+    cb?: (candidate: Candidate) => void
   ) {
     let candidates: Candidate[] = [];
 
@@ -655,6 +656,7 @@ export class Connection {
       );
 
       candidates.push(protocol.localCandidate);
+      if (cb) cb(protocol.localCandidate);
     }
 
     // # query STUN server for server-reflexive candidates (IPv4 only)
@@ -674,6 +676,7 @@ export class Connection {
                       protocol,
                       this.stunServer!
                     );
+                    if (cb) cb(candidate);
                     r(candidate);
                   } else {
                     r(undefined);
@@ -691,15 +694,18 @@ export class Connection {
     return candidates;
   }
 
-  async gatherCandidates() {
+  async gatherCandidates(cb?: (candidate: Candidate) => void) {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
       const address = getHostAddress(this.useIpv4, this.useIpv6);
       for (let component of this._components) {
-        this.localCandidates = [
-          ...this.localCandidates,
-          ...(await this.getComponentCandidates(component, address)),
-        ];
+        const candidates = await this.getComponentCandidates(
+          component,
+          address,
+          5,
+          cb
+        );
+        this.localCandidates = [...this.localCandidates, ...candidates];
       }
       this._localCandidatesEnd = true;
     }

@@ -14,6 +14,7 @@ export type IceState =
 
 export class RTCIceGatherer {
   subject = new Event<IceState>();
+  onIceCandidate: (candidate: RTCIceCandidate) => void;
   private _state: IceState = "new";
   connection: Connection;
   constructor(stunServer?: [string, number]) {
@@ -27,7 +28,9 @@ export class RTCIceGatherer {
   async gather() {
     if (this._state === "new") {
       this.setState("gathering");
-      await this.connection.gatherCandidates();
+      await this.connection.gatherCandidates((candidate) =>
+        this.onIceCandidate(candidateFromIce(candidate))
+      );
       this.setState("completed");
     }
   }
@@ -84,7 +87,7 @@ export function candidateToIce(x: RTCIceCandidate) {
 
 export type RTCIceCandidateJSON = {
   candidate: string;
-  sdpMid: number;
+  sdpMid: string;
   sdpMLineIndex: number;
 };
 
@@ -96,7 +99,7 @@ export class RTCIceCandidate {
   // """
   public relatedAddress?: string;
   public relatedPort?: number;
-  public sdpMid?: number;
+  public sdpMid?: string;
   public sdpMLineIndex?: number;
   public tcpType?: string;
 
