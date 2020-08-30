@@ -14,7 +14,7 @@ export type IceState =
 
 export class RTCIceGatherer {
   subject = new Event<IceState>();
-  onIceCandidate: (candidate: RTCIceCandidate) => void;
+  onIceCandidate: (candidate: RTCIceCandidate) => void = () => {};
   private _state: IceState = "new";
   connection: Connection;
   constructor(stunServer?: [string, number]) {

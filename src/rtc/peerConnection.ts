@@ -294,6 +294,7 @@ export class RTCPeerConnection {
       }
     });
     iceTransport.iceGather.onIceCandidate = (candidate) => {
+      if (!this.localDescription) return;
       const sdp = SessionDescription.parse(this.localDescription.sdp);
       const media = sdp.media[0];
       candidate.sdpMLineIndex = 0;
@@ -811,7 +812,6 @@ function allocateMid(mids: Set<string>) {
     mid = (i++).toString();
     if (!mids.has(mid)) break;
   }
-  console.log(mid);
   mids.add(mid);
   return mid;
 }

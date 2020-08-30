@@ -10,7 +10,7 @@ export const flight3 = (udp: TransportContext, dtls: DtlsContext) => (
 ) => {
   if (dtls.flight === 3) return;
   dtls.flight = 3;
-  console.log("flight3");
+  // console.log("flight3");
 
   const hello = dtls.lastFlight[0] as ClientHello;
   hello.cookie = verifyReq.cookie;
