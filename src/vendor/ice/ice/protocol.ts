@@ -1,8 +1,8 @@
-import { Event } from "rx.mini";
-import { Address, Protocol } from "../model";
-import { Message, Transaction, parseMessage, classes } from "../stun/stun";
 import * as dgram from "dgram";
+import { Event } from "rx.mini";
 import { Candidate } from "../candidate";
+import { Address, Protocol } from "../model";
+import { classes, Message, parseMessage, Transaction } from "../stun/stun";
 import { Connection } from "./ice";
 
 export class StunProtocol implements Protocol {
@@ -42,7 +42,7 @@ export class StunProtocol implements Protocol {
     });
   };
 
-  datagramReceived(data: Buffer, addr: Address) {
+  private datagramReceived(data: Buffer, addr: Address) {
     let message;
     try {
       message = parseMessage(data);

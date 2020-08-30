@@ -1,28 +1,27 @@
-import {
-  difference,
-  randomString,
-  PQueue,
-  sleep,
-  Future,
-  future,
-} from "../utils";
-import { range } from "lodash";
-import { Message, methods, classes, parseMessage } from "../stun/stun";
-import { Address, Protocol } from "../model";
-import {
-  Candidate,
-  candidatePriority,
-  candidateFoundation,
-} from "../candidate";
 import { randomBytes } from "crypto";
-import { TransactionError } from "../exceptions";
+import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
-import { StunProtocol } from "./protocol";
+import { isEqual, range } from "lodash";
 import { isIPv4 } from "net";
-import { isEqual } from "lodash";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
-import { Uint64BE } from "int64-buffer";
+import {
+  Candidate,
+  candidateFoundation,
+  candidatePriority,
+} from "../candidate";
+import { TransactionError } from "../exceptions";
+import { Address, Protocol } from "../model";
+import { classes, Message, methods, parseMessage } from "../stun/stun";
+import {
+  difference,
+  Future,
+  future,
+  PQueue,
+  randomString,
+  sleep,
+} from "../utils";
+import { StunProtocol } from "./protocol";
 
 const ICE_COMPLETED = 1;
 const ICE_FAILED = 2;
@@ -181,7 +180,7 @@ export class Connection {
     return Object.values(this.nominated)[0].remoteAddr;
   }
   private checkListDone = false;
-  private checkListState = new PQueue();
+  private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, StunProtocol][] = [];
   private localCandidatesStart = false;
   private protocols: StunProtocol[] = [];
@@ -511,9 +510,8 @@ export class Connection {
 
     // :param remote_candidate: A :class:`Candidate` instance or `None`.
     // """
-    if (this.remoteCandidatesEnd) {
+    if (this.remoteCandidatesEnd)
       throw new Error("Cannot add remote candidate after end-of-candidates.");
-    }
 
     if (!remoteCandidate) {
       this.pruneComponents();
@@ -533,6 +531,11 @@ export class Connection {
     }
     this.remoteCandidates.push(remoteCandidate);
 
+    this.pairRemoteCandidate(remoteCandidate);
+    this.sortCheckList();
+  }
+
+  private pairRemoteCandidate = (remoteCandidate: Candidate) => {
     for (let protocol of this.protocols) {
       if (
         protocol.localCandidate?.canPairWith(remoteCandidate) &&
@@ -541,9 +544,8 @@ export class Connection {
         const pair = new CandidatePair(protocol, remoteCandidate);
         this.checkList.push(pair);
       }
-      this.sortCheckList();
     }
-  }
+  };
 
   respondError(
     request: Message,
@@ -800,7 +802,6 @@ export class Connection {
   }
 
   // 生存確認
-  // life check
   private queryConsent = () =>
     new PCancelable(async (r, f, onCancel) => {
       let failures = 0;
@@ -816,7 +817,6 @@ export class Connection {
 
       while (true) {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        // await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
         await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
 
         for (let key of this.nominatedKeys) {
@@ -835,7 +835,7 @@ export class Connection {
             this.stateChanged.execute("disconnected");
           }
           if (failures >= CONSENT_FAILURES) {
-            console.log("Consent to send expired");
+            this.log("Consent to send expired");
             this.queryConsentHandle = undefined;
             // 切断検知
             r(await this.close());
@@ -859,25 +859,13 @@ export class Connection {
       throw new Error("Remote username or password is missing");
 
     // # 5.7.1. Forming Candidate Pairs
-    for (let remoteCandidate of this.remoteCandidates) {
-      for (let protocol of this.protocols) {
-        if (
-          protocol.localCandidate?.canPairWith(remoteCandidate) &&
-          !this.findPair(protocol, remoteCandidate)
-        ) {
-          const pair = new CandidatePair(protocol, remoteCandidate);
-          this.checkList.push(pair);
-        }
-      }
-    }
+    this.remoteCandidates.forEach(this.pairRemoteCandidate);
     this.sortCheckList();
 
     this.unfreezeInitial();
 
     // # handle early checks
-    for (let earlyCheck of this.earlyChecks) {
-      this.checkIncoming(...earlyCheck);
-    }
+    this.earlyChecks.forEach((earlyCheck) => this.checkIncoming(...earlyCheck));
     this.earlyChecks = [];
 
     // # perform checks
@@ -888,19 +876,13 @@ export class Connection {
     }
 
     // # wait for completion
-    let res: number;
-    if (this.checkList.length > 0) {
-      res = (await this.checkListState.get()) as any;
-    } else {
-      res = ICE_FAILED;
-    }
+    const res: number =
+      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
 
     // # cancel remaining checks
     this.checkList.forEach((check) => check.handle?.cancel());
 
-    if (res !== ICE_COMPLETED) {
-      throw new Error("ICE negotiation failed");
-    }
+    if (res !== ICE_COMPLETED) throw new Error("ICE negotiation failed");
 
     // # start consent freshness tests
     this.queryConsentHandle = future(this.queryConsent());
