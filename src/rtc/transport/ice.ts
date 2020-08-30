@@ -1,5 +1,6 @@
 import { Connection, Candidate } from "../../vendor/ice";
 import Event from "rx.mini";
+import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 export type IceState =
   | "new"
@@ -81,6 +82,12 @@ export function candidateToIce(x: RTCIceCandidate) {
   );
 }
 
+export type RTCIceCandidateJSON = {
+  candidate: string;
+  sdpMid: number;
+  sdpMLineIndex: number;
+};
+
 export class RTCIceCandidate {
   // """
   // The :class:`RTCIceCandidate` interface represents a candidate Interactive
@@ -89,8 +96,8 @@ export class RTCIceCandidate {
   // """
   public relatedAddress?: string;
   public relatedPort?: number;
-  public sdpMid?: unknown;
-  public sdpMLineIndex?: unknown;
+  public sdpMid?: number;
+  public sdpMLineIndex?: number;
   public tcpType?: string;
 
   constructor(
@@ -102,6 +109,21 @@ export class RTCIceCandidate {
     public protocol: string,
     public type: string
   ) {}
+
+  toJSON(): RTCIceCandidateJSON {
+    return {
+      candidate: candidateToSdp(this),
+      sdpMLineIndex: this.sdpMLineIndex,
+      sdpMid: this.sdpMid,
+    };
+  }
+
+  static fromJSON(data: RTCIceCandidateJSON) {
+    const candidate = candidateFromSdp(data.candidate);
+    candidate.sdpMLineIndex = data.sdpMLineIndex;
+    candidate.sdpMid = data.sdpMid;
+    return candidate;
+  }
 }
 
 export class RTCIceParameters {
