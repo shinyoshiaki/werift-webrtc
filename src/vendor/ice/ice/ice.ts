@@ -853,8 +853,8 @@ export class Connection {
     // and raises an exception otherwise.
     // """
 
-    if (!this._localCandidatesEnd)
-      throw new Error("Local candidates gathering was not performed");
+    // if (!this._localCandidatesEnd)
+    //   throw new Error("Local candidates gathering was not performed");
     if (!this.remoteUsername || !this.remotePassword)
       throw new Error("Remote username or password is missing");
 
