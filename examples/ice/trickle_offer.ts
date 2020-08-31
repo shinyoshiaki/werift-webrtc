@@ -1,6 +1,5 @@
 import { RTCPeerConnection } from "../../src";
 import { Server } from "ws";
-import { sleep } from "../../src/helper";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -9,9 +8,7 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
   });
-  pc.onIceCandidate.subscribe(async (candidate) => {
-    console.log("sent");
-    await sleep(1000);
+  pc.onIceCandidate.subscribe((candidate) => {
     socket.send(JSON.stringify(candidate.toJSON()));
   });
 
