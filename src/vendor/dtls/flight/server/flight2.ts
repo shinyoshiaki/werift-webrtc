@@ -22,7 +22,7 @@ export const flight2 = (
 ) => (clientHello: ClientHello) => {
   if (dtls.flight === 2) return;
   dtls.flight = 2;
-  console.log("flight2");
+  // console.log("flight2");
 
   clientHello.extensions.forEach((extension) => {
     switch (extension.type) {

@@ -64,7 +64,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/sdp/offer.ts"
+        "${workspaceRoot}/examples/ice/trickle_offer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

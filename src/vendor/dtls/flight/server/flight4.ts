@@ -25,7 +25,7 @@ export class Flight4 {
   exec(certificateRequest: boolean = false) {
     if (this.dtls.flight === 4) return;
     this.dtls.flight = 4;
-    console.log("flight4");
+    // console.log("flight4");
 
     this.dtls.sequenceNumber = 1;
 

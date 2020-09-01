@@ -498,7 +498,7 @@ function ipAddressToSdp(addr: string) {
   return `IN IP${version} ${addr}`;
 }
 
-function candidateToSdp(c: RTCIceCandidate) {
+export function candidateToSdp(c: RTCIceCandidate) {
   let sdp = `${c.foundation} ${c.component} ${c.protocol} ${c.priority} ${c.ip} ${c.port} typ ${c.type}`;
   if (c.relatedAddress) {
     sdp += ` raddr ${c.relatedAddress}`;
@@ -549,7 +549,7 @@ function parseGroup(
   }
 }
 
-function candidateFromSdp(sdp: string) {
+export function candidateFromSdp(sdp: string) {
   const bits = sdp.split(" ");
   if (bits.length < 8) {
     throw new Error();

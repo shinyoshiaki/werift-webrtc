@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Heroku</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      let rtc;
+
+      const App = () => {
+        const videoRef = React.useRef();
+
+        React.useEffect(() => {
+          const video = videoRef.current;
+          (async () => {
+            const socket = io("https://serene-anchorage-28732.herokuapp.com/");
+
+            const peer = (rtc = new RTCPeerConnection({
+              iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            }));
+            peer.onicecandidate = ({ candidate }) => {
+              if (candidate) {
+                socket.emit("sdp", {
+                  sdp: JSON.stringify(candidate),
+                  roomId: "test",
+                });
+              }
+            };
+
+            socket.emit("create", { roomId: "test" });
+
+            socket.on("sdp", async (data) => {
+              if (data.sdp) {
+                const offer = JSON.parse(data.sdp);
+                console.log("offer", offer.sdp);
+
+                peer.ontrack = (e) => {
+                  console.log("ontrack", e);
+                  video.srcObject = e.streams[0];
+                };
+                const localStream = await navigator.mediaDevices.getUserMedia({
+                  video: true,
+                  audio: false,
+                });
+                localStream
+                  .getVideoTracks()
+                  .forEach((track) => peer.addTrack(track, localStream));
+
+                await peer.setRemoteDescription(offer);
+                const answer = await peer.createAnswer();
+                await peer.setLocalDescription(answer);
+                socket.emit("sdp", {
+                  sdp: JSON.stringify(peer.localDescription),
+                  roomId: "test",
+                });
+              } else if (data.candidate) {
+                peer.addIceCandidate(JSON.parse(data.candidate));
+              }
+            });
+          })();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <video ref={videoRef} autoPlay muted />
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

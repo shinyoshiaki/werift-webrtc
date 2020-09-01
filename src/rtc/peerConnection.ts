@@ -37,6 +37,8 @@ import {
 } from "./transport/dtls";
 import {
   IceState,
+  RTCIceCandidate,
+  RTCIceCandidateJSON,
   RTCIceGatherer,
   RTCIceParameters,
   RTCIceTransport,
@@ -72,6 +74,7 @@ export class RTCPeerConnection {
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
   onTransceiver = new Event<RTCRtpTransceiver>();
+  onIceCandidate = new Event<RTCIceCandidate>();
   router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpTransport?: RTCSctpTransport;
@@ -290,6 +293,14 @@ export class RTCPeerConnection {
         this.updateIceConnectionState();
       }
     });
+    iceTransport.iceGather.onIceCandidate = (candidate) => {
+      if (!this.localDescription) return;
+      const sdp = SessionDescription.parse(this.localDescription.sdp);
+      const media = sdp.media[0];
+      candidate.sdpMLineIndex = 0;
+      candidate.sdpMid = media.rtp.muxId;
+      this.onIceCandidate.execute(candidate);
+    };
 
     const dtls = new RTCDtlsTransport(
       iceTransport,
@@ -352,20 +363,34 @@ export class RTCPeerConnection {
       iceTransport.roleSet = true;
     }
 
+    this.setLocal(description);
+
     // # gather candidates
-    if (!this.masterTransportEstablished) await this.gather();
+    await this.gather();
 
     description.media.map((media) => {
       addTransportDescription(media, this.masterTransport);
     });
 
-    // # replace description
+    this.setLocal(description);
+  }
+
+  private setLocal(description: SessionDescription) {
     if (description.type === "answer") {
       this.currentLocalDescription = description;
       this.pendingLocalDescription = undefined;
     } else {
       this.pendingLocalDescription = description;
     }
+  }
+
+  async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
+    if (!this.masterTransport) throw new Error();
+
+    const candidate = RTCIceCandidate.fromJSON(candidateMessage);
+
+    const iceTransport = this.masterTransport.iceTransport;
+    iceTransport.addRemoteCandidate(candidate);
   }
 
   private async gather() {
@@ -554,7 +579,13 @@ export class RTCPeerConnection {
       if (dtlsTransport) {
         // # add ICE candidates
         const iceTransport = dtlsTransport.iceTransport;
-        await addRemoteCandidates(iceTransport, media);
+        media.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+
+        await iceTransport.iceGather.gather();
+
+        if (media.iceCandidatesComplete) {
+          iceTransport.addRemoteCandidate(undefined);
+        }
 
         if (description.type === "offer" && !iceTransport.roleSet) {
           iceTransport.connection.iceControlling = media.iceParams.iceLite;
@@ -787,7 +818,6 @@ function allocateMid(mids: Set<string>) {
     mid = (i++).toString();
     if (!mids.has(mid)) break;
   }
-  console.log(mid);
   mids.add(mid);
   return mid;
 }
@@ -798,16 +828,5 @@ function wrapSessionDescription(sessionDescription?: SessionDescription) {
       sessionDescription.toString(),
       sessionDescription.type!
     );
-  }
-}
-
-async function addRemoteCandidates(
-  iceTransport: RTCIceTransport,
-  media: MediaDescription
-) {
-  media.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-  await iceTransport.iceGather.gather();
-  if (media.iceCandidatesComplete) {
-    iceTransport.addRemoteCandidate(undefined);
   }
 }
