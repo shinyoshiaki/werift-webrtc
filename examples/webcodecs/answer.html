@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      let rtc;
+
+      const App = () => {
+        const canvasRef = React.useRef();
+
+        React.useEffect(() => {
+          (async () => {
+            const socket = new WebSocket("ws://localhost:8888");
+            await new Promise((r) => (socket.onopen = r));
+            console.log("open websocket");
+
+            const offer = await new Promise(
+              (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+            );
+            console.log("offer", offer.sdp);
+
+            const peer = (rtc = new RTCPeerConnection({
+              iceServers: [{ url: "stun:stun.l.google.com:19302" }],
+            }));
+            peer.onicecandidate = ({ candidate }) => {
+              if (candidate) {
+                socket.send(JSON.stringify(candidate));
+              }
+            };
+
+            peer.oniceconnectionstatechange = () => {
+              console.log(
+                "oniceconnectionstatechange",
+                peer.iceConnectionState
+              );
+            };
+
+            // Decoder
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext("2d");
+            const videoDecoder = new VideoDecoder({
+              output: async (frame) => {
+                const imageBitmap = await frame.createImageBitmap();
+                ctx.drawImage(imageBitmap, 0, 0);
+              },
+              error: (err) => {
+                console.error("fatal", err, arguments);
+              },
+            });
+            videoDecoder.configure({ codec: "vp8" });
+
+            let timestamp = 0;
+            peer.ondatachannel = ({ channel }) => {
+              console.log(channel);
+              channel.onmessage = ({ data }) => {
+                console.log(data);
+                const chunk = {
+                  type: "key",
+                  timestamp: timestamp++,
+                  data,
+                };
+                console.log(new EncodedVideoChunk(chunk));
+                try {
+                  videoDecoder.decode(new EncodedVideoChunk(chunk));
+                } catch (error) {
+                  console.warn(error);
+                }
+              };
+            };
+
+            const localStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false,
+            });
+            localStream
+              .getVideoTracks()
+              .forEach((track) => peer.addTrack(track, localStream));
+
+            // const videoEncoder = new VideoEncoder({
+            //   output: function (chunk) {
+            //     console.log(chunk);
+            //   },
+            //   error: function () {
+            //     console.error(arguments);
+            //   },
+            // });
+
+            // await videoEncoder.configure({
+            //   codec: "vp8",
+            //   width: 640,
+            //   height: 480,
+            //   framerate: 30,
+            // });
+            // const videoReader = new VideoTrackReader(
+            //   localStream.getVideoTracks()[0]
+            // );
+            // videoReader.start((videoFrame) => {
+            //   videoEncoder.encode(videoFrame);
+            // });
+
+            await peer.setRemoteDescription(offer);
+            socket.onmessage = (ev) => {
+              const msg = JSON.parse(ev.data);
+              console.log("candidate", msg);
+              if (msg.candidate) {
+                peer.addIceCandidate(msg);
+              }
+            };
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+
+            const sdp = JSON.stringify(peer.localDescription);
+            console.log("answer", peer.localDescription.sdp);
+            socket.send(sdp);
+          })();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <canvas ref={canvasRef} />
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>
