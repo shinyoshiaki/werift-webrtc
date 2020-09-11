@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../../src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
@@ -6,7 +6,10 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
+    turnServer: ["relay.backups.cz", 3478],
+    turnUsername: "webrtc",
+    turnPassword: "webrtc",
+    forceTurn: true,
   });
   pc.onIceCandidate.subscribe((candidate) => {
     socket.send(JSON.stringify(candidate.toJSON()));

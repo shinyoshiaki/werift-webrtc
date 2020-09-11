@@ -126,7 +126,7 @@ export class CandidatePair {
   }
 }
 
-export type Options = {
+export type IceOptions = {
   components: number;
   stunServer?: Address;
   turnServer?: Address;
@@ -140,7 +140,7 @@ export type Options = {
   log: boolean;
 };
 
-const defaultOptions: Options = {
+const defaultOptions: IceOptions = {
   components: 1,
   useIpv4: true,
   useIpv6: true,
@@ -160,7 +160,7 @@ export class Connection {
   stunServer?: Address;
   useIpv4: boolean;
   useIpv6: boolean;
-  options: Options;
+  options: IceOptions;
   onData = new Event<Buffer>();
   remoteCandidatesEnd = false;
   stateChanged = new Event<IceState>();
@@ -187,7 +187,7 @@ export class Connection {
   _localCandidatesEnd = false;
   _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
 
-  constructor(public iceControlling: boolean, options?: Partial<Options>) {
+  constructor(public iceControlling: boolean, options?: Partial<IceOptions>) {
     this.options = {
       ...defaultOptions,
       ...options,

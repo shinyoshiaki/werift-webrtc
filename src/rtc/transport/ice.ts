@@ -1,4 +1,4 @@
-import { Connection, Candidate } from "../../vendor/ice";
+import { Connection, Candidate, IceOptions } from "../../vendor/ice";
 import Event from "rx.mini";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
@@ -17,8 +17,8 @@ export class RTCIceGatherer {
   onIceCandidate: (candidate: RTCIceCandidate) => void = () => {};
   private _state: IceState = "new";
   connection: Connection;
-  constructor(stunServer?: [string, number]) {
-    this.connection = new Connection(false, { stunServer });
+  constructor(options: Partial<IceOptions>) {
+    this.connection = new Connection(false, options);
   }
 
   get state() {

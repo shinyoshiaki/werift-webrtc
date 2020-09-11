@@ -25,7 +25,11 @@ server.on("connection", async (socket) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
 
-  transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
-  );
+  transceiver.onTrack.subscribe(async (track) => {
+    track.onRtp.subscribe(transceiver.sendRtp);
+    await track.onRtp.asPromise();
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 1000);
+  });
 });

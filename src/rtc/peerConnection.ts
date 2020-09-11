@@ -3,6 +3,7 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 import { enumerate } from "../helper";
 import { Kind } from "../typings/domain";
+import { IceOptions } from "../vendor/ice";
 import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { CODECS } from "./media/const";
@@ -46,7 +47,6 @@ import {
 import { RTCSctpTransport } from "./transport/sctp";
 
 type Configuration = {
-  stunServer: [string, number];
   privateKey: string;
   certificate: string;
   codecs: Partial<{
@@ -57,7 +57,7 @@ type Configuration = {
     audio: RTCRtpHeaderExtensionParameters[];
     video: RTCRtpHeaderExtensionParameters[];
   }>;
-};
+} & IceOptions;
 
 type SignalingState =
   | "stable"
@@ -281,7 +281,7 @@ export class RTCPeerConnection {
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.masterTransport) return this.masterTransport;
 
-    const iceGatherer = new RTCIceGatherer(this.configuration.stunServer);
+    const iceGatherer = new RTCIceGatherer(this.configuration);
     iceGatherer.subject.subscribe((state) => {
       if (state === "stateChange") {
         this.updateIceGatheringState();
