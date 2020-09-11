@@ -10,7 +10,7 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 - [x] TURN
 - [x] ICE
   - [x] Vanilla ICE
-  - [ ] Trickle ICE
+  - [x] Trickle ICE
 - [x] DataChannel
 - [x] MediaChannel
   - [x] sendonly
