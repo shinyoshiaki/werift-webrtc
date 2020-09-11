@@ -7,7 +7,7 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 # current state
 
 - [x] STUN
-- [ ] TURN
+- [x] TURN
 - [x] ICE
   - [x] Vanilla ICE
   - [ ] Trickle ICE
