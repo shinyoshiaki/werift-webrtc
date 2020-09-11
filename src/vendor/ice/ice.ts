@@ -5,14 +5,10 @@ import { isEqual, range } from "lodash";
 import { isIPv4 } from "net";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
-import {
-  Candidate,
-  candidateFoundation,
-  candidatePriority,
-} from "../candidate";
-import { TransactionError } from "../exceptions";
-import { Address, Protocol } from "../model";
-import { classes, Message, methods, parseMessage } from "../stun/stun";
+import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
+import { TransactionError } from "./exceptions";
+import { Address, Protocol } from "./typings/model";
+import { createTurnEndpoint } from "./turn/protocol";
 import {
   difference,
   Future,
@@ -20,8 +16,10 @@ import {
   PQueue,
   randomString,
   sleep,
-} from "../utils";
-import { StunProtocol } from "./protocol";
+} from "./utils";
+import { StunProtocol } from "./stun/protocol";
+import { Message, parseMessage } from "./stun/message";
+import { classes, methods } from "./stun/const";
 
 const ICE_COMPLETED = 1;
 const ICE_FAILED = 2;
@@ -66,14 +64,14 @@ function candidatePairPriority(
 }
 
 export function getHostAddress(useIpv4: boolean, useIpv6: boolean) {
-  const address = [];
+  const address: string[] = [];
   if (useIpv4) address.push(nodeIp.address("", "ipv4"));
   if (useIpv6) address.push(nodeIp.address("", "ipv6"));
   return address;
 }
 
 async function serverReflexiveCandidate(
-  protocol: StunProtocol,
+  protocol: Protocol,
   stunServer: Address
 ) {
   // """
@@ -82,7 +80,7 @@ async function serverReflexiveCandidate(
 
   // # perform STUN query
   const request = new Message(methods.BINDING, classes.REQUEST);
-  const [response] = await protocol.request(request, stunServer);
+  const [response] = (await protocol.request(request, stunServer))!;
 
   const localCandidate = protocol.localCandidate!;
   return new Candidate(
@@ -113,16 +111,13 @@ export class CandidatePair {
   // 5.7.4.  Computing States
   state = CandidatePairState.FROZEN;
 
-  constructor(
-    public protocol: StunProtocol,
-    public remoteCandidate: Candidate
-  ) {}
+  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
 
   get localCandidate() {
     return this.protocol.localCandidate!;
   }
 
-  get remoteAddr(): [string, number] {
+  get remoteAddr(): Address {
     return [this.remoteCandidate.host, this.remoteCandidate.port];
   }
 
@@ -134,6 +129,12 @@ export class CandidatePair {
 export type Options = {
   components: number;
   stunServer?: Address;
+  turnServer?: Address;
+  turnUsername?: string;
+  turnPassword?: string;
+  turnSsl?: boolean;
+  turnTransport?: string;
+  forceTurn?: boolean;
   useIpv4: boolean;
   useIpv6: boolean;
   log: boolean;
@@ -141,7 +142,6 @@ export type Options = {
 
 const defaultOptions: Options = {
   components: 1,
-  stunServer: undefined,
   useIpv4: true,
   useIpv6: true,
   log: false,
@@ -173,17 +173,14 @@ export class Connection {
     return Object.keys(this.nominated).map((v) => v.toString());
   }
   private nominating = new Set<number>();
-  get socket() {
-    return Object.values(this.nominated)[0].protocol.socket;
-  }
   get remoteAddr() {
     return Object.values(this.nominated)[0].remoteAddr;
   }
   private checkListDone = false;
   private checkListState = new PQueue<number>();
-  private earlyChecks: [Message, Address, StunProtocol][] = [];
+  private earlyChecks: [Message, Address, Protocol][] = [];
   private localCandidatesStart = false;
-  private protocols: StunProtocol[] = [];
+  private protocols: Protocol[] = [];
   private queryConsentHandle?: Future;
   private dataQueue = new PQueue<[Buffer, number]>();
   _components: Set<number>;
@@ -378,11 +375,11 @@ export class Connection {
 
       const result: { response?: Message; addr?: Address } = {};
       try {
-        const [response, addr] = await pair.protocol.request(
+        const [response, addr] = (await pair.protocol.request(
           request,
           pair.remoteAddr,
           Buffer.from(this.remotePassword, "utf8")
-        );
+        ))!;
         result.response = response;
         result.addr = addr;
       } catch (error) {
@@ -440,7 +437,7 @@ export class Connection {
 
   // 7.2.  STUN Server Procedures
   // 7.2.1.3、7.2.1.4、および7.2.1.5
-  checkIncoming(message: Message, addr: Address, protocol: StunProtocol) {
+  checkIncoming(message: Message, addr: Address, protocol: Protocol) {
     // """
     // Handle a successful incoming check.
     // """
@@ -567,7 +564,7 @@ export class Connection {
   requestReceived(
     message: Message,
     addr: Address,
-    protocol: StunProtocol,
+    protocol: Protocol,
     rawData: Buffer
   ) {
     if (message.messageMethod !== methods.BINDING) {
@@ -629,7 +626,7 @@ export class Connection {
     }
   }
 
-  async getComponentCandidates(
+  private async getComponentCandidates(
     component: number,
     addresses: string[],
     timeout = 5,
@@ -693,6 +690,37 @@ export class Connection {
       }
     }
 
+    if (this.options.turnServer) {
+      const protocol = await createTurnEndpoint(
+        this.options.turnServer,
+        this.options.turnUsername!,
+        this.options.turnPassword!
+      );
+      this.protocols.push(protocol);
+
+      const candidateAddress = protocol.turn.relayedAddress!;
+      const relatedAddress = protocol.turn.mappedAddress!;
+
+      protocol.localCandidate = new Candidate(
+        candidateFoundation("relay", "udp", candidateAddress[0]),
+        component,
+        "udp",
+        candidatePriority(component, "relay"),
+        candidateAddress[0],
+        candidateAddress[1],
+        "relay",
+        relatedAddress[0],
+        relatedAddress[1]
+      );
+      protocol.receiver = this;
+
+      if (this.options.forceTurn) {
+        candidates = [];
+      }
+
+      candidates.push(protocol.localCandidate);
+    }
+
     return candidates;
   }
 
@@ -742,9 +770,13 @@ export class Connection {
     // Ordinary Check
     {
       // # find the highest-priority pair that is in the waiting state
-      const pair = this.checkList.find(
-        (pair) => pair.state === CandidatePairState.WAITING
-      );
+      const pair = this.checkList
+        .filter((pair) => {
+          if (this.options.forceTurn && pair.protocol.type === "stun")
+            return false;
+          return true;
+        })
+        .find((pair) => pair.state === CandidatePairState.WAITING);
       if (pair) {
         pair.handle = future(this.checkStart(pair));
         return true;
@@ -853,8 +885,8 @@ export class Connection {
     // and raises an exception otherwise.
     // """
 
-    // if (!this._localCandidatesEnd)
-    //   throw new Error("Local candidates gathering was not performed");
+    if (!this._localCandidatesEnd)
+      throw new Error("Local candidates gathering was not performed");
     if (!this.remoteUsername || !this.remotePassword)
       throw new Error("Remote username or password is missing");
 
@@ -912,20 +944,10 @@ export class Connection {
     // """
     const activePair = this.nominated[component];
     if (activePair) {
-      if (activePair.protocol.sendData)
-        await activePair.protocol.sendData(data, activePair.remoteAddr);
+      await activePair.protocol.sendData(data, activePair.remoteAddr);
     } else {
       throw new Error("Cannot send data, not connected");
     }
-  }
-
-  get connectedSocket() {
-    const activePair = this.nominated[1];
-    return {
-      socket: activePair.protocol.socket,
-      address: activePair.remoteAddr[0],
-      port: activePair.remoteAddr[1],
-    };
   }
 
   async recv() {

@@ -1,4 +1,4 @@
-import { Message } from "./stun/stun";
+import { Message } from "./stun/message";
 
 export class TransactionError extends Error {
   response?: Message;

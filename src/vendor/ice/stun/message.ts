@@ -1,10 +1,6 @@
 import crc32 from "buffer-crc32";
 import { createHmac } from "crypto";
 import { jspack } from "jspack";
-import { Event } from "rx.mini";
-import { TransactionFailed, TransactionTimeout } from "../exceptions";
-import { StunProtocol } from "../ice/protocol";
-import { Address } from "../model";
 import { bufferXor, randomTransactionId } from "../utils";
 import {
   ATTRIBUTES_BY_NAME,
@@ -14,47 +10,19 @@ import {
 } from "./attributes";
 import {
   ATTRIBUTES,
+  classes,
   COOKIE,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
-  RETRY_MAX,
-  RETRY_RTO,
+  methods,
 } from "./const";
 
-const setBodyLength = (data: Buffer, length: number) => {
-  return Buffer.concat([
-    data.slice(0, 2),
-    Buffer.from(jspack.Pack("!H", [length])),
-    data.slice(4),
-  ]);
-};
-
-function messageFingerprint(data: Buffer) {
-  const checkData = setBodyLength(
-    data,
-    data.length - HEADER_LENGTH + FINGERPRINT_LENGTH
-  );
-  const crc32Buf = crc32(checkData);
-  const xorBuf = Buffer.alloc(4);
-  xorBuf.writeInt32BE(FINGERPRINT_XOR, 0);
-  const fingerprint = bufferXor(crc32Buf, xorBuf);
-  return fingerprint.readUInt32BE(0);
-}
-
-function messageIntegrity(data: Buffer, key: Buffer) {
-  const checkData = setBodyLength(
-    data,
-    data.length - HEADER_LENGTH + INTEGRITY_LENGTH
-  );
-  return Buffer.from(
-    createHmac("sha1", key).update(checkData).digest("hex"),
-    "hex"
-  );
-}
-
-export function parseMessage(data: Buffer, integrityKey: Buffer | null = null) {
+export function parseMessage(
+  data: Buffer,
+  integrityKey: Buffer | null = null
+): Message {
   if (data.length < HEADER_LENGTH) {
     throw new Error("STUN message length is less than 20 bytes");
   }
@@ -108,24 +76,6 @@ export function parseMessage(data: Buffer, integrityKey: Buffer | null = null) {
     transactionId,
     attributes
   );
-}
-
-export enum classes {
-  REQUEST = 0x000,
-  INDICATION = 0x010,
-  RESPONSE = 0x100,
-  ERROR = 0x110,
-}
-
-export enum methods {
-  BINDING = 0x1,
-  SHARED_SECRET = 0x2,
-  ALLOCATE = 0x3,
-  REFRESH = 0x4,
-  SEND = 0x6,
-  DATA = 0x7,
-  CREATE_PERMISSION = 0x8,
-  CHANNEL_BIND = 0x9,
 }
 
 export class Message {
@@ -182,55 +132,33 @@ export class Message {
   }
 }
 
-export class Transaction {
-  integrityKey?: Buffer;
-  private timeoutDelay = RETRY_RTO;
-  private timeoutHandle: NodeJS.Timeout | null = null;
-  private tries = 0;
-  private triesMax =
-    1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
-  private future = new Event<[Message, Address]>();
+const setBodyLength = (data: Buffer, length: number) => {
+  return Buffer.concat([
+    data.slice(0, 2),
+    Buffer.from(jspack.Pack("!H", [length])),
+    data.slice(4),
+  ]);
+};
 
-  constructor(
-    private request: Message,
-    private addr: Address,
-    private protocol: StunProtocol,
-    private retransmissions?: number
-  ) {}
+function messageFingerprint(data: Buffer) {
+  const checkData = setBodyLength(
+    data,
+    data.length - HEADER_LENGTH + FINGERPRINT_LENGTH
+  );
+  const crc32Buf = crc32(checkData);
+  const xorBuf = Buffer.alloc(4);
+  xorBuf.writeInt32BE(FINGERPRINT_XOR, 0);
+  const fingerprint = bufferXor(crc32Buf, xorBuf);
+  return fingerprint.readUInt32BE(0);
+}
 
-  responseReceived = (message: Message, addr: Address) => {
-    if (this.future.length > 0) {
-      if (message.messageClass === classes.RESPONSE) {
-        this.future.execute([message, addr]);
-        this.future.complete();
-      } else {
-        this.future.error(new TransactionFailed(message));
-      }
-    }
-  };
-
-  run = async () => {
-    try {
-      this.retry();
-      return await this.future.asPromise();
-    } catch (error) {
-      throw error;
-    } finally {
-      if (this.timeoutHandle) {
-        clearTimeout(this.timeoutHandle);
-      }
-    }
-  };
-
-  private retry = () => {
-    // todo fix
-    if (this.tries >= this.triesMax * 2) {
-      this.future.error(new TransactionTimeout());
-      return;
-    }
-    this.protocol.sendStun(this.request, this.addr);
-    this.timeoutHandle = setTimeout(this.retry, this.timeoutDelay);
-    this.timeoutDelay *= 2;
-    this.tries++;
-  };
+function messageIntegrity(data: Buffer, key: Buffer) {
+  const checkData = setBodyLength(
+    data,
+    data.length - HEADER_LENGTH + INTEGRITY_LENGTH
+  );
+  return Buffer.from(
+    createHmac("sha1", key).update(checkData).digest("hex"),
+    "hex"
+  );
 }
