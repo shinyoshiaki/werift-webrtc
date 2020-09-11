@@ -39,7 +39,14 @@
             console.log("offer", offer.sdp);
 
             const peer = (rtc = new RTCPeerConnection({
-              iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+              iceServers: [
+                {
+                  urls: "turn:relay.backups.cz",
+                  username: "webrtc",
+                  credential: "webrtc",
+                },
+              ],
+              iceTransportPolicy: "relay",
             }));
             peer.onicecandidate = ({ candidate }) => {
               if (candidate) {

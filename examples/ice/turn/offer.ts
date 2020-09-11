@@ -15,6 +15,13 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
   const transceiver = pc.addTransceiver("video", "sendrecv");
+  transceiver.onTrack.subscribe(async (track) => {
+    track.onRtp.subscribe(transceiver.sendRtp);
+    await track.onRtp.asPromise();
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 1000);
+  });
 
   const offer = pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -23,13 +30,5 @@ server.on("connection", async (socket) => {
 
   socket.on("message", (data: any) => {
     pc.setRemoteDescription(JSON.parse(data));
-  });
-
-  transceiver.onTrack.subscribe(async (track) => {
-    track.onRtp.subscribe(transceiver.sendRtp);
-    await track.onRtp.asPromise();
-    setInterval(() => {
-      transceiver.receiver.sendRtcpPLI(track.ssrc);
-    }, 1000);
   });
 });

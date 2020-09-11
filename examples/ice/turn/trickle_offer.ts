@@ -11,19 +11,19 @@ server.on("connection", async (socket) => {
     turnPassword: "webrtc",
     forceTurn: true,
   });
-  pc.onIceCandidate.subscribe((candidate) => {
-    socket.send(JSON.stringify(candidate.toJSON()));
-  });
 
   const transceiver = pc.addTransceiver("video", "sendrecv");
-  transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
-  );
+  transceiver.onTrack.subscribe(async (track) => {
+    track.onRtp.subscribe(transceiver.sendRtp);
+    await track.onRtp.asPromise();
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 1000);
+  });
 
   const offer = pc.createOffer();
-  pc.setLocalDescription(offer);
+  await pc.setLocalDescription(offer);
   const sdp = JSON.stringify(pc.localDescription);
-  console.log(sdp);
   socket.send(sdp);
 
   socket.on("message", (data: any) => {

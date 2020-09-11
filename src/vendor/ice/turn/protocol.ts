@@ -30,7 +30,6 @@ class TurnTransport implements Protocol {
     try {
       message = parseMessage(data);
     } catch (error) {
-      console.log("app data receive from", addr);
       this.receiver?.dataReceived(data, this.localCandidate?.component!);
       return;
     }
