@@ -724,9 +724,12 @@ export class Connection {
     return candidates;
   }
 
+  promiseGatherCandidates: Event;
   async gatherCandidates(cb?: (candidate: Candidate) => void) {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
+      this.promiseGatherCandidates = new Event();
+
       const address = getHostAddress(this.useIpv4, this.useIpv6);
       for (let component of this._components) {
         const candidates = await this.getComponentCandidates(
@@ -737,7 +740,9 @@ export class Connection {
         );
         this.localCandidates = [...this.localCandidates, ...candidates];
       }
+
       this._localCandidatesEnd = true;
+      this.promiseGatherCandidates.execute();
     }
   }
 
@@ -885,8 +890,11 @@ export class Connection {
     // and raises an exception otherwise.
     // """
 
-    if (!this._localCandidatesEnd)
-      throw new Error("Local candidates gathering was not performed");
+    if (!this._localCandidatesEnd) {
+      if (!this.localCandidatesStart)
+        throw new Error("Local candidates gathering was not performed");
+      await this.promiseGatherCandidates.asPromise();
+    }
     if (!this.remoteUsername || !this.remotePassword)
       throw new Error("Remote username or password is missing");
 
