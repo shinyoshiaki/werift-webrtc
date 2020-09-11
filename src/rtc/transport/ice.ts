@@ -17,7 +17,7 @@ export class RTCIceGatherer {
   onIceCandidate: (candidate: RTCIceCandidate) => void = () => {};
   private _state: IceState = "new";
   connection: Connection;
-  constructor(options: Partial<IceOptions>) {
+  constructor(options: Partial<IceOptions> = {}) {
     this.connection = new Connection(false, options);
   }
 
