@@ -121,6 +121,7 @@ const ATTRIBUTES: ATTRIBUTE[] = [
   [0x000c, "CHANNEL-NUMBER", packUnsignedShort, unpackUnsignedShort],
   [0x000d, "LIFETIME", packUnsigned, unpackUnsigned],
   [0x0012, "XOR-PEER-ADDRESS", packXorAddress, unpackXorAddress],
+  [0x0013, "DATA", packBytes, unpackBytes],
   [0x0014, "REALM", packString, unpackString],
   [0x0015, "NONCE", packBytes, unpackBytes],
   [0x0016, "XOR-RELAYED-ADDRESS", packXorAddress, unpackXorAddress],

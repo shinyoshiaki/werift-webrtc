@@ -1,3 +1,5 @@
 export { Candidate } from "./candidate";
 
-export { Connection } from "./ice/ice";
+export { Connection, IceOptions } from "./ice";
+
+export { Address } from "./typings/model";

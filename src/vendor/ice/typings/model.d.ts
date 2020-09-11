@@ -1,20 +1,22 @@
 import { Candidate } from "../candidate";
-import { Message } from "../stun/stun";
+import { Message } from "../stun/transaction";
 
 export type Address = [string, number];
 
 export type Protocol = {
-  localCandidate?: Candidate;
+  type: string;
+  localCandidate: Candidate | undefined;
   sentMessage?: Message;
-  sendStun: (request: Message, addr: Address) => void;
   request: (
     message: Message,
     addr: Address,
     integrityKey?: Buffer,
     retransmissions?: any
-  ) => Promise<[Message, Address]>;
+  ) => Promise<[Message, Address] | undefined>;
   responseAddr?: Address;
   responseMessage?: string;
   close?: () => Promise<void>;
-  sendData?: (data: Buffer, addr: Address) => Promise<void>;
+  connectionMade: (...args: any) => Promise<void>;
+  sendStun: (message: Message, addr: Address) => void;
+  sendData: (data: Buffer, addr: Address) => Promise<void>;
 };

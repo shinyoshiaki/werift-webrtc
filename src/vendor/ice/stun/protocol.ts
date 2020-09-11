@@ -1,16 +1,19 @@
 import * as dgram from "dgram";
 import { Event } from "rx.mini";
 import { Candidate } from "../candidate";
-import { Address, Protocol } from "../model";
-import { classes, Message, parseMessage, Transaction } from "../stun/stun";
-import { Connection } from "./ice";
+import { Connection } from "../ice";
+import { Address, Protocol } from "../typings/model";
+import { classes } from "./const";
+import { Message, parseMessage } from "./message";
+import { Transaction } from "./transaction";
 
 export class StunProtocol implements Protocol {
+  type = "stun";
   transactions: { [key: string]: Transaction } = {};
   get transactionsKeys() {
     return Object.keys(this.transactions);
   }
-  localCandidate?: Candidate;
+  localCandidate: Candidate | undefined;
   sentMessage?: Message;
 
   localAddress?: string;
@@ -43,12 +46,10 @@ export class StunProtocol implements Protocol {
   };
 
   private datagramReceived(data: Buffer, addr: Address) {
-    let message;
+    let message: Message;
     try {
       message = parseMessage(data);
     } catch (error) {
-      // some data received
-      // console.log(data);
       this.receiver.dataReceived(data, this.localCandidate?.component!);
       return;
     }
