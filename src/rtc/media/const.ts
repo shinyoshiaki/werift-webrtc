@@ -1,4 +1,4 @@
-import { RTCRtpCodecParameters, RTCRtcpFeedback } from "./parameters";
+import { RTCRtpCodecParameters } from "./parameters";
 
 export const CODECS = {
   audio: [

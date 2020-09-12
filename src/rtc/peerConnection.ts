@@ -2,7 +2,7 @@ import { isEqual } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 import { enumerate } from "../helper";
-import { Kind } from "../typings/domain";
+import { Kind, SignalingState } from "../typings/domain";
 import { IceOptions } from "../vendor/ice";
 import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
@@ -46,7 +46,7 @@ import {
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
 
-type Configuration = {
+export type PeerConfig = {
   privateKey: string;
   certificate: string;
   codecs: Partial<{
@@ -58,12 +58,6 @@ type Configuration = {
     video: RTCRtpHeaderExtensionParameters[];
   }>;
 } & IceOptions;
-
-type SignalingState =
-  | "stable"
-  | "have-local-offer"
-  | "have-remote-offer"
-  | "closed";
 
 export class RTCPeerConnection {
   cname = uuid.v4();
@@ -92,7 +86,7 @@ export class RTCPeerConnection {
   private isClosed = false;
   private transceivers: RTCRtpTransceiver[] = [];
 
-  constructor(private configuration: Partial<Configuration> = {}) {
+  constructor(private configuration: Partial<PeerConfig> = {}) {
     if (configuration.certificate && configuration.privateKey) {
       this.certificates = [
         new RTCCertificate(configuration.privateKey, configuration.certificate),
