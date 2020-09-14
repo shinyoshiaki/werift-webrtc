@@ -1,6 +1,5 @@
-import { RTCPeerConnection } from "../../../src";
+import { RTCPeerConnection, useSdesRTPStreamID } from "../../../src";
 import { Server } from "ws";
-import { useSdesRTPStreamID } from "../../../src/rtc/extension/rtpExtension";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -10,7 +9,6 @@ server.on("connection", async (socket) => {
     stunServer: ["stun.l.google.com", 19302],
     headerExtensions: {
       video: [useSdesRTPStreamID()],
-      audio: [],
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
@@ -44,17 +42,15 @@ server.on("connection", async (socket) => {
     }, 1000);
   });
 
-  pc.createDataChannel("dc").message.subscribe(async (v) => {
+  pc.createDataChannel("dc").message.subscribe(async (msg) => {
     source = "";
-    console.log("dc", v.toString());
-    sender.direction = "inactive";
+    pc.removeTrack(sender.sender);
     sender = pc.addTransceiver("video", "sendonly");
     const offer = pc.createOffer();
     await pc.setLocalDescription(offer);
     const sdp = JSON.stringify(pc.localDescription);
     socket.send(sdp);
-    // await sender.sender.onReady.asPromise();
-    source = v.toString();
+    source = msg.toString();
   });
 
   const offer = pc.createOffer();

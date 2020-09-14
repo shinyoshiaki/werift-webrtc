@@ -20,9 +20,9 @@ const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
   type = "sender";
-  ssrc = jspack.Unpack("!L", randomBytes(4))[0];
-  streamId = uuid.v4();
-  trackId = uuid.v4();
+  readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
+  readonly streamId = uuid.v4();
+  readonly trackId = uuid.v4();
   private cname = "";
 
   // # stats

@@ -84,7 +84,7 @@ export class RTCPeerConnection {
   private _iceGatheringState: IceState = "new";
   private _signalingState: SignalingState = "stable";
   private isClosed = false;
-  private transceivers: RTCRtpTransceiver[] = [];
+  transceivers: RTCRtpTransceiver[] = [];
 
   constructor(private configuration: Partial<PeerConfig> = {}) {
     if (configuration.certificate && configuration.privateKey) {
@@ -252,6 +252,20 @@ export class RTCPeerConnection {
     });
 
     return new RTCDataChannel(this.sctpTransport, parameters);
+  }
+
+  /**
+   * need createOffer
+   * @param sender
+   */
+  removeTrack(sender: RTCRtpSender) {
+    const transceiver = this.transceivers.find(
+      (t) => t.sender.ssrc === sender.ssrc
+    );
+    if (transceiver.direction === "sendrecv")
+      transceiver.direction = "recvonly";
+    else if (transceiver.direction === "sendonly")
+      transceiver.direction = "inactive";
   }
 
   private updateIceGatheringState() {
