@@ -16,7 +16,7 @@ import { RTCDataChannel } from "../../src/rtc/dataChannel";
   });
   dc.message.subscribe((v) => console.log("offer", v.toString()));
 
-  pcAnswer.datachannel.subscribe((channel) => {
+  pcAnswer.onDataChannel.subscribe((channel) => {
     channel.message.subscribe((v) => console.log("answer", v.toString()));
     console.log("answer send", Buffer.from("hi"));
     channel.send(Buffer.from("hi"));

@@ -9,7 +9,7 @@ describe("peerConnection", () => {
     const pc1 = new RTCPeerConnection({});
     const pc2 = new RTCPeerConnection({});
 
-    pc2.datachannel.subscribe((channel) => {
+    pc2.onDataChannel.subscribe((channel) => {
       channel.message.subscribe((data) => {
         expect(data.toString()).toBe("hello");
         done();
@@ -80,7 +80,7 @@ describe("peerConnection", () => {
 
     const dc = pcOffer.createDataChannel("chat");
 
-    pcAnswer.datachannel.subscribe((channel) => {
+    pcAnswer.onDataChannel.subscribe((channel) => {
       channel.message.subscribe(async (data) => {
         expect(data.toString()).toBe("hello");
         channel.close();

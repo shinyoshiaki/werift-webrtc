@@ -12,7 +12,7 @@ describe("trickle", () => {
       const pcAnswer = new RTCPeerConnection({
         stunServer: ["stun.l.google.com", 19302],
       });
-      pcAnswer.datachannel.subscribe((dc) => {
+      pcAnswer.onDataChannel.subscribe((dc) => {
         dc.message.subscribe((data) => {
           expect(data.toString()).toBe("hello");
           done();

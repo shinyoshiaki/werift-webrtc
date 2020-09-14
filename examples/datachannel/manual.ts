@@ -15,7 +15,7 @@ console.log("start");
   await pc.setLocalDescription(answer);
   console.log(JSON.stringify(answer));
 
-  pc.datachannel.subscribe((channel) => {
+  pc.onDataChannel.subscribe((channel) => {
     channel.message.subscribe((data) => {
       console.log("answer message", data.toString());
       setInterval(() => channel.send(Buffer.from("pong")), 1000);

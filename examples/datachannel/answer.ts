@@ -15,7 +15,7 @@ server.on("connection", (socket) => {
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );
-    pc.datachannel.subscribe((channel) => {
+    pc.onDataChannel.subscribe((channel) => {
       let index = 0;
       setInterval(() => {
         channel.send(Buffer.from("ping" + index++));

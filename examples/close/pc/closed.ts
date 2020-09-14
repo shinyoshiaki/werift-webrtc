@@ -17,7 +17,7 @@ server.on("connection", (socket) => {
     await pc.setLocalDescription(answer);
     socket.send(JSON.stringify(answer));
 
-    pc.datachannel.subscribe((channel) => {
+    pc.onDataChannel.subscribe((channel) => {
       let index = 0;
       channel.message.subscribe((data) => {
         console.log("answer message", data.toString());

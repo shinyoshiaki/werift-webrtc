@@ -62,8 +62,9 @@ export type PeerConfig = {
 export class RTCPeerConnection {
   cname = uuid.v4();
   masterTransport: RTCDtlsTransport;
+  sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
-  datachannel = new Event<RTCDataChannel>();
+  onDataChannel = new Event<RTCDataChannel>();
   iceGatheringStateChange = new Event<IceState>();
   iceConnectionStateChange = new Event<IceState>();
   signalingStateChange = new Event<string>();
@@ -71,7 +72,6 @@ export class RTCPeerConnection {
   onIceCandidate = new Event<RTCIceCandidate>();
   router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
-  private sctpTransport?: RTCSctpTransport;
   private sctpRemotePort?: number;
   private remoteDtls: RTCDtlsParameters;
   private remoteIce: RTCIceParameters;
@@ -315,7 +315,7 @@ export class RTCPeerConnection {
     sctp.mid = undefined;
 
     sctp.datachannel.subscribe((dc) => {
-      this.datachannel.execute(dc);
+      this.onDataChannel.execute(dc);
     });
 
     return sctp;
@@ -720,7 +720,7 @@ export class RTCPeerConnection {
   }
 
   private removeAllListeners() {
-    this.datachannel.allUnsubscribe();
+    this.onDataChannel.allUnsubscribe();
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
     this.signalingStateChange.allUnsubscribe();

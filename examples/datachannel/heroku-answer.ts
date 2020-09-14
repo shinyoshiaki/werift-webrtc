@@ -22,7 +22,7 @@ socket.on("sdp", async (data: any) => {
     roomId: "test",
   });
 
-  pc.datachannel.subscribe((channel) => {
+  pc.onDataChannel.subscribe((channel) => {
     channel.message.subscribe((data) => {
       console.log("answer message", data.toString());
     });
