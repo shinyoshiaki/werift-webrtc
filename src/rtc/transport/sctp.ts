@@ -262,9 +262,13 @@ export class RTCSctpTransport {
     }
   }
 
-  datachannelSend(channel: RTCDataChannel, data: Buffer) {
+  datachannelSend(channel: RTCDataChannel, data: Buffer | string) {
     channel.addBufferedAmount(data.length);
-    this.dataChannelQueue.push([channel, WEBRTC_BINARY, data]);
+    if (typeof data === "string") {
+      this.dataChannelQueue.push([channel, WEBRTC_STRING, Buffer.from(data)]);
+    } else {
+      this.dataChannelQueue.push([channel, WEBRTC_BINARY, data]);
+    }
     if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
       console.warn("sctp not established", this.sctp.associationState);
     }
