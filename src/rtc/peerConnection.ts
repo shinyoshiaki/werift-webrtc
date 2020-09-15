@@ -328,7 +328,7 @@ export class RTCPeerConnection {
     const sctp = new RTCSctpTransport(this.createDtlsTransport());
     sctp.mid = undefined;
 
-    sctp.datachannel.subscribe((dc) => {
+    sctp.onDataChannel.subscribe((dc) => {
       this.onDataChannel.execute(dc);
     });
 

@@ -9,11 +9,11 @@ describe("RTCSctpTransportTest", () => {
   function trackChannels(transport: RTCSctpTransport) {
     const channels: RTCDataChannel[] = [];
 
-    transport.datachannel.subscribe((channel) => {
+    transport.onDataChannel.subscribe((channel) => {
       channels.push(channel);
     });
 
-    return { channels, event: transport.datachannel };
+    return { channels, event: transport.onDataChannel };
   }
 
   async function waitForOutcome(

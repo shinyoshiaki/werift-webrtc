@@ -16,15 +16,12 @@ import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
 import * as uuid from "uuid";
 
 export class RTCSctpTransport {
-  datachannel = new Event<RTCDataChannel>();
+  onDataChannel = new Event<RTCDataChannel>();
   uuid = uuid.v4();
   mid?: string;
   bundled = false;
 
-  private dataChannels: { [key: number]: RTCDataChannel } = {};
-  get dataChannelsKeys() {
-    return Object.keys(this.dataChannels);
-  }
+  dataChannels: { [key: number]: RTCDataChannel } = {};
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
 
   private dataChannelId?: number;
@@ -71,6 +68,10 @@ export class RTCSctpTransport {
 
   private get isServer() {
     return this.dtlsTransport.iceTransport.role !== "controlling";
+  }
+
+  channelByLabel(label: string) {
+    return Object.values(this.dataChannels).find((d) => d.label === label);
   }
 
   private async datachannelReceive(
@@ -129,7 +130,7 @@ export class RTCSctpTransport {
             ]);
             this.dataChannelFlush();
 
-            this.datachannel.execute(channel);
+            this.onDataChannel.execute(channel);
           }
           break;
         case DATA_CHANNEL_ACK:
@@ -161,8 +162,7 @@ export class RTCSctpTransport {
 
   dataChannelAddNegotiated(channel: RTCDataChannel) {
     if (!channel.id) throw new Error();
-    if (this.dataChannelsKeys.includes(channel.id.toString()))
-      throw new Error();
+    if (this.dataChannels[channel.id]) throw new Error();
 
     this.dataChannels[channel.id] = channel;
 
@@ -173,7 +173,7 @@ export class RTCSctpTransport {
 
   dataChannelOpen(channel: RTCDataChannel) {
     if (channel.id) {
-      if (this.dataChannelsKeys.includes(channel.id.toString()))
+      if (this.dataChannels[channel.id])
         throw new Error(
           `Data channel with ID ${channel.id} already registered`
         );
