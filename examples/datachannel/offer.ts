@@ -8,9 +8,6 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
   });
-  pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
-  );
 
   const dc = pc.createDataChannel("chat", {
     protocol: "bob",

@@ -392,7 +392,7 @@ export class RTCPeerConnection {
     }
   }
 
-  async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
+  addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
     if (!this.masterTransport) throw new Error();
 
     const candidate = RTCIceCandidate.fromJSON(candidateMessage);
