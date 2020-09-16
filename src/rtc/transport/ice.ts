@@ -122,10 +122,12 @@ export class RTCIceCandidate {
   }
 
   static fromJSON(data: RTCIceCandidateJSON) {
-    const candidate = candidateFromSdp(data.candidate);
-    candidate.sdpMLineIndex = data.sdpMLineIndex;
-    candidate.sdpMid = data.sdpMid;
-    return candidate;
+    try {
+      const candidate = candidateFromSdp(data.candidate);
+      candidate.sdpMLineIndex = data.sdpMLineIndex;
+      candidate.sdpMid = data.sdpMid;
+      return candidate;
+    } catch (error) {}
   }
 }
 
@@ -179,12 +181,12 @@ export class RTCIceTransport {
     }
   }
 
-  addRemoteCandidate = (candidate?: RTCIceCandidate) => {
+  addRemoteCandidate = async (candidate?: RTCIceCandidate) => {
     if (!this.connection.remoteCandidatesEnd) {
       if (!candidate) {
-        this.connection.addRemoteCandidate(undefined);
+        await this.connection.addRemoteCandidate(undefined);
       } else {
-        this.connection.addRemoteCandidate(candidateToIce(candidate));
+        await this.connection.addRemoteCandidate(candidateToIce(candidate));
       }
     }
   };

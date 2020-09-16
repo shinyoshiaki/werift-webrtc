@@ -20,6 +20,8 @@ import {
 import { StunProtocol } from "./stun/protocol";
 import { Message, parseMessage } from "./stun/message";
 import { classes, methods } from "./stun/const";
+import dns from "dns";
+import util from "util";
 
 const ICE_COMPLETED = 1;
 const ICE_FAILED = 2;
@@ -210,7 +212,7 @@ export class Connection {
     if (this.remoteCandidatesEnd)
       throw new Error("Cannot set remote candidates after end-of-candidates.");
     this.remoteCandidates_ = [];
-    for (let remoteCandidate of value) {
+    for (const remoteCandidate of value) {
       try {
         validateRemoteCandidate(remoteCandidate);
       } catch (error) {
@@ -303,7 +305,7 @@ export class Connection {
         // The agent MUST remove all Waiting and Frozen pairs in the check
         // list and triggered check queue for the same component as the
         // nominated pairs for that media stream.
-        for (let p of this.checkList) {
+        for (const p of this.checkList) {
           if (
             p.component === pair.component &&
             [CandidatePairState.WAITING, CandidatePairState.FROZEN].includes(
@@ -328,7 +330,7 @@ export class Connection {
       }
 
       // 7.1.3.2.3.  Updating Pair States
-      for (let p of this.checkList) {
+      for (const p of this.checkList) {
         if (
           p.localCandidate.foundation === pair.localCandidate.foundation &&
           p.state === CandidatePairState.FROZEN
@@ -446,7 +448,7 @@ export class Connection {
     // find remote candidate
     let remoteCandidate: Candidate | undefined;
     const [host, port] = addr;
-    for (let c of this.remoteCandidates) {
+    for (const c of this.remoteCandidates) {
       if (c.host === host && c.port === port) {
         remoteCandidate = c;
         if (remoteCandidate.component !== component)
@@ -499,7 +501,7 @@ export class Connection {
     }
   }
 
-  addRemoteCandidate(remoteCandidate: Candidate | undefined) {
+  async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
     // """
     // Add a remote candidate or signal end-of-candidates.
 
@@ -517,8 +519,14 @@ export class Connection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      console.log("we don't support m-dns for now");
-      return;
+      await sleep(10);
+
+      const res = await util
+        .promisify(dns.lookup)(remoteCandidate.host)
+        .catch(() => {});
+      if (!res) return;
+
+      remoteCandidate.host = res.address;
     }
 
     try {
@@ -533,7 +541,7 @@ export class Connection {
   }
 
   private pairRemoteCandidate = (remoteCandidate: Candidate) => {
-    for (let protocol of this.protocols) {
+    for (const protocol of this.protocols) {
       if (
         protocol.localCandidate?.canPairWith(remoteCandidate) &&
         !this.findPair(protocol, remoteCandidate)
@@ -634,7 +642,7 @@ export class Connection {
   ) {
     let candidates: Candidate[] = [];
 
-    for (let address of addresses) {
+    for (const address of addresses) {
       // # create transport
       const protocol = new StunProtocol(this);
       await protocol.connectionMade(isIPv4(address));
@@ -731,7 +739,7 @@ export class Connection {
       this.promiseGatherCandidates = new Event();
 
       const address = getHostAddress(this.useIpv4, this.useIpv6);
-      for (let component of this._components) {
+      for (const component of this._components) {
         const candidates = await this.getComponentCandidates(
           component,
           address,
@@ -758,7 +766,7 @@ export class Connection {
 
     // # unfreeze pairs with same component but different foundations
     const seenFoundations = new Set(firstPair.localCandidate.foundation);
-    for (let pair of this.checkList) {
+    for (const pair of this.checkList) {
       if (
         pair.component === firstPair.component &&
         !seenFoundations.has(pair.localCandidate.foundation) &&
@@ -828,7 +836,7 @@ export class Connection {
     }
 
     this.nominated = {};
-    for (let protocol of this.protocols) {
+    for (const protocol of this.protocols) {
       if (protocol.close) await protocol.close();
     }
 
@@ -856,7 +864,7 @@ export class Connection {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
         await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
 
-        for (let key of this.nominatedKeys) {
+        for (const key of this.nominatedKeys) {
           const pair = this.nominated[Number(key)];
           const request = this.buildRequest(pair, false);
           try {

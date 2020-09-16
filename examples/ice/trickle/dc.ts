@@ -36,8 +36,7 @@ dc.message.subscribe((data) => {
 });
 
 app.get("/connection", async (req, res) => {
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(pc.createOffer());
   return res.send({ offer: pc.localDescription });
 });
 

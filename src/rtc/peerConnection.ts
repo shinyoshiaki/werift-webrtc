@@ -392,13 +392,13 @@ export class RTCPeerConnection {
     }
   }
 
-  addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
+  async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
     if (!this.masterTransport) throw new Error();
 
     const candidate = RTCIceCandidate.fromJSON(candidateMessage);
 
     const iceTransport = this.masterTransport.iceTransport;
-    iceTransport.addRemoteCandidate(candidate);
+    await iceTransport.addRemoteCandidate(candidate);
   }
 
   private async gather() {
@@ -592,7 +592,7 @@ export class RTCPeerConnection {
         await iceTransport.iceGather.gather();
 
         if (media.iceCandidatesComplete) {
-          iceTransport.addRemoteCandidate(undefined);
+          await iceTransport.addRemoteCandidate(undefined);
         }
 
         if (description.type === "offer" && !iceTransport.roleSet) {

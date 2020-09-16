@@ -4724,6 +4724,27 @@ webidl-conversions@^6.0.0:
   resolved "https://registry.yarnpkg.com/webidl-conversions/-/webidl-conversions-6.1.0.tgz#9111b4d7ea80acd40f5270d666621afa78b69514"
   integrity sha512-qBIvFLGiBpLjfwmYAaHPXsn+ho5xZnGvyGvsarywGNc8VyQJUMHJ8OBKGGrPER0okBeMDaan4mNBlgBROxuI8w==
 
+werift@^0.0.21:
+  version "0.0.21"
+  resolved "https://registry.yarnpkg.com/werift/-/werift-0.0.21.tgz#da919e5cd3c4065f2031a265b67a9d6473acb540"
+  integrity sha512-gg/VpCoyVjnvnGuUmC4V6qmHEFUoQBDCD5F5oqUubxzuZ2aED/H996/Zs7kxR+X6eJQ/YZuq5IzRMrAP0X/zxw==
+  dependencies:
+    "@fidm/x509" "^1.2.1"
+    aes-js "^3.1.2"
+    big-integer "^1.6.48"
+    binary-data "^0.6.0"
+    buffer-crc32 "^0.2.13"
+    date-fns "^2.16.1"
+    elliptic "^6.5.3"
+    int64-buffer "^0.99.1007"
+    ip "^1.1.5"
+    jspack "^0.0.4"
+    lodash "^4.17.20"
+    p-cancelable "^2.0.0"
+    rx.mini "^0.1.1"
+    turbo-crc32 "^1.0.1"
+    uuid "^8.3.0"
+
 whatwg-encoding@^1.0.5:
   version "1.0.5"
   resolved "https://registry.yarnpkg.com/whatwg-encoding/-/whatwg-encoding-1.0.5.tgz#5abacf777c32166a51d085d6b4f3e7d27113ddb0"
