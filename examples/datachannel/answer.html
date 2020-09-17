@@ -49,10 +49,60 @@
 
             peer.ondatachannel = (ev) => {
               const channel = ev.channel;
-              let index = 0;
-              setInterval(() => {
-                channel.send("ping" + index++);
-              }, 1000);
+
+              channel.send(
+                `v=0
+o=- 6588910805638859951 3 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1 2
+a=msid-semantic: WMS
+m=application 50951 UDP/DTLS/SCTP webrtc-datachannel
+c=IN IP4 126.78.158.37
+b=AS:30
+a=candidate:962509670 1 udp 2122262783 2400:2410:2fa1:dd00:ecc7:597a:8e0d:43b3 35366 typ host generation 0 network-id 2
+a=candidate:4192287035 1 udp 2122194687 192.168.3.4 50951 typ host generation 0 network-id 1
+a=candidate:3787395334 1 udp 2122129151 192.168.1.13 48238 typ host generation 0 network-id 3 network-cost 10
+a=candidate:1354675950 1 udp 1685987071 126.78.158.37 50951 typ srflx raddr 192.168.3.4 rport 50951 generation 0 network-id 1
+a=candidate:2010990486 1 tcp 1518283007 2400:2410:2fa1:dd00:ecc7:597a:8e0d:43b3 9 typ host tcptype active generation 0 network-id 2
+a=candidate:3076703691 1 tcp 1518214911 192.168.3.4 9 typ host tcptype active generation 0 network-id 1
+a=candidate:2940005878 1 tcp 1518149375 192.168.1.13 9 typ host tcptype active generation 0 network-id 3 network-cost 10
+a=ice-ufrag:1c8c
+a=ice-pwd:8XmpWgpU7h+xtnoSoSznWYcT
+a=ice-options:trickle
+a=fingerprint:sha-256 30:C8:95:DA:31:FC:B6:6A:73:E0:BB:35:14:03:B2:22:E2:7C:BC:81:01:53:AE:EA:A7:79:70:89:25:6A:05:2A
+a=setup:active
+a=mid:0
+a=sctp-port:5000
+m=audio 9 UDP/TLS/RTP/SAVPF 96
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:1c8c
+a=ice-pwd:8XmpWgpU7h+xtnoSoSznWYcT
+a=ice-options:trickle
+a=fingerprint:sha-256 30:C8:95:DA:31:FC:B6:6A:73:E0:BB:35:14:03:B2:22:E2:7C:BC:81:01:53:AE:EA:A7:79:70:89:25:6A:05:2A
+a=setup:active
+a=mid:1
+a=inactive
+a=rtcp-mux
+a=rtpmap:96 opus/48000/2
+a=fmtp:96 minptime=10;useinbandfec=1
+m=video 9 UDP/TLS/RTP/SAVPF 97
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:1c8c
+a=ice-pwd:8XmpWgpU7h+xtnoSoSznWYcT
+a=ice-options:trickle
+a=fingerprint:sha-256 30:C8:95:DA:31:FC:B6:6A:73:E0:BB:35:14:03:B2:22:E2:7C:BC:81:01:53:AE:EA:A7:79:70:89:25:6A:05:2A
+a=setup:active
+a=mid:2
+a=inactive
+a=rtcp-mux
+a=rtpmap:97 VP8/90000
+a=rtcp-fb:97 ccm fir
+a=rtcp-fb:97 nack
+a=rtcp-fb:97 nack pli`
+              );
 
               channel.onmessage = (ev) => {
                 const text = new TextDecoder("utf-8").decode(ev.data);

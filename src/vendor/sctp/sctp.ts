@@ -1,39 +1,39 @@
-import { range } from "lodash";
-import { SCTP_STATE } from "./const";
+import { createHmac, randomBytes } from "crypto";
 import { jspack } from "jspack";
-import { random32, uint32Gte, uint32Gt, uint16Add } from "./utils";
+import { range } from "lodash";
+import { Event } from "rx.mini";
 import {
+  AbortChunk,
   Chunk,
+  CookieAckChunk,
+  CookieEchoChunk,
+  DataChunk,
+  ErrorChunk,
   ForwardTsnChunk,
-  ReConfigChunk,
+  HeartbeatAckChunk,
+  HeartbeatChunk,
+  InitAckChunk,
   InitChunk,
   parsePacket,
-  DataChunk,
-  serializePacket,
-  SackChunk,
-  HeartbeatChunk,
-  HeartbeatAckChunk,
-  AbortChunk,
-  ShutdownChunk,
-  ShutdownAckChunk,
+  ReConfigChunk,
   ReconfigChunk,
-  InitAckChunk,
-  CookieAckChunk,
-  ErrorChunk,
-  CookieEchoChunk,
+  SackChunk,
+  serializePacket,
+  ShutdownAckChunk,
+  ShutdownChunk,
   ShutdownCompleteChunk,
 } from "./chunk";
-import { createHmac, randomBytes } from "crypto";
-import { Transport } from "./transport";
-import { Event } from "rx.mini";
-import { Unpacked, createEventsFromList, enumerate } from "./helper";
+import { SCTP_STATE } from "./const";
+import { createEventsFromList, enumerate, Unpacked } from "./helper";
 import {
-  StreamResetOutgoingParam,
   RECONFIG_PARAM_TYPES,
-  StreamParam,
-  StreamResetResponseParam,
   StreamAddOutgoingParam,
+  StreamParam,
+  StreamResetOutgoingParam,
+  StreamResetResponseParam,
 } from "./param";
+import { Transport } from "./transport";
+import { random32, uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./utils";
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -1084,13 +1084,13 @@ export class InboundStream {
 
   *popMessages(): Generator<[number, number, Buffer]> {
     let pos = 0;
-    let startPos;
+    let startPos = null;
     let expectedTsn: number;
     let ordered: boolean | undefined;
     while (pos < this.reassembly.length) {
       const chunk = this.reassembly[pos];
-      if (!startPos) {
-        ordered = !(chunk.flags && SCTP_DATA_UNORDERED);
+      if (startPos === null) {
+        ordered = !(chunk.flags & SCTP_DATA_UNORDERED);
         if (!(chunk.flags & SCTP_DATA_FIRST_FRAG)) {
           if (ordered) {
             break;
@@ -1099,7 +1099,7 @@ export class InboundStream {
             continue;
           }
         }
-        if (ordered && uint32Gt(chunk.streamSeq, this.sequenceNumber)) {
+        if (ordered && uint16Gt(chunk.streamSeq, this.sequenceNumber)) {
           break;
         }
         expectedTsn = chunk.tsn;
@@ -1114,13 +1114,18 @@ export class InboundStream {
         }
       }
 
-      if (chunk.flags && SCTP_DATA_LAST_FRAG) {
-        const userData = Buffer.from(
-          this.reassembly
-            .slice(startPos, pos + 1)
-            .map((c) => c.userData)
-            .join("")
-        );
+      if (chunk.flags & SCTP_DATA_LAST_FRAG) {
+        const arr = this.reassembly
+          .slice(startPos, pos + 1)
+          .map((c) => c.userData)
+          .reduce((acc, cur) => {
+            acc.push(cur);
+            acc.push(Buffer.from(""));
+            return acc;
+          }, [] as Buffer[]);
+        arr.pop();
+        const userData = Buffer.concat(arr);
+
         this.reassembly = [
           ...this.reassembly.slice(0, startPos),
           ...this.reassembly.slice(pos + 1),
