@@ -98,6 +98,13 @@ export class RTCPeerConnection {
     if (!configuration.headerExtensions) {
       configuration.headerExtensions = { audio: [], video: [] };
     }
+
+    this.iceConnectionStateChange.subscribe((state) => {
+      if (state === "closed") {
+        console.log("closed!!!!!!!!!");
+        this.close();
+      }
+    });
   }
 
   get iceConnectionState() {
@@ -718,6 +725,11 @@ export class RTCPeerConnection {
 
     this.isClosed = true;
     this.setSignalingState("closed");
+
+    this.transceivers.forEach((transceiver) => {
+      transceiver.receiver.stop();
+      transceiver.sender.stop();
+    });
 
     if (this.sctpTransport) {
       this.sctpTransport.stop();

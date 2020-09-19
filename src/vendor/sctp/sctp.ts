@@ -1047,6 +1047,9 @@ export class SCTP {
       this.abort();
     }
     this.setState(SCTP_STATE.CLOSED);
+    clearTimeout(this.t1Handle);
+    clearTimeout(this.t2Handle);
+    clearTimeout(this.t3Handle);
   }
 
   abort() {

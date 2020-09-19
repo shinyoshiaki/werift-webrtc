@@ -47,6 +47,10 @@ export class RTCRtpSender {
     return this.dtlsTransport.state === DtlsState.CONNECTED;
   }
 
+  stop() {
+    this.rtcpRunner = false;
+  }
+
   rtcpRunner = false;
   async runRtcp() {
     if (this.rtcpRunner) return;
@@ -82,7 +86,13 @@ export class RTCRtpSender {
       }
       this.lsr = (this.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
       this.lsrTime = Date.now() / 1000;
-      this.dtlsTransport.sendRtcp(packets);
+
+      try {
+        this.dtlsTransport.sendRtcp(packets);
+      } catch (error) {
+        console.log("send rtcp error");
+        await sleep(500 + Math.random() * 1000);
+      }
     }
   }
 

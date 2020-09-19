@@ -30,18 +30,18 @@
 
         const main = async () => {
           const socket = new WebSocket("ws://localhost:8888");
-          await new Promise((r) => socket.addEventListener("open", r));
+          await new Promise((r) => (socket.onopen = r));
           console.log("open websocket");
 
           const peer = (rtc = new RTCPeerConnection({
             iceServers: [],
           }));
 
-          socket.addEventListener("message", async (ev) => {
+          socket.onmessage = async (ev) => {
             const answer = JSON.parse(ev.data);
             console.log("answer", answer.sdp);
             await peer.setRemoteDescription(answer);
-          });
+          };
 
           peer.oniceconnectionstatechange = () => {
             console.log("oniceconnectionstatechange", peer.iceConnectionState);
@@ -54,8 +54,7 @@
           };
 
           peer.onnegotiationneeded = async () => {
-            const offer = await peer.createOffer();
-            await peer.setLocalDescription(offer);
+            await peer.setLocalDescription(await peer.createOffer());
           };
 
           let i = 0;

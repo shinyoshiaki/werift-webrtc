@@ -24,17 +24,27 @@ export class RTCRtpReceiver {
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
 
-  rtcpRunning = false;
-  async runRtcp() {
-    if (this.rtcpRunning) return;
-    this.rtcpRunning = true;
+  stop() {
+    this.rtcpRunner = false;
+  }
 
-    while (true) {
+  rtcpRunner = false;
+  async runRtcp() {
+    if (this.rtcpRunner) return;
+    this.rtcpRunner = true;
+
+    while (this.rtcpRunner) {
       await sleep(500 + Math.random() * 1000);
 
       const reports = [];
       const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
-      this.dtlsTransport.sendRtcp([packet]);
+
+      try {
+        this.dtlsTransport.sendRtcp([packet]);
+      } catch (error) {
+        console.log("send rtcp error");
+        await sleep(500 + Math.random() * 1000);
+      }
     }
   }
 

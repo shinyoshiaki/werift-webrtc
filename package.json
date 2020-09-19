@@ -19,6 +19,7 @@
   "scripts": {
     "answer": "ts-node --files examples/datachannel/answer.ts",
     "build": "rm -rf lib && tsc",
+    "demo": "ts-node --files examples/mediachannel/simulcast/select.ts",
     "deploy": "./build.sh && yarn publish",
     "format": "prettier --write src/**/*.ts",
     "media": "ts-node --files examples/mediachannel/sendrecv/offer.ts",
