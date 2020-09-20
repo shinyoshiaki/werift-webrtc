@@ -1,7 +1,7 @@
-import { flight1 } from "./flight/client/flight1";
+import { Flight1 } from "./flight/client/flight1";
 import { parsePacket } from "./record/receive";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
-import { flight3 } from "./flight/client/flight3";
+import { Flight3 } from "./flight/client/flight3";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloDone } from "./handshake/message/server/helloDone";
 import { HandshakeType } from "./handshake/const";
@@ -25,7 +25,7 @@ export class DtlsClient extends DtlsSocket {
   }
 
   connect() {
-    flight1(this.udp, this.dtls, this.cipher, this.extensions);
+    new Flight1(this.udp, this.dtls, this.cipher).exec(this.extensions);
   }
 
   private udpOnMessage = (data: Buffer) => {
@@ -67,7 +67,7 @@ export class DtlsClient extends DtlsSocket {
           const verifyReq = ServerHelloVerifyRequest.deSerialize(
             handshakes[0].fragment
           );
-          flight3(this.udp, this.dtls)(verifyReq);
+          new Flight3(this.udp, this.dtls).exec(verifyReq);
         }
         break;
       case HandshakeType.server_hello_done:
@@ -116,6 +116,7 @@ export class DtlsClient extends DtlsSocket {
         break;
       case HandshakeType.finished:
         {
+          this.dtls.flight = 7;
           if (this.onConnect) this.onConnect();
         }
         break;

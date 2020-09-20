@@ -59,7 +59,6 @@ server.on("connection", async (socket) => {
   socket.send(sdp);
 
   socket.on("message", (data: any) => {
-    console.log("set remote");
     pc.setRemoteDescription(JSON.parse(data));
   });
 });

@@ -62,9 +62,9 @@ export default class AEADCipher extends Cipher {
    */
   encrypt(type: number, data: Buffer, header: CipherHeader) {
     const isClient = type === SessionType.CLIENT;
-    const iv = isClient ? this.clientNonce! : this.serverNonce!;
-
+    const iv = isClient ? this.clientNonce : this.serverNonce;
     const writeKey = isClient ? this.clientWriteKey : this.serverWriteKey;
+    if (!iv || !writeKey) throw new Error();
 
     iv.writeUInt16BE(header.epoch, this.nonceImplicitLength);
     iv.writeUIntBE(header.sequenceNumber, this.nonceImplicitLength + 2, 6);
@@ -82,8 +82,8 @@ export default class AEADCipher extends Cipher {
     const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
 
     const cipher = crypto.createCipheriv(
-      this.blockAlgorithm! as any,
-      writeKey!,
+      this.blockAlgorithm as any,
+      writeKey,
       iv,
       {
         authTagLength: this.authTagLength,
@@ -107,7 +107,9 @@ export default class AEADCipher extends Cipher {
   decrypt(type: number, data: Buffer, header: CipherHeader) {
     const isClient = type === SessionType.CLIENT;
     const iv = isClient ? this.serverNonce : this.clientNonce;
-    if (!iv) throw new Error();
+    const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
+    if (!iv || !writeKey) throw new Error();
+
     const final = createDecode(data);
 
     const explicitNonce = final.readBuffer(this.nonceExplicitLength);
@@ -115,7 +117,6 @@ export default class AEADCipher extends Cipher {
 
     const encryted = final.readBuffer(final.length - this.authTagLength);
     const authTag = final.readBuffer(this.authTagLength);
-    const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
 
     const additionalData = {
       epoch: header.epoch,
@@ -128,9 +129,9 @@ export default class AEADCipher extends Cipher {
     const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
 
     const decipher = crypto.createDecipheriv(
-      this.blockAlgorithm! as any,
-      writeKey!,
-      iv!,
+      this.blockAlgorithm as any,
+      writeKey,
+      iv,
       {
         authTagLength: this.authTagLength,
       }

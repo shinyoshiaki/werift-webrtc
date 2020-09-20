@@ -25,8 +25,10 @@ export class CipherContext {
   keyPem?: string;
 
   encryptPacket(pkt: DtlsPlaintext) {
+    if (!this.cipher || !this.sessionType) throw new Error();
+
     const header = pkt.recordLayerHeader;
-    const enc = this.cipher?.encrypt(this.sessionType!, pkt.fragment, {
+    const enc = this.cipher.encrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
       version: decode(
         Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
@@ -34,7 +36,7 @@ export class CipherContext {
       ).version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
-    })!;
+    });
     pkt.fragment = enc;
     pkt.recordLayerHeader.contentLen = enc.length;
     return pkt;

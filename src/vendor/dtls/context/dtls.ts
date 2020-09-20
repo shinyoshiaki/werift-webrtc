@@ -1,6 +1,6 @@
 import { FragmentedHandshake } from "../record/message/fragment";
-import { Handshake } from "../typings/domain";
 import { Options } from "../socket";
+import { Handshake } from "../typings/domain";
 
 export class DtlsContext {
   version = { major: 255 - 1, minor: 255 - 2 };

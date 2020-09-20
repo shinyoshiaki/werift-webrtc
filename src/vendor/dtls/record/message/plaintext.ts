@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 import { encode, types, decode } from "binary-data";
 import { MACHeader, DtlsPlaintextHeader } from "./header";
 

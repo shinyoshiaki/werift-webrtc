@@ -14,9 +14,7 @@ export type NamedCurveKeyPair = {
   privateKey: Buffer;
 };
 
-export function generateKeyPair(
-  namedCurve: number
-): NamedCurveKeyPair | undefined {
+export function generateKeyPair(namedCurve: number): NamedCurveKeyPair {
   switch (namedCurve) {
     case NamedCurveAlgorithm.namedCurveP256: {
       const key = elliptic.genKeyPair();
@@ -52,5 +50,7 @@ export function generateKeyPair(
         publicKey: Buffer.from(keys.publicKey.buffer),
       };
     }
+    default:
+      throw new Error();
   }
 }

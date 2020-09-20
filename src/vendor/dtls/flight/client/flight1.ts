@@ -7,42 +7,48 @@ import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { ContentType } from "../../record/const";
 import { Extension } from "../../typings/domain";
+import { Flight } from "../flight";
 
-export const flight1 = async (
-  udp: TransportContext,
-  dtls: DtlsContext,
-  cipher: CipherContext,
-  extensions: Extension[]
-) => {
-  if (dtls.flight === 1) return;
-  dtls.flight = 1;
-  // console.log("flight1");
+export class Flight1 extends Flight {
+  constructor(
+    udp: TransportContext,
+    dtls: DtlsContext,
+    private cipher: CipherContext
+  ) {
+    super(udp, dtls, 3);
+  }
 
-  const hello = new ClientHello(
-    { major: 255 - 1, minor: 255 - 2 },
-    new DtlsRandom(),
-    Buffer.from([]),
-    Buffer.from([]),
-    [
-      CipherSuite.EcdheRsaWithAes128GcmSha256,
-      CipherSuite.EcdheEcdsaWithAes128GcmSha256,
-    ],
-    [0], // don't compress
-    extensions
-  );
+  exec(extensions: Extension[]) {
+    if (this.dtls.flight === 1) return;
+    this.dtls.flight = 1;
 
-  const fragments = createFragments(dtls)([hello]);
-  dtls.bufferHandshakeCache(fragments, true, 1);
-  const packets = createPlaintext(dtls)(
-    fragments.map((fragment) => ({
-      type: ContentType.handshake,
-      fragment: fragment.serialize(),
-    })),
-    ++dtls.recordSequenceNumber
-  );
-  const buf = Buffer.concat(packets.map((v) => v.serialize()));
-  udp.send(buf);
+    const hello = new ClientHello(
+      { major: 255 - 1, minor: 255 - 2 },
+      new DtlsRandom(),
+      Buffer.from([]),
+      Buffer.from([]),
+      [
+        CipherSuite.EcdheRsaWithAes128GcmSha256,
+        CipherSuite.EcdheEcdsaWithAes128GcmSha256,
+      ],
+      [0], // don't compress
+      extensions
+    );
 
-  dtls.version = hello.clientVersion;
-  cipher.localRandom = DtlsRandom.from(hello.random);
-};
+    const fragments = createFragments(this.dtls)([hello]);
+    this.dtls.bufferHandshakeCache(fragments, true, 1);
+    const packets = createPlaintext(this.dtls)(
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
+      ++this.dtls.recordSequenceNumber
+    );
+
+    this.dtls.version = hello.clientVersion;
+    this.cipher.localRandom = DtlsRandom.from(hello.random);
+
+    const buf = Buffer.concat(packets.map((v) => v.serialize()));
+    this.transmit([buf]);
+  }
+}

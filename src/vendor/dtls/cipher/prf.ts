@@ -16,11 +16,12 @@ export function prfPreMasterSecret(
       const x = pub.getX();
       const y = pub.getY();
       // todo impl
-
-      return;
+      throw new Error();
 
     case NamedCurveAlgorithm.namedCurveX25519:
       return Buffer.from(nacl.scalarMult(privateKey, publicKey));
+    default:
+      throw new Error();
   }
 }
 

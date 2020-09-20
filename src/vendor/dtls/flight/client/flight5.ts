@@ -21,14 +21,17 @@ import { parseX509 } from "../../cipher/x509";
 import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
+import { Flight } from "../flight";
 
-export class Flight5 {
+export class Flight5 extends Flight {
   constructor(
-    private udp: TransportContext,
-    private dtls: DtlsContext,
+    udp: TransportContext,
+    dtls: DtlsContext,
     private cipher: CipherContext,
     private srtp: SrtpContext
-  ) {}
+  ) {
+    super(udp, dtls, 7);
+  }
 
   exec(
     messages: (
@@ -41,7 +44,6 @@ export class Flight5 {
   ) {
     if (this.dtls.flight === 5) return;
     this.dtls.flight = 5;
-    // console.log("flight5");
 
     messages.forEach((message) => {
       handlers[message.msgType]({
@@ -51,12 +53,16 @@ export class Flight5 {
       })(message);
     });
 
-    if (this.dtls.requestedCertificateTypes.length > 0) this.sendCertificate();
-    this.sendClientKeyExchange();
-    if (this.dtls.requestedCertificateTypes.length > 0)
-      this.sendCertificateVerify();
-    this.sendChangeCipherSpec();
-    this.sendFinished();
+    const packets = [
+      this.dtls.requestedCertificateTypes.length > 0 && this.sendCertificate(),
+      this.sendClientKeyExchange(),
+      this.dtls.requestedCertificateTypes.length > 0 &&
+        this.sendCertificateVerify(),
+      this.sendChangeCipherSpec(),
+      this.sendFinished(),
+    ].filter((v) => v) as Buffer[];
+
+    this.transmit(packets);
   }
 
   sendCertificate() {
@@ -75,7 +81,7 @@ export class Flight5 {
       ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.udp.send(buf);
+    return buf;
   }
 
   sendClientKeyExchange() {
@@ -94,7 +100,7 @@ export class Flight5 {
       ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.udp.send(buf);
+    return buf;
   }
 
   sendCertificateVerify() {
@@ -112,7 +118,7 @@ export class Flight5 {
       ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.udp.send(buf);
+    return buf;
   }
 
   sendChangeCipherSpec() {
@@ -122,7 +128,7 @@ export class Flight5 {
       ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.udp.send(buf);
+    return buf;
   }
 
   sendFinished() {
@@ -144,7 +150,7 @@ export class Flight5 {
     this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(pkt).serialize();
-    this.udp.send(buf);
+    return buf;
   }
 }
 
@@ -187,27 +193,32 @@ handlers[HandshakeType.certificate] = ({ cipher }) => (
 handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
   message: ServerKeyExchange
 ) => {
-  cipher.remoteKeyPair = {
+  if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
+
+  const remoteKeyPair = (cipher.remoteKeyPair = {
     curve: message.namedCurve,
     publicKey: message.publicKey,
-  };
-  cipher.localKeyPair = generateKeyPair(message.namedCurve);
+  });
+  const localKeyPair = (cipher.localKeyPair = generateKeyPair(
+    message.namedCurve
+  ));
+
   const preMasterSecret = prfPreMasterSecret(
-    cipher.remoteKeyPair.publicKey!,
-    cipher.localKeyPair?.privateKey!,
-    cipher.localKeyPair?.curve!
-  )!;
+    remoteKeyPair.publicKey,
+    localKeyPair.privateKey,
+    localKeyPair.curve
+  );
   cipher.masterSecret = prfMasterSecret(
     preMasterSecret,
-    cipher.localRandom?.serialize()!,
-    cipher.remoteRandom?.serialize()!
+    cipher.localRandom.serialize(),
+    cipher.remoteRandom.serialize()
   );
 
-  cipher.cipher = createCipher(CipherSuite.EcdheEcdsaWithAes128GcmSha256)!;
+  cipher.cipher = createCipher(CipherSuite.EcdheEcdsaWithAes128GcmSha256);
   cipher.cipher.init(
-    cipher.masterSecret!,
-    cipher.remoteRandom!.serialize(),
-    cipher.localRandom!.serialize()
+    cipher.masterSecret,
+    cipher.remoteRandom.serialize(),
+    cipher.localRandom.serialize()
   );
 };
 

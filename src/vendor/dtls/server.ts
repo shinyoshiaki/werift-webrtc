@@ -60,6 +60,7 @@ export class DtlsServer extends DtlsSocket {
         break;
       case HandshakeType.client_key_exchange:
         {
+          this.dtls.flight = 8;
           new Flight6(this.udp, this.dtls, this.cipher).exec(handshakes);
           if (this.onConnect) this.onConnect();
         }

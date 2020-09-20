@@ -12,18 +12,20 @@ import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { DtlsPlaintext } from "../../record/message/plaintext";
+import { Flight } from "../flight";
 
-export class Flight6 {
+export class Flight6 extends Flight {
   constructor(
-    private udp: TransportContext,
-    private dtls: DtlsContext,
+    udp: TransportContext,
+    dtls: DtlsContext,
     private cipher: CipherContext
-  ) {}
+  ) {
+    super(udp, dtls);
+  }
 
   exec(handshakes: (FragmentedHandshake | DtlsPlaintext)[]) {
     if (this.dtls.flight === 6) return;
     this.dtls.flight = 6;
-    // console.log("flight6");
 
     const fragments = handshakes.map((handshake) => {
       let fragment: FragmentedHandshake = handshake as FragmentedHandshake;
@@ -39,18 +41,20 @@ export class Flight6 {
             return ClientKeyExchange.deSerialize(fragment.fragment);
           case HandshakeType.finished:
             return Finished.deSerialize(fragment.fragment);
+          default:
+            throw new Error();
         }
       })();
 
-      handlers[message!.msgType]({ dtls: this.dtls, cipher: this.cipher })(
+      handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
         message
       );
       return fragment;
     });
     this.dtls.bufferHandshakeCache(fragments, false, 5);
 
-    this.sendChangeCipherSpec();
-    this.sendFinished();
+    const messages = [this.sendChangeCipherSpec(), this.sendFinished()];
+    this.transmit(messages);
   }
 
   sendChangeCipherSpec() {
@@ -60,7 +64,7 @@ export class Flight6 {
       ++this.dtls.recordSequenceNumber
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.udp.send(buf);
+    return buf;
   }
 
   sendFinished() {
@@ -82,7 +86,7 @@ export class Flight6 {
     this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(pkt).serialize();
-    this.udp.send(buf);
+    return buf;
   }
 }
 
@@ -100,22 +104,30 @@ handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
     curve: cipher.namedCurve,
     publicKey: message.publicKey,
   };
+  if (
+    !cipher.remoteKeyPair.publicKey ||
+    !cipher.localKeyPair ||
+    !cipher.remoteRandom ||
+    !cipher.localRandom
+  )
+    throw new Error();
+
   const preMasterSecret = prfPreMasterSecret(
-    cipher.remoteKeyPair.publicKey!,
-    cipher.localKeyPair?.privateKey!,
-    cipher.localKeyPair?.curve!
-  )!;
+    cipher.remoteKeyPair.publicKey,
+    cipher.localKeyPair.privateKey,
+    cipher.localKeyPair.curve
+  );
   cipher.masterSecret = prfMasterSecret(
     preMasterSecret,
-    cipher.remoteRandom?.serialize()!,
-    cipher.localRandom?.serialize()!
+    cipher.remoteRandom.serialize(),
+    cipher.localRandom.serialize()
   );
 
-  cipher.cipher = createCipher(CipherSuite.EcdheRsaWithAes128GcmSha256)!;
+  cipher.cipher = createCipher(CipherSuite.EcdheRsaWithAes128GcmSha256);
   cipher.cipher.init(
-    cipher.masterSecret!,
-    cipher.localRandom!.serialize(),
-    cipher.remoteRandom!.serialize()
+    cipher.masterSecret,
+    cipher.localRandom.serialize(),
+    cipher.remoteRandom.serialize()
   );
 };
 

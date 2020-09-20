@@ -13,20 +13,21 @@ import { Handshake } from "../../typings/domain";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 import { SrtpContext } from "../../context/srtp";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
+import { Flight } from "../flight";
 
-export class Flight4 {
+export class Flight4 extends Flight {
   constructor(
-    private udp: TransportContext,
-    private dtls: DtlsContext,
+    udp: TransportContext,
+    dtls: DtlsContext,
     private cipher: CipherContext,
     private srtp: SrtpContext
-  ) {}
+  ) {
+    super(udp, dtls, 6);
+  }
 
   exec(certificateRequest: boolean = false) {
     if (this.dtls.flight === 4) return;
     this.dtls.flight = 4;
-    // console.log("flight4");
-
     this.dtls.sequenceNumber = 1;
 
     const messages = [
@@ -35,10 +36,9 @@ export class Flight4 {
       this.sendServerKeyExchange(),
       certificateRequest && this.sendCertificateRequest(),
       this.sendServerHelloDone(),
-    ];
-    messages.forEach((buf) => {
-      if (buf) this.udp.send(buf);
-    });
+    ].filter((v) => v) as Buffer[];
+
+    this.transmit(messages);
   }
 
   createPacket(handshakes: Handshake[]) {

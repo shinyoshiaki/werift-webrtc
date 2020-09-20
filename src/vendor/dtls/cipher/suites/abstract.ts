@@ -12,7 +12,7 @@ export enum SessionType {
   SERVER = 2,
 }
 
-export default class AbstractCipher {
+export default abstract class AbstractCipher {
   id = 0;
   name?: string;
   hash?: string;
