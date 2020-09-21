@@ -44,7 +44,7 @@ export class SourceDescriptionChunk {
   source: number;
   items: SourceDescriptionItem[];
 
-  constructor(props: Partial<SourceDescriptionChunk>) {
+  constructor(props: Partial<SourceDescriptionChunk> = {}) {
     Object.assign(this, props);
   }
 
