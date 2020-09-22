@@ -176,7 +176,7 @@ export class SessionDescription {
               currentMedia.msid = value;
               break;
             case "rtcp":
-              let [port, rest] = divide(value, " ");
+              const [port, rest] = divide(value, " ");
               currentMedia.rtcpPort = parseInt(port);
               currentMedia.rtcpHost = ipAddressFromSdp(rest);
               break;

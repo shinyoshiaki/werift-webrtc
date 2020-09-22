@@ -89,7 +89,7 @@ export class RTCDtlsTransport {
         this.setState(DtlsState.CLOSED);
       };
 
-      if (((this.dtls as any) as DtlsClient).connect!!) {
+      if (((this.dtls as any) as DtlsClient).connect) {
         await sleep(100);
         ((this.dtls as any) as DtlsClient).connect();
       }
@@ -101,7 +101,11 @@ export class RTCDtlsTransport {
     this.setState(DtlsState.CONNECTED);
   }
 
+  srtpStarted = false;
   startSrtp() {
+    if (this.srtpStarted) return;
+    this.srtpStarted = true;
+
     const {
       localKey,
       localSalt,

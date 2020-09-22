@@ -27,7 +27,13 @@ export class RtpRouter {
       .filter((v) => v);
     ssrcs.forEach((ssrc) => {
       this.ssrcTable[ssrc] = transceiver.receiver;
-      transceiver.addTrack(new RtpTrack({ ssrc, kind: transceiver.kind }));
+      transceiver.addTrack(
+        new RtpTrack({
+          ssrc,
+          kind: transceiver.kind,
+          id: transceiver.sender.streamId,
+        })
+      );
     });
 
     params.headerExtensions.forEach((extension) => {
@@ -40,7 +46,11 @@ export class RtpRouter {
     param: RTCRtpSimulcastParameters
   ) {
     transceiver.addTrack(
-      new RtpTrack({ rid: param.rid, kind: transceiver.kind })
+      new RtpTrack({
+        rid: param.rid,
+        kind: transceiver.kind,
+        id: transceiver.sender.streamId,
+      })
     );
     this.ridTable[param.rid] = transceiver.receiver;
   }

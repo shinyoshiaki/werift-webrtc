@@ -7,6 +7,7 @@ export class RtpTrack {
   rid?: string;
   onRtp = new Event<RtpPacket>();
   kind: Kind;
+  id: string;
 
   constructor(props: Partial<RtpTrack> = {}) {
     Object.assign(this, props);
