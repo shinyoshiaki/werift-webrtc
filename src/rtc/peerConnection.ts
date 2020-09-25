@@ -390,6 +390,8 @@ export class RTCPeerConnection {
     });
 
     this.setLocal(description);
+
+    return this.localDescription;
   }
 
   private setLocal(description: SessionDescription) {
