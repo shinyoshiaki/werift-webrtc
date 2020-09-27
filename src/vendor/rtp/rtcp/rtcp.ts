@@ -3,11 +3,14 @@ import { RtcpRrPacket } from "./rr";
 import { RtcpSrPacket } from "./sr";
 import { RtcpPayloadSpecificFeedback } from "./psfb";
 import { RtcpSourceDescriptionPacket } from "./sdes";
+import { RtcpTransportLayerFeedback } from "./rtpfb";
+
 export type RtcpPacket =
   | RtcpRrPacket
   | RtcpSrPacket
   | RtcpPayloadSpecificFeedback
-  | RtcpSourceDescriptionPacket;
+  | RtcpSourceDescriptionPacket
+  | RtcpTransportLayerFeedback;
 
 export class RtcpPacketConverter {
   static serialize(
@@ -37,9 +40,9 @@ export class RtcpPacketConverter {
       let payload = data.slice(pos);
       pos += header.length * 4;
 
-      if (header.padding) {
-        payload = payload.slice(0, payload.length - payload.slice(-1)[0]);
-      }
+      // if (header.padding) {
+      //   payload = payload.slice(0, payload.length - payload.slice(-1)[0]);
+      // }
 
       switch (header.type) {
         case RtcpSrPacket.type:
@@ -51,12 +54,16 @@ export class RtcpPacketConverter {
         case RtcpSourceDescriptionPacket.type:
           packets.push(RtcpSourceDescriptionPacket.deSerialize(payload));
           break;
+        case RtcpTransportLayerFeedback.type:
+          packets.push(RtcpTransportLayerFeedback.deSerialize(payload, header));
+          break;
         case RtcpPayloadSpecificFeedback.type:
           packets.push(
-            RtcpPayloadSpecificFeedback.deSerialize(payload, header.count)
+            RtcpPayloadSpecificFeedback.deSerialize(payload, header)
           );
           break;
         default:
+          console.log("unknown rtcp packet", header.type);
           break;
       }
     }

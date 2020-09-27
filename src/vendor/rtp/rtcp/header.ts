@@ -1,10 +1,18 @@
 import { bufferReader, bufferWriter } from "../helper";
-import { getBit, setBit } from "../utils";
+import { getBit, BitWriter } from "../utils";
 
 export const HEADER_SIZE = 4;
 
+/*
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |V=2|P|    RC   |      PT       |             length            |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+
 export class RtcpHeader {
-  version: number = 0;
+  version: number = 2;
   padding: boolean = false;
   count: number = 0;
   type: number = 0;
@@ -15,11 +23,11 @@ export class RtcpHeader {
   }
 
   serialize() {
-    const v_p_rc = { ref: 0 };
-    setBit(v_p_rc, 2, 1);
-    if (this.padding) setBit(v_p_rc, 1, 2);
-    setBit(v_p_rc, this.count, 3, 5);
-    const buf = bufferWriter([1, 1, 2], [v_p_rc.ref, this.type, this.length]);
+    const v_p_rc = new BitWriter(8);
+    v_p_rc.set(2, 0, this.version);
+    if (this.padding) v_p_rc.set(1, 2, 1);
+    v_p_rc.set(5, 3, this.count);
+    const buf = bufferWriter([1, 1, 2], [v_p_rc.value, this.type, this.length]);
     return buf;
   }
 
@@ -31,11 +39,3 @@ export class RtcpHeader {
     return new RtcpHeader({ version, padding, count, type, length });
   }
 }
-
-/*
- *  0                   1                   2                   3
- *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- * |V=2|P|    RC   |      PT       |             length            |
- * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- */
