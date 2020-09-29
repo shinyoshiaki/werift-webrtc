@@ -173,13 +173,13 @@ export class TransportWideCC {
       this.recvDeltas
         .map((delta) => {
           try {
-            delta.serialize();
+            return delta.serialize();
           } catch (error) {
             console.log(error.message);
             return undefined;
           }
         })
-        .filter((v) => v)
+        .filter((v) => v != undefined)
     );
 
     const buf = Buffer.concat([constBuf, chunks, deltas]);
@@ -189,11 +189,11 @@ export class TransportWideCC {
       const padding = Buffer.alloc(rest);
       padding[padding.length - 1] = padding.length;
 
-      this.header.length = buf.length + padding.length;
+      this.header.length = Math.floor((buf.length + padding.length) / 4);
       return Buffer.concat([this.header.serialize(), buf, padding]);
     }
 
-    this.header.length = buf.length;
+    this.header.length = Math.floor(buf.length / 4);
     return Buffer.concat([this.header.serialize(), buf]);
   }
 }

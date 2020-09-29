@@ -134,11 +134,6 @@ export class RTCRtpReceiver {
               delta = (ts - lastTS) % timeWrapPeriodUs;
             }
 
-            const check = delta / 250n;
-            if (check > 255) {
-              console.log("exceed");
-            }
-
             if (referenceTime === 0n) {
               referenceTime = baseTimeTicks & 0x007fffffn;
             }
@@ -212,7 +207,7 @@ export class RTCRtpReceiver {
     this.handleRtpExtensions(ssrc, extensions);
 
     this.runRtcp();
-    // this.runTWCC();
+    this.runTWCC();
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
@@ -222,6 +217,6 @@ export class RTCRtpReceiver {
     this.handleRtpExtensions(packet.header.ssrc, extensions);
 
     this.runRtcp();
-    // this.runTWCC();
+    this.runTWCC();
   };
 }
