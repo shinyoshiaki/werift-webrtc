@@ -40,9 +40,9 @@ export class RtcpPacketConverter {
       let payload = data.slice(pos);
       pos += header.length * 4;
 
-      // if (header.padding) {
-      //   payload = payload.slice(0, payload.length - payload.slice(-1)[0]);
-      // }
+      if (header.padding) {
+        payload = payload.slice(0, payload.length - payload.slice(-1)[0]);
+      }
 
       switch (header.type) {
         case RtcpSrPacket.type:
