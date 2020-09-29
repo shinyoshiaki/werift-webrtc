@@ -25,7 +25,8 @@
       let rtc;
 
       const App = () => {
-        const videoRef = React.useRef();
+        const remoteRef = React.useRef();
+        const localRef = React.useRef();
 
         React.useEffect(() => {
           (async () => {
@@ -56,12 +57,14 @@
             };
             peer.ontrack = (e) => {
               console.log("ontrack", e);
-              videoRef.current.srcObject = e.streams[0];
+              remoteRef.current.srcObject = e.streams[0];
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: true,
               audio: false,
             });
+            localRef.current.srcObject = localStream;
+
             localStream
               .getVideoTracks()
               .forEach((track) => peer.addTrack(track, localStream));
@@ -75,7 +78,16 @@
         return (
           <div>
             answer
-            <video ref={videoRef} autoPlay muted />
+            <div style={{ display: "flex" }}>
+              <div>
+                <p>local</p>
+                <video ref={localRef} autoPlay muted />
+              </div>
+              <div>
+                <p>remote</p>
+                <video ref={remoteRef} autoPlay muted />
+              </div>
+            </div>
           </div>
         );
       };
