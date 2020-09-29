@@ -170,7 +170,16 @@ export class TransportWideCC {
     );
 
     const deltas = Buffer.concat(
-      this.recvDeltas.map((delta) => delta.serialize())
+      this.recvDeltas
+        .map((delta) => {
+          try {
+            delta.serialize();
+          } catch (error) {
+            console.log(error.message);
+            return undefined;
+          }
+        })
+        .filter((v) => v)
     );
 
     const buf = Buffer.concat([constBuf, chunks, deltas]);
@@ -303,7 +312,7 @@ export class RecvDelta {
   }
 
   serialize() {
-    const delta = this.delta / 250;
+    const delta = Math.floor(this.delta / 250);
     if (
       this.type === PacketStatus.TypeTCCPacketReceivedSmallDelta &&
       delta >= 0 &&
@@ -324,6 +333,6 @@ export class RecvDelta {
       return buf;
     }
 
-    throw new Error();
+    throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
   }
 }

@@ -37,6 +37,7 @@ export class RTCDtlsTransport {
   srtp: SrtpSession;
   srtcp: SrtcpSession;
   router?: RtpRouter;
+  transportSequenceNumber = 0;
 
   constructor(
     public iceTransport: RTCIceTransport,

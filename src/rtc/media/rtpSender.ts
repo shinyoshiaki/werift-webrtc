@@ -14,6 +14,9 @@ import {
   SourceDescriptionChunk,
   SourceDescriptionItem,
 } from "../../vendor/rtp/rtcp/sdes";
+import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
+import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
+import { TransportWideCC } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -109,11 +112,17 @@ export class RTCRtpSender {
       .map((extension) => {
         let payload: Buffer;
         switch (extension.uri) {
-          case "urn:ietf:params:rtp-hdrext:sdes:mid":
+          case RTP_EXTENSION_URI.sdesMid:
             if (parameters.muxId) payload = Buffer.from(parameters.muxId);
             break;
-          case "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id":
+          case RTP_EXTENSION_URI.sdesRTPStreamID:
             if (parameters.rid) payload = Buffer.from(parameters.rid);
+            break;
+          case RTP_EXTENSION_URI.transportWideCC:
+            const buf = Buffer.alloc(2);
+            buf.writeUInt16BE(this.dtlsTransport.transportSequenceNumber++);
+
+            payload = Buffer.concat([buf]);
             break;
         }
         if (payload) return { id: extension.id, payload };
@@ -133,20 +142,28 @@ export class RTCRtpSender {
     switch (rtcpPacket.type) {
       case RtcpSrPacket.type:
       case RtcpRrPacket.type:
-        const packet = rtcpPacket as RtcpSrPacket | RtcpRrPacket;
-        packet.reports
-          .filter((report) => report.ssrc === this.ssrc)
-          .forEach((report) => {
-            if (this.lsr === BigInt(report.lsr) && report.dlsr) {
-              const rtt =
-                Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
-              if (this.rtt === undefined) {
-                this.rtt = rtt;
-              } else {
-                this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
+        {
+          const packet = rtcpPacket as RtcpSrPacket | RtcpRrPacket;
+          packet.reports
+            .filter((report) => report.ssrc === this.ssrc)
+            .forEach((report) => {
+              if (this.lsr === BigInt(report.lsr) && report.dlsr) {
+                const rtt =
+                  Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
+                if (this.rtt === undefined) {
+                  this.rtt = rtt;
+                } else {
+                  this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
+                }
               }
-            }
-          });
+            });
+        }
+        break;
+      case RtcpTransportLayerFeedback.type:
+        {
+          const packet = rtcpPacket as RtcpTransportLayerFeedback;
+          const feedback = packet.feedback as TransportWideCC;
+        }
         break;
     }
   }
