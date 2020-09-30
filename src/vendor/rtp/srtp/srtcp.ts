@@ -1,5 +1,5 @@
-import { Session, Config } from "./session";
 import { SrtcpContext } from "./context/srtcp";
+import { Config, Session } from "./session";
 
 export class SrtcpSession extends Session<SrtcpContext> {
   constructor(public config: Config) {

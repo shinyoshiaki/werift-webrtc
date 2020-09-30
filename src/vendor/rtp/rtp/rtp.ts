@@ -1,4 +1,4 @@
-import { setBit, getBit } from "../utils";
+import { getBit, BitWriter } from "../utils";
 
 type Extension = { id: number; payload: Buffer };
 
@@ -179,18 +179,18 @@ export class RtpHeader {
     const buf = Buffer.alloc(size);
     let offset = 0;
 
-    const v_p_x_cc = { ref: 0 };
-    setBit(v_p_x_cc, this.version, 1);
-    if (this.padding) setBit(v_p_x_cc, 1, 2);
+    const v_p_x_cc = new BitWriter(8);
+    v_p_x_cc.set(2, 0, this.version);
+    if (this.padding) v_p_x_cc.set(1, 2, 1);
     if (this.extensions.length > 0) this.extension = true;
-    if (this.extension) setBit(v_p_x_cc, 1, 3);
-    setBit(v_p_x_cc, this.csrc.length, 4, 4);
-    buf.writeUInt8(v_p_x_cc.ref, offset++);
+    if (this.extension) v_p_x_cc.set(1, 3, 1);
+    v_p_x_cc.set(4, 4, this.csrc.length);
+    buf.writeUInt8(v_p_x_cc.value, offset++);
 
-    const m_pt = { ref: 0 };
-    if (this.marker) setBit(m_pt, 1, 0);
-    setBit(m_pt, this.payloadType, 1, 7);
-    buf.writeUInt8(m_pt.ref, offset++);
+    const m_pt = new BitWriter(8);
+    if (this.marker) m_pt.set(1, 0, 1);
+    m_pt.set(7, 1, this.payloadType);
+    buf.writeUInt8(m_pt.value, offset++);
 
     buf.writeUInt16BE(this.sequenceNumber, seqNumOffset);
     offset += 2;

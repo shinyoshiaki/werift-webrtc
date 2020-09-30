@@ -12,6 +12,10 @@ import { RtcpRrPacket } from "../../vendor/rtp/rtcp/rr";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
 import { RtcpPayloadSpecificFeedback } from "../../vendor/rtp/rtcp/psfb";
 import { RtcpSourceDescriptionPacket } from "../../vendor/rtp/rtcp/sdes";
+import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
+import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
+
+export type Extensions = { [uri: string]: number | string };
 
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
@@ -56,14 +60,17 @@ export class RtpRouter {
   }
 
   routeRtp = (packet: RtpPacket) => {
-    const extensions = packet.header.extensions
+    const extensions: Extensions = packet.header.extensions
       .map((extension) => {
         const uri = this.extIdUriMap[extension.id];
         switch (uri) {
-          case "urn:ietf:params:rtp-hdrext:sdes:mid":
+          case RTP_EXTENSION_URI.sdesMid:
+          case RTP_EXTENSION_URI.sdesRTPStreamID:
             return { uri, value: extension.payload.toString() };
-          case "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id":
-            return { uri, value: extension.payload.toString() };
+          case RTP_EXTENSION_URI.transportWideCC:
+            return { uri, value: extension.payload.readUInt16BE() };
+          case RTP_EXTENSION_URI.absSendTime:
+            return { uri, value: extension.payload.readUIntBE(0, 3) };
         }
       })
       .reduce((acc, cur) => {
@@ -72,16 +79,18 @@ export class RtpRouter {
       }, {} as { [uri: string]: any });
 
     let ssrcReceiver = this.ssrcTable[packet.header.ssrc] as RTCRtpReceiver;
-    const rid = extensions["urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"];
+    const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID] as string;
 
     if (rid) {
       ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
-      ssrcReceiver.handleRtpByRid(packet, rid);
+      ssrcReceiver.handleRtpByRid(packet, rid, extensions);
     } else {
-      ssrcReceiver.handleRtpBySsrc(packet, packet.header.ssrc);
+      ssrcReceiver.handleRtpBySsrc(packet, packet.header.ssrc, extensions);
     }
 
-    ssrcReceiver.sdesMid = extensions["urn:ietf:params:rtp-hdrext:sdes:mid"];
+    ssrcReceiver.sdesMid = extensions[
+      "urn:ietf:params:rtp-hdrext:sdes:mid"
+    ] as string;
   };
 
   routeRtcp = (packet: RtcpPacket) => {
@@ -108,11 +117,17 @@ export class RtpRouter {
           // console.log("sdes", JSON.stringify(sdes.chunks));
         }
         break;
+      case RtcpTransportLayerFeedback.type: {
+        const rtpfb = packet as RtcpTransportLayerFeedback;
+        if (rtpfb.feedback) {
+          recipients.push(this.ssrcTable[rtpfb.feedback.mediaSsrc]);
+        }
+      }
       case RtcpPayloadSpecificFeedback.type:
         {
           const psfb = packet as RtcpPayloadSpecificFeedback;
           if (psfb.feedback)
-            recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
+            recipients.push(this.ssrcTable[psfb.feedback.mediaSsrc]);
         }
         break;
     }
