@@ -31,7 +31,7 @@ export class RTCRtpSender {
   // # stats
   private lsr?: bigint;
   private lsrTime?: number;
-  private ntpTimestamp = BigInt(0);
+  private ntpTimestamp = 0n;
   private rtpTimestamp = 0;
   private octetCount = 0;
   private packetCount = 0;
@@ -87,7 +87,7 @@ export class RTCRtpSender {
           })
         );
       }
-      this.lsr = (this.ntpTimestamp >> BigInt(16)) & BigInt(0xffffffff);
+      this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
       this.lsrTime = Date.now() / 1000;
 
       try {
@@ -129,7 +129,7 @@ export class RTCRtpSender {
       })
       .filter((v) => v);
 
-    this.ntpTimestamp = BigInt(Date.now()) * BigInt(10000000);
+    this.ntpTimestamp = BigInt(Date.now()) * 10000000n;
     this.rtpTimestamp = rtp.header.timestamp;
     this.octetCount += rtp.payload.length;
     this.packetCount++;
