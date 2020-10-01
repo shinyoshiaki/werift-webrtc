@@ -1,8 +1,9 @@
 {
   "name": "werift",
   "version": "0.0.26",
+  "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
-    "webrtc",
+    "WebRTC",
     "node.js"
   ],
   "homepage": "https://github.com/shinyoshiaki/rainy-webrtc",
@@ -11,6 +12,9 @@
     "url": "https://github.com/shinyoshiaki/rainy-webrtc.git"
   },
   "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
   "main": "lib/index.js",
   "files": [
     "lib",
@@ -21,28 +25,13 @@
     "build": "rm -rf lib && tsc",
     "demo": "ts-node --files examples/mediachannel/simulcast/select.ts",
     "deploy": "./build.sh && yarn publish",
+    "fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
     "media": "ts-node --files examples/mediachannel/sendrecv/offer.ts",
     "offer": "ts-node --files examples/datachannel/offer.ts",
     "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
-  },
-  "jest": {
-    "globals": {
-      "ts-jest": {
-        "tsConfig": "tsconfig.json"
-      }
-    },
-    "moduleFileExtensions": [
-      "ts",
-      "tsx",
-      "js"
-    ],
-    "preset": "ts-jest",
-    "testMatch": [
-      "**/*.test.ts"
-    ]
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
@@ -76,7 +65,12 @@
     "@types/utf8": "^2.1.6",
     "@types/uuid": "^8.3.0",
     "@types/ws": "^7.2.6",
+    "@typescript-eslint/eslint-plugin": "^3.3.0",
+    "@typescript-eslint/parser": "^3.3.0",
     "body-parser": "^1.19.0",
+    "eslint": "^7.0.0",
+    "eslint-config-prettier": "^6.11.0",
+    "eslint-plugin-prettier": "^3.1.3",
     "express": "^4.17.1",
     "jest": "^26.4.2",
     "organize-imports-cli": "^0.7.0",
@@ -92,5 +86,6 @@
   },
   "engines": {
     "node": ">=14"
-  }
+  },
+  "readme": "README.md"
 }

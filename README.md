@@ -1,4 +1,4 @@
-# werift 
+# werift
 
 werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
 
@@ -23,15 +23,28 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
     - [x] recv
     - [ ] send
 
-# install 
+# install
 
-```npm install werift``` 
+`npm install werift`
 
-# examples 
+# examples
 
-https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples 
+https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
 
 # demo
+
+## MediaChannel
+
+```sh
+yarn media
+```
+
+open
+https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/sendrecv/answer
+
+see console & chrome://webrtc-internals/
+
+## DataChannel
 
 run
 
@@ -46,13 +59,13 @@ see console & chrome://webrtc-internals/
 
 # components
 
-- ICE  https://github.com/shinyoshiaki/werift-ice
+- ICE https://github.com/shinyoshiaki/werift-ice
 - DTLS https://github.com/shinyoshiaki/werift-dtls
 - SCTP https://github.com/shinyoshiaki/werift-sctp
 - RTP,RTCP,SRTP,SRTCP https://github.com/shinyoshiaki/werift-rtp
 
 # reference
 
-- aiortc https://github.com/aiortc/aiortc 
-- pion/webrtc https://github.com/pion/webrtc 
+- aiortc https://github.com/aiortc/aiortc
+- pion/webrtc https://github.com/pion/webrtc
 - etc ....

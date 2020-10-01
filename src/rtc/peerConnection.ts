@@ -712,7 +712,7 @@ export class RTCPeerConnection {
         media.dtlsParams.role = dtlsTransport.role;
       }
       media.simulcastParameters = remoteM.simulcastParameters;
-      description.media.push(media!);
+      description.media.push(media);
     });
 
     const bundle = new GroupDescription("BUNDLE", []);
@@ -849,7 +849,7 @@ function wrapSessionDescription(sessionDescription?: SessionDescription) {
   if (sessionDescription) {
     return new RTCSessionDescription(
       sessionDescription.toString(),
-      sessionDescription.type!
+      sessionDescription.type
     );
   }
 }

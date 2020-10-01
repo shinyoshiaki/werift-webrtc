@@ -92,7 +92,7 @@ export class SessionDescription {
 
     mediaGroups.forEach((mediaLines) => {
       const target = mediaLines[0];
-      const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z\/]+) (.+)/);
+      const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z/]+) (.+)/);
       if (!m) {
         throw new Error();
       }
@@ -137,6 +137,7 @@ export class SessionDescription {
               currentMedia.iceCandidatesComplete = true;
               break;
             case "extmap":
+              // eslint-disable-next-line prefer-const
               let [extId, extUri] = value.split(" ");
               if (extId.includes("/")) {
                 [extId] = extId.split("/");

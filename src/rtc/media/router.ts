@@ -117,12 +117,14 @@ export class RtpRouter {
           // console.log("sdes", JSON.stringify(sdes.chunks));
         }
         break;
-      case RtcpTransportLayerFeedback.type: {
-        const rtpfb = packet as RtcpTransportLayerFeedback;
-        if (rtpfb.feedback) {
-          recipients.push(this.ssrcTable[rtpfb.feedback.mediaSsrc]);
+      case RtcpTransportLayerFeedback.type:
+        {
+          const rtpfb = packet as RtcpTransportLayerFeedback;
+          if (rtpfb.feedback) {
+            recipients.push(this.ssrcTable[rtpfb.feedback.mediaSsrc]);
+          }
         }
-      }
+        break;
       case RtcpPayloadSpecificFeedback.type:
         {
           const psfb = packet as RtcpPayloadSpecificFeedback;
