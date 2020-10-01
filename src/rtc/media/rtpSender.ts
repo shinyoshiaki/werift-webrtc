@@ -17,6 +17,7 @@ import {
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { TransportWideCC } from "../../vendor/rtp/rtcp/rtpfb/twcc";
+import { ntpTime } from "../../utils";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -119,17 +120,24 @@ export class RTCRtpSender {
             if (parameters.rid) payload = Buffer.from(parameters.rid);
             break;
           case RTP_EXTENSION_URI.transportWideCC:
-            const buf = Buffer.alloc(2);
-            buf.writeUInt16BE(this.dtlsTransport.transportSequenceNumber++);
-
-            payload = Buffer.concat([buf]);
+            {
+              const buf = Buffer.alloc(2);
+              buf.writeUInt16BE(this.dtlsTransport.transportSequenceNumber++);
+              payload = buf;
+            }
+            break;
+          case RTP_EXTENSION_URI.absSendTime:
+            const buf = Buffer.alloc(3);
+            const time = (ntpTime() >> 14n) & 0x00ffffffn;
+            buf.writeUIntBE(Number(time), 0, 3);
+            payload = buf;
             break;
         }
         if (payload) return { id: extension.id, payload };
       })
       .filter((v) => v);
 
-    this.ntpTimestamp = BigInt(Date.now()) * 10000000n;
+    this.ntpTimestamp = ntpTime();
     this.rtpTimestamp = rtp.header.timestamp;
     this.octetCount += rtp.payload.length;
     this.packetCount++;

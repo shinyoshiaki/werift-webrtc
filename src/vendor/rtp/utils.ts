@@ -6,6 +6,8 @@ export class BitWriter {
   set(size: number, startIndex: number, value: number) {
     value &= (1 << size) - 1;
     this.value |= value << (this.bitLength - size - startIndex);
+
+    return this;
   }
 }
 

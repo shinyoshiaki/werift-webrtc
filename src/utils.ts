@@ -32,3 +32,10 @@ export const microTime = () =>
   BigInt(
     `${(performance.timeOrigin + performance.now()) * 10000}`.slice(0, -1)
   );
+
+export const ntpTime = () =>
+  BigInt(
+    Math.floor(
+      (performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1)) / 1000
+    )
+  ) << 32n;
