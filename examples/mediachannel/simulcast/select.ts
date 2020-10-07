@@ -1,5 +1,9 @@
 import { RTCPeerConnection, useSdesRTPStreamID } from "../../../src";
 import { Server } from "ws";
+import {
+  useAbsSendTime,
+  useSdesMid,
+} from "../../../src/rtc/extension/rtpExtension";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -8,7 +12,7 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
     headerExtensions: {
-      video: [useSdesRTPStreamID()],
+      video: [useSdesMid(1), useAbsSendTime(2), useSdesRTPStreamID(3)],
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>

@@ -33,9 +33,15 @@ export const microTime = () =>
     `${(performance.timeOrigin + performance.now()) * 10000}`.slice(0, -1)
   );
 
-export const ntpTime = () =>
-  BigInt(
-    Math.floor(
-      (performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1)) / 1000
-    )
-  ) << 32n;
+export const ntpTime = () => {
+  const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
+  const div = now / 1000;
+
+  const [sec, msec] = div.toString().slice(0, 14).split(".");
+  const high = BigInt(sec);
+  const v = BigInt(msec + [...Array(6 - msec.length)].fill(0).join(""));
+
+  const low = (v * (1n << 32n)) / 1000000n;
+
+  return (high << 32n) | low;
+};
