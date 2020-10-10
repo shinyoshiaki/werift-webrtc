@@ -1,3 +1,5 @@
+export { RtcpPayloadSpecificFeedback } from "./vendor/rtp/rtcp/psfb";
+export { ReceiverEstimatedMaxBitrate } from "./vendor/rtp/rtcp/psfb/remb";
 export { RtpTrack } from "./rtc/media/track";
 export { RTCDataChannel } from "./rtc/dataChannel";
 export { RTCSessionDescription } from "./rtc/sdp";

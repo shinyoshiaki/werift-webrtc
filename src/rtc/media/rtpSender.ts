@@ -38,6 +38,7 @@ export class RTCRtpSender {
   private packetCount = 0;
   private rtt?: number;
   onReady = new Event();
+  onRtcp = new Event<RtcpPacket>();
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
     dtlsTransport.stateChanged.subscribe((state) => {
@@ -174,5 +175,6 @@ export class RTCRtpSender {
         }
         break;
     }
+    this.onRtcp.execute(rtcpPacket);
   }
 }

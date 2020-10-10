@@ -207,7 +207,6 @@ export class RTCRtpReceiver {
     this.handleRtpExtensions(ssrc, extensions);
 
     this.runRtcp();
-    // this.runTWCC();
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
@@ -217,6 +216,5 @@ export class RTCRtpReceiver {
     this.handleRtpExtensions(packet.header.ssrc, extensions);
 
     this.runRtcp();
-    // this.runTWCC();
   };
 }
