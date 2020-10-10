@@ -31,6 +31,9 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 
 https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
 
+### SFU 
+https://github.com/shinyoshiaki/node-sfu
+
 # demo
 
 ## MediaChannel
