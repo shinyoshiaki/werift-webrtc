@@ -14,6 +14,7 @@ import { RtcpPayloadSpecificFeedback } from "../../vendor/rtp/rtcp/psfb";
 import { RtcpSourceDescriptionPacket } from "../../vendor/rtp/rtcp/sdes";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
+import { ReceiverEstimatedMaxBitrate } from "../../vendor/rtp/rtcp/psfb/remb";
 
 export type Extensions = { [uri: string]: number | string };
 
@@ -130,8 +131,14 @@ export class RtpRouter {
       case RtcpPayloadSpecificFeedback.type:
         {
           const psfb = packet as RtcpPayloadSpecificFeedback;
-          if (psfb.feedback)
-            recipients.push(this.ssrcTable[psfb.feedback.mediaSsrc]);
+          switch (psfb.feedback.count) {
+            case ReceiverEstimatedMaxBitrate.count:
+              const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
+              recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
+              break;
+            default:
+              recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
+          }
         }
         break;
     }

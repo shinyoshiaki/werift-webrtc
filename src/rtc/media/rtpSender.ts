@@ -18,6 +18,7 @@ import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { TransportWideCC } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { ntpTime } from "../../utils";
+import { random32, random16, uint32_add, uint16Add } from "../../utils";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -38,6 +39,7 @@ export class RTCRtpSender {
   private packetCount = 0;
   private rtt?: number;
   onReady = new Event();
+  onRtcp = new Event<RtcpPacket>();
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
     dtlsTransport.stateChanged.subscribe((state) => {
@@ -100,12 +102,28 @@ export class RTCRtpSender {
     }
   }
 
+  sequenceNumber = random16();
+  timestamp = random32();
+  cacheTimestamp = 0;
   sendRtp(rtp: Buffer | RtpPacket, parameters: RTCRtpParameters) {
     if (!this.ready) return;
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
     const header = rtp.header;
     header.ssrc = this.ssrc;
+
+    if (this.cacheTimestamp !== header.timestamp) {
+      this.timestamp = uint32_add(
+        this.timestamp,
+        BigInt(Math.floor(90000 * (1 / 30)))
+      );
+    }
+    this.cacheTimestamp = header.timestamp;
+
+    header.timestamp = Number(this.timestamp);
+
+    header.sequenceNumber = this.sequenceNumber;
+    this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
 
     this.cname = parameters.rtcp.cname;
 
@@ -174,5 +192,6 @@ export class RTCRtpSender {
         }
         break;
     }
+    this.onRtcp.execute(rtcpPacket);
   }
 }

@@ -1,12 +1,20 @@
 import { jspack } from "jspack";
 import { randomBytes } from "crypto";
 
+export function random16() {
+  return jspack.Unpack("!H", randomBytes(2))[0];
+}
+
 export function random32() {
-  return jspack.Unpack("!L", randomBytes(4))[0];
+  return BigInt(jspack.Unpack("!L", randomBytes(4))[0]);
 }
 
 export function uint16Add(a: number, b: number) {
-  return (a + b) & 0xfff;
+  return (a + b) & 0xffff;
+}
+
+export function uint32_add(a: bigint, b: bigint) {
+  return (a + b) & 0xffffffffn;
 }
 
 export function uint16Gt(a: number, b: number) {

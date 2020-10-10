@@ -11,7 +11,7 @@ export class ReceiverEstimatedMaxBitrate {
   ssrcNum: number = 0;
   brExp: number;
   brMantissa: number;
-  bitrate: BigInt;
+  bitrate: bigint;
   ssrcFeedbacks: number[];
 
   constructor(props: Partial<ReceiverEstimatedMaxBitrate> = {}) {
