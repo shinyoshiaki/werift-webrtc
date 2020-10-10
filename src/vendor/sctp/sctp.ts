@@ -85,7 +85,7 @@ export class SCTP {
 
   private localPartialReliability = true;
   private localPort = this.port;
-  private localVerificationTag = random32();
+  private localVerificationTag = Number(random32());
 
   remoteExtensions: number[] = [];
   remotePartialReliability = true;
@@ -111,7 +111,7 @@ export class SCTP {
   outboundQueue: DataChunk[] = [];
   private outboundStreamSeq: { [key: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
-  private localTsn = random32();
+  private localTsn = Number(random32());
   private lastSackedTsn = tsnMinusOne(this.localTsn);
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;

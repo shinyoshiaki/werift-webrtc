@@ -18,12 +18,7 @@ import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { TransportWideCC } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { ntpTime } from "../../utils";
-import {
-  random32,
-  random16,
-  uint32_add,
-  uint16Add,
-} from "../../vendor/sctp/utils";
+import { random32, random16, uint32_add, uint16Add } from "../../utils";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -108,7 +103,7 @@ export class RTCRtpSender {
   }
 
   sequenceNumber = random16();
-  timestamp = BigInt(random32());
+  timestamp = random32();
   cacheTimestamp = 0;
   sendRtp(rtp: Buffer | RtpPacket, parameters: RTCRtpParameters) {
     if (!this.ready) return;
