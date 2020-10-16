@@ -1,7 +1,8 @@
 import { RtcpHeader } from "../header";
+import { GenericNack } from "./nack";
 import { TransportWideCC } from "./twcc";
 
-type Feedback = TransportWideCC;
+type Feedback = GenericNack | TransportWideCC;
 
 export class RtcpTransportLayerFeedback {
   static type = 205;
@@ -22,6 +23,9 @@ export class RtcpTransportLayerFeedback {
     let feedback: Feedback;
 
     switch (header.count) {
+      case GenericNack.count:
+        feedback = GenericNack.deSerialize(data, header);
+        break;
       case TransportWideCC.count:
         feedback = TransportWideCC.deSerialize(data, header);
         break;
