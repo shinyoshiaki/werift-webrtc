@@ -28,10 +28,9 @@ export enum DtlsState {
 type DtlsRole = "auto" | "server" | "client";
 
 export class RTCDtlsTransport {
-  dtls?: DtlsSocket;
-  stateChanged = new Event<DtlsState>();
+  readonly stateChanged = new Event<DtlsState>();
+  dtls!: DtlsSocket;
   state = DtlsState.NEW;
-  private localCertificate: RTCCertificate;
   role: DtlsRole = "auto";
   dataReceiver?: (buf: Buffer) => void;
   srtp: SrtpSession;
@@ -39,10 +38,12 @@ export class RTCDtlsTransport {
   router?: RtpRouter;
   transportSequenceNumber = 0;
 
+  private localCertificate: RTCCertificate;
+
   constructor(
-    public iceTransport: RTCIceTransport,
-    certificates: RTCCertificate[],
-    private srtpProfiles: number[] = []
+    readonly iceTransport: RTCIceTransport,
+    readonly certificates: RTCCertificate[],
+    private readonly srtpProfiles: number[] = []
   ) {
     const certificate = certificates[0];
     this.localCertificate = certificate;
@@ -140,7 +141,7 @@ export class RTCDtlsTransport {
   }
 
   sendData(data: Buffer) {
-    this.dtls!.send(data);
+    this.dtls.send(data);
   }
 
   sendRtp(payload: Buffer, header: RtpHeader) {

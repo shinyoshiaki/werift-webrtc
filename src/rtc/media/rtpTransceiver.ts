@@ -12,21 +12,9 @@ import { RtpTrack } from "./track";
 import Event from "rx.mini";
 import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 
-export const Directions = [
-  "sendonly" as const,
-  "sendrecv" as const,
-  "recvonly" as const,
-  "inactive" as const,
-];
-
-export type Direction = typeof Directions[0];
-
-export type TransceiverOptions = {
-  simulcast: { direction: "send" | "recv"; rid: string }[];
-};
-
 export class RTCRtpTransceiver {
-  uuid = uuid.v4();
+  readonly uuid = uuid.v4();
+  readonly onTrack = new Event<RtpTrack>();
   bundled = false;
   mid?: string;
   mLineIndex?: number;
@@ -34,13 +22,12 @@ export class RTCRtpTransceiver {
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   senderParams: RTCRtpParameters;
-  onTrack = new Event<RtpTrack>();
   options: Partial<TransceiverOptions> = {};
 
   constructor(
-    public kind: Kind,
-    public receiver: RTCRtpReceiver,
-    public sender: RTCRtpSender,
+    public readonly kind: Kind,
+    public readonly receiver: RTCRtpReceiver,
+    public readonly sender: RTCRtpSender,
     public direction: Direction
   ) {}
 
@@ -62,3 +49,16 @@ export class RTCRtpTransceiver {
     this.sender.sendRtp(rtp, this.senderParams);
   };
 }
+
+export const Directions = [
+  "sendonly",
+  "sendrecv",
+  "recvonly",
+  "inactive",
+] as const;
+
+export type Direction = typeof Directions[number];
+
+export type TransceiverOptions = {
+  simulcast: { direction: "send" | "recv"; rid: string }[];
+};

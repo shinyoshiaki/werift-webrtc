@@ -19,17 +19,20 @@ import {
   TransportWideCC,
 } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { microTime } from "../../utils";
+import { Nack } from "./nack";
+import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 
 export class RTCRtpReceiver {
-  type = "receiver";
-  uuid = uuid();
+  readonly type = "receiver";
+  readonly uuid = uuid();
   readonly tracks: RtpTrack[] = [];
+  readonly nack = new Nack();
 
   // # RTCP
-  lsr: { [key: number]: BigInt } = {};
-  lsrTime: { [key: number]: number } = {};
+  readonly lsr: { [key: number]: BigInt } = {};
+  readonly lsrTime: { [key: number]: number } = {};
   rtcpSsrc: number;
-  cacheExtensions: {
+  readonly cacheExtensions: {
     [ssrc: number]: { extensions: Extensions; timestamp: bigint }[];
   } = {};
 
@@ -194,6 +197,23 @@ export class RTCRtpReceiver {
   private handleRtpExtensions(ssrc: number, extensions: Extensions) {
     if (!this.cacheExtensions[ssrc]) this.cacheExtensions[ssrc] = [];
     this.cacheExtensions[ssrc].push({ extensions, timestamp: microTime() });
+  }
+
+  private packetLost(packet: RtpPacket) {
+    this.nack.onPacket(packet.header);
+    const lost = [...this.nack.lost];
+    this.nack.lost = [];
+
+    if (lost.length > 0) {
+      const rtcp = new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          senderSsrc: this.rtcpSsrc,
+          mediaSsrc: packet.header.ssrc,
+          lost,
+        }),
+      });
+      this.dtlsTransport.sendRtcp([rtcp]);
+    }
   }
 
   handleRtpBySsrc = (

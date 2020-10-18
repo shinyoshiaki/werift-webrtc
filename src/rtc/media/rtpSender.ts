@@ -19,16 +19,20 @@ import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { TransportWideCC } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { ntpTime } from "../../utils";
 import { random32, random16, uint32_add, uint16Add } from "../../utils";
+import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
-  type = "sender";
+  readonly type = "sender";
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly streamId = uuid.v4();
   readonly trackId = uuid.v4();
-  private cname = "";
+  readonly onReady = new Event();
+  readonly onRtcp = new Event<RtcpPacket>();
+
+  private cname?: string;
 
   // # stats
   private lsr?: bigint;
@@ -38,8 +42,6 @@ export class RTCRtpSender {
   private octetCount = 0;
   private packetCount = 0;
   private rtt?: number;
-  onReady = new Event();
-  onRtcp = new Event<RtcpPacket>();
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
     dtlsTransport.stateChanged.subscribe((state) => {
@@ -105,10 +107,13 @@ export class RTCRtpSender {
   sequenceNumber = random16();
   timestamp = random32();
   cacheTimestamp = 0;
+  rtpCache: RtpPacket[] = [];
   sendRtp(rtp: Buffer | RtpPacket, parameters: RTCRtpParameters) {
     if (!this.ready) return;
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+    this.rtpCache.push(rtp);
+    this.rtpCache = this.rtpCache.slice(-RTP_HISTORY_SIZE);
     const header = rtp.header;
     header.ssrc = this.ssrc;
 
@@ -188,7 +193,26 @@ export class RTCRtpSender {
       case RtcpTransportLayerFeedback.type:
         {
           const packet = rtcpPacket as RtcpTransportLayerFeedback;
-          const feedback = packet.feedback as TransportWideCC;
+          switch (packet.feedback.count) {
+            case TransportWideCC.count:
+              {
+                const feedback = packet.feedback as TransportWideCC;
+              }
+              break;
+            case GenericNack.count:
+              {
+                const feedback = packet.feedback as GenericNack;
+                feedback.lost.forEach((seqNum) => {
+                  const rtp = this.rtpCache.find(
+                    (rtp) => rtp.header.sequenceNumber === seqNum
+                  );
+                  if (rtp) {
+                    this.dtlsTransport.sendRtp(rtp.payload, rtp.header);
+                  }
+                });
+              }
+              break;
+          }
         }
         break;
     }
