@@ -200,19 +200,20 @@ export class RTCRtpReceiver {
   }
 
   private packetLost(packet: RtpPacket) {
-    this.nack.onPacket(packet.header);
-    const lost = [...this.nack.lost];
-    this.nack.lost = [];
+    this.nack.onPacket(packet);
 
-    if (lost.length > 0) {
+    if (this.nack.lost.length > 0) {
+      console.log("receiver send lost", this.nack.lost);
       const rtcp = new RtcpTransportLayerFeedback({
         feedback: new GenericNack({
           senderSsrc: this.rtcpSsrc,
           mediaSsrc: packet.header.ssrc,
-          lost,
+          lost: this.nack.lost,
         }),
       });
       this.dtlsTransport.sendRtcp([rtcp]);
+
+      this.nack.increment();
     }
   }
 
@@ -221,6 +222,8 @@ export class RTCRtpReceiver {
     ssrc: number,
     extensions: Extensions
   ) => {
+    this.packetLost(packet);
+
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
 
@@ -230,6 +233,8 @@ export class RTCRtpReceiver {
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
+    // this.packetLost(packet);
+
     const track = this.tracks.find((track) => track.rid === rid);
     track.onRtp.execute(packet);
 

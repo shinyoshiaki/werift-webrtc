@@ -1,23 +1,54 @@
 import { range } from "lodash";
-import { RtpHeader } from "../../vendor/rtp";
+import { RtpPacket } from "../../vendor/rtp";
 
 export class Nack {
-  newEstSeqNum = 0;
-  lost: number[] = [];
-  constructor() {}
+  private newEstSeqNum = 0;
+  private _lost: { [seqNum: number]: number } = {};
 
-  onPacket(header: RtpHeader) {
-    if (header.sequenceNumber < this.newEstSeqNum) return;
-    this.newEstSeqNum = header.sequenceNumber;
-    this.addMissing(header.sequenceNumber, this.newEstSeqNum + 1);
+  get lost() {
+    return Object.keys(this._lost).map(Number);
   }
 
-  addMissing(from: number, to: number) {
-    this.lost = this.lost.filter((seq) => to - seq > 10000);
-    if (this.lost.length > 1000) {
-      this.lost = this.lost.slice(-1000);
-      // req keyframe ?
+  onPacket(packet: RtpPacket) {
+    const { sequenceNumber } = packet.header;
+
+    if (this.newEstSeqNum === 0) {
+      this.newEstSeqNum = sequenceNumber;
+      return;
     }
-    range(from, to).forEach((seq) => this.lost.push(seq));
+
+    if (this._lost[sequenceNumber]) {
+      console.log("recovery lost", sequenceNumber);
+      delete this._lost[sequenceNumber];
+    }
+
+    if (sequenceNumber > this.newEstSeqNum + 1) {
+      range(this.newEstSeqNum + 1, sequenceNumber).forEach((seq) => {
+        this._lost[seq] = 1;
+      });
+    } else {
+      this.newEstSeqNum = sequenceNumber;
+      return;
+    }
+
+    this.newEstSeqNum = sequenceNumber;
+
+    if (Object.keys(this._lost).length > 1000) {
+      this._lost = Object.entries(this._lost)
+        .slice(-1000)
+        .reduce((acc, [key, v]) => {
+          acc[key] = v;
+          return acc;
+        }, {} as { [seqNum: number]: number });
+    }
+  }
+
+  increment() {
+    Object.keys(this._lost).forEach((seq) => {
+      if (++this._lost[seq] > 10) {
+        console.log("lost failed", seq);
+        delete this._lost[seq];
+      }
+    });
   }
 }

@@ -202,6 +202,7 @@ export class RTCRtpSender {
             case GenericNack.count:
               {
                 const feedback = packet.feedback as GenericNack;
+                console.log("sender receive lost", feedback.lost);
                 feedback.lost.forEach((seqNum) => {
                   const rtp = this.rtpCache.find(
                     (rtp) => rtp.header.sequenceNumber === seqNum
