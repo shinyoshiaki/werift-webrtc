@@ -19,17 +19,20 @@ import {
   TransportWideCC,
 } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { microTime } from "../../utils";
+import { Nack } from "./nack";
+import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 
 export class RTCRtpReceiver {
-  type = "receiver";
-  uuid = uuid();
+  readonly type = "receiver";
+  readonly uuid = uuid();
   readonly tracks: RtpTrack[] = [];
+  readonly nack = new Nack(this);
 
   // # RTCP
-  lsr: { [key: number]: BigInt } = {};
-  lsrTime: { [key: number]: number } = {};
+  readonly lsr: { [key: number]: BigInt } = {};
+  readonly lsrTime: { [key: number]: number } = {};
   rtcpSsrc: number;
-  cacheExtensions: {
+  readonly cacheExtensions: {
     [ssrc: number]: { extensions: Extensions; timestamp: bigint }[];
   } = {};
 
@@ -201,6 +204,8 @@ export class RTCRtpReceiver {
     ssrc: number,
     extensions: Extensions
   ) => {
+    this.nack.onPacket(packet);
+
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
 
@@ -210,6 +215,8 @@ export class RTCRtpReceiver {
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
+    this.nack.onPacket(packet);
+
     const track = this.tracks.find((track) => track.rid === rid);
     track.onRtp.execute(packet);
 

@@ -3,19 +3,6 @@ import { bufferReader, bufferWriter } from "../../helper";
 import { getBit, BitWriter } from "../../utils";
 import { RtcpHeader } from "../header";
 
-export enum PacketChunk {
-  TypeTCCRunLengthChunk,
-  TypeTCCStatusVectorChunk,
-  packetStatusChunkLength,
-}
-
-export enum PacketStatus {
-  TypeTCCPacketNotReceived,
-  TypeTCCPacketReceivedSmallDelta,
-  TypeTCCPacketReceivedLargeDelta,
-  TypeTCCPacketReceivedWithoutDelta,
-}
-
 export class TransportWideCC {
   static count = 15;
   count = TransportWideCC.count;
@@ -335,4 +322,17 @@ export class RecvDelta {
 
     throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
   }
+}
+
+export enum PacketChunk {
+  TypeTCCRunLengthChunk,
+  TypeTCCStatusVectorChunk,
+  packetStatusChunkLength,
+}
+
+export enum PacketStatus {
+  TypeTCCPacketNotReceived,
+  TypeTCCPacketReceivedSmallDelta,
+  TypeTCCPacketReceivedLargeDelta,
+  TypeTCCPacketReceivedWithoutDelta,
 }
