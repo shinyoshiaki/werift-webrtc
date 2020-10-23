@@ -1,16 +1,26 @@
 import { range } from "lodash";
 import { RtpPacket } from "../../vendor/rtp";
+import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
+import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
+import { RTCRtpReceiver } from "./rtpReceiver";
 
 export class Nack {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
+
+  mediaSsrc: number;
+
+  constructor(private receiver: RTCRtpReceiver) {
+    setInterval(() => this.packetLost(), 20);
+  }
 
   get lost() {
     return Object.keys(this._lost).map(Number);
   }
 
   onPacket(packet: RtpPacket) {
-    const { sequenceNumber } = packet.header;
+    const { sequenceNumber, ssrc } = packet.header;
+    this.mediaSsrc = ssrc;
 
     if (this.newEstSeqNum === 0) {
       this.newEstSeqNum = sequenceNumber;
@@ -18,14 +28,15 @@ export class Nack {
     }
 
     if (this._lost[sequenceNumber]) {
-      console.log("recovery lost", sequenceNumber);
       delete this._lost[sequenceNumber];
     }
 
     if (sequenceNumber > this.newEstSeqNum + 1) {
+      // packet lost detected
       range(this.newEstSeqNum + 1, sequenceNumber).forEach((seq) => {
         this._lost[seq] = 1;
       });
+      this.receiver.sendRtcpPLI(this.mediaSsrc);
     } else {
       this.newEstSeqNum = sequenceNumber;
       return;
@@ -43,12 +54,27 @@ export class Nack {
     }
   }
 
-  increment() {
+  private increment() {
     Object.keys(this._lost).forEach((seq) => {
       if (++this._lost[seq] > 10) {
         console.log("lost failed", seq);
         delete this._lost[seq];
       }
     });
+  }
+
+  private packetLost() {
+    if (this.lost.length > 0 && this.mediaSsrc) {
+      const rtcp = new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          senderSsrc: this.receiver.rtcpSsrc,
+          mediaSsrc: this.mediaSsrc,
+          lost: this.lost,
+        }),
+      });
+      this.receiver.dtlsTransport.sendRtcp([rtcp]);
+
+      this.increment();
+    }
   }
 }

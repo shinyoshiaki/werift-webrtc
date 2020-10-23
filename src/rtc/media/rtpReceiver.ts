@@ -26,7 +26,7 @@ export class RTCRtpReceiver {
   readonly type = "receiver";
   readonly uuid = uuid();
   readonly tracks: RtpTrack[] = [];
-  readonly nack = new Nack();
+  readonly nack = new Nack(this);
 
   // # RTCP
   readonly lsr: { [key: number]: BigInt } = {};
@@ -199,30 +199,12 @@ export class RTCRtpReceiver {
     this.cacheExtensions[ssrc].push({ extensions, timestamp: microTime() });
   }
 
-  private packetLost(packet: RtpPacket) {
-    this.nack.onPacket(packet);
-
-    if (this.nack.lost.length > 0) {
-      console.log("receiver send lost", this.nack.lost);
-      const rtcp = new RtcpTransportLayerFeedback({
-        feedback: new GenericNack({
-          senderSsrc: this.rtcpSsrc,
-          mediaSsrc: packet.header.ssrc,
-          lost: this.nack.lost,
-        }),
-      });
-      this.dtlsTransport.sendRtcp([rtcp]);
-
-      this.nack.increment();
-    }
-  }
-
   handleRtpBySsrc = (
     packet: RtpPacket,
     ssrc: number,
     extensions: Extensions
   ) => {
-    this.packetLost(packet);
+    this.nack.onPacket(packet);
 
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     track.onRtp.execute(packet);
@@ -233,7 +215,7 @@ export class RTCRtpReceiver {
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
-    // this.packetLost(packet);
+    this.nack.onPacket(packet);
 
     const track = this.tracks.find((track) => track.rid === rid);
     track.onRtp.execute(packet);
