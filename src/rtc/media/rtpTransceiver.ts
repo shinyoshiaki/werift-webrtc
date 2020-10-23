@@ -42,6 +42,11 @@ export class RTCRtpTransceiver {
     }
   }
 
+  replaceTrack(track: RtpTrack) {
+    if (!track.mediaSsrc) throw new Error();
+    this.sender.replaceRTP(track.sequenceNumber);
+  }
+
   sendRtp = (rtp: Buffer | RtpPacket) => {
     if (this.direction === "inactive") return;
     if (!this.senderParams) return;
