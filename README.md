@@ -19,6 +19,9 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
   - [x] multi track
   - [ ] RTCP
     - [x] Picture Loss Indication
+    - [x] ReceiverEstimatedMaxBitrate
+    - [x] GenericNack
+    - [ ] TransportWideCC
   - [ ] Simulcast
     - [x] recv
     - [ ] send
