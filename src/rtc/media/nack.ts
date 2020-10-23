@@ -1,4 +1,5 @@
 import { range } from "lodash";
+import { uint16Add } from "../../utils";
 import { RtpPacket } from "../../vendor/rtp";
 import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
@@ -28,29 +29,30 @@ export class Nack {
     }
 
     if (this._lost[sequenceNumber]) {
+      console.log("recovery lost", sequenceNumber);
       delete this._lost[sequenceNumber];
+      return;
     }
 
-    if (sequenceNumber > this.newEstSeqNum + 1) {
+    if (sequenceNumber === uint16Add(this.newEstSeqNum, 1)) {
+      this.newEstSeqNum = sequenceNumber;
+    } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
       range(this.newEstSeqNum + 1, sequenceNumber).forEach((seq) => {
         this._lost[seq] = 1;
       });
       this.receiver.sendRtcpPLI(this.mediaSsrc);
-    } else {
+
       this.newEstSeqNum = sequenceNumber;
-      return;
-    }
 
-    this.newEstSeqNum = sequenceNumber;
-
-    if (Object.keys(this._lost).length > 1000) {
-      this._lost = Object.entries(this._lost)
-        .slice(-1000)
-        .reduce((acc, [key, v]) => {
-          acc[key] = v;
-          return acc;
-        }, {} as { [seqNum: number]: number });
+      if (Object.keys(this._lost).length > 1000) {
+        this._lost = Object.entries(this._lost)
+          .slice(-1000)
+          .reduce((acc, [key, v]) => {
+            acc[key] = v;
+            return acc;
+          }, {} as { [seqNum: number]: number });
+      }
     }
   }
 
