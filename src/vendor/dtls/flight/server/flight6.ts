@@ -24,7 +24,11 @@ export class Flight6 extends Flight {
   }
 
   exec(handshakes: (FragmentedHandshake | DtlsPlaintext)[]) {
-    if (this.dtls.flight === 6) return;
+    if (this.dtls.flight === 6) {
+      console.log("flight6 twice");
+      this.send(this.dtls.lastMessage);
+      return;
+    }
     this.dtls.flight = 6;
 
     const fragments = handshakes.map((handshake) => {
@@ -54,6 +58,7 @@ export class Flight6 extends Flight {
     this.dtls.bufferHandshakeCache(fragments, false, 5);
 
     const messages = [this.sendChangeCipherSpec(), this.sendFinished()];
+    this.dtls.lastMessage = messages;
     this.transmit(messages);
   }
 

@@ -22,7 +22,6 @@ export const flight2 = (
   cipher: CipherContext,
   srtp: SrtpContext
 ) => (clientHello: ClientHello) => {
-  if (dtls.flight === 2) return;
   dtls.flight = 2;
 
   clientHello.extensions.forEach((extension) => {

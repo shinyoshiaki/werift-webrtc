@@ -4,14 +4,14 @@ import { DtlsPlaintext } from "./message/plaintext";
 
 export type Message = { type: number; fragment: Buffer };
 
-export const createFragments = (client: DtlsContext) => (
+export const createFragments = (dtls: DtlsContext) => (
   handshakes: Handshake[]
 ) => {
-  client.lastFlight = handshakes;
+  dtls.lastFlight = handshakes;
 
   return handshakes
     .map((handshake) => {
-      handshake.messageSeq = client.sequenceNumber++;
+      handshake.messageSeq = dtls.sequenceNumber++;
       const fragment = handshake.toFragment();
       const fragments = fragment.chunk();
       return fragments;
@@ -19,7 +19,7 @@ export const createFragments = (client: DtlsContext) => (
     .flatMap((v) => v);
 };
 
-export const createPlaintext = (client: DtlsContext) => (
+export const createPlaintext = (dtls: DtlsContext) => (
   fragments: Message[],
   recordSequenceNumber: number
 ) => {
@@ -27,8 +27,8 @@ export const createPlaintext = (client: DtlsContext) => (
     const plaintext = new DtlsPlaintext(
       {
         contentType: msg.type,
-        protocolVersion: client.version,
-        epoch: client.epoch,
+        protocolVersion: dtls.version,
+        epoch: dtls.epoch,
         sequenceNumber: recordSequenceNumber,
         contentLen: msg.fragment.length,
       },

@@ -22,6 +22,7 @@ import { CertificateVerify } from "../../handshake/message/client/certificateVer
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
 import { Flight } from "../flight";
+import { FragmentedHandshake } from "../../record/message/fragment";
 
 export class Flight5 extends Flight {
   constructor(
@@ -33,17 +34,30 @@ export class Flight5 extends Flight {
     super(udp, dtls, 7);
   }
 
-  exec(
-    messages: (
-      | ServerHello
-      | Certificate
-      | ServerKeyExchange
-      | ServerHelloDone
-      | ServerCertificateRequest
-    )[]
-  ) {
-    if (this.dtls.flight === 5) return;
+  exec(fragments: FragmentedHandshake[]) {
+    if (this.dtls.flight === 5) {
+      console.log("flight5 twice");
+      return;
+    }
     this.dtls.flight = 5;
+    this.dtls.bufferHandshakeCache(fragments, false, 4);
+
+    const messages = fragments.map((handshake) => {
+      switch (handshake.msg_type) {
+        case HandshakeType.server_hello:
+          return ServerHello.deSerialize(handshake.fragment);
+        case HandshakeType.certificate:
+          return Certificate.deSerialize(handshake.fragment);
+        case HandshakeType.server_key_exchange:
+          return ServerKeyExchange.deSerialize(handshake.fragment);
+        case HandshakeType.certificate_request:
+          return ServerCertificateRequest.deSerialize(handshake.fragment);
+        case HandshakeType.server_hello_done:
+          return ServerHelloDone.deSerialize(handshake.fragment);
+        default:
+          return (undefined as any) as ServerHello;
+      }
+    });
 
     messages.forEach((message) => {
       handlers[message.msgType]({

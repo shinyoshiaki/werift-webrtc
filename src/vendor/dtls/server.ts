@@ -16,6 +16,7 @@ export class DtlsServer extends DtlsSocket {
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.SERVER;
     this.udp.socket.onData = this.udpOnMessage;
+    console.log("dtls is server");
   }
 
   private udpOnMessage = (data: Buffer) => {
@@ -41,6 +42,7 @@ export class DtlsServer extends DtlsSocket {
   };
 
   private handleHandshakes(handshakes: FragmentedHandshake[]) {
+    console.log(handshakes[0].msg_type);
     switch (handshakes[0].msg_type) {
       case HandshakeType.client_hello:
         {
@@ -48,9 +50,8 @@ export class DtlsServer extends DtlsSocket {
           const clientHello = ClientHello.deSerialize(assemble.fragment);
 
           if (this.dtls.cookie && this.dtls.cookie.equals(clientHello.cookie)) {
-            this.dtls.bufferHandshakeCache([assemble], false, 4);
-
             new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
+              assemble,
               this.options.certificateRequest
             );
           } else {
@@ -60,7 +61,6 @@ export class DtlsServer extends DtlsSocket {
         break;
       case HandshakeType.client_key_exchange:
         {
-          this.dtls.flight = 8;
           new Flight6(this.udp, this.dtls, this.cipher).exec(handshakes);
           if (this.onConnect) this.onConnect();
         }

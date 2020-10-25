@@ -5,6 +5,7 @@ import { Handshake } from "../typings/domain";
 export class DtlsContext {
   version = { major: 255 - 1, minor: 255 - 2 };
   lastFlight: Handshake[] = [];
+  lastMessage: Buffer[] = [];
   recordSequenceNumber = 0;
   sequenceNumber = 0;
   epoch = 0;
