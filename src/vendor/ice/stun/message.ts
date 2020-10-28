@@ -21,12 +21,12 @@ import {
 
 export function parseMessage(
   data: Buffer,
-  integrityKey: Buffer | null = null
-): Message {
+  integrityKey?: Buffer
+): Message | undefined {
   if (data.length < HEADER_LENGTH) {
-    throw new Error("STUN message length is less than 20 bytes");
+    return undefined;
   }
-  let [messageType, length] = jspack.Unpack(
+  const [messageType, length] = jspack.Unpack(
     "!HHI",
     data.slice(0, HEADER_LENGTH)
   );
@@ -35,8 +35,9 @@ export function parseMessage(
     data.slice(HEADER_LENGTH - 12, HEADER_LENGTH)
   );
 
-  if (data.length !== HEADER_LENGTH + length)
-    throw new Error("STUN message length does not match");
+  if (data.length !== HEADER_LENGTH + length) {
+    return undefined;
+  }
 
   const attributes: { [key: string]: any } = {};
 
@@ -56,13 +57,13 @@ export function parseMessage(
       if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
         if (attributes[attrName] !== fingerprint) {
-          throw new Error("STUN message fingerprint does not match");
+          return undefined;
         }
       } else if (attrName === "MESSAGE-INTEGRITY") {
         if (integrityKey) {
           const integrity = messageIntegrity(data.slice(0, pos), integrityKey);
           if (!integrity.equals(attributes[attrName])) {
-            throw new Error("STUN message integrity does not match");
+            return undefined;
           }
         }
       }
@@ -96,7 +97,7 @@ export class Message {
 
   get bytes() {
     let data = Buffer.from([]);
-    for (let attrName of this.attributesKeys) {
+    for (const attrName of this.attributesKeys) {
       const attrValue = (this.attributes as any)[attrName];
       const [attrType, , attrPack] = ATTRIBUTES_BY_NAME[attrName];
       const v =

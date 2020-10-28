@@ -58,7 +58,6 @@ export class Nack {
   private increment() {
     Object.keys(this._lost).forEach((seq) => {
       if (++this._lost[seq] > 10) {
-        console.log("lost failed", seq);
         delete this._lost[seq];
       }
     });

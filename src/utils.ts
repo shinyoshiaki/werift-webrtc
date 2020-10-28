@@ -1,3 +1,4 @@
+/* eslint-disable prefer-const */
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
@@ -36,9 +37,13 @@ export const microTime = () =>
 
 export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
+
   const div = now / 1000;
 
-  const [sec, msec] = div.toString().slice(0, 14).split(".");
+  let [sec, msec] = div.toString().slice(0, 14).split(".");
+
+  if (!msec) msec = "0";
+
   const high = BigInt(sec);
   const v = BigInt(msec + [...Array(6 - msec.length)].fill(0).join(""));
 

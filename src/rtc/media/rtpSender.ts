@@ -21,7 +21,7 @@ import { ntpTime } from "../../utils";
 import { random32, uint32_add, uint16Add } from "../../utils";
 import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 
-const RTP_HISTORY_SIZE = 1024;
+const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
@@ -42,6 +42,12 @@ export class RTCRtpSender {
   private octetCount = 0;
   private packetCount = 0;
   private rtt?: number;
+
+  // rtp
+  private sequenceNumber?: number;
+  private timestamp = random32();
+  private cacheTimestamp = 0;
+  private rtpCache: RtpPacket[] = [];
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
     dtlsTransport.stateChanged.subscribe((state) => {
@@ -111,10 +117,6 @@ export class RTCRtpSender {
     }
   }
 
-  sequenceNumber?: number;
-  timestamp = random32();
-  cacheTimestamp = 0;
-  rtpCache: RtpPacket[] = [];
   sendRtp(rtp: Buffer | RtpPacket, parameters: RTCRtpParameters) {
     if (!this.ready) return;
 

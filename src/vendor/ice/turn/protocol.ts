@@ -26,11 +26,9 @@ class TurnTransport implements Protocol {
   }
 
   private datagramReceived = (data: Buffer, addr: Address) => {
-    let message: Message;
-    try {
-      message = parseMessage(data);
-    } catch (error) {
-      this.receiver?.dataReceived(data, this.localCandidate?.component!);
+    const message = parseMessage(data);
+    if (!message) {
+      this.receiver?.dataReceived(data, this.localCandidate.component);
       return;
     }
 
@@ -158,11 +156,7 @@ class TurnClient implements Protocol {
 
     let response: Message;
     try {
-      [response] = (await this.request(
-        request,
-        this.server,
-        this.integrityKey!
-      ))!;
+      [response] = await this.request(request, this.server, this.integrityKey);
     } catch (error) {
       response = (error as TransactionFailed).response;
       if (response.attributes["ERROR-CODE"][0] === 401) {
@@ -170,16 +164,16 @@ class TurnClient implements Protocol {
         this.realm = response.attributes.REALM;
         this.integrityKey = makeIntegrityKey(
           this.username,
-          this.realm!,
+          this.realm,
           this.password
         );
         request.transactionId = randomTransactionId();
 
-        [response] = (await this.request(
+        [response] = await this.request(
           request,
           this.server,
           this.integrityKey
-        ))!;
+        );
       }
     }
 
@@ -191,14 +185,18 @@ class TurnClient implements Protocol {
 
   refresh = () =>
     new PCancelable(async (r, f, onCancel) => {
-      onCancel(() => f("cancel"));
+      let run = true;
+      onCancel(() => {
+        run = false;
+        f("cancel");
+      });
 
-      while (true) {
+      while (run) {
         await sleep((5 / 6) * this.lifetime * 1000);
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.attributes.LIFETIME = this.lifetime;
-        await this.request(request, this.server, this.integrityKey!);
+        await this.request(request, this.server, this.integrityKey);
       }
     });
 
@@ -276,16 +274,13 @@ export async function createTurnEndpoint(
   ssl = false,
   transport = "udp"
 ) {
-  let turnClient: TurnClient;
-  // if (transport === "udp") {
-  turnClient = new TurnClient(
+  const turnClient = new TurnClient(
     serverAddr,
     username,
     password,
     lifetime,
     new UdpTransport()
   );
-  // }
 
   await turnClient.connectionMade();
   await turnClient.connect();
