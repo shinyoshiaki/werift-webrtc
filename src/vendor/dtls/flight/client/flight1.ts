@@ -19,7 +19,7 @@ export class Flight1 extends Flight {
   }
 
   exec(extensions: Extension[]) {
-    if (this.dtls.flight === 1) return;
+    if (this.dtls.flight === 1) throw new Error();
     this.dtls.flight = 1;
 
     const hello = new ClientHello(

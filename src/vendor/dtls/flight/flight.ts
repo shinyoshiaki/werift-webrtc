@@ -21,7 +21,6 @@ export abstract class Flight {
   }
 
   protected transmit(buf: Buffer[]) {
-    console.log("transmit", this.dtls.flight);
     this.buffer = buf;
     this.retransmit();
   }

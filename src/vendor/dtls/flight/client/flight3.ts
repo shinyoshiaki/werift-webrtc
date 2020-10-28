@@ -12,7 +12,7 @@ export class Flight3 extends Flight {
   }
 
   exec(verifyReq: ServerHelloVerifyRequest) {
-    if (this.dtls.flight === 3) return;
+    if (this.dtls.flight === 3) throw new Error();
     this.dtls.flight = 3;
 
     const hello = this.dtls.lastFlight[0] as ClientHello;

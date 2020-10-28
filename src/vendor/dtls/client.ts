@@ -8,6 +8,7 @@ import { FragmentedHandshake } from "./record/message/fragment";
 import { ContentType } from "./record/const";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket, Options } from "./socket";
+import { DtlsContext } from "./context/dtls";
 
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
@@ -17,10 +18,10 @@ export class DtlsClient extends DtlsSocket {
     this.cipher.keyPem = options.key;
     this.cipher.sessionType = SessionType.CLIENT;
     this.udp.socket.onData = this.udpOnMessage;
-    console.log("dtls is client");
   }
 
   connect() {
+    this.dtls = new DtlsContext(this.options);
     new Flight1(this.udp, this.dtls, this.cipher).exec(this.extensions);
   }
 

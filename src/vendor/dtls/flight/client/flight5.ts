@@ -37,6 +37,7 @@ export class Flight5 extends Flight {
   exec(fragments: FragmentedHandshake[]) {
     if (this.dtls.flight === 5) {
       console.log("flight5 twice");
+      this.send(this.dtls.lastMessage);
       return;
     }
     this.dtls.flight = 5;
@@ -76,6 +77,7 @@ export class Flight5 extends Flight {
       this.sendFinished(),
     ].filter((v) => v) as Buffer[];
 
+    this.dtls.lastMessage = packets;
     this.transmit(packets);
   }
 

@@ -30,7 +30,7 @@ export class DtlsSocket {
   onData: (buf: Buffer) => void = () => {};
   onClose: () => void = () => {};
   udp: TransportContext;
-  dtls = new DtlsContext(this.options);
+  dtls!: DtlsContext;
   cipher = new CipherContext();
   srtp = new SrtpContext();
   extensions: Extension[] = [];
@@ -38,8 +38,6 @@ export class DtlsSocket {
   constructor(public options: Options, public isClient: boolean) {
     this.udp = new TransportContext(options.transport);
     this.setupExtensions();
-
-    this.dtls.options = options;
   }
 
   private setupExtensions() {
