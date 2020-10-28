@@ -29,7 +29,6 @@ export class Nack {
     }
 
     if (this._lost[sequenceNumber]) {
-      console.log("recovery lost", sequenceNumber);
       delete this._lost[sequenceNumber];
       return;
     }
