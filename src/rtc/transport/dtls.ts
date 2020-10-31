@@ -149,10 +149,10 @@ export class RTCDtlsTransport {
     this.iceTransport.connection.send(enc);
   }
 
-  sendRtcp(packets: RtcpPacket[]) {
+  async sendRtcp(packets: RtcpPacket[]) {
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
-    this.iceTransport.connection.send(enc);
+    await this.iceTransport.connection.send(enc);
   }
 
   private setState(state: DtlsState) {

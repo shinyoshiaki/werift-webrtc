@@ -13,13 +13,14 @@ export type IceState =
   | "disconnected";
 
 export class RTCIceGatherer {
-  subject = new Event<IceState>();
+  readonly subject = new Event<IceState>();
   onIceCandidate: (candidate: RTCIceCandidate) => void = () => {};
+
+  readonly connection = new Connection(false, this.options);
+
   private _state: IceState = "new";
-  connection: Connection;
-  constructor(options: Partial<IceOptions> = {}) {
-    this.connection = new Connection(false, options);
-  }
+
+  constructor(private options: Partial<IceOptions> = {}) {}
 
   get state() {
     return this._state;

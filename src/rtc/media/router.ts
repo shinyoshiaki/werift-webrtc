@@ -88,7 +88,7 @@ export class RtpRouter {
     } else {
       if (!ssrcReceiver) return; // simulcast + absSendTime
 
-      ssrcReceiver.handleRtpBySsrc(packet, packet.header.ssrc, extensions);
+      ssrcReceiver.handleRtpBySsrc(packet, extensions);
     }
 
     ssrcReceiver.sdesMid = extensions[

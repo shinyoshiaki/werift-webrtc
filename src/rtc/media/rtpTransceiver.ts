@@ -10,7 +10,10 @@ import * as uuid from "uuid";
 import { Kind } from "../../typings/domain";
 import { RtpTrack } from "./track";
 import Event from "rx.mini";
-import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
+import { RtpHeader, RtpPacket } from "../../vendor/rtp/rtp/rtp";
+import debug from "debug";
+
+const log = debug("werift:webrtc:rtpTransceiver");
 
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
@@ -42,14 +45,19 @@ export class RTCRtpTransceiver {
     }
   }
 
-  replaceTrack(track: RtpTrack) {
-    if (!track.mediaSsrc) throw new Error();
-    this.sender.replaceRTP(track.sequenceNumber);
+  replaceRtp(header: RtpHeader) {
+    this.sender.replaceRTP(header);
   }
 
   sendRtp = (rtp: Buffer | RtpPacket) => {
-    if (this.direction === "inactive") return;
-    if (!this.senderParams) return;
+    if (this.direction === "inactive") {
+      log("sendRtp", this.uuid, "direction inactive");
+      return;
+    }
+    if (!this.senderParams) {
+      log("sendRtp", this.uuid, "senderParams null");
+      return;
+    }
 
     this.sender.sendRtp(rtp, this.senderParams);
   };

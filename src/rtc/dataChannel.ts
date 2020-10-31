@@ -17,17 +17,19 @@ export class RTCDataChannelParameters {
 }
 
 export class RTCDataChannel {
-  stateChanged = new Event<DCState>();
-  message = new Event<string | Buffer>();
-  bufferedAmountLow = new Event();
+  readonly stateChanged = new Event<DCState>();
+  readonly message = new Event<string | Buffer>();
+  readonly bufferedAmountLow = new Event();
+
   id?: number = this.parameters.id;
   readyState: DCState = "connecting";
+
   private bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
   constructor(
-    private transport: RTCSctpTransport,
-    private parameters: RTCDataChannelParameters,
-    public sendOpen = true
+    private readonly transport: RTCSctpTransport,
+    private readonly parameters: RTCDataChannelParameters,
+    public readonly sendOpen = true
   ) {
     if (parameters.negotiated && (!this.id || this.id < 0 || this.id > 65534))
       throw new Error(

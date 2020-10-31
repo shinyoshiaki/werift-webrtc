@@ -16,22 +16,18 @@ import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
 import * as uuid from "uuid";
 
 export class RTCSctpTransport {
-  onDataChannel = new Event<RTCDataChannel>();
-  uuid = uuid.v4();
+  readonly onDataChannel = new Event<RTCDataChannel>();
+
+  readonly uuid = uuid.v4();
+  readonly sctp = new SCTP(new Bridge(this.dtlsTransport), this.port);
   mid?: string;
   bundled = false;
-
   dataChannels: { [key: number]: RTCDataChannel } = {};
-  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
 
+  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
 
-  sctp: SCTP;
-
   constructor(public dtlsTransport: RTCDtlsTransport, public port = 5000) {
-    const bridge = new Bridge(dtlsTransport);
-    this.sctp = new SCTP(bridge, port);
-
     this.sctp.onReceive = (streamId, ppId, data) => {
       this.datachannelReceive(streamId, ppId, data);
     };

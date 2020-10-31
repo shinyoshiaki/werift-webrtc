@@ -60,17 +60,19 @@ export type PeerConfig = {
 } & IceOptions;
 
 export class RTCPeerConnection {
-  cname = uuid.v4();
+  readonly cname = uuid.v4();
   masterTransport: RTCDtlsTransport;
-  sctpTransport?: RTCSctpTransport;
+  sctpTransport: RTCSctpTransport;
   masterTransportEstablished = false;
-  onDataChannel = new Event<RTCDataChannel>();
-  iceGatheringStateChange = new Event<IceState>();
-  iceConnectionStateChange = new Event<IceState>();
-  signalingStateChange = new Event<string>();
-  onTransceiver = new Event<RTCRtpTransceiver>();
-  onIceCandidate = new Event<RTCIceCandidate>();
-  router = new RtpRouter();
+  transceivers: RTCRtpTransceiver[] = [];
+  readonly onDataChannel = new Event<RTCDataChannel>();
+  readonly iceGatheringStateChange = new Event<IceState>();
+  readonly iceConnectionStateChange = new Event<IceState>();
+  readonly signalingStateChange = new Event<string>();
+  readonly onTransceiver = new Event<RTCRtpTransceiver>();
+  readonly onIceCandidate = new Event<RTCIceCandidate>();
+
+  private readonly router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
   private sctpRemotePort?: number;
   private remoteDtls: RTCDtlsParameters;
@@ -84,7 +86,6 @@ export class RTCPeerConnection {
   private _iceGatheringState: IceState = "new";
   private _signalingState: SignalingState = "stable";
   private isClosed = false;
-  transceivers: RTCRtpTransceiver[] = [];
 
   constructor(private configuration: Partial<PeerConfig> = {}) {
     if (configuration.certificate && configuration.privateKey) {
@@ -462,7 +463,6 @@ export class RTCPeerConnection {
           payloadType: codec.payloadType,
         })
     );
-
     receiveParameters.encodings = encodings;
     receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
@@ -755,6 +755,8 @@ export class RTCPeerConnection {
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
     this.signalingStateChange.allUnsubscribe();
+    this.onTransceiver.allUnsubscribe();
+    this.onIceCandidate.allUnsubscribe();
   }
 }
 

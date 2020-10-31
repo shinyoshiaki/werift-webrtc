@@ -20,7 +20,6 @@ import {
 } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { microTime } from "../../utils";
 import { Nack } from "./nack";
-import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 
 export class RTCRtpReceiver {
   readonly type = "receiver";
@@ -195,15 +194,13 @@ export class RTCRtpReceiver {
   }
 
   private handleRtpExtensions(ssrc: number, extensions: Extensions) {
+    if (!this.twccRunning) return;
     if (!this.cacheExtensions[ssrc]) this.cacheExtensions[ssrc] = [];
     this.cacheExtensions[ssrc].push({ extensions, timestamp: microTime() });
   }
 
-  handleRtpBySsrc = (
-    packet: RtpPacket,
-    ssrc: number,
-    extensions: Extensions
-  ) => {
+  handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
+    const ssrc = packet.header.ssrc;
     this.nack.onPacket(packet);
 
     const track = this.tracks.find((track) => track.ssrc === ssrc);

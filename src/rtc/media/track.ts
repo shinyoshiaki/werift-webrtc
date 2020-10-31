@@ -5,18 +5,12 @@ import { RtpPacket } from "../../vendor/rtp/rtp/rtp";
 export class RtpTrack {
   ssrc?: number;
   rid?: string;
-  readonly onRtp = new Event<RtpPacket>();
   kind: Kind;
   id: string;
-  mediaSsrc?: number;
-  sequenceNumber: number = 0;
+
+  readonly onRtp = new Event<RtpPacket>();
 
   constructor(props: Partial<RtpTrack> = {}) {
     Object.assign(this, props);
-
-    this.onRtp.subscribe((rtp) => {
-      this.mediaSsrc = rtp.header.ssrc;
-      this.sequenceNumber = rtp.header.sequenceNumber;
-    });
   }
 }
