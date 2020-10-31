@@ -462,6 +462,7 @@ export class RTCPeerConnection {
           payloadType: codec.payloadType,
         })
     );
+
     receiveParameters.encodings = encodings;
     receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;

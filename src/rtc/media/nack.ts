@@ -5,6 +5,8 @@ import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 import { RTCRtpReceiver } from "./rtpReceiver";
 
+const LOST_SIZE = 30 * 5;
+
 export class Nack {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
@@ -37,16 +39,16 @@ export class Nack {
       this.newEstSeqNum = sequenceNumber;
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
-      range(this.newEstSeqNum + 1, sequenceNumber).forEach((seq) => {
+      range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
         this._lost[seq] = 1;
       });
       this.receiver.sendRtcpPLI(this.mediaSsrc);
 
       this.newEstSeqNum = sequenceNumber;
 
-      if (Object.keys(this._lost).length > 1000) {
+      if (Object.keys(this._lost).length > LOST_SIZE) {
         this._lost = Object.entries(this._lost)
-          .slice(-1000)
+          .slice(-LOST_SIZE)
           .reduce((acc, [key, v]) => {
             acc[key] = v;
             return acc;
