@@ -1,0 +1,1448 @@
+<!doctype html>
+<html class="default no-js">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<title>werift</title>
+	<meta name="description" content="Documentation for werift">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="assets/css/main.css">
+</head>
+<body>
+<header>
+	<div class="tsd-page-toolbar">
+		<div class="container">
+			<div class="table-wrap">
+				<div class="table-cell" id="tsd-search" data-index="assets/js/search.json" data-base=".">
+					<div class="field">
+						<label for="tsd-search-field" class="tsd-widget search no-caption">Search</label>
+						<input id="tsd-search-field" type="text" />
+					</div>
+					<ul class="results">
+						<li class="state loading">Preparing search index...</li>
+						<li class="state failure">The search index is not available</li>
+					</ul>
+					<a href="index.html" class="title">werift</a>
+				</div>
+				<div class="table-cell" id="tsd-widgets">
+					<div id="tsd-filter">
+						<a href="#" class="tsd-widget options no-caption" data-toggle="options">Options</a>
+						<div class="tsd-filter-group">
+							<div class="tsd-select" id="tsd-filter-visibility">
+								<span class="tsd-select-label">All</span>
+								<ul class="tsd-select-list">
+									<li data-value="public">Public</li>
+									<li data-value="protected">Public/Protected</li>
+									<li data-value="private" class="selected">All</li>
+								</ul>
+							</div>
+							<input type="checkbox" id="tsd-filter-inherited" checked />
+							<label class="tsd-widget" for="tsd-filter-inherited">Inherited</label>
+							<input type="checkbox" id="tsd-filter-externals" checked />
+							<label class="tsd-widget" for="tsd-filter-externals">Externals</label>
+							<input type="checkbox" id="tsd-filter-only-exported" />
+							<label class="tsd-widget" for="tsd-filter-only-exported">Only exported</label>
+						</div>
+					</div>
+					<a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="tsd-page-title">
+		<div class="container">
+			<ul class="tsd-breadcrumb">
+				<li>
+					<a href="globals.html">Globals</a>
+				</li>
+			</ul>
+			<h1>werift</h1>
+		</div>
+	</div>
+</header>
+<div class="container container-main">
+	<div class="row">
+		<div class="col-8 col-content">
+			<div class="tsd-panel tsd-typography">
+				<a href="#werift" id="werift" style="color: inherit; text-decoration: none;">
+					<h1>werift</h1>
+				</a>
+				<p>werift (<strong>We</strong>b<strong>r</strong>tc <strong>I</strong>mplementation <strong>f</strong>or <strong>T</strong>ypeScript)</p>
+				<p>werift is a WebRTC Implementation for TypeScript (Node.js)</p>
+				<a href="#current-state" id="current-state" style="color: inherit; text-decoration: none;">
+					<h1>current state</h1>
+				</a>
+				<ul>
+					<li><input checked="" disabled="" type="checkbox"> STUN</li>
+					<li><input checked="" disabled="" type="checkbox"> TURN</li>
+					<li><input checked="" disabled="" type="checkbox"> ICE<ul>
+							<li><input checked="" disabled="" type="checkbox"> Vanilla ICE</li>
+							<li><input checked="" disabled="" type="checkbox"> Trickle ICE</li>
+						</ul>
+					</li>
+					<li><input checked="" disabled="" type="checkbox"> DataChannel</li>
+					<li><input checked="" disabled="" type="checkbox"> MediaChannel<ul>
+							<li><input checked="" disabled="" type="checkbox"> sendonly</li>
+							<li><input checked="" disabled="" type="checkbox"> recvonly</li>
+							<li><input checked="" disabled="" type="checkbox"> sendrecv</li>
+							<li><input checked="" disabled="" type="checkbox"> multi track</li>
+							<li><input disabled="" type="checkbox"> RTCP<ul>
+									<li><input checked="" disabled="" type="checkbox"> Picture Loss Indication</li>
+									<li><input checked="" disabled="" type="checkbox"> ReceiverEstimatedMaxBitrate</li>
+									<li><input checked="" disabled="" type="checkbox"> GenericNack</li>
+									<li><input disabled="" type="checkbox"> TransportWideCC</li>
+								</ul>
+							</li>
+							<li><input disabled="" type="checkbox"> Simulcast<ul>
+									<li><input checked="" disabled="" type="checkbox"> recv</li>
+									<li><input disabled="" type="checkbox"> send</li>
+								</ul>
+							</li>
+						</ul>
+					</li>
+				</ul>
+				<a href="#install" id="install" style="color: inherit; text-decoration: none;">
+					<h1>install</h1>
+				</a>
+				<p><code>npm install werift</code></p>
+				<a href="#examples" id="examples" style="color: inherit; text-decoration: none;">
+					<h1>examples</h1>
+				</a>
+				<p><a href="https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples">https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples</a></p>
+				<a href="#sfu" id="sfu" style="color: inherit; text-decoration: none;">
+					<h3>SFU</h3>
+				</a>
+				<p><a href="https://github.com/shinyoshiaki/node-sfu">https://github.com/shinyoshiaki/node-sfu</a></p>
+				<a href="#demo" id="demo" style="color: inherit; text-decoration: none;">
+					<h1>demo</h1>
+				</a>
+				<a href="#mediachannel" id="mediachannel" style="color: inherit; text-decoration: none;">
+					<h2>MediaChannel</h2>
+				</a>
+				<pre><code class="language-sh">yarn media</code></pre>
+				<p>open
+				<a href="https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/sendrecv/answer">https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/sendrecv/answer</a></p>
+				<p>see console &amp; chrome://webrtc-internals/</p>
+				<a href="#datachannel" id="datachannel" style="color: inherit; text-decoration: none;">
+					<h2>DataChannel</h2>
+				</a>
+				<p>run</p>
+				<pre><code class="language-sh">yarn ts-node --files examples/datachannel/offer.ts</code></pre>
+				<p>open
+				<a href="https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer">https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer</a></p>
+				<p>see console &amp; chrome://webrtc-internals/</p>
+				<a href="#components" id="components" style="color: inherit; text-decoration: none;">
+					<h1>components</h1>
+				</a>
+				<ul>
+					<li>ICE <a href="https://github.com/shinyoshiaki/werift-ice">https://github.com/shinyoshiaki/werift-ice</a></li>
+					<li>DTLS <a href="https://github.com/shinyoshiaki/werift-dtls">https://github.com/shinyoshiaki/werift-dtls</a></li>
+					<li>SCTP <a href="https://github.com/shinyoshiaki/werift-sctp">https://github.com/shinyoshiaki/werift-sctp</a></li>
+					<li>RTP,RTCP,SRTP,SRTCP <a href="https://github.com/shinyoshiaki/werift-rtp">https://github.com/shinyoshiaki/werift-rtp</a></li>
+				</ul>
+				<a href="#reference" id="reference" style="color: inherit; text-decoration: none;">
+					<h1>reference</h1>
+				</a>
+				<ul>
+					<li>aiortc <a href="https://github.com/aiortc/aiortc">https://github.com/aiortc/aiortc</a></li>
+					<li>pion/webrtc <a href="https://github.com/pion/webrtc">https://github.com/pion/webrtc</a></li>
+					<li>etc ....</li>
+				</ul>
+			</div>
+		</div>
+		<div class="col-4 col-menu menu-sticky-wrap menu-highlight">
+			<nav class="tsd-navigation primary">
+				<ul>
+					<li class="globals  ">
+						<a href="globals.html"><em>Globals</em></a>
+					</li>
+				</ul>
+			</nav>
+			<nav class="tsd-navigation secondary menu-sticky">
+				<ul class="before-current">
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/candidatepairstate.html" class="tsd-kind-icon">Candidate<wbr>Pair<wbr>State</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/ciphersuite.html" class="tsd-kind-icon">Cipher<wbr>Suite</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/contenttype.html" class="tsd-kind-icon">Content<wbr>Type</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/dtlsstate.html" class="tsd-kind-icon">Dtls<wbr>State</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/handshaketype.html" class="tsd-kind-icon">Handshake<wbr>Type</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/hashalgorithm.html" class="tsd-kind-icon">Hash<wbr>Algorithm</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/namedcurvealgorithm.html" class="tsd-kind-icon">Named<wbr>Curve<wbr>Algorithm</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/packetchunk.html" class="tsd-kind-icon">Packet<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/packetstatus.html" class="tsd-kind-icon">Packet<wbr>Status</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/sctp_state.html" class="tsd-kind-icon">SCTP_<wbr>STATE</a>
+					</li>
+					<li class=" tsd-kind-enum">
+						<a href="enums/srtp_profile.html" class="tsd-kind-icon">SRTP_<wbr>PROFILE</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/sessiontype.html" class="tsd-kind-icon">Session<wbr>Type</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/webrtc_ppid.html" class="tsd-kind-icon">WEBRTC_<wbr>PPID</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/classes.html" class="tsd-kind-icon">classes</a>
+					</li>
+					<li class=" tsd-kind-enum tsd-is-external">
+						<a href="enums/methods.html" class="tsd-kind-icon">methods</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/aeadcipher.html" class="tsd-kind-icon">AEADCipher</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/abortchunk.html" class="tsd-kind-icon">Abort<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/abstractcipher.html" class="tsd-kind-icon">Abstract<wbr>Cipher</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/alert.html" class="tsd-kind-icon">Alert</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/baseinitchunk.html" class="tsd-kind-icon">Base<wbr>Init<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/baseparamschunk.html" class="tsd-kind-icon">Base<wbr>Params<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/bitwriter.html" class="tsd-kind-icon">Bit<wbr>Writer</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/bridge.html" class="tsd-kind-icon">Bridge</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/candidate.html" class="tsd-kind-icon">Candidate</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/candidatepair.html" class="tsd-kind-icon">Candidate<wbr>Pair</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/certificate.html" class="tsd-kind-icon">Certificate</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/certificateverify.html" class="tsd-kind-icon">Certificate<wbr>Verify</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/changecipherspec.html" class="tsd-kind-icon">Change<wbr>Cipher<wbr>Spec</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/chunk.html" class="tsd-kind-icon">Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/ciphercontext.html" class="tsd-kind-icon">Cipher<wbr>Context</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/clienthello.html" class="tsd-kind-icon">Client<wbr>Hello</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/clientkeyexchange.html" class="tsd-kind-icon">Client<wbr>Key<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/connection.html" class="tsd-kind-icon">Connection</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/context.html" class="tsd-kind-icon">Context</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/cookieackchunk.html" class="tsd-kind-icon">Cookie<wbr>Ack<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/cookieechochunk.html" class="tsd-kind-icon">Cookie<wbr>Echo<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/datachunk.html" class="tsd-kind-icon">Data<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlsclient.html" class="tsd-kind-icon">Dtls<wbr>Client</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlscontext.html" class="tsd-kind-icon">Dtls<wbr>Context</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlsplaintext.html" class="tsd-kind-icon">Dtls<wbr>Plaintext</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlsplaintextheader.html" class="tsd-kind-icon">Dtls<wbr>Plaintext<wbr>Header</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlsrandom.html" class="tsd-kind-icon">Dtls<wbr>Random</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlsserver.html" class="tsd-kind-icon">Dtls<wbr>Server</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/dtlssocket.html" class="tsd-kind-icon">Dtls<wbr>Socket</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/ellipticcurves.html" class="tsd-kind-icon">Elliptic<wbr>Curves</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/errorchunk.html" class="tsd-kind-icon">Error<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/finished.html" class="tsd-kind-icon">Finished</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/flight.html" class="tsd-kind-icon">Flight</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/flight1.html" class="tsd-kind-icon">Flight1</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/flight3.html" class="tsd-kind-icon">Flight3</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/flight4.html" class="tsd-kind-icon">Flight4</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/flight5.html" class="tsd-kind-icon">Flight5</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/flight6.html" class="tsd-kind-icon">Flight6</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/forwardtsnchunk.html" class="tsd-kind-icon">Forward<wbr>Tsn<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/fragmentedhandshake.html" class="tsd-kind-icon">Fragmented<wbr>Handshake</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/fullintrarequest.html" class="tsd-kind-icon">Full<wbr>Intra<wbr>Request</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/genericnack.html" class="tsd-kind-icon">Generic<wbr>Nack</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/groupdescription.html" class="tsd-kind-icon">Group<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/heartbeatackchunk.html" class="tsd-kind-icon">Heartbeat<wbr>Ack<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/heartbeatchunk.html" class="tsd-kind-icon">Heartbeat<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/icetransport.html" class="tsd-kind-icon">Ice<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/inboundstream.html" class="tsd-kind-icon">Inbound<wbr>Stream</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/initackchunk.html" class="tsd-kind-icon">Init<wbr>Ack<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/initchunk.html" class="tsd-kind-icon">Init<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/keyexchange.html" class="tsd-kind-icon">Key<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/macheader.html" class="tsd-kind-icon">MACHeader</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/mediadescription.html" class="tsd-kind-icon">Media<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/message.html" class="tsd-kind-icon">Message</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/nack.html" class="tsd-kind-icon">Nack</a>
+					</li>
+					<li class=" tsd-kind-class tsd-has-type-parameter tsd-is-external">
+						<a href="classes/pqueue.html" class="tsd-kind-icon">PQueue</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/picturelossindication.html" class="tsd-kind-icon">Picture<wbr>Loss<wbr>Indication</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtccertificate.html" class="tsd-kind-icon">RTCCertificate</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/rtcdatachannel.html" class="tsd-kind-icon">RTCData<wbr>Channel</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/rtcdatachannelparameters.html" class="tsd-kind-icon">RTCData<wbr>Channel<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcdtlsfingerprint.html" class="tsd-kind-icon">RTCDtls<wbr>Fingerprint</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcdtlsparameters.html" class="tsd-kind-icon">RTCDtls<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcdtlstransport.html" class="tsd-kind-icon">RTCDtls<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcicecandidate.html" class="tsd-kind-icon">RTCIce<wbr>Candidate</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcicegatherer.html" class="tsd-kind-icon">RTCIce<wbr>Gatherer</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtciceparameters.html" class="tsd-kind-icon">RTCIce<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcicetransport.html" class="tsd-kind-icon">RTCIce<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/rtcpeerconnection.html" class="tsd-kind-icon">RTCPeer<wbr>Connection</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtcpfeedback.html" class="tsd-kind-icon">RTCRtcp<wbr>Feedback</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtcpparameters.html" class="tsd-kind-icon">RTCRtcp<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpcodeccapability.html" class="tsd-kind-icon">RTCRtp<wbr>Codec<wbr>Capability</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpcodecparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Codec<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpcodingparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Coding<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpheaderextensionparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Header<wbr>Extension<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpreceiveparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Receive<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpreceiver.html" class="tsd-kind-icon">RTCRtp<wbr>Receiver</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtprtxparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Rtx<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpsender.html" class="tsd-kind-icon">RTCRtp<wbr>Sender</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtpsimulcastparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Simulcast<wbr>Parameters</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcrtptransceiver.html" class="tsd-kind-icon">RTCRtp<wbr>Transceiver</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcsctpcapabilities.html" class="tsd-kind-icon">RTCSctp<wbr>Capabilities</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcsctptransport.html" class="tsd-kind-icon">RTCSctp<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/rtcsessiondescription.html" class="tsd-kind-icon">RTCSession<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/reconfigchunk.html" class="tsd-kind-icon">Re<wbr>Config<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/receiverestimatedmaxbitrate.html" class="tsd-kind-icon">Receiver<wbr>Estimated<wbr>Max<wbr>Bitrate</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/reconfigchunk.html" class="tsd-kind-icon">Reconfig<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/recvdelta.html" class="tsd-kind-icon">Recv<wbr>Delta</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcpheader.html" class="tsd-kind-icon">Rtcp<wbr>Header</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcppacketconverter.html" class="tsd-kind-icon">Rtcp<wbr>Packet<wbr>Converter</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcppayloadspecificfeedback.html" class="tsd-kind-icon">Rtcp<wbr>Payload<wbr>Specific<wbr>Feedback</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcpreceiverinfo.html" class="tsd-kind-icon">Rtcp<wbr>Receiver<wbr>Info</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcprrpacket.html" class="tsd-kind-icon">Rtcp<wbr>RrPacket</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcpsenderinfo.html" class="tsd-kind-icon">Rtcp<wbr>Sender<wbr>Info</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcpsourcedescriptionpacket.html" class="tsd-kind-icon">Rtcp<wbr>Source<wbr>Description<wbr>Packet</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcpsrpacket.html" class="tsd-kind-icon">Rtcp<wbr>SrPacket</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtcptransportlayerfeedback.html" class="tsd-kind-icon">Rtcp<wbr>Transport<wbr>Layer<wbr>Feedback</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtpheader.html" class="tsd-kind-icon">Rtp<wbr>Header</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtppacket.html" class="tsd-kind-icon">Rtp<wbr>Packet</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtprouter.html" class="tsd-kind-icon">Rtp<wbr>Router</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/rtptrack.html" class="tsd-kind-icon">Rtp<wbr>Track</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/runlengthchunk.html" class="tsd-kind-icon">Run<wbr>Length<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/sctp.html" class="tsd-kind-icon">SCTP</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/sackchunk.html" class="tsd-kind-icon">Sack<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/servercertificaterequest.html" class="tsd-kind-icon">Server<wbr>Certificate<wbr>Request</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/serverhello.html" class="tsd-kind-icon">Server<wbr>Hello</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/serverhellodone.html" class="tsd-kind-icon">Server<wbr>Hello<wbr>Done</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/serverhelloverifyrequest.html" class="tsd-kind-icon">Server<wbr>Hello<wbr>Verify<wbr>Request</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/serverkeyexchange.html" class="tsd-kind-icon">Server<wbr>Key<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-class tsd-has-type-parameter tsd-is-external">
+						<a href="classes/session.html" class="tsd-kind-icon">Session</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/sessiondescription.html" class="tsd-kind-icon">Session<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/shutdownackchunk.html" class="tsd-kind-icon">Shutdown<wbr>Ack<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/shutdownchunk.html" class="tsd-kind-icon">Shutdown<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/shutdowncompletechunk.html" class="tsd-kind-icon">Shutdown<wbr>Complete<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/signature.html" class="tsd-kind-icon">Signature</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/sourcedescriptionchunk.html" class="tsd-kind-icon">Source<wbr>Description<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/sourcedescriptionitem.html" class="tsd-kind-icon">Source<wbr>Description<wbr>Item</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/srtcpcontext.html" class="tsd-kind-icon">Srtcp<wbr>Context</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/srtcpsession.html" class="tsd-kind-icon">Srtcp<wbr>Session</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/srtpcontext.html" class="tsd-kind-icon">Srtp<wbr>Context</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/srtpsession.html" class="tsd-kind-icon">Srtp<wbr>Session</a>
+					</li>
+					<li class=" tsd-kind-class">
+						<a href="classes/ssrcdescription.html" class="tsd-kind-icon">Ssrc<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/statusvectorchunk.html" class="tsd-kind-icon">Status<wbr>Vector<wbr>Chunk</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/streamaddoutgoingparam.html" class="tsd-kind-icon">Stream<wbr>Add<wbr>Outgoing<wbr>Param</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/streamresetoutgoingparam.html" class="tsd-kind-icon">Stream<wbr>Reset<wbr>Outgoing<wbr>Param</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/streamresetresponseparam.html" class="tsd-kind-icon">Stream<wbr>Reset<wbr>Response<wbr>Param</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/stunprotocol.html" class="tsd-kind-icon">Stun<wbr>Protocol</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transaction.html" class="tsd-kind-icon">Transaction</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transactionerror.html" class="tsd-kind-icon">Transaction<wbr>Error</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transactionfailed.html" class="tsd-kind-icon">Transaction<wbr>Failed</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transactiontimeout.html" class="tsd-kind-icon">Transaction<wbr>Timeout</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transport.html" class="tsd-kind-icon">Transport</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transportcontext.html" class="tsd-kind-icon">Transport<wbr>Context</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/transportwidecc.html" class="tsd-kind-icon">Transport<wbr>WideCC</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/turnclient.html" class="tsd-kind-icon">Turn<wbr>Client</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/turntransport.html" class="tsd-kind-icon">Turn<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/udptransport.html" class="tsd-kind-icon">Udp<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-class tsd-is-external">
+						<a href="classes/usesrtp.html" class="tsd-kind-icon">UseSRTP</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#attribute" class="tsd-kind-icon">ATTRIBUTE</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#cipherheader" class="tsd-kind-icon">Cipher<wbr>Header</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#config" class="tsd-kind-icon">Config</a>
+					</li>
+					<li class=" tsd-kind-type-alias">
+						<a href="globals.html#dcstate" class="tsd-kind-icon">DCState</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#direction" class="tsd-kind-icon">Direction</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#dtlsrole" class="tsd-kind-icon">Dtls<wbr>Role</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#extension" class="tsd-kind-icon">Extension</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#extensions" class="tsd-kind-icon">Extensions</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#feedback" class="tsd-kind-icon">Feedback</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#flighttype" class="tsd-kind-icon">Flight<wbr>Type</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#future" class="tsd-kind-icon">Future</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#iceoptions" class="tsd-kind-icon">Ice<wbr>Options</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#icestate" class="tsd-kind-icon">Ice<wbr>State</a>
+					</li>
+					<li class=" tsd-kind-type-alias">
+						<a href="globals.html#kind" class="tsd-kind-icon">Kind</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#namedcurvekeypair" class="tsd-kind-icon">Named<wbr>Curve<wbr>Key<wbr>Pair</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#options" class="tsd-kind-icon">Options</a>
+					</li>
+					<li class=" tsd-kind-type-alias">
+						<a href="globals.html#peerconfig" class="tsd-kind-icon">Peer<wbr>Config</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#rtcicecandidatejson" class="tsd-kind-icon">RTCIce<wbr>CandidateJSON</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#rtcppacket" class="tsd-kind-icon">Rtcp<wbr>Packet</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#sctpconnectionstate" class="tsd-kind-icon">SCTPConnection<wbr>State</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#sessionkeys" class="tsd-kind-icon">Session<wbr>Keys</a>
+					</li>
+					<li class=" tsd-kind-type-alias">
+						<a href="globals.html#signalingstate" class="tsd-kind-icon">Signaling<wbr>State</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#srtcpssrcstate" class="tsd-kind-icon">SrtcpSSRCState</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#srtpssrcstate" class="tsd-kind-icon">SrtpSSRCState</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#streamparam" class="tsd-kind-icon">Stream<wbr>Param</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#transceiveroptions" class="tsd-kind-icon">Transceiver<wbr>Options</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-has-type-parameter tsd-is-external">
+						<a href="globals.html#unpacked" class="tsd-kind-icon">Unpacked</a>
+					</li>
+					<li class=" tsd-kind-type-alias tsd-is-external">
+						<a href="globals.html#firentry" class="tsd-kind-icon">fir<wbr>Entry</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#asn11cert" class="tsd-kind-icon">ASN11<wbr>Cert</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#attributes" class="tsd-kind-icon">ATTRIBUTES</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#attributes_by_name" class="tsd-kind-icon">ATTRIBUTES_<wbr>BY_<wbr>NAME</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#attributes_by_type" class="tsd-kind-icon">ATTRIBUTES_<wbr>BY_<wbr>TYPE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#chunk_classes" class="tsd-kind-icon">CHUNK_<wbr>CLASSES</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#chunk_types" class="tsd-kind-icon">CHUNK_<wbr>TYPES</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#consent_failures" class="tsd-kind-icon">CONSENT_<wbr>FAILURES</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#consent_interval" class="tsd-kind-icon">CONSENT_<wbr>INTERVAL</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#cookie" class="tsd-kind-icon">COOKIE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#cookie_length" class="tsd-kind-icon">COOKIE_<wbr>LENGTH</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#cookie_lifetime" class="tsd-kind-icon">COOKIE_<wbr>LIFETIME</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#clientcertificatetype" class="tsd-kind-icon">Client<wbr>Certificate<wbr>Type</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_ack" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>ACK</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_open" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>OPEN</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_partial_reliable_rexmit" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>PARTIAL_<wbr>RELIABLE_<wbr>REXMIT</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_partial_reliable_rexmit_unordered" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>PARTIAL_<wbr>RELIABLE_<wbr>REXMIT_<wbr>UNORDERED</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_partial_reliable_timed" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>PARTIAL_<wbr>RELIABLE_<wbr>TIMED</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_partial_reliable_timed_unordered" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>PARTIAL_<wbr>RELIABLE_<wbr>TIMED_<wbr>UNORDERED</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_reliable" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>RELIABLE</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#data_channel_reliable_unordered" class="tsd-kind-icon">DATA_<wbr>CHANNEL_<wbr>RELIABLE_<wbr>UNORDERED</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#directions" class="tsd-kind-icon">DIRECTIONS</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#discard_host" class="tsd-kind-icon">DISCARD_<wbr>HOST</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#discard_port" class="tsd-kind-icon">DISCARD_<wbr>PORT</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#dtls_setup_role" class="tsd-kind-icon">DTLS_<wbr>SETUP_<wbr>ROLE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#directions" class="tsd-kind-icon">Directions</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#distinguishedname" class="tsd-kind-icon">Distinguished<wbr>Name</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ecdhe_ecdsa_key_exchange" class="tsd-kind-icon">ECDHE_<wbr>ECDSA_<wbr>KEY_<wbr>EXCHANGE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ecdhe_psk_key_exchange" class="tsd-kind-icon">ECDHE_<wbr>PSK_<wbr>KEY_<wbr>EXCHANGE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ecdhe_rsa_key_exchange" class="tsd-kind-icon">ECDHE_<wbr>RSA_<wbr>KEY_<wbr>EXCHANGE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#extensionlist" class="tsd-kind-icon">Extension<wbr>List</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#fingerprint_length" class="tsd-kind-icon">FINGERPRINT_<wbr>LENGTH</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#fingerprint_xor" class="tsd-kind-icon">FINGERPRINT_<wbr>XOR</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#fmtp_int_parameters" class="tsd-kind-icon">FMTP_<wbr>INT_<wbr>PARAMETERS</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#header_length" class="tsd-kind-icon">HEADER_<wbr>LENGTH</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#header_size" class="tsd-kind-icon">HEADER_<wbr>SIZE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ice_completed" class="tsd-kind-icon">ICE_<wbr>COMPLETED</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ice_failed" class="tsd-kind-icon">ICE_<wbr>FAILED</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#integrity_length" class="tsd-kind-icon">INTEGRITY_<wbr>LENGTH</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ipv4_protocol" class="tsd-kind-icon">IPV4_<wbr>PROTOCOL</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ipv6_protocol" class="tsd-kind-icon">IPV6_<wbr>PROTOCOL</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#lost_size" class="tsd-kind-icon">LOST_<wbr>SIZE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#max_streams" class="tsd-kind-icon">MAX_<wbr>STREAMS</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#media_kinds" class="tsd-kind-icon">MEDIA_<wbr>KINDS</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#psk_key_exchange" class="tsd-kind-icon">PSK_<wbr>KEY_<wbr>EXCHANGE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#reconfig_max_streams" class="tsd-kind-icon">RECONFIG_<wbr>MAX_<wbr>STREAMS</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#retry_max" class="tsd-kind-icon">RETRY_<wbr>MAX</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#retry_rto" class="tsd-kind-icon">RETRY_<wbr>RTO</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#rsa_key_exchange" class="tsd-kind-icon">RSA_<wbr>KEY_<wbr>EXCHANGE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#rtp_extension_uri" class="tsd-kind-icon">RTP_<wbr>EXTENSION_<wbr>URI</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#rtp_history_size" class="tsd-kind-icon">RTP_<wbr>HISTORY_<wbr>SIZE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#rtt_alpha" class="tsd-kind-icon">RTT_<wbr>ALPHA</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctpconnectionstates" class="tsd-kind-icon">SCTPConnection<wbr>States</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_cause_stale_cookie" class="tsd-kind-icon">SCTP_<wbr>CAUSE_<wbr>STALE_<wbr>COOKIE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_data_first_frag" class="tsd-kind-icon">SCTP_<wbr>DATA_<wbr>FIRST_<wbr>FRAG</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_data_last_frag" class="tsd-kind-icon">SCTP_<wbr>DATA_<wbr>LAST_<wbr>FRAG</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_data_unordered" class="tsd-kind-icon">SCTP_<wbr>DATA_<wbr>UNORDERED</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_max_association_retrans" class="tsd-kind-icon">SCTP_<wbr>MAX_<wbr>ASSOCIATION_<wbr>RETRANS</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_max_init_retrans" class="tsd-kind-icon">SCTP_<wbr>MAX_<wbr>INIT_<wbr>RETRANS</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_prsctp_supported" class="tsd-kind-icon">SCTP_<wbr>PRSCTP_<wbr>SUPPORTED</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_rto_alpha" class="tsd-kind-icon">SCTP_<wbr>RTO_<wbr>ALPHA</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_rto_beta" class="tsd-kind-icon">SCTP_<wbr>RTO_<wbr>BETA</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_rto_initial" class="tsd-kind-icon">SCTP_<wbr>RTO_<wbr>INITIAL</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_rto_max" class="tsd-kind-icon">SCTP_<wbr>RTO_<wbr>MAX</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_rto_min" class="tsd-kind-icon">SCTP_<wbr>RTO_<wbr>MIN</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_state_cookie" class="tsd-kind-icon">SCTP_<wbr>STATE_<wbr>COOKIE</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_supported_chunk_ext" class="tsd-kind-icon">SCTP_<wbr>SUPPORTED_<wbr>CHUNK_<wbr>EXT</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#sctp_tsn_modulo" class="tsd-kind-icon">SCTP_<wbr>TSN_<wbr>MODULO</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#ssrc_info_attrs" class="tsd-kind-icon">SSRC_<wbr>INFO_<wbr>ATTRS</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#tcp_transport" class="tsd-kind-icon">TCP_<wbr>TRANSPORT</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#udp_transport" class="tsd-kind-icon">UDP_<wbr>TRANSPORT</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#userdata_max_length" class="tsd-kind-icon">USERDATA_<wbr>MAX_<wbr>LENGTH</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#webrtc_binary" class="tsd-kind-icon">WEBRTC_<wbr>BINARY</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#webrtc_binary_empty" class="tsd-kind-icon">WEBRTC_<wbr>BINARY_<wbr>EMPTY</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#webrtc_dcep" class="tsd-kind-icon">WEBRTC_<wbr>DCEP</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#webrtc_string" class="tsd-kind-icon">WEBRTC_<wbr>STRING</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#webrtc_string_empty" class="tsd-kind-icon">WEBRTC_<wbr>STRING_<wbr>EMPTY</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#array" class="tsd-kind-icon">array</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#buffer" class="tsd-kind-icon">buffer</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#crc32c" class="tsd-kind-icon">crc32c</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#createdecode" class="tsd-kind-icon">create<wbr>Decode</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#csrclength" class="tsd-kind-icon">csrc<wbr>Length</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#csrcoffset" class="tsd-kind-icon">csrc<wbr>Offset</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#defaultcertificate" class="tsd-kind-icon">default<wbr>Certificate</a>
+					</li>
+					<li class=" tsd-kind-variable">
+						<a href="globals.html#defaultprivatekey" class="tsd-kind-icon">default<wbr>Private<wbr>Key</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#elliptic" class="tsd-kind-icon">elliptic</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#encode" class="tsd-kind-icon">encode</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#extensionprofileonebyte" class="tsd-kind-icon">extension<wbr>Profile<wbr>One<wbr>Byte</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#extensionprofiletwobyte" class="tsd-kind-icon">extension<wbr>Profile<wbr>Two<wbr>Byte</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#flighttypes" class="tsd-kind-icon">flight<wbr>Types</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#handlers" class="tsd-kind-icon">handlers</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#log" class="tsd-kind-icon">log</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#maxrocdisorder" class="tsd-kind-icon">maxROCDisorder</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#maxsequencenumber" class="tsd-kind-icon">max<wbr>Sequence<wbr>Number</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#seqnumoffset" class="tsd-kind-icon">seq<wbr>Num<wbr>Offset</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#ssrcoffset" class="tsd-kind-icon">ssrc<wbr>Offset</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#string" class="tsd-kind-icon">string</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#supportedcurves" class="tsd-kind-icon">supported<wbr>Curves</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#timestampoffset" class="tsd-kind-icon">timestamp<wbr>Offset</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#types" class="tsd-kind-icon">types</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#uint16be" class="tsd-kind-icon">uint16be</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#uint24be" class="tsd-kind-icon">uint24be</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#uint48be" class="tsd-kind-icon">uint48be</a>
+					</li>
+					<li class=" tsd-kind-variable tsd-is-external">
+						<a href="globals.html#uint8" class="tsd-kind-icon">uint8</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#addsdpheader" class="tsd-kind-icon">addSDPHeader</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#addtransportdescription" class="tsd-kind-icon">add<wbr>Transport<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#allocatemid" class="tsd-kind-icon">allocate<wbr>Mid</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#bufferreader" class="tsd-kind-icon">buffer<wbr>Reader</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#bufferwriter" class="tsd-kind-icon">buffer<wbr>Writer</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#bufferxor" class="tsd-kind-icon">buffer<wbr>Xor</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#candidatefoundation" class="tsd-kind-icon">candidate<wbr>Foundation</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#candidatefromice" class="tsd-kind-icon">candidate<wbr>From<wbr>Ice</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#candidatefromsdp" class="tsd-kind-icon">candidate<wbr>From<wbr>Sdp</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#candidatepairpriority" class="tsd-kind-icon">candidate<wbr>Pair<wbr>Priority</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#candidatepriority" class="tsd-kind-icon">candidate<wbr>Priority</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#candidatetoice" class="tsd-kind-icon">candidate<wbr>ToIce</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#candidatetosdp" class="tsd-kind-icon">candidate<wbr>ToSdp</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#colon" class="tsd-kind-icon">colon</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createaeadcipher" class="tsd-kind-icon">createAEADCipher</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createcipher" class="tsd-kind-icon">create<wbr>Cipher</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createecdheecdsakeyexchange" class="tsd-kind-icon">createECDHEECDSAKey<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createecdhepskkeyexchange" class="tsd-kind-icon">createECDHEPSKKey<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createecdhersakeyexchange" class="tsd-kind-icon">createECDHERSAKey<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createeventsfromlist" class="tsd-kind-icon">create<wbr>Events<wbr>From<wbr>List</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createfragments" class="tsd-kind-icon">create<wbr>Fragments</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createicetransport" class="tsd-kind-icon">create<wbr>Ice<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#createmediadescriptionforsctp" class="tsd-kind-icon">create<wbr>Media<wbr>Description<wbr>For<wbr>Sctp</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#createmediadescriptionfortransceiver" class="tsd-kind-icon">create<wbr>Media<wbr>Description<wbr>For<wbr>Transceiver</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createnullkeyexchange" class="tsd-kind-icon">createNULLKey<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createpskkeyexchange" class="tsd-kind-icon">createPSKKey<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createplaintext" class="tsd-kind-icon">create<wbr>Plaintext</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#creatersakeyexchange" class="tsd-kind-icon">createRSAKey<wbr>Exchange</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createturnendpoint" class="tsd-kind-icon">create<wbr>Turn<wbr>Endpoint</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#createudptransport" class="tsd-kind-icon">create<wbr>Udp<wbr>Transport</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#decodeparams" class="tsd-kind-icon">decode<wbr>Params</a>
+					</li>
+					<li class=" tsd-kind-function tsd-has-type-parameter tsd-is-external">
+						<a href="globals.html#difference" class="tsd-kind-icon">difference</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#divide" class="tsd-kind-icon">divide</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#encodebuffer" class="tsd-kind-icon">encode<wbr>Buffer</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#encodeparams" class="tsd-kind-icon">encode<wbr>Params</a>
+					</li>
+					<li class=" tsd-kind-function tsd-has-type-parameter tsd-is-external">
+						<a href="globals.html#enumerate" class="tsd-kind-icon">enumerate</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#exportkeyingmaterial" class="tsd-kind-icon">export<wbr>Keying<wbr>Material</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#fingerprint" class="tsd-kind-icon">fingerprint</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#flight2" class="tsd-kind-icon">flight2</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#future" class="tsd-kind-icon">future</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#generatekeypair" class="tsd-kind-icon">generate<wbr>Key<wbr>Pair</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#generatekeysignature" class="tsd-kind-icon">generate<wbr>Key<wbr>Signature</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#getbit" class="tsd-kind-icon">get<wbr>Bit</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#gethostaddress" class="tsd-kind-icon">get<wbr>Host<wbr>Address</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#getpadding" class="tsd-kind-icon">get<wbr>Padding</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#grouplines" class="tsd-kind-icon">group<wbr>Lines</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#growbuffersize" class="tsd-kind-icon">grow<wbr>Buffer<wbr>Size</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#hash" class="tsd-kind-icon">hash</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#hmac" class="tsd-kind-icon">hmac</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#ipaddressfromsdp" class="tsd-kind-icon">ip<wbr>Address<wbr>From<wbr>Sdp</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#ipaddresstosdp" class="tsd-kind-icon">ip<wbr>Address<wbr>ToSdp</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#ischanneldata" class="tsd-kind-icon">is<wbr>Channel<wbr>Data</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#isdtls" class="tsd-kind-icon">is<wbr>Dtls</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#ismedia" class="tsd-kind-icon">is<wbr>Media</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#isrtcp" class="tsd-kind-icon">is<wbr>Rtcp</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#makeintegritykey" class="tsd-kind-icon">make<wbr>Integrity<wbr>Key</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#messagefingerprint" class="tsd-kind-icon">message<wbr>Fingerprint</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#messageintegrity" class="tsd-kind-icon">message<wbr>Integrity</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#microtime" class="tsd-kind-icon">micro<wbr>Time</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#ntptime" class="tsd-kind-icon">ntp<wbr>Time</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packaddress" class="tsd-kind-icon">pack<wbr>Address</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packbytes" class="tsd-kind-icon">pack<wbr>Bytes</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packerrorcode" class="tsd-kind-icon">pack<wbr>Error<wbr>Code</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packnone" class="tsd-kind-icon">pack<wbr>None</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packstring" class="tsd-kind-icon">pack<wbr>String</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packunsigned" class="tsd-kind-icon">pack<wbr>Unsigned</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packunsigned64" class="tsd-kind-icon">pack<wbr>Unsigned64</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packunsignedshort" class="tsd-kind-icon">pack<wbr>Unsigned<wbr>Short</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#packxoraddress" class="tsd-kind-icon">pack<wbr>Xor<wbr>Address</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#padl" class="tsd-kind-icon">padL</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#parametersfromsdp" class="tsd-kind-icon">parameters<wbr>From<wbr>Sdp</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#parseattr" class="tsd-kind-icon">parse<wbr>Attr</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#parsegroup" class="tsd-kind-icon">parse<wbr>Group</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#parsemessage" class="tsd-kind-icon">parse<wbr>Message</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#parsepacket" class="tsd-kind-icon">parse<wbr>Packet</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#parsex509" class="tsd-kind-icon">parse<wbr>X509</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfencryptionkeys" class="tsd-kind-icon">prf<wbr>Encryption<wbr>Keys</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfmastersecret" class="tsd-kind-icon">prf<wbr>Master<wbr>Secret</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfphash" class="tsd-kind-icon">prfPHash</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfpremastersecret" class="tsd-kind-icon">prf<wbr>Pre<wbr>Master<wbr>Secret</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfverifydata" class="tsd-kind-icon">prf<wbr>Verify<wbr>Data</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfverifydataclient" class="tsd-kind-icon">prf<wbr>Verify<wbr>Data<wbr>Client</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#prfverifydataserver" class="tsd-kind-icon">prf<wbr>Verify<wbr>Data<wbr>Server</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#random16" class="tsd-kind-icon">random16</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#random32" class="tsd-kind-icon">random32</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#randomstring" class="tsd-kind-icon">random<wbr>String</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#randomtransactionid" class="tsd-kind-icon">random<wbr>Transaction<wbr>Id</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#reversesimulcastdirection" class="tsd-kind-icon">reverse<wbr>Simulcast<wbr>Direction</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#serializepacket" class="tsd-kind-icon">serialize<wbr>Packet</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#serverreflexivecandidate" class="tsd-kind-icon">server<wbr>Reflexive<wbr>Candidate</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#setbodylength" class="tsd-kind-icon">set<wbr>Body<wbr>Length</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#sleep" class="tsd-kind-icon">sleep</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#sortcandidatepairs" class="tsd-kind-icon">sort<wbr>Candidate<wbr>Pairs</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#supportedcurvefilter" class="tsd-kind-icon">supported<wbr>Curve<wbr>Filter</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#tsnminusone" class="tsd-kind-icon">tsn<wbr>Minus<wbr>One</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#tsnplusone" class="tsd-kind-icon">tsn<wbr>Plus<wbr>One</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#uint16add" class="tsd-kind-icon">uint16<wbr>Add</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#uint16gt" class="tsd-kind-icon">uint16<wbr>Gt</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#uint16gte" class="tsd-kind-icon">uint16<wbr>Gte</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#uint32gt" class="tsd-kind-icon">uint32<wbr>Gt</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#uint32gte" class="tsd-kind-icon">uint32<wbr>Gte</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#uint32_add" class="tsd-kind-icon">uint32_<wbr>add</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackaddress" class="tsd-kind-icon">unpack<wbr>Address</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackbytes" class="tsd-kind-icon">unpack<wbr>Bytes</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackerrorcode" class="tsd-kind-icon">unpack<wbr>Error<wbr>Code</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpacknone" class="tsd-kind-icon">unpack<wbr>None</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackstring" class="tsd-kind-icon">unpack<wbr>String</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackunsigned" class="tsd-kind-icon">unpack<wbr>Unsigned</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackunsigned64" class="tsd-kind-icon">unpack<wbr>Unsigned64</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackunsignedshort" class="tsd-kind-icon">unpack<wbr>Unsigned<wbr>Short</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#unpackxoraddress" class="tsd-kind-icon">unpack<wbr>Xor<wbr>Address</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#upper" class="tsd-kind-icon">upper</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#useabssendtime" class="tsd-kind-icon">use<wbr>Abs<wbr>Send<wbr>Time</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#usesdesmid" class="tsd-kind-icon">use<wbr>Sdes<wbr>Mid</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#usesdesrtpstreamid" class="tsd-kind-icon">use<wbr>SdesRTPStreamID</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#usetransportwidecc" class="tsd-kind-icon">use<wbr>Transport<wbr>WideCC</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#validateremotecandidate" class="tsd-kind-icon">validate<wbr>Remote<wbr>Candidate</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#valuekeysignature" class="tsd-kind-icon">value<wbr>Key<wbr>Signature</a>
+					</li>
+					<li class=" tsd-kind-function">
+						<a href="globals.html#wrapsessiondescription" class="tsd-kind-icon">wrap<wbr>Session<wbr>Description</a>
+					</li>
+					<li class=" tsd-kind-function tsd-is-external">
+						<a href="globals.html#xoraddress" class="tsd-kind-icon">xor<wbr>Address</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#aeadadditionaldata" class="tsd-kind-icon">AEADAdditional<wbr>Data</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#aead_aes_128_gcm" class="tsd-kind-icon">AEAD_<wbr>AES_<wbr>128_<wbr>GCM</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#aead_aes_256_gcm" class="tsd-kind-icon">AEAD_<wbr>AES_<wbr>256_<wbr>GCM</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#codecs" class="tsd-kind-icon">CODECS</a>
+					</li>
+					<li class=" tsd-kind-object-literal">
+						<a href="globals.html#dtls_role_setup" class="tsd-kind-icon">DTLS_<wbr>ROLE_<wbr>SETUP</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#extension" class="tsd-kind-icon">Extension</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#header_extensions" class="tsd-kind-icon">HEADER_<wbr>EXTENSIONS</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#protocolversion" class="tsd-kind-icon">Protocol<wbr>Version</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#reconfig_param_types" class="tsd-kind-icon">RECONFIG_<wbr>PARAM_<wbr>TYPES</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#signaturealgorithm" class="tsd-kind-icon">Signature<wbr>Algorithm</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#ciphersuites" class="tsd-kind-icon">cipher<wbr>Suites</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#defaultoptions" class="tsd-kind-icon">default<wbr>Options</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#keytypes" class="tsd-kind-icon">key<wbr>Types</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#kxtypes" class="tsd-kind-icon">kx<wbr>Types</a>
+					</li>
+					<li class=" tsd-kind-object-literal tsd-is-external">
+						<a href="globals.html#signtypes" class="tsd-kind-icon">sign<wbr>Types</a>
+					</li>
+				</ul>
+			</nav>
+		</div>
+	</div>
+</div>
+<footer class="with-border-bottom">
+	<div class="container">
+		<h2>Legend</h2>
+		<div class="tsd-legend-group">
+			<ul class="tsd-legend">
+				<li class="tsd-kind-constructor tsd-parent-kind-class"><span class="tsd-kind-icon">Constructor</span></li>
+				<li class="tsd-kind-property tsd-parent-kind-class"><span class="tsd-kind-icon">Property</span></li>
+				<li class="tsd-kind-method tsd-parent-kind-class"><span class="tsd-kind-icon">Method</span></li>
+				<li class="tsd-kind-accessor tsd-parent-kind-class"><span class="tsd-kind-icon">Accessor</span></li>
+			</ul>
+			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private property</span></li>
+				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private method</span></li>
+			</ul>
+			<ul class="tsd-legend">
+				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static method</span></li>
+			</ul>
+		</div>
+	</div>
+</footer>
+<div class="container tsd-generator">
+	<p>Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p>
+</div>
+<div class="overlay"></div>
+<script src="assets/js/main.js"></script>
+</body>
+</html>
