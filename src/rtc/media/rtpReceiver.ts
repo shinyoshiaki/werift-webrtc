@@ -31,8 +31,8 @@ export class RTCRtpReceiver {
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
   rtcpSsrc: number;
-  readonly cacheExtensions: {
-    [ssrc: number]: { extensions: Extensions; timestamp: bigint }[];
+  readonly cacheTWCC: {
+    [ssrc: number]: { tsn: number; timestamp: bigint }[];
   } = {};
 
   sdesMid: string;
@@ -42,6 +42,7 @@ export class RTCRtpReceiver {
 
   stop() {
     this.rtcpRunning = false;
+    this.twccRunning = false;
   }
 
   rtcpRunning = false;
@@ -71,16 +72,13 @@ export class RTCRtpReceiver {
     let fbPktCount = 0;
 
     while (this.twccRunning) {
-      Object.entries(this.cacheExtensions)
+      Object.entries(this.cacheTWCC)
         .map(
           ([ssrc, extensionsArr]) =>
             [
               Number(ssrc),
               extensionsArr.reduce((acc, cur) => {
-                const { extensions, timestamp } = cur;
-                const tsn = extensions[
-                  RTP_EXTENSION_URI.transportWideCC
-                ] as number;
+                const { tsn, timestamp } = cur;
                 acc[tsn] = timestamp;
                 return acc;
               }, {} as { [tsn: number]: bigint }),
@@ -161,7 +159,7 @@ export class RTCRtpReceiver {
           });
 
           this.dtlsTransport.sendRtcp([packet]);
-          this.cacheExtensions[ssrc] = [];
+          this.cacheTWCC[ssrc] = [];
           if (fbPktCount === 255) fbPktCount = 0;
           fbPktCount++;
         });
@@ -192,30 +190,34 @@ export class RTCRtpReceiver {
     }
   }
 
-  private handleRtpExtensions(ssrc: number, extensions: Extensions) {
-    if (!this.twccRunning) return;
-    if (!this.cacheExtensions[ssrc]) this.cacheExtensions[ssrc] = [];
-    this.cacheExtensions[ssrc].push({ extensions, timestamp: microTime() });
+  private handleTWCC(ssrc: number, extensions: Extensions) {
+    if (!this.cacheTWCC[ssrc]) this.cacheTWCC[ssrc] = [];
+    this.cacheTWCC[ssrc].push({
+      tsn: Number(extensions[RTP_EXTENSION_URI.transportWideCC]),
+      timestamp: microTime(),
+    });
   }
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
-    const ssrc = packet.header.ssrc;
+    const { ssrc } = packet.header;
 
     const track = this.tracks.find((track) => track.ssrc === ssrc);
     if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
-    this.handleRtpExtensions(ssrc, extensions);
+    if (this.twccRunning) this.handleTWCC(ssrc, extensions);
 
     this.runRtcp();
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
+    const { ssrc } = packet.header;
+
     const track = this.tracks.find((track) => track.rid === rid);
     if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
-    this.handleRtpExtensions(packet.header.ssrc, extensions);
+    if (this.twccRunning) this.handleTWCC(ssrc, extensions);
 
     this.runRtcp();
   };
