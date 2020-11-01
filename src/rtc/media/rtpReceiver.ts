@@ -55,12 +55,11 @@ export class RTCRtpReceiver {
       const reports = [];
       const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
-      try {
-        this.dtlsTransport.sendRtcp([packet]);
-      } catch (error) {
+      const error = await this.dtlsTransport.sendRtcp([packet]).catch(() => {
         console.log("send rtcp error");
-        await sleep(500 + Math.random() * 1000);
-      }
+        return true;
+      });
+      if (error) await sleep(500 + Math.random() * 1000);
     }
   }
 
@@ -201,9 +200,9 @@ export class RTCRtpReceiver {
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
     const ssrc = packet.header.ssrc;
-    this.nack.onPacket(packet);
 
     const track = this.tracks.find((track) => track.ssrc === ssrc);
+    if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
     this.handleRtpExtensions(ssrc, extensions);
@@ -212,9 +211,8 @@ export class RTCRtpReceiver {
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
-    this.nack.onPacket(packet);
-
     const track = this.tracks.find((track) => track.rid === rid);
+    if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
     this.handleRtpExtensions(packet.header.ssrc, extensions);
