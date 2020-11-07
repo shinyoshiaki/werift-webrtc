@@ -4605,10 +4605,10 @@ run-parallel@^1.1.9:
   resolved "https://registry.yarnpkg.com/run-parallel/-/run-parallel-1.1.9.tgz#c9dd3a7cf9f4b2c4b6244e173a6ed866e61dd679"
   integrity sha512-DEqnSRTDw/Tc3FXf49zedI638Z9onwUotBMiUFKmrO2sdFKIbXamXGQ3Axd4qgphxKB4kw/qP1w5kTxnfU1B9Q==
 
-rx.mini@^0.1.1:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-0.1.1.tgz#86d648043b4e8debcf6e42b69ce20bdb568dad23"
-  integrity sha512-o8hudkWb3rxdJo46SiXdErQzM2dgu1e3q9eGEFIpADvt62mcIWxJCK1K+0ByXtpVbX+vsEYCFA4ZEKU1joX1CA==
+rx.mini@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-1.0.0.tgz#4a689140571ac436962737a00e0e2155cbd0ec0f"
+  integrity sha512-9UCpq0p1SGSeBd18S5axVRnAupLc3lRBoXzX/u8mVOzpu1g1O8edzlF5L8kLfSnPQYUAeDsNGjrEW502AygsQQ==
 
 safe-buffer@5.1.2, safe-buffer@~5.1.1:
   version "5.1.2"

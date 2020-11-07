@@ -16,7 +16,7 @@ import { SCTP, SCTP_STATE, Transport } from "../../vendor/sctp";
 import * as uuid from "uuid";
 
 export class RTCSctpTransport {
-  readonly onDataChannel = new Event<RTCDataChannel>();
+  readonly onDataChannel = new Event<[RTCDataChannel]>();
 
   readonly uuid = uuid.v4();
   readonly sctp = new SCTP(new Bridge(this.dtlsTransport), this.port);

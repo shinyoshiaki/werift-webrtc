@@ -65,12 +65,12 @@ export class RTCPeerConnection {
   sctpTransport: RTCSctpTransport;
   masterTransportEstablished = false;
   transceivers: RTCRtpTransceiver[] = [];
-  readonly onDataChannel = new Event<RTCDataChannel>();
-  readonly iceGatheringStateChange = new Event<IceState>();
-  readonly iceConnectionStateChange = new Event<IceState>();
-  readonly signalingStateChange = new Event<string>();
-  readonly onTransceiver = new Event<RTCRtpTransceiver>();
-  readonly onIceCandidate = new Event<RTCIceCandidate>();
+  readonly onDataChannel = new Event<[RTCDataChannel]>();
+  readonly iceGatheringStateChange = new Event<[IceState]>();
+  readonly iceConnectionStateChange = new Event<[IceState]>();
+  readonly signalingStateChange = new Event<[string]>();
+  readonly onTransceiver = new Event<[RTCRtpTransceiver]>();
+  readonly onIceCandidate = new Event<[RTCIceCandidate]>();
 
   private readonly router = new RtpRouter();
   private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];

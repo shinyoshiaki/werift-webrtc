@@ -23,7 +23,7 @@ export class Transaction {
   responseReceived = (message: Message, addr: Address) => {
     if (this.future.length > 0) {
       if (message.messageClass === classes.RESPONSE) {
-        this.future.execute([message, addr]);
+        this.future.execute(message, addr);
         this.future.complete();
       } else {
         this.future.error(new TransactionFailed(message));
@@ -35,6 +35,7 @@ export class Transaction {
     try {
       this.retry();
       return await this.future.asPromise();
+      // eslint-disable-next-line no-useless-catch
     } catch (error) {
       throw error;
     } finally {

@@ -93,9 +93,9 @@ export class Connection {
   useIpv4: boolean;
   useIpv6: boolean;
   options: IceOptions;
-  onData = new Event<Buffer>();
+  onData = new Event<[Buffer]>();
   remoteCandidatesEnd = false;
-  stateChanged = new Event<IceState>();
+  stateChanged = new Event<[IceState]>();
 
   private remoteCandidates_: Candidate[] = [];
 
@@ -661,7 +661,7 @@ export class Connection {
     return candidates;
   }
 
-  promiseGatherCandidates?: Event;
+  promiseGatherCandidates?: Event<[]>;
   async gatherCandidates(cb?: (candidate: Candidate) => void) {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;

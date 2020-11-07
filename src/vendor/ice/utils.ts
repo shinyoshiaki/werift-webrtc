@@ -34,7 +34,7 @@ export function difference<T>(x: Set<T>, y: Set<T>) {
 // infinite size queue
 export class PQueue<T> {
   private queue: Promise<T>[] = [];
-  private wait = new Event<Promise<T>>();
+  private wait = new Event<[Promise<T>]>();
 
   put(v: Promise<T>) {
     this.queue.push(v);

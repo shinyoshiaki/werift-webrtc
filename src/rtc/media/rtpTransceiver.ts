@@ -17,7 +17,7 @@ const log = debug("werift:webrtc:rtpTransceiver");
 
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
-  readonly onTrack = new Event<RtpTrack>();
+  readonly onTrack = new Event<[RtpTrack]>();
   mid?: string;
   mLineIndex?: number;
   dtlsTransport?: RTCDtlsTransport;

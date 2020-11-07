@@ -14,7 +14,7 @@ server.on("connection", async (socket) => {
   const onTransceiver = async (transceiver: RTCRtpTransceiver) => {
     const id = mIndex++;
     console.log("on transceiver", transceiver.sender.ssrc, id);
-    const track = await transceiver.onTrack.asPromise();
+    const [track] = await transceiver.onTrack.asPromise();
     console.log("ontrack", transceiver.sender.ssrc, track.ssrc, id);
     track.onRtp.subscribe((rtp) => {
       transceiver.sendRtp(rtp);

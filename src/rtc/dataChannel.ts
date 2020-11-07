@@ -17,8 +17,8 @@ export class RTCDataChannelParameters {
 }
 
 export class RTCDataChannel {
-  readonly stateChanged = new Event<DCState>();
-  readonly message = new Event<string | Buffer>();
+  readonly stateChanged = new Event<[DCState]>();
+  readonly message = new Event<[string | Buffer]>();
   readonly bufferedAmountLow = new Event();
 
   id?: number = this.parameters.id;

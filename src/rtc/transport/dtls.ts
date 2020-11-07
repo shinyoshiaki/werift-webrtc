@@ -28,7 +28,7 @@ export enum DtlsState {
 type DtlsRole = "auto" | "server" | "client";
 
 export class RTCDtlsTransport {
-  readonly stateChanged = new Event<DtlsState>();
+  readonly stateChanged = new Event<[DtlsState]>();
   dtls!: DtlsSocket;
   state = DtlsState.NEW;
   role: DtlsRole = "auto";

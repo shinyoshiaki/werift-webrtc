@@ -109,6 +109,7 @@ export class StunProtocol implements Protocol {
 
     try {
       return await transaction.run();
+      // eslint-disable-next-line no-useless-catch
     } catch (error) {
       throw error;
     } finally {
@@ -119,7 +120,11 @@ export class StunProtocol implements Protocol {
   async close() {
     await new Promise((r) => {
       this.socket.once("close", r);
-      this.socket.close();
+      try {
+        this.socket.close();
+      } catch (error) {
+        r();
+      }
     });
   }
 }

@@ -73,9 +73,9 @@ const SCTPConnectionStates = [
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
-  stateChanged: { [key in SCTPConnectionState]: Event } = createEventsFromList(
-    SCTPConnectionStates
-  );
+  stateChanged: {
+    [key in SCTPConnectionState]: Event<[]>;
+  } = createEventsFromList(SCTPConnectionStates);
 
   associationState = SCTP_STATE.CLOSED;
   started = false;

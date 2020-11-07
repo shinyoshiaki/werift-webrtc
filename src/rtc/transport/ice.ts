@@ -13,7 +13,7 @@ export type IceState =
   | "disconnected";
 
 export class RTCIceGatherer {
-  readonly subject = new Event<IceState>();
+  readonly subject = new Event<[IceState]>();
   onIceCandidate: (candidate: RTCIceCandidate) => void = () => {};
 
   readonly connection = new Connection(false, this.options);
@@ -143,8 +143,8 @@ export class RTCIceParameters {
 }
 
 export class RTCIceTransport {
-  iceState = new Event<IceState>();
-  private waitStart?: Event;
+  iceState = new Event<[IceState]>();
+  private waitStart?: Event<[]>;
   private _state: IceState = "new";
   connection = this.gather.connection;
   roleSet = false;
@@ -174,9 +174,9 @@ export class RTCIceTransport {
       this.iceState.execute("stateChange");
 
       if (state === "closed") {
-        this.iceGather.subject.execute();
+        this.iceGather.subject.execute("closed");
         this.iceGather.subject.complete();
-        this.iceState.execute();
+        this.iceState.execute("closed");
         this.iceState.complete();
       }
     }
@@ -199,8 +199,8 @@ export class RTCIceTransport {
     this.waitStart = new Event();
 
     this.setState("checking");
-    this.connection.remoteUsername = remoteParameters.usernameFragment!;
-    this.connection.remotePassword = remoteParameters.password!;
+    this.connection.remoteUsername = remoteParameters.usernameFragment;
+    this.connection.remotePassword = remoteParameters.password;
 
     try {
       await this.connection.connect();

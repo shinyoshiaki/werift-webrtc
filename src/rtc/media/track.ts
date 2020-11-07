@@ -8,7 +8,7 @@ export class RtpTrack {
   kind: Kind;
   id: string;
 
-  readonly onRtp = new Event<RtpPacket>();
+  readonly onRtp = new Event<[RtpPacket]>();
 
   constructor(props: Partial<RtpTrack> = {}) {
     Object.assign(this, props);

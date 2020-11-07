@@ -59,6 +59,7 @@ class TurnTransport implements Protocol {
 
     try {
       return await transaction.run();
+      // eslint-disable-next-line no-useless-catch
     } catch (error) {
       throw error;
     } finally {
@@ -223,6 +224,7 @@ class TurnClient implements Protocol {
 
     try {
       return await transaction.run();
+      // eslint-disable-next-line no-useless-catch
     } catch (error) {
       throw error;
     } finally {

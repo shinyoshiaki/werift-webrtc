@@ -33,7 +33,7 @@ export class RTCRtpSender {
   readonly streamId = uuid.v4();
   readonly trackId = uuid.v4();
   readonly onReady = new Event();
-  readonly onRtcp = new Event<RtcpPacket>();
+  readonly onRtcp = new Event<[RtcpPacket]>();
 
   private cname?: string;
 
