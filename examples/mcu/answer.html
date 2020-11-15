@@ -32,6 +32,7 @@
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
+        source.loop = true;
         source.start();
         const destination = ctx.createMediaStreamDestination();
         source.connect(destination);
@@ -64,12 +65,13 @@
             remoteRef.current.srcObject = e.streams[0];
           };
 
-          (await navigator.mediaDevices.getUserMedia({ audio: true }))
+          (await getAudioStream("./1.mp3"))
             .getTracks()
             .forEach((track) => peer.addTrack(track));
-          // (await getAudioStream("./2.mp3"))
-          //   .getTracks()
-          //   .forEach((track) => peer.addTrack(track));
+
+          (await getAudioStream("./2.mp3"))
+            .getTracks()
+            .forEach((track) => peer.addTrack(track));
 
           await peer.setRemoteDescription(offer);
           const answer = await peer.createAnswer();

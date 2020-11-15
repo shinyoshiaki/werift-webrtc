@@ -18,7 +18,7 @@ import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RtcpTransportLayerFeedback } from "../../vendor/rtp/rtcp/rtpfb";
 import { TransportWideCC } from "../../vendor/rtp/rtcp/rtpfb/twcc";
 import { ntpTime } from "../../utils";
-import { random32, uint32_add, uint16Add } from "../../utils";
+import { uint32Add, uint16Add } from "../../utils";
 import { GenericNack } from "../../vendor/rtp/rtcp/rtpfb/nack";
 import debug from "debug";
 
@@ -48,8 +48,9 @@ export class RTCRtpSender {
 
   // rtp
   private sequenceNumber?: number;
-  private timestamp = random32();
-  private cacheTimestamp = 0;
+  private timestamp?: number;
+  private timestampOffset = 0;
+  private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
@@ -112,10 +113,14 @@ export class RTCRtpSender {
     }
   }
 
-  private seqOffset = 0;
-  replaceRTP({ sequenceNumber, ssrc }: RtpHeader) {
+  replaceRTP({ sequenceNumber, ssrc, timestamp }: RtpHeader) {
     if (this.sequenceNumber) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
+    }
+    if (this.timestamp) {
+      this.timestampOffset = Number(
+        uint32Add(BigInt(this.timestamp), BigInt(-timestamp))
+      );
     }
     this.rtpCache = [];
     log(
@@ -136,17 +141,11 @@ export class RTCRtpSender {
     const header = rtp.header;
     header.ssrc = this.ssrc;
 
-    if (this.cacheTimestamp !== header.timestamp) {
-      this.timestamp = uint32_add(
-        this.timestamp,
-        BigInt(Math.floor(90000 * (1 / 30)))
-      );
-    }
-    this.cacheTimestamp = header.timestamp;
-
-    header.timestamp = Number(this.timestamp);
-
+    header.timestamp = Number(
+      uint32Add(BigInt(header.timestamp), BigInt(this.timestampOffset))
+    );
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
+    this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
 
     this.cname = parameters.rtcp.cname;

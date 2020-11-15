@@ -64,6 +64,6 @@ export function uint16Add(a: number, b: number) {
   return (a + b) & 0xffff;
 }
 
-export function uint32_add(a: bigint, b: bigint) {
+export function uint32Add(a: bigint, b: bigint) {
   return (a + b) & 0xffffffffn;
 }
