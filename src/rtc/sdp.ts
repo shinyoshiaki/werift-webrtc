@@ -434,6 +434,11 @@ export class MediaDescription {
         if (feedback.parameter) value += ` ${feedback.parameter}`;
         lines.push(`a=rtcp-fb:${codec.payloadType} ${value}`);
       });
+
+      const params = parametersToSDP(codec.parameters);
+      if (params) {
+        lines.push(`a=fmtp:${codec.payloadType} ${params}`);
+      }
     });
 
     Object.keys(this.sctpMap).forEach((k) => {
@@ -602,7 +607,7 @@ export function addSDPHeader(
   description.type = type;
 }
 
-function parametersFromSdp(sdp: string): number[] {
+function parametersFromSdp(sdp: string) {
   const parameters = {};
   sdp.split(";").forEach((param) => {
     if (param.includes("=")) {
@@ -616,9 +621,18 @@ function parametersFromSdp(sdp: string): number[] {
       parameters[param] = undefined;
     }
   });
-  return Object.keys(parameters)
-    .sort()
-    .map((i) => parameters[i]);
+  return parameters;
+}
+
+function parametersToSDP(parameters: { [key: string]: string }) {
+  const params = Object.entries(parameters).map(([k, v]) => {
+    if (v) return `${k}=${v}`;
+    else return k;
+  });
+  if (params.length > 0) {
+    return params.join(";") + ";";
+  }
+  return undefined;
 }
 
 export class SsrcDescription {

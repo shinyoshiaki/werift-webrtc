@@ -7,7 +7,7 @@ import { Message } from "./message";
 export class Transaction {
   integrityKey?: Buffer;
   private timeoutDelay = RETRY_RTO;
-  private timeoutHandle: NodeJS.Timeout | null = null;
+  private timeoutHandle?: any;
   private tries = 0;
   private triesMax =
     1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
