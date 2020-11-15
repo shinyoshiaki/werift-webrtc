@@ -12,7 +12,7 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     headerExtensions: {
-      video: [useSdesMid(1), useAbsSendTime(2), useTransportWideCC(3)],
+      video: [useSdesMid(1), useAbsSendTime(2)],
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
