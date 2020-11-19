@@ -1,28 +1,28 @@
 import { RTCPeerConnection } from "../../src";
 import { Server } from "ws";
 import { OpusEncoder } from "@discordjs/opus";
-import { Mixer } from "audio-mixer";
-import { RtpPacket } from "../../src/vendor/rtp";
+import { Mixer } from "@shinyoshiaki/audio-mixer";
+import { RtpHeader, RtpPacket } from "../../src/vendor/rtp";
+
+const MAX_FRAME_SIZE = (48000 * 60) / 1000;
+const PCMLength = MAX_FRAME_SIZE * 2 * 2;
 
 console.log("start");
 
 const server = new Server({ port: 8888 });
 const encoder = new OpusEncoder(48000, 2);
-const mixer = new Mixer({ sampleRate: 48000, channels: 2 });
+const mixer = new Mixer({ sampleRate: 48000, channels: 2, sleep: 20 });
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
   });
-  pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
-  );
   const transceiver = pc.addTransceiver("audio", "sendonly");
 
-  let header;
+  let header: RtpHeader;
 
   pc.addTransceiver("audio", "recvonly").onTrack.once((track) => {
-    const input = mixer.input({ channels: 2 });
+    const input = mixer.input({ channels: 2, maxBuffer: PCMLength / 2 });
     track.onRtp.subscribe((packet) => {
       header = packet.header;
 
@@ -30,9 +30,8 @@ server.on("connection", async (socket) => {
       input.write(decoded);
     });
   });
-
   pc.addTransceiver("audio", "recvonly").onTrack.once((track) => {
-    const input = mixer.input({ channels: 2 });
+    const input = mixer.input({ channels: 2, maxBuffer: PCMLength / 2 });
     track.onRtp.subscribe((packet) => {
       const decoded = encoder.decode(packet.payload);
       input.write(decoded);
@@ -42,6 +41,7 @@ server.on("connection", async (socket) => {
   mixer.on("data", (data) => {
     if (!header) return;
     const encoded = encoder.encode(data);
+    console.log(data.length, encoded.length);
     const rtp = new RtpPacket(header, encoded);
     transceiver.sendRtp(rtp);
   });

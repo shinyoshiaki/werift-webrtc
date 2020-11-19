@@ -68,10 +68,12 @@
           (await getAudioStream("./1.mp3"))
             .getTracks()
             .forEach((track) => peer.addTrack(track));
-
           (await getAudioStream("./2.mp3"))
             .getTracks()
             .forEach((track) => peer.addTrack(track));
+          // (await getAudioStream("./3.mp3"))
+          //   .getTracks()
+          //   .forEach((track) => peer.addTrack(track));
 
           await peer.setRemoteDescription(offer);
           const answer = await peer.createAnswer();
