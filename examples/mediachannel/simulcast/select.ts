@@ -48,7 +48,7 @@ server.on("connection", async (socket) => {
 
   pc.createDataChannel("dc").message.subscribe(async (msg) => {
     source = "";
-    pc.removeTrack(sender.sender);
+    pc.removeTrack(sender);
     sender = pc.addTransceiver("video", "sendonly");
     const offer = pc.createOffer();
     await pc.setLocalDescription(offer);

@@ -264,16 +264,16 @@ export class RTCPeerConnection {
 
   /**
    * need createOffer
-   * @param sender
    */
-  removeTrack(sender: RTCRtpSender) {
-    const transceiver = this.transceivers.find(
-      (t) => t.sender.ssrc === sender.ssrc
-    );
-    if (transceiver.direction === "sendrecv")
+  removeTrack(transceiver: RTCRtpTransceiver) {
+    if (transceiver.direction === "sendrecv") {
       transceiver.direction = "recvonly";
-    else if (transceiver.direction === "sendonly")
+    } else if (
+      transceiver.direction === "sendonly" ||
+      transceiver.direction === "recvonly"
+    ) {
       transceiver.direction = "inactive";
+    }
   }
 
   private updateIceGatheringState() {
@@ -786,7 +786,8 @@ function createMediaDescriptionForTransceiver(
 
   if (transceiver.options.simulcast) {
     media.simulcastParameters = transceiver.options.simulcast.map(
-      (o) => new RTCRtpSimulcastParameters(o)
+      // todo fix
+      (o) => new RTCRtpSimulcastParameters(o as any)
     );
   }
 

@@ -67,7 +67,7 @@ export class RTCDtlsTransport {
 
     this.setState(DtlsState.CONNECTING);
 
-    await new Promise(async (r) => {
+    await new Promise<void>(async (r) => {
       if (this.role === "server") {
         this.dtls = new DtlsServer({
           cert: this.localCertificate.cert,
