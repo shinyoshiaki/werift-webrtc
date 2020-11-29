@@ -193,14 +193,29 @@ export class RTCPeerConnection {
       .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
         transceiver.mLineIndex = description.media.length;
-        description.media.push(
-          createMediaDescriptionForTransceiver(
-            transceiver,
-            this.cname,
-            transceiver.direction,
-            allocateMid(this.seenMid)
-          )
+
+        const media = createMediaDescriptionForTransceiver(
+          transceiver,
+          this.cname,
+          transceiver.direction,
+          allocateMid(this.seenMid)
         );
+        const inactive = description.media.find(
+          (m) => m.direction === "inactive" && m.port === 0
+        );
+        if (inactive) {
+          for (const [i, v] of enumerate(description.media)) {
+            if (v.direction === "inactive") {
+              description.media[i] = media;
+              transceiver.mLineIndex = i;
+            }
+          }
+          this.transceivers = this.transceivers.filter(
+            (t) => t.mid !== inactive.rtp.muxId
+          );
+        } else {
+          description.media.push(media);
+        }
       });
 
     if (
@@ -829,6 +844,10 @@ function addTransportDescription(
   } else {
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;
+  }
+
+  if (media.direction === "inactive") {
+    media.port = 0;
   }
 
   if (!media.dtlsParams) {

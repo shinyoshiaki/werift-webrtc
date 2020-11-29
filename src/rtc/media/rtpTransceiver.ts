@@ -25,6 +25,7 @@ export class RTCRtpTransceiver {
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   senderParams: RTCRtpParameters;
   options: Partial<TransceiverOptions> = {};
+  inactive = false;
 
   constructor(
     public readonly kind: Kind,
