@@ -55,7 +55,6 @@
   },
   "devDependencies": {
     "@discordjs/opus": "^0.3.3",
-    "@shinyoshiaki/audio-mixer": "^0.0.5",
     "@types/aes-js": "^3.1.1",
     "@types/big-integer": "^0.0.31",
     "@types/buffer-crc32": "^0.2.0",

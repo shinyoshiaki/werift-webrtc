@@ -34,6 +34,10 @@ export class RTCRtpTransceiver {
     public direction: Direction
   ) {}
 
+  get msid() {
+    return `${this.sender.streamId} ${this.sender.trackId}`;
+  }
+
   addTrack(track: RtpTrack) {
     const exist = this.receiver.tracks.find((t) => {
       if (t.rid) return t.rid === track.rid;
