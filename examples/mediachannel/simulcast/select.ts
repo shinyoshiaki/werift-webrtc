@@ -44,9 +44,13 @@ server.on("connection", async (socket) => {
   });
 
   pc.createDataChannel("dc").message.subscribe(async (msg) => {
-    pc.removeTrack(sender);
-    sender = pc.addTransceiver("video", "sendonly");
-    source = msg.toString();
+    source = "";
+    if (msg === "delete") {
+      pc.removeTrack(sender);
+    } else {
+      sender = pc.addTransceiver("video", "sendonly");
+      source = msg.toString();
+    }
 
     const offer = pc.createOffer();
     await pc.setLocalDescription(offer);
