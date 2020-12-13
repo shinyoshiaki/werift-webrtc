@@ -57,7 +57,7 @@ export class RTCRtpReceiver {
       const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
       const error = await this.dtlsTransport.sendRtcp([packet]).catch(() => {
-        console.log("send rtcp error");
+        console.log("receiver send rtcp error");
         return true;
       });
       if (error) await sleep(500 + Math.random() * 1000);

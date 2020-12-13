@@ -58,13 +58,13 @@
       "name": "ts-node",
       "type": "node",
       "request": "launch",
-      "program": "${workspaceRoot}/node_modules/ts-node/dist/bin.js",
+      "program": "${workspaceRoot}/node_modules/ts-node-dev/lib/bin.js",
       "protocol": "inspector",
       "args": [
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/simulcast/select.ts"
+        "${workspaceRoot}/examples/mcu/server.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

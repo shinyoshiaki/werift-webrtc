@@ -1,54 +1,106 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection, RtpTrack } from "../../src";
 import { Server } from "ws";
 import { OpusEncoder } from "@discordjs/opus";
 import { RtpHeader, RtpPacket } from "../../src/vendor/rtp";
 import { Mixer } from "./mixing";
+import { random16, random32, uint16Add, uint32Add } from "../../src/utils";
 
 console.log("start");
-
 const server = new Server({ port: 8888 });
-const encoder = new OpusEncoder(48000, 2);
-const mixer = new Mixer();
 
 server.on("connection", async (socket) => {
+  const encoder = new OpusEncoder(48000, 2);
+  const mixer = new Mixer();
+  console.log("onconnect");
+
+  function send(type: string, payload: any) {
+    socket.send(JSON.stringify({ type, payload }));
+  }
+
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
   });
-  const transceiver = pc.addTransceiver("audio", "sendonly");
+  const sender = pc.addTransceiver("audio", "sendonly");
 
-  let _header: RtpHeader;
-  pc.addTransceiver("audio", "recvonly").onTrack.once((track) => {
-    const input = mixer.input();
-    track.onRtp.subscribe((packet) => {
-      _header = packet.header;
-      const decoded = encoder.decode(packet.payload);
-      input.write(decoded);
-    });
-  });
-  pc.addTransceiver("audio", "recvonly").onTrack.once((track) => {
-    const input = mixer.input();
-    track.onRtp.subscribe((packet) => {
-      const decoded = encoder.decode(packet.payload);
-      input.write(decoded);
-    });
-  });
+  const tracks: {
+    [msid: string]: RtpTrack;
+  } = {};
+  const disposers: {
+    [msid: string]: () => void;
+  } = {};
 
-  mixer.onData = (data) => {
-    if (!_header) return;
-
-    const encoded = encoder.encode(data);
-
-    const rtp = new RtpPacket(_header, encoded);
-    transceiver.sendRtp(rtp);
+  socket.onmessage = async (ev) => {
+    const { type, payload } = JSON.parse(ev.data as string);
+    console.log("onmessage", type);
+    switch (type) {
+      case "answer":
+        {
+          const { sdp } = payload;
+          pc.setRemoteDescription(sdp);
+        }
+        break;
+      case "candidate":
+        {
+          const { candidate } = payload;
+          pc.addIceCandidate(candidate);
+        }
+        break;
+      case "publish":
+        {
+          const transceiver = pc.addTransceiver("audio", "recvonly");
+          transceiver.onTrack.once((track) => {
+            tracks[transceiver.msid] = track;
+          });
+          send("onPublish", { id: transceiver.msid });
+          await pc.setLocalDescription(pc.createOffer());
+          send("offer", { sdp: pc.localDescription });
+        }
+        break;
+      case "add":
+        {
+          const { id } = payload;
+          const track = tracks[id];
+          const input = mixer.input();
+          const { unSubscribe } = track.onRtp.subscribe((packet) => {
+            const decoded = encoder.decode(packet.payload);
+            input.write(decoded);
+          });
+          disposers[id] = () => {
+            unSubscribe();
+            input.remove();
+          };
+        }
+        break;
+      case "remove":
+        {
+          const { id } = payload;
+          disposers[id]();
+          delete disposers[id];
+        }
+        break;
+    }
   };
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
-  const sdp = JSON.stringify(pc.localDescription);
-  socket.send(sdp);
+  let sequenceNumber = random16();
+  let timestamp = random32();
+  mixer.onData = (data) => {
+    const encoded = encoder.encode(data);
 
-  socket.on("message", (data: any) => {
-    console.log(data);
-    pc.setRemoteDescription(JSON.parse(data));
-  });
+    sequenceNumber = uint16Add(sequenceNumber, 1);
+    timestamp = uint32Add(timestamp, 960n);
+
+    const header = new RtpHeader({
+      sequenceNumber,
+      timestamp: Number(timestamp),
+      payloadType: 96,
+      extension: true,
+      marker: false,
+      padding: false,
+    });
+    const rtp = new RtpPacket(header, encoded);
+    sender.sendRtp(rtp);
+  };
+
+  await pc.setLocalDescription(pc.createOffer());
+  send("offer", { sdp: pc.localDescription });
 });

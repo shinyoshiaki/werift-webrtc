@@ -1,8 +1,9 @@
 export class Mixer {
   inputs: { [id: string]: Input } = {};
   pcm: { [id: string]: Buffer } = {};
-
   onData: (buf: Buffer) => void = () => {};
+
+  constructor() {}
 
   input() {
     const input = new Input(this);
@@ -12,7 +13,7 @@ export class Mixer {
   }
 
   mixing() {
-    if (Object.keys(this.pcm).length === Object.keys(this.inputs).length) {
+    if (Object.keys(this.pcm).length >= Object.keys(this.inputs).length) {
       const inputs = Object.values(this.pcm);
       const base = inputs.shift();
       this.pcm = {};
@@ -37,6 +38,16 @@ export class Mixer {
     }
     return res;
   }
+
+  write(id: string, buf: Buffer) {
+    this.pcm[id] = buf;
+    this.mixing();
+  }
+
+  remove(id: string) {
+    delete this.inputs[id];
+    delete this.pcm[id];
+  }
 }
 
 export class Input {
@@ -44,7 +55,10 @@ export class Input {
   constructor(private mixer: Mixer) {}
 
   write(buf: Buffer) {
-    this.mixer.pcm[this.id] = buf;
-    this.mixer.mixing();
+    this.mixer.write(this.id, buf);
+  }
+
+  remove() {
+    this.mixer.remove(this.id);
   }
 }

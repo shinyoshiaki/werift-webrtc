@@ -106,7 +106,7 @@ export class RTCRtpSender {
       this.lsrTime = Date.now() / 1000;
 
       const error = await this.dtlsTransport.sendRtcp(packets).catch(() => {
-        console.log("send rtcp error");
+        console.log("sender send rtcp error");
         return true;
       });
       if (error) await sleep(500 + Math.random() * 1000);
