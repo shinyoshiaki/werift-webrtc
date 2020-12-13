@@ -646,13 +646,6 @@
     "@nodelib/fs.scandir" "2.1.3"
     fastq "^1.6.0"
 
-"@shinyoshiaki/audio-mixer@^0.0.5":
-  version "0.0.5"
-  resolved "https://npm.pkg.github.com/download/@shinyoshiaki/audio-mixer/0.0.5/79b4ebfee26b751c5e9a10cb5b3be44f88c815405dd036ef75f3bf337af7ed9d#f27bfde73d6270c8d9bceec0c64b55371ad9a04a"
-  integrity sha512-3aodDxdItoaI2Ydc7xhONOtvG60iKoXmClfDUnEs/Uf3o7LSE88rWR8ljNz3N6ELyc2TFsdEZHqyvaqcAKXU5w==
-  dependencies:
-    underscore "^1.8.3"
-
 "@sinonjs/commons@^1.7.0":
   version "1.7.2"
   resolved "https://registry.yarnpkg.com/@sinonjs/commons/-/commons-1.7.2.tgz#505f55c74e0272b43f6c52d81946bed7058fc0e2"
@@ -4376,11 +4369,6 @@ optionator@^0.9.1:
     type-check "^0.4.0"
     word-wrap "^1.2.3"
 
-opusscript@^0.0.7:
-  version "0.0.7"
-  resolved "https://registry.yarnpkg.com/opusscript/-/opusscript-0.0.7.tgz#7dd7ec55b302d26bf588e6fc3feb090b8c7da856"
-  integrity sha512-DcBadTdYTUuH9zQtepsLjQn4Ll6rs3dmeFvN+SD0ThPnxRBRm/WC1zXWPg+wgAJimB784gdZvUMA57gDP7FdVg==
-
 organize-imports-cli@^0.7.0:
   version "0.7.0"
   resolved "https://registry.yarnpkg.com/organize-imports-cli/-/organize-imports-cli-0.7.0.tgz#a6ffcec2d31c5de60748efe8861ea8cecd727276"
@@ -5738,11 +5726,6 @@ unc-path-regex@^0.1.2:
   version "0.1.2"
   resolved "https://registry.yarnpkg.com/unc-path-regex/-/unc-path-regex-0.1.2.tgz#e73dd3d7b0d7c5ed86fbac6b0ae7d8c6a69d50fa"
   integrity sha1-5z3T17DXxe2G+6xrCufYxqadUPo=
-
-underscore@^1.8.3:
-  version "1.11.0"
-  resolved "https://registry.yarnpkg.com/underscore/-/underscore-1.11.0.tgz#dd7c23a195db34267186044649870ff1bab5929e"
-  integrity sha512-xY96SsN3NA461qIRKZ/+qox37YXPtSBswMGfiNptr+wrt6ds4HaMw23TP612fEyGekRE6LNRiLYr/aqbHXNedw==
 
 union-value@^1.0.0:
   version "1.0.1"

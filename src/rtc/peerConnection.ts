@@ -140,6 +140,10 @@ export class RTCPeerConnection {
     return this.transceivers.find((transceiver) => transceiver.mid === mid);
   }
 
+  private getTransceiverByMsid(msid: string) {
+    return this.transceivers.find((transceiver) => transceiver.msid === msid);
+  }
+
   private getTransceiverByMLineIndex(index: number) {
     return this.transceivers.find(
       (transceiver) => transceiver.mLineIndex === index
@@ -164,11 +168,11 @@ export class RTCPeerConnection {
 
     // # handle existing transceivers / sctp
 
-    const media = this._localDescription()
+    const currentMedia = this._localDescription()
       ? this._localDescription().media
       : [];
 
-    media.forEach((m, i) => {
+    currentMedia.forEach((m) => {
       const mid = m.rtp.muxId;
       if (m.kind === "application") {
         description.media.push(
@@ -176,7 +180,6 @@ export class RTCPeerConnection {
         );
       } else {
         const transceiver = this.getTransceiverByMid(mid);
-        transceiver.mLineIndex = i;
         description.media.push(
           createMediaDescriptionForTransceiver(
             transceiver,
@@ -192,15 +195,31 @@ export class RTCPeerConnection {
     this.transceivers
       .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
-        transceiver.mLineIndex = description.media.length;
-        description.media.push(
-          createMediaDescriptionForTransceiver(
-            transceiver,
-            this.cname,
-            transceiver.direction,
-            allocateMid(this.seenMid)
-          )
+        const media = createMediaDescriptionForTransceiver(
+          transceiver,
+          this.cname,
+          transceiver.direction,
+          allocateMid(this.seenMid)
         );
+        const inactive = description.media.find(
+          (m) =>
+            m.direction === "inactive" &&
+            m.port === 0 &&
+            this.getTransceiverByMid(m.rtp.muxId)?.inactive
+        );
+        if (inactive) {
+          for (const [i, v] of enumerate(description.media)) {
+            if (v.msid === inactive.msid) {
+              description.media[i] = media;
+              break;
+            }
+          }
+          this.transceivers = this.transceivers.filter(
+            (t) => t.mid !== inactive.rtp.muxId
+          );
+        } else {
+          description.media.push(media);
+        }
       });
 
     if (
@@ -220,6 +239,13 @@ export class RTCPeerConnection {
       description.media.map((m) => m.rtp.muxId)
     );
     description.group.push(bundle);
+
+    description.media.forEach((media, i) => {
+      if (media.kind !== "application") {
+        const transceiver = this.getTransceiverByMsid(media.msid);
+        transceiver.mLineIndex = i;
+      }
+    });
 
     return wrapSessionDescription(description);
   }
@@ -368,6 +394,12 @@ export class RTCPeerConnection {
       }
       if (media.kind === "application") {
         this.sctpTransport.mid = mid;
+      }
+    });
+
+    this.transceivers.forEach((t) => {
+      if (t.direction === "inactive") {
+        t.inactive = true;
       }
     });
 
@@ -546,6 +578,8 @@ export class RTCPeerConnection {
             this.onTransceiver.execute(transceiver);
           }
         }
+        transceiver.mid = media.rtp.muxId;
+        transceiver.mLineIndex = i;
 
         // simulcast
         media.simulcastParameters.forEach((param) => {
@@ -553,11 +587,6 @@ export class RTCPeerConnection {
         });
 
         dtlsTransport = transceiver.dtlsTransport;
-
-        if (!transceiver.mid) {
-          transceiver.mid = media.rtp.muxId;
-          transceiver.mLineIndex = i;
-        }
 
         // # negotiate codecs
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
@@ -580,12 +609,9 @@ export class RTCPeerConnection {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
         }
+        this.sctpTransport.mid = media.rtp.muxId;
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
-
-        if (!this.sctpTransport.mid) {
-          this.sctpTransport.mid = media.rtp.muxId;
-        }
 
         // # configure sctp
         this.sctpRemotePort = media.sctpPort;
@@ -773,7 +799,7 @@ function createMediaDescriptionForTransceiver(
     transceiver.codecs.map((c) => c.payloadType)
   );
   media.direction = direction;
-  media.msid = `${transceiver.sender.streamId} ${transceiver.sender.trackId}`;
+  media.msid = transceiver.msid;
   media.rtp = new RTCRtpParameters({
     codecs: transceiver.codecs,
     headerExtensions: transceiver.headerExtensions,
@@ -829,6 +855,10 @@ function addTransportDescription(
   } else {
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;
+  }
+
+  if (media.direction === "inactive") {
+    media.port = 0;
   }
 
   if (!media.dtlsParams) {
