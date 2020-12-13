@@ -4369,11 +4369,6 @@ optionator@^0.9.1:
     type-check "^0.4.0"
     word-wrap "^1.2.3"
 
-opusscript@^0.0.7:
-  version "0.0.7"
-  resolved "https://registry.yarnpkg.com/opusscript/-/opusscript-0.0.7.tgz#7dd7ec55b302d26bf588e6fc3feb090b8c7da856"
-  integrity sha512-DcBadTdYTUuH9zQtepsLjQn4Ll6rs3dmeFvN+SD0ThPnxRBRm/WC1zXWPg+wgAJimB784gdZvUMA57gDP7FdVg==
-
 organize-imports-cli@^0.7.0:
   version "0.7.0"
   resolved "https://registry.yarnpkg.com/organize-imports-cli/-/organize-imports-cli-0.7.0.tgz#a6ffcec2d31c5de60748efe8861ea8cecd727276"
