@@ -1,4 +1,5 @@
 import { bufferWriter } from "../helper";
+import { RtcpHeader } from "./header";
 import { RtcpPacketConverter } from "./rtcp";
 
 export class RtcpSourceDescriptionPacket {
@@ -17,18 +18,18 @@ export class RtcpSourceDescriptionPacket {
   }
 
   serialize() {
-    const payload = Buffer.concat(
-      this.chunks.map((chunk) => chunk.serialize())
-    );
+    let payload = Buffer.concat(this.chunks.map((chunk) => chunk.serialize()));
+    while (payload.length % 4)
+      payload = Buffer.concat([payload, Buffer.from([0])]);
     return RtcpPacketConverter.serialize(
       this.type,
       this.chunks.length,
       payload,
-      payload.length + 4
+      payload.length / 4
     );
   }
 
-  static deSerialize(payload: Buffer) {
+  static deSerialize(payload: Buffer, header: RtcpHeader) {
     const chunks: SourceDescriptionChunk[] = [];
     for (let i = 0; i < payload.length; ) {
       const chunk = SourceDescriptionChunk.deSerialize(payload.slice(i));
@@ -62,7 +63,8 @@ export class SourceDescriptionChunk {
       Buffer.concat(this.items.map((item) => item.serialize())),
     ]);
 
-    return Buffer.concat([data, Buffer.alloc(getPadding(data.length))]);
+    const res = Buffer.concat([data, Buffer.alloc(getPadding(data.length))]);
+    return res;
   }
 
   static deSerialize(data: Buffer) {

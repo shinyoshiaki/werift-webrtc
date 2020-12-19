@@ -52,7 +52,9 @@ export class RtcpPacketConverter {
           packets.push(RtcpRrPacket.deSerialize(payload, header.count));
           break;
         case RtcpSourceDescriptionPacket.type:
-          packets.push(RtcpSourceDescriptionPacket.deSerialize(payload));
+          packets.push(
+            RtcpSourceDescriptionPacket.deSerialize(payload, header)
+          );
           break;
         case RtcpTransportLayerFeedback.type:
           packets.push(RtcpTransportLayerFeedback.deSerialize(payload, header));
