@@ -37,7 +37,7 @@ describe("media", () => {
 
     (async () => {
       await Promise.all([
-        new Promise((r) => {
+        new Promise<void>((r) => {
           const transceiver = pc1.addTransceiver("video", "sendrecv");
           transceiver.onTrack.subscribe((track) => {
             track.onRtp.subscribe((rtp) => {
@@ -54,7 +54,7 @@ describe("media", () => {
             transceiver.sendRtp(rtpPacket);
           });
         }),
-        new Promise((r) => {
+        new Promise<void>((r) => {
           const transceiver = pc2.addTransceiver("video", "sendrecv");
           transceiver.sender.onReady.subscribe(() => {
             const rtpPacket = new RtpPacket(

@@ -58,7 +58,7 @@ export class Context {
 
     sessionKey = Buffer.concat([sessionKey, Buffer.from([0x00, 0x00])]);
     const block = new AES(this.masterKey);
-    return Buffer.from(block.encrypt(sessionKey));
+    return Buffer.from(block.encrypt(sessionKey) as ArrayBuffer);
   }
 
   generateSessionSalt(label: number) {
@@ -81,7 +81,7 @@ export class Context {
     }
     sessionSalt = Buffer.concat([sessionSalt, Buffer.from([0x00, 0x00])]);
     const block = new AES(this.masterKey);
-    sessionSalt = Buffer.from(block.encrypt(sessionSalt));
+    sessionSalt = Buffer.from(block.encrypt(sessionSalt) as ArrayBuffer);
     return sessionSalt.slice(0, 14);
   }
 
@@ -106,8 +106,8 @@ export class Context {
     let firstRun = Buffer.concat([sessionAuthTag, Buffer.from([0x00, 0x00])]);
     let secondRun = Buffer.concat([sessionAuthTag, Buffer.from([0x00, 0x01])]);
     const block = new AES(this.masterKey);
-    firstRun = Buffer.from(block.encrypt(firstRun));
-    secondRun = Buffer.from(block.encrypt(secondRun));
+    firstRun = Buffer.from(block.encrypt(firstRun) as ArrayBuffer);
+    secondRun = Buffer.from(block.encrypt(secondRun) as ArrayBuffer);
     return Buffer.concat([firstRun, secondRun.slice(0, 4)]);
   }
 

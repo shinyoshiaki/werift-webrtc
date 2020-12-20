@@ -16,7 +16,7 @@ export class PromiseQueue {
   running = false;
 
   push = (promise: () => Promise<any>) =>
-    new Promise((r) => {
+    new Promise<void>((r) => {
       this.queue.push({ promise, call: r });
       if (!this.running) this.run();
     });

@@ -82,14 +82,14 @@ describe("peerConnection", () => {
         expect(data.toString()).toBe("hello");
         channel.close();
         await Promise.all([
-          new Promise((r) => {
+          new Promise<void>((r) => {
             dc.stateChanged.subscribe((state) => {
               if (state === "closed") {
                 r();
               }
             });
           }),
-          new Promise((r) => {
+          new Promise<void>((r) => {
             channel.stateChanged.subscribe((state) => {
               if (state === "closed") {
                 r();
@@ -135,7 +135,7 @@ async function assertIceCompleted(
   pc2: RTCPeerConnection
 ) {
   const wait = (pc: RTCPeerConnection) =>
-    new Promise((r) => {
+    new Promise<void>((r) => {
       pc.iceConnectionStateChange.subscribe((v) => {
         if (v === "completed") {
           r();
@@ -147,7 +147,7 @@ async function assertIceCompleted(
 }
 
 async function assertDataChannelOpen(dc: RTCDataChannel) {
-  return new Promise((r) => {
+  return new Promise<void>((r) => {
     dc.stateChanged.subscribe((v) => {
       if (v === "open") {
         r();
