@@ -65,15 +65,15 @@
                 break;
               case "onPublish":
                 {
-                  const { mid } = payload;
-                  setPublished((prev) => [...prev, mid]);
+                  const { media } = payload;
+                  setPublished((prev) => [...prev, media]);
                 }
                 break;
               case "onUnPublish":
                 {
-                  const { mid } = payload;
-                  setPublished((prev) => prev.filter((v) => v !== mid));
-                  setStreams((prev) => prev.filter((v) => v.media !== mid));
+                  const { media } = payload;
+                  setPublished((prev) => prev.filter((v) => v !== media));
+                  setStreams((prev) => prev.filter((v) => v.media !== media));
                 }
                 break;
               case "onSubscribe":
@@ -119,11 +119,11 @@
         };
 
         const unpublish = async (media) => {
-          send("unpublish", { mid: media });
+          send("unpublish", { media });
         };
 
         const subscribe = async (media) => {
-          send("subscribe", { mid: media });
+          send("subscribe", { media });
         };
 
         const unsubscribe = async (mid) => {

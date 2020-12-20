@@ -43,29 +43,29 @@ server.on("connection", async (socket) => {
 
           await pc.setLocalDescription(pc.createOffer());
           send("offer", { sdp: pc.localDescription });
-          send("onPublish", { mid: transceiver.mid });
+          send("onPublish", { media: transceiver.mid });
         }
         break;
       case "unpublish":
         {
-          const { mid } = payload;
-          const transceiver = pc.transceivers.find((t) => t.mid === mid);
+          const { media } = payload;
+          const transceiver = pc.transceivers.find((t) => t.mid === media);
           pc.removeTrack(transceiver);
           await pc.setLocalDescription(pc.createOffer());
           send("offer", { sdp: pc.localDescription });
-          send("onUnPublish", { mid });
+          send("onUnPublish", { media });
         }
         break;
       case "subscribe":
         {
-          const { mid } = payload;
+          const { media } = payload;
           const transceiver = pc.addTransceiver("video", "sendonly");
           await pc.setLocalDescription(pc.createOffer());
 
-          send("onSubscribe", { media: mid, mid: transceiver.mid });
           send("offer", { sdp: pc.localDescription });
+          send("onSubscribe", { media, mid: transceiver.mid });
 
-          tracks[mid].onRtp.subscribe((rtp) => {
+          tracks[media].onRtp.subscribe((rtp) => {
             transceiver.sendRtp(rtp);
           });
         }
