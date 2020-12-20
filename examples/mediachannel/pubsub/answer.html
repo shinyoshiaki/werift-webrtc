@@ -27,6 +27,7 @@
       });
       const socket = new WebSocket("ws://localhost:8888");
       let trackBuffer;
+      const mediaByMid = {};
 
       const send = (type, payload) => {
         console.log("send", type, payload);
@@ -68,6 +69,19 @@
                   setPublished((prev) => [...prev, mid]);
                 }
                 break;
+              case "onUnPublish":
+                {
+                  const { mid } = payload;
+                  setPublished((prev) => prev.filter((v) => v !== mid));
+                  setStreams((prev) => prev.filter((v) => v.media !== mid));
+                }
+                break;
+              case "onSubscribe":
+                {
+                  const { media, mid } = payload;
+                  mediaByMid[mid] = media;
+                }
+                break;
             }
           };
 
@@ -78,7 +92,10 @@
             const stream = new MediaStream();
             console.log("ontrack", mid);
             stream.addTrack(ev.track);
-            setStreams((prev) => [...prev, { stream, mid }]);
+            setStreams((prev) => [
+              ...prev,
+              { stream, media: mediaByMid[mid], mid },
+            ]);
           };
         }, []);
 
@@ -101,13 +118,17 @@
           send("publish", { id: track.id });
         };
 
+        const unpublish = async (media) => {
+          send("unpublish", { mid: media });
+        };
+
         const subscribe = async (media) => {
           send("subscribe", { mid: media });
         };
 
-        const unsubscribe = async (media) => {
-          send("unsubscribe", { mid: media });
-          setStreams((prev) => prev.filter((v) => v.mid !== media));
+        const unsubscribe = async (mid) => {
+          send("unsubscribe", { mid });
+          setStreams((prev) => prev.filter((v) => v.mid !== mid));
         };
 
         console.log({ streams });
@@ -125,6 +146,7 @@
                   <div key={i}>
                     {media}
                     <button onClick={() => subscribe(media)}>subscribe</button>
+                    <button onClick={() => unpublish(media)}>unpublish</button>
                   </div>
                 ))}
               </div>
@@ -132,9 +154,9 @@
             <div>
               <p>subscribed</p>
               <div style={{ display: "flex" }}>
-                {streams.map(({ mid }, i) => (
+                {streams.map(({ media, mid }, i) => (
                   <div key={i}>
-                    {mid}
+                    {media}
                     <button onClick={() => unsubscribe(mid)}>
                       unsubscribe
                     </button>
