@@ -41,9 +41,6 @@ export class RtcpPayloadSpecificFeedback {
         break;
       case ReceiverEstimatedMaxBitrate.count:
         feedback = ReceiverEstimatedMaxBitrate.deSerialize(data);
-        // console.log(
-        //   (feedback as ReceiverEstimatedMaxBitrate).bitrate / 1000n + "kbps"
-        // );
         break;
       default:
         console.log("unknown psfb packet", header.count);

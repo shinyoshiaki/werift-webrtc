@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      const peer = new RTCPeerConnection({
+        iceServers: [],
+      });
+      const socket = new WebSocket("ws://localhost:8888");
+      let trackBuffer;
+      const mediaByMid = {};
+
+      const send = (type, payload) => {
+        console.log("send", type, payload);
+        socket.send(JSON.stringify({ type, payload }));
+      };
+
+      const App = () => {
+        const videos = React.useRef([]);
+        const [streams, setStreams] = React.useState([]);
+        const [published, setPublished] = React.useState([]);
+
+        React.useEffect(() => {
+          socket.onmessage = async (ev) => {
+            const { type, payload } = JSON.parse(ev.data);
+            console.log(type, payload);
+            switch (type) {
+              case "offer":
+                {
+                  const { sdp } = payload;
+                  await peer.setRemoteDescription(sdp);
+
+                  // dummy
+                  peer.getTransceivers()[0].direction = "recvonly";
+
+                  if (trackBuffer) {
+                    const transceiver = peer.getTransceivers().slice(-1)[0];
+                    transceiver.sender.replaceTrack(trackBuffer);
+                    transceiver.direction = "sendonly";
+                    trackBuffer = undefined;
+                  }
+
+                  await peer.setLocalDescription(await peer.createAnswer());
+                  send("answer", { sdp: peer.localDescription });
+                }
+                break;
+              case "onPublish":
+                {
+                  const { media } = payload;
+                  setPublished((prev) => [...prev, media]);
+                }
+                break;
+              case "onUnPublish":
+                {
+                  const { media } = payload;
+                  setPublished((prev) => prev.filter((v) => v !== media));
+                  setStreams((prev) => prev.filter((v) => v.media !== media));
+                }
+                break;
+              case "onSubscribe":
+                {
+                  const { media, mid } = payload;
+                  mediaByMid[mid] = media;
+                }
+                break;
+            }
+          };
+
+          peer.ontrack = (ev) => {
+            const mid = ev.transceiver.mid;
+            if (mid === "0") return;
+
+            const stream = new MediaStream();
+            console.log("ontrack", mid);
+            stream.addTrack(ev.track);
+            setStreams((prev) => [
+              ...prev,
+              { stream, media: mediaByMid[mid], mid },
+            ]);
+          };
+        }, []);
+
+        React.useEffect(() => {
+          videos.current.forEach((v, i) => {
+            if (streams[i]) v.srcObject = streams[i].stream;
+          });
+        }, [streams]);
+
+        const publish = async () => {
+          const track = (
+            await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false,
+            })
+          ).getTracks()[0];
+          trackBuffer = track;
+          peer.addTrack(track);
+
+          send("publish", { id: track.id });
+        };
+
+        const unpublish = async (media) => {
+          send("unpublish", { media });
+        };
+
+        const subscribe = async (media) => {
+          send("subscribe", { media });
+        };
+
+        const unsubscribe = async (mid) => {
+          send("unsubscribe", { mid });
+          setStreams((prev) => prev.filter((v) => v.mid !== mid));
+        };
+
+        console.log({ streams });
+
+        return (
+          <div>
+            <div>
+              <button onClick={publish}>publish</button>
+            </div>
+
+            <div>
+              <p>published</p>
+              <div>
+                {published.map((media, i) => (
+                  <div key={i}>
+                    {media}
+                    <button onClick={() => subscribe(media)}>subscribe</button>
+                    <button onClick={() => unpublish(media)}>unpublish</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p>subscribed</p>
+              <div style={{ display: "flex" }}>
+                {streams.map(({ media, mid }, i) => (
+                  <div key={i}>
+                    {media}
+                    <button onClick={() => unsubscribe(mid)}>
+                      unsubscribe
+                    </button>
+                    <div>
+                      <video
+                        ref={(ref) => {
+                          videos.current[i] = ref;
+                        }}
+                        autoPlay
+                        muted
+                        style={{ width: 100 }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

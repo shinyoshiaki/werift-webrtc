@@ -64,7 +64,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mcu/server.ts"
+        "${workspaceRoot}/examples/mediachannel/pubsub/offer.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

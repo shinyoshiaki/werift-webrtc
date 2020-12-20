@@ -9,18 +9,19 @@ console.log("start");
 const server = new Server({ port: 8888 });
 
 server.on("connection", async (socket) => {
-  const encoder = new OpusEncoder(48000, 2);
-  const mixer = new Mixer();
-  console.log("onconnect");
-
   function send(type: string, payload: any) {
     socket.send(JSON.stringify({ type, payload }));
   }
+  console.log("onconnect");
 
+  const encoder = new OpusEncoder(48000, 2);
+  const mixer = new Mixer();
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
   });
   const sender = pc.addTransceiver("audio", "sendonly");
+  await pc.setLocalDescription(pc.createOffer());
+  send("offer", { sdp: pc.localDescription });
 
   const tracks: {
     [msid: string]: RtpTrack;
@@ -100,7 +101,4 @@ server.on("connection", async (socket) => {
     const rtp = new RtpPacket(header, encoded);
     sender.sendRtp(rtp);
   };
-
-  await pc.setLocalDescription(pc.createOffer());
-  send("offer", { sdp: pc.localDescription });
 });

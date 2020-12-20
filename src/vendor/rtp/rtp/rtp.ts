@@ -39,6 +39,7 @@ export class RtpHeader {
   ssrc: number = 0;
   csrc: number[] = [];
   extensionProfile: number = extensionProfileOneByte;
+  extensionLength?: number;
   extensions: Extension[] = [];
   constructor(props: Partial<RtpHeader> = {}) {
     Object.assign(this, props);
@@ -75,6 +76,7 @@ export class RtpHeader {
       h.extensionProfile = rawPacket.slice(currOffset).readUInt16BE();
       currOffset += 2;
       const extensionLength = rawPacket.slice(currOffset).readUInt16BE() * 4;
+      h.extensionLength = extensionLength;
       currOffset += 2;
 
       switch (h.extensionProfile) {
