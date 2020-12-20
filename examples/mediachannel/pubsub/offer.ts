@@ -6,6 +6,10 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
+  const send = (type: string, payload: any) => {
+    socket.send(JSON.stringify({ type, payload }));
+  };
+
   const pc = new RTCPeerConnection({
     stunServer: ["stun.l.google.com", 19302],
     headerExtensions: {
@@ -13,10 +17,10 @@ server.on("connection", async (socket) => {
       audio: [],
     },
   });
-
-  const send = (type: string, payload: any) => {
-    socket.send(JSON.stringify({ type, payload }));
-  };
+  // dummy
+  pc.addTransceiver("video", "sendonly");
+  await pc.setLocalDescription(pc.createOffer());
+  send("offer", { sdp: pc.localDescription });
 
   const tracks: { [mid: string]: RtpTrack } = {};
 
@@ -29,17 +33,16 @@ server.on("connection", async (socket) => {
         {
           const transceiver = pc.addTransceiver("video", "recvonly");
           transceiver.onTrack.subscribe((track) => {
-            tracks[transceiver.mid] = track;
             track.onRtp.once((rtp) => {
               setInterval(() => {
                 transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
-              }, 2000);
+              }, 1000);
             });
+            tracks[transceiver.mid] = track;
           });
 
           await pc.setLocalDescription(pc.createOffer());
           send("offer", { sdp: pc.localDescription });
-
           send("onPublish", { mid: transceiver.mid });
         }
         break;
@@ -54,6 +57,16 @@ server.on("connection", async (socket) => {
           tracks[mid].onRtp.subscribe((rtp) => {
             transceiver.sendRtp(rtp);
           });
+        }
+        break;
+      case "unsubscribe":
+        {
+          const { mid } = payload;
+          const transceiver = pc.transceivers.find((t) => t.mid === mid);
+          pc.removeTrack(transceiver);
+          await pc.setLocalDescription(pc.createOffer());
+
+          send("offer", { sdp: pc.localDescription });
         }
         break;
       case "answer":

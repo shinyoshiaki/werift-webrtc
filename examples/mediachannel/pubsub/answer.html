@@ -26,7 +26,6 @@
         iceServers: [],
       });
       const socket = new WebSocket("ws://localhost:8888");
-      const videos = [];
       let trackBuffer;
 
       const send = (type, payload) => {
@@ -35,6 +34,7 @@
       };
 
       const App = () => {
+        const videos = React.useRef([]);
         const [streams, setStreams] = React.useState([]);
         const [published, setPublished] = React.useState([]);
 
@@ -48,7 +48,10 @@
                   const { sdp } = payload;
                   await peer.setRemoteDescription(sdp);
 
-                  if (peer.getTransceivers().length > 0 && trackBuffer) {
+                  // dummy
+                  peer.getTransceivers()[0].direction = "recvonly";
+
+                  if (trackBuffer) {
                     const transceiver = peer.getTransceivers().slice(-1)[0];
                     transceiver.sender.replaceTrack(trackBuffer);
                     transceiver.direction = "sendonly";
@@ -69,18 +72,19 @@
           };
 
           peer.ontrack = (ev) => {
+            const mid = ev.transceiver.mid;
+            if (mid === "0") return;
+
             const stream = new MediaStream();
+            console.log("ontrack", mid);
             stream.addTrack(ev.track);
-            setStreams((prev) => [
-              ...prev,
-              { stream, mid: ev.transceiver.mid },
-            ]);
+            setStreams((prev) => [...prev, { stream, mid }]);
           };
         }, []);
 
         React.useEffect(() => {
-          videos.forEach((v, i) => {
-            v.srcObject = streams[i].stream;
+          videos.current.forEach((v, i) => {
+            if (streams[i]) v.srcObject = streams[i].stream;
           });
         }, [streams]);
 
@@ -92,6 +96,7 @@
             })
           ).getTracks()[0];
           trackBuffer = track;
+          peer.addTrack(track);
 
           send("publish", { id: track.id });
         };
@@ -100,31 +105,52 @@
           send("subscribe", { mid: media });
         };
 
+        const unsubscribe = async (media) => {
+          send("unsubscribe", { mid: media });
+          setStreams((prev) => prev.filter((v) => v.mid !== media));
+        };
+
+        console.log({ streams });
+
         return (
           <div>
-            answer
-            <button onClick={publish}>publish</button>
             <div>
-              {published.map((media, i) => (
-                <div key={i}>
-                  {media}
-                  <button onClick={() => subscribe(media)}>subscribe</button>
-                </div>
-              ))}
+              <button onClick={publish}>publish</button>
             </div>
-            <div style={{ display: "flex" }}>
-              {streams.map(({ mid }, i) => (
-                <div key={i}>
-                  {mid}
-                  <video
-                    ref={(ref) => {
-                      videos[i] = ref;
-                    }}
-                    autoPlay
-                    muted
-                  />
-                </div>
-              ))}
+
+            <div>
+              <p>published</p>
+              <div>
+                {published.map((media, i) => (
+                  <div key={i}>
+                    {media}
+                    <button onClick={() => subscribe(media)}>subscribe</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p>subscribed</p>
+              <div style={{ display: "flex" }}>
+                {streams.map(({ mid }, i) => (
+                  <div key={i}>
+                    {mid}
+                    <button onClick={() => unsubscribe(mid)}>
+                      unsubscribe
+                    </button>
+                    <div>
+                      <video
+                        ref={(ref) => {
+                          videos.current[i] = ref;
+                        }}
+                        autoPlay
+                        muted
+                        style={{ width: 100 }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         );
