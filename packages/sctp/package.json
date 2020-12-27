@@ -1,11 +1,11 @@
 {
-  "name": "rainy-sctp",
+  "name": "werift-sctp",
   "version": "0.0.3",
   "description": "SCTP protocol implementation for Node.js written in TypeScript.",
-  "homepage": "https://github.com/shinyoshiaki/rainy-sctp",
+  "homepage": "https://github.com/shinyoshiaki/werift-sctp",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shinyoshiaki/rainy-sctp.git"
+    "url": "git+https://github.com/shinyoshiaki/werift-sctp.git"
   },
   "license": "MIT",
   "author": {

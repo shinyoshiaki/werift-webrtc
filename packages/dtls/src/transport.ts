@@ -20,7 +20,9 @@ export class UdpTransport implements Transport {
   }
 
   close() {
-    this.upd.close();
+    try {
+      this.upd.close();
+    } catch (error) {}
   }
 }
 

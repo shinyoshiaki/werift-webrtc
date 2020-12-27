@@ -28,8 +28,9 @@ describe("e2e/server", () => {
       client.stdout.setEncoding("ascii");
       client.stdout.on("data", (data: string) => {
         if (data.includes("my_dtls_server")) {
-          done();
+          socket.close();
           server.close();
+          done();
         }
       });
     }, 100);

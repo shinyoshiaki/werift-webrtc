@@ -1,5 +1,5 @@
 {
-  "name": "@shinyoshiaki/ice",
+  "name": "werift-ice",
   "version": "0.0.1",
   "description": "> TODO: description",
   "homepage": "https://github.com/shinyoshiaki/rainy-webrtc/tree/master/packages/ice#readme",
@@ -26,22 +26,6 @@
     "test": "yarn type && jest --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
-  },
-  "jest": {
-    "globals": {
-      "ts-jest": {
-        "tsConfig": "tsconfig.json"
-      }
-    },
-    "moduleFileExtensions": [
-      "ts",
-      "tsx",
-      "js"
-    ],
-    "preset": "ts-jest",
-    "testMatch": [
-      "**/*.test.ts"
-    ]
   },
   "dependencies": {
     "buffer-crc32": "^0.2.13",
