@@ -35,9 +35,6 @@ export class Transaction {
     try {
       this.retry();
       return await this.future.asPromise();
-      // eslint-disable-next-line no-useless-catch
-    } catch (error) {
-      throw error;
     } finally {
       if (this.timeoutHandle) {
         clearTimeout(this.timeoutHandle);

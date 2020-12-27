@@ -12,7 +12,7 @@ export type Protocol = {
     addr: Address,
     integrityKey?: Buffer,
     retransmissions?: any
-  ) => Promise<[Message, Address] | undefined>;
+  ) => Promise<[Message, Address]>;
   responseAddr?: Address;
   responseMessage?: string;
   close?: () => Promise<void>;

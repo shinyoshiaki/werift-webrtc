@@ -170,11 +170,16 @@ class TurnClient implements Protocol {
         );
         request.transactionId = randomTransactionId();
 
-        [response] = await this.request(
-          request,
-          this.server,
-          this.integrityKey
-        );
+        try {
+          [response] = await this.request(
+            request,
+            this.server,
+            this.integrityKey
+          );
+        } catch (error) {
+          console.log(error);
+          // todo fix
+        }
       }
     }
 
@@ -197,7 +202,11 @@ class TurnClient implements Protocol {
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.attributes.LIFETIME = this.lifetime;
-        await this.request(request, this.server, this.integrityKey);
+
+        await this.request(request, this.server, this.integrityKey).catch(
+          // todo fix
+          console.log
+        );
       }
     });
 
@@ -224,9 +233,6 @@ class TurnClient implements Protocol {
 
     try {
       return await transaction.run();
-      // eslint-disable-next-line no-useless-catch
-    } catch (error) {
-      throw error;
     } finally {
       delete this.transactions[request.transactionIdHex];
     }
@@ -255,12 +261,17 @@ class TurnClient implements Protocol {
     const request = new Message(methods.CHANNEL_BIND, classes.REQUEST);
     request.attributes["CHANNEL-NUMBER"] = channelNumber;
     request.attributes["XOR-PEER-ADDRESS"] = addr;
-    const [response] = (await this.request(
-      request,
-      this.server,
-      this.integrityKey
-    ))!;
-    if (response.messageMethod !== methods.CHANNEL_BIND) throw new Error();
+    try {
+      const [response] = await this.request(
+        request,
+        this.server,
+        this.integrityKey
+      );
+      if (response.messageMethod !== methods.CHANNEL_BIND) throw new Error();
+    } catch (error) {
+      console.log(error);
+      // todo fix
+    }
   }
 
   sendStun(message: Message, addr: Address) {

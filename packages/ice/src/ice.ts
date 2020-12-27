@@ -305,11 +305,11 @@ export class Connection {
 
       const result: { response?: Message; addr?: Address } = {};
       try {
-        const [response, addr] = (await pair.protocol.request(
+        const [response, addr] = await pair.protocol.request(
           request,
           pair.remoteAddr,
           Buffer.from(this.remotePassword, "utf8")
-        ))!;
+        );
         result.response = response;
         result.addr = addr;
       } catch (error) {
@@ -599,7 +599,7 @@ export class Connection {
     if (this.stunServer) {
       try {
         const fs = (
-          await Promise.all<Candidate | undefined>(
+          await Promise.all<Candidate | undefined | void>(
             this.protocols.map(
               (protocol) =>
                 new Promise(async (r, f) => {
@@ -611,8 +611,8 @@ export class Connection {
                     const candidate = await serverReflexiveCandidate(
                       protocol,
                       this.stunServer!
-                    );
-                    if (cb) cb(candidate);
+                    ).catch(console.log);
+                    if (candidate && cb) cb(candidate);
                     r(candidate);
                   } else {
                     r(undefined);
@@ -951,18 +951,23 @@ async function serverReflexiveCandidate(
 
   // # perform STUN query
   const request = new Message(methods.BINDING, classes.REQUEST);
-  const [response] = (await protocol.request(request, stunServer))!;
+  try {
+    const [response] = await protocol.request(request, stunServer);
 
-  const localCandidate = protocol.localCandidate!;
-  return new Candidate(
-    candidateFoundation("srflx", "udp", localCandidate.host),
-    localCandidate.component,
-    localCandidate.transport,
-    candidatePriority(localCandidate.component, "srflx"),
-    response.attributes["XOR-MAPPED-ADDRESS"][0],
-    response.attributes["XOR-MAPPED-ADDRESS"][1],
-    "srflx",
-    localCandidate.host,
-    localCandidate.port
-  );
+    const localCandidate = protocol.localCandidate!;
+    return new Candidate(
+      candidateFoundation("srflx", "udp", localCandidate.host),
+      localCandidate.component,
+      localCandidate.transport,
+      candidatePriority(localCandidate.component, "srflx"),
+      response.attributes["XOR-MAPPED-ADDRESS"][0],
+      response.attributes["XOR-MAPPED-ADDRESS"][1],
+      "srflx",
+      localCandidate.host,
+      localCandidate.port
+    );
+  } catch (error) {
+    console.log(error);
+    throw new Error("serverReflexiveCandidate" + error.message);
+  }
 }
