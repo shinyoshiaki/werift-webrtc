@@ -1,10 +1,9 @@
-import { RTCPeerConnection } from "../../../src";
-import { Server } from "ws";
 import {
+  RTCPeerConnection,
   useAbsSendTime,
   useSdesMid,
-  useTransportWideCC,
-} from "../../../src/rtc/extension/rtpExtension";
+} from "../../../packages/webrtc/src";
+import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
 console.log("start");

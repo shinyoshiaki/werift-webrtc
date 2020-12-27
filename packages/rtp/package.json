@@ -1,0 +1,52 @@
+{
+  "name": "werift-rtp",
+  "version": "0.0.3",
+  "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
+  "homepage": "https://github.com/shinyoshiaki/werift-rtp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shinyoshiaki/werift-rtp.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "ci": "yarn type && yarn lint && yarn test",
+    "deploy": "./build.sh && yarn publish",
+    "fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write src/**/*.ts",
+    "lint": "eslint src/**/*.ts",
+    "test": "yarn type && jest --forceExit",
+    "type": "tsc --noEmit -p .",
+    "unused": "organize-imports-cli src/**/*.ts"
+  },
+  "dependencies": {
+    "aes-js": "^3.1.2",
+    "big-integer": "^1.6.48",
+    "binary-data": "^0.6.0",
+    "jspack": "^0.0.4",
+    "lodash": "^4.17.20"
+  },
+  "devDependencies": {
+    "@types/aes-js": "^3.1.1",
+    "@types/big-integer": "^0.0.31",
+    "@types/jest": "^26.0.19",
+    "@types/lodash": "^4.14.165",
+    "@typescript-eslint/eslint-plugin": "^4.10.0",
+    "@typescript-eslint/parser": "^4.10.0",
+    "eslint": "^7.16.0",
+    "eslint-config-prettier": "^7.1.0",
+    "eslint-plugin-prettier": "^3.3.0"
+  },
+  "engines": {
+    "node": ">=10"
+  },
+  "readme": "README.md"
+}

@@ -1,6 +1,9 @@
-import { RTCPeerConnection, RtpTrack } from "../../../src";
+import {
+  RTCPeerConnection,
+  RtpTrack,
+  useSdesRTPStreamID,
+} from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { useSdesRTPStreamID } from "../../../src/rtc/extension/rtpExtension";
 
 const server = new Server({ port: 8888 });
 console.log("start");

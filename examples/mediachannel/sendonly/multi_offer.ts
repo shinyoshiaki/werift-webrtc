@@ -1,8 +1,7 @@
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
-  Direction,
-} from "../../../src";
+} from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
 

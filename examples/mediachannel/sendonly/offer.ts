@@ -1,8 +1,9 @@
-import { RTCPeerConnection } from "../../../src";
+import {
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+} from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { createSocket } from "dgram";
-import { Direction } from "../../../src/rtc/media/rtpTransceiver";
-import { RTCRtpCodecParameters } from "../../../src/rtc/media/parameters";
 
 const server = new Server({ port: 8888 });
 console.log("start");

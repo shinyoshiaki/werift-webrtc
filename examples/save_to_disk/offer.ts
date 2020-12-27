@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 import { Server } from "ws";
 import { exec } from "child_process";
 import { createSocket } from "dgram";
