@@ -26,13 +26,12 @@
   "dependencies": {
     "binary-data": "^0.6.0",
     "jspack": "^0.0.4",
-    "lodash": "^4.17.15",
-    "rx.mini": "^0.1.1",
+    "lodash": "^4.17.20",
+    "rx.mini": "^1.0.1",
     "turbo-crc32": "^1.0.1"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.155",
-    "@typescript-eslint/eslint-plugin": "^4.11.0"
+    "@types/lodash": "^4.14.155"
   },
   "engines": {
     "node": ">=10"
