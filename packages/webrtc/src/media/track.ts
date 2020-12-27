@@ -1,6 +1,6 @@
 import Event from "rx.mini";
-import { Kind } from "../typings/domain";
 import { RtpPacket } from "../../../rtp/src";
+import { Kind } from "../typings/domain";
 
 export class RtpTrack {
   ssrc?: number;

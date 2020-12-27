@@ -1,5 +1,5 @@
-import { Connection, Candidate, IceOptions } from "../../../ice/src";
 import Event from "rx.mini";
+import { Candidate, Connection, IceOptions } from "../../../ice/src";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 export type IceState =

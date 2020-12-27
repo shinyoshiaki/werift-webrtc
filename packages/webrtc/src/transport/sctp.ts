@@ -1,19 +1,19 @@
-import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
+import { jspack } from "jspack";
+import { Event } from "rx.mini";
+import * as uuid from "uuid";
+import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
 import {
-  DATA_CHANNEL_RELIABLE,
-  DATA_CHANNEL_OPEN,
-  WEBRTC_DCEP,
   DATA_CHANNEL_ACK,
-  WEBRTC_STRING,
-  WEBRTC_STRING_EMPTY,
+  DATA_CHANNEL_OPEN,
+  DATA_CHANNEL_RELIABLE,
   WEBRTC_BINARY,
   WEBRTC_BINARY_EMPTY,
+  WEBRTC_DCEP,
+  WEBRTC_STRING,
+  WEBRTC_STRING_EMPTY,
 } from "../const";
-import { jspack } from "jspack";
-import { RTCDtlsTransport, DtlsState } from "./dtls";
-import { Event } from "rx.mini";
-import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
-import * as uuid from "uuid";
+import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
+import { DtlsState, RTCDtlsTransport } from "./dtls";
 
 export class RTCSctpTransport {
   readonly onDataChannel = new Event<[RTCDataChannel]>();

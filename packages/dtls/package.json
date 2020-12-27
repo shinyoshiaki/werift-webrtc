@@ -13,18 +13,16 @@
   },
   "main": "./lib/index.js",
   "scripts": {
-    "build": "tsc",
-    "ci": "yarn type && yarn lint && yarn test",
+    "build": "rm -rf lib && tsc",
+    "ci": "yarn type && yarn test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
-    "fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts",
-    "lint": "eslint src/**/*.ts",
-    "publish": "npm publish --access=public",
+    "dep": "depcheck",
+    "lint": "eslint src/**/*.ts --fix",
+    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
     "test": "jest --forceExit",
     "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts",
-    "dep": "depcheck"
+    "unused": "organize-imports-cli src/**/*.ts"
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",

@@ -20,9 +20,8 @@
     "build": "tsc",
     "ci": "yarn type && yarn lint && yarn test",
     "deploy": "./build.sh && yarn publish",
-    "fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts",
-    "lint": "eslint src/**/*.ts",
+    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "lint": "eslint src/**/*.ts --fix",
     "test": "yarn type && jest --forceExit",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli src/**/*.ts"
@@ -38,12 +37,7 @@
     "@types/aes-js": "^3.1.1",
     "@types/big-integer": "^0.0.31",
     "@types/jest": "^26.0.19",
-    "@types/lodash": "^4.14.165",
-    "@typescript-eslint/eslint-plugin": "^4.10.0",
-    "@typescript-eslint/parser": "^4.10.0",
-    "eslint": "^7.16.0",
-    "eslint-config-prettier": "^7.1.0",
-    "eslint-plugin-prettier": "^3.3.0"
+    "@types/lodash": "^4.14.165"
   },
   "engines": {
     "node": ">=10"

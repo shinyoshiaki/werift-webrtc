@@ -1,17 +1,17 @@
-import { RTCRtpReceiver } from "./rtpReceiver";
-import { RTCRtpSender } from "./rtpSender";
+import debug from "debug";
+import Event from "rx.mini";
+import * as uuid from "uuid";
+import { RtpHeader, RtpPacket } from "../../../rtp/src";
 import { RTCDtlsTransport } from "../transport/dtls";
+import { Kind } from "../typings/domain";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpParameters,
 } from "./parameters";
-import * as uuid from "uuid";
-import { Kind } from "../typings/domain";
+import { RTCRtpReceiver } from "./rtpReceiver";
+import { RTCRtpSender } from "./rtpSender";
 import { RtpTrack } from "./track";
-import Event from "rx.mini";
-import { RtpHeader, RtpPacket } from "../../../rtp/src";
-import debug from "debug";
 
 const log = debug("werift:webrtc:rtpTransceiver");
 
