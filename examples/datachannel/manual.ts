@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 console.log("start");
 
 (async () => {

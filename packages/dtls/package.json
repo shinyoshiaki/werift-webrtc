@@ -1,0 +1,48 @@
+{
+  "name": "werift-dtls",
+  "version": "0.0.6",
+  "description": "DTLS protocol implementation for Node.js written in TypeScript.",
+  "homepage": "https://github.com/shinyoshiaki/werift-dtls",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shinyoshiaki/werift-dtls.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
+  "main": "./lib/index.js",
+  "scripts": {
+    "build": "rm -rf lib && tsc",
+    "ci": "yarn type && yarn test",
+    "client": "ts-node --files --project tsconfig.json examples/client.ts",
+    "dep": "depcheck",
+    "lint": "eslint src/**/*.ts --fix",
+    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "server": "ts-node --files --project tsconfig.json examples/server.ts",
+    "test": "jest --forceExit",
+    "type": "tsc --noEmit -p .",
+    "unused": "organize-imports-cli src/**/*.ts"
+  },
+  "dependencies": {
+    "@fidm/x509": "^1.2.1",
+    "binary-data": "^0.6.0",
+    "elliptic": "^6.5.3",
+    "lodash": "^4.17.20",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/elliptic": "^6.4.12",
+    "@types/lodash": "^4.14.161",
+    "@typescript-eslint/eslint-plugin": "^4.1.1",
+    "@typescript-eslint/parser": "^4.1.1",
+    "depcheck": "^1.2.0",
+    "eslint": "^7.9.0",
+    "eslint-config-prettier": "^6.11.0",
+    "eslint-plugin-prettier": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=10"
+  },
+  "readme": "README.md"
+}

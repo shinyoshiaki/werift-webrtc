@@ -1,0 +1,52 @@
+{
+  "name": "werift-ice",
+  "version": "0.0.1",
+  "description": "> TODO: description",
+  "homepage": "https://github.com/shinyoshiaki/rainy-webrtc/tree/master/packages/ice#readme",
+  "bugs": {
+    "url": "https://github.com/shinyoshiaki/werift-webrtc/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shinyoshiaki/werift-webrtc.git"
+  },
+  "license": "MIT",
+  "author": "shinyoshiaki <shinyoshiaki2012@gmail.com>",
+  "main": "lib/ice.js",
+  "files": [
+    "src",
+    "lib"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && tsc",
+    "deploy": "./build.sh && yarn publish",
+    "format": "yarn unused && yarn lint && prettier --write {src,tests}/**/*.{ts,test.ts}",
+    "lint": "eslint src/**/*.ts --fix",
+    "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
+    "test": "yarn type && jest --runInBand --forceExit",
+    "type": "tsc --noEmit --project ./tsconfig.json",
+    "unused": "organize-imports-cli src/**/*.ts"
+  },
+  "dependencies": {
+    "buffer-crc32": "^0.2.13",
+    "dgram": "^1.0.1",
+    "int64-buffer": "^0.99.1007",
+    "ip": "^1.1.5",
+    "jspack": "^0.0.4",
+    "lodash": "^4.17.20",
+    "p-cancelable": "^2.0.0",
+    "rx.mini": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/buffer-crc32": "^0.2.0",
+    "@types/ip": "^1.1.0",
+    "@types/lodash": "^4.14.161",
+    "@types/utf8": "^2.1.6",
+    "@types/ws": "^7.2.6",
+    "python-shell": "^2.0.1",
+    "ws": "^7.3.1"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
+}

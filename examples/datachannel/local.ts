@@ -1,5 +1,4 @@
-import { RTCPeerConnection } from "../../src";
-import { RTCDataChannel } from "../../src/rtc/dataChannel";
+import { RTCPeerConnection, RTCDataChannel } from "../../packages/webrtc/src";
 
 (async () => {
   const pcOffer = new RTCPeerConnection({});

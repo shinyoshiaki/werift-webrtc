@@ -1,9 +1,14 @@
-import { RTCPeerConnection, RtpTrack } from "../../src";
+import { RTCPeerConnection, RtpTrack } from "../../packages/webrtc/src";
 import { Server } from "ws";
 import { OpusEncoder } from "@discordjs/opus";
-import { RtpHeader, RtpPacket } from "../../src/vendor/rtp";
+import { RtpHeader, RtpPacket } from "../../packages/rtp/src";
 import { Mixer } from "./mixing";
-import { random16, random32, uint16Add, uint32Add } from "../../src/utils";
+import {
+  random16,
+  random32,
+  uint16Add,
+  uint32Add,
+} from "../../packages/webrtc/src/utils";
 
 console.log("start");
 const server = new Server({ port: 8888 });
@@ -88,7 +93,7 @@ server.on("connection", async (socket) => {
     const encoded = encoder.encode(data);
 
     sequenceNumber = uint16Add(sequenceNumber, 1);
-    timestamp = uint32Add(timestamp, 960n);
+    timestamp = uint32Add(timestamp, BigInt(960));
 
     const header = new RtpHeader({
       sequenceNumber,

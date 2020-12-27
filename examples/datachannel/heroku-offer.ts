@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 import io from "socket.io-client";
 
 const socket = io("https://serene-anchorage-28732.herokuapp.com/");

@@ -1,0 +1,41 @@
+{
+  "name": "werift-sctp",
+  "version": "0.0.3",
+  "description": "SCTP protocol implementation for Node.js written in TypeScript.",
+  "homepage": "https://github.com/shinyoshiaki/werift-sctp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shinyoshiaki/werift-sctp.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
+  "main": "./lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "ci": "yarn type && yarn lint && yarn test",
+    "client": "ts-node --files --project tsconfig.json examples/client.ts",
+    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "lint": "eslint **/*.ts --fix",
+    "server": "ts-node --files --project tsconfig.json examples/server.ts",
+    "test": "yarn type && jest --forceExit",
+    "type": "tsc --noEmit -p .",
+    "unused": "organize-imports-cli **/*.ts"
+  },
+  "dependencies": {
+    "binary-data": "^0.6.0",
+    "jspack": "^0.0.4",
+    "lodash": "^4.17.15",
+    "rx.mini": "^0.1.1",
+    "turbo-crc32": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.14.155",
+    "@typescript-eslint/eslint-plugin": "^4.11.0"
+  },
+  "engines": {
+    "node": ">=10"
+  },
+  "readme": "README.md"
+}

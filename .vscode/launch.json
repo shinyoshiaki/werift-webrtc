@@ -5,37 +5,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Jest Tests",
-      "type": "node",
-      "request": "launch",
-      "program": "${workspaceRoot}/node_modules/.bin/jest",
-      "protocol": "inspector",
-      "args": ["--runInBand", "--forceExit"],
-      "windows": {
-        "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
-      },
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
-    },
-    {
-      "name": "Jest Target File",
-      "type": "node",
-      "request": "launch",
-      "program": "${workspaceRoot}/node_modules/.bin/jest",
-      "protocol": "inspector",
-      "args": [
-        "--runInBand",
-        "--forceExit",
-        "--detectOpenHandles",
-        "${workspaceRoot}/tests/rtc/transport/srtp.test.ts"
-      ],
-      "windows": {
-        "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
-      },
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen"
-    },
-    {
       "name": "Jest Target Test",
       "type": "node",
       "request": "launch",
@@ -45,8 +14,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "./tests/rtc/peepConnection.test.ts",
-        "-t rtp_extension"
+        "./packages/ice/tests"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"

@@ -1,8 +1,9 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 import WS from "ws";
 import { PythonShell } from "python-shell";
-import { sleep } from "../../src/helper";
-const WEBSOCKET_URI = "ws://127.0.0.1:8765";
+import { sleep } from "../../packages/webrtc/src/helper";
+
+const WEBSOCKET_URI = "ws://127.0.0.1:8766";
 
 describe("aio_peerConnection", () => {
   test(
@@ -16,7 +17,7 @@ describe("aio_peerConnection", () => {
         }
       );
       const client = PythonShell.run(
-        "tests/python/peerConnection/answer.py",
+        "tests/python/answer.py",
         undefined,
         (err) => {
           if (err) console.log(err);
@@ -40,8 +41,7 @@ describe("aio_peerConnection", () => {
       const ws = new WS(WEBSOCKET_URI);
       await new Promise((r) => ws.once("open", r));
 
-      const offer = pc.createOffer()!;
-      await pc.setLocalDescription(offer);
+      await pc.setLocalDescription(pc.createOffer());
 
       ws.send(JSON.stringify(pc.localDescription));
 

@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../../src";
+import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import express from "express";
 import bodyParser from "body-parser";
 
