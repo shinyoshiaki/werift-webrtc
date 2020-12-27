@@ -32,8 +32,6 @@ jobs:
           sudo apt-get install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev -y
           yarn
           pip install websockets aioice aiortc
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
       - name: test
         run: |
           yarn test
