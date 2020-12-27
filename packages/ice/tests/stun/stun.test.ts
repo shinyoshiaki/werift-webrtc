@@ -126,7 +126,7 @@ describe("stun", () => {
       const request = new Message(methods.BINDING, classes.REQUEST);
       const transaction = new Transaction(
         request,
-        ["127.0.0.1", 1234],
+        ["127.0.0.1", 1239],
         DummyProtocol
       );
 
@@ -137,7 +137,7 @@ describe("stun", () => {
       }
 
       const response = new Message(methods.BINDING, classes.RESPONSE);
-      transaction.responseReceived(response, ["127.0.0.1", 1234]);
+      transaction.responseReceived(response, ["127.0.0.1", 1239]);
     },
     60 * 1000
   );
