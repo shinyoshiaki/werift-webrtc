@@ -1,6 +1,5 @@
 import { Connection, Candidate } from "../../../ice/src";
 import { DtlsServer, DtlsClient } from "../../src";
-import { readFileSync } from "fs";
 import { createIceTransport } from "../../examples/transport/ice";
 
 test("e2e/ice", async (done) => {

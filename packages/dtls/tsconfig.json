@@ -14,5 +14,5 @@
     "noUnusedLocals": false,
     "skipLibCheck": true
   },
-  "include": ["src", "examples", "tests"]
+  "include": ["src"]
 }

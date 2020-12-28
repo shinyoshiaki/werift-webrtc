@@ -13,7 +13,7 @@
   },
   "main": "./lib/index.js",
   "scripts": {
-    "build": "rm -rf lib && tsc",
+    "build": "rm -rf lib && yarn format && tsc",
     "ci": "yarn type && yarn test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
     "dep": "depcheck",

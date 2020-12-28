@@ -13,7 +13,7 @@
   },
   "main": "./lib/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf lib && yarn format && tsc",
     "ci": "yarn type && yarn lint && yarn test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
