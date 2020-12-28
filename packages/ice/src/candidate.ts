@@ -38,7 +38,7 @@ export class Candidate {
       type: bits[7],
     };
 
-    for (let i of range(8, bits.length - 1, 2)) {
+    for (const i of range(8, bits.length - 1, 2)) {
       if (bits[i] === "raddr") {
         (kwargs as any)["related_address"] = bits[i + 1];
       } else if (bits[i] === "rport") {

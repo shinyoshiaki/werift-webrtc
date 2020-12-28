@@ -16,9 +16,8 @@ const TCP_TRANSPORT = 0x06000000;
 const UDP_TRANSPORT = 0x11000000;
 
 class TurnTransport implements Protocol {
-  type = "turn";
-  localCandidate: Candidate | undefined;
-
+  readonly type = "turn";
+  localCandidate?: Candidate;
   receiver?: Connection;
 
   constructor(public turn: TurnClient) {

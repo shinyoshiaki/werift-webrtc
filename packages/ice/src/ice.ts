@@ -46,7 +46,9 @@ export class CandidatePair {
   constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
 
   get localCandidate() {
-    return this.protocol.localCandidate!;
+    if (!this.protocol.localCandidate)
+      throw new Error("localCandidate not exist");
+    return this.protocol.localCandidate;
   }
 
   get remoteAddr(): Address {
@@ -93,9 +95,10 @@ export class Connection {
   useIpv4: boolean;
   useIpv6: boolean;
   options: IceOptions;
-  onData = new Event<[Buffer]>();
+
   remoteCandidatesEnd = false;
-  stateChanged = new Event<[IceState]>();
+  readonly onData = new Event<[Buffer]>();
+  readonly stateChanged = new Event<[IceState]>();
 
   private remoteCandidates_: Candidate[] = [];
 
@@ -596,7 +599,8 @@ export class Connection {
     }
 
     // # query STUN server for server-reflexive candidates (IPv4 only)
-    if (this.stunServer) {
+    const stunServer = this.stunServer;
+    if (stunServer) {
       try {
         const fs = (
           await Promise.all<Candidate | undefined | void>(
@@ -610,7 +614,7 @@ export class Connection {
                   ) {
                     const candidate = await serverReflexiveCandidate(
                       protocol,
-                      this.stunServer!
+                      stunServer
                     ).catch(console.log);
                     if (candidate && cb) cb(candidate);
                     r(candidate);
@@ -627,11 +631,15 @@ export class Connection {
       }
     }
 
-    if (this.options.turnServer) {
+    if (
+      this.options.turnServer &&
+      this.options.turnUsername &&
+      this.options.turnPassword
+    ) {
       const protocol = await createTurnEndpoint(
         this.options.turnServer,
-        this.options.turnUsername!,
-        this.options.turnPassword!
+        this.options.turnUsername,
+        this.options.turnPassword
       );
       this.protocols.push(protocol);
 

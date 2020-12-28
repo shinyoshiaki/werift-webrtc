@@ -8,18 +8,17 @@ import { Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
 
 export class StunProtocol implements Protocol {
-  type = "stun";
+  readonly type = "stun";
+  socket = dgram.createSocket("udp4");
   transactions: { [key: string]: Transaction } = {};
   get transactionsKeys() {
     return Object.keys(this.transactions);
   }
-  localCandidate: Candidate | undefined;
+  localCandidate?: Candidate;
   sentMessage?: Message;
-
   localAddress?: string;
 
-  socket = dgram.createSocket("udp4");
-  private closed = new Event();
+  private readonly closed = new Event();
 
   constructor(public receiver: Connection) {}
 
@@ -109,9 +108,6 @@ export class StunProtocol implements Protocol {
 
     try {
       return await transaction.run();
-      // eslint-disable-next-line no-useless-catch
-    } catch (error) {
-      throw error;
     } finally {
       delete this.transactions[request.transactionIdHex];
     }
