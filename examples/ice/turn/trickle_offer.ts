@@ -6,7 +6,7 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    turnServer: ["relay.backups.cz", 3478],
+    turnServer: ["35.200.71.35", 3478],
     turnUsername: "webrtc",
     turnPassword: "webrtc",
     forceTurn: true,

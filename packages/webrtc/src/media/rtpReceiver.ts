@@ -175,7 +175,9 @@ export class RTCRtpReceiver {
         mediaSsrc,
       }),
     });
-    this.dtlsTransport.sendRtcp([packet]);
+    try {
+      this.dtlsTransport.sendRtcp([packet]);
+    } catch (error) {}
   }
 
   handleRtcpPacket(packet: RtcpPacket) {

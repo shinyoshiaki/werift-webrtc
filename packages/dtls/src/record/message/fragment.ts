@@ -105,7 +105,7 @@ export class FragmentedHandshake {
     // sort by fragment start
     messages = messages.sort((a, b) => a.fragment_offset - b.fragment_offset);
     // combine into a single buffer
-    const combined = Buffer.allocUnsafe(messages[0].length);
+    const combined = Buffer.alloc(messages[0].length);
     for (const msg of messages) {
       msg.fragment.copy(combined, msg.fragment_offset);
     }
