@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -16,6 +16,7 @@
     "name": "shinyoshiaki"
   },
   "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "files": [
     "lib",
     "src"
@@ -25,7 +26,6 @@
     "build": "rm -rf lib && yarn format && rollup -c",
     "demo": "ts-node --files examples/mediachannel/simulcast/select.ts",
     "depcheck": "depcheck --ignores='@typescript-eslint/*,eslint-*'",
-    "deploy": "./build.sh && yarn publish",
     "doc": "rm -rf doc && typedoc --mode file --out doc ./src/**/*.ts",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint src/**/*.ts --fix",
@@ -53,7 +53,7 @@
     "cypress": "^6.2.0",
     "python-shell": "^2.0.3",
     "rollup": "^2.35.1",
-    "typedoc": "^0.19.2"
+    "typedoc": "^0.20.5"
   },
   "engines": {
     "node": ">=14"
