@@ -783,7 +783,7 @@ export class Connection {
     this.stateChanged.execute("closed");
   }
 
-  // 生存確認
+  // 生存確認 life check
   private queryConsent = () =>
     new PCancelable(async (r, f, onCancel) => {
       let failures = 0;
@@ -884,7 +884,11 @@ export class Connection {
 
     // :param data: The data to be sent.
     // """
-    await this.sendTo(data, 1);
+    try {
+      await this.sendTo(data, 1);
+    } catch (error) {
+      throw "Cannot send data, not connected";
+    }
   }
 
   private async sendTo(data: Buffer, component: number) {
@@ -900,7 +904,7 @@ export class Connection {
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
     } else {
-      throw new Error("Cannot send data, not connected");
+      throw "Cannot send data, not connected";
     }
   }
 }
