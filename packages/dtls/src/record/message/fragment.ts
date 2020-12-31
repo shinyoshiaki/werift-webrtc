@@ -65,7 +65,7 @@ export class FragmentedHandshake {
       maxFragmentLength = 1280 - (20 + 8) - (1 + 3 + 2 + 3 + 3);
     }
     // loop through the message and fragment it
-    while (!fragments.length && start < totalLength) {
+    while (start < totalLength) {
       // calculate maximum length, limited by MTU - IP/UDP headers - handshake overhead
       const fragmentLength = Math.min(maxFragmentLength, totalLength - start);
       // slice and dice

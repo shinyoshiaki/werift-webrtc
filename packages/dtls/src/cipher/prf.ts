@@ -38,7 +38,7 @@ export function prfPHash(
   algorithm = "sha256"
 ) {
   const totalLength = requestedLegth;
-  const bufs = [];
+  const bufs: Buffer[] = [];
   let Ai = seed; // A0
 
   do {

@@ -9,25 +9,47 @@ import { Flight6 } from "./flight/server/flight6";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket, Options } from "./socket";
 import { DtlsContext } from "./context/dtls";
+import { CipherContext } from "./context/cipher";
+import { SrtpContext } from "./context/srtp";
 
 export class DtlsServer extends DtlsSocket {
+  bufferHandshakes: FragmentedHandshake[] = [];
+
   constructor(options: Options) {
     super(options, false);
-    this.cipher.certPem = options.cert;
-    this.cipher.keyPem = options.key;
-    this.cipher.sessionType = SessionType.SERVER;
     this.udp.socket.onData = this.udpOnMessage;
+  }
+
+  handleFragmentHandshake(messages: FragmentedHandshake[]) {
+    let handshakes = messages
+      .filter((v) => {
+        if (v.fragment_length !== v.length) {
+          this.bufferHandshakes.push(v);
+          return false;
+        }
+        return true;
+      })
+      .filter((v) => v);
+    if (this.bufferHandshakes.length > 1) {
+      const last = this.bufferHandshakes.slice(-1)[0];
+      if (last.fragment_offset + last.fragment_length === last.length) {
+        handshakes = [...this.bufferHandshakes, ...handshakes];
+        this.bufferHandshakes = [];
+      }
+    }
+    if (handshakes.length > 0) return handshakes;
+    return;
   }
 
   private udpOnMessage = (data: Buffer) => {
     const messages = parsePacket(this.dtls, this.cipher)(data);
-    if (messages.length === 0) return;
     switch (messages[0].type) {
       case ContentType.handshake:
         {
-          this.handleHandshakes(
+          const handshakes = this.handleFragmentHandshake(
             messages.map((v) => v.data as FragmentedHandshake).filter((v) => v)
           );
+          if (handshakes) this.handleHandshakes(handshakes);
         }
         break;
       case ContentType.applicationData:
@@ -46,20 +68,32 @@ export class DtlsServer extends DtlsSocket {
       case HandshakeType.client_hello:
         {
           const assemble = FragmentedHandshake.assemble(handshakes);
-          const clientHello = ClientHello.deSerialize(assemble.fragment);
 
-          if (
-            this.dtls &&
-            this.dtls.cookie &&
-            this.dtls.cookie.equals(clientHello.cookie)
-          ) {
+          const clientHello = ClientHello.deSerialize(assemble.fragment);
+          const context = this.contexts[clientHello.cookie.toString("hex")];
+          if (context && !this.dtls) {
+            this.dtls = context.dtls;
+            this.cipher = context.cipher;
+            this.srtp = context.srtp;
+            this.contexts = {};
             new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
               assemble,
               this.options.certificateRequest
             );
           } else {
-            this.dtls = new DtlsContext(this.options);
-            flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
+            const dtls = new DtlsContext(this.options);
+            const cipher = new CipherContext(
+              this.options.cert,
+              this.options.key,
+              SessionType.SERVER
+            );
+            const srtp = new SrtpContext();
+            flight2(this.udp, dtls, cipher, srtp)(clientHello);
+            this.contexts[dtls.cookie!.toString("hex")] = {
+              dtls,
+              cipher,
+              srtp,
+            };
           }
         }
         break;

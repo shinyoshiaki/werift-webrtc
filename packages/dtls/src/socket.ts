@@ -20,8 +20,8 @@ import { decode, types } from "binary-data";
 export type Options = {
   transport: Transport;
   srtpProfiles?: number[];
-  cert?: string;
-  key?: string;
+  cert: string;
+  key: string;
   certificateRequest?: boolean;
 };
 
@@ -30,9 +30,16 @@ export class DtlsSocket {
   onData: (buf: Buffer) => void = () => {};
   onClose: () => void = () => {};
   udp: TransportContext;
+  contexts: {
+    [cookie_hex: string]: {
+      dtls: DtlsContext;
+      cipher: CipherContext;
+      srtp: SrtpContext;
+    };
+  } = {};
   dtls!: DtlsContext;
-  cipher = new CipherContext();
-  srtp = new SrtpContext();
+  cipher!: CipherContext;
+  srtp!: SrtpContext;
   extensions: Extension[] = [];
 
   constructor(public options: Options, public isClient: boolean) {

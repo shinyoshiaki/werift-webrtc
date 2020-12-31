@@ -23,7 +23,7 @@ function hmac(algorithm: string, secret: Buffer, data: Buffer) {
  */
 function pHash(bytes: number, algorithm: string, secret: Buffer, seed: Buffer) {
   const totalLength = bytes;
-  const bufs = [];
+  const bufs: Buffer[] = [];
   let Ai = seed; // A0
 
   do {
