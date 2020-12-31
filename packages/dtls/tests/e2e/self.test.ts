@@ -21,6 +21,8 @@ test("e2e/self", (done) => {
       address: "127.0.0.1",
       port,
     }),
+    cert: "",
+    key: "",
   });
   client.onConnect = () => {
     client.send(Buffer.from(word));

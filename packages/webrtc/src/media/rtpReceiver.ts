@@ -56,11 +56,11 @@ export class RTCRtpReceiver {
       const reports = [];
       const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
-      const error = await this.dtlsTransport.sendRtcp([packet]).catch(() => {
-        console.log("receiver send rtcp error");
-        return true;
-      });
-      if (error) await sleep(500 + Math.random() * 1000);
+      try {
+        await this.dtlsTransport.sendRtcp([packet]);
+      } catch (error) {
+        await sleep(500 + Math.random() * 1000);
+      }
     }
   }
 
@@ -168,14 +168,16 @@ export class RTCRtpReceiver {
     }
   }
 
-  sendRtcpPLI(mediaSsrc: number) {
+  async sendRtcpPLI(mediaSsrc: number) {
     const packet = new RtcpPayloadSpecificFeedback({
       feedback: new PictureLossIndication({
         senderSsrc: this.rtcpSsrc,
         mediaSsrc,
       }),
     });
-    this.dtlsTransport.sendRtcp([packet]);
+    try {
+      await this.dtlsTransport.sendRtcp([packet]);
+    } catch (error) {}
   }
 
   handleRtcpPacket(packet: RtcpPacket) {

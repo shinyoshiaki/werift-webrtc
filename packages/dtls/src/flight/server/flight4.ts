@@ -9,7 +9,7 @@ import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { SignatureAlgorithm, HashAlgorithm } from "../../cipher/const";
 import { ContentType } from "../../record/const";
-import { Handshake } from "../../typings/domain";
+import { Extension, Handshake } from "../../typings/domain";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 import { SrtpContext } from "../../context/srtp";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
@@ -66,7 +66,7 @@ export class Flight4 extends Flight {
     if (!this.cipher.localRandom || !this.cipher.cipherSuite)
       throw new Error("");
 
-    const extensions = [];
+    const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
       extensions.push(
         UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension

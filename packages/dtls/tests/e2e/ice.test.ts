@@ -81,7 +81,11 @@ test("e2e/ice", async (done) => {
   dtlsServer.onConnect = () => {
     dtlsServer.send(Buffer.from("dtls_over_ice"));
   };
-  const dtlsClient = new DtlsClient({ transport: createIceTransport(answer) });
+  const dtlsClient = new DtlsClient({
+    transport: createIceTransport(answer),
+    key: "",
+    cert: "",
+  });
   dtlsClient.onData = (buf) => {
     expect(buf.toString()).toBe("dtls_over_ice");
     done();

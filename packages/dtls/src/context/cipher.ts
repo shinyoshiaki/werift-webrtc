@@ -10,7 +10,6 @@ import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
 
 export class CipherContext {
-  sessionType?: SessionType;
   localRandom?: DtlsRandom;
   remoteRandom?: DtlsRandom;
   cipherSuite?: number;
@@ -21,8 +20,12 @@ export class CipherContext {
   cipher?: AEADCipher;
   namedCurve?: number;
   localPrivateKey?: PrivateKey;
-  certPem?: string;
-  keyPem?: string;
+
+  constructor(
+    public certPem: string,
+    public keyPem: string,
+    public sessionType: SessionType
+  ) {}
 
   encryptPacket(pkt: DtlsPlaintext) {
     if (!this.cipher || !this.sessionType) throw new Error();
