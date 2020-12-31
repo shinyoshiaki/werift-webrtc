@@ -159,7 +159,7 @@ export class RTCDtlsTransport {
     try {
       await this.iceTransport.connection.send(enc);
     } catch (error) {
-      throw "dtls";
+      throw new Error("ice");
     }
   }
 

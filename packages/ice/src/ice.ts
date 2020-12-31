@@ -884,11 +884,7 @@ export class Connection {
 
     // :param data: The data to be sent.
     // """
-    try {
-      await this.sendTo(data, 1);
-    } catch (error) {
-      throw "Cannot send data, not connected";
-    }
+    await this.sendTo(data, 1);
   }
 
   private async sendTo(data: Buffer, component: number) {
@@ -904,7 +900,7 @@ export class Connection {
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
     } else {
-      throw "Cannot send data, not connected";
+      throw new Error("Cannot send data, not connected");
     }
   }
 }
