@@ -34,7 +34,10 @@ describe("socket", () => {
     ]);
     const rand = Buffer.alloc(28);
 
-    const socket = new DtlsSocket({ transport: createSocket("udp4") }, false);
+    const socket = new DtlsSocket(
+      { transport: createSocket("udp4"), key: "", cert: "" },
+      false
+    );
     socket.cipher = new CipherContext("", "", SessionType.CLIENT);
     socket.cipher.localRandom = new DtlsRandom(500, rand);
     socket.cipher.remoteRandom = new DtlsRandom(1000, rand);

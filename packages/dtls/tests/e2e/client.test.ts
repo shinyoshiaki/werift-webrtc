@@ -25,6 +25,8 @@ describe("e2e/client", () => {
           address: "127.0.0.1",
           port: 55555,
         }),
+        cert: "",
+        key: "",
       });
       client.onConnect = () => {
         client.send(Buffer.from("my_dtls"));
