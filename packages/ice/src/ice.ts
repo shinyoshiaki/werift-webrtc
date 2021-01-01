@@ -962,7 +962,8 @@ async function serverReflexiveCandidate(
   try {
     const [response] = await protocol.request(request, stunServer);
 
-    const localCandidate = protocol.localCandidate!;
+    const localCandidate = protocol.localCandidate;
+    if (!localCandidate) throw new Error();
     return new Candidate(
       candidateFoundation("srflx", "udp", localCandidate.host),
       localCandidate.component,

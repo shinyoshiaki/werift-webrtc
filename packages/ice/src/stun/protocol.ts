@@ -28,7 +28,7 @@ export class StunProtocol implements Protocol {
     }
   }
 
-  connectionLost(exc: any) {
+  connectionLost() {
     this.closed.execute();
     this.closed.complete();
   }

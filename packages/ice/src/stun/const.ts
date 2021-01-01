@@ -7,7 +7,7 @@ export const IPV4_PROTOCOL = 1;
 export const IPV6_PROTOCOL = 2;
 
 export const RETRY_MAX = 6;
-export const RETRY_RTO = 20;
+export const RETRY_RTO = 50;
 
 export const ATTRIBUTES = [
   "FINGERPRINT",

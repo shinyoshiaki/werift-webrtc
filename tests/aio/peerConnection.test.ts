@@ -10,14 +10,14 @@ describe("aio_peerConnection", () => {
     "aio_datachannel",
     async (done) => {
       const server = PythonShell.run(
-        "tests/python/signaling-server.py",
+        "tests/aio/python/signaling-server.py",
         undefined,
         (err) => {
           if (err) console.log(err);
         }
       );
       const client = PythonShell.run(
-        "tests/python/answer.py",
+        "tests/aio/python/answer.py",
         undefined,
         (err) => {
           if (err) console.log(err);
