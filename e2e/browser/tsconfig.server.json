@@ -17,5 +17,5 @@
     "strictNullChecks": false,
     "noImplicitAny": false
   },
-  "include": ["e2e"]
+  "include": ["server"]
 }

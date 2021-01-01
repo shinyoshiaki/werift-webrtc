@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["esnext", "ES2020"],
+    "lib": ["esnext", "ES2020", "DOM"],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
@@ -17,5 +17,5 @@
     "strictNullChecks": false,
     "noImplicitAny": false
   },
-  "include": ["e2e"]
+  "include": ["tests"]
 }
