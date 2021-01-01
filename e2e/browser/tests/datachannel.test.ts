@@ -4,7 +4,9 @@ const http = axios.create({ baseURL: "http://localhost:8886" });
 
 describe("datachannel", () => {
   it("answer", async (done) => {
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
     const offer = (await http.post("/datachannel-answer")).data;
     await pc.setRemoteDescription(offer);
     await pc.setLocalDescription(await pc.createAnswer());
@@ -26,7 +28,9 @@ describe("datachannel", () => {
   });
 
   it("offer", async (done) => {
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
     const channel = pc.createDataChannel("dc");
     channel.onopen = () => {
       channel.send("ping");

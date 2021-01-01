@@ -4,10 +4,10 @@
   "license": "MIT",
   "main": "index.js",
   "scripts": {
-    "ci": "yarn prod:build && run-p prod:server prod:test",
+    "build": "tsc -p tsconfig.server.json",
+    "ci": "yarn build && run-p prod:server prod:test",
     "dev:server": "ts-node-dev ./server/main.ts",
     "dev:test": "karma start",
-    "prod:build": "tsc -p tsconfig.server.json",
     "prod:server": "node lib/e2e/browser/server/main.js",
     "prod:test": "karma start --single-run && node stop.js"
   },
