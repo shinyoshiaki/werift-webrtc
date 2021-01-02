@@ -1,7 +1,8 @@
 import { waitVideoPlay } from "../../tests/fixture";
-import axios from "axios";
+import { WebSocketTransport, Peer } from "protoo-client";
 
-const http = axios.create({ baseURL: "https://127.0.0.1:8886" });
+const transport = new WebSocketTransport("ws://localhost:8886");
+const peer = new Peer(transport);
 
 (async () => {
   const pc = new RTCPeerConnection({
@@ -16,13 +17,21 @@ const http = axios.create({ baseURL: "https://127.0.0.1:8886" });
   ).getTracks();
   pc.addTrack(track);
 
-  const offer = (await http.post("/mediachannel_sendrecv_answer")).data;
+  const offer = await peer.request("mediachannel_sendrecv_answer", {
+    type: "init",
+  });
   await pc.setRemoteDescription(offer);
   await pc.setLocalDescription(await pc.createAnswer());
 
   pc.onicecandidate = ({ candidate }) => {
-    http.post("/mediachannel_sendrecv_answer/candidate", candidate);
+    peer.request("mediachannel_sendrecv_answer", {
+      type: "candidate",
+      payload: candidate,
+    });
   };
 
-  http.post("/mediachannel_sendrecv_answer/answer", pc.localDescription);
+  peer.request("mediachannel_sendrecv_answer", {
+    type: "answer",
+    payload: pc.localDescription,
+  });
 })();

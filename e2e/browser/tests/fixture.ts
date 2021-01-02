@@ -23,6 +23,7 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
     const data = await digestMessage(
       context.getImageData(0, 0, canvas.width, canvas.height).data
     );
+
     if (snapshot !== data) break;
   }
 }

@@ -1,57 +1,68 @@
-import { Express } from "express";
+import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../../../../packages/webrtc/src";
 
-export function datachannel(app: Express) {
-  answer(app);
-  offer(app);
+export class datachannel_answer_ {
+  pc!: RTCPeerConnection;
+
+  async exec(type: string, payload: any, accept: AcceptFn) {
+    switch (type) {
+      case "init":
+        {
+          this.pc = new RTCPeerConnection({
+            stunServer: ["stun.l.google.com", 19302],
+          });
+          const dc = this.pc.createDataChannel("dc");
+          dc.message.subscribe((msg) => {
+            dc.send(msg + "pong");
+          });
+          await this.pc.setLocalDescription(this.pc.createOffer());
+          accept(this.pc.localDescription);
+        }
+        break;
+      case "candidate":
+        {
+          await this.pc.addIceCandidate(payload);
+          accept({});
+        }
+        break;
+      case "answer":
+        {
+          await this.pc.setRemoteDescription(payload);
+          accept({});
+        }
+        break;
+    }
+  }
 }
 
-function answer(app: Express) {
-  let pc: RTCPeerConnection;
-  app.post("/datachannel_answer", async (req, res) => {
-    pc = new RTCPeerConnection({
-      stunServer: ["stun.l.google.com", 19302],
-    });
-    const dc = pc.createDataChannel("dc");
-    dc.message.subscribe((msg) => {
-      dc.send(msg + "pong");
-    });
-    await pc.setLocalDescription(pc.createOffer());
-    res.send(JSON.stringify(pc.localDescription));
-  });
-  app.post("/datachannel_answer/candidate", async (req, res) => {
-    const candidate = req.body;
-    await pc.addIceCandidate(candidate);
-    res.send();
-  });
-  app.post("/datachannel_answer/answer", async (req, res) => {
-    const answer = req.body;
-    await pc.setRemoteDescription(answer);
-    res.send();
-  });
-}
+export class datachannel_offer_ {
+  pc!: RTCPeerConnection;
 
-function offer(app: Express) {
-  let pc: RTCPeerConnection;
-  app.post("/datachannel_offer", async (req, res) => {
-    const offer = req.body;
-    pc = new RTCPeerConnection({
-      stunServer: ["stun.l.google.com", 19302],
-    });
-    await pc.setRemoteDescription(offer);
-    await pc.setLocalDescription(pc.createAnswer());
+  async exec(type: string, payload: any, accept: AcceptFn) {
+    switch (type) {
+      case "init":
+        {
+          this.pc = new RTCPeerConnection({
+            stunServer: ["stun.l.google.com", 19302],
+          });
+          await this.pc.setRemoteDescription(payload);
+          await this.pc.setLocalDescription(this.pc.createAnswer());
 
-    pc.onDataChannel.subscribe((dc) => {
-      dc.message.subscribe((msg) => {
-        dc.send(msg + "pong");
-      });
-    });
+          this.pc.onDataChannel.subscribe((dc) => {
+            dc.message.subscribe((msg) => {
+              dc.send(msg + "pong");
+            });
+          });
 
-    res.send(JSON.stringify(pc.localDescription));
-  });
-  app.post("/datachannel_offer/candidate", async (req, res) => {
-    const candidate = req.body;
-    await pc.addIceCandidate(candidate);
-    res.send();
-  });
+          accept(this.pc.localDescription);
+        }
+        break;
+      case "candidate":
+        {
+          await this.pc.addIceCandidate(payload);
+          accept({});
+        }
+        break;
+    }
+  }
 }
