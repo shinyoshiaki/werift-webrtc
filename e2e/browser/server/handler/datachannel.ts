@@ -8,7 +8,7 @@ export function datachannel(app: Express) {
 
 function answer(app: Express) {
   let pc: RTCPeerConnection;
-  app.post("/datachannel-answer", async (req, res) => {
+  app.post("/datachannel_answer", async (req, res) => {
     pc = new RTCPeerConnection({
       stunServer: ["stun.l.google.com", 19302],
     });
@@ -19,12 +19,12 @@ function answer(app: Express) {
     await pc.setLocalDescription(pc.createOffer());
     res.send(JSON.stringify(pc.localDescription));
   });
-  app.post("/datachannel-answer/candidate", async (req, res) => {
+  app.post("/datachannel_answer/candidate", async (req, res) => {
     const candidate = req.body;
     await pc.addIceCandidate(candidate);
     res.send();
   });
-  app.post("/datachannel-answer/answer", async (req, res) => {
+  app.post("/datachannel_answer/answer", async (req, res) => {
     const answer = req.body;
     await pc.setRemoteDescription(answer);
     res.send();
@@ -33,7 +33,7 @@ function answer(app: Express) {
 
 function offer(app: Express) {
   let pc: RTCPeerConnection;
-  app.post("/datachannel-offer", async (req, res) => {
+  app.post("/datachannel_offer", async (req, res) => {
     const offer = req.body;
     pc = new RTCPeerConnection({
       stunServer: ["stun.l.google.com", 19302],
@@ -49,7 +49,7 @@ function offer(app: Express) {
 
     res.send(JSON.stringify(pc.localDescription));
   });
-  app.post("/datachannel-offer/candidate", async (req, res) => {
+  app.post("/datachannel_offer/candidate", async (req, res) => {
     const candidate = req.body;
     await pc.addIceCandidate(candidate);
     res.send();

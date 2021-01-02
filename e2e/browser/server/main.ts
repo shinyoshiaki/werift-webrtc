@@ -1,5 +1,6 @@
 import express from "express";
 import { datachannel } from "./handler/datachannel";
+import { mediachannel_sendrecv } from "./handler/mediachannel/sendrecv";
 
 const app = express();
 app.use(express.json());
@@ -21,5 +22,6 @@ app.put("/stop", (_, res) => {
 });
 
 datachannel(app);
+mediachannel_sendrecv(app);
 
 console.log("start");

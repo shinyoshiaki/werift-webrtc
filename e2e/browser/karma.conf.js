@@ -11,7 +11,7 @@ module.exports = function (config) {
     frameworks: ["jasmine", "karma-typescript"],
 
     // list of files / patterns to load in the browser
-    files: ["tests/**/*test.ts"],
+    files: ["tests/**/*.ts"],
 
     // list of files / patterns to exclude
     exclude: [],
@@ -47,6 +47,13 @@ module.exports = function (config) {
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
         ],
+      },
+      firefox_with_fake_device: {
+        base: "FirefoxHeadless",
+        prefs: {
+          "media.navigator.permission.disabled": true,
+          "media.navigator.streams.fake": true,
+        },
       },
     },
     browsers: ["chrome_with_fake_device"],
