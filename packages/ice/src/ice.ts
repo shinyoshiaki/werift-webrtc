@@ -7,7 +7,7 @@ import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { TransactionError } from "./exceptions";
-import { Address, Protocol } from "./typings/model";
+import { Address, Protocol } from "./types/model";
 import { createTurnEndpoint } from "./turn/protocol";
 import {
   difference,
@@ -36,29 +36,7 @@ export enum CandidatePairState {
   FAILED = 4,
 }
 
-export class CandidatePair {
-  handle?: Future;
-  nominated = false;
-  remoteNominated = false;
-  // 5.7.4.  Computing States
-  state = CandidatePairState.FROZEN;
-
-  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
-
-  get localCandidate() {
-    if (!this.protocol.localCandidate)
-      throw new Error("localCandidate not exist");
-    return this.protocol.localCandidate;
-  }
-
-  get remoteAddr(): Address {
-    return [this.remoteCandidate.host, this.remoteCandidate.port];
-  }
-
-  get component() {
-    return this.localCandidate.component;
-  }
-}
+type IceState = "disconnected" | "closed" | "completed";
 
 export type IceOptions = {
   components: number;
@@ -81,8 +59,6 @@ const defaultOptions: IceOptions = {
   log: false,
 };
 
-type IceState = "disconnected" | "closed" | "completed";
-
 export class Connection {
   remotePassword: string = "";
   remoteUsername: string = "";
@@ -95,13 +71,15 @@ export class Connection {
   useIpv4: boolean;
   useIpv6: boolean;
   options: IceOptions;
-
   remoteCandidatesEnd = false;
-  readonly onData = new Event<[Buffer]>();
+  _components: Set<number>;
+  _localCandidatesEnd = false;
+  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
+
+  readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
 
   private remoteCandidates_: Candidate[] = [];
-
   // P2P接続完了したソケット
   private nominated: { [key: number]: CandidatePair } = {};
   get nominatedKeys() {
@@ -117,9 +95,7 @@ export class Connection {
   private localCandidatesStart = false;
   private protocols: Protocol[] = [];
   private queryConsentHandle?: Future;
-  _components: Set<number>;
-  _localCandidatesEnd = false;
-  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
+  private promiseGatherCandidates?: Event<[]>;
 
   constructor(public iceControlling: boolean, options?: Partial<IceOptions>) {
     this.options = {
@@ -131,6 +107,130 @@ export class Connection {
     this.useIpv4 = useIpv4;
     this.useIpv6 = useIpv6;
     this._components = new Set(range(1, components + 1));
+  }
+
+  async gatherCandidates(cb?: (candidate: Candidate) => void) {
+    if (!this.localCandidatesStart) {
+      this.localCandidatesStart = true;
+      this.promiseGatherCandidates = new Event();
+
+      const address = getHostAddress(this.useIpv4, this.useIpv6);
+      for (const component of this._components) {
+        const candidates = await this.getComponentCandidates(
+          component,
+          address,
+          5,
+          cb
+        );
+        this.localCandidates = [...this.localCandidates, ...candidates];
+      }
+
+      this._localCandidatesEnd = true;
+      this.promiseGatherCandidates.execute();
+    }
+  }
+
+  private async getComponentCandidates(
+    component: number,
+    addresses: string[],
+    timeout = 5,
+    cb?: (candidate: Candidate) => void
+  ) {
+    let candidates: Candidate[] = [];
+
+    for (const address of addresses) {
+      // # create transport
+      const protocol = new StunProtocol(this);
+      await protocol.connectionMade(isIPv4(address));
+      protocol.localAddress = address;
+      this.protocols.push(protocol);
+
+      // # add host candidate
+      const candidateAddress = protocol.getExtraInfo;
+
+      protocol.localCandidate = new Candidate(
+        candidateFoundation("host", "udp", candidateAddress[0]),
+        component,
+        "udp",
+        candidatePriority(component, "host"),
+        candidateAddress[0],
+        candidateAddress[1],
+        "host"
+      );
+
+      candidates.push(protocol.localCandidate);
+      if (cb) cb(protocol.localCandidate);
+    }
+
+    // # query STUN server for server-reflexive candidates (IPv4 only)
+    const stunServer = this.stunServer;
+    if (stunServer) {
+      try {
+        const srflxCandidates = (
+          await Promise.all<Candidate | void>(
+            this.protocols.map(
+              (protocol) =>
+                new Promise(async (r, f) => {
+                  setTimeout(f, timeout * 1000);
+                  if (
+                    protocol.localCandidate?.host &&
+                    isIPv4(protocol.localCandidate?.host)
+                  ) {
+                    const candidate = await serverReflexiveCandidate(
+                      protocol,
+                      stunServer
+                    ).catch(console.log);
+                    if (candidate && cb) cb(candidate);
+                    r(candidate);
+                  } else {
+                    r();
+                  }
+                })
+            )
+          )
+        ).filter((v) => v) as Candidate[];
+        candidates = [...candidates, ...srflxCandidates];
+      } catch (error) {
+        this.log("query STUN server", error);
+      }
+    }
+
+    if (
+      this.options.turnServer &&
+      this.options.turnUsername &&
+      this.options.turnPassword
+    ) {
+      const protocol = await createTurnEndpoint(
+        this.options.turnServer,
+        this.options.turnUsername,
+        this.options.turnPassword
+      );
+      this.protocols.push(protocol);
+
+      const candidateAddress = protocol.turn.relayedAddress;
+      const relatedAddress = protocol.turn.mappedAddress;
+
+      protocol.localCandidate = new Candidate(
+        candidateFoundation("relay", "udp", candidateAddress[0]),
+        component,
+        "udp",
+        candidatePriority(component, "relay"),
+        candidateAddress[0],
+        candidateAddress[1],
+        "relay",
+        relatedAddress[0],
+        relatedAddress[1]
+      );
+      protocol.receiver = this;
+
+      if (this.options.forceTurn) {
+        candidates = [];
+      }
+
+      candidates.push(protocol.localCandidate);
+    }
+
+    return candidates;
   }
 
   private log(...args: any[]) {
@@ -170,15 +270,12 @@ export class Connection {
     }
   }
 
-  sortCheckList() {
+  private sortCheckList() {
     sortCandidatePairs(this.checkList, this.iceControlling);
   }
 
   dataReceived(data: Buffer, component: number) {
-    this.log("dataReceived", data, component);
-
-    // data stream
-    this.onData.execute(data);
+    this.onData.execute(data, component);
   }
 
   private findPair(protocol: Protocol, remoteCandidate: Candidate) {
@@ -200,11 +297,11 @@ export class Connection {
     return candidate;
   }
 
-  checkState(pair: CandidatePair, state: CandidatePairState) {
+  private checkState(pair: CandidatePair, state: CandidatePairState) {
     pair.state = state;
   }
 
-  buildRequest(pair: CandidatePair, nominate: boolean) {
+  private buildRequest(pair: CandidatePair, nominate: boolean) {
     const txUsername = `${this.remoteUsername}:${this.localUserName}`;
     const request = new Message(methods.BINDING, classes.REQUEST);
     request.attributes["USERNAME"] = txUsername;
@@ -220,12 +317,12 @@ export class Connection {
     return request;
   }
 
-  switchRole(iceControlling: boolean) {
+  private switchRole(iceControlling: boolean) {
     this.iceControlling = iceControlling;
     this.sortCheckList();
   }
 
-  checkComplete(pair: CandidatePair) {
+  private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
       if (pair.nominated) {
@@ -484,7 +581,7 @@ export class Connection {
     }
   };
 
-  respondError(
+  private respondError(
     request: Message,
     addr: Address,
     protocol: Protocol,
@@ -566,131 +663,6 @@ export class Connection {
     }
   }
 
-  private async getComponentCandidates(
-    component: number,
-    addresses: string[],
-    timeout = 5,
-    cb?: (candidate: Candidate) => void
-  ) {
-    let candidates: Candidate[] = [];
-
-    for (const address of addresses) {
-      // # create transport
-      const protocol = new StunProtocol(this);
-      await protocol.connectionMade(isIPv4(address));
-      protocol.localAddress = address;
-      this.protocols.push(protocol);
-
-      // # add host candidate
-      const candidateAddress = protocol.getExtraInfo;
-
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("host", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "host"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "host"
-      );
-
-      candidates.push(protocol.localCandidate);
-      if (cb) cb(protocol.localCandidate);
-    }
-
-    // # query STUN server for server-reflexive candidates (IPv4 only)
-    const stunServer = this.stunServer;
-    if (stunServer) {
-      try {
-        const fs = (
-          await Promise.all<Candidate | undefined | void>(
-            this.protocols.map(
-              (protocol) =>
-                new Promise(async (r, f) => {
-                  setTimeout(f, timeout * 1000);
-                  if (
-                    protocol.localCandidate?.host &&
-                    isIPv4(protocol.localCandidate?.host)
-                  ) {
-                    const candidate = await serverReflexiveCandidate(
-                      protocol,
-                      stunServer
-                    ).catch(console.log);
-                    if (candidate && cb) cb(candidate);
-                    r(candidate);
-                  } else {
-                    r(undefined);
-                  }
-                })
-            )
-          )
-        ).filter((v) => v) as Candidate[];
-        candidates = [...candidates, ...fs];
-      } catch (error) {
-        this.log("query STUN server", error);
-      }
-    }
-
-    if (
-      this.options.turnServer &&
-      this.options.turnUsername &&
-      this.options.turnPassword
-    ) {
-      const protocol = await createTurnEndpoint(
-        this.options.turnServer,
-        this.options.turnUsername,
-        this.options.turnPassword
-      );
-      this.protocols.push(protocol);
-
-      const candidateAddress = protocol.turn.relayedAddress!;
-      const relatedAddress = protocol.turn.mappedAddress!;
-
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("relay", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "relay"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "relay",
-        relatedAddress[0],
-        relatedAddress[1]
-      );
-      protocol.receiver = this;
-
-      if (this.options.forceTurn) {
-        candidates = [];
-      }
-
-      candidates.push(protocol.localCandidate);
-    }
-
-    return candidates;
-  }
-
-  promiseGatherCandidates?: Event<[]>;
-  async gatherCandidates(cb?: (candidate: Candidate) => void) {
-    if (!this.localCandidatesStart) {
-      this.localCandidatesStart = true;
-      this.promiseGatherCandidates = new Event();
-
-      const address = getHostAddress(this.useIpv4, this.useIpv6);
-      for (const component of this._components) {
-        const candidates = await this.getComponentCandidates(
-          component,
-          address,
-          5,
-          cb
-        );
-        this.localCandidates = [...this.localCandidates, ...candidates];
-      }
-
-      this._localCandidatesEnd = true;
-      this.promiseGatherCandidates.execute();
-    }
-  }
-
   private unfreezeInitial() {
     // # unfreeze first pair for the first component
     const firstPair = this.checkList.find(
@@ -716,7 +688,7 @@ export class Connection {
   }
 
   // 5.8 Scheduling Checks
-  schedulingChecks() {
+  private schedulingChecks() {
     // Ordinary Check
     {
       // # find the highest-priority pair that is in the waiting state
@@ -839,6 +811,7 @@ export class Connection {
       if (!this.localCandidatesStart)
         throw new Error("Local candidates gathering was not performed");
       if (this.promiseGatherCandidates)
+        // wait for GatherCandidates finish
         await this.promiseGatherCandidates.asPromise();
     }
     if (!this.remoteUsername || !this.remotePassword)
@@ -905,7 +878,31 @@ export class Connection {
   }
 }
 
-function validateRemoteCandidate(candidate: Candidate) {
+export class CandidatePair {
+  handle?: Future;
+  nominated = false;
+  remoteNominated = false;
+  // 5.7.4.  Computing States
+  state = CandidatePairState.FROZEN;
+
+  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
+
+  get localCandidate() {
+    if (!this.protocol.localCandidate)
+      throw new Error("localCandidate not exist");
+    return this.protocol.localCandidate;
+  }
+
+  get remoteAddr(): Address {
+    return [this.remoteCandidate.host, this.remoteCandidate.port];
+  }
+
+  get component() {
+    return this.localCandidate.component;
+  }
+}
+
+export function validateRemoteCandidate(candidate: Candidate) {
   // """
   // Check the remote candidate is supported.
 
@@ -919,7 +916,10 @@ function validateRemoteCandidate(candidate: Candidate) {
   return candidate;
 }
 
-function sortCandidatePairs(pairs: CandidatePair[], iceControlling: boolean) {
+export function sortCandidatePairs(
+  pairs: CandidatePair[],
+  iceControlling: boolean
+) {
   pairs.sort(
     (a, b) =>
       candidatePairPriority(
@@ -932,7 +932,7 @@ function sortCandidatePairs(pairs: CandidatePair[], iceControlling: boolean) {
 }
 
 // 5.7.2.  Computing Pair Priority and Ordering Pairs
-function candidatePairPriority(
+export function candidatePairPriority(
   local: Candidate,
   remote: Candidate,
   iceControlling: boolean
@@ -949,7 +949,7 @@ export function getHostAddress(useIpv4: boolean, useIpv6: boolean) {
   return address;
 }
 
-async function serverReflexiveCandidate(
+export async function serverReflexiveCandidate(
   protocol: Protocol,
   stunServer: Address
 ) {
@@ -976,7 +976,6 @@ async function serverReflexiveCandidate(
       localCandidate.port
     );
   } catch (error) {
-    console.log(error);
     throw new Error("serverReflexiveCandidate" + error.message);
   }
 }

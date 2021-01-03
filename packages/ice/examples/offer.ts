@@ -26,7 +26,7 @@ const reader = readline.createInterface({
   reader.prompt();
 
   // send offer
-  await new Promise((r) => {
+  await new Promise<void>((r) => {
     const listen = async (line: string) => {
       const { candidates, name, pass } = JSON.parse(line);
       connection.remoteCandidates = candidates.map((v: any) =>
@@ -42,11 +42,11 @@ const reader = readline.createInterface({
   });
 
   // connect
-  await new Promise((r) => {
+  await new Promise<void>((r) => {
     const listen = async (line: string) => {
       if (line.length === 0) {
         await connection.connect();
-        console.log((await connection.recv()).toString());
+        await connection.onData.asPromise();
         await connection.send(Buffer.from("offer"));
         reader.prompt();
         reader.removeListener("line", listen);

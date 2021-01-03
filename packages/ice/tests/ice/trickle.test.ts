@@ -27,7 +27,7 @@ describe("IceTrickleTest", () => {
 
     const addCandidatesLater = async (a: Connection, b: Connection) => {
       await sleep(100);
-      for (let candidate of b.localCandidates) {
+      for (const candidate of b.localCandidates) {
         a.addRemoteCandidate(candidate);
         await sleep(100);
       }
@@ -43,13 +43,13 @@ describe("IceTrickleTest", () => {
 
     // # send data a -> b
     await a.send(Buffer.from("howdee"));
-    let data = (await b.onData.asPromise()).toString();
-    expect(data).toBe("howdee");
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
     // # send data b -> a
     await b.send(Buffer.from("gotcha"));
-    data = (await a.onData.asPromise()).toString();
-    expect(data).toBe("gotcha");
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
 
     await a.close();
     await b.close();

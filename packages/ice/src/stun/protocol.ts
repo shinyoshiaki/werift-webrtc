@@ -2,7 +2,7 @@ import * as dgram from "dgram";
 import { Event } from "rx.mini";
 import { Candidate } from "../candidate";
 import { Connection } from "../ice";
-import { Address, Protocol } from "../typings/model";
+import { Address, Protocol } from "../types/model";
 import { classes } from "./const";
 import { Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
@@ -14,7 +14,7 @@ export class StunProtocol implements Protocol {
   get transactionsKeys() {
     return Object.keys(this.transactions);
   }
-  localCandidate?: Candidate;
+  localCandidate!: Candidate;
   sentMessage?: Message;
   localAddress?: string;
 
@@ -47,24 +47,24 @@ export class StunProtocol implements Protocol {
   private datagramReceived(data: Buffer, addr: Address) {
     const message = parseMessage(data);
     if (!message) {
-      this.receiver.dataReceived(data, this.localCandidate!.component);
+      this.receiver.dataReceived(data, this.localCandidate.component);
       return;
     }
     this.log("parseMessage", addr, message);
     if (
-      (message?.messageClass === classes.RESPONSE ||
-        message?.messageClass === classes.ERROR) &&
+      (message.messageClass === classes.RESPONSE ||
+        message.messageClass === classes.ERROR) &&
       this.transactionsKeys.includes(message.transactionIdHex)
     ) {
       const transaction = this.transactions[message.transactionIdHex];
       transaction.responseReceived(message, addr);
-    } else if (message?.messageClass === classes.REQUEST) {
+    } else if (message.messageClass === classes.REQUEST) {
       this.receiver.requestReceived(message, addr, this, data);
     }
   }
 
-  get getExtraInfo() {
-    const { address: host, port } = this.socket.address() as any;
+  get getExtraInfo(): [string, number] {
+    const { address: host, port } = this.socket.address();
     return [host, port];
   }
 
@@ -95,14 +95,19 @@ export class StunProtocol implements Protocol {
     // Execute a STUN transaction and return the response.
     // """
     if (this.transactionsKeys.includes(request.transactionIdHex))
-      throw new Error("request");
+      throw new Error("already request ed");
 
     if (integrityKey) {
       request.addMessageIntegrity(integrityKey);
       request.addFingerprint();
     }
 
-    const transaction = new Transaction(request, addr, this, retransmissions);
+    const transaction: Transaction = new Transaction(
+      request,
+      addr,
+      this,
+      retransmissions
+    );
     transaction.integrityKey = integrityKey;
     this.transactions[request.transactionIdHex] = transaction;
 

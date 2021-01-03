@@ -1,5 +1,5 @@
 import { Candidate } from "../candidate";
-import { Message } from "../stun/transaction";
+import { Message } from "../stun/message";
 
 export type Address = [string, number];
 

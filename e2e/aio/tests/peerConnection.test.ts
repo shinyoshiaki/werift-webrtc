@@ -1,7 +1,7 @@
-import { RTCPeerConnection } from "../../packages/webrtc/src";
+import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import WS from "ws";
 import { PythonShell } from "python-shell";
-import { sleep } from "../../packages/webrtc/src/helper";
+import { sleep } from "../../../packages/webrtc/src/helper";
 
 const WEBSOCKET_URI = "ws://127.0.0.1:8766";
 
@@ -10,14 +10,14 @@ describe("aio_peerConnection", () => {
     "aio_datachannel",
     async (done) => {
       const server = PythonShell.run(
-        "tests/aio/python/signaling-server.py",
+        "e2e/aio/python/signaling-server.py",
         undefined,
         (err) => {
           if (err) console.log(err);
         }
       );
       const client = PythonShell.run(
-        "tests/aio/python/answer.py",
+        "e2e/aio/python/answer.py",
         undefined,
         (err) => {
           if (err) console.log(err);

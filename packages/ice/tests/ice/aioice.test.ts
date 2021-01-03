@@ -50,7 +50,7 @@ test(
 
     connection.connect();
 
-    const data = await connection.onData.asPromise();
+    const [data] = await connection.onData.asPromise();
     expect(data.toString()).toBe("hello");
     await connection.send(Buffer.from("ice tea"));
     await sleep(100);

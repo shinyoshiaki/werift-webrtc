@@ -9,7 +9,7 @@ import { Connection } from "../ice";
 import { classes, methods } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
-import { Address, Protocol } from "../typings/model";
+import { Address, Protocol } from "../types/model";
 import { future, Future, randomTransactionId, sleep } from "../utils";
 
 const TCP_TRANSPORT = 0x06000000;
@@ -81,8 +81,8 @@ class TurnClient implements Protocol {
   integrityKey?: Buffer;
   nonce?: Buffer;
   realm?: string;
-  relayedAddress?: Address;
-  mappedAddress?: Address;
+  relayedAddress!: Address;
+  mappedAddress!: Address;
   refreshHandle?: Future;
   channelNumber = 0x4000;
   channelByAddr: { [key: string]: number } = {};

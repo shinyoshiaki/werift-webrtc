@@ -1,6 +1,6 @@
 import { Event } from "rx.mini";
 import { TransactionFailed, TransactionTimeout } from "../exceptions";
-import { Address, Protocol } from "../typings/model";
+import { Address, Protocol } from "../types/model";
 import { classes, RETRY_MAX, RETRY_RTO } from "./const";
 import { Message } from "./message";
 
@@ -9,9 +9,9 @@ export class Transaction {
   private timeoutDelay = RETRY_RTO;
   private timeoutHandle?: any;
   private tries = 0;
-  private triesMax =
+  private readonly triesMax =
     1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
-  private future = new Event<[Message, Address]>();
+  private readonly onResponse = new Event<[Message, Address]>();
 
   constructor(
     private request: Message,
@@ -21,12 +21,12 @@ export class Transaction {
   ) {}
 
   responseReceived = (message: Message, addr: Address) => {
-    if (this.future.length > 0) {
+    if (this.onResponse.length > 0) {
       if (message.messageClass === classes.RESPONSE) {
-        this.future.execute(message, addr);
-        this.future.complete();
+        this.onResponse.execute(message, addr);
+        this.onResponse.complete();
       } else {
-        this.future.error(new TransactionFailed(message));
+        this.onResponse.error(new TransactionFailed(message));
       }
     }
   };
@@ -34,7 +34,7 @@ export class Transaction {
   run = async () => {
     try {
       this.retry();
-      return await this.future.asPromise();
+      return await this.onResponse.asPromise();
     } finally {
       if (this.timeoutHandle) {
         clearTimeout(this.timeoutHandle);
@@ -44,7 +44,7 @@ export class Transaction {
 
   private retry = () => {
     if (this.tries >= this.triesMax) {
-      this.future.error(new TransactionTimeout());
+      this.onResponse.error(new TransactionTimeout());
       return;
     }
     this.protocol.sendStun(this.request, this.addr);

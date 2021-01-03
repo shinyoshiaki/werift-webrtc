@@ -27,6 +27,10 @@ export const ATTRIBUTES = [
   "CHANNEL-NUMBER",
   "XOR-PEER-ADDRESS",
   "DATA",
+  "SOFTWARE",
+  "MAPPED-ADDRESS",
+  "RESPONSE-ORIGIN",
+  "OTHER-ADDRESS",
 ] as const;
 
 export enum classes {
