@@ -17,7 +17,7 @@ const UDP_TRANSPORT = 0x11000000;
 
 class TurnTransport implements Protocol {
   readonly type = "turn";
-  localCandidate?: Candidate;
+  localCandidate!: Candidate;
   receiver?: Connection;
 
   constructor(public turn: TurnClient) {
@@ -27,7 +27,7 @@ class TurnTransport implements Protocol {
   private datagramReceived = (data: Buffer, addr: Address) => {
     const message = parseMessage(data);
     if (!message) {
-      this.receiver?.dataReceived(data, this.localCandidate!.component);
+      this.receiver?.dataReceived(data, this.localCandidate.component);
       return;
     }
 
@@ -58,9 +58,6 @@ class TurnTransport implements Protocol {
 
     try {
       return await transaction.run();
-      // eslint-disable-next-line no-useless-catch
-    } catch (error) {
-      throw error;
     } finally {
       delete this.turn.transactions[request.transactionIdHex];
     }
@@ -87,7 +84,7 @@ class TurnClient implements Protocol {
   channelNumber = 0x4000;
   channelByAddr: { [key: string]: number } = {};
   addrByChannel: { [key: number]: Address } = {};
-  localCandidate: Candidate | undefined;
+  localCandidate!: Candidate;
 
   onDatagramReceived: (data: Buffer, addr: Address) => void = () => {};
 
@@ -127,7 +124,6 @@ class TurnClient implements Protocol {
         const transaction = this.transactions[message.transactionIdHex];
         if (transaction) transaction.responseReceived(message, addr);
       } else if (message.messageClass === classes.REQUEST) {
-        console.log("おかしい");
         this.onDatagramReceived(data, addr);
       }
 

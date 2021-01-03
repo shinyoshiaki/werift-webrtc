@@ -79,7 +79,7 @@ export class Connection {
   readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
 
-  private remoteCandidates_: Candidate[] = [];
+  private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
   private nominated: { [key: number]: CandidatePair } = {};
   get nominatedKeys() {
@@ -109,6 +109,7 @@ export class Connection {
     this._components = new Set(range(1, components + 1));
   }
 
+  // 4.1.1 Gathering Candidates
   async gatherCandidates(cb?: (candidate: Candidate) => void) {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
@@ -233,6 +234,338 @@ export class Connection {
     return candidates;
   }
 
+  async connect() {
+    // """
+    // Perform ICE handshake.
+    //
+    // This coroutine returns if a candidate pair was successfully nominated
+    // and raises an exception otherwise.
+    // """
+
+    if (!this._localCandidatesEnd) {
+      if (!this.localCandidatesStart)
+        throw new Error("Local candidates gathering was not performed");
+      if (this.promiseGatherCandidates)
+        // wait for GatherCandidates finish
+        await this.promiseGatherCandidates.asPromise();
+    }
+    if (!this.remoteUsername || !this.remotePassword)
+      throw new Error("Remote username or password is missing");
+
+    // # 5.7.1. Forming Candidate Pairs
+    this.remoteCandidates.forEach(this.pairRemoteCandidate);
+    this.sortCheckList();
+
+    this.unfreezeInitial();
+
+    // # handle early checks
+    this.earlyChecks.forEach((earlyCheck) => this.checkIncoming(...earlyCheck));
+    this.earlyChecks = [];
+
+    // # perform checks
+    // 5.8.  Scheduling Checks
+    for (;;) {
+      if (!this.schedulingChecks()) break;
+      await sleep(20);
+    }
+
+    // # wait for completion
+    const res: number =
+      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
+
+    // # cancel remaining checks
+    this.checkList.forEach((check) => check.handle?.cancel());
+
+    if (res !== ICE_COMPLETED) throw new Error("ICE negotiation failed");
+
+    // # start consent freshness tests
+    this.queryConsentHandle = future(this.queryConsent());
+
+    this.stateChanged.execute("completed");
+  }
+
+  private unfreezeInitial() {
+    // # unfreeze first pair for the first component
+    const firstPair = this.checkList.find(
+      (pair) => pair.component === Math.min(...[...this._components])
+    );
+    if (!firstPair) return;
+    if (firstPair.state === CandidatePairState.FROZEN) {
+      this.checkState(firstPair, CandidatePairState.WAITING);
+    }
+
+    // # unfreeze pairs with same component but different foundations
+    const seenFoundations = new Set(firstPair.localCandidate.foundation);
+    for (const pair of this.checkList) {
+      if (
+        pair.component === firstPair.component &&
+        !seenFoundations.has(pair.localCandidate.foundation) &&
+        pair.state === CandidatePairState.FROZEN
+      ) {
+        this.checkState(pair, CandidatePairState.WAITING);
+        seenFoundations.add(pair.localCandidate.foundation);
+      }
+    }
+  }
+
+  // 5.8 Scheduling Checks
+  private schedulingChecks() {
+    // Ordinary Check
+    {
+      // # find the highest-priority pair that is in the waiting state
+      const pair = this.checkList
+        .filter((pair) => {
+          if (this.options.forceTurn && pair.protocol.type === "stun")
+            return false;
+          return true;
+        })
+        .find((pair) => pair.state === CandidatePairState.WAITING);
+      if (pair) {
+        pair.handle = future(this.checkStart(pair));
+        return true;
+      }
+    }
+
+    {
+      // # find the highest-priority pair that is in the frozen state
+      const pair = this.checkList.find(
+        (pair) => pair.state === CandidatePairState.FROZEN
+      );
+      if (pair) {
+        pair.handle = future(this.checkStart(pair));
+        return true;
+      }
+    }
+
+    // # if we expect more candidates, keep going
+    if (!this.remoteCandidatesEnd) {
+      return !this.checkListDone;
+    }
+
+    return false;
+  }
+
+  // 4.1.1.4 ? 生存確認 life check
+  private queryConsent = () =>
+    new PCancelable(async (r, f, onCancel) => {
+      let failures = 0;
+
+      onCancel(() => {
+        failures += CONSENT_FAILURES;
+        f("cancel");
+      });
+
+      // """
+      // Periodically check consent (RFC 7675).
+      // """
+
+      for (;;) {
+        // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
+        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
+
+        for (const key of this.nominatedKeys) {
+          const pair = this.nominated[Number(key)];
+          const request = this.buildRequest(pair, false);
+          try {
+            await pair.protocol.request(
+              request,
+              pair.remoteAddr,
+              Buffer.from(this.remotePassword, "utf8"),
+              0
+            );
+            failures = 0;
+          } catch (error) {
+            failures++;
+            this.stateChanged.execute("disconnected");
+          }
+          if (failures >= CONSENT_FAILURES) {
+            this.log("Consent to send expired");
+            this.queryConsentHandle = undefined;
+            // 切断検知
+            r(await this.close());
+            return;
+          }
+        }
+      }
+    });
+
+  async close() {
+    // """
+    // Close the connection.
+    // """
+
+    // # stop consent freshness tests
+    if (this.queryConsentHandle && !this.queryConsentHandle.done()) {
+      this.queryConsentHandle.cancel();
+      try {
+        await this.queryConsentHandle.promise;
+      } catch (error) {
+        // pass
+      }
+    }
+
+    // # stop check list
+    if (this.checkList && !this.checkListDone) {
+      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+    }
+
+    this.nominated = {};
+    for (const protocol of this.protocols) {
+      if (protocol.close) await protocol.close();
+    }
+
+    this.protocols = [];
+    this.localCandidates = [];
+
+    this.stateChanged.execute("closed");
+  }
+
+  async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
+    // """
+    // Add a remote candidate or signal end-of-candidates.
+
+    // To signal end-of-candidates, pass `None`.
+
+    // :param remote_candidate: A :class:`Candidate` instance or `None`.
+    // """
+    if (this.remoteCandidatesEnd)
+      throw new Error("Cannot add remote candidate after end-of-candidates.");
+
+    if (!remoteCandidate) {
+      this.pruneComponents();
+      this.remoteCandidatesEnd = true;
+      return;
+    }
+
+    if (remoteCandidate.host.includes(".local")) {
+      await sleep(10);
+
+      const res = await util
+        .promisify(dns.lookup)(remoteCandidate.host)
+        .catch(() => {});
+      if (!res) return;
+
+      remoteCandidate.host = res.address;
+    }
+
+    try {
+      validateRemoteCandidate(remoteCandidate);
+    } catch (error) {
+      return;
+    }
+    this.remoteCandidates.push(remoteCandidate);
+
+    this.pairRemoteCandidate(remoteCandidate);
+    this.sortCheckList();
+  }
+
+  async send(data: Buffer) {
+    // """
+    // Send a datagram on the first component.
+
+    // If the connection is not established, a `ConnectionError` is raised.
+
+    // :param data: The data to be sent.
+    // """
+    await this.sendTo(data, 1);
+  }
+
+  private async sendTo(data: Buffer, component: number) {
+    // """
+    // Send a datagram on the specified component.
+
+    // If the connection is not established, a `ConnectionError` is raised.
+
+    // :param data: The data to be sent.
+    // :param component: The component on which to send the data.
+    // """
+    const activePair = this.nominated[component];
+    if (activePair) {
+      await activePair.protocol.sendData(data, activePair.remoteAddr);
+    } else {
+      throw new Error("Cannot send data, not connected");
+    }
+  }
+
+  getDefaultCandidate(component: number) {
+    const candidates = this.localCandidates.sort(
+      (a, b) => a.priority - b.priority
+    );
+    const candidate = candidates.find(
+      (candidate) => candidate.component === component
+    );
+    return candidate;
+  }
+
+  requestReceived(
+    message: Message,
+    addr: Address,
+    protocol: Protocol,
+    rawData: Buffer
+  ) {
+    if (message.messageMethod !== methods.BINDING) {
+      this.respondError(message, addr, protocol, [400, "Bad Request"]);
+      return;
+    }
+
+    // # authenticate request
+    try {
+      parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
+      if (!this.remoteUsername) {
+        const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
+        if (message.attributes["USERNAME"] != rxUsername)
+          throw new Error("Wrong username");
+      }
+    } catch (error) {
+      this.respondError(message, addr, protocol, [400, "Bad Request"]);
+      return;
+    }
+
+    // 7.2.1.1.  Detecting and Repairing Role Conflicts
+    if (
+      this.iceControlling &&
+      message.attributesKeys.includes("ICE-CONTROLLING")
+    ) {
+      if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
+        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
+        return;
+      } else {
+        this.switchRole(false);
+      }
+    } else if (
+      !this.iceControlling &&
+      message.attributesKeys.includes("ICE-CONTROLLED")
+    ) {
+      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
+        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
+      } else {
+        this.switchRole(true);
+        return;
+      }
+    }
+
+    // # send binding response
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      message.transactionId
+    );
+    response.attributes["XOR-MAPPED-ADDRESS"] = addr;
+    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
+    response.addFingerprint();
+    protocol.sendStun(response, addr);
+
+    if (!this.checkList) {
+      this.earlyChecks.push([message, addr, protocol]);
+    } else {
+      this.checkIncoming(message, addr, protocol);
+    }
+  }
+
+  dataReceived(data: Buffer, component: number) {
+    this.onData.execute(data, component);
+  }
+
   private log(...args: any[]) {
     if (this.options.log) {
       console.log("log", ...args);
@@ -243,7 +576,7 @@ export class Connection {
   set remoteCandidates(value: Candidate[]) {
     if (this.remoteCandidatesEnd)
       throw new Error("Cannot set remote candidates after end-of-candidates.");
-    this.remoteCandidates_ = [];
+    this._remoteCandidates = [];
     for (const remoteCandidate of value) {
       try {
         validateRemoteCandidate(remoteCandidate);
@@ -255,9 +588,8 @@ export class Connection {
     this.pruneComponents();
     this.remoteCandidatesEnd = true;
   }
-
   get remoteCandidates() {
-    return this.remoteCandidates_;
+    return this._remoteCandidates;
   }
 
   private pruneComponents() {
@@ -274,10 +606,6 @@ export class Connection {
     sortCandidatePairs(this.checkList, this.iceControlling);
   }
 
-  dataReceived(data: Buffer, component: number) {
-    this.onData.execute(data, component);
-  }
-
   private findPair(protocol: Protocol, remoteCandidate: Candidate) {
     const pair = this.checkList.find(
       (pair) =>
@@ -287,34 +615,8 @@ export class Connection {
     return pair;
   }
 
-  getDefaultCandidate(component: number) {
-    const candidates = this.localCandidates.sort(
-      (a, b) => a.priority - b.priority
-    );
-    const candidate = candidates.find(
-      (candidate) => candidate.component === component
-    );
-    return candidate;
-  }
-
   private checkState(pair: CandidatePair, state: CandidatePairState) {
     pair.state = state;
-  }
-
-  private buildRequest(pair: CandidatePair, nominate: boolean) {
-    const txUsername = `${this.remoteUsername}:${this.localUserName}`;
-    const request = new Message(methods.BINDING, classes.REQUEST);
-    request.attributes["USERNAME"] = txUsername;
-    request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
-    if (this.iceControlling) {
-      request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
-      if (nominate) {
-        request.attributes["USE-CANDIDATE"] = null;
-      }
-    } else {
-      request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
-    }
-    return request;
   }
 
   private switchRole(iceControlling: boolean) {
@@ -530,45 +832,6 @@ export class Connection {
     }
   }
 
-  async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
-    // """
-    // Add a remote candidate or signal end-of-candidates.
-
-    // To signal end-of-candidates, pass `None`.
-
-    // :param remote_candidate: A :class:`Candidate` instance or `None`.
-    // """
-    if (this.remoteCandidatesEnd)
-      throw new Error("Cannot add remote candidate after end-of-candidates.");
-
-    if (!remoteCandidate) {
-      this.pruneComponents();
-      this.remoteCandidatesEnd = true;
-      return;
-    }
-
-    if (remoteCandidate.host.includes(".local")) {
-      await sleep(10);
-
-      const res = await util
-        .promisify(dns.lookup)(remoteCandidate.host)
-        .catch(() => {});
-      if (!res) return;
-
-      remoteCandidate.host = res.address;
-    }
-
-    try {
-      validateRemoteCandidate(remoteCandidate);
-    } catch (error) {
-      return;
-    }
-    this.remoteCandidates.push(remoteCandidate);
-
-    this.pairRemoteCandidate(remoteCandidate);
-    this.sortCheckList();
-  }
-
   private pairRemoteCandidate = (remoteCandidate: Candidate) => {
     for (const protocol of this.protocols) {
       if (
@@ -580,6 +843,22 @@ export class Connection {
       }
     }
   };
+
+  private buildRequest(pair: CandidatePair, nominate: boolean) {
+    const txUsername = `${this.remoteUsername}:${this.localUserName}`;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.attributes["USERNAME"] = txUsername;
+    request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
+    if (this.iceControlling) {
+      request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
+      if (nominate) {
+        request.attributes["USE-CANDIDATE"] = null;
+      }
+    } else {
+      request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
+    }
+    return request;
+  }
 
   private respondError(
     request: Message,
@@ -596,285 +875,6 @@ export class Connection {
     response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
     response.addFingerprint();
     protocol.sendStun(response, addr);
-  }
-
-  requestReceived(
-    message: Message,
-    addr: Address,
-    protocol: Protocol,
-    rawData: Buffer
-  ) {
-    if (message.messageMethod !== methods.BINDING) {
-      this.respondError(message, addr, protocol, [400, "Bad Request"]);
-      return;
-    }
-
-    // # authenticate request
-    try {
-      parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
-      if (!this.remoteUsername) {
-        const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
-        if (message.attributes["USERNAME"] != rxUsername)
-          throw new Error("Wrong username");
-      }
-    } catch (error) {
-      this.respondError(message, addr, protocol, [400, "Bad Request"]);
-      return;
-    }
-
-    // 7.2.1.1.  Detecting and Repairing Role Conflicts
-    if (
-      this.iceControlling &&
-      message.attributesKeys.includes("ICE-CONTROLLING")
-    ) {
-      if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
-        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
-        return;
-      } else {
-        this.switchRole(false);
-      }
-    } else if (
-      !this.iceControlling &&
-      message.attributesKeys.includes("ICE-CONTROLLED")
-    ) {
-      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
-        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
-      } else {
-        this.switchRole(true);
-        return;
-      }
-    }
-
-    // # send binding response
-    const response = new Message(
-      methods.BINDING,
-      classes.RESPONSE,
-      message.transactionId
-    );
-    response.attributes["XOR-MAPPED-ADDRESS"] = addr;
-    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
-    response.addFingerprint();
-    protocol.sendStun(response, addr);
-
-    if (!this.checkList) {
-      this.earlyChecks.push([message, addr, protocol]);
-    } else {
-      this.checkIncoming(message, addr, protocol);
-    }
-  }
-
-  private unfreezeInitial() {
-    // # unfreeze first pair for the first component
-    const firstPair = this.checkList.find(
-      (pair) => pair.component === Math.min(...[...this._components])
-    );
-    if (!firstPair) return;
-    if (firstPair.state === CandidatePairState.FROZEN) {
-      this.checkState(firstPair, CandidatePairState.WAITING);
-    }
-
-    // # unfreeze pairs with same component but different foundations
-    const seenFoundations = new Set(firstPair.localCandidate.foundation);
-    for (const pair of this.checkList) {
-      if (
-        pair.component === firstPair.component &&
-        !seenFoundations.has(pair.localCandidate.foundation) &&
-        pair.state === CandidatePairState.FROZEN
-      ) {
-        this.checkState(pair, CandidatePairState.WAITING);
-        seenFoundations.add(pair.localCandidate.foundation);
-      }
-    }
-  }
-
-  // 5.8 Scheduling Checks
-  private schedulingChecks() {
-    // Ordinary Check
-    {
-      // # find the highest-priority pair that is in the waiting state
-      const pair = this.checkList
-        .filter((pair) => {
-          if (this.options.forceTurn && pair.protocol.type === "stun")
-            return false;
-          return true;
-        })
-        .find((pair) => pair.state === CandidatePairState.WAITING);
-      if (pair) {
-        pair.handle = future(this.checkStart(pair));
-        return true;
-      }
-    }
-
-    {
-      // # find the highest-priority pair that is in the frozen state
-      const pair = this.checkList.find(
-        (pair) => pair.state === CandidatePairState.FROZEN
-      );
-      if (pair) {
-        pair.handle = future(this.checkStart(pair));
-        return true;
-      }
-    }
-
-    // # if we expect more candidates, keep going
-    if (!this.remoteCandidatesEnd) {
-      return !this.checkListDone;
-    }
-
-    return false;
-  }
-
-  async close() {
-    // """
-    // Close the connection.
-    // """
-
-    // # stop consent freshness tests
-    if (this.queryConsentHandle && !this.queryConsentHandle.done()) {
-      this.queryConsentHandle.cancel();
-      try {
-        await this.queryConsentHandle.promise;
-      } catch (error) {
-        // pass
-      }
-    }
-
-    // # stop check list
-    if (this.checkList && !this.checkListDone) {
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
-    }
-
-    this.nominated = {};
-    for (const protocol of this.protocols) {
-      if (protocol.close) await protocol.close();
-    }
-
-    this.protocols = [];
-    this.localCandidates = [];
-
-    this.stateChanged.execute("closed");
-  }
-
-  // 生存確認 life check
-  private queryConsent = () =>
-    new PCancelable(async (r, f, onCancel) => {
-      let failures = 0;
-
-      onCancel(() => {
-        failures += CONSENT_FAILURES;
-        f("cancel");
-      });
-
-      // """
-      // Periodically check consent (RFC 7675).
-      // """
-
-      for (;;) {
-        // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
-
-        for (const key of this.nominatedKeys) {
-          const pair = this.nominated[Number(key)];
-          const request = this.buildRequest(pair, false);
-          try {
-            await pair.protocol.request(
-              request,
-              pair.remoteAddr,
-              Buffer.from(this.remotePassword, "utf8"),
-              0
-            );
-            failures = 0;
-          } catch (error) {
-            failures++;
-            this.stateChanged.execute("disconnected");
-          }
-          if (failures >= CONSENT_FAILURES) {
-            this.log("Consent to send expired");
-            this.queryConsentHandle = undefined;
-            // 切断検知
-            r(await this.close());
-            return;
-          }
-        }
-      }
-    });
-
-  async connect() {
-    // """
-    // Perform ICE handshake.
-    //
-    // This coroutine returns if a candidate pair was successfully nominated
-    // and raises an exception otherwise.
-    // """
-
-    if (!this._localCandidatesEnd) {
-      if (!this.localCandidatesStart)
-        throw new Error("Local candidates gathering was not performed");
-      if (this.promiseGatherCandidates)
-        // wait for GatherCandidates finish
-        await this.promiseGatherCandidates.asPromise();
-    }
-    if (!this.remoteUsername || !this.remotePassword)
-      throw new Error("Remote username or password is missing");
-
-    // # 5.7.1. Forming Candidate Pairs
-    this.remoteCandidates.forEach(this.pairRemoteCandidate);
-    this.sortCheckList();
-
-    this.unfreezeInitial();
-
-    // # handle early checks
-    this.earlyChecks.forEach((earlyCheck) => this.checkIncoming(...earlyCheck));
-    this.earlyChecks = [];
-
-    // # perform checks
-    // 5.8.  Scheduling Checks
-    for (;;) {
-      if (!this.schedulingChecks()) break;
-      await sleep(20);
-    }
-
-    // # wait for completion
-    const res: number =
-      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
-
-    // # cancel remaining checks
-    this.checkList.forEach((check) => check.handle?.cancel());
-
-    if (res !== ICE_COMPLETED) throw new Error("ICE negotiation failed");
-
-    // # start consent freshness tests
-    this.queryConsentHandle = future(this.queryConsent());
-
-    this.stateChanged.execute("completed");
-  }
-
-  async send(data: Buffer) {
-    // """
-    // Send a datagram on the first component.
-
-    // If the connection is not established, a `ConnectionError` is raised.
-
-    // :param data: The data to be sent.
-    // """
-    await this.sendTo(data, 1);
-  }
-
-  private async sendTo(data: Buffer, component: number) {
-    // """
-    // Send a datagram on the specified component.
-
-    // If the connection is not established, a `ConnectionError` is raised.
-
-    // :param data: The data to be sent.
-    // :param component: The component on which to send the data.
-    // """
-    const activePair = this.nominated[component];
-    if (activePair) {
-      await activePair.protocol.sendData(data, activePair.remoteAddr);
-    } else {
-      throw new Error("Cannot send data, not connected");
-    }
   }
 }
 

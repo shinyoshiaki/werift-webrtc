@@ -5,7 +5,7 @@ export type Address = [string, number];
 
 export type Protocol = {
   type: string;
-  localCandidate?: Candidate;
+  localCandidate: Candidate;
   sentMessage?: Message;
   request: (
     message: Message,
