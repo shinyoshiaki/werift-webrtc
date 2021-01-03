@@ -37,3 +37,9 @@ jobs:
           yarn test
         env:
           CI: true
+      - name: e2e:browser
+        run: |
+          cd e2e/browser
+          yarn
+          yarn ci
+          cd ../..

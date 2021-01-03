@@ -14,21 +14,17 @@ server.on("connection", async (socket) => {
       video: [useSdesMid(1), useAbsSendTime(2)],
     },
   });
-  pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
-  );
-  const transceiver = pc.addTransceiver("video", "sendrecv");
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  const transceiver = pc.addTransceiver("video", "sendrecv");
+  transceiver.onTrack.subscribe((track) =>
+    track.onRtp.subscribe(transceiver.sendRtp)
+  );
+
+  await pc.setLocalDescription(pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 
   socket.on("message", (data: any) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
-
-  transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
-  );
 });
