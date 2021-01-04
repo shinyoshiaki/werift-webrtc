@@ -43,11 +43,10 @@ export class RTCRtpTransceiver {
       if (t.rid) return t.rid === track.rid;
       if (t.ssrc) return t.ssrc === track.ssrc;
     });
-    if (exist) {
-      throw new Error();
+    if (!exist) {
+      this.receiver.tracks.push(track);
+      this.onTrack.execute(track);
     }
-    this.receiver.tracks.push(track);
-    this.onTrack.execute(track);
   }
 
   replaceRtp(header: RtpHeader) {
