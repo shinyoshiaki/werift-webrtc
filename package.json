@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "build": "lerna run build",
-    "e2e": "yarn jest ./tests/**/*.ts --forceExit",
+    "e2e:aio": "yarn jest ./e2e/aio/**/*.ts --forceExit",
+    "e2e:browser": "cd e2e/browser && yarn ci",
     "format": "lerna run format",
     "test": "lerna run test",
     "type": "lerna run type"

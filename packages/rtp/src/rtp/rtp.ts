@@ -1,6 +1,6 @@
 import { BitWriter, getBit } from "../utils";
 
-type Extension = { id: number; payload: Buffer };
+export type Extension = { id: number; payload: Buffer };
 
 const extensionProfileOneByte = 0xbede;
 const extensionProfileTwoByte = 0x1000;

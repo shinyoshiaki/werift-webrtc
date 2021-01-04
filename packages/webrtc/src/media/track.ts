@@ -5,8 +5,8 @@ import { Kind } from "../typings/domain";
 export class RtpTrack {
   ssrc?: number;
   rid?: string;
-  kind: Kind;
-  id: string;
+  kind!: Kind;
+  id!: string;
 
   readonly onRtp = new Event<[RtpPacket]>();
 

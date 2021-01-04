@@ -3,7 +3,7 @@ export class RTCRtpParameters {
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   muxId?: string;
   rid?: string;
-  rtcp: RTCRtcpParameters;
+  rtcp!: RTCRtcpParameters;
 
   constructor(props: Partial<RTCRtpParameters> = {}) {
     Object.assign(this, props);
@@ -11,8 +11,8 @@ export class RTCRtpParameters {
 }
 
 export class RTCRtpCodecCapability {
-  mimeType: string;
-  clockRate: number;
+  mimeType!: string;
+  clockRate!: number;
   channels?: number;
   parameters = {};
   constructor(parameters: Partial<RTCRtpCodecCapability> = {}) {
@@ -25,8 +25,8 @@ export class RTCRtpCodecCapability {
 }
 
 export class RTCRtpCodecParameters {
-  mimeType: string;
-  clockRate: number;
+  mimeType!: string;
+  clockRate!: number;
   channels?: number;
   payloadType?: number;
   rtcpFeedback: { type: string; parameter?: string }[] = [];
@@ -48,8 +48,8 @@ export class RTCRtpCodecParameters {
 }
 
 export class RTCRtpHeaderExtensionParameters {
-  id: number;
-  uri: string;
+  id!: number;
+  uri!: string;
 
   constructor(props: Partial<RTCRtpHeaderExtensionParameters> = {}) {
     Object.assign(this, props);
@@ -67,7 +67,7 @@ export class RTCRtcpParameters {
 }
 
 export class RTCRtcpFeedback {
-  type: string;
+  type!: string;
   parameter?: string;
 
   constructor(props: Partial<RTCRtcpFeedback> = {}) {
@@ -75,7 +75,7 @@ export class RTCRtcpFeedback {
   }
 }
 export class RTCRtpRtxParameters {
-  ssrc: number;
+  ssrc!: number;
 
   constructor(props: Partial<RTCRtpRtxParameters> = {}) {
     Object.assign(this, props);
@@ -83,8 +83,8 @@ export class RTCRtpRtxParameters {
 }
 
 export class RTCRtpCodingParameters {
-  ssrc: number;
-  payloadType: number;
+  ssrc!: number;
+  payloadType!: number;
   rtx?: RTCRtpRtxParameters;
 
   constructor(props: Partial<RTCRtpCodingParameters> = {}) {
@@ -93,7 +93,7 @@ export class RTCRtpCodingParameters {
 }
 
 export class RTCRtpReceiveParameters extends RTCRtpParameters {
-  encodings: RTCRtpCodingParameters[];
+  encodings!: RTCRtpCodingParameters[];
 
   constructor(props: Partial<RTCRtpReceiveParameters> = {}) {
     super(props);
@@ -102,8 +102,8 @@ export class RTCRtpReceiveParameters extends RTCRtpParameters {
 }
 
 export class RTCRtpSimulcastParameters {
-  rid: string;
-  direction: "send" | "recv";
+  rid!: string;
+  direction!: "send" | "recv";
   constructor(props: RTCRtpSimulcastParameters) {
     Object.assign(this, props);
   }

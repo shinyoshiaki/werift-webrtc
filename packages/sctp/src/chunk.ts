@@ -177,15 +177,14 @@ export class DataChunk extends Chunk {
   streamSeq: number = 0;
   protocol: number = 0;
   userData: Buffer = Buffer.from("");
-
-  abandoned?: boolean;
-  acked?: boolean;
+  abandoned: boolean = false;
+  acked: boolean = false;
+  misses: number = 0;
+  retransmit: boolean = false;
+  sentCount: number = 0;
   bookSize?: number;
   expiry?: number;
   maxRetransmits?: number;
-  misses?: number;
-  retransmit?: boolean;
-  sentCount?: number;
   sentTime?: number;
 
   constructor(public flags = 0, body: Buffer | undefined) {
@@ -473,7 +472,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
 
   if (checkSum !== expect) throw new Error("SCTP packet has invalid checksum");
 
-  const chunks = [];
+  const chunks: Chunk[] = [];
   let pos = 12;
   while (pos + 4 <= data.length) {
     const [chunkType, chunkFlags, chunkLength] = jspack.Unpack(

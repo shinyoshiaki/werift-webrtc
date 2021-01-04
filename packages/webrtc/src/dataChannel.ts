@@ -10,7 +10,7 @@ export class RTCDataChannelParameters {
   ordered = true;
   protocol = "";
   negotiated = false;
-  id?: number;
+  id!: number;
   constructor(props: Partial<RTCDataChannelParameters> = {}) {
     Object.assign(this, props);
   }
@@ -21,7 +21,7 @@ export class RTCDataChannel {
   readonly message = new Event<[string | Buffer]>();
   readonly bufferedAmountLow = new Event();
 
-  id?: number = this.parameters.id;
+  id: number = this.parameters.id;
   readyState: DCState = "connecting";
 
   private bufferedAmount = 0;

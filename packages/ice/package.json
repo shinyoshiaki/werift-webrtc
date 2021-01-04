@@ -18,7 +18,7 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && yarn format && tsc",
+    "build": "./build.sh",
     "format": "yarn unused && yarn lint && prettier --write {src,tests}/**/*.{ts,test.ts}",
     "lint": "eslint src/**/*.ts --fix",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",

@@ -20,7 +20,7 @@ export class RtcpTransportLayerFeedback {
   }
 
   static deSerialize(data: Buffer, header: RtcpHeader) {
-    let feedback: Feedback;
+    let feedback: Feedback | undefined;
 
     switch (header.count) {
       case GenericNack.count:

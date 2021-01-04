@@ -145,7 +145,7 @@ describe("stun", () => {
   test("test_bytes", () => {
     const request = new Message(methods.BINDING, classes.REQUEST);
     const bytes = request.bytes;
-    const message = parseMessage(bytes);
+    const message = parseMessage(bytes)!;
     expect(request).toEqual(message);
   });
 });

@@ -7,7 +7,7 @@ import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { TransactionError } from "./exceptions";
-import { Address, Protocol } from "./typings/model";
+import { Address, Protocol } from "./types/model";
 import { createTurnEndpoint } from "./turn/protocol";
 import {
   difference,
@@ -36,29 +36,7 @@ export enum CandidatePairState {
   FAILED = 4,
 }
 
-export class CandidatePair {
-  handle?: Future;
-  nominated = false;
-  remoteNominated = false;
-  // 5.7.4.  Computing States
-  state = CandidatePairState.FROZEN;
-
-  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
-
-  get localCandidate() {
-    if (!this.protocol.localCandidate)
-      throw new Error("localCandidate not exist");
-    return this.protocol.localCandidate;
-  }
-
-  get remoteAddr(): Address {
-    return [this.remoteCandidate.host, this.remoteCandidate.port];
-  }
-
-  get component() {
-    return this.localCandidate.component;
-  }
-}
+type IceState = "disconnected" | "closed" | "completed";
 
 export type IceOptions = {
   components: number;
@@ -81,8 +59,6 @@ const defaultOptions: IceOptions = {
   log: false,
 };
 
-type IceState = "disconnected" | "closed" | "completed";
-
 export class Connection {
   remotePassword: string = "";
   remoteUsername: string = "";
@@ -95,13 +71,15 @@ export class Connection {
   useIpv4: boolean;
   useIpv6: boolean;
   options: IceOptions;
-
   remoteCandidatesEnd = false;
-  readonly onData = new Event<[Buffer]>();
+  _components: Set<number>;
+  _localCandidatesEnd = false;
+  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
+
+  readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
 
-  private remoteCandidates_: Candidate[] = [];
-
+  private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
   private nominated: { [key: number]: CandidatePair } = {};
   get nominatedKeys() {
@@ -117,9 +95,7 @@ export class Connection {
   private localCandidatesStart = false;
   private protocols: Protocol[] = [];
   private queryConsentHandle?: Future;
-  _components: Set<number>;
-  _localCandidatesEnd = false;
-  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
+  private promiseGatherCandidates?: Event<[]>;
 
   constructor(public iceControlling: boolean, options?: Partial<IceOptions>) {
     this.options = {
@@ -133,61 +109,382 @@ export class Connection {
     this._components = new Set(range(1, components + 1));
   }
 
-  private log(...args: any[]) {
-    if (this.options.log) {
-      console.log("log", ...args);
-    }
-  }
+  // 4.1.1 Gathering Candidates
+  async gatherCandidates(cb?: (candidate: Candidate) => void) {
+    if (!this.localCandidatesStart) {
+      this.localCandidatesStart = true;
+      this.promiseGatherCandidates = new Event();
 
-  // for test only
-  set remoteCandidates(value: Candidate[]) {
-    if (this.remoteCandidatesEnd)
-      throw new Error("Cannot set remote candidates after end-of-candidates.");
-    this.remoteCandidates_ = [];
-    for (const remoteCandidate of value) {
-      try {
-        validateRemoteCandidate(remoteCandidate);
-      } catch (error) {
-        continue;
+      const address = getHostAddress(this.useIpv4, this.useIpv6);
+      for (const component of this._components) {
+        const candidates = await this.getComponentCandidates(
+          component,
+          address,
+          5,
+          cb
+        );
+        this.localCandidates = [...this.localCandidates, ...candidates];
       }
-      this.remoteCandidates.push(remoteCandidate);
-    }
-    this.pruneComponents();
-    this.remoteCandidatesEnd = true;
-  }
 
-  get remoteCandidates() {
-    return this.remoteCandidates_;
-  }
-
-  private pruneComponents() {
-    const seenComponents = new Set(
-      this.remoteCandidates.map((v) => v.component)
-    );
-    const missingComponents = [...difference(this._components, seenComponents)];
-    if (missingComponents.length > 0) {
-      this._components = seenComponents;
+      this._localCandidatesEnd = true;
+      this.promiseGatherCandidates.execute();
     }
   }
 
-  sortCheckList() {
-    sortCandidatePairs(this.checkList, this.iceControlling);
+  private async getComponentCandidates(
+    component: number,
+    addresses: string[],
+    timeout = 5,
+    cb?: (candidate: Candidate) => void
+  ) {
+    let candidates: Candidate[] = [];
+
+    for (const address of addresses) {
+      // # create transport
+      const protocol = new StunProtocol(this);
+      await protocol.connectionMade(isIPv4(address));
+      protocol.localAddress = address;
+      this.protocols.push(protocol);
+
+      // # add host candidate
+      const candidateAddress = protocol.getExtraInfo;
+
+      protocol.localCandidate = new Candidate(
+        candidateFoundation("host", "udp", candidateAddress[0]),
+        component,
+        "udp",
+        candidatePriority(component, "host"),
+        candidateAddress[0],
+        candidateAddress[1],
+        "host"
+      );
+
+      candidates.push(protocol.localCandidate);
+      if (cb) cb(protocol.localCandidate);
+    }
+
+    // # query STUN server for server-reflexive candidates (IPv4 only)
+    const stunServer = this.stunServer;
+    if (stunServer) {
+      try {
+        const srflxCandidates = (
+          await Promise.all<Candidate | void>(
+            this.protocols.map(
+              (protocol) =>
+                new Promise(async (r, f) => {
+                  setTimeout(f, timeout * 1000);
+                  if (
+                    protocol.localCandidate?.host &&
+                    isIPv4(protocol.localCandidate?.host)
+                  ) {
+                    const candidate = await serverReflexiveCandidate(
+                      protocol,
+                      stunServer
+                    ).catch(console.log);
+                    if (candidate && cb) cb(candidate);
+                    r(candidate);
+                  } else {
+                    r();
+                  }
+                })
+            )
+          )
+        ).filter((v) => v) as Candidate[];
+        candidates = [...candidates, ...srflxCandidates];
+      } catch (error) {
+        this.log("query STUN server", error);
+      }
+    }
+
+    if (
+      this.options.turnServer &&
+      this.options.turnUsername &&
+      this.options.turnPassword
+    ) {
+      const protocol = await createTurnEndpoint(
+        this.options.turnServer,
+        this.options.turnUsername,
+        this.options.turnPassword
+      );
+      this.protocols.push(protocol);
+
+      const candidateAddress = protocol.turn.relayedAddress;
+      const relatedAddress = protocol.turn.mappedAddress;
+
+      protocol.localCandidate = new Candidate(
+        candidateFoundation("relay", "udp", candidateAddress[0]),
+        component,
+        "udp",
+        candidatePriority(component, "relay"),
+        candidateAddress[0],
+        candidateAddress[1],
+        "relay",
+        relatedAddress[0],
+        relatedAddress[1]
+      );
+      protocol.receiver = this;
+
+      if (this.options.forceTurn) {
+        candidates = [];
+      }
+
+      candidates.push(protocol.localCandidate);
+    }
+
+    return candidates;
   }
 
-  dataReceived(data: Buffer, component: number) {
-    this.log("dataReceived", data, component);
+  async connect() {
+    // """
+    // Perform ICE handshake.
+    //
+    // This coroutine returns if a candidate pair was successfully nominated
+    // and raises an exception otherwise.
+    // """
 
-    // data stream
-    this.onData.execute(data);
+    if (!this._localCandidatesEnd) {
+      if (!this.localCandidatesStart)
+        throw new Error("Local candidates gathering was not performed");
+      if (this.promiseGatherCandidates)
+        // wait for GatherCandidates finish
+        await this.promiseGatherCandidates.asPromise();
+    }
+    if (!this.remoteUsername || !this.remotePassword)
+      throw new Error("Remote username or password is missing");
+
+    // # 5.7.1. Forming Candidate Pairs
+    this.remoteCandidates.forEach(this.pairRemoteCandidate);
+    this.sortCheckList();
+
+    this.unfreezeInitial();
+
+    // # handle early checks
+    this.earlyChecks.forEach((earlyCheck) => this.checkIncoming(...earlyCheck));
+    this.earlyChecks = [];
+
+    // # perform checks
+    // 5.8.  Scheduling Checks
+    for (;;) {
+      if (!this.schedulingChecks()) break;
+      await sleep(20);
+    }
+
+    // # wait for completion
+    const res: number =
+      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
+
+    // # cancel remaining checks
+    this.checkList.forEach((check) => check.handle?.cancel());
+
+    if (res !== ICE_COMPLETED) throw new Error("ICE negotiation failed");
+
+    // # start consent freshness tests
+    this.queryConsentHandle = future(this.queryConsent());
+
+    this.stateChanged.execute("completed");
   }
 
-  private findPair(protocol: Protocol, remoteCandidate: Candidate) {
-    const pair = this.checkList.find(
-      (pair) =>
-        isEqual(pair.protocol, protocol) &&
-        isEqual(pair.remoteCandidate, remoteCandidate)
+  private unfreezeInitial() {
+    // # unfreeze first pair for the first component
+    const firstPair = this.checkList.find(
+      (pair) => pair.component === Math.min(...[...this._components])
     );
-    return pair;
+    if (!firstPair) return;
+    if (firstPair.state === CandidatePairState.FROZEN) {
+      this.checkState(firstPair, CandidatePairState.WAITING);
+    }
+
+    // # unfreeze pairs with same component but different foundations
+    const seenFoundations = new Set(firstPair.localCandidate.foundation);
+    for (const pair of this.checkList) {
+      if (
+        pair.component === firstPair.component &&
+        !seenFoundations.has(pair.localCandidate.foundation) &&
+        pair.state === CandidatePairState.FROZEN
+      ) {
+        this.checkState(pair, CandidatePairState.WAITING);
+        seenFoundations.add(pair.localCandidate.foundation);
+      }
+    }
+  }
+
+  // 5.8 Scheduling Checks
+  private schedulingChecks() {
+    // Ordinary Check
+    {
+      // # find the highest-priority pair that is in the waiting state
+      const pair = this.checkList
+        .filter((pair) => {
+          if (this.options.forceTurn && pair.protocol.type === "stun")
+            return false;
+          return true;
+        })
+        .find((pair) => pair.state === CandidatePairState.WAITING);
+      if (pair) {
+        pair.handle = future(this.checkStart(pair));
+        return true;
+      }
+    }
+
+    {
+      // # find the highest-priority pair that is in the frozen state
+      const pair = this.checkList.find(
+        (pair) => pair.state === CandidatePairState.FROZEN
+      );
+      if (pair) {
+        pair.handle = future(this.checkStart(pair));
+        return true;
+      }
+    }
+
+    // # if we expect more candidates, keep going
+    if (!this.remoteCandidatesEnd) {
+      return !this.checkListDone;
+    }
+
+    return false;
+  }
+
+  // 4.1.1.4 ? 生存確認 life check
+  private queryConsent = () =>
+    new PCancelable(async (r, f, onCancel) => {
+      let failures = 0;
+
+      onCancel(() => {
+        failures += CONSENT_FAILURES;
+        f("cancel");
+      });
+
+      // """
+      // Periodically check consent (RFC 7675).
+      // """
+
+      for (;;) {
+        // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
+        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
+
+        for (const key of this.nominatedKeys) {
+          const pair = this.nominated[Number(key)];
+          const request = this.buildRequest(pair, false);
+          try {
+            await pair.protocol.request(
+              request,
+              pair.remoteAddr,
+              Buffer.from(this.remotePassword, "utf8"),
+              0
+            );
+            failures = 0;
+          } catch (error) {
+            failures++;
+            this.stateChanged.execute("disconnected");
+          }
+          if (failures >= CONSENT_FAILURES) {
+            this.log("Consent to send expired");
+            this.queryConsentHandle = undefined;
+            // 切断検知
+            r(await this.close());
+            return;
+          }
+        }
+      }
+    });
+
+  async close() {
+    // """
+    // Close the connection.
+    // """
+
+    // # stop consent freshness tests
+    if (this.queryConsentHandle && !this.queryConsentHandle.done()) {
+      this.queryConsentHandle.cancel();
+      try {
+        await this.queryConsentHandle.promise;
+      } catch (error) {
+        // pass
+      }
+    }
+
+    // # stop check list
+    if (this.checkList && !this.checkListDone) {
+      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+    }
+
+    this.nominated = {};
+    for (const protocol of this.protocols) {
+      if (protocol.close) await protocol.close();
+    }
+
+    this.protocols = [];
+    this.localCandidates = [];
+
+    this.stateChanged.execute("closed");
+  }
+
+  async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
+    // """
+    // Add a remote candidate or signal end-of-candidates.
+
+    // To signal end-of-candidates, pass `None`.
+
+    // :param remote_candidate: A :class:`Candidate` instance or `None`.
+    // """
+    if (this.remoteCandidatesEnd)
+      throw new Error("Cannot add remote candidate after end-of-candidates.");
+
+    if (!remoteCandidate) {
+      this.pruneComponents();
+      this.remoteCandidatesEnd = true;
+      return;
+    }
+
+    if (remoteCandidate.host.includes(".local")) {
+      await sleep(10);
+
+      const res = await util
+        .promisify(dns.lookup)(remoteCandidate.host)
+        .catch(() => {});
+      if (!res) return;
+
+      remoteCandidate.host = res.address;
+    }
+
+    try {
+      validateRemoteCandidate(remoteCandidate);
+    } catch (error) {
+      return;
+    }
+    this.remoteCandidates.push(remoteCandidate);
+
+    this.pairRemoteCandidate(remoteCandidate);
+    this.sortCheckList();
+  }
+
+  async send(data: Buffer) {
+    // """
+    // Send a datagram on the first component.
+
+    // If the connection is not established, a `ConnectionError` is raised.
+
+    // :param data: The data to be sent.
+    // """
+    await this.sendTo(data, 1);
+  }
+
+  private async sendTo(data: Buffer, component: number) {
+    // """
+    // Send a datagram on the specified component.
+
+    // If the connection is not established, a `ConnectionError` is raised.
+
+    // :param data: The data to be sent.
+    // :param component: The component on which to send the data.
+    // """
+    const activePair = this.nominated[component];
+    if (activePair) {
+      await activePair.protocol.sendData(data, activePair.remoteAddr);
+    } else {
+      throw new Error("Cannot send data, not connected");
+    }
   }
 
   getDefaultCandidate(component: number) {
@@ -200,32 +497,134 @@ export class Connection {
     return candidate;
   }
 
-  checkState(pair: CandidatePair, state: CandidatePairState) {
+  requestReceived(
+    message: Message,
+    addr: Address,
+    protocol: Protocol,
+    rawData: Buffer
+  ) {
+    if (message.messageMethod !== methods.BINDING) {
+      this.respondError(message, addr, protocol, [400, "Bad Request"]);
+      return;
+    }
+
+    // # authenticate request
+    try {
+      parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
+      if (!this.remoteUsername) {
+        const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
+        if (message.attributes["USERNAME"] != rxUsername)
+          throw new Error("Wrong username");
+      }
+    } catch (error) {
+      this.respondError(message, addr, protocol, [400, "Bad Request"]);
+      return;
+    }
+
+    // 7.2.1.1.  Detecting and Repairing Role Conflicts
+    if (
+      this.iceControlling &&
+      message.attributesKeys.includes("ICE-CONTROLLING")
+    ) {
+      if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
+        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
+        return;
+      } else {
+        this.switchRole(false);
+      }
+    } else if (
+      !this.iceControlling &&
+      message.attributesKeys.includes("ICE-CONTROLLED")
+    ) {
+      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
+        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
+      } else {
+        this.switchRole(true);
+        return;
+      }
+    }
+
+    // # send binding response
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      message.transactionId
+    );
+    response.attributes["XOR-MAPPED-ADDRESS"] = addr;
+    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
+    response.addFingerprint();
+    protocol.sendStun(response, addr);
+
+    if (!this.checkList) {
+      this.earlyChecks.push([message, addr, protocol]);
+    } else {
+      this.checkIncoming(message, addr, protocol);
+    }
+  }
+
+  dataReceived(data: Buffer, component: number) {
+    this.onData.execute(data, component);
+  }
+
+  private log(...args: any[]) {
+    if (this.options.log) {
+      console.log("log", ...args);
+    }
+  }
+
+  // for test only
+  set remoteCandidates(value: Candidate[]) {
+    if (this.remoteCandidatesEnd)
+      throw new Error("Cannot set remote candidates after end-of-candidates.");
+    this._remoteCandidates = [];
+    for (const remoteCandidate of value) {
+      try {
+        validateRemoteCandidate(remoteCandidate);
+      } catch (error) {
+        continue;
+      }
+      this.remoteCandidates.push(remoteCandidate);
+    }
+    this.pruneComponents();
+    this.remoteCandidatesEnd = true;
+  }
+  get remoteCandidates() {
+    return this._remoteCandidates;
+  }
+
+  private pruneComponents() {
+    const seenComponents = new Set(
+      this.remoteCandidates.map((v) => v.component)
+    );
+    const missingComponents = [...difference(this._components, seenComponents)];
+    if (missingComponents.length > 0) {
+      this._components = seenComponents;
+    }
+  }
+
+  private sortCheckList() {
+    sortCandidatePairs(this.checkList, this.iceControlling);
+  }
+
+  private findPair(protocol: Protocol, remoteCandidate: Candidate) {
+    const pair = this.checkList.find(
+      (pair) =>
+        isEqual(pair.protocol, protocol) &&
+        isEqual(pair.remoteCandidate, remoteCandidate)
+    );
+    return pair;
+  }
+
+  private checkState(pair: CandidatePair, state: CandidatePairState) {
     pair.state = state;
   }
 
-  buildRequest(pair: CandidatePair, nominate: boolean) {
-    const txUsername = `${this.remoteUsername}:${this.localUserName}`;
-    const request = new Message(methods.BINDING, classes.REQUEST);
-    request.attributes["USERNAME"] = txUsername;
-    request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
-    if (this.iceControlling) {
-      request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
-      if (nominate) {
-        request.attributes["USE-CANDIDATE"] = null;
-      }
-    } else {
-      request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
-    }
-    return request;
-  }
-
-  switchRole(iceControlling: boolean) {
+  private switchRole(iceControlling: boolean) {
     this.iceControlling = iceControlling;
     this.sortCheckList();
   }
 
-  checkComplete(pair: CandidatePair) {
+  private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
       if (pair.nominated) {
@@ -433,45 +832,6 @@ export class Connection {
     }
   }
 
-  async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
-    // """
-    // Add a remote candidate or signal end-of-candidates.
-
-    // To signal end-of-candidates, pass `None`.
-
-    // :param remote_candidate: A :class:`Candidate` instance or `None`.
-    // """
-    if (this.remoteCandidatesEnd)
-      throw new Error("Cannot add remote candidate after end-of-candidates.");
-
-    if (!remoteCandidate) {
-      this.pruneComponents();
-      this.remoteCandidatesEnd = true;
-      return;
-    }
-
-    if (remoteCandidate.host.includes(".local")) {
-      await sleep(10);
-
-      const res = await util
-        .promisify(dns.lookup)(remoteCandidate.host)
-        .catch(() => {});
-      if (!res) return;
-
-      remoteCandidate.host = res.address;
-    }
-
-    try {
-      validateRemoteCandidate(remoteCandidate);
-    } catch (error) {
-      return;
-    }
-    this.remoteCandidates.push(remoteCandidate);
-
-    this.pairRemoteCandidate(remoteCandidate);
-    this.sortCheckList();
-  }
-
   private pairRemoteCandidate = (remoteCandidate: Candidate) => {
     for (const protocol of this.protocols) {
       if (
@@ -484,7 +844,23 @@ export class Connection {
     }
   };
 
-  respondError(
+  private buildRequest(pair: CandidatePair, nominate: boolean) {
+    const txUsername = `${this.remoteUsername}:${this.localUserName}`;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.attributes["USERNAME"] = txUsername;
+    request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
+    if (this.iceControlling) {
+      request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
+      if (nominate) {
+        request.attributes["USE-CANDIDATE"] = null;
+      }
+    } else {
+      request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
+    }
+    return request;
+  }
+
+  private respondError(
     request: Message,
     addr: Address,
     protocol: Protocol,
@@ -500,412 +876,33 @@ export class Connection {
     response.addFingerprint();
     protocol.sendStun(response, addr);
   }
+}
 
-  requestReceived(
-    message: Message,
-    addr: Address,
-    protocol: Protocol,
-    rawData: Buffer
-  ) {
-    if (message.messageMethod !== methods.BINDING) {
-      this.respondError(message, addr, protocol, [400, "Bad Request"]);
-      return;
-    }
+export class CandidatePair {
+  handle?: Future;
+  nominated = false;
+  remoteNominated = false;
+  // 5.7.4.  Computing States
+  state = CandidatePairState.FROZEN;
 
-    // # authenticate request
-    try {
-      parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
-      if (!this.remoteUsername) {
-        const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
-        if (message.attributes["USERNAME"] != rxUsername)
-          throw new Error("Wrong username");
-      }
-    } catch (error) {
-      this.respondError(message, addr, protocol, [400, "Bad Request"]);
-      return;
-    }
+  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
 
-    // 7.2.1.1.  Detecting and Repairing Role Conflicts
-    if (
-      this.iceControlling &&
-      message.attributesKeys.includes("ICE-CONTROLLING")
-    ) {
-      if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
-        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
-        return;
-      } else {
-        this.switchRole(false);
-      }
-    } else if (
-      !this.iceControlling &&
-      message.attributesKeys.includes("ICE-CONTROLLED")
-    ) {
-      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
-        this.respondError(message, addr, protocol, [487, "Role Conflict"]);
-      } else {
-        this.switchRole(true);
-        return;
-      }
-    }
-
-    // # send binding response
-    const response = new Message(
-      methods.BINDING,
-      classes.RESPONSE,
-      message.transactionId
-    );
-    response.attributes["XOR-MAPPED-ADDRESS"] = addr;
-    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
-    response.addFingerprint();
-    protocol.sendStun(response, addr);
-
-    if (!this.checkList) {
-      this.earlyChecks.push([message, addr, protocol]);
-    } else {
-      this.checkIncoming(message, addr, protocol);
-    }
+  get localCandidate() {
+    if (!this.protocol.localCandidate)
+      throw new Error("localCandidate not exist");
+    return this.protocol.localCandidate;
   }
 
-  private async getComponentCandidates(
-    component: number,
-    addresses: string[],
-    timeout = 5,
-    cb?: (candidate: Candidate) => void
-  ) {
-    let candidates: Candidate[] = [];
-
-    for (const address of addresses) {
-      // # create transport
-      const protocol = new StunProtocol(this);
-      await protocol.connectionMade(isIPv4(address));
-      protocol.localAddress = address;
-      this.protocols.push(protocol);
-
-      // # add host candidate
-      const candidateAddress = protocol.getExtraInfo;
-
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("host", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "host"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "host"
-      );
-
-      candidates.push(protocol.localCandidate);
-      if (cb) cb(protocol.localCandidate);
-    }
-
-    // # query STUN server for server-reflexive candidates (IPv4 only)
-    const stunServer = this.stunServer;
-    if (stunServer) {
-      try {
-        const fs = (
-          await Promise.all<Candidate | undefined | void>(
-            this.protocols.map(
-              (protocol) =>
-                new Promise(async (r, f) => {
-                  setTimeout(f, timeout * 1000);
-                  if (
-                    protocol.localCandidate?.host &&
-                    isIPv4(protocol.localCandidate?.host)
-                  ) {
-                    const candidate = await serverReflexiveCandidate(
-                      protocol,
-                      stunServer
-                    ).catch(console.log);
-                    if (candidate && cb) cb(candidate);
-                    r(candidate);
-                  } else {
-                    r(undefined);
-                  }
-                })
-            )
-          )
-        ).filter((v) => v) as Candidate[];
-        candidates = [...candidates, ...fs];
-      } catch (error) {
-        this.log("query STUN server", error);
-      }
-    }
-
-    if (
-      this.options.turnServer &&
-      this.options.turnUsername &&
-      this.options.turnPassword
-    ) {
-      const protocol = await createTurnEndpoint(
-        this.options.turnServer,
-        this.options.turnUsername,
-        this.options.turnPassword
-      );
-      this.protocols.push(protocol);
-
-      const candidateAddress = protocol.turn.relayedAddress!;
-      const relatedAddress = protocol.turn.mappedAddress!;
-
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("relay", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "relay"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "relay",
-        relatedAddress[0],
-        relatedAddress[1]
-      );
-      protocol.receiver = this;
-
-      if (this.options.forceTurn) {
-        candidates = [];
-      }
-
-      candidates.push(protocol.localCandidate);
-    }
-
-    return candidates;
+  get remoteAddr(): Address {
+    return [this.remoteCandidate.host, this.remoteCandidate.port];
   }
 
-  promiseGatherCandidates?: Event<[]>;
-  async gatherCandidates(cb?: (candidate: Candidate) => void) {
-    if (!this.localCandidatesStart) {
-      this.localCandidatesStart = true;
-      this.promiseGatherCandidates = new Event();
-
-      const address = getHostAddress(this.useIpv4, this.useIpv6);
-      for (const component of this._components) {
-        const candidates = await this.getComponentCandidates(
-          component,
-          address,
-          5,
-          cb
-        );
-        this.localCandidates = [...this.localCandidates, ...candidates];
-      }
-
-      this._localCandidatesEnd = true;
-      this.promiseGatherCandidates.execute();
-    }
-  }
-
-  private unfreezeInitial() {
-    // # unfreeze first pair for the first component
-    const firstPair = this.checkList.find(
-      (pair) => pair.component === Math.min(...[...this._components])
-    );
-    if (!firstPair) return;
-    if (firstPair.state === CandidatePairState.FROZEN) {
-      this.checkState(firstPair, CandidatePairState.WAITING);
-    }
-
-    // # unfreeze pairs with same component but different foundations
-    const seenFoundations = new Set(firstPair.localCandidate.foundation);
-    for (const pair of this.checkList) {
-      if (
-        pair.component === firstPair.component &&
-        !seenFoundations.has(pair.localCandidate.foundation) &&
-        pair.state === CandidatePairState.FROZEN
-      ) {
-        this.checkState(pair, CandidatePairState.WAITING);
-        seenFoundations.add(pair.localCandidate.foundation);
-      }
-    }
-  }
-
-  // 5.8 Scheduling Checks
-  schedulingChecks() {
-    // Ordinary Check
-    {
-      // # find the highest-priority pair that is in the waiting state
-      const pair = this.checkList
-        .filter((pair) => {
-          if (this.options.forceTurn && pair.protocol.type === "stun")
-            return false;
-          return true;
-        })
-        .find((pair) => pair.state === CandidatePairState.WAITING);
-      if (pair) {
-        pair.handle = future(this.checkStart(pair));
-        return true;
-      }
-    }
-
-    {
-      // # find the highest-priority pair that is in the frozen state
-      const pair = this.checkList.find(
-        (pair) => pair.state === CandidatePairState.FROZEN
-      );
-      if (pair) {
-        pair.handle = future(this.checkStart(pair));
-        return true;
-      }
-    }
-
-    // # if we expect more candidates, keep going
-    if (!this.remoteCandidatesEnd) {
-      return !this.checkListDone;
-    }
-
-    return false;
-  }
-
-  async close() {
-    // """
-    // Close the connection.
-    // """
-
-    // # stop consent freshness tests
-    if (this.queryConsentHandle && !this.queryConsentHandle.done()) {
-      this.queryConsentHandle.cancel();
-      try {
-        await this.queryConsentHandle.promise;
-      } catch (error) {
-        // pass
-      }
-    }
-
-    // # stop check list
-    if (this.checkList && !this.checkListDone) {
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
-    }
-
-    this.nominated = {};
-    for (const protocol of this.protocols) {
-      if (protocol.close) await protocol.close();
-    }
-
-    this.protocols = [];
-    this.localCandidates = [];
-
-    this.stateChanged.execute("closed");
-  }
-
-  // 生存確認 life check
-  private queryConsent = () =>
-    new PCancelable(async (r, f, onCancel) => {
-      let failures = 0;
-
-      onCancel(() => {
-        failures += CONSENT_FAILURES;
-        f("cancel");
-      });
-
-      // """
-      // Periodically check consent (RFC 7675).
-      // """
-
-      for (;;) {
-        // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
-
-        for (const key of this.nominatedKeys) {
-          const pair = this.nominated[Number(key)];
-          const request = this.buildRequest(pair, false);
-          try {
-            await pair.protocol.request(
-              request,
-              pair.remoteAddr,
-              Buffer.from(this.remotePassword, "utf8"),
-              0
-            );
-            failures = 0;
-          } catch (error) {
-            failures++;
-            this.stateChanged.execute("disconnected");
-          }
-          if (failures >= CONSENT_FAILURES) {
-            this.log("Consent to send expired");
-            this.queryConsentHandle = undefined;
-            // 切断検知
-            r(await this.close());
-            return;
-          }
-        }
-      }
-    });
-
-  async connect() {
-    // """
-    // Perform ICE handshake.
-    //
-    // This coroutine returns if a candidate pair was successfully nominated
-    // and raises an exception otherwise.
-    // """
-
-    if (!this._localCandidatesEnd) {
-      if (!this.localCandidatesStart)
-        throw new Error("Local candidates gathering was not performed");
-      if (this.promiseGatherCandidates)
-        await this.promiseGatherCandidates.asPromise();
-    }
-    if (!this.remoteUsername || !this.remotePassword)
-      throw new Error("Remote username or password is missing");
-
-    // # 5.7.1. Forming Candidate Pairs
-    this.remoteCandidates.forEach(this.pairRemoteCandidate);
-    this.sortCheckList();
-
-    this.unfreezeInitial();
-
-    // # handle early checks
-    this.earlyChecks.forEach((earlyCheck) => this.checkIncoming(...earlyCheck));
-    this.earlyChecks = [];
-
-    // # perform checks
-    // 5.8.  Scheduling Checks
-    for (;;) {
-      if (!this.schedulingChecks()) break;
-      await sleep(20);
-    }
-
-    // # wait for completion
-    const res: number =
-      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
-
-    // # cancel remaining checks
-    this.checkList.forEach((check) => check.handle?.cancel());
-
-    if (res !== ICE_COMPLETED) throw new Error("ICE negotiation failed");
-
-    // # start consent freshness tests
-    this.queryConsentHandle = future(this.queryConsent());
-
-    this.stateChanged.execute("completed");
-  }
-
-  async send(data: Buffer) {
-    // """
-    // Send a datagram on the first component.
-
-    // If the connection is not established, a `ConnectionError` is raised.
-
-    // :param data: The data to be sent.
-    // """
-    await this.sendTo(data, 1);
-  }
-
-  private async sendTo(data: Buffer, component: number) {
-    // """
-    // Send a datagram on the specified component.
-
-    // If the connection is not established, a `ConnectionError` is raised.
-
-    // :param data: The data to be sent.
-    // :param component: The component on which to send the data.
-    // """
-    const activePair = this.nominated[component];
-    if (activePair) {
-      await activePair.protocol.sendData(data, activePair.remoteAddr);
-    } else {
-      throw new Error("Cannot send data, not connected");
-    }
+  get component() {
+    return this.localCandidate.component;
   }
 }
 
-function validateRemoteCandidate(candidate: Candidate) {
+export function validateRemoteCandidate(candidate: Candidate) {
   // """
   // Check the remote candidate is supported.
 
@@ -919,7 +916,10 @@ function validateRemoteCandidate(candidate: Candidate) {
   return candidate;
 }
 
-function sortCandidatePairs(pairs: CandidatePair[], iceControlling: boolean) {
+export function sortCandidatePairs(
+  pairs: CandidatePair[],
+  iceControlling: boolean
+) {
   pairs.sort(
     (a, b) =>
       candidatePairPriority(
@@ -932,7 +932,7 @@ function sortCandidatePairs(pairs: CandidatePair[], iceControlling: boolean) {
 }
 
 // 5.7.2.  Computing Pair Priority and Ordering Pairs
-function candidatePairPriority(
+export function candidatePairPriority(
   local: Candidate,
   remote: Candidate,
   iceControlling: boolean
@@ -949,7 +949,7 @@ export function getHostAddress(useIpv4: boolean, useIpv6: boolean) {
   return address;
 }
 
-async function serverReflexiveCandidate(
+export async function serverReflexiveCandidate(
   protocol: Protocol,
   stunServer: Address
 ) {
@@ -976,7 +976,6 @@ async function serverReflexiveCandidate(
       localCandidate.port
     );
   } catch (error) {
-    console.log(error);
     throw new Error("serverReflexiveCandidate" + error.message);
   }
 }

@@ -1,11 +1,11 @@
 import { Candidate } from "../candidate";
-import { Message } from "../stun/transaction";
+import { Message } from "../stun/message";
 
 export type Address = [string, number];
 
 export type Protocol = {
   type: string;
-  localCandidate?: Candidate;
+  localCandidate: Candidate;
   sentMessage?: Message;
   request: (
     message: Message,

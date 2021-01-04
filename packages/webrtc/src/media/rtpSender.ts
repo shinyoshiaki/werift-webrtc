@@ -4,6 +4,7 @@ import { jspack } from "jspack";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 import {
+  Extension,
   GenericNack,
   RtcpPacket,
   RtcpRrPacket,
@@ -153,7 +154,7 @@ export class RTCRtpSender {
 
     header.extensions = parameters.headerExtensions
       .map((extension) => {
-        let payload: Buffer;
+        let payload: Buffer | undefined;
         switch (extension.uri) {
           case RTP_EXTENSION_URI.sdesMid:
             if (parameters.muxId) payload = Buffer.from(parameters.muxId);
@@ -177,7 +178,7 @@ export class RTCRtpSender {
         }
         if (payload) return { id: extension.id, payload };
       })
-      .filter((v) => v);
+      .filter((v) => v) as Extension[];
 
     this.ntpTimestamp = ntpTime();
     this.rtpTimestamp = rtp.header.timestamp;
@@ -203,7 +204,7 @@ export class RTCRtpSender {
             .forEach((report) => {
               if (this.lsr === BigInt(report.lsr) && report.dlsr) {
                 const rtt =
-                  Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
+                  Date.now() / 1000 - this.lsrTime! - report.dlsr / 65536;
                 if (this.rtt === undefined) {
                   this.rtt = rtt;
                 } else {

@@ -117,8 +117,8 @@ export class RTCIceCandidate {
   toJSON(): RTCIceCandidateJSON {
     return {
       candidate: candidateToSdp(this),
-      sdpMLineIndex: this.sdpMLineIndex,
-      sdpMid: this.sdpMid,
+      sdpMLineIndex: this.sdpMLineIndex!,
+      sdpMid: this.sdpMid!,
     };
   }
 
@@ -199,8 +199,8 @@ export class RTCIceTransport {
     this.waitStart = new Event();
 
     this.setState("checking");
-    this.connection.remoteUsername = remoteParameters.usernameFragment;
-    this.connection.remotePassword = remoteParameters.password;
+    this.connection.remoteUsername = remoteParameters.usernameFragment!;
+    this.connection.remotePassword = remoteParameters.password!;
 
     try {
       await this.connection.connect();

@@ -17,7 +17,6 @@ import { DtlsState, RTCDtlsTransport } from "./dtls";
 
 export class RTCSctpTransport {
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-
   readonly uuid = uuid.v4();
   readonly sctp = new SCTP(new Bridge(this.dtlsTransport), this.port);
   mid?: string;
@@ -98,13 +97,10 @@ export class RTCSctpTransport {
               .slice(pos, pos + protocolLength)
               .toString("utf8");
 
-            let maxPacketLifeTime;
-            let maxRetransmits;
-            if ((channelType & 0x03) === 1) {
-              maxRetransmits = reliability;
-            } else if ((channelType & 0x03) === 2) {
-              maxPacketLifeTime = reliability;
-            }
+            const maxRetransmits =
+              (channelType & 0x03) === 1 ? reliability : undefined;
+            const maxPacketLifeTime =
+              (channelType & 0x03) === 2 ? reliability : undefined;
 
             // # register channel
             const parameters = new RTCDataChannelParameters({

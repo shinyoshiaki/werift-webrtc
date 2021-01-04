@@ -1,5 +1,5 @@
 import { Connection, CandidatePair, CandidatePairState } from "../../src/ice";
-import { Protocol, Address } from "../../src/typings/model";
+import { Protocol, Address } from "../../src/types/model";
 import { Candidate } from "../../src/candidate";
 import { inviteAccept, assertCandidateTypes } from "../utils";
 import { sleep } from "../../src/utils";
@@ -124,13 +124,13 @@ describe("ice", () => {
 
     // # send data a -> b
     await a.send(Buffer.from("howdee"));
-    let data = (await b.onData.asPromise()).toString();
-    expect(data).toBe("howdee");
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
     // # send data b -> a
     await b.send(Buffer.from("gotcha"));
-    data = (await a.onData.asPromise()).toString();
-    expect(data).toBe("gotcha");
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
 
     await a.close();
     await b.close();
@@ -270,13 +270,13 @@ describe("ice", () => {
 
     // # send data a -> b
     await a.send(Buffer.from("howdee"));
-    let data = (await b.onData.asPromise()).toString();
-    expect(data).toBe("howdee");
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
     // # send data b -> a
     await b.send(Buffer.from("gotcha"));
-    data = (await a.onData.asPromise()).toString();
-    expect(data).toBe("gotcha");
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
 
     await a.close();
     await b.close();
@@ -302,13 +302,13 @@ describe("ice", () => {
 
     // # send data a -> b
     await a.send(Buffer.from("howdee"));
-    let data = (await b.onData.asPromise()).toString();
-    expect(data).toBe("howdee");
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
     // # send data b -> a
     await b.send(Buffer.from("gotcha"));
-    data = (await a.onData.asPromise()).toString();
-    expect(data).toBe("gotcha");
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
 
     await a.close();
     await b.close();
@@ -510,13 +510,13 @@ describe("ice", () => {
 
     // # send data a -> b
     await a.send(Buffer.from("howdee"));
-    let data = (await b.onData.asPromise()).toString();
-    expect(data).toBe("howdee");
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
     // # send data b -> a
     await b.send(Buffer.from("gotcha"));
-    data = (await a.onData.asPromise()).toString();
-    expect(data).toBe("gotcha");
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
 
     await a.close();
     await b.close();
@@ -541,13 +541,13 @@ describe("ice", () => {
 
       // # send data a -> b
       await a.send(Buffer.from("howdee"));
-      let data = (await b.onData.asPromise()).toString();
-      expect(data).toBe("howdee");
+      let [data] = await b.onData.asPromise();
+      expect(data.toString()).toBe("howdee");
 
       // # send data b -> a
       await b.send(Buffer.from("gotcha"));
-      data = (await a.onData.asPromise()).toString();
-      expect(data).toBe("gotcha");
+      [data] = await a.onData.asPromise();
+      expect(data.toString()).toBe("gotcha");
 
       await a.close();
       await b.close();
@@ -581,13 +581,13 @@ describe("ice", () => {
 
       // # send data a -> b
       await a.send(Buffer.from("howdee"));
-      let data = (await b.onData.asPromise()).toString();
-      expect(data).toBe("howdee");
+      let [data] = await b.onData.asPromise();
+      expect(data.toString()).toBe("howdee");
 
       // # send data b -> a
       await b.send(Buffer.from("gotcha"));
-      data = (await a.onData.asPromise()).toString();
-      expect(data).toBe("gotcha");
+      [data] = await a.onData.asPromise();
+      expect(data.toString()).toBe("gotcha");
 
       await a.close();
       await b.close();
@@ -618,13 +618,13 @@ describe("ice", () => {
 
     // # send data a -> b
     await a.send(Buffer.from("howdee"));
-    let data = (await b.onData.asPromise()).toString();
-    expect(data).toBe("howdee");
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
     // # send data b -> a
     await b.send(Buffer.from("gotcha"));
-    data = (await a.onData.asPromise()).toString();
-    expect(data).toBe("gotcha");
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
 
     await a.close();
     await b.close();

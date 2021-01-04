@@ -685,15 +685,9 @@ export class SCTP {
       chunk.streamSeq = streamSeq;
       chunk.protocol = ppId;
       chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
-      chunk.abandoned = false;
-      chunk.acked = false;
       chunk.bookSize = chunk.userData.length;
       chunk.expiry = expiry;
       chunk.maxRetransmits = maxRetransmits;
-      chunk.misses = 0;
-      chunk.retransmit = false;
-      chunk.sentCount = 0;
-      chunk.sentTime = undefined;
 
       pos += USERDATA_MAX_LENGTH;
       this.localTsn = tsnPlusOne(this.localTsn);
@@ -1087,12 +1081,12 @@ export class InboundStream {
 
   *popMessages(): Generator<[number, number, Buffer]> {
     let pos = 0;
-    let startPos = null;
+    let startPos: number | undefined;
     let expectedTsn: number;
     let ordered: boolean | undefined;
     while (pos < this.reassembly.length) {
       const chunk = this.reassembly[pos];
-      if (startPos === null) {
+      if (startPos === undefined) {
         ordered = !(chunk.flags & SCTP_DATA_UNORDERED);
         if (!(chunk.flags & SCTP_DATA_FIRST_FRAG)) {
           if (ordered) {
