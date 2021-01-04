@@ -1,5 +1,5 @@
 import { AcceptFn } from "protoo-server";
-import { RTCPeerConnection } from "../../../../packages/webrtc/src";
+import { RTCPeerConnection } from "../";
 
 export class datachannel_answer_ {
   pc!: RTCPeerConnection;
