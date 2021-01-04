@@ -21,4 +21,4 @@ export { RtcpSenderInfo, RtcpSrPacket } from "./rtcp/sr";
 export { SrtpSession } from "./srtp/srtp";
 export { SrtcpSession } from "./srtp/srtcp";
 export { RtcpPacketConverter, RtcpPacket } from "./rtcp/rtcp";
-export { RtpPacket, RtpHeader } from "./rtp/rtp";
+export { RtpPacket, RtpHeader, Extension } from "./rtp/rtp";

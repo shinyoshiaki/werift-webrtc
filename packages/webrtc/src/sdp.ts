@@ -37,7 +37,7 @@ export class SessionDescription {
   static parse(sdp: string) {
     const dtlsFingerprints: RTCDtlsFingerprint[] = [];
     let dtlsRole = "";
-    let iceOptions = undefined;
+    let iceOptions: string;
     let iceLite = false;
     let icePassword = "";
     let iceUsernameFragment = "";
@@ -160,10 +160,10 @@ export class SessionDescription {
               currentMedia.iceOptions = value;
               break;
             case "ice-pwd":
-              currentMedia.iceParams.password = value;
+              currentMedia.iceParams!.password = value;
               break;
             case "ice-ufrag":
-              currentMedia.iceParams.usernameFragment = value;
+              currentMedia.iceParams!.usernameFragment = value;
               break;
             case "max-message-size":
               currentMedia.sctpCapabilities = new RTCSctpCapabilities(
@@ -185,7 +185,7 @@ export class SessionDescription {
               currentMedia.rtcpMux = true;
               break;
             case "setup":
-              currentMedia.dtlsParams.role = DTLS_SETUP_ROLE[value];
+              currentMedia.dtlsParams!.role = DTLS_SETUP_ROLE[value];
               break;
             case "recvonly":
             case "sendonly":
@@ -264,12 +264,12 @@ export class SessionDescription {
           const [attr, value] = parseAttr(line);
           if (attr === "fmtp") {
             const [formatId, formatDesc] = divide(value, " ");
-            const codec = findCodec(Number(formatId));
+            const codec = findCodec(Number(formatId))!;
             codec.parameters = parametersFromSdp(formatDesc);
           } else if (attr === "rtcp-fb") {
             const [payloadType, feedbackType, feedbackParam] = value.split(" ");
             currentMedia.rtp.codecs.forEach((codec) => {
-              if (["*", codec.payloadType.toString()].includes(payloadType)) {
+              if (["*", codec.payloadType!.toString()].includes(payloadType)) {
                 codec.rtcpFeedback.push(
                   new RTCRtcpFeedback({
                     type: feedbackType,
@@ -360,7 +360,7 @@ export class MediaDescription {
   ) {}
 
   toString() {
-    const lines = [];
+    const lines: string[] = [];
     lines.push(
       `m=${this.kind} ${this.port} ${this.profile} ${(this.fmt as number[])
         .map((v) => v.toString())
@@ -376,11 +376,11 @@ export class MediaDescription {
     if (this.iceCandidatesComplete) {
       lines.push("a=end-of-candidates");
     }
-    if (this.iceParams.usernameFragment) {
-      lines.push(`a=ice-ufrag:${this.iceParams.usernameFragment}`);
+    if (this.iceParams!.usernameFragment) {
+      lines.push(`a=ice-ufrag:${this.iceParams!.usernameFragment}`);
     }
-    if (this.iceParams.password) {
-      lines.push(`a=ice-pwd:${this.iceParams.password}`);
+    if (this.iceParams!.password) {
+      lines.push(`a=ice-pwd:${this.iceParams!.password}`);
     }
     if (this.iceOptions) {
       lines.push(`a=ice-options:${this.iceOptions}`);
@@ -535,12 +535,12 @@ function groupLines(sdp: string): [string[], string[][]] {
   return [session, media];
 }
 
-function parseAttr(line: string): [string, string | undefined] {
+function parseAttr(line: string): [string, string] {
   if (line.includes(":")) {
     const bits = divide(line.slice(2), ":");
     return [bits[0], bits[1]];
   } else {
-    return [line.slice(2), undefined];
+    return [line.slice(2), undefined as any];
   }
 }
 
@@ -636,7 +636,7 @@ function parametersToSDP(parameters: { [key: string]: string }) {
 }
 
 export class SsrcDescription {
-  ssrc: number;
+  ssrc!: number;
   cname?: string;
   msid?: string;
   msLabel?: string;

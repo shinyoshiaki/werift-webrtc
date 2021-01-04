@@ -37,15 +37,16 @@ export class RTCDtlsTransport {
   state = DtlsState.NEW;
   role: DtlsRole = "auto";
   dataReceiver?: (buf: Buffer) => void;
-  srtp: SrtpSession;
-  srtcp: SrtcpSession;
-  router?: RtpRouter;
+  srtp!: SrtpSession;
+  srtcp!: SrtcpSession;
+
   transportSequenceNumber = 0;
 
   private localCertificate: RTCCertificate;
 
   constructor(
     readonly iceTransport: RTCIceTransport,
+    readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
     private readonly srtpProfiles: number[] = []
   ) {

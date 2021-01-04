@@ -30,13 +30,12 @@ export class RTCRtpReceiver {
   // # RTCP
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
-  rtcpSsrc: number;
+  rtcpSsrc?: number;
   readonly cacheTWCC: {
     [ssrc: number]: { tsn: number; timestamp: bigint }[];
   } = {};
-
-  sdesMid: string;
-  rid: string;
+  sdesMid?: string;
+  rid?: string;
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
 
@@ -204,6 +203,7 @@ export class RTCRtpReceiver {
     const { ssrc } = packet.header;
 
     const track = this.tracks.find((track) => track.ssrc === ssrc);
+    if (!track) throw new Error();
     if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
@@ -216,6 +216,7 @@ export class RTCRtpReceiver {
     const { ssrc } = packet.header;
 
     const track = this.tracks.find((track) => track.rid === rid);
+    if (!track) throw new Error();
     if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
