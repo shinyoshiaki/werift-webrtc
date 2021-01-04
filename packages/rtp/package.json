@@ -17,7 +17,7 @@
     "src"
   ],
   "scripts": {
-    "build": "rm -rf lib && yarn format && tsc",
+    "build": "./build.sh",
     "ci": "yarn type && yarn lint && yarn test",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint src/**/*.ts --fix",

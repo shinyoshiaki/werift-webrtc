@@ -8,8 +8,8 @@ export function load(name: string) {
 
 export function createMockTransportPair(): [Transport, Transport] {
   class Mock implements Transport {
-    onData?: (buf: Buffer) => void;
-    target?: Mock;
+    onData!: (buf: Buffer) => void;
+    target!: Mock;
 
     send(buf: Buffer) {
       this.target.onData(buf);
