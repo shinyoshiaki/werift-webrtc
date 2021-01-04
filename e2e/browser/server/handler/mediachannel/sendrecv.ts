@@ -47,11 +47,10 @@ export class mediachannel_sendrecv_offer_ {
           this.pc = new RTCPeerConnection({
             stunServer: ["stun.l.google.com", 19302],
           });
-          this.pc.onTransceiver.subscribe((transceiver) => {
-            transceiver.onTrack.subscribe((track) => {
-              track.onRtp.subscribe((rtp) => {
-                transceiver.sendRtp(rtp);
-              });
+          const transceiver = this.pc.addTransceiver("video", "sendrecv");
+          transceiver.onTrack.subscribe((track) => {
+            track.onRtp.subscribe((rtp) => {
+              transceiver.sendRtp(rtp);
             });
           });
           await this.pc.setRemoteDescription(payload);
