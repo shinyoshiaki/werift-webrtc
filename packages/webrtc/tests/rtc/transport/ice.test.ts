@@ -12,14 +12,14 @@ describe("iceTransport", () => {
 
     await Promise.all([gatherer1.gather(), gatherer2.gather()]);
 
-    gatherer2.getLocalCandidates().forEach(transport1.addRemoteCandidate);
-    gatherer1.getLocalCandidates().forEach(transport2.addRemoteCandidate);
+    gatherer2.localCandidates.forEach(transport1.addRemoteCandidate);
+    gatherer1.localCandidates.forEach(transport2.addRemoteCandidate);
     expect(transport1.state).toBe("new");
     expect(transport2.state).toBe("new");
 
     await Promise.all([
-      transport1.start(gatherer2.getLocalParameters()),
-      transport2.start(gatherer1.getLocalParameters()),
+      transport1.start(gatherer2.localParameters),
+      transport2.start(gatherer1.localParameters),
     ]);
     expect(transport1.state).toBe("completed");
     expect(transport2.state).toBe("completed");

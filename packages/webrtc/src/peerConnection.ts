@@ -841,9 +841,10 @@ export function addTransportDescription(
   }
 
   if (!media.dtlsParams) {
-    media.dtlsParams = dtlsTransport.getLocalParameters();
+    media.dtlsParams = dtlsTransport.localParameters;
     if (!media.dtlsParams.fingerprints) {
-      media.dtlsParams.fingerprints = dtlsTransport.getLocalParameters().fingerprints;
+      media.dtlsParams.fingerprints =
+        dtlsTransport.localParameters.fingerprints;
     }
   }
 }

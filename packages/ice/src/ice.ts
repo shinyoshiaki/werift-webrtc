@@ -277,7 +277,7 @@ export class Connection {
     this.checkList.forEach((check) => check.handle?.cancel());
 
     if (res !== ICE_COMPLETED) {
-      throw new Error("ICE negotiation failed " + res);
+      throw new Error("ICE negotiation failed");
     }
 
     // # start consent freshness tests
@@ -978,6 +978,6 @@ export async function serverReflexiveCandidate(
       localCandidate.port
     );
   } catch (error) {
-    throw new Error("serverReflexiveCandidate" + error.message);
+    // todo fix
   }
 }

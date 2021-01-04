@@ -54,7 +54,7 @@ export class RTCDtlsTransport {
     this.localCertificate = certificate;
   }
 
-  getLocalParameters() {
+  get localParameters() {
     return new RTCDtlsParameters(
       this.localCertificate ? this.localCertificate.getFingerprints() : []
     );

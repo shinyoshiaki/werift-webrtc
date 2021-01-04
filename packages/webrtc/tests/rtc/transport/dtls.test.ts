@@ -32,8 +32,8 @@ export async function dtlsTransportPair() {
   ]);
 
   await Promise.all([
-    session1.start(session2.getLocalParameters()),
-    session2.start(session1.getLocalParameters()),
+    session1.start(session2.localParameters),
+    session2.start(session1.localParameters),
   ]);
 
   if (session1.role === "client") {
@@ -60,14 +60,14 @@ export const iceTransportPair = async () => {
 
   await Promise.all([gatherer1.gather(), gatherer2.gather()]);
 
-  gatherer2.getLocalCandidates().forEach(transport1.addRemoteCandidate);
-  gatherer1.getLocalCandidates().forEach(transport2.addRemoteCandidate);
+  gatherer2.localCandidates.forEach(transport1.addRemoteCandidate);
+  gatherer1.localCandidates.forEach(transport2.addRemoteCandidate);
   expect(transport1.state).toBe("new");
   expect(transport2.state).toBe("new");
 
   await Promise.all([
-    transport1.start(gatherer2.getLocalParameters()),
-    transport2.start(gatherer1.getLocalParameters()),
+    transport1.start(gatherer2.localParameters),
+    transport2.start(gatherer1.localParameters),
   ]);
 
   return [transport1, transport2];
