@@ -53,10 +53,6 @@
             }
           };
 
-          peer.onnegotiationneeded = async () => {
-            await peer.setLocalDescription(await peer.createOffer());
-          };
-
           let i = 0;
           peer.ontrack = (e) => {
             console.log("ontrack", e);
@@ -115,6 +111,7 @@
           peer.addTransceiver("video", { direction: "recvonly" });
           peer.addTransceiver("video", { direction: "recvonly" });
           peer.addTransceiver("video", { direction: "recvonly" });
+          await peer.setLocalDescription(await peer.createOffer());
         };
 
         React.useEffect(() => {

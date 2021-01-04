@@ -2,7 +2,10 @@ import express from "express";
 
 import { WebSocketServer, Room } from "protoo-server";
 import { datachannel_answer_, datachannel_offer_ } from "./handler/datachannel";
-import { mediachannel_sendrecv_answer_ } from "./handler/mediachannel/sendrecv";
+import {
+  mediachannel_sendrecv_answer_,
+  mediachannel_sendrecv_offer_,
+} from "./handler/mediachannel/sendrecv";
 
 const app = express();
 app.use(express.json());
@@ -25,26 +28,19 @@ const http = app.listen("8886");
 const server = new WebSocketServer(http);
 const room = new Room();
 server.on("connectionrequest", async (_, accept) => {
-  const datachannel_answer = new datachannel_answer_();
-  const datachannel_offer = new datachannel_offer_();
-  const mediachannel_sendrecv_answer = new mediachannel_sendrecv_answer_();
+  const tests = {
+    datachannel_answer: new datachannel_answer_(),
+    datachannel_offer: new datachannel_offer_(),
+    mediachannel_sendrecv_answer: new mediachannel_sendrecv_answer_(),
+    mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer_(),
+  };
 
   const transport = accept();
   const peer = await room.createPeer(Math.random().toString(), transport);
 
   peer.on("request", (request, accept) => {
     const { type, payload } = request.data;
-    switch (request.method) {
-      case "mediachannel_sendrecv_answer":
-        mediachannel_sendrecv_answer.exec(type, payload, accept);
-        break;
-      case "datachannel_answer":
-        datachannel_answer.exec(type, payload, accept);
-        break;
-      case "datachannel_offer":
-        datachannel_offer.exec(type, payload, accept);
-        break;
-    }
+    tests[request.method].exec(type, payload, accept);
   });
 });
 

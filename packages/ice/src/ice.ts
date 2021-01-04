@@ -276,7 +276,9 @@ export class Connection {
     // # cancel remaining checks
     this.checkList.forEach((check) => check.handle?.cancel());
 
-    if (res !== ICE_COMPLETED) throw new Error("ICE negotiation failed");
+    if (res !== ICE_COMPLETED) {
+      throw new Error("ICE negotiation failed " + res);
+    }
 
     // # start consent freshness tests
     this.queryConsentHandle = future(this.queryConsent());

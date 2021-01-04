@@ -40,4 +40,34 @@ describe("mediachannel_sendrecv", () => {
     },
     10 * 1000
   );
+
+  it(
+    "offer",
+    async (done) => {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pc.ontrack = ({ track }) => {
+        waitVideoPlay(track).then(done);
+      };
+      const [track] = (
+        await navigator.mediaDevices.getUserMedia({ video: true })
+      ).getTracks();
+      pc.addTrack(track);
+      pc.onicecandidate = ({ candidate }) => {
+        peer.request("mediachannel_sendrecv_offer", {
+          type: "candidate",
+          payload: candidate,
+        });
+      };
+
+      await pc.setLocalDescription(await pc.createOffer());
+      const answer = await peer.request("mediachannel_sendrecv_offer", {
+        type: "init",
+        payload: pc.localDescription,
+      });
+      await pc.setRemoteDescription(answer);
+    },
+    10 * 1000
+  );
 });

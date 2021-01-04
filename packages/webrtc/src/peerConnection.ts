@@ -64,7 +64,7 @@ export class RTCPeerConnection {
   masterTransport?: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
-  transceivers: RTCRtpTransceiver[] = [];
+  readonly transceivers: RTCRtpTransceiver[] = [];
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly iceGatheringStateChange = new Event<[IceState]>();
   readonly iceConnectionStateChange = new Event<[IceState]>();
@@ -422,18 +422,14 @@ export class RTCPeerConnection {
     if (this.masterTransportEstablished) return;
 
     const dtlsTransport = this.masterTransport;
-    const iceTransport = dtlsTransport!.iceTransport;
+    const iceTransport = dtlsTransport.iceTransport;
 
-    if (
-      iceTransport.iceGather.getLocalCandidates() &&
-      this.remoteIce &&
-      this.remoteDtls
-    ) {
+    if (this.remoteIce && this.remoteDtls) {
       await iceTransport.start(this.remoteIce);
-      await dtlsTransport!.start(this.remoteDtls);
+      await dtlsTransport.start(this.remoteDtls);
 
-      if (this.sctpTransport) {
-        await this.sctpTransport.start(this.sctpRemotePort!);
+      if (this.sctpTransport && this.sctpRemotePort) {
+        await this.sctpTransport.start(this.sctpRemotePort);
         await this.sctpTransport.sctp.stateChanged.connected.asPromise();
       }
 
@@ -545,7 +541,10 @@ export class RTCPeerConnection {
               [undefined, media.rtp.muxId].includes(t.mid)
           ) ||
           (() => {
-            const transceiver = this.addTransceiver(media.kind, "recvonly");
+            const transceiver = this.addTransceiver(
+              media.kind,
+              media.direction === "sendrecv" ? "sendrecv" : "recvonly"
+            );
             this.onTransceiver.execute(transceiver);
             return transceiver;
           })();
@@ -824,9 +823,9 @@ export function addTransportDescription(
   const iceTransport = dtlsTransport.iceTransport;
   const iceGatherer = iceTransport.iceGather;
 
-  media.iceCandidates = iceGatherer.getLocalCandidates();
+  media.iceCandidates = iceGatherer.localCandidates;
   media.iceCandidatesComplete = iceGatherer.state === "completed";
-  media.iceParams = iceGatherer.getLocalParameters();
+  media.iceParams = iceGatherer.localParameters;
 
   if (media.iceCandidates.length > 0) {
     const candidate = media.iceCandidates[media.iceCandidates.length - 1];

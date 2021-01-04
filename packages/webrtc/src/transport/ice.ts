@@ -36,11 +36,11 @@ export class RTCIceGatherer {
     }
   }
 
-  getLocalCandidates() {
+  get localCandidates() {
     return this.connection.localCandidates.map(candidateFromIce);
   }
 
-  getLocalParameters() {
+  get localParameters() {
     const params = new RTCIceParameters({
       usernameFragment: this.connection.localUserName,
       password: this.connection.localPassword,
@@ -134,8 +134,8 @@ export class RTCIceCandidate {
 
 export class RTCIceParameters {
   iceLite: boolean = false;
-  usernameFragment?: string;
-  password?: string;
+  usernameFragment!: string;
+  password!: string;
 
   constructor(props: Partial<RTCIceParameters> = {}) {
     Object.assign(this, props);
@@ -199,8 +199,8 @@ export class RTCIceTransport {
     this.waitStart = new Event();
 
     this.setState("checking");
-    this.connection.remoteUsername = remoteParameters.usernameFragment!;
-    this.connection.remotePassword = remoteParameters.password!;
+    this.connection.remoteUsername = remoteParameters.usernameFragment;
+    this.connection.remotePassword = remoteParameters.password;
 
     try {
       await this.connection.connect();
