@@ -1,2 +1,2 @@
-export { RTCPeerConnection } from "../../../packages/webrtc/src";
-// export { RTCPeerConnection } from "werift";
+export * from "../../../packages/webrtc/src";
+// export * from "werift";

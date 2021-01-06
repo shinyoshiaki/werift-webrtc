@@ -6,10 +6,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
     "ci": "yarn build && run-p prod:server prod:test",
+    "debug": "cd debug && yarn dev",
     "dev:server": "ts-node-dev ./server/main.ts",
     "dev:test": "karma start",
     "prod:server": "node lib/e2e/browser/server/main.js",
     "prod:test": "karma start --single-run && node stop.js"
+  },
+  "dependencies": {
+    "werift": "^0.0.35"
   },
   "devDependencies": {
     "@types/axios": "^0.14.0",
@@ -31,8 +35,5 @@
     "ts-node-dev": "^1.1.1",
     "tslib": "^2.0.3",
     "typescript": "^4.1.3"
-  },
-  "dependencies": {
-    "werift": "^0.0.35"
   }
 }

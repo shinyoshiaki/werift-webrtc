@@ -1,7 +1,7 @@
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../../";
 
-export class mediachannel_sendrecv_answer_ {
+export class mediachannel_sendrecv_answer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -37,7 +37,7 @@ export class mediachannel_sendrecv_answer_ {
   }
 }
 
-export class mediachannel_sendrecv_offer_ {
+export class mediachannel_sendrecv_offer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {

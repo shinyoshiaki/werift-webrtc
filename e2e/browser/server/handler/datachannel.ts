@@ -1,7 +1,7 @@
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../";
 
-export class datachannel_answer_ {
+export class datachannel_answer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -35,7 +35,7 @@ export class datachannel_answer_ {
   }
 }
 
-export class datachannel_offer_ {
+export class datachannel_offer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {

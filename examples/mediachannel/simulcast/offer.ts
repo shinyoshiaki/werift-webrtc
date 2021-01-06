@@ -34,13 +34,12 @@ server.on("connection", async (socket) => {
   };
   transceiver.onTrack.subscribe((track) => {
     track.onRtp.subscribe((rtp) => {
-      const sender = multiCast[track.rid] as RTCRtpTransceiver;
+      const sender = multiCast[track.rid as keyof typeof multiCast];
       sender.sendRtp(rtp);
     });
   });
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 
