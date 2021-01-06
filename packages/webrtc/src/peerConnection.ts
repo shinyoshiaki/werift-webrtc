@@ -45,6 +45,7 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
+import { reverseSimulcastDirection } from "./utils";
 
 export type PeerConfig = {
   privateKey: string;
@@ -121,18 +122,18 @@ export class RTCPeerConnection {
   }
 
   get localDescription() {
-    return wrapSessionDescription(this._localDescription());
+    return wrapSessionDescription(this._localDescription);
   }
 
   get remoteDescription() {
-    return wrapSessionDescription(this._remoteDescription());
+    return wrapSessionDescription(this._remoteDescription);
   }
 
-  _localDescription() {
+  private get _localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
   }
 
-  private _remoteDescription() {
+  private get _remoteDescription() {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
@@ -164,8 +165,8 @@ export class RTCPeerConnection {
 
     // # handle existing transceivers / sctp
 
-    const currentMedia = this._localDescription()
-      ? this._localDescription()!.media
+    const currentMedia = this._localDescription
+      ? this._localDescription.media
       : [];
 
     currentMedia.forEach((m, i) => {
@@ -446,7 +447,7 @@ export class RTCPeerConnection {
   }
 
   private remoteRtp(transceiver: RTCRtpTransceiver) {
-    const media = this._remoteDescription()!.media[transceiver.mLineIndex!];
+    const media = this._remoteDescription!.media[transceiver.mLineIndex!];
     const receiveParameters = new RTCRtpReceiveParameters({
       codecs: transceiver.codecs,
       muxId: media.rtp.muxId,
@@ -512,10 +513,9 @@ export class RTCPeerConnection {
     });
 
     if (["answer", "pranswer"].includes(description.type || "")) {
-      const offer = isLocal
-        ? this._remoteDescription()
-        : this._localDescription();
+      const offer = isLocal ? this._remoteDescription : this._localDescription;
       if (!offer) throw new Error();
+
       const offerMedia = offer.media.map((v) => [v.kind, v.rtp.muxId]);
       const answerMedia = description.media.map((v) => [v.kind, v.rtp.muxId]);
       if (!isEqual(offerMedia, answerMedia))
@@ -685,8 +685,8 @@ export class RTCPeerConnection {
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    this._remoteDescription()?.media.forEach((remoteM) => {
-      let dtlsTransport: RTCDtlsTransport;
+    this._remoteDescription?.media.forEach((remoteM) => {
+      let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
       if (["audio", "video"].includes(remoteM.kind)) {
@@ -697,7 +697,7 @@ export class RTCPeerConnection {
           transceiver.direction,
           transceiver.mid!
         );
-        dtlsTransport = transceiver.dtlsTransport!;
+        dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteM.kind === "application") {
         if (!this.sctpTransport || !this.sctpTransport.mid) throw new Error();
         media = createMediaDescriptionForSctp(
@@ -706,16 +706,19 @@ export class RTCPeerConnection {
         );
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
-      }
+      } else throw new Error();
 
       // # determine DTLS role, or preserve the currently configured role
-      if (dtlsTransport!.role === "auto") {
-        media!.dtlsParams!.role = "client";
+      if (dtlsTransport.role === "auto") {
+        media.dtlsParams.role = "client";
       } else {
-        media!.dtlsParams!.role = dtlsTransport!.role;
+        media.dtlsParams.role = dtlsTransport.role;
       }
-      media!.simulcastParameters = remoteM.simulcastParameters;
-      description.media.push(media!);
+      media.simulcastParameters = remoteM.simulcastParameters.map((v) => ({
+        ...v,
+        direction: reverseSimulcastDirection(v.direction),
+      }));
+      description.media.push(media);
     });
 
     const bundle = new GroupDescription("BUNDLE", []);
@@ -788,8 +791,7 @@ export function createMediaDescriptionForTransceiver(
 
   if (transceiver.options.simulcast) {
     media.simulcastParameters = transceiver.options.simulcast.map(
-      // todo fix
-      (o) => new RTCRtpSimulcastParameters(o as any)
+      (o) => new RTCRtpSimulcastParameters(o)
     );
   }
 
