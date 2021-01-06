@@ -122,18 +122,18 @@ export class RTCPeerConnection {
   }
 
   get localDescription() {
-    return wrapSessionDescription(this._localDescription());
+    return wrapSessionDescription(this._localDescription);
   }
 
   get remoteDescription() {
-    return wrapSessionDescription(this._remoteDescription());
+    return wrapSessionDescription(this._remoteDescription);
   }
 
-  _localDescription() {
+  private get _localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
   }
 
-  private _remoteDescription() {
+  private get _remoteDescription() {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
@@ -165,8 +165,8 @@ export class RTCPeerConnection {
 
     // # handle existing transceivers / sctp
 
-    const currentMedia = this._localDescription()
-      ? this._localDescription()!.media
+    const currentMedia = this._localDescription
+      ? this._localDescription.media
       : [];
 
     currentMedia.forEach((m, i) => {
@@ -447,7 +447,7 @@ export class RTCPeerConnection {
   }
 
   private remoteRtp(transceiver: RTCRtpTransceiver) {
-    const media = this._remoteDescription()!.media[transceiver.mLineIndex!];
+    const media = this._remoteDescription!.media[transceiver.mLineIndex!];
     const receiveParameters = new RTCRtpReceiveParameters({
       codecs: transceiver.codecs,
       muxId: media.rtp.muxId,
@@ -513,10 +513,9 @@ export class RTCPeerConnection {
     });
 
     if (["answer", "pranswer"].includes(description.type || "")) {
-      const offer = isLocal
-        ? this._remoteDescription()
-        : this._localDescription();
+      const offer = isLocal ? this._remoteDescription : this._localDescription;
       if (!offer) throw new Error();
+
       const offerMedia = offer.media.map((v) => [v.kind, v.rtp.muxId]);
       const answerMedia = description.media.map((v) => [v.kind, v.rtp.muxId]);
       if (!isEqual(offerMedia, answerMedia))
@@ -686,7 +685,7 @@ export class RTCPeerConnection {
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    this._remoteDescription()?.media.forEach((remoteM) => {
+    this._remoteDescription?.media.forEach((remoteM) => {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
@@ -792,8 +791,7 @@ export function createMediaDescriptionForTransceiver(
 
   if (transceiver.options.simulcast) {
     media.simulcastParameters = transceiver.options.simulcast.map(
-      // todo fix
-      (o) => new RTCRtpSimulcastParameters(o as any)
+      (o) => new RTCRtpSimulcastParameters(o)
     );
   }
 
