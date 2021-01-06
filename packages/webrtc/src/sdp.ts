@@ -460,22 +460,20 @@ export class MediaDescription {
     // simulcast
     if (this.simulcastParameters.length) {
       this.simulcastParameters.forEach((param) => {
-        lines.push(
-          `a=rid:${param.rid} ${reverseSimulcastDirection(param.direction)}`
-        );
+        lines.push(`a=rid:${param.rid} ${param.direction}`);
       });
       let line = `a=simulcast:`;
       const recv = this.simulcastParameters.filter(
         (v) => v.direction === "recv"
       );
       if (recv.length) {
-        line += `send ${recv.map((v) => v.rid).join(";")} `;
+        line += `recv ${recv.map((v) => v.rid).join(";")} `;
       }
       const send = this.simulcastParameters.filter(
         (v) => v.direction === "send"
       );
       if (send.length) {
-        line += `recv ${send.map((v) => v.rid).join(";")}`;
+        line += `send ${send.map((v) => v.rid).join(";")}`;
       }
 
       lines.push(line);

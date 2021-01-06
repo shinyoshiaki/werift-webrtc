@@ -45,6 +45,7 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
+import { reverseSimulcastDirection } from "./utils";
 
 export type PeerConfig = {
   privateKey: string;
@@ -686,7 +687,7 @@ export class RTCPeerConnection {
     addSDPHeader("answer", description);
 
     this._remoteDescription()?.media.forEach((remoteM) => {
-      let dtlsTransport: RTCDtlsTransport;
+      let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
       if (["audio", "video"].includes(remoteM.kind)) {
@@ -697,7 +698,7 @@ export class RTCPeerConnection {
           transceiver.direction,
           transceiver.mid!
         );
-        dtlsTransport = transceiver.dtlsTransport!;
+        dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteM.kind === "application") {
         if (!this.sctpTransport || !this.sctpTransport.mid) throw new Error();
         media = createMediaDescriptionForSctp(
@@ -706,16 +707,19 @@ export class RTCPeerConnection {
         );
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
-      }
+      } else throw new Error();
 
       // # determine DTLS role, or preserve the currently configured role
-      if (dtlsTransport!.role === "auto") {
-        media!.dtlsParams!.role = "client";
+      if (dtlsTransport.role === "auto") {
+        media.dtlsParams.role = "client";
       } else {
-        media!.dtlsParams!.role = dtlsTransport!.role;
+        media.dtlsParams.role = dtlsTransport.role;
       }
-      media!.simulcastParameters = remoteM.simulcastParameters;
-      description.media.push(media!);
+      media.simulcastParameters = remoteM.simulcastParameters.map((v) => ({
+        ...v,
+        direction: reverseSimulcastDirection(v.direction),
+      }));
+      description.media.push(media);
     });
 
     const bundle = new GroupDescription("BUNDLE", []);

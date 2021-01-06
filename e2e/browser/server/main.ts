@@ -6,7 +6,10 @@ import {
   mediachannel_sendrecv_answer,
   mediachannel_sendrecv_offer,
 } from "./handler/mediachannel/sendrecv";
-import { mediachannel_simulcast_answer } from "./handler/mediachannel/simulcast";
+import {
+  mediachannel_simulcast_answer,
+  mediachannel_simulcast_offer,
+} from "./handler/mediachannel/simulcast";
 
 const app = express();
 app.use(express.json());
@@ -35,6 +38,7 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_sendrecv_answer: new mediachannel_sendrecv_answer(),
     mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer(),
     mediachannel_simulcast_answer: new mediachannel_simulcast_answer(),
+    mediachannel_simulcast_offer: new mediachannel_simulcast_offer(),
   };
 
   const transport = accept();
