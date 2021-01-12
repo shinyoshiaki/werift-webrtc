@@ -77,7 +77,7 @@ export class RtpRouter {
         }
       })
       .reduce((acc, cur) => {
-        acc[cur.uri] = cur.value;
+        if (cur) acc[cur.uri] = cur.value;
         return acc;
       }, {} as { [uri: string]: any });
 

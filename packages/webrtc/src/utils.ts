@@ -17,8 +17,9 @@ export function isDtls(buf: Buffer) {
   return firstByte > 19 && firstByte < 64;
 }
 
-export function isMedia(data: Buffer) {
-  return data[0] > 127 && data[0] < 192;
+export function isMedia(buf: Buffer) {
+  const firstByte = buf[0];
+  return firstByte > 127 && firstByte < 192;
 }
 
 export function isRtcp(buf: Buffer) {
