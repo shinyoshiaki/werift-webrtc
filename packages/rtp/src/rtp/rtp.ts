@@ -28,10 +28,10 @@ const csrcLength = 4;
 
 export class RtpHeader {
   version: number = 2;
-  padding: boolean;
+  padding: boolean = false;
   paddingSize: number = 0;
-  extension: boolean;
-  marker: boolean;
+  extension: boolean = false;
+  marker: boolean = false;
   payloadOffset: number = 0;
   payloadType: number = 0;
   sequenceNumber: number = 0;

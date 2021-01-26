@@ -42,8 +42,8 @@ export class RtcpSourceDescriptionPacket {
 }
 
 export class SourceDescriptionChunk {
-  source: number;
-  items: SourceDescriptionItem[];
+  source!: number;
+  items: SourceDescriptionItem[] = [];
 
   constructor(props: Partial<SourceDescriptionChunk> = {}) {
     Object.assign(this, props);
@@ -84,8 +84,8 @@ export class SourceDescriptionChunk {
 }
 
 export class SourceDescriptionItem {
-  type: number;
-  text: string;
+  type!: number;
+  text!: string;
 
   constructor(props: Partial<SourceDescriptionItem>) {
     Object.assign(this, props);

@@ -23,7 +23,7 @@ export class RTCRtpTransceiver {
   dtlsTransport?: RTCDtlsTransport;
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  senderParams: RTCRtpParameters;
+  senderParams?: RTCRtpParameters;
   options: Partial<TransceiverOptions> = {};
   inactive = false;
 

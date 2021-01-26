@@ -13,7 +13,7 @@ export class RtcpPayloadSpecificFeedback {
   static type = 206;
   type = RtcpPayloadSpecificFeedback.type;
 
-  feedback: Feedback;
+  feedback!: Feedback;
 
   constructor(props: Partial<RtcpPayloadSpecificFeedback> = {}) {
     Object.assign(this, props);

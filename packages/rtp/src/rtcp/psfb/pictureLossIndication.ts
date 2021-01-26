@@ -5,8 +5,8 @@ export class PictureLossIndication {
   count = PictureLossIndication.count;
   length = 2;
 
-  senderSsrc: number;
-  mediaSsrc: number;
+  senderSsrc!: number;
+  mediaSsrc!: number;
 
   constructor(props: Partial<PictureLossIndication> = {}) {
     Object.assign(this, props);

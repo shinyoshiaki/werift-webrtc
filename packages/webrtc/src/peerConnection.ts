@@ -122,7 +122,7 @@ export class RTCPeerConnection {
   }
 
   get localDescription() {
-    return wrapSessionDescription(this._localDescription);
+    return wrapSessionDescription(this._localDescription)!;
   }
 
   get remoteDescription() {
@@ -130,7 +130,7 @@ export class RTCPeerConnection {
   }
 
   private get _localDescription() {
-    return this.pendingLocalDescription || this.currentLocalDescription;
+    return this.pendingLocalDescription! || this.currentLocalDescription!;
   }
 
   private get _remoteDescription() {
@@ -222,7 +222,7 @@ export class RTCPeerConnection {
     );
     description.group.push(bundle);
 
-    return wrapSessionDescription(description);
+    return wrapSessionDescription(description)!;
   }
 
   createDataChannel(
@@ -420,7 +420,7 @@ export class RTCPeerConnection {
   }
 
   private async connect() {
-    if (this.masterTransportEstablished) return;
+    if (this.masterTransportEstablished || !this.masterTransport) return;
 
     const dtlsTransport = this.masterTransport;
     const iceTransport = dtlsTransport.iceTransport;
@@ -697,6 +697,7 @@ export class RTCPeerConnection {
           transceiver.direction,
           transceiver.mid!
         );
+        if (!transceiver.dtlsTransport) throw new Error();
         dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteM.kind === "application") {
         if (!this.sctpTransport || !this.sctpTransport.mid) throw new Error();
@@ -709,6 +710,7 @@ export class RTCPeerConnection {
       } else throw new Error();
 
       // # determine DTLS role, or preserve the currently configured role
+      if (!media.dtlsParams) throw new Error();
       if (dtlsTransport.role === "auto") {
         media.dtlsParams.role = "client";
       } else {
@@ -727,7 +729,7 @@ export class RTCPeerConnection {
     });
     description.group.push(bundle);
 
-    return wrapSessionDescription(description);
+    return wrapSessionDescription(description)!;
   }
 
   async close() {

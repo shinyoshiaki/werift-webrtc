@@ -5,9 +5,9 @@ import { RtcpHeader } from "../header";
 export class GenericNack {
   static count = 1;
   readonly count = GenericNack.count;
-  header: RtcpHeader;
-  senderSsrc: number;
-  mediaSsrc: number;
+  header!: RtcpHeader;
+  senderSsrc!: number;
+  mediaSsrc!: number;
   lost: number[] = [];
 
   constructor(props: Partial<GenericNack> = {}) {

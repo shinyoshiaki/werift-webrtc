@@ -8,15 +8,15 @@ export class TransportWideCC {
   count = TransportWideCC.count;
   length = 2;
 
-  senderSsrc: number;
-  mediaSsrc: number;
-  baseSequenceNumber: number;
-  packetStatusCount: number;
-  referenceTime: number;
-  fbPktCount: number;
+  senderSsrc!: number;
+  mediaSsrc!: number;
+  baseSequenceNumber!: number;
+  packetStatusCount!: number;
+  referenceTime!: number;
+  fbPktCount!: number;
   packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
   recvDeltas: RecvDelta[] = [];
-  header: RtcpHeader;
+  header!: RtcpHeader;
 
   constructor(props: Partial<TransportWideCC> = {}) {
     Object.assign(this, props);
@@ -191,9 +191,9 @@ export class TransportWideCC {
 // |T| S |       Run Length        |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class RunLengthChunk {
-  type: number;
-  packetStatus: number;
-  runLength: number;
+  type!: number;
+  packetStatus!: number;
+  runLength!: number;
 
   constructor(props: Partial<RunLengthChunk> = {}) {
     Object.assign(this, props);
@@ -224,9 +224,9 @@ export class RunLengthChunk {
 // |T|S|       symbol list         |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class StatusVectorChunk {
-  type: number;
-  symbolSize: number;
-  symbolList: number[];
+  type!: number;
+  symbolSize!: number;
+  symbolList: number[] = [];
 
   constructor(props: Partial<StatusVectorChunk> = {}) {
     Object.assign(this, props);
@@ -272,8 +272,8 @@ export class StatusVectorChunk {
 }
 
 export class RecvDelta {
-  type: number;
-  delta: number;
+  type!: number;
+  delta!: number;
 
   constructor(props: Partial<RecvDelta> = {}) {
     Object.assign(this, props);

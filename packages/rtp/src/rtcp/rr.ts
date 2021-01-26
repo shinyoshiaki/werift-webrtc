@@ -39,13 +39,13 @@ export class RtcpRrPacket {
 }
 
 export class RtcpReceiverInfo {
-  ssrc: number;
-  fractionLost: number;
-  packetsLost: number;
-  highestSequence: number;
-  jitter: number;
-  lsr: number;
-  dlsr: number;
+  ssrc!: number;
+  fractionLost!: number;
+  packetsLost!: number;
+  highestSequence!: number;
+  jitter!: number;
+  lsr!: number;
+  dlsr!: number;
 
   constructor(props: Partial<RtcpReceiverInfo> = {}) {
     Object.assign(this, props);

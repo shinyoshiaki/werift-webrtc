@@ -96,9 +96,11 @@ export class RTCDtlsTransport {
         this.setState(DtlsState.CLOSED);
       };
 
-      if (((this.dtls as any) as DtlsClient).connect) {
+      //@ts-ignore
+      if (this.dtls.connect) {
         await sleep(100);
-        ((this.dtls as any) as DtlsClient).connect();
+        //@ts-ignore
+        this.dtls.connect();
       }
     });
 
@@ -119,6 +121,7 @@ export class RTCDtlsTransport {
       remoteKey,
       remoteSalt,
     } = this.dtls.extractSessionKeys();
+    if (!this.dtls.srtp.srtpProfile) throw new Error("need srtpProfile");
     const config = {
       keys: {
         localMasterKey: localKey,

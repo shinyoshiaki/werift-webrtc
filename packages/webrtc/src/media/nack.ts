@@ -13,7 +13,7 @@ export class Nack {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
 
-  mediaSsrc: number;
+  mediaSsrc?: number;
 
   constructor(private receiver: RTCRtpReceiver) {
     setInterval(() => this.packetLost(), 20);

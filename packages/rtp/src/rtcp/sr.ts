@@ -5,7 +5,7 @@ import { RtcpPacketConverter } from "./rtcp";
 
 export class RtcpSrPacket {
   ssrc: number = 0;
-  senderInfo: RtcpSenderInfo;
+  senderInfo!: RtcpSenderInfo;
   reports: RtcpReceiverInfo[] = [];
   static type = 200;
   type = RtcpSrPacket.type;
@@ -34,7 +34,7 @@ export class RtcpSrPacket {
     const ssrc = payload.readUInt32BE();
     const senderInfo = RtcpSenderInfo.deSerialize(payload.slice(4, 24));
     let pos = 24;
-    const reports = [];
+    const reports: RtcpReceiverInfo[] = [];
     for (const _ of range(count)) {
       reports.push(RtcpReceiverInfo.deSerialize(payload.slice(pos, pos + 24)));
       pos += 24;
@@ -44,10 +44,10 @@ export class RtcpSrPacket {
 }
 
 export class RtcpSenderInfo {
-  ntpTimestamp: bigint;
-  rtpTimestamp: number;
-  packetCount: number;
-  octetCount: number;
+  ntpTimestamp!: bigint;
+  rtpTimestamp!: number;
+  packetCount!: number;
+  octetCount!: number;
 
   constructor(props: Partial<RtcpSenderInfo> = {}) {
     Object.assign(this, props);

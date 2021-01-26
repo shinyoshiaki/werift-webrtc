@@ -3,16 +3,16 @@ import { BitWriter, getBit } from "../../utils";
 
 export class ReceiverEstimatedMaxBitrate {
   static count = 15;
-  length: number;
+  length!: number;
   count = ReceiverEstimatedMaxBitrate.count;
-  senderSsrc: number;
-  mediaSsrc: number;
+  senderSsrc!: number;
+  mediaSsrc!: number;
   readonly uniqueID: string = "REMB";
   ssrcNum: number = 0;
-  brExp: number;
-  brMantissa: number;
-  bitrate: bigint;
-  ssrcFeedbacks: number[];
+  brExp!: number;
+  brMantissa!: number;
+  bitrate!: bigint;
+  ssrcFeedbacks: number[] = [];
 
   constructor(props: Partial<ReceiverEstimatedMaxBitrate> = {}) {
     Object.assign(this, props);
@@ -33,7 +33,7 @@ export class ReceiverEstimatedMaxBitrate {
     const bitrate =
       brExp > 46 ? 18446744073709551615n : BigInt(brMantissa) << BigInt(brExp);
 
-    const ssrcFeedbacks = [];
+    const ssrcFeedbacks: number[] = [];
     for (let i = 16; i < data.length; i += 4) {
       const feedback = data.slice(i).readUIntBE(0, 4);
       ssrcFeedbacks.push(feedback);

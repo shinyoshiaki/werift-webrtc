@@ -6,8 +6,8 @@ export class FullIntraRequest {
   static count = 4;
   count = FullIntraRequest.count;
 
-  senderSsrc: number;
-  mediaSsrc: number;
+  senderSsrc!: number;
+  mediaSsrc!: number;
   fir: firEntry[] = [];
 
   constructor(props: Partial<FullIntraRequest> = {}) {

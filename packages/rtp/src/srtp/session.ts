@@ -13,8 +13,8 @@ export type Config = {
 };
 
 export class Session<T extends Context> {
-  localContext: T;
-  remoteContext: T;
+  localContext!: T;
+  remoteContext!: T;
   onData?: (buf: Buffer) => void;
 
   constructor(private ContextCls: any) {}
