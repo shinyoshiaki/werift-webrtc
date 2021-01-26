@@ -23,7 +23,12 @@ export class RTCSctpTransport {
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
 
-  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
+  private dataChannelQueue: [
+    RTCDataChannel,
+    number,
+    Buffer,
+    Event<any> | undefined
+  ][] = [];
   private dataChannelId?: number;
 
   constructor(public dtlsTransport: RTCDtlsTransport, public port = 5000) {
@@ -119,6 +124,7 @@ export class RTCSctpTransport {
               channel,
               WEBRTC_DCEP,
               Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
+              undefined,
             ]);
             this.dataChannelFlush();
 
@@ -201,7 +207,7 @@ export class RTCSctpTransport {
       Buffer.from(channel.label, "utf8"),
       Buffer.from(channel.protocol, "utf8"),
     ]);
-    this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
+    this.dataChannelQueue.push([channel, WEBRTC_DCEP, send, undefined]);
     this.dataChannelFlush();
   }
 
@@ -221,7 +227,12 @@ export class RTCSctpTransport {
       this.dataChannelQueue.length > 0 &&
       this.sctp.outboundQueue.length === 0
     ) {
-      const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
+      const [
+        channel,
+        protocol,
+        userData,
+        done,
+      ] = this.dataChannelQueue.shift()!;
 
       let streamId = channel.id;
       if (streamId === undefined) {
@@ -251,21 +262,31 @@ export class RTCSctpTransport {
         );
         channel.addBufferedAmount(-userData.length);
       }
+      if (done) done.execute();
     }
   }
 
-  datachannelSend(channel: RTCDataChannel, data: Buffer | string) {
-    channel.addBufferedAmount(data.length);
-    if (typeof data === "string") {
-      this.dataChannelQueue.push([channel, WEBRTC_STRING, Buffer.from(data)]);
-    } else {
-      this.dataChannelQueue.push([channel, WEBRTC_BINARY, data]);
-    }
-    if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
-      console.warn("sctp not established", this.sctp.associationState);
-    }
-    this.dataChannelFlush();
-  }
+  datachannelSend = (channel: RTCDataChannel, data: Buffer | string) =>
+    new Promise(async (r) => {
+      channel.addBufferedAmount(data.length);
+      const done = new Event();
+
+      if (typeof data === "string") {
+        this.dataChannelQueue.push([
+          channel,
+          WEBRTC_STRING,
+          Buffer.from(data),
+          done,
+        ]);
+      } else {
+        this.dataChannelQueue.push([channel, WEBRTC_BINARY, data, done]);
+      }
+      if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
+        console.warn("sctp not established", this.sctp.associationState);
+      }
+      done.once(r);
+      this.dataChannelFlush();
+    });
 
   static getCapabilities() {
     return new RTCSctpCapabilities(65536);
