@@ -210,6 +210,7 @@ export class RTCRtpReceiver {
     if (this.twccRunning) this.handleTWCC(ssrc, extensions);
 
     this.runRtcp();
+    this.runTWCC();
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
@@ -223,5 +224,6 @@ export class RTCRtpReceiver {
     if (this.twccRunning) this.handleTWCC(ssrc, extensions);
 
     this.runRtcp();
+    this.runTWCC();
   };
 }

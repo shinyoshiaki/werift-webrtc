@@ -3,6 +3,36 @@ import { bufferReader, bufferWriter } from "../../helper";
 import { getBit, BitWriter } from "../../utils";
 import { RtcpHeader } from "../header";
 
+/* RTP Extensions for Transport-wide Congestion Control
+ * draft-holmer-rmcat-transport-wide-cc-extensions-01
+
+   0               1               2               3
+   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |V=2|P|  FMT=15 |    PT=205     |           length              |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                     SSRC of packet sender                     |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                      SSRC of media source                     |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |      base sequence number     |      packet status count      |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                 reference time                | fb pkt. count |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |          packet chunk         |         packet chunk          |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  .                                                               .
+  .                                                               .
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |         packet chunk          |  recv delta   |  recv delta   |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  .                                                               .
+  .                                                               .
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |           recv delta          |  recv delta   | zero padding  |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+
 export class TransportWideCC {
   static count = 15;
   count = TransportWideCC.count;
@@ -323,7 +353,7 @@ export class RecvDelta {
       return buf;
     }
 
-    throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
+    // throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
   }
 }
 

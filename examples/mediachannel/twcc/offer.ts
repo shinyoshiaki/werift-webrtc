@@ -4,6 +4,7 @@ import {
   useSdesMid,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
+import { useTransportWideCC } from "../../../packages/webrtc/src/extension/rtpExtension";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -11,28 +12,23 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     headerExtensions: {
-      video: [
-        useSdesMid(1),
-        useAbsSendTime(2),
-        //  useTransportWideCC(3)
-      ],
+      video: [useSdesMid(1), useAbsSendTime(2), useTransportWideCC(3)],
     },
   });
-  pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
-  );
   const transceiver = pc.addTransceiver("video", "sendrecv");
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
-  const sdp = JSON.stringify(pc.localDescription);
-  socket.send(sdp);
+  await pc.setLocalDescription(pc.createOffer());
+  socket.send(JSON.stringify(pc.localDescription));
 
   socket.on("message", (data: any) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
 
-  transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
-  );
+  transceiver.onTrack.subscribe(async (track) => {
+    const [rtp] = await track.onRtp.asPromise();
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
+    }, 4000);
+    track.onRtp.subscribe(transceiver.sendRtp);
+  });
 });

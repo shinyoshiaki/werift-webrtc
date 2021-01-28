@@ -18,6 +18,7 @@ import {
   SourceDescriptionItem,
   TransportWideCC,
 } from "../../../rtp/src";
+import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
 import { DtlsState, RTCDtlsTransport } from "../transport/dtls";
@@ -164,9 +165,14 @@ export class RTCRtpSender {
             break;
           case RTP_EXTENSION_URI.transportWideCC:
             {
-              const buf = Buffer.alloc(2);
-              buf.writeUInt16BE(this.dtlsTransport.transportSequenceNumber++);
-              payload = buf;
+              this.dtlsTransport.transportSequenceNumber = uint16Add(
+                this.dtlsTransport.transportSequenceNumber,
+                1
+              );
+              payload = bufferWriter(
+                [2],
+                [this.dtlsTransport.transportSequenceNumber]
+              );
             }
             break;
           case RTP_EXTENSION_URI.absSendTime:
@@ -183,7 +189,7 @@ export class RTCRtpSender {
     this.ntpTimestamp = ntpTime();
     this.rtpTimestamp = rtp.header.timestamp;
     this.octetCount += rtp.payload.length;
-    this.packetCount++;
+    this.packetCount = Number(uint32Add(BigInt(this.packetCount), 1n));
 
     rtp.header = header;
     this.rtpCache.push(rtp);
@@ -221,6 +227,7 @@ export class RTCRtpSender {
             case TransportWideCC.count:
               {
                 const feedback = packet.feedback as TransportWideCC;
+                feedback.baseSequenceNumber;
               }
               break;
             case GenericNack.count:

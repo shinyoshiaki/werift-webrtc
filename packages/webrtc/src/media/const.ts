@@ -19,7 +19,7 @@ export const CODECS = {
         { type: "nack" },
         { type: "nack", parameter: "pli" },
         { type: "goog-remb" },
-        // { type: "transport-cc" },
+        { type: "transport-cc" },
       ],
     }),
   ],
