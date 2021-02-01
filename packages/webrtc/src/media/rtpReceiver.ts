@@ -106,7 +106,7 @@ export class RTCRtpReceiver {
             lastTS = 0n,
             baseTimeTicks = 0n;
           const timeWrapPeriodUs = 1073741824000n;
-          const baseScaleFactor = 64000n;
+          const baseScaleFactor = 64_000n;
           for (let i = minTSN; i <= maxTSN; i++) {
             const ts = rtpExtInfo[i];
 

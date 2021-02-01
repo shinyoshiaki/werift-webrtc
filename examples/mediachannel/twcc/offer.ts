@@ -1,34 +1,81 @@
 import {
   RTCPeerConnection,
+  RTCRtpCodecParameters,
   useAbsSendTime,
-  useSdesMid,
+  useTransportWideCC,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { useTransportWideCC } from "../../../packages/webrtc/src/extension/rtpExtension";
+import { Event } from "rx.mini";
 
 const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    headerExtensions: {
-      video: [useSdesMid(1), useAbsSendTime(2), useTransportWideCC(3)],
-    },
-  });
-  const transceiver = pc.addTransceiver("video", "sendrecv");
-
-  await pc.setLocalDescription(pc.createOffer());
-  socket.send(JSON.stringify(pc.localDescription));
-
+  const onMessage = new Event<[any]>();
   socket.on("message", (data: any) => {
-    pc.setRemoteDescription(JSON.parse(data));
+    onMessage.execute(data);
   });
 
-  transceiver.onTrack.subscribe(async (track) => {
+  const receiver = new RTCPeerConnection({
+    codecs: {
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          rtcpFeedback: [
+            { type: "ccm", parameter: "fir" },
+            { type: "nack" },
+            { type: "nack", parameter: "pli" },
+            { type: "goog-remb" },
+          ],
+        }),
+      ],
+    },
+    headerExtensions: { video: [useAbsSendTime()] },
+  });
+  const sender = new RTCPeerConnection({
+    codecs: {
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          rtcpFeedback: [
+            { type: "ccm", parameter: "fir" },
+            { type: "nack" },
+            { type: "nack", parameter: "pli" },
+            { type: "goog-remb" },
+            { type: "transport-cc" },
+          ],
+        }),
+      ],
+    },
+    headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
+  });
+  const receiverTransceiver = receiver.addTransceiver("video", "recvonly");
+  const senderTransceiver = sender.addTransceiver("video", "sendonly");
+
+  receiverTransceiver.onTrack.subscribe(async (track) => {
     const [rtp] = await track.onRtp.asPromise();
     setInterval(() => {
-      transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
-    }, 4000);
-    track.onRtp.subscribe(transceiver.sendRtp);
+      receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
+    }, 3000);
+    track.onRtp.subscribe((rtp) => {
+      senderTransceiver.sendRtp(rtp);
+    });
   });
+
+  {
+    const offer = receiver.createOffer();
+    await receiver.setLocalDescription(offer);
+    socket.send(JSON.stringify(receiver.localDescription));
+    const [data] = await onMessage.asPromise();
+    receiver.setRemoteDescription(JSON.parse(data));
+  }
+
+  {
+    await sender.setLocalDescription(sender.createOffer());
+    socket.send(JSON.stringify(sender.localDescription));
+    const [data] = await onMessage.asPromise();
+    sender.setRemoteDescription(JSON.parse(data));
+  }
 });

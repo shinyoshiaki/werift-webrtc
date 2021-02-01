@@ -3,6 +3,7 @@ export {
   useSdesMid,
   useSdesRTPStreamID,
   useAbsSendTime,
+  useTransportWideCC,
 } from "./extension/rtpExtension";
 export { RTCRtpCodecParameters } from "./media/parameters";
 export {

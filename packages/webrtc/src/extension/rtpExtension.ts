@@ -8,30 +8,26 @@ export const RTP_EXTENSION_URI = {
   absSendTime: "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
 } as const;
 
-export function useSdesMid(id = 1) {
+export function useSdesMid() {
   return new RTCRtpHeaderExtensionParameters({
-    id,
     uri: RTP_EXTENSION_URI.sdesMid,
   });
 }
 
-export function useSdesRTPStreamID(id = 2) {
+export function useSdesRTPStreamID() {
   return new RTCRtpHeaderExtensionParameters({
-    id,
     uri: RTP_EXTENSION_URI.sdesRTPStreamID,
   });
 }
 
-export function useTransportWideCC(id = 3) {
+export function useTransportWideCC() {
   return new RTCRtpHeaderExtensionParameters({
-    id,
     uri: RTP_EXTENSION_URI.transportWideCC,
   });
 }
 
-export function useAbsSendTime(id = 4) {
+export function useAbsSendTime() {
   return new RTCRtpHeaderExtensionParameters({
-    id,
     uri: RTP_EXTENSION_URI.absSendTime,
   });
 }

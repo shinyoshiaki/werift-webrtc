@@ -1,5 +1,6 @@
 {
   "cSpell.words": [
+    "TWCC",
     "ack",
     "acked",
     "cwnd",
@@ -16,6 +17,7 @@
     "length",
     "max",
     "mediachannel",
+    "milli",
     "msid",
     "node",
     "nodertc",
