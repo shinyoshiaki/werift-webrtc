@@ -61,12 +61,16 @@
               console.log(offer.sdp);
               const localStream = await navigator.mediaDevices.getUserMedia({
                 video: true,
-                audio: false,
               });
               localRef.current.srcObject = localStream;
-              localStream
-                .getVideoTracks()
-                .forEach((track) => sender.addTrack(track, localStream));
+              localStream.getVideoTracks().forEach((track) => {
+                const t = sender.addTrack(track, localStream);
+                setTimeout(() => {
+                  const params = t.getParameters();
+                  params.encodings = [{ maxBitrate: 300000 }];
+                  t.setParameters(params);
+                }, 1000);
+              });
               await sender.setRemoteDescription(offer);
               const answer = await sender.createAnswer();
               await sender.setLocalDescription(answer);
@@ -89,11 +93,21 @@
             <div style={{ display: "flex" }}>
               <div>
                 <p>local</p>
-                <video ref={localRef} autoPlay muted />
+                <video
+                  ref={localRef}
+                  autoPlay
+                  muted
+                  style={{ maxWidth: 500 }}
+                />
               </div>
               <div>
                 <p>remote</p>
-                <video ref={remoteRef} autoPlay muted />
+                <video
+                  ref={remoteRef}
+                  autoPlay
+                  muted
+                  style={{ maxWidth: 500 }}
+                />
               </div>
             </div>
           </div>

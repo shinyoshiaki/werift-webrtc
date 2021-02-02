@@ -22,8 +22,9 @@ import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
 import { DtlsState, RTCDtlsTransport } from "../transport/dtls";
-import { ntpTime, uint16Add, uint32Add } from "../utils";
+import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
 import { RTCRtpParameters } from "./parameters";
+import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
 
 const log = debug("werift:webrtc:rtpSender");
 
@@ -37,6 +38,7 @@ export class RTCRtpSender {
   readonly trackId = uuid.v4();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();
+  readonly senderBWE = new SenderBandwidthEstimator();
 
   private cname?: string;
 
@@ -195,8 +197,16 @@ export class RTCRtpSender {
     this.rtpCache.push(rtp);
     this.rtpCache = this.rtpCache.slice(-RTP_HISTORY_SIZE);
 
-    this.dtlsTransport.sendRtp(rtp.payload, header);
+    const size = this.dtlsTransport.sendRtp(rtp.payload, header);
+
     this.runRtcp();
+    const sentInfo: SentInfo = {
+      wideSeq: this.dtlsTransport.transportSequenceNumber,
+      size,
+      sendingAtMs: milliTime(),
+      sentAtMs: milliTime(),
+    };
+    this.senderBWE.rtpPacketSent(sentInfo);
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {
@@ -227,7 +237,7 @@ export class RTCRtpSender {
             case TransportWideCC.count:
               {
                 const feedback = packet.feedback as TransportWideCC;
-                feedback.baseSequenceNumber;
+                this.senderBWE.receiveTWCC(feedback);
               }
               break;
             case GenericNack.count:

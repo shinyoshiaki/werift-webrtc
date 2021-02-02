@@ -53,6 +53,9 @@ server.on("connection", async (socket) => {
   });
   const receiverTransceiver = receiver.addTransceiver("video", "recvonly");
   const senderTransceiver = sender.addTransceiver("video", "sendonly");
+  senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) =>
+    console.log("congestion", b)
+  );
 
   receiverTransceiver.onTrack.subscribe(async (track) => {
     const [rtp] = await track.onRtp.asPromise();

@@ -2,6 +2,7 @@
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
+import { Int } from "../../rtp/src/helper";
 
 const upper = (s: string) => s.toUpperCase();
 const colon = (s: any) => s.match(/(.{2})/g).join(":");
@@ -35,6 +36,8 @@ export const microTime = () =>
   BigInt(
     `${(performance.timeOrigin + performance.now()) * 10000}`.slice(0, -1)
   );
+
+export const milliTime = () => Int(Number(microTime() / 1000n));
 
 export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
