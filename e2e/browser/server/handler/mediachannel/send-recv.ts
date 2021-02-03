@@ -9,7 +9,7 @@ export class mediachannel_send_recv_answer {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            stunServer: ["stun.l.google.com", 19302],
+            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
           const receiver = this.pc.addTransceiver("video", "recvonly");
           const sender = this.pc.addTransceiver("video", "sendonly");
@@ -46,7 +46,7 @@ export class mediachannel_send_recv_offer {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            stunServer: ["stun.l.google.com", 19302],
+            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
           const receiver = this.pc.addTransceiver("video", "recvonly");
           const sender = this.pc.addTransceiver("video", "sendonly");

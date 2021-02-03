@@ -80,10 +80,11 @@ export class RTCPeerConnection {
     privateKey,
     codecs,
     headerExtensions,
+    iceConfig,
   }: Partial<PeerConfig> = {}) {
-    if (certificate && privateKey) {
+    if (iceConfig) this.configuration.iceConfig = iceConfig;
+    if (certificate && privateKey)
       this.certificates = [new RTCCertificate(privateKey, certificate)];
-    }
     if (codecs?.audio) {
       this.configuration.codecs.audio = codecs.audio;
     }
@@ -306,7 +307,7 @@ export class RTCPeerConnection {
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.masterTransport) return this.masterTransport;
 
-    const iceGatherer = new RTCIceGatherer(this.configuration);
+    const iceGatherer = new RTCIceGatherer(this.configuration.iceConfig);
     iceGatherer.subject.subscribe((state) => {
       if (state === "stateChange") {
         this.updateIceGatheringState();
@@ -893,7 +894,8 @@ export type PeerConfig = {
     audio: RTCRtpHeaderExtensionParameters[];
     video: RTCRtpHeaderExtensionParameters[];
   }>;
-} & Partial<IceOptions>;
+  iceConfig: Partial<IceOptions>;
+};
 
 const defaultPeerConfig: PeerConfig = {
   codecs: {
@@ -918,4 +920,5 @@ const defaultPeerConfig: PeerConfig = {
     ],
   },
   headerExtensions: { audio: [], video: [] },
+  iceConfig: {},
 };

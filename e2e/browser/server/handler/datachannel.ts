@@ -9,7 +9,7 @@ export class datachannel_answer {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            stunServer: ["stun.l.google.com", 19302],
+            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe((msg) => {
@@ -43,7 +43,7 @@ export class datachannel_offer {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            stunServer: ["stun.l.google.com", 19302],
+            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(this.pc.createAnswer());

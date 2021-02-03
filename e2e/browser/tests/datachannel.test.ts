@@ -7,6 +7,8 @@ describe("datachannel", () => {
   it(
     "answer",
     async (done) => {
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
@@ -41,6 +43,8 @@ describe("datachannel", () => {
   it(
     "offer",
     async (done) => {
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
