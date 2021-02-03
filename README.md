@@ -4,28 +4,6 @@ werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
 
 werift is a WebRTC Implementation for TypeScript (Node.js)
 
-# current state
-
-- [x] STUN
-- [x] TURN
-- [x] ICE
-  - [x] Vanilla ICE
-  - [x] Trickle ICE
-- [x] DataChannel
-- [x] MediaChannel
-  - [x] sendonly
-  - [x] recvonly
-  - [x] sendrecv
-  - [x] multi track
-  - [ ] RTCP
-    - [x] Picture Loss Indication
-    - [x] ReceiverEstimatedMaxBitrate
-    - [x] GenericNack
-    - [ ] TransportWideCC
-  - [ ] Simulcast
-    - [x] recv
-    - [ ] send
-
 # install
 
 `npm install werift`
@@ -34,7 +12,8 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 
 https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
 
-### SFU 
+### SFU
+
 https://github.com/shinyoshiaki/node-sfu
 
 # demo
@@ -63,12 +42,45 @@ https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
 
 see console & chrome://webrtc-internals/
 
-# components
+# RoadMap
 
-- ICE https://github.com/shinyoshiaki/werift-ice
-- DTLS https://github.com/shinyoshiaki/werift-dtls
-- SCTP https://github.com/shinyoshiaki/werift-sctp
-- RTP,RTCP,SRTP,SRTCP https://github.com/shinyoshiaki/werift-rtp
+## Work in Progress Towards 1.0
+
+- [x] STUN
+- [x] TURN
+  - [x] UDP
+- [x] ICE
+  - [x] Vanilla ICE
+  - [x] Trickle ICE
+- [x] DataChannel
+- [x] MediaChannel
+  - [x] sendonly
+  - [x] recvonly
+  - [x] sendrecv
+  - [x] multi track
+- [x] RTP
+- [ ] RTCP
+  - [x] SR/RR
+  - [x] Picture Loss Indication
+  - [x] ReceiverEstimatedMaxBitrate
+  - [x] GenericNack
+  - [ ] TransportWideCC
+- [x] SDP
+- [x] PeerConnection
+- [x] Simulcast
+  - [x] recv
+- [ ] BWE
+  - [ ] sender side BWE
+- [ ] Documentation
+
+## Road Map Towards 2.0
+
+- [ ] API compatible with browser RTCPeerConnection
+- [ ] SDP
+  - [ ] reuse inactive m-line
+- [ ] Simulcast
+  - [ ] send
+- [ ] support more cipher suites
 
 # reference
 
