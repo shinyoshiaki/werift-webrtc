@@ -25,7 +25,7 @@ import util from "util";
 
 const ICE_COMPLETED = 1;
 const ICE_FAILED = 2;
-const CONSENT_FAILURES = 6 * 2;
+const CONSENT_FAILURES = 6;
 const CONSENT_INTERVAL = 5;
 
 export enum CandidatePairState {

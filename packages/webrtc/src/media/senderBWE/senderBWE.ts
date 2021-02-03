@@ -28,7 +28,6 @@ export class SenderBandwidthEstimator {
       if (this.congestionCounter > 0) this.congestionCounter--;
       if (this.congestionCounter === 0 && this.congestion) {
         this.congestion = false;
-
         this.onCongestion.execute(this.congestion);
       }
     }
