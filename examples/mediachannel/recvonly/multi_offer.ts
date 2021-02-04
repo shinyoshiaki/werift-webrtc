@@ -7,9 +7,7 @@ console.log("start");
 const udp = createSocket("udp4");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const pc = new RTCPeerConnection({});
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );

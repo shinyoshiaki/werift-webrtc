@@ -12,7 +12,7 @@ server.on("connection", (socket) => {
     const offer = JSON.parse(data as string);
 
     const pc = new RTCPeerConnection({
-      stunServer: ["stun.l.google.com", 19302],
+      iceConfig: { stunServer: ["stun.l.google.com", 19302] },
       headerExtensions: {
         video: [useSdesRTPStreamID()],
         audio: [],

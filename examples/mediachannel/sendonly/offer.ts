@@ -12,7 +12,6 @@ udp.bind(5000);
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
     codecs: {
       audio: [],
       video: [

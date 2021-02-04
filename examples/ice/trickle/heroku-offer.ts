@@ -6,9 +6,7 @@ const socket = io("https://serene-anchorage-28732.herokuapp.com/");
 console.log("start browser first");
 
 (async () => {
-  const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const pc = new RTCPeerConnection({});
   pc.onIceCandidate.subscribe((candidate) => {
     socket.emit("sdp", {
       candidate: JSON.stringify(candidate.toJSON()),

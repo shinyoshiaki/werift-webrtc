@@ -920,5 +920,5 @@ const defaultPeerConfig: PeerConfig = {
     ],
   },
   headerExtensions: { audio: [], video: [] },
-  iceConfig: {},
+  iceConfig: { stunServer: ["stun.l.google.com", 19302] },
 };

@@ -21,9 +21,7 @@ server.on("connection", async (socket) => {
 
   const encoder = new OpusEncoder(48000, 2);
   const mixer = new Mixer();
-  const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const pc = new RTCPeerConnection({});
   const sender = pc.addTransceiver("audio", "sendonly");
   await pc.setLocalDescription(pc.createOffer());
   send("offer", { sdp: pc.localDescription });

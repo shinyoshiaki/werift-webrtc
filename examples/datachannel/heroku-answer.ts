@@ -10,9 +10,7 @@ socket.on("sdp", async (data: any) => {
   const offer = JSON.parse(data.sdp);
   console.log(offer);
 
-  const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const pc = new RTCPeerConnection({});
   await pc.setRemoteDescription(offer);
   const answer = pc.createAnswer()!;
   await pc.setLocalDescription(answer);

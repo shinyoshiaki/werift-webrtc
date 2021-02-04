@@ -9,9 +9,7 @@ server.on("connection", (socket) => {
     const offer = JSON.parse(data as string);
     console.log(offer);
 
-    const pc = new RTCPeerConnection({
-      stunServer: ["stun.l.google.com", 19302],
-    });
+    const pc = new RTCPeerConnection({});
     pc.iceConnectionStateChange.subscribe((v) =>
       console.log("pc.iceConnectionStateChange", v)
     );

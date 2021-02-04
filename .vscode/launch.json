@@ -32,7 +32,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/twcc/offer.ts"
+        "${workspaceRoot}/examples/mediachannel/simulcast/abr.ts"
       ],
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

@@ -8,9 +8,7 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const pc = new RTCPeerConnection({});
 
   const onTransceiver = async (transceiver: RTCRtpTransceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
