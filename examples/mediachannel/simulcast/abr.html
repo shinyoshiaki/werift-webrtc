@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      const App = () => {
+        const remoteRef = React.useRef();
+        const localRef = React.useRef();
+
+        React.useEffect(() => {
+          (async () => {
+            const socket = new WebSocket("ws://192.168.1.13:8888");
+            await new Promise((r) => (socket.onopen = r));
+            console.log("open websocket");
+
+            const sender = new RTCPeerConnection({
+              iceServers: [],
+            });
+            sender.onicecandidate = ({ candidate }) => {
+              if (!candidate) {
+                const sdp = JSON.stringify(sender.localDescription);
+                socket.send(sdp);
+              }
+            };
+            const receiver = new RTCPeerConnection({
+              iceServers: [],
+            });
+            receiver.ontrack = (e) => {
+              console.warn("ontrack");
+              remoteRef.current.srcObject = e.streams[0];
+            };
+            receiver.onicecandidate = ({ candidate }) => {
+              if (!candidate) {
+                const sdp = JSON.stringify(receiver.localDescription);
+                socket.send(sdp);
+              }
+            };
+
+            {
+              const offer = await new Promise(
+                (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+              );
+              console.log(offer.sdp);
+              const localStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  width: {
+                    ideal: 480,
+                  },
+                  height: {
+                    ideal: 320,
+                  },
+                },
+              });
+              localRef.current.srcObject = localStream;
+              await sender.setRemoteDescription(offer);
+
+              sender.addTrack(localStream.getVideoTracks()[0], localStream);
+              const transceiver = sender.getTransceivers()[0];
+              const params = transceiver.sender.getParameters();
+              params.encodings = [
+                {
+                  rid: "high",
+                  maxBitrate: 400000,
+                  scaleResolutionDownBy: 1,
+                },
+                {
+                  rid: "low",
+                  maxBitrate: 100000 / 4,
+                  scaleResolutionDownBy: 4,
+                },
+              ];
+              transceiver.direction = "sendonly";
+              transceiver.sender.setParameters(params);
+
+              const answer = await sender.createAnswer();
+              await sender.setLocalDescription(answer);
+            }
+            {
+              const offer = await new Promise(
+                (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+              );
+              console.log(offer.sdp);
+              await receiver.setRemoteDescription(offer);
+              const answer = await receiver.createAnswer();
+              await receiver.setLocalDescription(answer);
+            }
+          })();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <div style={{ display: "flex" }}>
+              <div>
+                <p>local</p>
+                <video ref={localRef} autoPlay muted style={{ width: 500 }} />
+              </div>
+              <div>
+                <p>remote</p>
+                <video ref={remoteRef} autoPlay muted style={{ width: 500 }} />
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>
