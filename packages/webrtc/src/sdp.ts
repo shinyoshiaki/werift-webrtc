@@ -569,21 +569,19 @@ export function candidateFromSdp(sdp: string) {
     bits[7]
   );
 
-  range(bits.length - 1, 8, 2)
-    .reverse()
-    .forEach((i) => {
-      switch (bits[i]) {
-        case "raddr":
-          candidate.relatedAddress = bits[i + 1];
-          break;
-        case "rport":
-          candidate.relatedPort = parseInt(bits[i + 1]);
-          break;
-        case "tcptype":
-          candidate.tcpType = bits[i + 1];
-          break;
-      }
-    });
+  range(8, bits.length - 1, 2).forEach((i) => {
+    switch (bits[i]) {
+      case "raddr":
+        candidate.relatedAddress = bits[i + 1];
+        break;
+      case "rport":
+        candidate.relatedPort = parseInt(bits[i + 1]);
+        break;
+      case "tcptype":
+        candidate.tcpType = bits[i + 1];
+        break;
+    }
+  });
 
   return candidate;
 }
