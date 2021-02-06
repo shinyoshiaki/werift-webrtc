@@ -24,7 +24,9 @@ describe("aio_peerConnection", () => {
         }
       );
 
-      const pc = new RTCPeerConnection({});
+      const pc = new RTCPeerConnection({
+        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+      });
       const dc = pc.createDataChannel("chat", { protocol: "bob" });
 
       dc.message.subscribe((msg) => {

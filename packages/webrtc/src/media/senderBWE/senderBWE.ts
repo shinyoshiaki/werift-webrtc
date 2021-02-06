@@ -4,14 +4,15 @@ import { milliTime } from "../../utils";
 import { CumulativeResult } from "./cumulativeResult";
 
 export class SenderBandwidthEstimator {
-  sentInfos: { [key: number]: SentInfo } = {};
-  cumulativeResult = new CumulativeResult();
   availableBitrate = 1_000_000;
-  congestionCounter = 0;
-
+  congestion = false;
   readonly onAvailableBitrate = new Event<[number]>();
   readonly onCongestion = new Event<[boolean]>();
-  congestion = false;
+
+  private congestionCounter = 0;
+  private congestionTimes = 0;
+  private cumulativeResult = new CumulativeResult();
+  private sentInfos: { [key: number]: SentInfo } = {};
 
   receiveTWCC(feedback: TransportWideCC) {
     const nowMs = milliTime();
@@ -19,10 +20,15 @@ export class SenderBandwidthEstimator {
     if (elapsedMs > 1000) {
       this.cumulativeResult.reset();
 
-      this.congestionCounter++;
+      // Congestion may be occurring.
+
+      this.congestionCounter =
+        this.congestionCounter + this.congestionTimes + 1;
+
       if (this.congestionCounter > 10 && !this.congestion) {
         this.congestion = true;
         this.onCongestion.execute(this.congestion);
+        this.congestionTimes++;
       }
     } else {
       if (this.congestionCounter > 0) this.congestionCounter--;
