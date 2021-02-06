@@ -25,7 +25,7 @@ yarn media
 ```
 
 open
-https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/sendrecv/answer
+https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/pubsub/answer
 
 see console & chrome://webrtc-internals/
 
@@ -34,7 +34,7 @@ see console & chrome://webrtc-internals/
 run
 
 ```sh
-yarn ts-node --files examples/datachannel/offer.ts
+yarn datachannel
 ```
 
 open

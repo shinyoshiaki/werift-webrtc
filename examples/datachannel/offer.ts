@@ -25,14 +25,11 @@ server.on("connection", async (socket) => {
     dc.send(Buffer.from("pong" + index++));
   });
 
-  const offer = pc.createOffer()!;
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(pc.createOffer());
   socket.send(JSON.stringify(pc.localDescription));
 
   const answer = JSON.parse(
     await new Promise((r) => socket.on("message", (data) => r(data as string)))
   );
-  console.log(answer);
-
   await pc.setRemoteDescription(answer);
 });
