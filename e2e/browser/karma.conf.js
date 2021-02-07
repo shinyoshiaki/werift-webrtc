@@ -41,8 +41,15 @@ module.exports = function (config) {
     // start these browsers
     // available browser launchers: https://npmjs.org/browse/keyword/karma-launcher
     customLaunchers: {
-      chrome_with_fake_device: {
+      chrome_headless_with_fake_device: {
         base: "ChromeHeadless",
+        flags: [
+          "--use-fake-device-for-media-stream",
+          "--use-fake-ui-for-media-stream",
+        ],
+      },
+      chrome_with_fake_device: {
+        base: "Chrome",
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
@@ -56,7 +63,6 @@ module.exports = function (config) {
         },
       },
     },
-    browsers: ["chrome_with_fake_device"],
 
     // Continuous Integration mode
     // if true, Karma captures browsers, runs the tests and exits

@@ -6,10 +6,12 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    turnServer: ["relay.backups.cz", 3478],
-    turnUsername: "webrtc",
-    turnPassword: "webrtc",
-    forceTurn: true,
+    iceConfig: {
+      turnServer: ["relay.backups.cz", 3478],
+      turnUsername: "webrtc",
+      turnPassword: "webrtc",
+      forceTurn: true,
+    },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)

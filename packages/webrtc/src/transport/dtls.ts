@@ -155,6 +155,7 @@ export class RTCDtlsTransport {
   sendRtp(payload: Buffer, header: RtpHeader) {
     const enc = this.srtp.encrypt(payload, header);
     this.iceTransport.connection.send(enc);
+    return enc.length;
   }
 
   async sendRtcp(packets: RtcpPacket[]) {

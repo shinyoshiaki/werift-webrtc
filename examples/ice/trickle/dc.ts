@@ -17,9 +17,7 @@ app.use((_, res, next) => {
 app.listen(12223);
 console.log("start");
 
-const pc = new RTCPeerConnection({
-  stunServer: ["stun.l.google.com", 19302],
-});
+const pc = new RTCPeerConnection({});
 
 const dc = pc.createDataChannel("chat");
 dc.stateChanged.subscribe((v) => {

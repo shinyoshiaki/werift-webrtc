@@ -10,9 +10,9 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
+    iceConfig: { stunServer: ["stun.l.google.com", 19302] },
     headerExtensions: {
-      video: [useSdesMid(1), useSdesRTPStreamID(3)],
+      video: [useSdesMid(), useSdesRTPStreamID()],
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>

@@ -8,7 +8,7 @@ describe("mediachannel_simulcast", () => {
       const transport = new WebSocketTransport("ws://localhost:8886");
       const peer = new Peer(transport);
 
-      await sleep(100);
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -84,7 +84,7 @@ describe("mediachannel_simulcast", () => {
       const transport = new WebSocketTransport("ws://localhost:8886");
       const peer = new Peer(transport);
 
-      await sleep(100);
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],

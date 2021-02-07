@@ -4,9 +4,7 @@ import io from "socket.io-client";
 const socket = io("https://serene-anchorage-28732.herokuapp.com/");
 
 (async () => {
-  const pc = new RTCPeerConnection({
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const pc = new RTCPeerConnection({});
   const transceiver = pc.addTransceiver("video", "sendrecv");
   transceiver.onTrack.subscribe((track) =>
     track.onRtp.subscribe(transceiver.sendRtp)

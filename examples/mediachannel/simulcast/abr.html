@@ -45,6 +45,7 @@
               iceServers: [],
             });
             receiver.ontrack = (e) => {
+              console.warn("ontrack");
               remoteRef.current.srcObject = e.streams[0];
             };
             receiver.onicecandidate = ({ candidate }) => {
@@ -60,18 +61,36 @@
               );
               console.log(offer.sdp);
               const localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
+                video: {
+                  width: {
+                    ideal: 480,
+                  },
+                  height: {
+                    ideal: 320,
+                  },
+                },
               });
               localRef.current.srcObject = localStream;
-              localStream.getVideoTracks().forEach((track) => {
-                const t = sender.addTrack(track, localStream);
-                setTimeout(() => {
-                  const params = t.getParameters();
-                  params.encodings = [{ maxBitrate: 300000 }];
-                  t.setParameters(params);
-                }, 1000);
-              });
               await sender.setRemoteDescription(offer);
+
+              sender.addTrack(localStream.getVideoTracks()[0], localStream);
+              const transceiver = sender.getTransceivers()[0];
+              const params = transceiver.sender.getParameters();
+              params.encodings = [
+                {
+                  rid: "high",
+                  maxBitrate: 400 * 1000,
+                  scaleResolutionDownBy: 1,
+                },
+                {
+                  rid: "low",
+                  maxBitrate: 50 * 1000,
+                  scaleResolutionDownBy: 4,
+                },
+              ];
+              transceiver.direction = "sendonly";
+              transceiver.sender.setParameters(params);
+
               const answer = await sender.createAnswer();
               await sender.setLocalDescription(answer);
             }
@@ -93,21 +112,11 @@
             <div style={{ display: "flex" }}>
               <div>
                 <p>local</p>
-                <video
-                  ref={localRef}
-                  autoPlay
-                  muted
-                  style={{ maxWidth: 500 }}
-                />
+                <video ref={localRef} autoPlay muted style={{ width: 500 }} />
               </div>
               <div>
                 <p>remote</p>
-                <video
-                  ref={remoteRef}
-                  autoPlay
-                  muted
-                  style={{ maxWidth: 500 }}
-                />
+                <video ref={remoteRef} autoPlay muted style={{ width: 500 }} />
               </div>
             </div>
           </div>

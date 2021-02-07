@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["esnext", "ES2020", "DOM"],
+    "lib": ["esnext", "ES2020"],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
@@ -14,8 +14,8 @@
     "inlineSources": true,
     "noUnusedLocals": false,
     "skipLibCheck": true,
-    "strictNullChecks": false,
+    "strictNullChecks": true,
     "noImplicitAny": false
   },
-  "include": ["e2e", "examples"]
+  "include": ["src"]
 }

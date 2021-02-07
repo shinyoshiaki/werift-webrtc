@@ -3,6 +3,36 @@ import { bufferReader, bufferWriter } from "../../helper";
 import { getBit, BitWriter } from "../../utils";
 import { RtcpHeader } from "../header";
 
+/* RTP Extensions for Transport-wide Congestion Control
+ * draft-holmer-rmcat-transport-wide-cc-extensions-01
+
+   0               1               2               3
+   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |V=2|P|  FMT=15 |    PT=205     |           length              |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                     SSRC of packet sender                     |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                      SSRC of media source                     |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |      base sequence number     |      packet status count      |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |                 reference time                | fb pkt. count |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |          packet chunk         |         packet chunk          |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  .                                                               .
+  .                                                               .
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |         packet chunk          |  recv delta   |  recv delta   |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  .                                                               .
+  .                                                               .
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |           recv delta          |  recv delta   | zero padding  |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+
 export class TransportWideCC {
   static count = 15;
   count = TransportWideCC.count;
@@ -184,6 +214,28 @@ export class TransportWideCC {
     this.header.length = Math.floor(buf.length / 4);
     return Buffer.concat([this.header.serialize(), buf]);
   }
+
+  get packetResults(): PacketResult[] {
+    const currentSequenceNumber = this.baseSequenceNumber - 1;
+    const results = this.packetChunks
+      .filter((v) => v instanceof RunLengthChunk)
+      .map((chunk) => (chunk as RunLengthChunk).results(currentSequenceNumber))
+      .flatMap((v) => v);
+
+    let deltaIdx = 0;
+    let currentReceivedAtMs = BigInt(this.referenceTime) * 64n;
+
+    for (const result of results) {
+      if (!result.received || !this.recvDeltas[deltaIdx]) {
+        continue;
+      }
+      currentReceivedAtMs += BigInt(this.recvDeltas[deltaIdx].delta) / 4n;
+      result.delta = this.recvDeltas[deltaIdx].delta;
+      result.receivedAtMs = Number(currentReceivedAtMs);
+      deltaIdx++;
+    }
+    return results;
+  }
 }
 
 //  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
@@ -216,6 +268,20 @@ export class RunLengthChunk {
 
     buf.writeUInt16BE(writer.value);
     return buf;
+  }
+
+  results(currentSequenceNumber: number) {
+    const received =
+      this.packetStatus === PacketStatus.TypeTCCPacketReceivedSmallDelta ||
+      this.packetStatus === PacketStatus.TypeTCCPacketReceivedLargeDelta;
+
+    const results: PacketResult[] = [];
+    for (let i = 0; i <= this.runLength; ++i) {
+      results.push(
+        new PacketResult({ sequenceNumber: ++currentSequenceNumber, received })
+      );
+    }
+    return results;
   }
 }
 
@@ -323,7 +389,7 @@ export class RecvDelta {
       return buf;
     }
 
-    throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
+    // throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
   }
 }
 
@@ -338,4 +404,14 @@ export enum PacketStatus {
   TypeTCCPacketReceivedSmallDelta,
   TypeTCCPacketReceivedLargeDelta,
   TypeTCCPacketReceivedWithoutDelta,
+}
+
+export class PacketResult {
+  sequenceNumber = 0;
+  delta = 0;
+  received = false;
+  receivedAtMs = 0;
+  constructor(props: Partial<PacketResult>) {
+    Object.assign(this, props);
+  }
 }

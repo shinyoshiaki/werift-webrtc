@@ -9281,6 +9281,11 @@ rx.mini@^1.0.1:
   resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-1.0.1.tgz#adadf9695e5113c2c06b50a3bb32e4027354c182"
   integrity sha512-aeydw2f2J1mZlMtbDupUfnM9TITpfIlWR8DivaUPX31P9wwjB0h7AjEEZYQsfMNmxLiJliDJMnkI3YhjZJXeHw==
 
+rx.mini@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-1.0.2.tgz#cda85b647d9a1b532665bb4d17cef49efcb84593"
+  integrity sha512-oJTZWKa/wOo1dDj7kSsB6PzKax1s6DzEYpHpEJyCqpimsVMLmb+paTov7LAJcoBdoRoib4gKtWNt9ATGIpOREA==
+
 rxjs@^6.3.3, rxjs@^6.4.0:
   version "6.6.3"
   resolved "https://registry.yarnpkg.com/rxjs/-/rxjs-6.6.3.tgz#8ca84635c4daa900c0d3967a6ee7ac60271ee552"

@@ -42,3 +42,7 @@ export function growBufferSize(buf: Buffer, size: number) {
   buf.copy(glow);
   return glow;
 }
+
+export function Int(v: number) {
+  return parseInt(v.toString(), 10);
+}

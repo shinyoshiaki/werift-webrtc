@@ -24,12 +24,14 @@ export class RTCRtpCodecCapability {
   }
 }
 
+export type RTCPFB = { type: string; parameter?: string };
+
 export class RTCRtpCodecParameters {
   mimeType!: string;
   clockRate!: number;
   channels?: number;
   payloadType?: number;
-  rtcpFeedback: { type: string; parameter?: string }[] = [];
+  rtcpFeedback: RTCPFB[] = [];
   parameters = {};
 
   constructor(props: Partial<RTCRtpCodecParameters> = {}) {

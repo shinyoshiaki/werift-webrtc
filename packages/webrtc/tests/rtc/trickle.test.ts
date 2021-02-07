@@ -7,10 +7,10 @@ describe("trickle", () => {
       // trickle supported by offer only
 
       const pcOffer = new RTCPeerConnection({
-        stunServer: ["stun.l.google.com", 19302],
+        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
       });
       const pcAnswer = new RTCPeerConnection({
-        stunServer: ["stun.l.google.com", 19302],
+        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
       });
       pcAnswer.onDataChannel.subscribe((dc) => {
         dc.message.subscribe((data) => {

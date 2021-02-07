@@ -1,4 +1,4 @@
-import { isEqual } from "lodash";
+import { isEqual, cloneDeep } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 import { enumerate } from "./helper";
@@ -6,7 +6,6 @@ import { Kind, SignalingState } from "./typings/domain";
 import { IceOptions } from "../../ice/src";
 import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
-import { CODECS } from "./media/const";
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -47,24 +46,12 @@ import {
 import { RTCSctpTransport } from "./transport/sctp";
 import { reverseSimulcastDirection } from "./utils";
 
-export type PeerConfig = {
-  privateKey: string;
-  certificate: string;
-  codecs: Partial<{
-    audio: RTCRtpCodecParameters[];
-    video: RTCRtpCodecParameters[];
-  }>;
-  headerExtensions: Partial<{
-    audio: RTCRtpHeaderExtensionParameters[];
-    video: RTCRtpHeaderExtensionParameters[];
-  }>;
-} & IceOptions;
-
 export class RTCPeerConnection {
   readonly cname = uuid.v4();
   masterTransport?: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
+  configuration: PeerConfig = cloneDeep(defaultPeerConfig);
   readonly transceivers: RTCRtpTransceiver[] = [];
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly iceGatheringStateChange = new Event<[IceState]>();
@@ -88,18 +75,40 @@ export class RTCPeerConnection {
   private _signalingState: SignalingState = "stable";
   private isClosed = false;
 
-  constructor(private configuration: Partial<PeerConfig> = {}) {
-    if (configuration.certificate && configuration.privateKey) {
-      this.certificates = [
-        new RTCCertificate(configuration.privateKey, configuration.certificate),
-      ];
+  constructor({
+    certificate,
+    privateKey,
+    codecs,
+    headerExtensions,
+    iceConfig,
+  }: Partial<PeerConfig> = {}) {
+    if (iceConfig) this.configuration.iceConfig = iceConfig;
+    if (certificate && privateKey)
+      this.certificates = [new RTCCertificate(privateKey, certificate)];
+    if (codecs?.audio) {
+      this.configuration.codecs.audio = codecs.audio;
     }
-    if (!configuration.codecs) {
-      configuration.codecs = CODECS;
+    if (codecs?.video) {
+      this.configuration.codecs.video = codecs.video;
     }
-    if (!configuration.headerExtensions) {
-      configuration.headerExtensions = { audio: [], video: [] };
+    [
+      ...this.configuration.codecs.audio!,
+      ...this.configuration.codecs.video!,
+    ].forEach((v, i) => {
+      v.payloadType = 96 + i;
+    });
+    if (headerExtensions?.audio) {
+      this.configuration.headerExtensions.audio = headerExtensions.audio;
     }
+    if (headerExtensions?.video) {
+      this.configuration.headerExtensions.video = headerExtensions.video;
+    }
+    [
+      ...this.configuration.headerExtensions.audio!,
+      ...this.configuration.headerExtensions.video!,
+    ].forEach((v, i) => {
+      v.id = 1 + i;
+    });
 
     this.iceConnectionStateChange.subscribe((state) => {
       if (state === "closed") {
@@ -154,8 +163,8 @@ export class RTCPeerConnection {
       );
 
     this.transceivers.forEach((transceiver) => {
-      transceiver.codecs = this.configuration.codecs![transceiver.kind];
-      transceiver.headerExtensions = this.configuration.headerExtensions![
+      transceiver.codecs = this.configuration.codecs[transceiver.kind];
+      transceiver.headerExtensions = this.configuration.headerExtensions[
         transceiver.kind
       ];
     });
@@ -298,7 +307,7 @@ export class RTCPeerConnection {
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.masterTransport) return this.masterTransport;
 
-    const iceGatherer = new RTCIceGatherer(this.configuration);
+    const iceGatherer = new RTCIceGatherer(this.configuration.iceConfig);
     iceGatherer.subject.subscribe((state) => {
       if (state === "stateChange") {
         this.updateIceGatheringState();
@@ -563,13 +572,13 @@ export class RTCPeerConnection {
 
         // # negotiate codecs
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
-          this.configuration.codecs![media.kind as "audio" | "video"]!.find(
+          this.configuration.codecs[media.kind as "audio" | "video"]!.find(
             (localCodec) => localCodec.mimeType === remoteCodec.mimeType
           )
         );
         transceiver.headerExtensions = media.rtp.headerExtensions.filter(
           (extension) =>
-            this.configuration.headerExtensions![
+            this.configuration.headerExtensions[
               media.kind as "video" | "audio"
             ]!.find((v) => v.uri === extension.uri)
         );
@@ -873,3 +882,43 @@ export function wrapSessionDescription(
     );
   }
 }
+
+export type PeerConfig = {
+  privateKey?: string;
+  certificate?: string;
+  codecs: Partial<{
+    audio: RTCRtpCodecParameters[];
+    video: RTCRtpCodecParameters[];
+  }>;
+  headerExtensions: Partial<{
+    audio: RTCRtpHeaderExtensionParameters[];
+    video: RTCRtpHeaderExtensionParameters[];
+  }>;
+  iceConfig: Partial<IceOptions>;
+};
+
+const defaultPeerConfig: PeerConfig = {
+  codecs: {
+    audio: [
+      new RTCRtpCodecParameters({
+        mimeType: "audio/opus",
+        clockRate: 48000,
+        channels: 2,
+      }),
+    ],
+    video: [
+      new RTCRtpCodecParameters({
+        mimeType: "video/VP8",
+        clockRate: 90000,
+        rtcpFeedback: [
+          { type: "ccm", parameter: "fir" },
+          { type: "nack" },
+          { type: "nack", parameter: "pli" },
+          { type: "goog-remb" },
+        ],
+      }),
+    ],
+  },
+  headerExtensions: { audio: [], video: [] },
+  iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+};

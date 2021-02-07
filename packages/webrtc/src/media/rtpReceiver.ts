@@ -72,18 +72,18 @@ export class RTCRtpReceiver {
 
     while (this.twccRunning) {
       Object.entries(this.cacheTWCC)
-        .map(
-          ([ssrc, extensionsArr]) =>
-            [
-              Number(ssrc),
-              extensionsArr.reduce((acc, cur) => {
-                const { tsn, timestamp } = cur;
-                acc[tsn] = timestamp;
-                return acc;
-              }, {} as { [tsn: number]: bigint }),
-            ] as [number, { [tsn: number]: bigint }]
-        )
-        .forEach(([ssrc, rtpExtInfo]) => {
+        .map(([ssrc, extensionsArr]) => ({
+          ssrc: Number(ssrc),
+          rtpExtInfo: extensionsArr.reduce(
+            (acc: { [tsn: number]: bigint }, cur) => {
+              const { tsn, timestamp } = cur;
+              acc[tsn] = timestamp;
+              return acc;
+            },
+            {}
+          ),
+        }))
+        .forEach(({ ssrc, rtpExtInfo }) => {
           if (Object.keys(rtpExtInfo).length === 0) return;
 
           let minTSN = 0,
@@ -106,11 +106,11 @@ export class RTCRtpReceiver {
             lastTS = 0n,
             baseTimeTicks = 0n;
           const timeWrapPeriodUs = 1073741824000n;
-          const baseScaleFactor = 64000n;
+          const baseScaleFactor = 64_000n;
           for (let i = minTSN; i <= maxTSN; i++) {
-            const ts = rtpExtInfo[i];
+            const timestamp = rtpExtInfo[i];
 
-            if (!ts) {
+            if (!timestamp) {
               recvDeltas.push(
                 new RecvDelta({
                   type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
@@ -120,16 +120,18 @@ export class RTCRtpReceiver {
               continue;
             }
 
-            if (lastTS === 0n) lastTS = ts;
+            if (lastTS === 0n) lastTS = timestamp;
 
             if (baseTimeTicks === 0n)
-              baseTimeTicks = (ts % timeWrapPeriodUs) / baseScaleFactor;
+              baseTimeTicks = (timestamp % timeWrapPeriodUs) / baseScaleFactor;
 
             let delta: bigint;
-            if (lastTS === ts)
-              delta = (ts % timeWrapPeriodUs) - baseTimeTicks * baseScaleFactor;
+            if (lastTS === timestamp)
+              delta =
+                (timestamp % timeWrapPeriodUs) -
+                baseTimeTicks * baseScaleFactor;
             else {
-              delta = (ts - lastTS) % timeWrapPeriodUs;
+              delta = (timestamp - lastTS) % timeWrapPeriodUs;
             }
 
             if (referenceTime === 0n) {
@@ -143,7 +145,6 @@ export class RTCRtpReceiver {
 
             recvDeltas.push(recvDelta);
           }
-
           const packet = new RtcpTransportLayerFeedback({
             feedback: new TransportWideCC({
               senderSsrc: this.rtcpSsrc,
@@ -207,7 +208,10 @@ export class RTCRtpReceiver {
     if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
-    if (this.twccRunning) this.handleTWCC(ssrc, extensions);
+    if (this.twccRunning) {
+      if (!extensions[RTP_EXTENSION_URI.transportWideCC]) throw new Error();
+      this.handleTWCC(ssrc, extensions);
+    }
 
     this.runRtcp();
   };

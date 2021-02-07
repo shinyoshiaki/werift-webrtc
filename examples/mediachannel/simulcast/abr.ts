@@ -2,10 +2,12 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
+  useSdesRTPStreamID,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { Event } from "rx.mini";
+import { RtpHeader } from "../../../packages/rtp/src";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -31,7 +33,7 @@ server.on("connection", async (socket) => {
         }),
       ],
     },
-    headerExtensions: { video: [useAbsSendTime()] },
+    headerExtensions: { video: [useAbsSendTime(), useSdesRTPStreamID()] },
   });
   const sender = new RTCPeerConnection({
     codecs: {
@@ -51,21 +53,59 @@ server.on("connection", async (socket) => {
     },
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
-  const receiverTransceiver = receiver.addTransceiver("video", "recvonly");
-  const senderTransceiver = sender.addTransceiver("video", "sendonly");
-  senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) =>
-    console.log("congestion", b)
-  );
-
-  receiverTransceiver.onTrack.subscribe(async (track) => {
-    const [rtp] = await track.onRtp.asPromise();
-    setInterval(() => {
-      receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
-    }, 3000);
-    track.onRtp.subscribe((rtp) => {
-      senderTransceiver.sendRtp(rtp);
-    });
+  const receiverTransceiver = receiver.addTransceiver("video", "recvonly", {
+    simulcast: [
+      { rid: "high", direction: "recv" },
+      { rid: "low", direction: "recv" },
+    ],
   });
+  const senderTransceiver = sender.addTransceiver("video", "sendonly");
+  let state = "high";
+
+  let low: RtpHeader, high: RtpHeader;
+  receiverTransceiver.onTrack.subscribe(async (track) => {
+    let ssrc = 0;
+    track.onRtp.subscribe((rtp) => {
+      ssrc = rtp.header.ssrc;
+      switch (track.rid) {
+        case "high":
+          high = rtp.header;
+          break;
+
+        case "low":
+          low = rtp.header;
+          break;
+      }
+
+      if (state === track.rid) {
+        senderTransceiver.sendRtp(rtp);
+      }
+    });
+    setInterval(() => {
+      if (ssrc) {
+        receiverTransceiver.receiver.sendRtcpPLI(ssrc);
+      }
+    }, 1000);
+  });
+  const bwe = senderTransceiver.sender.senderBWE;
+  bwe.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
+  bwe.onCongestionScore.subscribe((score) => {
+    console.log({ score });
+    if (5 <= score) {
+      if (state != "low") {
+        console.log("low");
+        state = "low";
+        senderTransceiver.replaceRtp(low);
+      }
+    } else {
+      if (state != "high") {
+        console.log("high");
+        state = "high";
+        senderTransceiver.replaceRtp(high);
+      }
+    }
+  });
+  bwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
 
   {
     const offer = receiver.createOffer();
