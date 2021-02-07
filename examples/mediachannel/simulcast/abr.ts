@@ -67,11 +67,16 @@ server.on("connection", async (socket) => {
     let ssrc = 0;
     track.onRtp.subscribe((rtp) => {
       ssrc = rtp.header.ssrc;
-      if (track.rid === "high") {
-        high = rtp.header;
-      } else {
-        low = rtp.header;
+      switch (track.rid) {
+        case "high":
+          high = rtp.header;
+          break;
+
+        case "low":
+          low = rtp.header;
+          break;
       }
+
       if (state === track.rid) {
         senderTransceiver.sendRtp(rtp);
       }
@@ -82,16 +87,25 @@ server.on("connection", async (socket) => {
       }
     }, 1000);
   });
-  senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) => {
-    if (b) {
-      state = "low";
-      senderTransceiver.replaceRtp(low);
+  const bwe = senderTransceiver.sender.senderBWE;
+  bwe.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
+  bwe.onCongestionScore.subscribe((score) => {
+    console.log({ score });
+    if (5 <= score) {
+      if (state != "low") {
+        console.log("low");
+        state = "low";
+        senderTransceiver.replaceRtp(low);
+      }
     } else {
-      state = "high";
-      senderTransceiver.replaceRtp(high);
+      if (state != "high") {
+        console.log("high");
+        state = "high";
+        senderTransceiver.replaceRtp(high);
+      }
     }
-    console.log("simulcast layer changed", state);
   });
+  bwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
 
   {
     const offer = receiver.createOffer();

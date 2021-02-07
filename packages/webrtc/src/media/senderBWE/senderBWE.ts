@@ -1,18 +1,41 @@
 import Event from "rx.mini";
 import { TransportWideCC } from "../../../../rtp/src";
+import { Int } from "../../../../rtp/src/helper";
 import { milliTime } from "../../utils";
 import { CumulativeResult } from "./cumulativeResult";
 
+const COUNTER_MAX = 20;
+const SCORE_MAX = 10;
+
 export class SenderBandwidthEstimator {
-  availableBitrate = 1_000_000;
   congestion = false;
+
   readonly onAvailableBitrate = new Event<[number]>();
   readonly onCongestion = new Event<[boolean]>();
+  readonly onCongestionScore = new Event<[number]>();
 
   private congestionCounter = 0;
-  private congestionTimes = 0;
   private cumulativeResult = new CumulativeResult();
   private sentInfos: { [key: number]: SentInfo } = {};
+  private _congestionScore = 1;
+  /**1~10 big is worth*/
+  get congestionScore() {
+    return this._congestionScore;
+  }
+  set congestionScore(v: number) {
+    this._congestionScore = v;
+    this.onCongestionScore.execute(v);
+  }
+  private _availableBitrate: number = 0;
+  get availableBitrate() {
+    return this._availableBitrate;
+  }
+  set availableBitrate(v: number) {
+    this._availableBitrate = v;
+    this.onAvailableBitrate.execute(v);
+  }
+
+  constructor() {}
 
   receiveTWCC(feedback: TransportWideCC) {
     const nowMs = milliTime();
@@ -22,18 +45,14 @@ export class SenderBandwidthEstimator {
 
       // Congestion may be occurring.
 
-      this.congestionCounter =
-        this.congestionCounter + this.congestionTimes + 1;
-
-      if (this.congestionCounter > 10 && !this.congestion) {
-        this.congestion = true;
-        this.onCongestion.execute(this.congestion);
-        this.congestionTimes++;
+      if (this.congestionCounter < COUNTER_MAX) {
+        this.congestionCounter++;
+      } else if (this.congestionScore < SCORE_MAX) {
+        this.congestionScore++;
       }
-    } else {
-      if (this.congestionCounter > 0) this.congestionCounter--;
-      if (this.congestionCounter === 0 && this.congestion) {
-        this.congestion = false;
+
+      if (this.congestionCounter >= COUNTER_MAX && !this.congestion) {
+        this.congestion = true;
         this.onCongestion.execute(this.congestion);
       }
     }
@@ -53,49 +72,42 @@ export class SenderBandwidthEstimator {
     }
 
     if (elapsedMs >= 100 && this.cumulativeResult.numPackets >= 20) {
-      this.estimateAvailableBitrate(this.cumulativeResult);
+      this.availableBitrate = this.cumulativeResult.sendBitrate;
+
       this.cumulativeResult.reset();
-    }
-  }
 
-  private estimateAvailableBitrate(cumulativeResult: CumulativeResult) {
-    const previousAvailableBitrate = this.availableBitrate;
+      if (this.congestionCounter > -COUNTER_MAX) {
+        const maxBonus = Int(COUNTER_MAX / 2) + 1;
+        const minBonus = Int(COUNTER_MAX / 4) + 1;
+        const bonus =
+          maxBonus - ((maxBonus - minBonus) / 10) * this.congestionScore;
 
-    const ratio =
-      cumulativeResult.receiveBitrate / cumulativeResult.sendBitrate;
-    const bitrate = Math.min(
-      cumulativeResult.receiveBitrate,
-      cumulativeResult.sendBitrate
-    );
-    console.log(
-      "send",
-      cumulativeResult.sendBitrate / 1000,
-      cumulativeResult.receiveBitrate
-    );
-    if (0.75 <= ratio && ratio <= 1.25) {
-      if (bitrate > this.availableBitrate) {
-        this.availableBitrate = bitrate;
+        this.congestionCounter = this.congestionCounter - bonus;
       }
-    } else {
-      if (bitrate < this.availableBitrate) {
-        this.availableBitrate = bitrate;
-      }
-    }
 
-    if (previousAvailableBitrate !== this.availableBitrate) {
-      console.log(this.availableBitrate);
-      this.onAvailableBitrate.execute(this.availableBitrate);
+      if (this.congestionCounter <= -COUNTER_MAX) {
+        if (this.congestionScore > 1) {
+          this.congestionScore--;
+          this.onCongestion.execute(false);
+        }
+        this.congestionCounter = 0;
+      }
+
+      if (this.congestionCounter <= 0 && this.congestion) {
+        this.congestion = false;
+        this.onCongestion.execute(this.congestion);
+      }
     }
   }
 
   rtpPacketSent(sentInfo: SentInfo) {
-    // Object.keys(sentInfo)
-    //   .map((v) => Number(v))
-    //   .sort()
-    //   .filter((seq) => seq < sentInfo.wideSeq)
-    //   .forEach((seq) => {
-    //     delete this.sentInfos[seq];
-    //   });
+    Object.keys(sentInfo)
+      .map((v) => Number(v))
+      .sort()
+      .filter((seq) => seq < sentInfo.wideSeq)
+      .forEach((seq) => {
+        delete this.sentInfos[seq];
+      });
     this.sentInfos[sentInfo.wideSeq] = sentInfo;
   }
 }
