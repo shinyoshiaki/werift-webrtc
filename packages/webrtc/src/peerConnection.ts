@@ -669,13 +669,14 @@ export class RTCPeerConnection {
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
 
+    const sender = new RTCRtpSender(kind, dtlsTransport);
+    const receiver = new RTCRtpReceiver(kind, dtlsTransport, sender.ssrc);
     const transceiver = new RTCRtpTransceiver(
       kind,
-      new RTCRtpReceiver(kind, dtlsTransport),
-      new RTCRtpSender(kind, dtlsTransport),
+      receiver,
+      sender,
       direction
     );
-    transceiver.receiver.rtcpSsrc = transceiver.sender.ssrc;
     transceiver.dtlsTransport = dtlsTransport;
     transceiver.options = options;
     this.router.ssrcTable[transceiver.sender.ssrc] = transceiver.sender;
