@@ -116,9 +116,10 @@ export class RTCRtpReceiver {
         codec.rtcpFeedback.find((v) => v.type === "transport-cc")
       )
     ) {
-      if (!extensions[RTP_EXTENSION_URI.transportWideCC]) throw new Error();
-      this.receiverTWCC.handleTWCC(packet.header.ssrc, extensions);
-      this.receiverTWCC.runTWCC();
+      if (extensions[RTP_EXTENSION_URI.transportWideCC]) {
+        this.receiverTWCC.handleTWCC(packet.header.ssrc, extensions);
+        this.receiverTWCC.runTWCC();
+      }
     }
     this.runRtcp();
   }
