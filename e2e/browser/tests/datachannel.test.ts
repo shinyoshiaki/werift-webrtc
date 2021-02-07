@@ -1,13 +1,11 @@
-import { WebSocketTransport, Peer } from "protoo-client";
-
-const transport = new WebSocketTransport("ws://localhost:8886");
-const peer = new Peer(transport);
+import { peer, sleep } from "./fixture";
 
 describe("datachannel", () => {
   it(
     "answer",
     async (done) => {
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -17,12 +15,12 @@ describe("datachannel", () => {
       await pc.setLocalDescription(await pc.createAnswer());
 
       pc.ondatachannel = ({ channel }) => {
-        channel.send("ping");
         channel.onmessage = ({ data }) => {
           expect(data).toBe("ping" + "pong");
           console.warn("answer", "succeed");
           done();
         };
+        channel.send("ping");
       };
 
       pc.onicecandidate = ({ candidate }) => {
@@ -44,6 +42,7 @@ describe("datachannel", () => {
     "offer",
     async (done) => {
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],

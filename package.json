@@ -20,13 +20,14 @@
   ],
   "scripts": {
     "build": "lerna run build",
+    "datachannel": "ts-node-dev examples/datachannel/offer.ts",
+    "e2e": "yarn e2e:browser",
     "e2e:aio": "jest ./e2e/aio/**/*.ts --forceExit",
     "e2e:browser": "cd e2e/browser && yarn ci",
     "format": "lerna run format",
-    "test": "lerna run test",
-    "type": "lerna run type",
     "media": "ts-node-dev examples/mediachannel/pubsub/offer.ts",
-    "datachannel": "ts-node-dev examples/datachannel/offer.ts"
+    "test": "lerna run test",
+    "type": "lerna run type"
   },
   "devDependencies": {
     "@types/jest": "^26.0.19",

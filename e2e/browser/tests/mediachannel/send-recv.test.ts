@@ -1,14 +1,11 @@
-import { waitVideoPlay } from "../fixture";
-import { WebSocketTransport, Peer } from "protoo-client";
-
-const transport = new WebSocketTransport("ws://localhost:8886");
-const peer = new Peer(transport);
+import { waitVideoPlay, peer, sleep } from "../fixture";
 
 describe("mediachannel_sendrecv", () => {
   it(
     "answer",
     async (done) => {
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -47,6 +44,7 @@ describe("mediachannel_sendrecv", () => {
     "offer",
     async (done) => {
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],

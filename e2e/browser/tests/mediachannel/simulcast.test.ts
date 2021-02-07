@@ -1,14 +1,11 @@
-import { Peer, WebSocketTransport } from "protoo-client";
-import { sleep, waitVideoPlay } from "../fixture";
+import { waitVideoPlay, peer, sleep } from "../fixture";
 
 describe("mediachannel_simulcast", () => {
   it(
     "answer",
     async (done) => {
-      const transport = new WebSocketTransport("ws://localhost:8886");
-      const peer = new Peer(transport);
-
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -47,7 +44,6 @@ describe("mediachannel_simulcast", () => {
       pc.addTrack(track);
       const transceiver = pc.getTransceivers()[0];
       const params = transceiver.sender.getParameters();
-      console.log(params);
       params.encodings = [
         {
           rid: "high",
@@ -81,10 +77,8 @@ describe("mediachannel_simulcast", () => {
   it(
     "offer",
     async (done) => {
-      const transport = new WebSocketTransport("ws://localhost:8886");
-      const peer = new Peer(transport);
-
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],

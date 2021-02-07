@@ -1,3 +1,8 @@
+import { WebSocketTransport, Peer } from "protoo-client";
+
+const transport = new WebSocketTransport("ws://localhost:8886");
+export const peer = new Peer(transport);
+
 export async function waitVideoPlay(track: MediaStreamTrack) {
   const video = document.createElement("video");
   const media = new MediaStream();
