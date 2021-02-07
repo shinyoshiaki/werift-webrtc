@@ -223,14 +223,16 @@ export class TransportWideCC {
       .flatMap((v) => v);
 
     let deltaIdx = 0;
-    let currentReceivedAtMs = BigInt(this.referenceTime) * 64n;
+    const referenceTime = BigInt(this.referenceTime) * 64n;
+    let currentReceivedAtMs = referenceTime;
 
     for (const result of results) {
-      if (!result.received || !this.recvDeltas[deltaIdx]) {
+      const recvDelta = this.recvDeltas[deltaIdx];
+      if (!result.received || !recvDelta) {
         continue;
       }
-      currentReceivedAtMs += BigInt(this.recvDeltas[deltaIdx].delta) / 4n;
-      result.delta = this.recvDeltas[deltaIdx].delta;
+      currentReceivedAtMs += BigInt(recvDelta.delta) / 1000n;
+      result.delta = recvDelta.delta;
       result.receivedAtMs = Number(currentReceivedAtMs);
       deltaIdx++;
     }
@@ -339,6 +341,7 @@ export class StatusVectorChunk {
 
 export class RecvDelta {
   type!: number;
+  /**micro sec */
   delta!: number;
 
   constructor(props: Partial<RecvDelta> = {}) {

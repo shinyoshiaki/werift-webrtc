@@ -63,6 +63,7 @@ export class SenderBandwidthEstimator {
       const wideSeq = result.sequenceNumber;
       const info = this.sentInfos[wideSeq];
       if (!info) continue;
+      if (!result.receivedAtMs) continue;
 
       this.cumulativeResult.addPacket(
         info.size,
@@ -72,8 +73,10 @@ export class SenderBandwidthEstimator {
     }
 
     if (elapsedMs >= 100 && this.cumulativeResult.numPackets >= 20) {
-      this.availableBitrate = this.cumulativeResult.sendBitrate;
-
+      this.availableBitrate = Math.min(
+        this.cumulativeResult.sendBitrate,
+        this.cumulativeResult.receiveBitrate
+      );
       this.cumulativeResult.reset();
 
       if (this.congestionCounter > -COUNTER_MAX) {

@@ -8,6 +8,7 @@ import {
   RtcpTransportLayerFeedback,
   RtpPacket,
 } from "../../../rtp/src";
+import { bufferReader } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import {
   RTCRtpReceiveParameters,
@@ -73,7 +74,10 @@ export class RtpRouter {
           case RTP_EXTENSION_URI.transportWideCC:
             return { uri, value: extension.payload.readUInt16BE() };
           case RTP_EXTENSION_URI.absSendTime:
-            return { uri, value: extension.payload.readUIntBE(0, 3) };
+            return {
+              uri,
+              value: bufferReader(extension.payload, [3])[0],
+            };
         }
       })
       .reduce((acc, cur) => {
