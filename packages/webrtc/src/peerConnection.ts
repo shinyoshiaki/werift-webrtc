@@ -513,6 +513,7 @@ export class RTCPeerConnection {
     }
 
     description.media.forEach((media) => {
+      if (media.direction === "inactive") return;
       if (
         !media.iceParams ||
         !media.iceParams.usernameFragment ||
@@ -572,15 +573,17 @@ export class RTCPeerConnection {
 
         // # negotiate codecs
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
-          this.configuration.codecs[media.kind as "audio" | "video"]!.find(
-            (localCodec) => localCodec.mimeType === remoteCodec.mimeType
-          )
+          (
+            this.configuration.codecs[media.kind as "audio" | "video"] || []
+          ).find((localCodec) => localCodec.mimeType === remoteCodec.mimeType)
         );
         transceiver.headerExtensions = media.rtp.headerExtensions.filter(
           (extension) =>
-            this.configuration.headerExtensions[
-              media.kind as "video" | "audio"
-            ]!.find((v) => v.uri === extension.uri)
+            (
+              this.configuration.headerExtensions[
+                media.kind as "video" | "audio"
+              ] || []
+            ).find((v) => v.uri === extension.uri)
         );
 
         if (media.dtlsParams && media.iceParams) {
@@ -625,7 +628,7 @@ export class RTCPeerConnection {
 
         if (description.type === "answer") {
           dtlsTransport.role =
-            media.dtlsParams!.role === "client" ? "server" : "client";
+            media.dtlsParams?.role === "client" ? "server" : "client";
         }
       }
     }

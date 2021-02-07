@@ -27,7 +27,6 @@
       });
       const socket = new WebSocket("ws://localhost:8888");
       let trackBuffer;
-      const mediaByMid = {};
 
       const send = (type, payload) => {
         console.log("send", type, payload);
@@ -38,6 +37,7 @@
         const videos = React.useRef([]);
         const [streams, setStreams] = React.useState([]);
         const [published, setPublished] = React.useState([]);
+        const [mediaByMid, setMediaByMid] = React.useState({});
 
         React.useEffect(() => {
           socket.onmessage = async (ev) => {
@@ -73,18 +73,22 @@
                 {
                   const { media } = payload;
                   setPublished((prev) => prev.filter((v) => v !== media));
-                  setStreams((prev) => prev.filter((v) => v.media !== media));
+                  setStreams((prev) =>
+                    prev.filter((v) => mediaByMid[v.mid] !== media)
+                  );
                 }
                 break;
               case "onSubscribe":
                 {
                   const { media, mid } = payload;
-                  mediaByMid[mid] = media;
+                  setMediaByMid((prev) => ({ ...prev, [mid]: media }));
                 }
                 break;
             }
           };
+        }, [mediaByMid]);
 
+        React.useEffect(() => {
           peer.ontrack = (ev) => {
             const mid = ev.transceiver.mid;
             if (mid === "0") return;
@@ -92,10 +96,7 @@
             const stream = new MediaStream();
             console.log("ontrack", mid);
             stream.addTrack(ev.track);
-            setStreams((prev) => [
-              ...prev,
-              { stream, media: mediaByMid[mid], mid },
-            ]);
+            setStreams((prev) => [...prev, { stream, mid }]);
           };
         }, []);
 
@@ -131,7 +132,7 @@
           setStreams((prev) => prev.filter((v) => v.mid !== mid));
         };
 
-        console.log({ streams });
+        console.log({ streams, mediaByMid });
 
         return (
           <div>
@@ -154,9 +155,9 @@
             <div>
               <p>subscribed</p>
               <div style={{ display: "flex" }}>
-                {streams.map(({ media, mid }, i) => (
+                {streams.map(({ mid }, i) => (
                   <div key={i}>
-                    {media}
+                    {mediaByMid[mid]}
                     <button onClick={() => unsubscribe(mid)}>
                       unsubscribe
                     </button>
