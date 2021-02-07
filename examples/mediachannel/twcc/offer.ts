@@ -27,11 +27,12 @@ server.on("connection", async (socket) => {
             { type: "nack" },
             { type: "nack", parameter: "pli" },
             { type: "goog-remb" },
+            { type: "transport-cc" },
           ],
         }),
       ],
     },
-    headerExtensions: { video: [useAbsSendTime()] },
+    headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
   const sender = new RTCPeerConnection({
     codecs: {
@@ -58,10 +59,13 @@ server.on("connection", async (socket) => {
   );
 
   receiverTransceiver.onTrack.subscribe(async (track) => {
-    const [rtp] = await track.onRtp.asPromise();
-    setInterval(() => {
+    track.onRtp.once((rtp) => {
       receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
-    }, 3000);
+      setInterval(() => {
+        receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
+      }, 1000);
+    });
+
     track.onRtp.subscribe((rtp) => {
       senderTransceiver.sendRtp(rtp);
     });

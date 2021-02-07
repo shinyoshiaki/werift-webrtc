@@ -1,23 +1,18 @@
 import { v4 as uuid } from "uuid";
 import {
-  PacketChunk,
-  PacketStatus,
   PictureLossIndication,
-  RecvDelta,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
   RtcpSrPacket,
-  RtcpTransportLayerFeedback,
   RtpPacket,
-  RunLengthChunk,
-  TransportWideCC,
 } from "../../../rtp/src";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
-import { microTime } from "../utils";
 import { Nack } from "./nack";
+import { RTCRtpCodecParameters } from "./parameters";
+import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { Extensions } from "./router";
 import { RtpTrack } from "./track";
 
@@ -26,22 +21,23 @@ export class RTCRtpReceiver {
   readonly uuid = uuid();
   readonly tracks: RtpTrack[] = [];
   readonly nack = new Nack(this);
-
-  // # RTCP
+  readonly receiverTWCC = new ReceiverTWCC(this.dtlsTransport, this.rtcpSsrc);
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
-  rtcpSsrc?: number;
-  readonly cacheTWCC: {
-    [ssrc: number]: { tsn: number; timestamp: bigint }[];
-  } = {};
+
   sdesMid?: string;
   rid?: string;
+  codecs: RTCRtpCodecParameters[] = [];
 
-  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {}
+  constructor(
+    public kind: string,
+    public dtlsTransport: RTCDtlsTransport,
+    public rtcpSsrc: number
+  ) {}
 
   stop() {
     this.rtcpRunning = false;
-    this.twccRunning = false;
+    this.receiverTWCC.twccRunning = false;
   }
 
   rtcpRunning = false;
@@ -63,111 +59,6 @@ export class RTCRtpReceiver {
     }
   }
 
-  twccRunning = false;
-  async runTWCC() {
-    if (this.twccRunning) return;
-    this.twccRunning = true;
-
-    let fbPktCount = 0;
-
-    while (this.twccRunning) {
-      Object.entries(this.cacheTWCC)
-        .map(([ssrc, extensionsArr]) => ({
-          ssrc: Number(ssrc),
-          rtpExtInfo: extensionsArr.reduce(
-            (acc: { [tsn: number]: bigint }, cur) => {
-              const { tsn, timestamp } = cur;
-              acc[tsn] = timestamp;
-              return acc;
-            },
-            {}
-          ),
-        }))
-        .forEach(({ ssrc, rtpExtInfo }) => {
-          if (Object.keys(rtpExtInfo).length === 0) return;
-
-          let minTSN = 0,
-            maxTSN = 0;
-          Object.keys(rtpExtInfo).forEach((tsn: any) => {
-            tsn = Number(tsn);
-            if (minTSN === 0) minTSN = tsn;
-            if (minTSN > tsn) minTSN = tsn;
-            if (maxTSN < tsn) maxTSN = tsn;
-          });
-
-          const chunk = new RunLengthChunk({
-            type: PacketChunk.TypeTCCRunLengthChunk,
-            packetStatus: PacketStatus.TypeTCCPacketReceivedSmallDelta,
-            runLength: maxTSN - minTSN + 1,
-          });
-
-          const recvDeltas: RecvDelta[] = [];
-          let referenceTime = 0n,
-            lastTS = 0n,
-            baseTimeTicks = 0n;
-          const timeWrapPeriodUs = 1073741824000n;
-          const baseScaleFactor = 64_000n;
-          for (let i = minTSN; i <= maxTSN; i++) {
-            const timestamp = rtpExtInfo[i];
-
-            if (!timestamp) {
-              recvDeltas.push(
-                new RecvDelta({
-                  type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
-                  delta: 0,
-                })
-              );
-              continue;
-            }
-
-            if (lastTS === 0n) lastTS = timestamp;
-
-            if (baseTimeTicks === 0n)
-              baseTimeTicks = (timestamp % timeWrapPeriodUs) / baseScaleFactor;
-
-            let delta: bigint;
-            if (lastTS === timestamp)
-              delta =
-                (timestamp % timeWrapPeriodUs) -
-                baseTimeTicks * baseScaleFactor;
-            else {
-              delta = (timestamp - lastTS) % timeWrapPeriodUs;
-            }
-
-            if (referenceTime === 0n) {
-              referenceTime = baseTimeTicks & 0x007fffffn;
-            }
-
-            const recvDelta = new RecvDelta({
-              type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
-              delta: Number(delta),
-            });
-
-            recvDeltas.push(recvDelta);
-          }
-          const packet = new RtcpTransportLayerFeedback({
-            feedback: new TransportWideCC({
-              senderSsrc: this.rtcpSsrc,
-              mediaSsrc: ssrc,
-              baseSequenceNumber: minTSN,
-              packetStatusCount: maxTSN - minTSN + 1,
-              referenceTime: Number(referenceTime),
-              fbPktCount,
-              recvDeltas,
-              packetChunks: [chunk],
-            }),
-          });
-
-          this.dtlsTransport.sendRtcp([packet]);
-          this.cacheTWCC[ssrc] = [];
-          if (fbPktCount === 255) fbPktCount = 0;
-          fbPktCount++;
-        });
-
-      await sleep(100);
-    }
-  }
-
   async sendRtcpPLI(mediaSsrc: number) {
     const packet = new RtcpPayloadSpecificFeedback({
       feedback: new PictureLossIndication({
@@ -183,49 +74,52 @@ export class RTCRtpReceiver {
   handleRtcpPacket(packet: RtcpPacket) {
     switch (packet.type) {
       case RtcpSrPacket.type:
-        const sr = packet as RtcpSrPacket;
-        this.lsr[sr.ssrc] = (sr.senderInfo.ntpTimestamp >> 16n) & 0xffffffffn;
-        this.lsrTime[sr.ssrc] = Date.now() / 1000;
-        break;
-      case RtcpTransportLayerFeedback.type:
+        {
+          const sr = packet as RtcpSrPacket;
+          this.lsr[sr.ssrc] = (sr.senderInfo.ntpTimestamp >> 16n) & 0xffffffffn;
+          this.lsrTime[sr.ssrc] = Date.now() / 1000;
+        }
         break;
     }
-  }
-
-  private handleTWCC(ssrc: number, extensions: Extensions) {
-    if (!this.cacheTWCC[ssrc]) this.cacheTWCC[ssrc] = [];
-    this.cacheTWCC[ssrc].push({
-      tsn: Number(extensions[RTP_EXTENSION_URI.transportWideCC]),
-      timestamp: microTime(),
-    });
   }
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
-    const { ssrc } = packet.header;
-
-    const track = this.tracks.find((track) => track.ssrc === ssrc);
+    const track = this.tracks.find(
+      (track) => track.ssrc === packet.header.ssrc
+    );
     if (!track) throw new Error();
-    if (track.kind === "video") this.nack.onPacket(packet);
-    track.onRtp.execute(packet);
 
-    if (this.twccRunning) {
-      if (!extensions[RTP_EXTENSION_URI.transportWideCC]) throw new Error();
-      this.handleTWCC(ssrc, extensions);
-    }
-
-    this.runRtcp();
+    this.handleRTP(track, packet, extensions);
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
-    const { ssrc } = packet.header;
-
     const track = this.tracks.find((track) => track.rid === rid);
     if (!track) throw new Error();
+
+    this.handleRTP(track, packet, extensions);
+  };
+
+  private handleRTP(
+    track: RtpTrack,
+    packet: RtpPacket,
+    extensions: Extensions
+  ) {
     if (track.kind === "video") this.nack.onPacket(packet);
     track.onRtp.execute(packet);
 
-    if (this.twccRunning) this.handleTWCC(ssrc, extensions);
+    if (extensions[RTP_EXTENSION_URI.absSendTime]) {
+      const timestamp = extensions[RTP_EXTENSION_URI.absSendTime] as number;
+    }
 
+    if (
+      this.codecs.find((codec) =>
+        codec.rtcpFeedback.find((v) => v.type === "transport-cc")
+      )
+    ) {
+      if (!extensions[RTP_EXTENSION_URI.transportWideCC]) throw new Error();
+      this.receiverTWCC.handleTWCC(packet.header.ssrc, extensions);
+      this.receiverTWCC.runTWCC();
+    }
     this.runRtcp();
-  };
+  }
 }

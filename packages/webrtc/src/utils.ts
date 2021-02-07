@@ -37,7 +37,7 @@ export const microTime = () =>
     `${(performance.timeOrigin + performance.now()) * 10000}`.slice(0, -1)
   );
 
-export const milliTime = () => Int(Number(microTime() / 1000n));
+export const milliTime = () => new Date().getTime();
 
 export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
