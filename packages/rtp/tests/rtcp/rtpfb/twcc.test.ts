@@ -158,7 +158,7 @@ describe("rtcp/rtpfb/twcc", () => {
         })
       );
       expect(twcc.senderSsrc).toBe(4195875351);
-      expect(twcc.mediaSsrc).toBe(1124282272);
+      expect(twcc.mediaSourceSsrc).toBe(1124282272);
       expect(twcc.baseSequenceNumber).toBe(153);
       expect(twcc.packetStatusCount).toBe(1);
       expect(twcc.referenceTime).toBe(4057090);
@@ -224,7 +224,7 @@ describe("rtcp/rtpfb/twcc", () => {
         })
       );
       expect(twcc.senderSsrc).toBe(4195875351);
-      expect(twcc.mediaSsrc).toBe(423483579);
+      expect(twcc.mediaSourceSsrc).toBe(423483579);
       expect(twcc.baseSequenceNumber).toBe(372);
       expect(twcc.packetStatusCount).toBe(14);
       expect(twcc.referenceTime).toBe(4567386);
@@ -319,7 +319,7 @@ describe("rtcp/rtpfb/twcc", () => {
         })
       );
       expect(twcc.senderSsrc).toBe(4195875351);
-      expect(twcc.mediaSsrc).toBe(423483579);
+      expect(twcc.mediaSourceSsrc).toBe(423483579);
       expect(twcc.baseSequenceNumber).toBe(372);
       expect(twcc.packetStatusCount).toBe(6);
       expect(twcc.referenceTime).toBe(4567386);
@@ -413,7 +413,7 @@ describe("rtcp/rtpfb/twcc", () => {
         })
       );
       expect(twcc.senderSsrc).toBe(4195875351);
-      expect(twcc.mediaSsrc).toBe(423483579);
+      expect(twcc.mediaSourceSsrc).toBe(423483579);
       expect(twcc.baseSequenceNumber).toBe(4);
       expect(twcc.packetStatusCount).toBe(7);
       expect(twcc.referenceTime).toBe(1074030);
@@ -502,7 +502,7 @@ describe("rtcp/rtpfb/twcc", () => {
         })
       );
       expect(twcc.senderSsrc).toBe(4195875351);
-      expect(twcc.mediaSsrc).toBe(423483579);
+      expect(twcc.mediaSourceSsrc).toBe(423483579);
       expect(twcc.baseSequenceNumber).toBe(1);
       expect(twcc.packetStatusCount).toBe(14);
       expect(twcc.referenceTime).toBe(1074029);
@@ -598,7 +598,7 @@ describe("rtcp/rtpfb/twcc", () => {
         })
       );
       expect(twcc.senderSsrc).toBe(2608133663);
-      expect(twcc.mediaSsrc).toBe(2473712828);
+      expect(twcc.mediaSourceSsrc).toBe(2473712828);
       expect(twcc.baseSequenceNumber).toBe(34108);
       expect(twcc.packetStatusCount).toBe(9);
       expect(twcc.referenceTime).toBe(6551830);
@@ -664,7 +664,7 @@ describe("rtcp/rtpfb/twcc", () => {
           length: 5,
         }),
         senderSsrc: 4195875351,
-        mediaSsrc: 1124282272,
+        mediaSourceSsrc: 1124282272,
         baseSequenceNumber: 153,
         packetStatusCount: 1,
         referenceTime: 4057090,
@@ -722,7 +722,7 @@ describe("rtcp/rtpfb/twcc", () => {
           length: 6,
         }),
         senderSsrc: 4195875351,
-        mediaSsrc: 423483579,
+        mediaSourceSsrc: 423483579,
         baseSequenceNumber: 372,
         packetStatusCount: 2,
         referenceTime: 4567386,

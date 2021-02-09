@@ -130,7 +130,7 @@ export class RtpRouter {
         {
           const rtpfb = packet as RtcpTransportLayerFeedback;
           if (rtpfb.feedback) {
-            recipients.push(this.ssrcTable[rtpfb.feedback.mediaSsrc]);
+            recipients.push(this.ssrcTable[rtpfb.feedback.mediaSourceSsrc]);
           }
         }
         break;

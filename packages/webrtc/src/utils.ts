@@ -64,6 +64,10 @@ export function random32() {
   return BigInt(jspack.Unpack("!L", randomBytes(4))[0]);
 }
 
+export function uint8Add(a: number, b: number) {
+  return (a + b) & 0xff;
+}
+
 export function uint16Add(a: number, b: number) {
   return (a + b) & 0xffff;
 }

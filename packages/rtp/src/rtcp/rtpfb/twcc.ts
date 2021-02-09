@@ -39,9 +39,10 @@ export class TransportWideCC {
   length = 2;
 
   senderSsrc!: number;
-  mediaSsrc!: number;
+  mediaSourceSsrc!: number;
   baseSequenceNumber!: number;
   packetStatusCount!: number;
+  /** 24bit multiples of 64ms */
   referenceTime!: number;
   fbPktCount!: number;
   packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
@@ -98,7 +99,7 @@ export class TransportWideCC {
             ) {
               range(packetNumberToProcess).forEach(() => {
                 recvDeltas.push(
-                  new RecvDelta({ type: packetStatus.packetStatus })
+                  new RecvDelta({ type: packetStatus.packetStatus as any })
                 );
               });
             }
@@ -159,7 +160,7 @@ export class TransportWideCC {
 
     return new TransportWideCC({
       senderSsrc,
-      mediaSsrc,
+      mediaSourceSsrc: mediaSsrc,
       baseSequenceNumber,
       packetStatusCount,
       referenceTime,
@@ -175,7 +176,7 @@ export class TransportWideCC {
       [4, 4, 2, 2, 3, 1],
       [
         this.senderSsrc,
-        this.mediaSsrc,
+        this.mediaSourceSsrc,
         this.baseSequenceNumber,
         this.packetStatusCount,
         this.referenceTime,
@@ -246,7 +247,8 @@ export class TransportWideCC {
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class RunLengthChunk {
   type!: number;
-  packetStatus!: number;
+  packetStatus!: PacketStatus;
+  /** 13bit */
   runLength!: number;
 
   constructor(props: Partial<RunLengthChunk> = {}) {
@@ -340,7 +342,10 @@ export class StatusVectorChunk {
 }
 
 export class RecvDelta {
-  type!: number;
+  /**optional (If undefined, it will be set automatically.)*/
+  type?:
+    | PacketStatus.TypeTCCPacketReceivedSmallDelta
+    | PacketStatus.TypeTCCPacketReceivedLargeDelta;
   /**micro sec */
   delta!: number;
 
@@ -371,28 +376,27 @@ export class RecvDelta {
   }
 
   serialize() {
-    const delta = Math.floor(this.delta / 250);
-    if (
-      this.type === PacketStatus.TypeTCCPacketReceivedSmallDelta &&
-      delta >= 0 &&
-      delta <= 255
-    ) {
+    this.delta = Math.floor(this.delta / 250);
+
+    if (this.delta < 0 || this.delta > 255) {
+      if (this.delta > 32767) this.delta = 32767; // maxInt16
+      if (this.delta < -32768) this.delta = -32768; // minInt16
+      if (!this.type) this.type = PacketStatus.TypeTCCPacketReceivedLargeDelta;
+    } else {
+      if (!this.type) this.type = PacketStatus.TypeTCCPacketReceivedSmallDelta;
+    }
+
+    if (this.type === PacketStatus.TypeTCCPacketReceivedSmallDelta) {
       const buf = Buffer.alloc(1);
-      buf.writeUInt8(delta);
+      buf.writeUInt8(this.delta);
       return buf;
-    }
-
-    if (
-      this.type === PacketStatus.TypeTCCPacketReceivedLargeDelta &&
-      delta >= -32768 &&
-      delta <= 32768
-    ) {
+    } else if (this.type === PacketStatus.TypeTCCPacketReceivedLargeDelta) {
       const buf = Buffer.alloc(2);
-      buf.writeInt16BE(delta);
+      buf.writeInt16BE(this.delta);
       return buf;
     }
 
-    // throw new Error("errDeltaExceedLimit " + delta + " " + this.type);
+    throw new Error("errDeltaExceedLimit " + this.delta + " " + this.type);
   }
 }
 

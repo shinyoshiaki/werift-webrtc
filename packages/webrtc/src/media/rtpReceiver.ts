@@ -28,6 +28,7 @@ export class RTCRtpReceiver {
   sdesMid?: string;
   rid?: string;
   codecs: RTCRtpCodecParameters[] = [];
+  mediaSourceSsrc!: number;
 
   constructor(
     public kind: string,
@@ -116,10 +117,16 @@ export class RTCRtpReceiver {
         codec.rtcpFeedback.find((v) => v.type === "transport-cc")
       )
     ) {
-      if (extensions[RTP_EXTENSION_URI.transportWideCC]) {
-        this.receiverTWCC.handleTWCC(packet.header.ssrc, extensions);
-        this.receiverTWCC.runTWCC();
-      }
+      const transportSequenceNumber = extensions[
+        RTP_EXTENSION_URI.transportWideCC
+      ] as number;
+      if (!transportSequenceNumber == undefined) throw new Error();
+
+      this.receiverTWCC.handleTWCC(
+        this.mediaSourceSsrc,
+        transportSequenceNumber
+      );
+      this.receiverTWCC.runTWCC();
     }
     this.runRtcp();
   }
