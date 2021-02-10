@@ -246,13 +246,14 @@ export class TransportWideCC {
 // |T| S |       Run Length        |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class RunLengthChunk {
-  type!: number;
+  type!: PacketChunk.TypeTCCRunLengthChunk;
   packetStatus!: PacketStatus;
   /** 13bit */
   runLength!: number;
 
   constructor(props: Partial<RunLengthChunk> = {}) {
     Object.assign(this, props);
+    this.type = PacketChunk.TypeTCCRunLengthChunk;
   }
 
   static deSerialize(data: Buffer) {
@@ -375,7 +376,7 @@ export class RecvDelta {
     this.delta = res.delta;
   }
 
-  serialize() {
+  parseDelta() {
     this.delta = Math.floor(this.delta / 250);
 
     if (this.delta < 0 || this.delta > 255) {
@@ -385,7 +386,9 @@ export class RecvDelta {
     } else {
       if (!this.type) this.type = PacketStatus.TypeTCCPacketReceivedSmallDelta;
     }
+  }
 
+  serialize() {
     if (this.type === PacketStatus.TypeTCCPacketReceivedSmallDelta) {
       const buf = Buffer.alloc(1);
       buf.writeUInt8(this.delta);

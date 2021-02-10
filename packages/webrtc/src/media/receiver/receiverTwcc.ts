@@ -1,5 +1,4 @@
 import {
-  PacketChunk,
   PacketStatus,
   RecvDelta,
   RtcpTransportLayerFeedback,
@@ -19,6 +18,8 @@ export class ReceiverTWCC {
   } = {};
 
   twccRunning = false;
+  /** uint8 */
+  fbPktCount = 0;
 
   constructor(
     private dtlsTransport: RTCDtlsTransport,
@@ -31,95 +32,134 @@ export class ReceiverTWCC {
       tsn: transportSequenceNumber,
       timestamp: microTime(),
     });
+    if (this.extensionInfo[ssrc].length > 10) {
+      this.sendTWCC();
+    }
   }
 
   async runTWCC() {
     if (this.twccRunning) return;
     this.twccRunning = true;
 
-    let fbPktCount = 0;
-
     while (this.twccRunning) {
-      Object.entries(this.extensionInfo)
-        .map(([ssrc, extensionsArr]) => ({
-          ssrc: Number(ssrc),
-          rtpExtInfo: extensionsArr.reduce(
-            (acc: { [tsn: number]: ExtensionInfo }, cur) => {
-              acc[cur.tsn] = cur;
-              return acc;
-            },
-            {}
-          ),
-        }))
-        .forEach(({ ssrc, rtpExtInfo }) => {
-          if (Object.keys(rtpExtInfo).length === 0) return;
-          const extensionsArr = Object.values(rtpExtInfo).sort(
-            (a, b) => a.tsn - b.tsn
-          );
-
-          const minTSN = extensionsArr[0].tsn;
-          const maxTSN = extensionsArr.slice(-1)[0].tsn;
-
-          const packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [
-            new RunLengthChunk({
-              type: PacketChunk.TypeTCCRunLengthChunk,
-              packetStatus: PacketStatus.TypeTCCPacketReceivedSmallDelta,
-              runLength: maxTSN - minTSN + 1,
-            }),
-          ];
-
-          const baseSequenceNumber = extensionsArr[0].tsn;
-          const packetStatusCount = maxTSN - minTSN + 1;
-          /**micro sec */
-          let referenceTime!: bigint, lastTimestamp!: bigint;
-          const recvDeltas: RecvDelta[] = [];
-
-          for (let i = minTSN; i <= maxTSN; i++) {
-            /**micro sec */
-            const timestamp = rtpExtInfo[i]?.timestamp;
-
-            if (timestamp) {
-              if (!referenceTime) {
-                referenceTime = timestamp;
-                lastTimestamp = timestamp;
-              }
-
-              const delta = timestamp - lastTimestamp;
-              lastTimestamp = timestamp;
-
-              recvDeltas.push(
-                new RecvDelta({
-                  delta: Number(delta),
-                })
-              );
-            }
-          }
-
-          if (!referenceTime) {
-            return;
-          }
-
-          const packet = new RtcpTransportLayerFeedback({
-            feedback: new TransportWideCC({
-              senderSsrc: this.rtcpSsrc,
-              mediaSourceSsrc: Number(ssrc),
-              baseSequenceNumber,
-              packetStatusCount,
-              referenceTime: Number(
-                BigInt.asUintN(24, referenceTime / 1000n / 64n)
-              ),
-              fbPktCount,
-              recvDeltas,
-              packetChunks,
-            }),
-          });
-
-          this.dtlsTransport.sendRtcp([packet]);
-          this.extensionInfo[Number(ssrc)] = [];
-          fbPktCount = uint8Add(fbPktCount, 1);
-        });
-
+      this.sendTWCC();
       await sleep(100);
     }
+  }
+
+  private sendTWCC() {
+    Object.entries(this.extensionInfo)
+      .map(([ssrc, extensionsArr]) => ({
+        ssrc: Number(ssrc),
+        rtpExtInfo: extensionsArr.reduce(
+          (acc: { [tsn: number]: ExtensionInfo }, cur) => {
+            acc[cur.tsn] = cur;
+            return acc;
+          },
+          {}
+        ),
+      }))
+      .forEach(({ ssrc, rtpExtInfo }) => {
+        if (Object.keys(rtpExtInfo).length === 0) return;
+        const extensionsArr = Object.values(rtpExtInfo).sort(
+          (a, b) => a.tsn - b.tsn
+        );
+
+        const minTSN = extensionsArr[0].tsn;
+        const maxTSN = extensionsArr.slice(-1)[0].tsn;
+
+        const packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
+        const baseSequenceNumber = extensionsArr[0].tsn;
+        const packetStatusCount = maxTSN - minTSN + 1;
+        /**micro sec */
+        let referenceTime!: bigint;
+        /**micro sec */
+        let lastTimestamp!: bigint;
+        let lastPacketStatus:
+          | { status: PacketStatus; minTSN: number }
+          | undefined;
+        const recvDeltas: RecvDelta[] = [];
+
+        for (let i = minTSN; i <= maxTSN; i++) {
+          /**micro sec */
+          const timestamp = rtpExtInfo[i]?.timestamp;
+
+          if (timestamp) {
+            if (!referenceTime) {
+              referenceTime = timestamp;
+              lastTimestamp = timestamp;
+            }
+
+            const delta = timestamp - lastTimestamp;
+            lastTimestamp = timestamp;
+
+            const recvDelta = new RecvDelta({
+              delta: Number(delta),
+            });
+            recvDelta.parseDelta();
+            recvDeltas.push(recvDelta);
+
+            if (
+              lastPacketStatus != undefined &&
+              lastPacketStatus.status !== recvDelta.type
+            ) {
+              packetChunks.push(
+                new RunLengthChunk({
+                  packetStatus: lastPacketStatus.status,
+                  runLength: i - lastPacketStatus.minTSN + 1,
+                })
+              );
+              lastPacketStatus = { minTSN: i, status: recvDelta.type! };
+            } else {
+              if (i === maxTSN) {
+                if (lastPacketStatus != undefined) {
+                  packetChunks.push(
+                    new RunLengthChunk({
+                      packetStatus: lastPacketStatus.status,
+                      runLength: i - lastPacketStatus.minTSN + 1,
+                    })
+                  );
+                } else {
+                  packetChunks.push(
+                    new RunLengthChunk({
+                      packetStatus: recvDelta.type,
+                      runLength: 1,
+                    })
+                  );
+                }
+              }
+            }
+
+            if (lastPacketStatus == undefined) {
+              lastPacketStatus = { minTSN: i, status: recvDelta.type! };
+            }
+          }
+        }
+
+        if (!referenceTime) {
+          return;
+        }
+
+        const packet = new RtcpTransportLayerFeedback({
+          feedback: new TransportWideCC({
+            senderSsrc: this.rtcpSsrc,
+            mediaSourceSsrc: Number(ssrc),
+            baseSequenceNumber,
+            packetStatusCount,
+            referenceTime: Number(
+              BigInt.asUintN(24, referenceTime / 1000n / 64n)
+            ),
+            fbPktCount: this.fbPktCount,
+            recvDeltas,
+            packetChunks,
+          }),
+        });
+
+        this.dtlsTransport.sendRtcp([packet]).catch((err) => {
+          console.log(err);
+        });
+        this.extensionInfo[Number(ssrc)] = [];
+        this.fbPktCount = uint8Add(this.fbPktCount, 1);
+      });
   }
 }
