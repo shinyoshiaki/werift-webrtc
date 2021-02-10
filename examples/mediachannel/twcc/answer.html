@@ -60,14 +60,14 @@
               );
               console.log(offer.sdp);
               const localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
+                video: { width: 1920 },
               });
               localRef.current.srcObject = localStream;
               localStream.getVideoTracks().forEach((track) => {
                 const t = sender.addTrack(track, localStream);
                 setTimeout(() => {
                   const params = t.getParameters();
-                  params.encodings = [{ maxBitrate: 300000 }];
+                  params.encodings = [{ maxBitrate: 6400 * 1000 }];
                   t.setParameters(params);
                 }, 1000);
               });

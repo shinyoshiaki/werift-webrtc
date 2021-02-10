@@ -8,7 +8,7 @@ import {
 } from "../../../../rtp/src";
 import { sleep } from "../../../../sctp/src/helper";
 import { RTCDtlsTransport } from "../../transport/dtls";
-import { microTime, uint8Add } from "../../utils";
+import { microTime, uint16Add, uint8Add } from "../../utils";
 
 type ExtensionInfo = { tsn: number; timestamp: bigint };
 
@@ -70,7 +70,7 @@ export class ReceiverTWCC {
 
         const packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
         const baseSequenceNumber = extensionsArr[0].tsn;
-        const packetStatusCount = maxTSN - minTSN + 1;
+        const packetStatusCount = uint16Add(maxTSN - minTSN, 1);
         /**micro sec */
         let referenceTime!: bigint;
         /**micro sec */
@@ -94,11 +94,12 @@ export class ReceiverTWCC {
             lastTimestamp = timestamp;
 
             const recvDelta = new RecvDelta({
-              delta: Number(delta),
+              delta: Number(0), // todo fix
             });
             recvDelta.parseDelta();
             recvDeltas.push(recvDelta);
 
+            // when status changed
             if (
               lastPacketStatus != undefined &&
               lastPacketStatus.status !== recvDelta.type
@@ -106,27 +107,27 @@ export class ReceiverTWCC {
               packetChunks.push(
                 new RunLengthChunk({
                   packetStatus: lastPacketStatus.status,
-                  runLength: i - lastPacketStatus.minTSN + 1,
+                  runLength: i - lastPacketStatus.minTSN,
                 })
               );
               lastPacketStatus = { minTSN: i, status: recvDelta.type! };
-            } else {
-              if (i === maxTSN) {
-                if (lastPacketStatus != undefined) {
-                  packetChunks.push(
-                    new RunLengthChunk({
-                      packetStatus: lastPacketStatus.status,
-                      runLength: i - lastPacketStatus.minTSN + 1,
-                    })
-                  );
-                } else {
-                  packetChunks.push(
-                    new RunLengthChunk({
-                      packetStatus: recvDelta.type,
-                      runLength: 1,
-                    })
-                  );
-                }
+            }
+            // last status
+            if (i === maxTSN) {
+              if (lastPacketStatus != undefined) {
+                packetChunks.push(
+                  new RunLengthChunk({
+                    packetStatus: lastPacketStatus.status,
+                    runLength: i - lastPacketStatus.minTSN + 1,
+                  })
+                );
+              } else {
+                packetChunks.push(
+                  new RunLengthChunk({
+                    packetStatus: recvDelta.type,
+                    runLength: 1,
+                  })
+                );
               }
             }
 

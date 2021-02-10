@@ -59,6 +59,12 @@ server.on("connection", async (socket) => {
   );
 
   receiverTransceiver.onTrack.subscribe(async (track) => {
+    track.onRtp.once((rtp) => {
+      receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
+      setInterval(() => {
+        receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
+      }, 1000);
+    });
     track.onRtp.subscribe((rtp) => {
       senderTransceiver.sendRtp(rtp);
     });
