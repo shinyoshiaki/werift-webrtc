@@ -376,6 +376,7 @@ export class RecvDelta {
     this.delta = res.delta;
   }
 
+  parsed = false; // todo refactor
   parseDelta() {
     this.delta = Math.floor(this.delta / 250);
 
@@ -386,9 +387,11 @@ export class RecvDelta {
     } else {
       if (!this.type) this.type = PacketStatus.TypeTCCPacketReceivedSmallDelta;
     }
+    this.parsed = true;
   }
 
   serialize() {
+    if (!this.parsed) this.parseDelta();
     if (this.type === PacketStatus.TypeTCCPacketReceivedSmallDelta) {
       const buf = Buffer.alloc(1);
       buf.writeUInt8(this.delta);
