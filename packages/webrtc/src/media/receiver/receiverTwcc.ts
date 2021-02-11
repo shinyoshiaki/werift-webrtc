@@ -8,9 +8,9 @@ import {
 } from "../../../../rtp/src";
 import { sleep } from "../../../../sctp/src/helper";
 import { RTCDtlsTransport } from "../../transport/dtls";
-import { microTime, uint16Add, uint8Add } from "../../utils";
+import { microTime, uint16Add, uint24, uint8Add } from "../../utils";
 
-type ExtensionInfo = { tsn: number; timestamp: bigint };
+type ExtensionInfo = { tsn: number; timestamp: number };
 
 export class ReceiverTWCC {
   readonly extensionInfo: {
@@ -20,6 +20,7 @@ export class ReceiverTWCC {
   twccRunning = false;
   /** uint8 */
   fbPktCount = 0;
+  lastTimestamp?: number;
 
   constructor(
     private dtlsTransport: RTCDtlsTransport,
@@ -72,9 +73,7 @@ export class ReceiverTWCC {
         const baseSequenceNumber = extensionsArr[0].tsn;
         const packetStatusCount = uint16Add(maxTSN - minTSN, 1);
         /**micro sec */
-        let referenceTime!: bigint;
-        /**micro sec */
-        let lastTimestamp!: bigint;
+        let referenceTime!: number;
         let lastPacketStatus:
           | { status: PacketStatus; minTSN: number }
           | undefined;
@@ -85,13 +84,15 @@ export class ReceiverTWCC {
           const timestamp = rtpExtInfo[i]?.timestamp;
 
           if (timestamp) {
+            if (!this.lastTimestamp) {
+              this.lastTimestamp = timestamp;
+            }
             if (!referenceTime) {
-              referenceTime = timestamp;
-              lastTimestamp = timestamp;
+              referenceTime = this.lastTimestamp;
             }
 
-            const delta = timestamp - lastTimestamp;
-            lastTimestamp = timestamp;
+            const delta = timestamp - this.lastTimestamp;
+            this.lastTimestamp = timestamp;
 
             const recvDelta = new RecvDelta({
               delta: Number(delta),
@@ -153,9 +154,7 @@ export class ReceiverTWCC {
             mediaSourceSsrc: Number(ssrc),
             baseSequenceNumber,
             packetStatusCount,
-            referenceTime: Number(
-              BigInt.asUintN(24, referenceTime / 1000n / 64n)
-            ),
+            referenceTime: uint24(Math.floor(referenceTime / 1000 / 64)),
             fbPktCount: this.fbPktCount,
             recvDeltas,
             packetChunks,

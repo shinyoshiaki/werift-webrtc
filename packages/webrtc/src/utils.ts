@@ -32,7 +32,7 @@ export function reverseSimulcastDirection(dir: "recv" | "send") {
   return "recv";
 }
 
-export const microTime = () => BigInt(now.micro());
+export const microTime = () => now.micro() as number;
 
 export const milliTime = () => new Date().getTime();
 
@@ -71,4 +71,8 @@ export function uint16Add(a: number, b: number) {
 
 export function uint32Add(a: bigint, b: bigint) {
   return (a + b) & 0xffffffffn;
+}
+
+export function uint24(v: number) {
+  return v & 0xffffff;
 }

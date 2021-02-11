@@ -20,6 +20,8 @@ export class RTCRtpReceiver {
   readonly type = "receiver";
   readonly uuid = uuid();
   readonly tracks: RtpTrack[] = [];
+  readonly trackBySSRC: { [ssrc: string]: RtpTrack } = {};
+  readonly trackByRID: { [rid: string]: RtpTrack } = {};
   readonly nack = new Nack(this);
   readonly receiverTWCC = new ReceiverTWCC(this.dtlsTransport, this.rtcpSsrc);
   readonly lsr: { [key: number]: BigInt } = {};
@@ -94,16 +96,14 @@ export class RTCRtpReceiver {
   }
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
-    const track = this.tracks.find(
-      (track) => track.ssrc === packet.header.ssrc
-    );
+    const track = this.trackBySSRC[packet.header.ssrc];
     if (!track) throw new Error();
 
     this.handleRTP(track, packet, extensions);
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
-    const track = this.tracks.find((track) => track.rid === rid);
+    const track = this.trackByRID[rid];
     if (!track) throw new Error();
 
     this.handleRTP(track, packet, extensions);

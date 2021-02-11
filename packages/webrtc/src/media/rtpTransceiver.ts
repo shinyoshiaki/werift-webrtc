@@ -52,6 +52,8 @@ export class RTCRtpTransceiver {
     });
     if (!exist) {
       this.receiver.tracks.push(track);
+      if (track.ssrc) this.receiver.trackBySSRC[track.ssrc] = track;
+      if (track.rid) this.receiver.trackByRID[track.rid] = track;
       this.onTrack.execute(track);
     }
   }
