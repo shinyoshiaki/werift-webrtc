@@ -94,9 +94,15 @@ export class ReceiverTWCC {
             lastTimestamp = timestamp;
 
             const recvDelta = new RecvDelta({
-              delta: Number(0), // todo fix
+              delta: Number(delta),
             });
             recvDelta.parseDelta();
+            if (
+              recvDelta.type === PacketStatus.TypeTCCPacketReceivedSmallDelta
+            ) {
+              // cheat on chrome
+              recvDelta.delta = Math.floor(recvDelta.delta / 3); // todo fix
+            }
             recvDeltas.push(recvDelta);
 
             // when status changed

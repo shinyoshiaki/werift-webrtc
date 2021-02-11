@@ -27,8 +27,18 @@ export class RTCRtpReceiver {
 
   sdesMid?: string;
   rid?: string;
-  codecs: RTCRtpCodecParameters[] = [];
   mediaSourceSsrc!: number;
+  supportTWCC = false;
+  _codecs: RTCRtpCodecParameters[] = [];
+  set codecs(codecs: RTCRtpCodecParameters[]) {
+    this._codecs = codecs;
+    this.supportTWCC = !!this.codecs.find((codec) =>
+      codec.rtcpFeedback.find((v) => v.type === "transport-cc")
+    );
+  }
+  get codecs() {
+    return this._codecs;
+  }
 
   constructor(
     public kind: string,
@@ -105,18 +115,7 @@ export class RTCRtpReceiver {
     packet: RtpPacket,
     extensions: Extensions
   ) {
-    if (track.kind === "video") this.nack.onPacket(packet);
-    track.onRtp.execute(packet);
-
-    if (extensions[RTP_EXTENSION_URI.absSendTime]) {
-      const timestamp = extensions[RTP_EXTENSION_URI.absSendTime] as number;
-    }
-
-    if (
-      this.codecs.find((codec) =>
-        codec.rtcpFeedback.find((v) => v.type === "transport-cc")
-      )
-    ) {
+    if (this.supportTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
       ] as number;
@@ -128,6 +127,10 @@ export class RTCRtpReceiver {
       );
       this.receiverTWCC.runTWCC();
     }
+
+    if (track.kind === "video") this.nack.onPacket(packet);
+    track.onRtp.execute(packet);
+
     this.runRtcp();
   }
 }
