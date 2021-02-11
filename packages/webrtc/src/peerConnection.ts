@@ -558,8 +558,7 @@ export class RTCPeerConnection {
             this.onTransceiver.execute(transceiver);
             return transceiver;
           })();
-        if (media.ssrc[0]?.ssrc)
-          transceiver.receiver.mediaSourceSsrc = media.ssrc[0].ssrc;
+
         // simulcast
         media.simulcastParameters.forEach((param) => {
           this.router.registerRtpReceiverByRid(transceiver, param);

@@ -27,7 +27,6 @@ export class RTCRtpReceiver {
 
   sdesMid?: string;
   rid?: string;
-  mediaSourceSsrc!: number;
   supportTWCC = false;
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
@@ -121,10 +120,7 @@ export class RTCRtpReceiver {
       ] as number;
       if (!transportSequenceNumber == undefined) throw new Error();
 
-      this.receiverTWCC.handleTWCC(
-        this.mediaSourceSsrc,
-        transportSequenceNumber
-      );
+      this.receiverTWCC.handleTWCC(packet.header.ssrc, transportSequenceNumber);
       this.receiverTWCC.runTWCC();
     }
 
