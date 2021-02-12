@@ -586,6 +586,8 @@ export class RTCPeerConnection {
             ).find((v) => v.uri === extension.uri)
         );
 
+        transceiver.receiver.setupTWCC(media.ssrc[0]?.ssrc);
+
         if (media.dtlsParams && media.iceParams) {
           this.remoteDtls = media.dtlsParams;
           this.remoteIce = media.iceParams;

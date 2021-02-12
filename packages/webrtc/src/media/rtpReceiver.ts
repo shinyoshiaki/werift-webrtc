@@ -23,23 +23,14 @@ export class RTCRtpReceiver {
   readonly trackBySSRC: { [ssrc: string]: RtpTrack } = {};
   readonly trackByRID: { [rid: string]: RtpTrack } = {};
   readonly nack = new Nack(this);
-  readonly receiverTWCC = new ReceiverTWCC(this.dtlsTransport, this.rtcpSsrc);
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
 
   sdesMid?: string;
   rid?: string;
+  receiverTWCC?: ReceiverTWCC;
   supportTWCC = false;
-  _codecs: RTCRtpCodecParameters[] = [];
-  set codecs(codecs: RTCRtpCodecParameters[]) {
-    this._codecs = codecs;
-    this.supportTWCC = !!this.codecs.find((codec) =>
-      codec.rtcpFeedback.find((v) => v.type === "transport-cc")
-    );
-  }
-  get codecs() {
-    return this._codecs;
-  }
+  codecs: RTCRtpCodecParameters[] = [];
 
   constructor(
     public kind: string,
@@ -47,9 +38,26 @@ export class RTCRtpReceiver {
     public rtcpSsrc: number
   ) {}
 
+  /**
+   * setup TWCC if supported
+   * @param mediaSourceSsrc
+   */
+  setupTWCC(mediaSourceSsrc?: number) {
+    this.supportTWCC = !!this.codecs.find((codec) =>
+      codec.rtcpFeedback.find((v) => v.type === "transport-cc")
+    );
+    if (this.supportTWCC && mediaSourceSsrc) {
+      this.receiverTWCC = new ReceiverTWCC(
+        this.dtlsTransport,
+        this.rtcpSsrc,
+        mediaSourceSsrc
+      );
+    }
+  }
+
   stop() {
     this.rtcpRunning = false;
-    this.receiverTWCC.twccRunning = false;
+    if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
   }
 
   rtcpRunning = false;
@@ -114,14 +122,15 @@ export class RTCRtpReceiver {
     packet: RtpPacket,
     extensions: Extensions
   ) {
-    if (this.supportTWCC) {
+    if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
       ] as number;
       if (!transportSequenceNumber == undefined) throw new Error();
 
-      this.receiverTWCC.handleTWCC(packet.header.ssrc, transportSequenceNumber);
-      this.receiverTWCC.runTWCC();
+      this.receiverTWCC.handleTWCC(transportSequenceNumber);
+    } else if (this.supportTWCC) {
+      this.setupTWCC(packet.header.ssrc);
     }
 
     if (track.kind === "video") this.nack.onPacket(packet);

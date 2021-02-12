@@ -67,7 +67,7 @@
                 const t = sender.addTrack(track, localStream);
                 setTimeout(() => {
                   const params = t.getParameters();
-                  params.encodings = [{ maxBitrate: 6400 * 1000 }];
+                  params.encodings = [{ maxBitrate: 45 * 1000 * 1000 }];
                   t.setParameters(params);
                 }, 1000);
               });

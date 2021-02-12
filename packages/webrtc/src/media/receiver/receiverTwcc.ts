@@ -13,10 +13,9 @@ import { microTime, uint16Add, uint24, uint8Add } from "../../utils";
 type ExtensionInfo = { tsn: number; timestamp: number };
 
 export class ReceiverTWCC {
-  readonly extensionInfo: {
-    [ssrc: number]: ExtensionInfo[];
+  extensionInfo: {
+    [tsn: number]: ExtensionInfo;
   } = {};
-
   twccRunning = false;
   /** uint8 */
   fbPktCount = 0;
@@ -24,24 +23,24 @@ export class ReceiverTWCC {
 
   constructor(
     private dtlsTransport: RTCDtlsTransport,
-    private rtcpSsrc: number
-  ) {}
+    private rtcpSsrc: number,
+    private mediaSourceSsrc: number
+  ) {
+    this.runTWCC();
+  }
 
-  handleTWCC(ssrc: number, transportSequenceNumber: number) {
-    if (!this.extensionInfo[ssrc]) this.extensionInfo[ssrc] = [];
-    this.extensionInfo[ssrc].push({
+  handleTWCC(transportSequenceNumber: number) {
+    this.extensionInfo[transportSequenceNumber] = {
       tsn: transportSequenceNumber,
       timestamp: microTime(),
-    });
-    if (this.extensionInfo[ssrc].length > 10) {
+    };
+
+    if (Object.keys(this.extensionInfo).length > 10) {
       this.sendTWCC();
     }
   }
 
-  async runTWCC() {
-    if (this.twccRunning) return;
-    this.twccRunning = true;
-
+  private async runTWCC() {
     while (this.twccRunning) {
       this.sendTWCC();
       await sleep(100);
@@ -49,123 +48,102 @@ export class ReceiverTWCC {
   }
 
   private sendTWCC() {
-    Object.entries(this.extensionInfo)
-      .map(([ssrc, extensionsArr]) => ({
-        ssrc: Number(ssrc),
-        rtpExtInfo: extensionsArr.reduce(
-          (acc: { [tsn: number]: ExtensionInfo }, cur) => {
-            acc[cur.tsn] = cur;
-            return acc;
-          },
-          {}
-        ),
-      }))
-      .forEach(({ ssrc, rtpExtInfo }) => {
-        if (Object.keys(rtpExtInfo).length === 0) return;
-        const extensionsArr = Object.values(rtpExtInfo).sort(
-          (a, b) => a.tsn - b.tsn
-        );
+    if (Object.keys(this.extensionInfo).length === 0) return;
+    const extensionsArr = Object.values(this.extensionInfo).sort(
+      (a, b) => a.tsn - b.tsn
+    );
 
-        const minTSN = extensionsArr[0].tsn;
-        const maxTSN = extensionsArr.slice(-1)[0].tsn;
+    const minTSN = extensionsArr[0].tsn;
+    const maxTSN = extensionsArr.slice(-1)[0].tsn;
 
-        const packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
-        const baseSequenceNumber = extensionsArr[0].tsn;
-        const packetStatusCount = uint16Add(maxTSN - minTSN, 1);
-        /**micro sec */
-        let referenceTime!: number;
-        let lastPacketStatus:
-          | { status: PacketStatus; minTSN: number }
-          | undefined;
-        const recvDeltas: RecvDelta[] = [];
+    const packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
+    const baseSequenceNumber = extensionsArr[0].tsn;
+    const packetStatusCount = uint16Add(maxTSN - minTSN, 1);
+    /**micro sec */
+    let referenceTime!: number;
+    let lastPacketStatus: { status: PacketStatus; minTSN: number } | undefined;
+    const recvDeltas: RecvDelta[] = [];
 
-        for (let i = minTSN; i <= maxTSN; i++) {
-          /**micro sec */
-          const timestamp = rtpExtInfo[i]?.timestamp;
+    for (let i = minTSN; i <= maxTSN; i++) {
+      /**micro sec */
+      const timestamp = this.extensionInfo[i]?.timestamp;
 
-          if (timestamp) {
-            if (!this.lastTimestamp) {
-              this.lastTimestamp = timestamp;
-            }
-            if (!referenceTime) {
-              referenceTime = this.lastTimestamp;
-            }
+      if (timestamp) {
+        if (!this.lastTimestamp) {
+          this.lastTimestamp = timestamp;
+        }
+        if (!referenceTime) {
+          referenceTime = this.lastTimestamp;
+        }
 
-            const delta = timestamp - this.lastTimestamp;
-            this.lastTimestamp = timestamp;
+        const delta = timestamp - this.lastTimestamp;
+        this.lastTimestamp = timestamp;
 
-            const recvDelta = new RecvDelta({
-              delta: Number(delta),
-            });
-            recvDelta.parseDelta();
-            if (
-              recvDelta.type === PacketStatus.TypeTCCPacketReceivedSmallDelta
-            ) {
-              // cheat on chrome
-              recvDelta.delta = Math.floor(recvDelta.delta / 3); // todo fix
-            }
-            recvDeltas.push(recvDelta);
+        const recvDelta = new RecvDelta({
+          delta: Number(delta),
+        });
+        recvDelta.parseDelta();
+        recvDeltas.push(recvDelta);
 
-            // when status changed
-            if (
-              lastPacketStatus != undefined &&
-              lastPacketStatus.status !== recvDelta.type
-            ) {
-              packetChunks.push(
-                new RunLengthChunk({
-                  packetStatus: lastPacketStatus.status,
-                  runLength: i - lastPacketStatus.minTSN,
-                })
-              );
-              lastPacketStatus = { minTSN: i, status: recvDelta.type! };
-            }
-            // last status
-            if (i === maxTSN) {
-              if (lastPacketStatus != undefined) {
-                packetChunks.push(
-                  new RunLengthChunk({
-                    packetStatus: lastPacketStatus.status,
-                    runLength: i - lastPacketStatus.minTSN + 1,
-                  })
-                );
-              } else {
-                packetChunks.push(
-                  new RunLengthChunk({
-                    packetStatus: recvDelta.type,
-                    runLength: 1,
-                  })
-                );
-              }
-            }
-
-            if (lastPacketStatus == undefined) {
-              lastPacketStatus = { minTSN: i, status: recvDelta.type! };
-            }
+        // when status changed
+        if (
+          lastPacketStatus != undefined &&
+          lastPacketStatus.status !== recvDelta.type
+        ) {
+          packetChunks.push(
+            new RunLengthChunk({
+              packetStatus: lastPacketStatus.status,
+              runLength: i - lastPacketStatus.minTSN,
+            })
+          );
+          lastPacketStatus = { minTSN: i, status: recvDelta.type! };
+        }
+        // last status
+        if (i === maxTSN) {
+          if (lastPacketStatus != undefined) {
+            packetChunks.push(
+              new RunLengthChunk({
+                packetStatus: lastPacketStatus.status,
+                runLength: i - lastPacketStatus.minTSN + 1,
+              })
+            );
+          } else {
+            packetChunks.push(
+              new RunLengthChunk({
+                packetStatus: recvDelta.type,
+                runLength: 1,
+              })
+            );
           }
         }
 
-        if (!referenceTime) {
-          return;
+        if (lastPacketStatus == undefined) {
+          lastPacketStatus = { minTSN: i, status: recvDelta.type! };
         }
+      }
+    }
 
-        const packet = new RtcpTransportLayerFeedback({
-          feedback: new TransportWideCC({
-            senderSsrc: this.rtcpSsrc,
-            mediaSourceSsrc: Number(ssrc),
-            baseSequenceNumber,
-            packetStatusCount,
-            referenceTime: uint24(Math.floor(referenceTime / 1000 / 64)),
-            fbPktCount: this.fbPktCount,
-            recvDeltas,
-            packetChunks,
-          }),
-        });
+    if (!referenceTime) {
+      return;
+    }
 
-        this.dtlsTransport.sendRtcp([packet]).catch((err) => {
-          console.log(err);
-        });
-        this.extensionInfo[Number(ssrc)] = [];
-        this.fbPktCount = uint8Add(this.fbPktCount, 1);
-      });
+    const packet = new RtcpTransportLayerFeedback({
+      feedback: new TransportWideCC({
+        senderSsrc: this.rtcpSsrc,
+        mediaSourceSsrc: this.mediaSourceSsrc,
+        baseSequenceNumber,
+        packetStatusCount,
+        referenceTime: uint24(Math.floor(referenceTime / 1000 / 64)),
+        fbPktCount: this.fbPktCount,
+        recvDeltas,
+        packetChunks,
+      }),
+    });
+
+    this.dtlsTransport.sendRtcp([packet]).catch((err) => {
+      console.log(err);
+    });
+    this.extensionInfo = {};
+    this.fbPktCount = uint8Add(this.fbPktCount, 1);
   }
 }
