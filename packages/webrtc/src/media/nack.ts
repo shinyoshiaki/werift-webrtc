@@ -13,7 +13,7 @@ export class Nack {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
 
-  mediaSsrc?: number;
+  mediaSourceSsrc?: number;
 
   constructor(private receiver: RTCRtpReceiver) {
     setInterval(() => this.packetLost(), 20);
@@ -25,7 +25,7 @@ export class Nack {
 
   onPacket(packet: RtpPacket) {
     const { sequenceNumber, ssrc } = packet.header;
-    this.mediaSsrc = ssrc;
+    this.mediaSourceSsrc = ssrc;
 
     if (this.newEstSeqNum === 0) {
       this.newEstSeqNum = sequenceNumber;
@@ -44,7 +44,7 @@ export class Nack {
       range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
         this._lost[seq] = 1;
       });
-      this.receiver.sendRtcpPLI(this.mediaSsrc);
+      this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
       this.newEstSeqNum = sequenceNumber;
 
@@ -68,11 +68,11 @@ export class Nack {
   }
 
   private packetLost() {
-    if (this.lost.length > 0 && this.mediaSsrc) {
+    if (this.lost.length > 0 && this.mediaSourceSsrc) {
       const rtcp = new RtcpTransportLayerFeedback({
         feedback: new GenericNack({
           senderSsrc: this.receiver.rtcpSsrc,
-          mediaSsrc: this.mediaSsrc,
+          mediaSourceSsrc: this.mediaSourceSsrc,
           lost: this.lost,
         }),
       });

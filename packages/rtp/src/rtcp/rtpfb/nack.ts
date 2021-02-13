@@ -7,7 +7,7 @@ export class GenericNack {
   readonly count = GenericNack.count;
   header!: RtcpHeader;
   senderSsrc!: number;
-  mediaSsrc!: number;
+  mediaSourceSsrc!: number;
   lost: number[] = [];
 
   constructor(props: Partial<GenericNack> = {}) {
@@ -22,7 +22,7 @@ export class GenericNack {
   }
 
   static deSerialize(data: Buffer, header: RtcpHeader) {
-    const [senderSsrc, mediaSsrc] = bufferReader(data, [4, 4]);
+    const [senderSsrc, mediaSourceSsrc] = bufferReader(data, [4, 4]);
     const lost = range(8, data.length, 4)
       .map((pos) => {
         const lost: number[] = [];
@@ -37,11 +37,16 @@ export class GenericNack {
       })
       .flatMap((v) => v);
 
-    return new GenericNack({ header, senderSsrc, mediaSsrc, lost });
+    return new GenericNack({
+      header,
+      senderSsrc,
+      mediaSourceSsrc,
+      lost,
+    });
   }
 
   serialize() {
-    const ssrcs = bufferWriter([4, 4], [this.senderSsrc, this.mediaSsrc]);
+    const ssrcs = bufferWriter([4, 4], [this.senderSsrc, this.mediaSourceSsrc]);
     const fics: Buffer[] = [];
     if (this.lost.length > 0) {
       let pid = this.lost[0],

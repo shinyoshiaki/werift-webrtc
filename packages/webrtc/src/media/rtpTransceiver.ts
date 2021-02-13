@@ -21,7 +21,14 @@ export class RTCRtpTransceiver {
   mid?: string;
   mLineIndex?: number;
   dtlsTransport?: RTCDtlsTransport;
-  codecs: RTCRtpCodecParameters[] = [];
+  _codecs: RTCRtpCodecParameters[] = [];
+  get codecs() {
+    return this._codecs;
+  }
+  set codecs(codecs: RTCRtpCodecParameters[]) {
+    this._codecs = codecs;
+    this.receiver.codecs = codecs;
+  }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   senderParams?: RTCRtpParameters;
   options: Partial<TransceiverOptions> = {};
@@ -45,6 +52,8 @@ export class RTCRtpTransceiver {
     });
     if (!exist) {
       this.receiver.tracks.push(track);
+      if (track.ssrc) this.receiver.trackBySSRC[track.ssrc] = track;
+      if (track.rid) this.receiver.trackByRID[track.rid] = track;
       this.onTrack.execute(track);
     }
   }

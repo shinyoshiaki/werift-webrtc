@@ -4,7 +4,6 @@ import { range } from "lodash";
 import { isIPv4 } from "net";
 import { divide } from "./helper";
 import { Kind } from "./typings/domain";
-import { reverseSimulcastDirection } from "./utils";
 import {
   DTLS_ROLE_SETUP,
   DTLS_SETUP_ROLE,
@@ -218,10 +217,6 @@ export class SessionDescription {
             case "sctp-port":
               if (!value) throw new Error();
               currentMedia.sctpPort = parseInt(value);
-              break;
-            case "ssrc-group":
-              // todo fix
-              parseGroup(currentMedia.ssrcGroup, value, parseInt);
               break;
             case "ssrc":
               const [ssrcStr, ssrcDesc] = divide(value, " ");

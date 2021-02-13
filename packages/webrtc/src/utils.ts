@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
-import { Int } from "../../rtp/src/helper";
+const now = require("nano-time");
 
 const upper = (s: string) => s.toUpperCase();
 const colon = (s: any) => s.match(/(.{2})/g).join(":");
@@ -32,12 +32,9 @@ export function reverseSimulcastDirection(dir: "recv" | "send") {
   return "recv";
 }
 
-export const microTime = () =>
-  BigInt(
-    `${(performance.timeOrigin + performance.now()) * 10000}`.slice(0, -1)
-  );
+export const microTime = () => now.micro() as number;
 
-export const milliTime = () => Int(Number(microTime() / 1000n));
+export const milliTime = () => new Date().getTime();
 
 export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
@@ -64,10 +61,18 @@ export function random32() {
   return BigInt(jspack.Unpack("!L", randomBytes(4))[0]);
 }
 
+export function uint8Add(a: number, b: number) {
+  return (a + b) & 0xff;
+}
+
 export function uint16Add(a: number, b: number) {
   return (a + b) & 0xffff;
 }
 
 export function uint32Add(a: bigint, b: bigint) {
   return (a + b) & 0xffffffffn;
+}
+
+export function uint24(v: number) {
+  return v & 0xffffff;
 }

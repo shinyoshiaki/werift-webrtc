@@ -14,6 +14,7 @@ export {
   RecvDelta,
   RunLengthChunk,
   TransportWideCC,
+  StatusVectorChunk,
 } from "./rtcp/rtpfb/twcc";
 export { RtcpHeader } from "./rtcp/header";
 export { RtcpRrPacket, RtcpReceiverInfo } from "./rtcp/rr";

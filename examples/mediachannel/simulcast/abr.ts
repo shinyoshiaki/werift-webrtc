@@ -29,11 +29,14 @@ server.on("connection", async (socket) => {
             { type: "nack" },
             { type: "nack", parameter: "pli" },
             { type: "goog-remb" },
+            { type: "transport-cc" },
           ],
         }),
       ],
     },
-    headerExtensions: { video: [useAbsSendTime(), useSdesRTPStreamID()] },
+    headerExtensions: {
+      video: [useAbsSendTime(), useSdesRTPStreamID(), useTransportWideCC()],
+    },
   });
   const sender = new RTCPeerConnection({
     codecs: {
