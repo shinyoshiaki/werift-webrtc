@@ -1,6 +1,9 @@
 import { DtlsContext } from "../context/dtls";
 import { TransportContext } from "../context/transport";
 import { sleep } from "../helper";
+import debug from "debug";
+
+const log = debug("dtls/flight");
 
 const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 
@@ -44,8 +47,8 @@ export abstract class Flight {
       this.setState("FINISHED");
       return;
     } else {
-      console.log("retransmit", this.dtls.flight);
-      this.retransmit().then(() => console.log(this.dtls.flight, "done"));
+      log("retransmit", this.dtls.flight);
+      this.retransmit().then(() => log(this.dtls.flight, "done"));
     }
   }
 }

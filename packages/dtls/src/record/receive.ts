@@ -4,6 +4,9 @@ import { Alert } from "../handshake/message/alert";
 import { ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
+import debug from "debug";
+
+const log = debug("dtls/record/receive");
 
 export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
   data: Buffer
@@ -48,7 +51,7 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
       }
       case ContentType.alert: {
         const alert = Alert.deSerialize(p.fragment);
-        console.log("ContentType.alert", alert);
+        log("ContentType.alert", alert);
         if (alert.level > 1) throw new Error("alert fatal error");
       }
       default: {

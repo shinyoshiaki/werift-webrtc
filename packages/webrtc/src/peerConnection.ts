@@ -45,6 +45,9 @@ import {
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
 import { reverseSimulcastDirection } from "./utils";
+import debug from "debug";
+
+const log = debug("webrtc/peerConnection");
 
 export class RTCPeerConnection {
   readonly cname = uuid.v4();
@@ -112,7 +115,7 @@ export class RTCPeerConnection {
 
     this.iceConnectionStateChange.subscribe((state) => {
       if (state === "closed") {
-        console.log("closed!!!!!!!!!");
+        log("closed!!!!!!!!!");
         this.close();
       }
     });
