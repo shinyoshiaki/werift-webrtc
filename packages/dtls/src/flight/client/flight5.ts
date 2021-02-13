@@ -23,6 +23,9 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
 import { Flight } from "../flight";
 import { FragmentedHandshake } from "../../record/message/fragment";
+import debug from "debug";
+
+const log = debug("werift/dtls/flight5");
 
 export class Flight5 extends Flight {
   constructor(
@@ -36,7 +39,7 @@ export class Flight5 extends Flight {
 
   exec(fragments: FragmentedHandshake[]) {
     if (this.dtls.flight === 5) {
-      console.log("flight5 twice");
+      log("flight5 twice");
       this.send(this.dtls.lastMessage);
       return;
     }

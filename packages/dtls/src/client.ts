@@ -11,6 +11,9 @@ import { DtlsSocket, Options } from "./socket";
 import { DtlsContext } from "./context/dtls";
 import { CipherContext } from "./context/cipher";
 import { SrtpContext } from "./context/srtp";
+import debug from "debug";
+
+const log = debug("werift/dtls/client");
 
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
@@ -51,7 +54,7 @@ export class DtlsClient extends DtlsSocket {
         }
         break;
       case ContentType.alert:
-        console.log("on alert", messages[messages.length - 1].data);
+        log("on alert", messages[messages.length - 1].data);
         this.onClose();
         break;
     }

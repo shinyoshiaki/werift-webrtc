@@ -13,6 +13,9 @@ import { CipherContext } from "../../context/cipher";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { DtlsPlaintext } from "../../record/message/plaintext";
 import { Flight } from "../flight";
+import debug from "debug";
+
+const log = debug("werift/dtls/flight6");
 
 export class Flight6 extends Flight {
   constructor(
@@ -25,7 +28,7 @@ export class Flight6 extends Flight {
 
   exec(handshakes: (FragmentedHandshake | DtlsPlaintext)[]) {
     if (this.dtls.flight === 6) {
-      console.log("flight6 twice");
+      log("flight6 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
