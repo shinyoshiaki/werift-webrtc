@@ -1,7 +1,7 @@
+import debug from "debug";
 import { DtlsContext } from "../context/dtls";
 import { TransportContext } from "../context/transport";
 import { sleep } from "../helper";
-import debug from "debug";
 
 const log = debug("dtls/flight");
 

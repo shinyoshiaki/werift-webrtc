@@ -1,10 +1,10 @@
+import debug from "debug";
 import { CipherContext } from "../context/cipher";
 import { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
 import { ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
-import debug from "debug";
 
 const log = debug("dtls/record/receive");
 
