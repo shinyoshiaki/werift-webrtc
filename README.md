@@ -59,19 +59,25 @@ see console & chrome://webrtc-internals/
   - [x] sendrecv
   - [x] multi track
 - [x] RTP
-- [ ] RTCP
+- [x] RTCP
   - [x] SR/RR
   - [x] Picture Loss Indication
   - [x] ReceiverEstimatedMaxBitrate
   - [x] GenericNack
-  - [ ] TransportWideCC
+  - [x] TransportWideCC
 - [x] SDP
 - [x] PeerConnection
 - [x] Simulcast
   - [x] recv
-- [ ] BWE
-  - [ ] sender side BWE
+- [x] BWE
+  - [x] sender side BWE
 - [ ] Documentation
+- [ ] Compatibility
+  - [x] Chrome
+  - [x] FireFox
+  - [ ] Pion
+  - [ ] aiortc
+  - [ ] sipsorcery
 
 ## Road Map Towards 2.0
 
