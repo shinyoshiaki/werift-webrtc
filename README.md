@@ -84,7 +84,10 @@ see console & chrome://webrtc-internals/
   - [ ] Pion
   - [ ] aiortc
   - [ ] sipsorcery
-
+- [ ] Interop E2E test
+  - [x] Chrome
+  - [ ] etc....
+  
 ## Road Map Towards 2.0
 
 - [ ] API compatible with browser RTCPeerConnection
