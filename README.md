@@ -52,6 +52,10 @@ see console & chrome://webrtc-internals/
 - [x] ICE
   - [x] Vanilla ICE
   - [x] Trickle ICE
+- [ ] DTLS
+  - [x] DTLS-SRTP
+  - [x] Curve25519
+  - [ ] P-256
 - [x] DataChannel
 - [x] MediaChannel
   - [x] sendonly
@@ -65,6 +69,8 @@ see console & chrome://webrtc-internals/
   - [x] ReceiverEstimatedMaxBitrate
   - [x] GenericNack
   - [x] TransportWideCC
+- [x] SRTP
+- [x] SRTCP
 - [x] SDP
 - [x] PeerConnection
 - [x] Simulcast
