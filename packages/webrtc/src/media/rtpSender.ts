@@ -145,7 +145,7 @@ export class RTCRtpSender {
 
     const header = rtp.header;
     header.ssrc = this.ssrc;
-
+    // todo : header.payloadType=parameters.codecs
     header.timestamp = Number(
       uint32Add(BigInt(header.timestamp), BigInt(this.timestampOffset))
     );
