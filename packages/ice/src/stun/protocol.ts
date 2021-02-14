@@ -1,3 +1,4 @@
+import debug from "debug";
 import * as dgram from "dgram";
 import { Event } from "rx.mini";
 import { Candidate } from "../candidate";
@@ -6,7 +7,6 @@ import { Address, Protocol } from "../types/model";
 import { classes } from "./const";
 import { Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
-import debug from "debug";
 
 const log = debug("werift/ice/stun/protocol");
 

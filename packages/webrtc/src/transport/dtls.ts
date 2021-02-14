@@ -1,4 +1,5 @@
 import { Certificate, PrivateKey } from "@fidm/x509";
+import debug from "debug";
 import Event from "rx.mini";
 import {
   DtlsClient,
@@ -20,7 +21,6 @@ import { sleep } from "../helper";
 import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
 import { RTCIceTransport } from "./ice";
-import debug from "debug";
 
 const log = debug("werift/webrtc/transport/dtls");
 

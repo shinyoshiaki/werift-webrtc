@@ -1,10 +1,7 @@
+export * from "./helper";
+export { RtpPacket } from "../../rtp/src";
 export { RTCDataChannel } from "./dataChannel";
-export {
-  useSdesMid,
-  useSdesRTPStreamID,
-  useAbsSendTime,
-  useTransportWideCC,
-} from "./extension/rtpExtension";
+export * from "./extension/rtpExtension";
 export { RTCRtpCodecParameters } from "./media/parameters";
 export {
   Direction,
