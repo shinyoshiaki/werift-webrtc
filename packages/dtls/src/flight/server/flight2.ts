@@ -30,7 +30,9 @@ export const flight2 = (
         {
           const curves = EllipticCurves.fromData(extension.data).data;
           if (!curves.includes(NamedCurveAlgorithm.namedCurveX25519))
-            throw new Error();
+            throw new Error(
+              "NamedCurveAlgorithm.namedCurveX25519 is not included"
+            );
           cipher.namedCurve = NamedCurveAlgorithm.namedCurveX25519;
         }
         break;
