@@ -9,6 +9,8 @@ import { createSocket } from "dgram";
 const args = yargs.option("url", { default: "http://localhost:8080" }).help()
   .argv;
 
+console.log(args);
+
 const udp = createSocket("udp4");
 udp.bind(5000);
 

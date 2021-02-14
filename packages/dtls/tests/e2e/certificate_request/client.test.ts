@@ -29,9 +29,9 @@ describe("e2e/certificate_request/client", () => {
         cert: readFileSync("assets/cert.pem").toString(),
         key: readFileSync("assets/key.pem").toString(),
       });
-      client.onConnect = () => {
+      client.onConnect.subscribe(() => {
         client.send(Buffer.from("my_dtls"));
-      };
+      });
       client.connect();
       server.stdout.on("data", (data: string) => {
         if (data.includes("my_dtls")) {

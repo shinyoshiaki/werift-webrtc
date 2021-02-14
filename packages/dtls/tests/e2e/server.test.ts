@@ -14,9 +14,9 @@ describe("e2e/server", () => {
       key: readFileSync("assets/key.pem").toString(),
       transport: createUdpTransport(socket),
     });
-    server.onConnect = () => {
+    server.onConnect.subscribe(() => {
       server.send(Buffer.from("my_dtls_server"));
-    };
+    });
 
     setTimeout(() => {
       const client = spawn("openssl", [

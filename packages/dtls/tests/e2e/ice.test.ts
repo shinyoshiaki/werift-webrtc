@@ -5,11 +5,9 @@ import { createIceTransport } from "../../examples/transport/ice";
 test("e2e/ice", async (done) => {
   const offer = new Connection(true, {
     stunServer: ["stun.l.google.com", 19302],
-    log: false,
   });
   const answer = new Connection(false, {
     stunServer: ["stun.l.google.com", 19302],
-    log: false,
   });
   await offer.gatherCandidates();
   answer.remoteCandidates = offer.localCandidates
@@ -78,17 +76,17 @@ test("e2e/ice", async (done) => {
     -----END PRIVATE KEY-----
     `,
   });
-  dtlsServer.onConnect = () => {
+  dtlsServer.onConnect.subscribe(() => {
     dtlsServer.send(Buffer.from("dtls_over_ice"));
-  };
+  });
   const dtlsClient = new DtlsClient({
     transport: createIceTransport(answer),
     key: "",
     cert: "",
   });
-  dtlsClient.onData = (buf) => {
+  dtlsClient.onData.subscribe((buf) => {
     expect(buf.toString()).toBe("dtls_over_ice");
     done();
-  };
+  });
   dtlsClient.connect();
 });

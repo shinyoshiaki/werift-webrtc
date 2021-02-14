@@ -16,6 +16,7 @@ import { Extension } from "./typings/domain";
 import { SrtpContext } from "./context/srtp";
 import { exportKeyingMaterial } from "./cipher/prf";
 import { decode, types } from "binary-data";
+import { Event } from "rx.mini";
 
 export type Options = {
   transport: Transport;
@@ -26,9 +27,9 @@ export type Options = {
 };
 
 export class DtlsSocket {
-  onConnect: () => void = () => {};
-  onData: (buf: Buffer) => void = () => {};
-  onClose: () => void = () => {};
+  onConnect = new Event();
+  onData = new Event<[Buffer]>();
+  onClose = new Event();
   udp: TransportContext;
   contexts: {
     [cookie_hex: string]: {

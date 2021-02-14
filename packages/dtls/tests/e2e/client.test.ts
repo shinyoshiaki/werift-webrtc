@@ -28,9 +28,9 @@ describe("e2e/client", () => {
         cert: "",
         key: "",
       });
-      client.onConnect = () => {
+      client.onConnect.subscribe(() => {
         client.send(Buffer.from("my_dtls"));
-      };
+      });
       client.connect();
       server.stdout.on("data", (data: string) => {
         if (data.includes("my_dtls")) {

@@ -80,10 +80,10 @@ export class RtpRouter {
             };
         }
       })
-      .reduce((acc, cur) => {
+      .reduce((acc: { [uri: string]: any }, cur) => {
         if (cur) acc[cur.uri] = cur.value;
         return acc;
-      }, {} as { [uri: string]: any });
+      }, {});
 
     let ssrcReceiver = this.ssrcTable[packet.header.ssrc] as RTCRtpReceiver;
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID] as string;

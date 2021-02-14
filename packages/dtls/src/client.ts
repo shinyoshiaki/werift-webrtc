@@ -50,12 +50,12 @@ export class DtlsClient extends DtlsSocket {
         break;
       case ContentType.applicationData:
         {
-          this.onData(messages[0].data as Buffer);
+          this.onData.execute(messages[0].data as Buffer);
         }
         break;
       case ContentType.alert:
         log("on alert", messages[messages.length - 1].data);
-        this.onClose();
+        this.onClose.execute();
         break;
     }
   };
@@ -105,7 +105,7 @@ export class DtlsClient extends DtlsSocket {
       case HandshakeType.finished:
         {
           this.dtls.flight = 7;
-          if (this.onConnect) this.onConnect();
+          this.onConnect.execute();
         }
         break;
     }

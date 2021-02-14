@@ -20,6 +20,9 @@ import { sleep } from "../helper";
 import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
 import { RTCIceTransport } from "./ice";
+import debug from "debug";
+
+const log = debug("werift/webrtc/transport/dtls");
 
 export enum DtlsState {
   NEW = 0,
@@ -88,19 +91,18 @@ export class RTCDtlsTransport {
           srtpProfiles: this.srtpProfiles,
         });
       }
-      this.dtls.onData = (buf) => {
+      this.dtls.onData.subscribe((buf) => {
         if (this.dataReceiver) this.dataReceiver(buf);
-      };
-      this.dtls.onConnect = r;
-      this.dtls.onClose = () => {
+      });
+      this.dtls.onClose.once(() => {
         this.setState(DtlsState.CLOSED);
-      };
+      });
+      this.dtls.onConnect.once(r);
 
-      //@ts-ignore
-      if (this.dtls.connect) {
+      if (this.dtls instanceof DtlsClient) {
         await sleep(100);
-        //@ts-ignore
         this.dtls.connect();
+        console.log("done");
       }
     });
 
@@ -108,6 +110,7 @@ export class RTCDtlsTransport {
       this.startSrtp();
     }
     this.setState(DtlsState.CONNECTED);
+    log("dtls connected");
   }
 
   srtpStarted = false;

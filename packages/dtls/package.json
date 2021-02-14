@@ -29,6 +29,7 @@
     "binary-data": "^0.6.0",
     "elliptic": "^6.5.3",
     "lodash": "^4.17.20",
+    "rx.mini": "^1.0.2",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {

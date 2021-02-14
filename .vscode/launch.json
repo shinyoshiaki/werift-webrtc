@@ -33,6 +33,7 @@
         "${workspaceRoot}/tsconfig.json",
         "${workspaceRoot}/examples/interop/client.ts"
       ],
+      "env": { "DEBUG": "*" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     },

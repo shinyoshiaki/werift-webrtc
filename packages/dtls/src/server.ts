@@ -54,11 +54,11 @@ export class DtlsServer extends DtlsSocket {
         break;
       case ContentType.applicationData:
         {
-          this.onData(messages[0].data as Buffer);
+          this.onData.execute(messages[0].data as Buffer);
         }
         break;
       case ContentType.alert:
-        this.onClose();
+        this.onClose.execute();
         break;
     }
   };
@@ -100,7 +100,7 @@ export class DtlsServer extends DtlsSocket {
       case HandshakeType.client_key_exchange:
         {
           new Flight6(this.udp, this.dtls, this.cipher).exec(handshakes);
-          if (this.onConnect) this.onConnect();
+          this.onConnect.execute();
         }
         break;
     }

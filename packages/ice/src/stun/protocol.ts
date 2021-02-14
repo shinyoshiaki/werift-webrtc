@@ -6,6 +6,9 @@ import { Address, Protocol } from "../types/model";
 import { classes } from "./const";
 import { Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
+import debug from "debug";
+
+const log = debug("werift/ice/stun/protocol");
 
 export class StunProtocol implements Protocol {
   readonly type = "stun";
@@ -21,12 +24,6 @@ export class StunProtocol implements Protocol {
   private readonly closed = new Event();
 
   constructor(public receiver: Connection) {}
-
-  private log(...args: any[]) {
-    if (this.receiver.options.log) {
-      console.log("log", ...args);
-    }
-  }
 
   connectionLost() {
     this.closed.execute();
@@ -50,7 +47,7 @@ export class StunProtocol implements Protocol {
       this.receiver.dataReceived(data, this.localCandidate.component);
       return;
     }
-    this.log("parseMessage", addr, message);
+    // log("parseMessage", addr, message);
     if (
       (message.messageClass === classes.RESPONSE ||
         message.messageClass === classes.ERROR) &&
@@ -73,7 +70,7 @@ export class StunProtocol implements Protocol {
     const data = message.bytes;
     try {
       this.socket.send(data, port, host, (error, size) => {
-        this.log("sendStun", port, host, size, error);
+        if (error) log("sendStun", port, host, size, error);
       });
     } catch (error) {}
   }
@@ -81,7 +78,7 @@ export class StunProtocol implements Protocol {
   async sendData(data: Buffer, addr: Address) {
     const [host, port] = addr;
     this.socket.send(data, port, host, (error, size) => {
-      this.log("sendData", port, host, size, error);
+      if (error) log("sendData", port, host, size, error);
     });
   }
 
