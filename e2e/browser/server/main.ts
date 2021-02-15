@@ -52,7 +52,11 @@ server.on("connectionrequest", async (_, accept) => {
 
   peer.on("request", (request, accept) => {
     const { type, payload } = request.data;
-    tests[request.method].exec(type, payload, accept);
+    try {
+      tests[request.method].exec(type, payload, accept);
+    } catch (error) {
+      console.log(error);
+    }
   });
 });
 

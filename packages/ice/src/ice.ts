@@ -376,7 +376,6 @@ export class Connection {
               Buffer.from(this.remotePassword, "utf8"),
               0
             );
-            log("msg", msg, "addr", addr);
             failures = 0;
           } catch (error) {
             failures++;

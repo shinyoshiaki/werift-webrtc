@@ -14,7 +14,6 @@ import { TransportContext } from "../../context/transport";
 import { DtlsRandom } from "../../handshake/random";
 import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
-import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 import { parseX509 } from "../../cipher/x509";
@@ -25,7 +24,7 @@ import { Flight } from "../flight";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import debug from "debug";
 
-const log = debug("werift/dtls/flight5");
+const log = debug("werift/dtls/flight/client/flight5");
 
 export class Flight5 extends Flight {
   constructor(
@@ -185,6 +184,7 @@ handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
   message: ServerHello
 ) => {
   cipher.remoteRandom = DtlsRandom.from(message.random);
+  log("selected cipherSuite", message.cipherSuite);
   cipher.cipherSuite = message.cipherSuite;
   if (message.extensions) {
     message.extensions.forEach((extension) => {
@@ -233,7 +233,7 @@ handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
     cipher.remoteRandom.serialize()
   );
 
-  cipher.cipher = createCipher(CipherSuite.EcdheEcdsaWithAes128GcmSha256);
+  cipher.cipher = createCipher(cipher.cipherSuite!);
   cipher.cipher.init(
     cipher.masterSecret,
     cipher.remoteRandom.serialize(),
