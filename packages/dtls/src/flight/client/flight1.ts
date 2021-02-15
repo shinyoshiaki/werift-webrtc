@@ -27,10 +27,7 @@ export class Flight1 extends Flight {
       new DtlsRandom(),
       Buffer.from([]),
       Buffer.from([]),
-      [
-        CipherSuite.EcdheRsaWithAes128GcmSha256,
-        CipherSuite.EcdheEcdsaWithAes128GcmSha256,
-      ],
+      Object.values(CipherSuite),
       [0], // don't compress
       extensions
     );

@@ -7,9 +7,9 @@
     "build": "tsc -p tsconfig.server.json",
     "ci": "yarn build && run-p prod:server prod:test",
     "debug": "cd debug && yarn dev",
-    "dev:server": "ts-node-dev ./server/main.ts",
+    "dev:server": "DEBUG=werift* ts-node-dev ./server/main.ts",
     "dev:test": "karma start --browsers chrome_with_fake_device",
-    "prod:server": "node lib/e2e/browser/server/main.js",
+    "prod:server": "DEBUG=werift* node lib/e2e/browser/server/main.js",
     "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device && node stop.js"
   },
   "dependencies": {

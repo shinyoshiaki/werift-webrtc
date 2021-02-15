@@ -13,6 +13,9 @@ import { CipherSuite, NamedCurveAlgorithm } from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
+import debug from "debug";
+
+const log = debug("werift/dtls/flight/server/flight2");
 
 // HelloVerifyRequest do not retransmit
 
@@ -59,8 +62,14 @@ export const flight2 = (
         break;
     }
   });
+
   cipher.localRandom = new DtlsRandom();
   cipher.remoteRandom = DtlsRandom.from(clientHello.random);
+  const suite = clientHello.cipherSuites.find((suite) =>
+    Object.values(CipherSuite).includes(suite as any)
+  );
+  if (!suite) throw new Error("dtls cipher suite negotiation failed");
+  log("cipher suite selected", suite, "bad use 49199 (←todo fix)");
   cipher.cipherSuite = CipherSuite.EcdheRsaWithAes128GcmSha256;
   cipher.localKeyPair = generateKeyPair(cipher.namedCurve!);
 

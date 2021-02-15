@@ -3,10 +3,10 @@ export enum SignatureAlgorithm {
   ecdsa = 3,
 }
 
-export enum CipherSuite {
-  EcdheEcdsaWithAes128GcmSha256 = 0xc02b, //49195
-  EcdheRsaWithAes128GcmSha256 = 0xc02f,
-}
+export const CipherSuite = {
+  EcdheEcdsaWithAes128GcmSha256: 0xc02b, //49195
+  EcdheRsaWithAes128GcmSha256: 0xc02f, //49199
+} as const;
 
 export enum HashAlgorithm {
   sha256 = 4,
