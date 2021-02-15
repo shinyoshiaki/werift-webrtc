@@ -93,7 +93,7 @@ export class SessionDescription {
       const target = mediaLines[0];
       const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z/]+) (.+)/);
       if (!m) {
-        throw new Error();
+        throw new Error("m line not found");
       }
 
       const kind = m[1] as Kind;

@@ -16,7 +16,7 @@ export function prfPreMasterSecret(
       const x = pub.getX();
       const y = pub.getY();
       // todo impl
-      throw new Error();
+      throw new Error("todo support namedCurveP256");
 
     case NamedCurveAlgorithm.namedCurveX25519:
       return Buffer.from(nacl.scalarMult(privateKey, publicKey));

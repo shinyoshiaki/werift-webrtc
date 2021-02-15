@@ -3,7 +3,7 @@ import { DtlsContext } from "../context/dtls";
 import { TransportContext } from "../context/transport";
 import { sleep } from "../helper";
 
-const log = debug("dtls/flight");
+const log = debug("werift/dtls/flight");
 
 const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 

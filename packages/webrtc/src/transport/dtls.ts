@@ -102,7 +102,6 @@ export class RTCDtlsTransport {
       if (this.dtls instanceof DtlsClient) {
         await sleep(100);
         this.dtls.connect();
-        console.log("done");
       }
     });
 

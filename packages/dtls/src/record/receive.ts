@@ -6,7 +6,7 @@ import { ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
 
-const log = debug("dtls/record/receive");
+const log = debug("werift/dtls/record/receive");
 
 export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
   data: Buffer

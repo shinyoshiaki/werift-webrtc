@@ -580,6 +580,9 @@ export class RTCPeerConnection {
             this.configuration.codecs[media.kind as "audio" | "video"] || []
           ).find((localCodec) => localCodec.mimeType === remoteCodec.mimeType)
         );
+        if (transceiver.codecs.length === 0) {
+          throw new Error("negotiate codecs failed.");
+        }
         transceiver.headerExtensions = media.rtp.headerExtensions.filter(
           (extension) =>
             (
@@ -913,6 +916,11 @@ const defaultPeerConfig: PeerConfig = {
         mimeType: "audio/opus",
         clockRate: 48000,
         channels: 2,
+      }),
+      new RTCRtpCodecParameters({
+        mimeType: "audio/PCMU",
+        clockRate: 8000,
+        channels: 1,
       }),
     ],
     video: [
