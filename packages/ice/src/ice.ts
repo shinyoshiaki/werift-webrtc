@@ -148,7 +148,7 @@ export class Connection {
       this.protocols.push(protocol);
 
       // # add host candidate
-      const candidateAddress = protocol.getExtraInfo;
+      const candidateAddress: Address = [address, protocol.getExtraInfo[1]];
 
       protocol.localCandidate = new Candidate(
         candidateFoundation("host", "udp", candidateAddress[0]),
