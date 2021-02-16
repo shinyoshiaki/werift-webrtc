@@ -7,10 +7,8 @@ import { COOKIE, IPV4_PROTOCOL, IPV6_PROTOCOL } from "./const";
 function packAddress(value: [string, number]) {
   const [address] = value;
 
-  let protocol = IPV6_PROTOCOL;
-  if (nodeIp.isV4Format(address)) {
-    protocol = IPV4_PROTOCOL;
-  }
+  const protocol = nodeIp.isV4Format(address) ? IPV4_PROTOCOL : IPV6_PROTOCOL;
+
   return Buffer.concat([
     Buffer.from(jspack.Pack("!BBH", [0, protocol, value[1]])),
     nodeIp.toBuffer(address),

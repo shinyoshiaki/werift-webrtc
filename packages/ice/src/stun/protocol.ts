@@ -37,6 +37,9 @@ export class StunProtocol implements Protocol {
     this.socket.bind();
     await new Promise((r) => this.socket.once("listening", r));
     this.socket.on("message", (data, info) => {
+      if (info.family === "IPv6") {
+        [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0
+      }
       this.datagramReceived(data, [info.address, info.port]);
     });
   };
