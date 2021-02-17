@@ -26,6 +26,7 @@
     "depcheck": "depcheck --ignores='@typescript-eslint/*,eslint-*'",
     "doc": "rm -rf doc && typedoc --mode file --out doc ./src/**/*.ts",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "graph": "dependency-cruiser --exclude 'node_modules' --output-type dot src | dot -T svg > dependencygraph.svg",
     "lint": "eslint src/**/*.ts --fix",
     "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json",

@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
-    "target": "es6",
+    "target": "ES2020",
     "module": "commonjs",
-    "lib": ["esnext"],
+    "lib": ["esnext", "ES2020"],
     "declaration": true,
     "outDir": "lib",
+    "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "importHelpers": true,
@@ -13,7 +14,8 @@
     "inlineSources": true,
     "noUnusedLocals": false,
     "skipLibCheck": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "noImplicitAny": false
   },
-  "include": ["src", "tests"]
+  "include": ["src"]
 }

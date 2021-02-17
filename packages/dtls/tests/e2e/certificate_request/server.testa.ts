@@ -15,9 +15,9 @@ describe("e2e/certificate_request/server", () => {
       transport: createUdpTransport(socket),
       certificateRequest: true,
     });
-    server.onConnect = () => {
+    server.onConnect.once(() => {
       server.send(Buffer.from("my_dtls_server"));
-    };
+    });
 
     setTimeout(() => {
       const client = spawn("openssl", [
