@@ -58,7 +58,8 @@ export class DtlsSocket {
     }
 
     const curve = EllipticCurves.createEmpty();
-    curve.data = Object.values(NamedCurveAlgorithm);
+    // curve.data = Object.values(NamedCurveAlgorithm);
+    curve.data = [NamedCurveAlgorithm.x25519]; // todo fix
     this.extensions.push(curve.extension);
 
     const signature = Signature.createEmpty();

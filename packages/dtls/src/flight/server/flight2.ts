@@ -38,10 +38,11 @@ export const flight2 = (
         {
           const curves = EllipticCurves.fromData(extension.data).data;
           const curve = curves.find((curve) =>
-            Object.values(NamedCurveAlgorithm).includes(curve as any)
+            [NamedCurveAlgorithm.x25519].includes(curve as any)
           ) as NamedCurveAlgorithms;
           log("curve candidates", curves, "curve selected", curve);
-          cipher.namedCurve = curve;
+          // cipher.namedCurve = curve;
+          cipher.namedCurve = NamedCurveAlgorithm.x25519; // todo fix
         }
         break;
       case Signature.type:
