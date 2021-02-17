@@ -8,7 +8,6 @@ import { createFragments, createPlaintext } from "../../record/builder";
 import { TransportContext } from "../../context/transport";
 import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
-import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { DtlsPlaintext } from "../../record/message/plaintext";

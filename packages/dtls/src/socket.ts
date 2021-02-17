@@ -56,9 +56,11 @@ export class DtlsSocket {
       );
       this.extensions.push(useSrtp.extension);
     }
+
     const curve = EllipticCurves.createEmpty();
     curve.data = Object.values(NamedCurveAlgorithm);
     this.extensions.push(curve.extension);
+
     const signature = Signature.createEmpty();
     signature.data = [
       { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },

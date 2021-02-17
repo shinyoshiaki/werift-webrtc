@@ -248,6 +248,7 @@ handlers[HandshakeType.server_hello_done] = () => () => {};
 handlers[HandshakeType.certificate_request] = ({ dtls }) => (
   message: ServerCertificateRequest
 ) => {
+  log("certificate_request", message.certificateTypes, message.signatures);
   dtls.requestedCertificateTypes = message.certificateTypes;
   dtls.requestedSignatureAlgorithms = message.signatures;
 };

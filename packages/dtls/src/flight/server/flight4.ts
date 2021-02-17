@@ -7,7 +7,11 @@ import { Certificate } from "../../handshake/message/certificate";
 import { generateKeySignature, parseX509 } from "../../cipher/x509";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
-import { SignatureAlgorithm, HashAlgorithm } from "../../cipher/const";
+import {
+  SignatureAlgorithm,
+  HashAlgorithm,
+  CurveType,
+} from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { Extension, Handshake } from "../../typings/domain";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
@@ -120,7 +124,7 @@ export class Flight4 extends Flight {
       "sha256"
     );
     const keyExchange = new ServerKeyExchange(
-      3, // ec curve type
+      CurveType.named_curve, // ec curve type
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
@@ -138,11 +142,11 @@ export class Flight4 extends Flight {
     const handshake = new ServerCertificateRequest(
       [
         1, // clientCertificateTypeRSASign
-        64, // clientCertificateTypeECDSASign
+        // 64, // clientCertificateTypeECDSASign // todo fix
       ],
       [
         { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
+        // { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa }, // todo fix
       ],
       []
     );

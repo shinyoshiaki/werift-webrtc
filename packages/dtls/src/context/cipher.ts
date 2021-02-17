@@ -1,6 +1,7 @@
 import { PrivateKey, RSAPrivateKey } from "@fidm/x509";
 import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
+import { CipherSuites, NamedCurveAlgorithms } from "../cipher/const";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
 import { SessionType } from "../cipher/suites/abstract";
@@ -12,13 +13,13 @@ import { DtlsPlaintext } from "../record/message/plaintext";
 export class CipherContext {
   localRandom?: DtlsRandom;
   remoteRandom?: DtlsRandom;
-  cipherSuite?: number;
+  cipherSuite?: CipherSuites;
   remoteCertificate?: Buffer;
   remoteKeyPair?: Partial<NamedCurveKeyPair>;
   localKeyPair?: NamedCurveKeyPair;
   masterSecret?: Buffer;
   cipher?: AEADCipher;
-  namedCurve?: number;
+  namedCurve?: NamedCurveAlgorithms;
   localPrivateKey?: PrivateKey;
 
   constructor(

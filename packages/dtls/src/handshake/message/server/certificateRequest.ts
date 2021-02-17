@@ -7,6 +7,7 @@ import {
 } from "../../binary";
 import { Handshake } from "../../../typings/domain";
 import { FragmentedHandshake } from "../../../record/message/fragment";
+import { SignatureAlgorithms } from "../../../cipher/const";
 
 // 7.4.4.  Certificate Request
 
@@ -21,7 +22,7 @@ export class ServerCertificateRequest implements Handshake {
 
   constructor(
     public certificateTypes: number[],
-    public signatures: { hash: number; signature: number }[],
+    public signatures: { hash: number; signature: SignatureAlgorithms }[],
     public authorities: number[]
   ) {}
 
