@@ -1,8 +1,8 @@
 import { spawn } from "child_process";
 import { DtlsServer } from "../../src/server";
-import { readFileSync } from "fs";
 import { createSocket } from "dgram";
 import { createUdpTransport } from "../../src";
+import { certPem, keyPem } from "../fixture";
 
 describe("e2e/server", () => {
   test("openssl", (done) => {
@@ -10,8 +10,8 @@ describe("e2e/server", () => {
     const socket = createSocket("udp4");
     socket.bind(port);
     const server = new DtlsServer({
-      cert: readFileSync("assets/cert.pem").toString(),
-      key: readFileSync("assets/key.pem").toString(),
+      cert: certPem,
+      key: keyPem,
       transport: createUdpTransport(socket),
     });
     server.onConnect.subscribe(() => {

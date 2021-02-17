@@ -125,7 +125,7 @@ export class Flight4 extends Flight {
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
       HashAlgorithm.sha256, // hash algorithm
-      SignatureAlgorithm.rsa, // signature algorithm
+      SignatureAlgorithm.rsa, // signature algorithm todo fix
       signature.length,
       signature
     );

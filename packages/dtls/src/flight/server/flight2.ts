@@ -9,7 +9,12 @@ import { generateKeyPair } from "../../cipher/namedCurve";
 import { CipherContext } from "../../context/cipher";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { randomBytes } from "crypto";
-import { CipherSuite, NamedCurveAlgorithm } from "../../cipher/const";
+import {
+  CipherSuite,
+  CipherSuites,
+  NamedCurveAlgorithm,
+  NamedCurveAlgorithms,
+} from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
@@ -32,11 +37,11 @@ export const flight2 = (
       case EllipticCurves.type:
         {
           const curves = EllipticCurves.fromData(extension.data).data;
-          if (!curves.includes(NamedCurveAlgorithm.namedCurveX25519))
-            throw new Error(
-              "NamedCurveAlgorithm.namedCurveX25519 is not included"
-            );
-          cipher.namedCurve = NamedCurveAlgorithm.namedCurveX25519;
+          const curve = curves.find((curve) =>
+            Object.values(NamedCurveAlgorithm).includes(curve as any)
+          ) as NamedCurveAlgorithms;
+          log("curve candidates", curves, "curve selected", curve);
+          cipher.namedCurve = curve;
         }
         break;
       case Signature.type:
@@ -57,6 +62,7 @@ export const flight2 = (
           if (!profile) {
             throw new Error();
           }
+          log("srtp profile", profile);
           srtp.srtpProfile = profile;
         }
         break;
@@ -64,13 +70,15 @@ export const flight2 = (
   });
 
   cipher.localRandom = new DtlsRandom();
+
   cipher.remoteRandom = DtlsRandom.from(clientHello.random);
-  const suite = clientHello.cipherSuites.find((suite) =>
+  const suites = clientHello.cipherSuites;
+  const suite = suites.find((suite) =>
     Object.values(CipherSuite).includes(suite as any)
-  );
+  ) as CipherSuites;
   if (!suite) throw new Error("dtls cipher suite negotiation failed");
-  log("cipher suite selected", suite, "bad use 49199 (←todo fix)");
-  cipher.cipherSuite = CipherSuite.EcdheRsaWithAes128GcmSha256;
+  log("cipher suite candidate", suites, "selected", suite);
+  cipher.cipherSuite = CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256; // todo fix
   cipher.localKeyPair = generateKeyPair(cipher.namedCurve!);
 
   dtls.cookie = randomBytes(20);

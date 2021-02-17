@@ -131,7 +131,7 @@ handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
     cipher.localRandom.serialize()
   );
 
-  cipher.cipher = createCipher(CipherSuite.EcdheRsaWithAes128GcmSha256);
+  cipher.cipher = createCipher(cipher.cipherSuite!);
   cipher.cipher.init(
     cipher.masterSecret,
     cipher.localRandom.serialize(),

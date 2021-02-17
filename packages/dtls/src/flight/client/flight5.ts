@@ -214,6 +214,8 @@ handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
 ) => {
   if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
 
+  log("selected curve", message.namedCurve);
+
   const remoteKeyPair = (cipher.remoteKeyPair = {
     curve: message.namedCurve,
     publicKey: message.publicKey,
