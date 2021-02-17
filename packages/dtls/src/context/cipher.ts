@@ -1,7 +1,12 @@
 import { PrivateKey, RSAPrivateKey } from "@fidm/x509";
 import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
-import { CipherSuites, NamedCurveAlgorithms } from "../cipher/const";
+import {
+  CipherSuites,
+  HashAlgorithms,
+  NamedCurveAlgorithms,
+  SignatureAlgorithms,
+} from "../cipher/const";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
 import { SessionType } from "../cipher/suites/abstract";
@@ -20,6 +25,10 @@ export class CipherContext {
   masterSecret?: Buffer;
   cipher?: AEADCipher;
   namedCurve?: NamedCurveAlgorithms;
+  signatureHashAlgorithm: {
+    hash: HashAlgorithms;
+    signature: SignatureAlgorithms;
+  };
   localPrivateKey?: PrivateKey;
 
   constructor(

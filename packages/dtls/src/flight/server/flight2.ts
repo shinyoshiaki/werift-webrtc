@@ -12,8 +12,10 @@ import { randomBytes } from "crypto";
 import {
   CipherSuite,
   CipherSuites,
+  HashAlgorithm,
   NamedCurveAlgorithm,
   NamedCurveAlgorithms,
+  SignatureAlgorithm,
 } from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
@@ -48,6 +50,10 @@ export const flight2 = (
       case Signature.type:
         {
           const signature = Signature.fromData(extension.data).data;
+          cipher.signatureHashAlgorithm = {
+            hash: HashAlgorithm.sha256,
+            signature: SignatureAlgorithm.rsa,
+          }; // todo fix
         }
         break;
       case UseSRTP.type:

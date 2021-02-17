@@ -92,6 +92,7 @@ export class Flight4 extends Flight {
     return buf;
   }
 
+  // 7.4.2 Server Certificate
   private sendCertificate() {
     if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
 
@@ -128,8 +129,8 @@ export class Flight4 extends Flight {
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
-      HashAlgorithm.sha256, // hash algorithm
-      SignatureAlgorithm.rsa, // signature algorithm todo fix
+      this.cipher.signatureHashAlgorithm.hash,
+      this.cipher.signatureHashAlgorithm.signature,
       signature.length,
       signature
     );
@@ -142,11 +143,11 @@ export class Flight4 extends Flight {
     const handshake = new ServerCertificateRequest(
       [
         1, // clientCertificateTypeRSASign
-        // 64, // clientCertificateTypeECDSASign // todo fix
+        64, // clientCertificateTypeECDSASign
       ],
       [
         { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-        // { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa }, // todo fix
+        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
       ],
       []
     );
