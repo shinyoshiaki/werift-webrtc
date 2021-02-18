@@ -7,7 +7,11 @@ import { Certificate } from "../../handshake/message/certificate";
 import { generateKeySignature, parseX509 } from "../../cipher/x509";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
-import { SignatureAlgorithm, HashAlgorithm } from "../../cipher/const";
+import {
+  SignatureAlgorithm,
+  HashAlgorithm,
+  CurveType,
+} from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { Extension, Handshake } from "../../typings/domain";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
@@ -88,6 +92,7 @@ export class Flight4 extends Flight {
     return buf;
   }
 
+  // 7.4.2 Server Certificate
   private sendCertificate() {
     if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
 
@@ -120,12 +125,12 @@ export class Flight4 extends Flight {
       "sha256"
     );
     const keyExchange = new ServerKeyExchange(
-      3, // ec curve type
+      CurveType.named_curve, // ec curve type
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
-      HashAlgorithm.sha256, // hash algorithm
-      SignatureAlgorithm.rsa, // signature algorithm
+      this.cipher.signatureHashAlgorithm.hash,
+      this.cipher.signatureHashAlgorithm.signature,
       signature.length,
       signature
     );
@@ -134,6 +139,7 @@ export class Flight4 extends Flight {
     return buf;
   }
 
+  // 7.4.4.  Certificate Request
   private sendCertificateRequest() {
     const handshake = new ServerCertificateRequest(
       [
@@ -146,6 +152,7 @@ export class Flight4 extends Flight {
       ],
       []
     );
+    log("sendCertificateRequest", handshake);
     const buf = this.createPacket([handshake]);
     return buf;
   }

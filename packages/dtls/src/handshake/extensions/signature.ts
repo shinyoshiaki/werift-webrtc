@@ -1,4 +1,5 @@
 import { encode, types, decode } from "binary-data";
+import { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
 
 export class Signature {
   static type = 13;
@@ -12,7 +13,7 @@ export class Signature {
   };
 
   public type: number = Signature.type;
-  public data: { hash: number; signature: number }[] = [];
+  public data: { hash: HashAlgorithms; signature: SignatureAlgorithms }[] = [];
 
   constructor(props: Partial<Signature> = {}) {
     Object.assign(this, props);

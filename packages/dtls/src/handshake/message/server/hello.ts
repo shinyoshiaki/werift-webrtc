@@ -4,6 +4,7 @@ import { ProtocolVersion, ExtensionList } from "../../binary";
 import { DtlsRandom } from "../../random";
 import { Version, Random, Handshake, Extension } from "../../../typings/domain";
 import { FragmentedHandshake } from "../../../record/message/fragment";
+import { CipherSuites } from "../../../cipher/const";
 
 // 7.4.1.3.  Server Hello
 
@@ -22,7 +23,7 @@ export class ServerHello implements Handshake {
     public serverVersion: Version,
     public random: Random,
     public sessionId: Buffer,
-    public cipherSuite: number,
+    public cipherSuite: CipherSuites,
     public compressionMethod: number,
     public extensions: Extension[]
   ) {}

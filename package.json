@@ -35,6 +35,7 @@
     "@typescript-eslint/eslint-plugin": "^4.11.1",
     "@typescript-eslint/parser": "^4.11.1",
     "depcheck": "^1.2.0",
+    "dependency-cruiser": "^9.23.1",
     "eslint": "^7.9.0",
     "eslint-config-prettier": "^7.1.0",
     "eslint-plugin-prettier": "^3.1.4",

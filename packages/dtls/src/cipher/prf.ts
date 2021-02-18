@@ -3,7 +3,6 @@ import { createHash, createHmac } from "crypto";
 import { ec } from "elliptic";
 import * as nacl from "tweetnacl";
 import { NamedCurveAlgorithm } from "./const";
-const elliptic = new ec("secp256k1");
 
 export function prfPreMasterSecret(
   publicKey: Buffer,
@@ -11,14 +10,14 @@ export function prfPreMasterSecret(
   curve: number
 ) {
   switch (curve) {
-    case NamedCurveAlgorithm.namedCurveP256:
+    case NamedCurveAlgorithm.secp256r1:
+      const elliptic = new ec("p256"); // aka secp256r1
       const pub = elliptic.keyFromPublic(publicKey).getPublic();
-      const x = pub.getX();
-      const y = pub.getY();
-      // todo impl
-      throw new Error("todo support namedCurveP256");
-
-    case NamedCurveAlgorithm.namedCurveX25519:
+      const priv = elliptic.keyFromPrivate(privateKey).getPrivate();
+      const res = pub.mul(priv);
+      const secret = Buffer.from(res.encode("array", false)).slice(1, 33);
+      return secret;
+    case NamedCurveAlgorithm.x25519:
       return Buffer.from(nacl.scalarMult(privateKey, publicKey));
     default:
       throw new Error();

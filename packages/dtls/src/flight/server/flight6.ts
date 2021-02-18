@@ -8,7 +8,6 @@ import { createFragments, createPlaintext } from "../../record/builder";
 import { TransportContext } from "../../context/transport";
 import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
-import { CipherSuite } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { DtlsPlaintext } from "../../record/message/plaintext";
@@ -131,7 +130,7 @@ handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
     cipher.localRandom.serialize()
   );
 
-  cipher.cipher = createCipher(CipherSuite.EcdheRsaWithAes128GcmSha256);
+  cipher.cipher = createCipher(cipher.cipherSuite!);
   cipher.cipher.init(
     cipher.masterSecret,
     cipher.localRandom.serialize(),
