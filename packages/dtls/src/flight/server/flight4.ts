@@ -139,6 +139,7 @@ export class Flight4 extends Flight {
     return buf;
   }
 
+  // 7.4.4.  Certificate Request
   private sendCertificateRequest() {
     const handshake = new ServerCertificateRequest(
       [
@@ -151,6 +152,7 @@ export class Flight4 extends Flight {
       ],
       []
     );
+    log("sendCertificateRequest", handshake);
     const buf = this.createPacket([handshake]);
     return buf;
   }

@@ -49,7 +49,17 @@ export const flight2 = (
         break;
       case Signature.type:
         {
-          const signature = Signature.fromData(extension.data).data;
+          const signatureHash = Signature.fromData(extension.data).data;
+          const hash = signatureHash.find((v) =>
+            Object.values(HashAlgorithm).includes(v.hash)
+          )?.hash;
+          const signature = signatureHash.find((v) =>
+            Object.values(SignatureAlgorithm).includes(v.signature)
+          )?.signature;
+          if (hash == undefined || signature == undefined)
+            throw new Error("invalid signatureHash");
+
+          log("hash,signature", hash, signature, "use default ←todofix");
           cipher.signatureHashAlgorithm = {
             hash: HashAlgorithm.sha256,
             signature: SignatureAlgorithm.rsa,
@@ -77,13 +87,14 @@ export const flight2 = (
   });
 
   cipher.localRandom = new DtlsRandom();
-
   cipher.remoteRandom = DtlsRandom.from(clientHello.random);
+
   const suites = clientHello.cipherSuites;
   const suite = suites.find((suite) =>
     Object.values(CipherSuite).includes(suite as any)
   ) as CipherSuites;
   if (!suite) throw new Error("dtls cipher suite negotiation failed");
+
   log("cipher suite candidate", suites, "selected", suite);
   cipher.cipherSuite = CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256; // todo fix
   cipher.localKeyPair = generateKeyPair(cipher.namedCurve!);

@@ -25,7 +25,9 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
   let changeCipherSpec = false;
 
   const results = packets.map((p) => {
-    switch (p.recordLayerHeader.contentType) {
+    const contentType = p.recordLayerHeader.contentType;
+
+    switch (contentType) {
       case ContentType.changeCipherSpec: {
         changeCipherSpec = true;
         return { type: ContentType.changeCipherSpec, data: undefined };
@@ -51,7 +53,7 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
       }
       case ContentType.alert: {
         const alert = Alert.deSerialize(p.fragment);
-        log("ContentType.alert", alert, dtls.flight);
+        log("ContentType.alert", alert, dtls.flight, dtls.lastFlight);
         if (alert.level > 1) throw new Error("alert fatal error");
       }
       default: {

@@ -47,7 +47,7 @@ import { RTCSctpTransport } from "./transport/sctp";
 import { reverseSimulcastDirection } from "./utils";
 import debug from "debug";
 
-const log = debug("webrtc/peerConnection");
+const log = debug("werift/webrtc/peerConnection");
 
 export class RTCPeerConnection {
   readonly cname = uuid.v4();
