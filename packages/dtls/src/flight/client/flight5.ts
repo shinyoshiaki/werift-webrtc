@@ -183,9 +183,11 @@ const handlers: {
 handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
   message: ServerHello
 ) => {
+  log("serverHello", message);
   cipher.remoteRandom = DtlsRandom.from(message.random);
-  log("selected cipherSuite", message.cipherSuite);
   cipher.cipherSuite = message.cipherSuite;
+  log("selected cipherSuite", cipher.cipherSuite);
+
   if (message.extensions) {
     message.extensions.forEach((extension) => {
       switch (extension.type) {
@@ -195,6 +197,7 @@ handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
             useSrtp.profiles,
             dtls.options.srtpProfiles!
           );
+          log("selected srtp profile", profile);
           if (profile === undefined) return;
           srtp.srtpProfile = profile;
           break;
@@ -206,6 +209,7 @@ handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
 handlers[HandshakeType.certificate] = ({ cipher }) => (
   message: Certificate
 ) => {
+  log("handshake certificate", message);
   cipher.remoteCertificate = message.certificateList[0];
 };
 
@@ -213,9 +217,9 @@ handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
   message: ServerKeyExchange
 ) => {
   if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
+  log("ServerKeyExchange", message);
 
   log("selected curve", message.namedCurve);
-
   const remoteKeyPair = (cipher.remoteKeyPair = {
     curve: message.namedCurve,
     publicKey: message.publicKey,
@@ -248,7 +252,7 @@ handlers[HandshakeType.server_hello_done] = () => () => {};
 handlers[HandshakeType.certificate_request] = ({ dtls }) => (
   message: ServerCertificateRequest
 ) => {
-  log("certificate_request", message.certificateTypes, message.signatures);
+  log("certificate_request", message);
   dtls.requestedCertificateTypes = message.certificateTypes;
   dtls.requestedSignatureAlgorithms = message.signatures;
 };

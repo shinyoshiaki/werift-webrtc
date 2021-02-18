@@ -17,14 +17,17 @@ import { SrtpContext } from "./context/srtp";
 import { exportKeyingMaterial } from "./cipher/prf";
 import { decode, types } from "binary-data";
 import { Event } from "rx.mini";
+import debug from "debug";
 
-export type Options = {
+const log = debug("werift/dtls/socket");
+
+export interface Options {
   transport: Transport;
   srtpProfiles?: number[];
   cert: string;
   key: string;
   certificateRequest?: boolean;
-};
+}
 
 export class DtlsSocket {
   onConnect = new Event();
@@ -49,6 +52,7 @@ export class DtlsSocket {
   }
 
   private setupExtensions() {
+    log("support srtpProfiles", this.options.srtpProfiles);
     if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
       const useSrtp = UseSRTP.create(
         this.options.srtpProfiles,
@@ -58,8 +62,7 @@ export class DtlsSocket {
     }
 
     const curve = EllipticCurves.createEmpty();
-    // curve.data = Object.values(NamedCurveAlgorithm);
-    curve.data = [NamedCurveAlgorithm.x25519]; // todo fix
+    curve.data = Object.values(NamedCurveAlgorithm);
     this.extensions.push(curve.extension);
 
     const signature = Signature.createEmpty();

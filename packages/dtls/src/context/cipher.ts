@@ -25,7 +25,7 @@ export class CipherContext {
   masterSecret?: Buffer;
   cipher?: AEADCipher;
   namedCurve?: NamedCurveAlgorithms;
-  signatureHashAlgorithm: {
+  signatureHashAlgorithm!: {
     hash: HashAlgorithms;
     signature: SignatureAlgorithms;
   };
