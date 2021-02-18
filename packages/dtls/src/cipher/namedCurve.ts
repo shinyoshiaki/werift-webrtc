@@ -13,7 +13,7 @@ export function generateKeyPair(namedCurve: number): NamedCurveKeyPair {
     case NamedCurveAlgorithm.secp256r1: {
       const elliptic = new ec("p256");
       const key = elliptic.genKeyPair();
-      const privateKey = key.getPrivate().toBuffer();
+      const privateKey = key.getPrivate().toBuffer("be");
       const publicKey = Buffer.from(key.getPublic().encode("array", false));
 
       return {

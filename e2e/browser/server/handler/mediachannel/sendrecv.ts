@@ -24,7 +24,9 @@ export class mediachannel_sendrecv_answer {
       case "candidate":
         {
           await this.pc.addIceCandidate(payload);
-          accept({});
+          try {
+            accept({});
+          } catch (error) {}
         }
         break;
       case "answer":

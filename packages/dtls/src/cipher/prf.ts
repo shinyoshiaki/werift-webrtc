@@ -15,7 +15,8 @@ export function prfPreMasterSecret(
       const pub = elliptic.keyFromPublic(publicKey).getPublic();
       const priv = elliptic.keyFromPrivate(privateKey).getPrivate();
       const res = pub.mul(priv);
-      return Buffer.from(res.encode("array", false));
+      const secret = Buffer.from(res.encode("array", false)).slice(1, 33);
+      return secret;
     case NamedCurveAlgorithm.x25519:
       return Buffer.from(nacl.scalarMult(privateKey, publicKey));
     default:

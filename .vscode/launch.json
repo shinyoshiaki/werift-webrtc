@@ -79,6 +79,7 @@
         "${workspaceRoot}/tsconfig.json",
         "${workspaceRoot}/e2e/browser/server/main.ts"
       ],
+      "env": { "DEBUG": "werift/*" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     }

@@ -54,7 +54,6 @@ export class DtlsClient extends DtlsSocket {
         }
         break;
       case ContentType.alert:
-        log("on alert", messages[messages.length - 1].data);
         this.onClose.execute();
         break;
     }
