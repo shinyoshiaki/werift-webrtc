@@ -1,15 +1,15 @@
 import { DtlsServer } from "../src/server";
-import { readFileSync } from "fs";
 import { createSocket } from "dgram";
 import { createUdpTransport } from "../src";
+import { certPem, keyPem } from "../tests/fixture";
 
 const port = 6666;
 const socket = createSocket("udp4");
 socket.bind(port);
 
 const server = new DtlsServer({
-  cert: readFileSync("assets/cert.pem").toString(),
-  key: readFileSync("assets/key.pem").toString(),
+  cert: certPem,
+  key: keyPem,
   transport: createUdpTransport(socket),
 });
 server.onData.subscribe((data) => console.log(data.toString()));
