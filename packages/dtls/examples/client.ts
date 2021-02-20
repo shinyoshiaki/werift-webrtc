@@ -13,6 +13,7 @@ setTimeout(() => {
     }),
   });
   client.onConnect.once(() => client.send(Buffer.from("hello")));
+  client.onData.subscribe((data) => console.log(data.toString()));
   client.connect();
 }, 100);
 
