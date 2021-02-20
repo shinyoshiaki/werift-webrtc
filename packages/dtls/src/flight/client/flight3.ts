@@ -15,11 +15,13 @@ export class Flight3 extends Flight {
     if (this.dtls.flight === 3) throw new Error();
     this.dtls.flight = 3;
 
-    const hello = this.dtls.lastFlight[0] as ClientHello;
-    hello.cookie = verifyReq.cookie;
-    const fragments = createFragments(this.dtls)([hello]);
+    const clientHello = this.dtls.lastFlight[0] as ClientHello;
+    clientHello.cookie = verifyReq.cookie;
+    const fragments = createFragments(this.dtls)([clientHello]);
+
     this.dtls.handshakeCache = [];
     this.dtls.bufferHandshakeCache(fragments, true, 3);
+
     const packets = createPlaintext(this.dtls)(
       fragments.map((fragment) => ({
         type: ContentType.handshake,

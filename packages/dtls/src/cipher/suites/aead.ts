@@ -115,7 +115,7 @@ export default class AEADCipher extends Cipher {
     const explicitNonce = final.readBuffer(this.nonceExplicitLength);
     explicitNonce.copy(iv, this.nonceImplicitLength);
 
-    const encryted = final.readBuffer(final.length - this.authTagLength);
+    const encrypted = final.readBuffer(final.length - this.authTagLength);
     const authTag = final.readBuffer(this.authTagLength);
 
     const additionalData = {
@@ -123,7 +123,7 @@ export default class AEADCipher extends Cipher {
       sequence: header.sequenceNumber,
       type: header.type,
       version: header.version,
-      length: encryted.length,
+      length: encrypted.length,
     };
 
     const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
@@ -139,10 +139,10 @@ export default class AEADCipher extends Cipher {
 
     decipher.setAuthTag(authTag);
     decipher.setAAD(additionalBuffer, {
-      plaintextLength: encryted.length,
+      plaintextLength: encrypted.length,
     });
 
-    const headPart = decipher.update(encryted);
+    const headPart = decipher.update(encrypted);
     const finalPart = decipher.final();
 
     return finalPart.length > 0
