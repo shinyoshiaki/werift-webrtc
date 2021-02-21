@@ -82,6 +82,7 @@ export class RTCDtlsTransport {
           key: this.localCertificate.privateKey,
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
+          extendedMasterSecret: true,
         });
       } else {
         this.dtls = new DtlsClient({
@@ -89,6 +90,7 @@ export class RTCDtlsTransport {
           key: this.localCertificate.privateKey,
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
+          extendedMasterSecret: true,
         });
       }
       this.dtls.onData.subscribe((buf) => {

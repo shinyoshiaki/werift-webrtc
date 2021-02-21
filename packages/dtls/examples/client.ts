@@ -1,16 +1,17 @@
 import { DtlsClient } from "../src/client";
 import { createUdpTransport } from "../src";
 import { createSocket } from "dgram";
-import { readFileSync } from "fs";
+import { certPem, keyPem } from "../tests/fixture";
 
 setTimeout(() => {
   const client = new DtlsClient({
-    cert: readFileSync("assets/cert.pem").toString(),
-    key: readFileSync("assets/key.pem").toString(),
+    cert: certPem,
+    key: keyPem,
     transport: createUdpTransport(createSocket("udp4"), {
       address: "127.0.0.1",
       port: 4444,
     }),
+    extendedMasterSecret: true,
   });
   client.onConnect.once(() => client.send(Buffer.from("hello")));
   client.onData.subscribe((data) => console.log(data.toString()));
