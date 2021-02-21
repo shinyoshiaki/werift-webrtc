@@ -19,7 +19,7 @@ export const HashAlgorithm = {
 export type HashAlgorithms = typeof HashAlgorithm[keyof typeof HashAlgorithm];
 
 export const NamedCurveAlgorithm = {
-  x25519: 29, // prefer
+  x25519: 29,
   secp256r1: 23,
 } as const;
 

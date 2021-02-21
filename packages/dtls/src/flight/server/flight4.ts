@@ -20,6 +20,7 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { Flight } from "../flight";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import debug from "debug";
+import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
 
 const log = debug("werift/dtls/flight4");
 
@@ -78,6 +79,12 @@ export class Flight4 extends Flight {
       extensions.push(
         UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension
       );
+    }
+    if (this.dtls.options.extendedMasterSecret) {
+      extensions.push({
+        type: ExtendedMasterSecret.type,
+        data: Buffer.alloc(0),
+      });
     }
 
     const serverHello = new ServerHello(

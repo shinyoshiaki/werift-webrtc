@@ -1,6 +1,6 @@
 import { DtlsServer, DtlsClient, createUdpTransport } from "../../src";
-import { readFileSync } from "fs";
 import { createSocket } from "dgram";
+import { certPem, keyPem } from "../fixture";
 
 test("e2e/self", (done) => {
   const word = "self";
@@ -8,13 +8,9 @@ test("e2e/self", (done) => {
   const socket = createSocket("udp4");
   socket.bind(port);
   const server = new DtlsServer({
-    cert: readFileSync("assets/cert.pem").toString(),
-    key: readFileSync("assets/key.pem").toString(),
+    cert: certPem,
+    key: keyPem,
     transport: createUdpTransport(socket),
-  });
-  server.onData.subscribe((data) => {
-    expect(data.toString()).toBe(word);
-    server.send(Buffer.from(word + "_server"));
   });
   const client = new DtlsClient({
     transport: createUdpTransport(createSocket("udp4"), {
@@ -23,6 +19,10 @@ test("e2e/self", (done) => {
     }),
     cert: "",
     key: "",
+  });
+  server.onData.subscribe((data) => {
+    expect(data.toString()).toBe(word);
+    server.send(Buffer.from(word + "_server"));
   });
   client.onConnect.subscribe(() => {
     client.send(Buffer.from(word));

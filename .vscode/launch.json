@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/interop/client.ts"
+        "${workspaceRoot}/packages/dtls/examples/client"
       ],
       "env": { "DEBUG": "*" },
       "console": "integratedTerminal",

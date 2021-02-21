@@ -22,6 +22,7 @@ export class DtlsContext {
     hash: HashAlgorithms;
     signature: SignatureAlgorithms;
   }[] = [];
+  remoteExtendedMasterSecret = false;
 
   constructor(public options: Options) {}
 

@@ -1,6 +1,10 @@
 import { HandshakeType } from "../../handshake/const";
 import { DtlsContext } from "../../context/dtls";
-import { prfPreMasterSecret, prfMasterSecret } from "../../cipher/prf";
+import {
+  prfPreMasterSecret,
+  prfMasterSecret,
+  prfExtendedMasterSecret,
+} from "../../cipher/prf";
 import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
@@ -33,13 +37,13 @@ export class Flight6 extends Flight {
     }
     this.dtls.flight = 6;
 
-    const fragments = handshakes.map((handshake) => {
+    handshakes.forEach((handshake) => {
       let fragment: FragmentedHandshake = handshake as FragmentedHandshake;
-      if ((handshake as FragmentedHandshake).msg_type) {
-      } else {
+      if ((handshake as FragmentedHandshake).msg_type == undefined) {
         const raw = this.cipher.decryptPacket(handshake as DtlsPlaintext);
         fragment = FragmentedHandshake.deSerialize(raw);
       }
+      this.dtls.bufferHandshakeCache([fragment], false, 5);
 
       const message = (() => {
         switch (fragment.msg_type) {
@@ -55,9 +59,7 @@ export class Flight6 extends Flight {
       handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
         message
       );
-      return fragment;
     });
-    this.dtls.bufferHandshakeCache(fragments, false, 5);
 
     const messages = [this.sendChangeCipherSpec(), this.sendFinished()];
     this.dtls.lastMessage = messages;
@@ -104,7 +106,7 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
+handlers[HandshakeType.client_key_exchange] = ({ cipher, dtls }) => (
   message: ClientKeyExchange
 ) => {
   cipher.remoteKeyPair = {
@@ -124,11 +126,24 @@ handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
     cipher.localKeyPair.privateKey,
     cipher.localKeyPair.curve
   );
-  cipher.masterSecret = prfMasterSecret(
-    preMasterSecret,
-    cipher.remoteRandom.serialize(),
-    cipher.localRandom.serialize()
+
+  log(
+    "extendedMasterSecret",
+    dtls.options.extendedMasterSecret,
+    dtls.remoteExtendedMasterSecret
   );
+
+  const handshakes = Buffer.concat(
+    dtls.handshakeCache.map((v) => v.data.serialize())
+  );
+  cipher.masterSecret =
+    dtls.options.extendedMasterSecret && dtls.remoteExtendedMasterSecret
+      ? prfExtendedMasterSecret(preMasterSecret, handshakes)
+      : prfMasterSecret(
+          preMasterSecret,
+          cipher.remoteRandom.serialize(),
+          cipher.localRandom.serialize()
+        );
 
   cipher.cipher = createCipher(cipher.cipherSuite!);
   cipher.cipher.init(
@@ -138,4 +153,6 @@ handlers[HandshakeType.client_key_exchange] = ({ cipher }) => (
   );
 };
 
-handlers[HandshakeType.finished] = () => (message: Finished) => {};
+handlers[HandshakeType.finished] = () => (message: Finished) => {
+  log("finished", message);
+};

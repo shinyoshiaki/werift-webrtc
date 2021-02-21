@@ -5,7 +5,11 @@ import { HandshakeType } from "../../handshake/const";
 import { DtlsContext } from "../../context/dtls";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { generateKeyPair } from "../../cipher/namedCurve";
-import { prfPreMasterSecret, prfMasterSecret } from "../../cipher/prf";
+import {
+  prfPreMasterSecret,
+  prfMasterSecret,
+  prfExtendedMasterSecret,
+} from "../../cipher/prf";
 import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
@@ -23,6 +27,7 @@ import { SrtpContext } from "../../context/srtp";
 import { Flight } from "../flight";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import debug from "debug";
+import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
 
 const log = debug("werift/dtls/flight/client/flight5");
 
@@ -110,6 +115,42 @@ export class Flight5 extends Flight {
     );
     const fragments = createFragments(this.dtls)([clientKeyExchange]);
     this.dtls.bufferHandshakeCache(fragments, true, 5);
+
+    const localKeyPair = this.cipher.localKeyPair!;
+    const remoteKeyPair = this.cipher.remoteKeyPair!;
+
+    const preMasterSecret = prfPreMasterSecret(
+      remoteKeyPair.publicKey!,
+      localKeyPair.privateKey,
+      localKeyPair.curve
+    );
+
+    log(
+      "extendedMasterSecret",
+      this.dtls.options.extendedMasterSecret,
+      this.dtls.remoteExtendedMasterSecret
+    );
+
+    const handshakes = Buffer.concat(
+      this.dtls.handshakeCache.map((v) => v.data.serialize())
+    );
+    this.cipher.masterSecret =
+      this.dtls.options.extendedMasterSecret &&
+      this.dtls.remoteExtendedMasterSecret
+        ? prfExtendedMasterSecret(preMasterSecret, handshakes)
+        : prfMasterSecret(
+            preMasterSecret,
+            this.cipher.localRandom!.serialize(),
+            this.cipher.remoteRandom!.serialize()
+          );
+
+    this.cipher.cipher = createCipher(this.cipher.cipherSuite!);
+    this.cipher.cipher.init(
+      this.cipher.masterSecret,
+      this.cipher.remoteRandom!.serialize(),
+      this.cipher.localRandom!.serialize()
+    );
+
     const packets = createPlaintext(this.dtls)(
       fragments.map((fragment) => ({
         type: ContentType.handshake,
@@ -122,8 +163,9 @@ export class Flight5 extends Flight {
   }
 
   sendCertificateVerify() {
-    const caches = this.dtls.handshakeCache.map((v) => v.data);
-    const cache = Buffer.concat(caches.map((v) => v.serialize()));
+    const cache = Buffer.concat(
+      this.dtls.handshakeCache.map((v) => v.data.serialize())
+    );
     const signed = this.cipher.signatureData(cache, "sha256");
     const certificateVerify = new CertificateVerify(0x0401, signed);
     const fragments = createFragments(this.dtls)([certificateVerify]);
@@ -153,8 +195,8 @@ export class Flight5 extends Flight {
     const cache = Buffer.concat(
       this.dtls.handshakeCache.map((v) => v.data.serialize())
     );
-
     const localVerifyData = this.cipher.verifyData(cache);
+
     const finish = new Finished(localVerifyData);
     const fragments = createFragments(this.dtls)([finish]);
     this.dtls.epoch = 1;
@@ -195,11 +237,14 @@ handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
           const useSrtp = UseSRTP.fromData(extension.data);
           const profile = SrtpContext.findMatchingSRTPProfile(
             useSrtp.profiles,
-            dtls.options.srtpProfiles!
+            dtls.options.srtpProfiles || []
           );
           log("selected srtp profile", profile);
-          if (profile === undefined) return;
+          if (profile == undefined) return;
           srtp.srtpProfile = profile;
+          break;
+        case ExtendedMasterSecret.type:
+          dtls.remoteExtendedMasterSecret = true;
           break;
       }
     });
@@ -220,34 +265,16 @@ handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
   log("ServerKeyExchange", message);
 
   log("selected curve", message.namedCurve);
-  const remoteKeyPair = (cipher.remoteKeyPair = {
+  cipher.remoteKeyPair = {
     curve: message.namedCurve,
     publicKey: message.publicKey,
-  });
-  const localKeyPair = (cipher.localKeyPair = generateKeyPair(
-    message.namedCurve
-  ));
-
-  const preMasterSecret = prfPreMasterSecret(
-    remoteKeyPair.publicKey,
-    localKeyPair.privateKey,
-    localKeyPair.curve
-  );
-  cipher.masterSecret = prfMasterSecret(
-    preMasterSecret,
-    cipher.localRandom.serialize(),
-    cipher.remoteRandom.serialize()
-  );
-
-  cipher.cipher = createCipher(cipher.cipherSuite!);
-  cipher.cipher.init(
-    cipher.masterSecret,
-    cipher.remoteRandom.serialize(),
-    cipher.localRandom.serialize()
-  );
+  };
+  cipher.localKeyPair = generateKeyPair(message.namedCurve);
 };
 
-handlers[HandshakeType.server_hello_done] = () => () => {};
+handlers[HandshakeType.server_hello_done] = () => (msg) => {
+  log("server_hello_done", msg);
+};
 
 handlers[HandshakeType.certificate_request] = ({ dtls }) => (
   message: ServerCertificateRequest

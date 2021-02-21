@@ -21,6 +21,7 @@ import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
 import debug from "debug";
+import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
 
 const log = debug("werift/dtls/flight/server/flight2");
 
@@ -82,6 +83,11 @@ export const flight2 = (
           }
           srtp.srtpProfile = profile;
           log("srtp profile selected", srtp.srtpProfile);
+        }
+        break;
+      case ExtendedMasterSecret.type:
+        {
+          dtls.remoteExtendedMasterSecret = true;
         }
         break;
     }
