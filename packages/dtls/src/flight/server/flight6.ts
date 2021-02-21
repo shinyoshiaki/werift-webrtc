@@ -29,7 +29,21 @@ export class Flight6 extends Flight {
     super(udp, dtls);
   }
 
-  exec(handshakes: (FragmentedHandshake | DtlsPlaintext)[]) {
+  handleClientKeyExchange(handshake: FragmentedHandshake) {
+    this.dtls.bufferHandshakeCache([handshake], false, 5);
+    const message = ClientKeyExchange.deSerialize(handshake.fragment);
+    handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
+      message
+    );
+  }
+
+  exec(handshake: FragmentedHandshake | DtlsPlaintext) {
+    if (handshake instanceof DtlsPlaintext) {
+      log("decrypt handshake");
+      const raw = this.cipher.decryptPacket(handshake);
+      handshake = FragmentedHandshake.deSerialize(raw);
+    }
+
     if (this.dtls.flight === 6) {
       log("flight6 twice");
       this.send(this.dtls.lastMessage);
@@ -37,29 +51,13 @@ export class Flight6 extends Flight {
     }
     this.dtls.flight = 6;
 
-    handshakes.forEach((handshake) => {
-      let fragment: FragmentedHandshake = handshake as FragmentedHandshake;
-      if ((handshake as FragmentedHandshake).msg_type == undefined) {
-        const raw = this.cipher.decryptPacket(handshake as DtlsPlaintext);
-        fragment = FragmentedHandshake.deSerialize(raw);
-      }
-      this.dtls.bufferHandshakeCache([fragment], false, 5);
+    this.dtls.bufferHandshakeCache([handshake], false, 5);
 
-      const message = (() => {
-        switch (fragment.msg_type) {
-          case HandshakeType.client_key_exchange:
-            return ClientKeyExchange.deSerialize(fragment.fragment);
-          case HandshakeType.finished:
-            return Finished.deSerialize(fragment.fragment);
-          default:
-            throw new Error();
-        }
-      })();
+    const message = Finished.deSerialize(handshake.fragment);
 
-      handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
-        message
-      );
-    });
+    handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
+      message
+    );
 
     const messages = [this.sendChangeCipherSpec(), this.sendFinished()];
     this.dtls.lastMessage = messages;
