@@ -18,6 +18,7 @@ import { exportKeyingMaterial } from "./cipher/prf";
 import { decode, types } from "binary-data";
 import { Event } from "rx.mini";
 import debug from "debug";
+import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
 
 const log = debug("werift/dtls/socket");
 
@@ -27,6 +28,7 @@ export interface Options {
   cert: string;
   key: string;
   certificateRequest?: boolean;
+  extendedMasterSecret?: boolean;
 }
 
 export class DtlsSocket {
@@ -71,6 +73,13 @@ export class DtlsSocket {
       { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
     ];
     this.extensions.push(signature.extension);
+
+    if (this.options.extendedMasterSecret) {
+      this.extensions.push({
+        type: ExtendedMasterSecret.type,
+        data: Buffer.alloc(0),
+      });
+    }
   }
 
   send(buf: Buffer) {

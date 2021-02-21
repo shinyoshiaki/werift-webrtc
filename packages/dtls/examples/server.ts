@@ -11,6 +11,7 @@ const server = new DtlsServer({
   cert: certPem,
   key: keyPem,
   transport: createUdpTransport(socket),
+  extendedMasterSecret: true,
 });
 server.onData.subscribe((data) => console.log(data.toString()));
 server.onConnect.once(() => server.send(Buffer.from("hello")));

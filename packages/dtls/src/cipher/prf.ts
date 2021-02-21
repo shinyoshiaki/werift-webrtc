@@ -64,6 +64,19 @@ export function prfMasterSecret(
   return prfPHash(preMasterSecret, seed, 48);
 }
 
+export function prfExtendedMasterSecret(
+  preMasterSecret: Buffer,
+  handshakes: Buffer
+) {
+  const sessionHash = hash("sha256", handshakes);
+  const label = "extended master secret";
+  return prfPHash(
+    preMasterSecret,
+    Buffer.concat([Buffer.from(label), sessionHash]),
+    48
+  );
+}
+
 export function exportKeyingMaterial(
   label: string,
   length: number,
