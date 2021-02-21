@@ -11,6 +11,9 @@ import { DtlsSocket, Options } from "./socket";
 import { DtlsContext } from "./context/dtls";
 import { CipherContext } from "./context/cipher";
 import { SrtpContext } from "./context/srtp";
+import debug from "debug";
+
+const log = debug("werift/dtls/server");
 
 export class DtlsServer extends DtlsSocket {
   bufferHandshakes: FragmentedHandshake[] = [];
@@ -63,46 +66,75 @@ export class DtlsServer extends DtlsSocket {
     }
   };
 
+  private flight6?: Flight6;
   private handleHandshakes(handshakes: FragmentedHandshake[]) {
-    switch (handshakes[0].msg_type) {
-      case HandshakeType.client_hello:
-        {
-          const assemble = FragmentedHandshake.assemble(handshakes);
+    const encryptedHandshake = handshakes.find((v) => v.msg_type == undefined);
 
-          const clientHello = ClientHello.deSerialize(assemble.fragment);
-          const context = this.contexts[clientHello.cookie.toString("hex")];
-          if (context && !this.dtls) {
-            this.dtls = context.dtls;
-            this.cipher = context.cipher;
-            this.srtp = context.srtp;
-            this.contexts = {};
-            new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
-              assemble,
-              this.options.certificateRequest
-            );
-          } else {
-            const dtls = new DtlsContext(this.options);
-            const cipher = new CipherContext(
-              this.options.cert,
-              this.options.key,
-              SessionType.SERVER
-            );
-            const srtp = new SrtpContext();
-            flight2(this.udp, dtls, cipher, srtp)(clientHello);
-            this.contexts[dtls.cookie!.toString("hex")] = {
-              dtls,
-              cipher,
-              srtp,
-            };
+    const assembled = Object.values(
+      handshakes
+        .filter((v) => v.msg_type != undefined)
+        .reduce((acc: { [type: string]: FragmentedHandshake[] }, cur) => {
+          if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
+          acc[cur.msg_type].push(cur);
+          return acc;
+        }, {})
+    )
+      .map((v) => FragmentedHandshake.assemble(v))
+      .sort((a, b) => a.msg_type - b.msg_type);
+
+    log("handleHandshakes", assembled, encryptedHandshake);
+
+    assembled.forEach((handshake) => {
+      switch (handshake.msg_type) {
+        case HandshakeType.client_hello:
+          {
+            const clientHello = ClientHello.deSerialize(handshake.fragment);
+            const context = this.contexts[clientHello.cookie.toString("hex")];
+            if (context && !this.dtls) {
+              this.dtls = context.dtls;
+              this.cipher = context.cipher;
+              this.srtp = context.srtp;
+              this.contexts = {};
+              new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
+                handshake,
+                this.options.certificateRequest
+              );
+            } else {
+              const dtls = new DtlsContext(this.options);
+              const cipher = new CipherContext(
+                this.options.cert,
+                this.options.key,
+                SessionType.SERVER
+              );
+              const srtp = new SrtpContext();
+              flight2(this.udp, dtls, cipher, srtp)(clientHello);
+              this.contexts[dtls.cookie!.toString("hex")] = {
+                dtls,
+                cipher,
+                srtp,
+              };
+            }
           }
-        }
-        break;
-      case HandshakeType.client_key_exchange:
-        {
-          new Flight6(this.udp, this.dtls, this.cipher).exec(handshakes);
-          this.onConnect.execute();
-        }
-        break;
+          break;
+        case HandshakeType.client_key_exchange:
+          {
+            this.flight6 = new Flight6(this.udp, this.dtls, this.cipher);
+            this.flight6.handleClientKeyExchange(handshake);
+          }
+          break;
+        case HandshakeType.finished:
+          {
+            this.flight6?.exec(handshake);
+            this.onConnect.execute();
+          }
+          break;
+      }
+    });
+
+    if (encryptedHandshake) {
+      log("encrypted handshake received");
+      this.flight6?.exec(encryptedHandshake);
+      this.onConnect.execute();
     }
   }
 }

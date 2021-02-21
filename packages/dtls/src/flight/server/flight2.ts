@@ -22,6 +22,7 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
 import debug from "debug";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
+import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
 
 const log = debug("werift/dtls/flight/server/flight2");
 
@@ -88,6 +89,11 @@ export const flight2 = (
       case ExtendedMasterSecret.type:
         {
           dtls.remoteExtendedMasterSecret = true;
+        }
+        break;
+      case RenegotiationIndication.type:
+        {
+          log("RenegotiationIndication", extension.data);
         }
         break;
     }
