@@ -28,6 +28,7 @@ import { Flight } from "../flight";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import debug from "debug";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
+import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
 
 const log = debug("werift/dtls/flight/client/flight5");
 
@@ -245,6 +246,9 @@ handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
           break;
         case ExtendedMasterSecret.type:
           dtls.remoteExtendedMasterSecret = true;
+          break;
+        case RenegotiationIndication.type:
+          log("RenegotiationIndication", extension.data);
           break;
       }
     });

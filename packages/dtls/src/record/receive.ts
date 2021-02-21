@@ -29,6 +29,7 @@ export const parsePacket = (dtls: DtlsContext, cipher: CipherContext) => (
 
     switch (contentType) {
       case ContentType.changeCipherSpec: {
+        log("change cipher spec");
         changeCipherSpec = true;
         return { type: ContentType.changeCipherSpec, data: undefined };
       }

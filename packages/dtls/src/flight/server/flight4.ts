@@ -21,6 +21,7 @@ import { Flight } from "../flight";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import debug from "debug";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
+import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
 
 const log = debug("werift/dtls/flight4");
 
@@ -74,6 +75,7 @@ export class Flight4 extends Flight {
     if (!this.cipher.localRandom || !this.cipher.cipherSuite)
       throw new Error("");
 
+    // todo fix; should use socket.extensions
     const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
       extensions.push(
@@ -86,6 +88,8 @@ export class Flight4 extends Flight {
         data: Buffer.alloc(0),
       });
     }
+    const renegotiationIndication = RenegotiationIndication.createEmpty();
+    extensions.push(renegotiationIndication.extension);
 
     const serverHello = new ServerHello(
       this.dtls.version,

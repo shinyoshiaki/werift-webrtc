@@ -19,6 +19,7 @@ import { decode, types } from "binary-data";
 import { Event } from "rx.mini";
 import debug from "debug";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
+import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 
 const log = debug("werift/dtls/socket");
 
@@ -80,6 +81,9 @@ export class DtlsSocket {
         data: Buffer.alloc(0),
       });
     }
+
+    const renegotiationIndication = RenegotiationIndication.createEmpty();
+    this.extensions.push(renegotiationIndication.extension);
   }
 
   send(buf: Buffer) {
