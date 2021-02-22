@@ -1,5 +1,4 @@
 export * from "./helper";
-export { RtpPacket } from "../../rtp/src";
 export { RTCDataChannel } from "./dataChannel";
 export * from "./extension/rtpExtension";
 export { RTCRtpCodecParameters } from "./media/parameters";
@@ -19,3 +18,4 @@ export {
 } from "./transport/ice";
 export { RTCSctpTransport } from "./transport/sctp";
 export { Kind } from "./typings/domain";
+export * from "../../rtp/src";

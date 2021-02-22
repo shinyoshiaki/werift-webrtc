@@ -2,8 +2,8 @@ import { BitWriter, getBit } from "../utils";
 
 export type Extension = { id: number; payload: Buffer };
 
-const extensionProfileOneByte = 0xbede;
-const extensionProfileTwoByte = 0x1000;
+const extensionProfileOneByte = 0xbede; // 48862
+const extensionProfileTwoByte = 0x1000; // 4096
 
 const seqNumOffset = 2;
 const timestampOffset = 4;
