@@ -294,18 +294,6 @@ export class RTCPeerConnection {
     }
   }
 
-  private updateIceGatheringState(state: IceGathererState) {
-    if (state !== this.iceGatheringState) {
-      this.iceGatheringState = state;
-      this.iceGatheringStateChange.execute(state);
-    }
-  }
-
-  private updateIceConnectionState(state: IceTransportState) {
-    this.iceConnectionState = state;
-    this.iceConnectionStateChange.execute(state);
-  }
-
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.masterTransport) return this.masterTransport;
 
@@ -474,16 +462,6 @@ export class RTCPeerConnection {
     receiveParameters.encodings = encodings;
     receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
-  }
-
-  private setSignalingState(state: SignalingState) {
-    this.signalingState = state;
-    this.signalingStateChange.execute(state);
-  }
-
-  private setConnectionState(state: ConnectionState) {
-    this.connectionState = state;
-    this.connectionStateChange.execute(state);
   }
 
   private validateDescription(
@@ -780,6 +758,30 @@ export class RTCPeerConnection {
 
   private assertNotClosed() {
     if (this.isClosed) throw new Error("RTCPeerConnection is closed");
+  }
+
+  private updateIceGatheringState(state: IceGathererState) {
+    log("iceGatheringStateChange", state);
+    this.iceGatheringState = state;
+    this.iceGatheringStateChange.execute(state);
+  }
+
+  private updateIceConnectionState(state: IceTransportState) {
+    log("iceConnectionStateChange", state);
+    this.iceConnectionState = state;
+    this.iceConnectionStateChange.execute(state);
+  }
+
+  private setSignalingState(state: SignalingState) {
+    log("signalingStateChange", state);
+    this.signalingState = state;
+    this.signalingStateChange.execute(state);
+  }
+
+  private setConnectionState(state: ConnectionState) {
+    log("connectionStateChange", state);
+    this.connectionState = state;
+    this.connectionStateChange.execute(state);
   }
 
   private removeAllListeners() {

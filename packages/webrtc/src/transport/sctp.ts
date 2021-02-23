@@ -13,7 +13,7 @@ import {
   WEBRTC_STRING_EMPTY,
 } from "../const";
 import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
-import { DtlsState, RTCDtlsTransport } from "./dtls";
+import { RTCDtlsTransport } from "./dtls";
 
 export class RTCSctpTransport {
   readonly onDataChannel = new Event<[RTCDataChannel]>();
