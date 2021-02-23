@@ -31,7 +31,7 @@ export class SessionDescription {
   group: GroupDescription[] = [];
   msidSemantic: GroupDescription[] = [];
   media: MediaDescription[] = [];
-  type?: "offer" | "answer";
+  type!: "offer" | "answer";
 
   static parse(sdp: string) {
     const dtlsFingerprints: RTCDtlsFingerprint[] = [];
@@ -479,7 +479,7 @@ export class MediaDescription {
 }
 
 export class GroupDescription {
-  constructor(public semantic: string, public items: (number | string)[]) {}
+  constructor(public semantic: string, public items: string[]) {}
 
   str() {
     return `${this.semantic} ${this.items.join(" ")}`;

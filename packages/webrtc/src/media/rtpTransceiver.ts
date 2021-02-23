@@ -20,7 +20,6 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[RtpTrack]>();
   mid?: string;
   mLineIndex?: number;
-  dtlsTransport?: RTCDtlsTransport;
   _codecs: RTCRtpCodecParameters[] = [];
   get codecs() {
     return this._codecs;
@@ -38,7 +37,8 @@ export class RTCRtpTransceiver {
     public readonly kind: Kind,
     public readonly receiver: RTCRtpReceiver,
     public readonly sender: RTCRtpSender,
-    public direction: Direction
+    public direction: Direction,
+    public dtlsTransport: RTCDtlsTransport
   ) {}
 
   get msid() {

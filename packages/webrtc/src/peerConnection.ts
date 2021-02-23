@@ -2,7 +2,7 @@ import { isEqual, cloneDeep } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 import { enumerate } from "./helper";
-import { Kind, SignalingState } from "./typings/domain";
+import { ConnectionState, Kind, SignalingState } from "./typings/domain";
 import { IceOptions } from "../../ice/src";
 import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
@@ -36,7 +36,8 @@ import {
   RTCDtlsTransport,
 } from "./transport/dtls";
 import {
-  IceState,
+  IceGathererState,
+  IceTransportState,
   RTCIceCandidate,
   RTCIceCandidateJSON,
   RTCIceGatherer,
@@ -54,12 +55,17 @@ export class RTCPeerConnection {
   masterTransport?: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
-  configuration: PeerConfig = cloneDeep(defaultPeerConfig);
+  configuration: Required<PeerConfig> = cloneDeep(defaultPeerConfig) as any;
+  connectionState: ConnectionState = "new";
+  iceConnectionState: IceTransportState = "new";
+  iceGatheringState: IceGathererState = "new";
+  signalingState: SignalingState = "stable";
   readonly transceivers: RTCRtpTransceiver[] = [];
+  readonly iceGatheringStateChange = new Event<[IceGathererState]>();
+  readonly iceConnectionStateChange = new Event<[IceTransportState]>();
+  readonly signalingStateChange = new Event<[SignalingState]>();
+  readonly connectionStateChange = new Event<[ConnectionState]>();
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly iceGatheringStateChange = new Event<[IceState]>();
-  readonly iceConnectionStateChange = new Event<[IceState]>();
-  readonly signalingStateChange = new Event<[string]>();
   readonly onTransceiver = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
 
@@ -73,9 +79,6 @@ export class RTCPeerConnection {
   private currentRemoteDescription?: SessionDescription;
   private pendingLocalDescription?: SessionDescription;
   private pendingRemoteDescription?: SessionDescription;
-  private _iceConnectionState: IceState = "new";
-  private _iceGatheringState: IceState = "new";
-  private _signalingState: SignalingState = "stable";
   private isClosed = false;
 
   constructor({
@@ -95,8 +98,8 @@ export class RTCPeerConnection {
       this.configuration.codecs.video = codecs.video;
     }
     [
-      ...this.configuration.codecs.audio!,
-      ...this.configuration.codecs.video!,
+      ...(this.configuration.codecs.audio || []),
+      ...(this.configuration.codecs.video || []),
     ].forEach((v, i) => {
       v.payloadType = 96 + i;
     });
@@ -107,42 +110,36 @@ export class RTCPeerConnection {
       this.configuration.headerExtensions.video = headerExtensions.video;
     }
     [
-      ...this.configuration.headerExtensions.audio!,
-      ...this.configuration.headerExtensions.video!,
+      ...(this.configuration.headerExtensions.audio || []),
+      ...(this.configuration.headerExtensions.video || []),
     ].forEach((v, i) => {
       v.id = 1 + i;
     });
 
     this.iceConnectionStateChange.subscribe((state) => {
-      if (state === "closed") {
-        log("closed!!!!!!!!!");
-        this.close();
+      switch (state) {
+        case "disconnected":
+          this.setConnectionState("disconnected");
+          break;
+        case "closed":
+          this.close();
+          break;
       }
     });
   }
 
-  get iceConnectionState() {
-    return this._iceConnectionState;
-  }
-
-  get iceGatheringState() {
-    return this._iceGatheringState;
-  }
-
-  get signalingState() {
-    return this._signalingState;
-  }
-
   get localDescription() {
-    return wrapSessionDescription(this._localDescription)!;
+    if (!this._localDescription) return;
+    return wrapSessionDescription(this._localDescription);
   }
 
   get remoteDescription() {
+    if (!this._remoteDescription) return;
     return wrapSessionDescription(this._remoteDescription);
   }
 
   private get _localDescription() {
-    return this.pendingLocalDescription! || this.currentLocalDescription!;
+    return this.pendingLocalDescription || this.currentLocalDescription;
   }
 
   private get _remoteDescription() {
@@ -182,13 +179,21 @@ export class RTCPeerConnection {
       : [];
 
     currentMedia.forEach((m, i) => {
-      const mid = m.rtp.muxId!;
+      const mid = m.rtp.muxId;
+      if (!mid) {
+        log("mid missing", m);
+        return;
+      }
       if (m.kind === "application") {
         description.media.push(
           createMediaDescriptionForSctp(this.sctpTransport!, mid)
         );
       } else {
-        const transceiver = this.getTransceiverByMid(mid)!;
+        const transceiver = this.getTransceiverByMid(mid);
+        if (!transceiver) {
+          log("transceiver by mid not found", mid);
+          return;
+        }
         transceiver.mLineIndex = i;
         description.media.push(
           createMediaDescriptionForTransceiver(
@@ -228,13 +233,13 @@ export class RTCPeerConnection {
       );
     }
 
-    const bundle = new GroupDescription(
-      "BUNDLE",
-      description.media.map((m) => m.rtp.muxId!)
-    );
+    const mids = description.media
+      .map((m) => m.rtp.muxId)
+      .filter((v) => v) as string[];
+    const bundle = new GroupDescription("BUNDLE", mids);
     description.group.push(bundle);
 
-    return wrapSessionDescription(description)!;
+    return wrapSessionDescription(description);
   }
 
   createDataChannel(
@@ -289,39 +294,32 @@ export class RTCPeerConnection {
     }
   }
 
-  private updateIceGatheringState() {
-    const state = this.masterTransport!.iceTransport.state;
-
-    if (state !== this._iceGatheringState) {
-      this._iceGatheringState = state;
+  private updateIceGatheringState(state: IceGathererState) {
+    if (state !== this.iceGatheringState) {
+      this.iceGatheringState = state;
       this.iceGatheringStateChange.execute(state);
     }
   }
 
-  private updateIceConnectionState() {
-    const state = this.masterTransport!.iceTransport.state;
-
-    if (state !== this._iceConnectionState) {
-      this._iceConnectionState = state;
-      this.iceConnectionStateChange.execute(state);
-    }
+  private updateIceConnectionState(state: IceTransportState) {
+    this.iceConnectionState = state;
+    this.iceConnectionStateChange.execute(state);
   }
 
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.masterTransport) return this.masterTransport;
 
     const iceGatherer = new RTCIceGatherer(this.configuration.iceConfig);
-    iceGatherer.subject.subscribe((state) => {
-      if (state === "stateChange") {
-        this.updateIceGatheringState();
-      }
+    iceGatherer.onGatheringStateChange.subscribe((state) => {
+      this.updateIceGatheringState(state);
     });
+    this.updateIceGatheringState(iceGatherer.gatheringState);
     const iceTransport = new RTCIceTransport(iceGatherer);
-    iceTransport.iceState.subscribe((state) => {
-      if (state === "stateChange") {
-        this.updateIceConnectionState();
-      }
+    iceTransport.onStateChange.subscribe((state) => {
+      this.updateIceConnectionState(state);
     });
+    this.updateIceConnectionState(iceTransport.state);
+
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
       const sdp = SessionDescription.parse(this.localDescription.sdp);
@@ -338,9 +336,6 @@ export class RTCPeerConnection {
       srtpProfiles
     );
     this.masterTransport = dtls;
-
-    this.updateIceGatheringState();
-    this.updateIceConnectionState();
 
     return dtls;
   }
@@ -478,8 +473,13 @@ export class RTCPeerConnection {
   }
 
   private setSignalingState(state: SignalingState) {
-    this._signalingState = state;
+    this.signalingState = state;
     this.signalingStateChange.execute(state);
+  }
+
+  private setConnectionState(state: ConnectionState) {
+    this.connectionState = state;
+    this.connectionStateChange.execute(state);
   }
 
   private validateDescription(
@@ -488,7 +488,7 @@ export class RTCPeerConnection {
   ) {
     if (isLocal) {
       if (description.type === "offer") {
-        if (!["stable", "have-local-offer"].includes(this._signalingState))
+        if (!["stable", "have-local-offer"].includes(this.signalingState))
           throw new Error("Cannot handle offer in signaling state");
       } else if (description.type === "answer") {
         if (
@@ -683,9 +683,9 @@ export class RTCPeerConnection {
       kind,
       receiver,
       sender,
-      direction
+      direction,
+      dtlsTransport
     );
-    transceiver.dtlsTransport = dtlsTransport;
     transceiver.options = options;
     this.router.ssrcTable[transceiver.sender.ssrc] = transceiver.sender;
 
@@ -750,7 +750,7 @@ export class RTCPeerConnection {
     });
     description.group.push(bundle);
 
-    return wrapSessionDescription(description)!;
+    return wrapSessionDescription(description);
   }
 
   async close() {
@@ -758,6 +758,7 @@ export class RTCPeerConnection {
 
     this.isClosed = true;
     this.setSignalingState("closed");
+    this.setConnectionState("closed");
 
     this.transceivers.forEach((transceiver) => {
       transceiver.receiver.stop();
@@ -770,7 +771,6 @@ export class RTCPeerConnection {
       await this.sctpTransport.dtlsTransport.iceTransport.stop();
     }
 
-    this.updateIceConnectionState();
     this.removeAllListeners();
   }
 
@@ -798,7 +798,7 @@ export function createMediaDescriptionForTransceiver(
     transceiver.kind,
     9,
     "UDP/TLS/RTP/SAVPF",
-    transceiver.codecs.map((c) => c.payloadType!)
+    transceiver.codecs.map((c) => c.payloadType)
   );
   media.direction = direction;
   media.msid = transceiver.msid;
@@ -849,7 +849,7 @@ export function addTransportDescription(
   const iceGatherer = iceTransport.iceGather;
 
   media.iceCandidates = iceGatherer.localCandidates;
-  media.iceCandidatesComplete = iceGatherer.state === "completed";
+  media.iceCandidatesComplete = iceGatherer.gatheringState === "complete";
   media.iceParams = iceGatherer.localParameters;
 
   if (media.iceCandidates.length > 0) {
@@ -884,15 +884,11 @@ export function allocateMid(mids: Set<string>) {
   return mid;
 }
 
-export function wrapSessionDescription(
-  sessionDescription?: SessionDescription
-) {
-  if (sessionDescription) {
-    return new RTCSessionDescription(
-      sessionDescription.toString(),
-      sessionDescription.type!
-    );
-  }
+export function wrapSessionDescription(sessionDescription: SessionDescription) {
+  return new RTCSessionDescription(
+    sessionDescription.toString(),
+    sessionDescription.type
+  );
 }
 
 export type PeerConfig = {
@@ -909,7 +905,7 @@ export type PeerConfig = {
   iceConfig: Partial<IceOptions>;
 };
 
-const defaultPeerConfig: PeerConfig = {
+export const defaultPeerConfig: PeerConfig = {
   codecs: {
     audio: [
       new RTCRtpCodecParameters({

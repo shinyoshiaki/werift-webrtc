@@ -33,11 +33,11 @@ describe("trickle", () => {
       const offer = pcOffer.createOffer();
       pcOffer.setLocalDescription(offer);
 
-      await pcAnswer.setRemoteDescription(pcOffer.localDescription);
+      await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
       const answer = pcAnswer.createAnswer();
       await pcAnswer.setLocalDescription(answer);
 
-      await pcOffer.setRemoteDescription(pcAnswer.localDescription);
+      await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
     },
     15 * 1000
   );
