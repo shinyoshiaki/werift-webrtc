@@ -433,6 +433,8 @@ export class RTCPeerConnection {
     const iceTransport = dtlsTransport.iceTransport;
 
     if (this.remoteIce && this.remoteDtls) {
+      this.setConnectionState("connecting");
+
       await iceTransport.start(this.remoteIce);
       await dtlsTransport.start(this.remoteDtls);
 
@@ -442,6 +444,8 @@ export class RTCPeerConnection {
       }
 
       this.masterTransportEstablished = true;
+
+      this.setConnectionState("connected");
     }
   }
 

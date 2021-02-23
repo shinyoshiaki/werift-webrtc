@@ -59,8 +59,8 @@ export class RTCSctpTransport {
       });
       this.dataChannels = {};
     });
-    this.dtlsTransport.stateChanged.subscribe((state) => {
-      if (state === DtlsState.CLOSED) {
+    this.dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "closed") {
         this.sctp.setState(SCTP_STATE.CLOSED);
       }
     });

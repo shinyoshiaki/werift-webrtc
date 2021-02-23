@@ -21,7 +21,7 @@ import {
 import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
-import { DtlsState, RTCDtlsTransport } from "../transport/dtls";
+import { RTCDtlsTransport } from "../transport/dtls";
 import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
 import { RTCRtpParameters } from "./parameters";
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
@@ -59,15 +59,15 @@ export class RTCRtpSender {
   private rtpCache: RtpPacket[] = [];
 
   constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
-    dtlsTransport.stateChanged.subscribe((state) => {
-      if (state === DtlsState.CONNECTED) {
+    dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "connected") {
         this.onReady.execute();
       }
     });
   }
 
   get ready() {
-    return this.dtlsTransport.state === DtlsState.CONNECTED;
+    return this.dtlsTransport.state === "connected";
   }
 
   stop() {

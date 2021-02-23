@@ -19,10 +19,13 @@ udp.bind(5000);
   const pc = new RTCPeerConnection({
     iceConfig: { stunServer: ["stun.l.google.com", 19302] },
   });
+  pc.connectionStateChange.subscribe((state) =>
+    console.log("connectionStateChange", state)
+  );
+
   const transceiver = pc.addTransceiver("video", "sendrecv");
   transceiver.onTrack.once((track) => {
     track.onRtp.subscribe((rtp) => {
-      console.log(rtp.header);
       udp.send(rtp.serialize(), 4002, "127.0.0.1");
     });
   });
@@ -31,7 +34,7 @@ udp.bind(5000);
   const { data } = await axios.post(args.url + "/offer", pc.localDescription);
   pc.setRemoteDescription(data);
 
-  await transceiver.sender.onReady.asPromise();
+  await pc.connectionStateChange.watch((state) => state === "connected");
   udp.on("message", (data) => {
     const rtp = RtpPacket.deSerialize(data);
     rtp.header.payloadType = pc.configuration.codecs.video[0].payloadType;

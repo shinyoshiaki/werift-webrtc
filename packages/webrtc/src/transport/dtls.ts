@@ -24,26 +24,16 @@ import { RTCIceTransport } from "./ice";
 
 const log = debug("werift/webrtc/transport/dtls");
 
-export enum DtlsState {
-  NEW = 0,
-  CONNECTING = 1,
-  CONNECTED = 2,
-  CLOSED = 3,
-  FAILED = 4,
-}
-
-type DtlsRole = "auto" | "server" | "client";
-
 export class RTCDtlsTransport {
-  readonly stateChanged = new Event<[DtlsState]>();
   dtls!: DtlsSocket;
-  state = DtlsState.NEW;
+  state: DtlsState = "new";
   role: DtlsRole = "auto";
   dataReceiver?: (buf: Buffer) => void;
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
-
   transportSequenceNumber = 0;
+
+  readonly onStateChange = new Event<[DtlsState]>();
 
   private localCertificate: RTCCertificate;
 
@@ -64,7 +54,7 @@ export class RTCDtlsTransport {
   }
 
   async start(remoteParameters: RTCDtlsParameters) {
-    if (this.state !== DtlsState.NEW) throw new Error();
+    if (this.state !== "new") throw new Error();
     if (remoteParameters.fingerprints.length === 0) throw new Error();
 
     if (this.iceTransport.role === "controlling") {
@@ -73,7 +63,7 @@ export class RTCDtlsTransport {
       this.role = "client";
     }
 
-    this.setState(DtlsState.CONNECTING);
+    this.setState("connecting");
 
     await new Promise<void>(async (r) => {
       if (this.role === "server") {
@@ -97,7 +87,7 @@ export class RTCDtlsTransport {
         if (this.dataReceiver) this.dataReceiver(buf);
       });
       this.dtls.onClose.once(() => {
-        this.setState(DtlsState.CLOSED);
+        this.setState("closed");
       });
       this.dtls.onConnect.once(r);
 
@@ -110,7 +100,7 @@ export class RTCDtlsTransport {
     if (this.srtpProfiles.length > 0) {
       this.startSrtp();
     }
-    this.setState(DtlsState.CONNECTED);
+    this.setState("connected");
     log("dtls connected");
   }
 
@@ -175,14 +165,25 @@ export class RTCDtlsTransport {
   private setState(state: DtlsState) {
     if (state != this.state) {
       this.state = state;
-      this.stateChanged.execute(state);
+      this.onStateChange.execute(state);
     }
   }
 
   stop() {
-    this.setState(DtlsState.CLOSED);
+    this.setState("closed");
   }
 }
+
+export const DtlsStates = [
+  "new",
+  "connecting",
+  "connected",
+  "closed",
+  "failed",
+] as const;
+export type DtlsState = typeof DtlsStates[number];
+
+export type DtlsRole = "auto" | "server" | "client";
 
 export class RTCCertificate {
   publicKey: string;
