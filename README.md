@@ -52,10 +52,10 @@ see console & chrome://webrtc-internals/
 - [x] ICE
   - [x] Vanilla ICE
   - [x] Trickle ICE
-- [ ] DTLS
+- [x] DTLS
   - [x] DTLS-SRTP
   - [x] Curve25519
-  - [ ] P-256
+  - [x] P-256
 - [x] DataChannel
 - [x] MediaChannel
   - [x] sendonly
@@ -78,16 +78,19 @@ see console & chrome://webrtc-internals/
 - [x] BWE
   - [x] sender side BWE
 - [ ] Documentation
-- [ ] Compatibility
+- [x] Compatibility
   - [x] Chrome
   - [x] FireFox
-  - [ ] Pion
-  - [ ] aiortc
-  - [ ] sipsorcery
-- [ ] Interop E2E test
+  - [x] Pion
+  - [x] aiortc
+  - [x] sipsorcery
+- [x] Interop E2E test
   - [x] Chrome
-  - [ ] etc....
-  
+  - ↓↓↓ https://github.com/sipsorcery/webrtc-echoes
+  - [x] Pion
+  - [x] aiortc
+  - [x] sipsorcery
+
 ## Road Map Towards 2.0
 
 - [ ] API compatible with browser RTCPeerConnection
