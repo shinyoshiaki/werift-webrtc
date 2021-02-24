@@ -102,4 +102,20 @@ module.exports = {
       },
     ],
   ],
+  plugins: [
+    [
+      "docusaurus-plugin-typedoc",
+      {
+        entryPoints: ["../packages/webrtc/src/index.ts"],
+        tsconfig: "../packages/webrtc/tsconfig.json",
+        docsRoot: "docs",
+        out: "api",
+        sidebar: {
+          sidebarFile: "typedoc-sidebar.js",
+          fullNames: true,
+          readmeLabel: "Overview",
+        },
+      },
+    ],
+  ],
 };

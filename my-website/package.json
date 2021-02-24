@@ -6,6 +6,7 @@
     "build": "docusaurus build",
     "clear": "docusaurus clear",
     "deploy": "docusaurus deploy",
+    "doc": "rm -rf docs && typedoc --plugin typedoc-plugin-markdown --theme docusaurus2 --out docs ../packages/webrtc/src/**/*.ts",
     "docusaurus": "docusaurus",
     "format": "prettier --write .",
     "serve": "docusaurus serve",
@@ -38,7 +39,10 @@
     "@types/react": "^17.0.2",
     "@types/react-helmet": "^6.1.0",
     "@types/react-router-dom": "^5.1.7",
+    "docusaurus-plugin-typedoc": "^0.10.0",
     "prettier": "^2.2.1",
+    "typedoc": "^0.20.28",
+    "typedoc-plugin-markdown": "^3.5.0",
     "typescript": "^4.2.2"
   }
 }
