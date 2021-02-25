@@ -1,16 +1,28 @@
 module.exports = {
-  title: "My Site",
-  tagline: "The tagline of my site",
+  title: "werift",
+  tagline: "Pure WebRTC implementation of the WebRTC",
   url: "https://your-docusaurus-test-site.com",
-  baseUrl: "/",
+  baseUrl: "/website/build/",
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
   favicon: "img/favicon.ico",
-  organizationName: "facebook", // Usually your GitHub org/user name.
-  projectName: "docusaurus", // Usually your repo name.
+  organizationName: "shinyoshiaki", // Usually your GitHub org/user name.
+  projectName: "werift", // Usually your repo name.
+  i18n: {
+    defaultLocale: "en",
+    locales: ["en", "ja"],
+    localeConfigs: {
+      en: {
+        label: "English",
+      },
+      fr: {
+        label: "Japanese",
+      },
+    },
+  },
   themeConfig: {
     navbar: {
-      title: "My Site",
+      title: "werift",
       logo: {
         alt: "My Site Logo",
         src: "img/logo.svg",
@@ -23,6 +35,10 @@ module.exports = {
           position: "left",
         },
         { to: "blog", label: "Blog", position: "left" },
+        {
+          type: "localeDropdown",
+          position: "right",
+        },
         {
           href: "https://github.com/facebook/docusaurus",
           label: "GitHub",
@@ -37,12 +53,12 @@ module.exports = {
           title: "Docs",
           items: [
             {
-              label: "Style Guide",
+              label: "Documentation",
               to: "docs/",
             },
             {
-              label: "Second Doc",
-              to: "docs/doc2/",
+              label: "API Reference",
+              to: "docs/api/",
             },
           ],
         },
@@ -50,16 +66,8 @@ module.exports = {
           title: "Community",
           items: [
             {
-              label: "Stack Overflow",
-              href: "https://stackoverflow.com/questions/tagged/docusaurus",
-            },
-            {
-              label: "Discord",
-              href: "https://discordapp.com/invite/docusaurus",
-            },
-            {
               label: "Twitter",
-              href: "https://twitter.com/docusaurus",
+              href: "https://twitter.com/shinyoshiaki",
             },
           ],
         },
@@ -72,12 +80,12 @@ module.exports = {
             },
             {
               label: "GitHub",
-              href: "https://github.com/facebook/docusaurus",
+              href: "https://github.com/shinyoshiaki/werift-webrtc",
             },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} My Project, Inc. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} werift, shinyoshiaki`,
     },
   },
   presets: [

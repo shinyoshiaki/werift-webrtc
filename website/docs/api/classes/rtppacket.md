@@ -23,7 +23,7 @@ Name | Type |
 
 **Returns:** [*RtpPacket*](rtppacket.md)
 
-Defined in: [rtp/src/rtp/rtp.ts:257](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtp/rtp.ts#L257)
+Defined in: [rtp/src/rtp/rtp.ts:257](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtp/rtp.ts#L257)
 
 ## Properties
 
@@ -45,7 +45,7 @@ ___
 
 **Returns:** *number*
 
-Defined in: [rtp/src/rtp/rtp.ts:260](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtp/rtp.ts#L260)
+Defined in: [rtp/src/rtp/rtp.ts:260](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtp/rtp.ts#L260)
 
 ## Methods
 
@@ -55,7 +55,7 @@ Defined in: [rtp/src/rtp/rtp.ts:260](https://github.com/shinyoshiaki/werift-webr
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtp/rtp.ts:264](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtp/rtp.ts#L264)
+Defined in: [rtp/src/rtp/rtp.ts:264](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtp/rtp.ts#L264)
 
 ___
 
@@ -71,4 +71,4 @@ Name | Type |
 
 **Returns:** [*RtpPacket*](rtppacket.md)
 
-Defined in: [rtp/src/rtp/rtp.ts:279](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtp/rtp.ts#L279)
+Defined in: [rtp/src/rtp/rtp.ts:279](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtp/rtp.ts#L279)

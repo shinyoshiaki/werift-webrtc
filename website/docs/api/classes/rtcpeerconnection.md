@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RTCPeerConnection*](rtcpeerconnection.md)
 
-Defined in: [webrtc/src/peerConnection.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L82)
+Defined in: [webrtc/src/peerConnection.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L82)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [webrtc/src/peerConnection.ts:82](https://github.com/shinyoshiaki/we
 
 • `Private` **certificates**: [*RTCCertificate*](rtccertificate.md)[]
 
-Defined in: [webrtc/src/peerConnection.ts:73](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L73)
+Defined in: [webrtc/src/peerConnection.ts:73](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L73)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • `Readonly` **cname**: *string*
 
-Defined in: [webrtc/src/peerConnection.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L54)
+Defined in: [webrtc/src/peerConnection.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L54)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **configuration**: *Required*<[*PeerConfig*](../modules.md#peerconfig)\>
 
-Defined in: [webrtc/src/peerConnection.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L58)
+Defined in: [webrtc/src/peerConnection.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L58)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **connectionState**: *closed* \| *connecting* \| *failed* \| *disconnected* \| *new* \| *connected*= "new"
 
-Defined in: [webrtc/src/peerConnection.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L59)
+Defined in: [webrtc/src/peerConnection.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L59)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • `Readonly` **connectionStateChange**: *default*<[*closed* \| *connecting* \| *failed* \| *disconnected* \| *new* \| *connected*]\>
 
-Defined in: [webrtc/src/peerConnection.ts:67](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L67)
+Defined in: [webrtc/src/peerConnection.ts:67](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L67)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 • `Private` `Optional` **currentLocalDescription**: *undefined* \| *SessionDescription*
 
-Defined in: [webrtc/src/peerConnection.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L78)
+Defined in: [webrtc/src/peerConnection.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L78)
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 • `Private` `Optional` **currentRemoteDescription**: *undefined* \| *SessionDescription*
 
-Defined in: [webrtc/src/peerConnection.ts:79](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L79)
+Defined in: [webrtc/src/peerConnection.ts:79](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L79)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 • **iceConnectionState**: *closed* \| *failed* \| *disconnected* \| *new* \| *connected* \| *checking* \| *completed*= "new"
 
-Defined in: [webrtc/src/peerConnection.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L60)
+Defined in: [webrtc/src/peerConnection.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L60)
 
 ___
 
@@ -94,7 +94,7 @@ ___
 
 • `Readonly` **iceConnectionStateChange**: *default*<[*closed* \| *failed* \| *disconnected* \| *new* \| *connected* \| *checking* \| *completed*]\>
 
-Defined in: [webrtc/src/peerConnection.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L65)
+Defined in: [webrtc/src/peerConnection.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L65)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 • **iceGatheringState**: *new* \| *gathering* \| *complete*= "new"
 
-Defined in: [webrtc/src/peerConnection.ts:61](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L61)
+Defined in: [webrtc/src/peerConnection.ts:61](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L61)
 
 ___
 
@@ -110,7 +110,7 @@ ___
 
 • `Readonly` **iceGatheringStateChange**: *default*<[*new* \| *gathering* \| *complete*]\>
 
-Defined in: [webrtc/src/peerConnection.ts:64](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L64)
+Defined in: [webrtc/src/peerConnection.ts:64](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L64)
 
 ___
 
@@ -118,7 +118,7 @@ ___
 
 • `Private` **isClosed**: *boolean*= false
 
-Defined in: [webrtc/src/peerConnection.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L82)
+Defined in: [webrtc/src/peerConnection.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L82)
 
 ___
 
@@ -126,7 +126,7 @@ ___
 
 • `Optional` **masterTransport**: *undefined* \| *RTCDtlsTransport*
 
-Defined in: [webrtc/src/peerConnection.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L55)
+Defined in: [webrtc/src/peerConnection.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L55)
 
 ___
 
@@ -134,7 +134,7 @@ ___
 
 • **masterTransportEstablished**: *boolean*= false
 
-Defined in: [webrtc/src/peerConnection.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L57)
+Defined in: [webrtc/src/peerConnection.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L57)
 
 ___
 
@@ -142,7 +142,7 @@ ___
 
 • `Readonly` **onDataChannel**: *default*<[[*RTCDataChannel*](rtcdatachannel.md)]\>
 
-Defined in: [webrtc/src/peerConnection.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L68)
+Defined in: [webrtc/src/peerConnection.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L68)
 
 ___
 
@@ -150,7 +150,7 @@ ___
 
 • `Readonly` **onIceCandidate**: *default*<[*RTCIceCandidate*]\>
 
-Defined in: [webrtc/src/peerConnection.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L70)
+Defined in: [webrtc/src/peerConnection.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L70)
 
 ___
 
@@ -158,7 +158,7 @@ ___
 
 • `Readonly` **onTransceiver**: *default*<[[*RTCRtpTransceiver*](rtcrtptransceiver.md)]\>
 
-Defined in: [webrtc/src/peerConnection.ts:69](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L69)
+Defined in: [webrtc/src/peerConnection.ts:69](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L69)
 
 ___
 
@@ -166,7 +166,7 @@ ___
 
 • `Private` `Optional` **pendingLocalDescription**: *undefined* \| *SessionDescription*
 
-Defined in: [webrtc/src/peerConnection.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L80)
+Defined in: [webrtc/src/peerConnection.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L80)
 
 ___
 
@@ -174,7 +174,7 @@ ___
 
 • `Private` `Optional` **pendingRemoteDescription**: *undefined* \| *SessionDescription*
 
-Defined in: [webrtc/src/peerConnection.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L81)
+Defined in: [webrtc/src/peerConnection.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L81)
 
 ___
 
@@ -182,7 +182,7 @@ ___
 
 • `Private` `Optional` **remoteDtls**: *undefined* \| *RTCDtlsParameters*
 
-Defined in: [webrtc/src/peerConnection.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L75)
+Defined in: [webrtc/src/peerConnection.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L75)
 
 ___
 
@@ -190,7 +190,7 @@ ___
 
 • `Private` `Optional` **remoteIce**: *undefined* \| *RTCIceParameters*
 
-Defined in: [webrtc/src/peerConnection.ts:76](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L76)
+Defined in: [webrtc/src/peerConnection.ts:76](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L76)
 
 ___
 
@@ -198,7 +198,7 @@ ___
 
 • `Private` `Readonly` **router**: *RtpRouter*
 
-Defined in: [webrtc/src/peerConnection.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L72)
+Defined in: [webrtc/src/peerConnection.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L72)
 
 ___
 
@@ -206,7 +206,7 @@ ___
 
 • `Private` `Optional` **sctpRemotePort**: *undefined* \| *number*
 
-Defined in: [webrtc/src/peerConnection.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L74)
+Defined in: [webrtc/src/peerConnection.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L74)
 
 ___
 
@@ -214,7 +214,7 @@ ___
 
 • `Optional` **sctpTransport**: *undefined* \| [*RTCSctpTransport*](rtcsctptransport.md)
 
-Defined in: [webrtc/src/peerConnection.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L56)
+Defined in: [webrtc/src/peerConnection.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L56)
 
 ___
 
@@ -222,7 +222,7 @@ ___
 
 • `Private` **seenMid**: *Set*<string\>
 
-Defined in: [webrtc/src/peerConnection.ts:77](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L77)
+Defined in: [webrtc/src/peerConnection.ts:77](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L77)
 
 ___
 
@@ -230,7 +230,7 @@ ___
 
 • **signalingState**: *closed* \| *stable* \| *have-local-offer* \| *have-remote-offer* \| *have-local-pranswer* \| *have-remote-pranswer*= "stable"
 
-Defined in: [webrtc/src/peerConnection.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L62)
+Defined in: [webrtc/src/peerConnection.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L62)
 
 ___
 
@@ -238,7 +238,7 @@ ___
 
 • `Readonly` **signalingStateChange**: *default*<[*closed* \| *stable* \| *have-local-offer* \| *have-remote-offer* \| *have-local-pranswer* \| *have-remote-pranswer*]\>
 
-Defined in: [webrtc/src/peerConnection.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L66)
+Defined in: [webrtc/src/peerConnection.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L66)
 
 ___
 
@@ -246,7 +246,7 @@ ___
 
 • `Readonly` **transceivers**: [*RTCRtpTransceiver*](rtcrtptransceiver.md)[]
 
-Defined in: [webrtc/src/peerConnection.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L63)
+Defined in: [webrtc/src/peerConnection.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L63)
 
 ## Accessors
 
@@ -256,7 +256,7 @@ Defined in: [webrtc/src/peerConnection.ts:63](https://github.com/shinyoshiaki/we
 
 **Returns:** *undefined* \| *SessionDescription*
 
-Defined in: [webrtc/src/peerConnection.ts:141](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L141)
+Defined in: [webrtc/src/peerConnection.ts:141](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L141)
 
 ___
 
@@ -266,7 +266,7 @@ ___
 
 **Returns:** *undefined* \| *SessionDescription*
 
-Defined in: [webrtc/src/peerConnection.ts:145](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L145)
+Defined in: [webrtc/src/peerConnection.ts:145](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L145)
 
 ___
 
@@ -276,7 +276,7 @@ ___
 
 **Returns:** *undefined* \| [*RTCSessionDescription*](rtcsessiondescription.md)
 
-Defined in: [webrtc/src/peerConnection.ts:131](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L131)
+Defined in: [webrtc/src/peerConnection.ts:131](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L131)
 
 ___
 
@@ -286,7 +286,7 @@ ___
 
 **Returns:** *undefined* \| [*RTCSessionDescription*](rtcsessiondescription.md)
 
-Defined in: [webrtc/src/peerConnection.ts:136](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L136)
+Defined in: [webrtc/src/peerConnection.ts:136](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L136)
 
 ## Methods
 
@@ -302,7 +302,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/peerConnection.ts:403](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L403)
+Defined in: [webrtc/src/peerConnection.ts:403](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L403)
 
 ___
 
@@ -320,7 +320,7 @@ Name | Type |
 
 **Returns:** [*RTCRtpTransceiver*](rtcrtptransceiver.md)
 
-Defined in: [webrtc/src/peerConnection.ts:653](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L653)
+Defined in: [webrtc/src/peerConnection.ts:653](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L653)
 
 ___
 
@@ -330,7 +330,7 @@ ___
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:759](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L759)
+Defined in: [webrtc/src/peerConnection.ts:759](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L759)
 
 ___
 
@@ -340,7 +340,7 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/peerConnection.ts:738](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L738)
+Defined in: [webrtc/src/peerConnection.ts:738](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L738)
 
 ___
 
@@ -350,7 +350,7 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/peerConnection.ts:417](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L417)
+Defined in: [webrtc/src/peerConnection.ts:417](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L417)
 
 ___
 
@@ -360,7 +360,7 @@ ___
 
 **Returns:** [*RTCSessionDescription*](rtcsessiondescription.md)
 
-Defined in: [webrtc/src/peerConnection.ts:679](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L679)
+Defined in: [webrtc/src/peerConnection.ts:679](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L679)
 
 ___
 
@@ -377,7 +377,7 @@ Name | Type |
 
 **Returns:** [*RTCDataChannel*](rtcdatachannel.md)
 
-Defined in: [webrtc/src/peerConnection.ts:245](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L245)
+Defined in: [webrtc/src/peerConnection.ts:245](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L245)
 
 ___
 
@@ -393,7 +393,7 @@ Name | Type |
 
 **Returns:** *RTCDtlsTransport*
 
-Defined in: [webrtc/src/peerConnection.ts:297](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L297)
+Defined in: [webrtc/src/peerConnection.ts:297](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L297)
 
 ___
 
@@ -403,7 +403,7 @@ ___
 
 **Returns:** [*RTCSessionDescription*](rtcsessiondescription.md)
 
-Defined in: [webrtc/src/peerConnection.ts:159](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L159)
+Defined in: [webrtc/src/peerConnection.ts:159](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L159)
 
 ___
 
@@ -413,7 +413,7 @@ ___
 
 **Returns:** [*RTCSctpTransport*](rtcsctptransport.md)
 
-Defined in: [webrtc/src/peerConnection.ts:331](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L331)
+Defined in: [webrtc/src/peerConnection.ts:331](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L331)
 
 ___
 
@@ -423,7 +423,7 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/peerConnection.ts:412](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L412)
+Defined in: [webrtc/src/peerConnection.ts:412](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L412)
 
 ___
 
@@ -439,7 +439,7 @@ Name | Type |
 
 **Returns:** *undefined* \| [*RTCRtpTransceiver*](rtcrtptransceiver.md)
 
-Defined in: [webrtc/src/peerConnection.ts:153](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L153)
+Defined in: [webrtc/src/peerConnection.ts:153](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L153)
 
 ___
 
@@ -455,7 +455,7 @@ Name | Type |
 
 **Returns:** *undefined* \| [*RTCRtpTransceiver*](rtcrtptransceiver.md)
 
-Defined in: [webrtc/src/peerConnection.ts:149](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L149)
+Defined in: [webrtc/src/peerConnection.ts:149](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L149)
 
 ___
 
@@ -471,7 +471,7 @@ Name | Type |
 
 **Returns:** *RTCRtpParameters*
 
-Defined in: [webrtc/src/peerConnection.ts:440](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L440)
+Defined in: [webrtc/src/peerConnection.ts:440](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L440)
 
 ___
 
@@ -487,7 +487,7 @@ Name | Type |
 
 **Returns:** *RTCRtpReceiveParameters*
 
-Defined in: [webrtc/src/peerConnection.ts:448](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L448)
+Defined in: [webrtc/src/peerConnection.ts:448](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L448)
 
 ___
 
@@ -497,7 +497,7 @@ ___
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:787](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L787)
+Defined in: [webrtc/src/peerConnection.ts:787](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L787)
 
 ___
 
@@ -515,7 +515,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:286](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L286)
+Defined in: [webrtc/src/peerConnection.ts:286](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L286)
 
 ___
 
@@ -531,7 +531,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:781](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L781)
+Defined in: [webrtc/src/peerConnection.ts:781](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L781)
 
 ___
 
@@ -547,7 +547,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:394](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L394)
+Defined in: [webrtc/src/peerConnection.ts:394](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L394)
 
 ___
 
@@ -563,7 +563,7 @@ Name | Type |
 
 **Returns:** *Promise*<undefined \| [*RTCSessionDescription*](rtcsessiondescription.md)\>
 
-Defined in: [webrtc/src/peerConnection.ts:344](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L344)
+Defined in: [webrtc/src/peerConnection.ts:344](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L344)
 
 ___
 
@@ -579,7 +579,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/peerConnection.ts:521](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L521)
+Defined in: [webrtc/src/peerConnection.ts:521](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L521)
 
 ___
 
@@ -595,7 +595,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:775](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L775)
+Defined in: [webrtc/src/peerConnection.ts:775](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L775)
 
 ___
 
@@ -611,7 +611,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:769](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L769)
+Defined in: [webrtc/src/peerConnection.ts:769](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L769)
 
 ___
 
@@ -627,7 +627,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:763](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L763)
+Defined in: [webrtc/src/peerConnection.ts:763](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L763)
 
 ___
 
@@ -644,4 +644,4 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/peerConnection.ts:467](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/webrtc/src/peerConnection.ts#L467)
+Defined in: [webrtc/src/peerConnection.ts:467](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L467)

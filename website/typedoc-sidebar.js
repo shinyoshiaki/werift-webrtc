@@ -2,14 +2,17 @@ module.exports = [
   "api/index",
   "api/modules",
   {
-    type: "category",
-    label: "Enumerations",
-    items: ["api/enums/packetchunk", "api/enums/packetstatus"],
+    "type": "category",
+    "label": "Enumerations",
+    "items": [
+      "api/enums/packetchunk",
+      "api/enums/packetstatus"
+    ]
   },
   {
-    type: "category",
-    label: "Classes",
-    items: [
+    "type": "category",
+    "label": "Classes",
+    "items": [
       "api/classes/genericnack",
       "api/classes/picturelossindication",
       "api/classes/promisequeue",
@@ -42,7 +45,7 @@ module.exports = [
       "api/classes/srtcpsession",
       "api/classes/srtpsession",
       "api/classes/statusvectorchunk",
-      "api/classes/transportwidecc",
-    ],
-  },
+      "api/classes/transportwidecc"
+    ]
+  }
 ];

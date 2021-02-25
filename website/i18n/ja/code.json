@@ -1,0 +1,20 @@
+{
+  "features__title__pure_ts": {
+    "message": "ピュアTypeScript"
+  },
+  "features__desc__pure_ts": {
+    "message": "Node.jsの標準ライブラリとjs製のライブラリのみで構成されているため、Node.jsさえインストールされていれば動作します。ネイティブモジュールに一切依存していないので、node-gypなどに煩わされることがありません。"
+  },
+  "features__title__easy_to_use": {
+    "message": "シンプルなAPI"
+  },
+  "features__desc__easy_to_use": {
+    "message": "ブラウザのWebRTC APIに近いAPI設計となっており、学習コストが抑えられています。"
+  },
+  "features__title__learn": {
+    "message": "学習用に最適"
+  },
+  "features__desc__learn": {
+    "message": "コードベースがとても小さく、WebRTCの全てのプロトコルスタックが一つのリポジトリに収まっています。ビルドも非常に簡単なので自分で簡単に機能を追加したり修正したりできます。"
+  }
+}

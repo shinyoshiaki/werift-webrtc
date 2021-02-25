@@ -1,0 +1,22 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.someSidebar.category.Documentation": {
+    "message": "Documentation",
+    "description": "The label for category Documentation in sidebar someSidebar"
+  },
+  "sidebar.someSidebar.category.API Reference": {
+    "message": "API Reference",
+    "description": "The label for category API Reference in sidebar someSidebar"
+  },
+  "sidebar.someSidebar.category.Enumerations": {
+    "message": "Enumerations",
+    "description": "The label for category Enumerations in sidebar someSidebar"
+  },
+  "sidebar.someSidebar.category.Classes": {
+    "message": "Classes",
+    "description": "The label for category Classes in sidebar someSidebar"
+  }
+}

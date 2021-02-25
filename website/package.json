@@ -6,7 +6,6 @@
     "build": "docusaurus build",
     "clear": "docusaurus clear",
     "deploy": "docusaurus deploy",
-    "doc": "rm -rf docs && typedoc --plugin typedoc-plugin-markdown --theme docusaurus2 --out docs ../packages/webrtc/src/**/*.ts",
     "docusaurus": "docusaurus",
     "format": "prettier --write .",
     "serve": "docusaurus serve",

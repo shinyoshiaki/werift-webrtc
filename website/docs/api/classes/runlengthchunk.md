@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RunLengthChunk*](runlengthchunk.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:252](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L252)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:252](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L252)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:252](https://github.com/shinyoshiaki/wer
 
 • **packetStatus**: [*PacketStatus*](../enums/packetstatus.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:250](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L250)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:250](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L250)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 13bit
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:252](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L252)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:252](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L252)
 
 ___
 
@@ -48,7 +48,7 @@ ___
 
 • **type**: [*TypeTCCRunLengthChunk*](../enums/packetchunk.md#typetccrunlengthchunk)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:249](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L249)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:249](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L249)
 
 ## Methods
 
@@ -64,7 +64,7 @@ Name | Type |
 
 **Returns:** *PacketResult*[]
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:278](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L278)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:278](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L278)
 
 ___
 
@@ -74,7 +74,7 @@ ___
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:266](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L266)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:266](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L266)
 
 ___
 
@@ -90,4 +90,4 @@ Name | Type |
 
 **Returns:** [*RunLengthChunk*](runlengthchunk.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:259](https://github.com/shinyoshiaki/werift-webrtc/blob/2cffe94/packages/rtp/src/rtcp/rtpfb/twcc.ts#L259)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:259](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L259)
