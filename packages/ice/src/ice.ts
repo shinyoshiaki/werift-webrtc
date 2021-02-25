@@ -41,7 +41,7 @@ export enum CandidatePairState {
 
 type IceState = "disconnected" | "closed" | "completed";
 
-export type IceOptions = {
+export interface IceOptions {
   components: number;
   stunServer?: Address;
   turnServer?: Address;
@@ -52,7 +52,7 @@ export type IceOptions = {
   forceTurn?: boolean;
   useIpv4: boolean;
   useIpv6: boolean;
-};
+}
 
 const defaultOptions: IceOptions = {
   components: 1,

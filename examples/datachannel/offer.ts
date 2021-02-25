@@ -7,9 +7,7 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
 
-  const dc = pc.createDataChannel("chat", {
-    protocol: "bob",
-  });
+  const dc = pc.createDataChannel("chat");
   dc.stateChanged.subscribe((v) => {
     console.log("dc.stateChanged", v);
     if (v === "open") {
