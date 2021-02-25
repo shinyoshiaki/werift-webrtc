@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+    <channel>
+        <title>werift Blog</title>
+        <link>https://your-docusaurus-test-site.com/blog</link>
+        <description>werift Blog</description>
+        <lastBuildDate>Tue, 28 May 2019 00:00:00 GMT</lastBuildDate>
+        <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
+        <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Test]]></title>
+            <link>https://your-docusaurus-test-site.com/website/build/blog/test</link>
+            <guid>test</guid>
+            <pubDate>Tue, 28 May 2019 00:00:00 GMT</pubDate>
+            <description><![CDATA[Test]]></description>
+        </item>
+    </channel>
+</rss>

@@ -23,7 +23,7 @@ Name | Type |
 
 **Returns:** [*RTCCertificate*](rtccertificate.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/dtls.ts#L191)
+Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/transport/dtls.ts#L191)
 
 ## Properties
 
@@ -31,7 +31,7 @@ Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/w
 
 • **cert**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/dtls.ts#L191)
+Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/transport/dtls.ts#L191)
 
 ___
 
@@ -39,7 +39,7 @@ ___
 
 • **privateKey**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:190](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/dtls.ts#L190)
+Defined in: [webrtc/src/transport/dtls.ts:190](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/transport/dtls.ts#L190)
 
 ___
 
@@ -47,7 +47,7 @@ ___
 
 • **publicKey**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:189](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/dtls.ts#L189)
+Defined in: [webrtc/src/transport/dtls.ts:189](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/transport/dtls.ts#L189)
 
 ## Methods
 
@@ -57,7 +57,7 @@ Defined in: [webrtc/src/transport/dtls.ts:189](https://github.com/shinyoshiaki/w
 
 **Returns:** *RTCDtlsFingerprint*[]
 
-Defined in: [webrtc/src/transport/dtls.ts:199](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/dtls.ts#L199)
+Defined in: [webrtc/src/transport/dtls.ts:199](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/transport/dtls.ts#L199)
 
 ___
 
@@ -67,4 +67,4 @@ ___
 
 **Returns:** [*RTCCertificate*](rtccertificate.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:208](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/dtls.ts#L208)
+Defined in: [webrtc/src/transport/dtls.ts:208](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/transport/dtls.ts#L208)

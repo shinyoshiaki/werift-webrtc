@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RtpTrack*](rtptrack.md)
 
-Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/track.ts#L11)
+Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/media/track.ts#L11)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werif
 
 • **id**: *string*
 
-Defined in: [webrtc/src/media/track.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/track.ts#L9)
+Defined in: [webrtc/src/media/track.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/media/track.ts#L9)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **kind**: [*Kind*](../modules.md#kind)
 
-Defined in: [webrtc/src/media/track.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/track.ts#L8)
+Defined in: [webrtc/src/media/track.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/media/track.ts#L8)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • `Readonly` **onRtp**: *default*<[[*RtpPacket*](rtppacket.md)]\>
 
-Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/track.ts#L11)
+Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/media/track.ts#L11)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • `Optional` **rid**: *undefined* \| *string*
 
-Defined in: [webrtc/src/media/track.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/track.ts#L7)
+Defined in: [webrtc/src/media/track.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/media/track.ts#L7)
 
 ___
 
@@ -62,4 +62,4 @@ ___
 
 • `Optional` **ssrc**: *undefined* \| *number*
 
-Defined in: [webrtc/src/media/track.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/track.ts#L6)
+Defined in: [webrtc/src/media/track.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/webrtc/src/media/track.ts#L6)
