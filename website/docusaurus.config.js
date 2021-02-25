@@ -2,7 +2,7 @@ module.exports = {
   title: "werift",
   tagline: "Pure WebRTC implementation of the WebRTC",
   url: "https://your-docusaurus-test-site.com",
-  baseUrl: "/website/build/",
+  baseUrl: "/werift-webrtc/website/build/",
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "warn",
   favicon: "img/favicon.ico",

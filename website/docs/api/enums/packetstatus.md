@@ -14,7 +14,7 @@ hide_title: true
 
 • **TypeTCCPacketNotReceived**: = 0
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:416](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/rtpfb/twcc.ts#L416)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:416](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/rtpfb/twcc.ts#L416)
 
 ___
 
@@ -22,7 +22,7 @@ ___
 
 • **TypeTCCPacketReceivedLargeDelta**: = 2
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:418](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/rtpfb/twcc.ts#L418)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:418](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/rtpfb/twcc.ts#L418)
 
 ___
 
@@ -30,7 +30,7 @@ ___
 
 • **TypeTCCPacketReceivedSmallDelta**: = 1
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:417](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/rtpfb/twcc.ts#L417)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:417](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/rtpfb/twcc.ts#L417)
 
 ___
 
@@ -38,4 +38,4 @@ ___
 
 • **TypeTCCPacketReceivedWithoutDelta**: = 3
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:419](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/rtpfb/twcc.ts#L419)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:419](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/rtpfb/twcc.ts#L419)

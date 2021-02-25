@@ -9,7 +9,7 @@
         <generator>https://github.com/jpmonette/feed</generator>
         <item>
             <title><![CDATA[Test]]></title>
-            <link>https://your-docusaurus-test-site.com/website/build/blog/test</link>
+            <link>https://your-docusaurus-test-site.com/werift-webrtc/website/build/blog/test</link>
             <guid>test</guid>
             <pubDate>Tue, 28 May 2019 00:00:00 GMT</pubDate>
             <description><![CDATA[Test]]></description>

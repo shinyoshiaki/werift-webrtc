@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RtcpHeader*](rtcpheader.md)
 
-Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L19)
+Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L19)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-w
 
 • **count**: *number*= 0
 
-Defined in: [rtp/src/rtcp/header.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L17)
+Defined in: [rtp/src/rtcp/header.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L17)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **length**: *number*= 0
 
-Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L19)
+Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L19)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **padding**: *boolean*= false
 
-Defined in: [rtp/src/rtcp/header.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L16)
+Defined in: [rtp/src/rtcp/header.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L16)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **type**: *number*= 0
 
-Defined in: [rtp/src/rtcp/header.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L18)
+Defined in: [rtp/src/rtcp/header.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L18)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • **version**: *number*= 2
 
-Defined in: [rtp/src/rtcp/header.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L15)
+Defined in: [rtp/src/rtcp/header.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L15)
 
 ## Methods
 
@@ -72,7 +72,7 @@ Defined in: [rtp/src/rtcp/header.ts:15](https://github.com/shinyoshiaki/werift-w
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/header.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L25)
+Defined in: [rtp/src/rtcp/header.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L25)
 
 ___
 
@@ -88,4 +88,4 @@ Name | Type |
 
 **Returns:** [*RtcpHeader*](rtcpheader.md)
 
-Defined in: [rtp/src/rtcp/header.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/9b1b713/packages/rtp/src/rtcp/header.ts#L34)
+Defined in: [rtp/src/rtcp/header.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/header.ts#L34)
