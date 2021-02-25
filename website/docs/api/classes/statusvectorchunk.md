@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*StatusVectorChunk*](statusvectorchunk.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:300](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L300)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:300](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtpfb/twcc.ts#L300)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:300](https://github.com/shinyoshiaki/wer
 
 • **symbolList**: *number*[]
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:300](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L300)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:300](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtpfb/twcc.ts#L300)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **symbolSize**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:299](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L299)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:299](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtpfb/twcc.ts#L299)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **type**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:298](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L298)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:298](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtpfb/twcc.ts#L298)
 
 ## Methods
 
@@ -56,7 +56,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:298](https://github.com/shinyoshiaki/wer
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:327](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L327)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:327](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtpfb/twcc.ts#L327)
 
 ___
 
@@ -72,4 +72,4 @@ Name | Type |
 
 **Returns:** [*StatusVectorChunk*](statusvectorchunk.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:306](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtpfb/twcc.ts#L306)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:306](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtpfb/twcc.ts#L306)

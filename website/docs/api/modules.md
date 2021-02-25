@@ -57,7 +57,7 @@ hide_title: true
 
 Ƭ **Direction**: *typeof* Directions[*number*]
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/media/rtpTransceiver.ts#L86)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/rtpTransceiver.ts#L86)
 
 ___
 
@@ -72,7 +72,7 @@ Name | Type |
 `id` | *number* |
 `payload` | Buffer |
 
-Defined in: [rtp/src/rtp/rtp.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtp/rtp.ts#L3)
+Defined in: [rtp/src/rtp/rtp.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtp/rtp.ts#L3)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 Ƭ **Kind**: *audio* \| *video* \| *application* \| *unknown*
 
-Defined in: [webrtc/src/typings/domain.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/typings/domain.ts#L1)
+Defined in: [webrtc/src/typings/domain.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/typings/domain.ts#L1)
 
 ___
 
@@ -98,7 +98,7 @@ Name | Type |
 `iceConfig` | *Partial*<IceOptions\> |
 `privateKey`? | *string* |
 
-Defined in: [webrtc/src/peerConnection.ts:900](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/peerConnection.ts#L900)
+Defined in: [webrtc/src/peerConnection.ts:900](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/peerConnection.ts#L900)
 
 ___
 
@@ -114,7 +114,7 @@ Name | Type |
 `sdpMLineIndex` | *number* |
 `sdpMid` | *string* |
 
-Defined in: [webrtc/src/transport/ice.ts:165](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/transport/ice.ts#L165)
+Defined in: [webrtc/src/transport/ice.ts:165](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/transport/ice.ts#L165)
 
 ___
 
@@ -122,7 +122,7 @@ ___
 
 Ƭ **RtcpPacket**: [*RtcpRrPacket*](classes/rtcprrpacket.md) \| [*RtcpSrPacket*](classes/rtcpsrpacket.md) \| [*RtcpPayloadSpecificFeedback*](classes/rtcppayloadspecificfeedback.md) \| [*RtcpSourceDescriptionPacket*](classes/rtcpsourcedescriptionpacket.md) \| [*RtcpTransportLayerFeedback*](classes/rtcptransportlayerfeedback.md)
 
-Defined in: [rtp/src/rtcp/rtcp.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/rtp/src/rtcp/rtcp.ts#L8)
+Defined in: [rtp/src/rtcp/rtcp.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/rtp/src/rtcp/rtcp.ts#L8)
 
 ___
 
@@ -136,7 +136,7 @@ Name | Type |
 :------ | :------ |
 `simulcast` | { `direction`: SimulcastDirection ; `rid`: *string*  }[] |
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/media/rtpTransceiver.ts#L90)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/media/rtpTransceiver.ts#L90)
 
 ## Variables
 
@@ -153,7 +153,7 @@ Name | Type |
 `sdesRTPStreamID` | *urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id* |
 `transportWideCC` | *http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01* |
 
-Defined in: [webrtc/src/extension/rtpExtension.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/extension/rtpExtension.ts#L3)
+Defined in: [webrtc/src/extension/rtpExtension.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/extension/rtpExtension.ts#L3)
 
 ## Functions
 
@@ -170,7 +170,7 @@ Name | Type |
 
 **Returns:** [*string*, *string*]
 
-Defined in: [webrtc/src/helper.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/helper.ts#L9)
+Defined in: [webrtc/src/helper.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/helper.ts#L9)
 
 ___
 
@@ -192,7 +192,7 @@ Name | Type |
 
 **Returns:** [*number*, T][]
 
-Defined in: [webrtc/src/helper.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/helper.ts#L1)
+Defined in: [webrtc/src/helper.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/helper.ts#L1)
 
 ___
 
@@ -208,7 +208,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/helper.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/helper.ts#L5)
+Defined in: [webrtc/src/helper.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/helper.ts#L5)
 
 ___
 
@@ -218,7 +218,7 @@ ___
 
 **Returns:** *RTCRtpHeaderExtensionParameters*
 
-Defined in: [webrtc/src/extension/rtpExtension.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/extension/rtpExtension.ts#L29)
+Defined in: [webrtc/src/extension/rtpExtension.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/extension/rtpExtension.ts#L29)
 
 ___
 
@@ -228,7 +228,7 @@ ___
 
 **Returns:** *RTCRtpHeaderExtensionParameters*
 
-Defined in: [webrtc/src/extension/rtpExtension.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/extension/rtpExtension.ts#L11)
+Defined in: [webrtc/src/extension/rtpExtension.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/extension/rtpExtension.ts#L11)
 
 ___
 
@@ -238,7 +238,7 @@ ___
 
 **Returns:** *RTCRtpHeaderExtensionParameters*
 
-Defined in: [webrtc/src/extension/rtpExtension.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/extension/rtpExtension.ts#L17)
+Defined in: [webrtc/src/extension/rtpExtension.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/extension/rtpExtension.ts#L17)
 
 ___
 
@@ -248,4 +248,4 @@ ___
 
 **Returns:** *RTCRtpHeaderExtensionParameters*
 
-Defined in: [webrtc/src/extension/rtpExtension.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/4277d59/packages/webrtc/src/extension/rtpExtension.ts#L23)
+Defined in: [webrtc/src/extension/rtpExtension.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/ea933e6/packages/webrtc/src/extension/rtpExtension.ts#L23)
