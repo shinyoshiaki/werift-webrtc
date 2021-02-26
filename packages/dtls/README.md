@@ -3,40 +3,40 @@ DTLS v1.2 server/client Implementation for TypeScript
 # Example
 
 ```typescript
-  import { DtlsServer, DtlsClient, createUdpTransport } from "rainy-dtls";
-  import { readFileSync } from "fs";
-  import { createSocket } from "dgram";
+import { DtlsServer, DtlsClient, createUdpTransport } from "werift-dtls";
+import { readFileSync } from "fs";
+import { createSocket } from "dgram";
 
-  const port = 55557;
+const port = 55557;
 
-  const socket = createSocket("udp4");
-  socket.bind(port);
+const socket = createSocket("udp4");
+socket.bind(port);
 
-  const server = new DtlsServer({
-    cert: readFileSync("assets/cert.pem").toString(),
-    key: readFileSync("assets/key.pem").toString(),
-    transport: createUdpTransport(socket),
-  });
+const server = new DtlsServer({
+  cert: readFileSync("assets/cert.pem").toString(),
+  key: readFileSync("assets/key.pem").toString(),
+  transport: createUdpTransport(socket),
+});
 
-  const client = new DtlsClient({
-    transport: createUdpTransport(createSocket("udp4"), {
-      address: "127.0.0.1",
-      port,
-    }),
-  });
-  
-  server.onData = (data) => {
-    console.log(data.toString())
-  };
+const client = new DtlsClient({
+  transport: createUdpTransport(createSocket("udp4"), {
+    address: "127.0.0.1",
+    port,
+  }),
+});
 
-  client.onConnect = () => {
-    client.send(Buffer.from("ping"));
-  };
-  client.onData = (data) => {
-    console.log(data.toString())
-  };
+server.onData = (data) => {
+  console.log(data.toString());
+};
 
-  client.connect();
+client.onConnect = () => {
+  client.send(Buffer.from("ping"));
+};
+client.onData = (data) => {
+  console.log(data.toString());
+};
+
+client.connect();
 ```
 
 # reference
