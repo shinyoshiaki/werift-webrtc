@@ -4,7 +4,6 @@ import { DtlsContext } from "../../context/dtls";
 import { CipherContext } from "../../context/cipher";
 import { ServerHello } from "../../handshake/message/server/hello";
 import { Certificate } from "../../handshake/message/certificate";
-import { generateKeySignature, parseX509 } from "../../cipher/x509";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import {
@@ -72,9 +71,6 @@ export class Flight4 extends Flight {
   }
 
   private sendServerHello() {
-    if (!this.cipher.localRandom || !this.cipher.cipherSuite)
-      throw new Error("");
-
     // todo fix; should use socket.extensions
     const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
@@ -105,38 +101,17 @@ export class Flight4 extends Flight {
 
   // 7.4.2 Server Certificate
   private sendCertificate() {
-    if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
-
-    const sign = parseX509(this.cipher.certPem, this.cipher.keyPem);
-    this.cipher.localPrivateKey = sign.key;
-    const certificate = new Certificate([Buffer.from(sign.cert)]);
+    this.cipher.localPrivateKey = this.cipher.sign.key;
+    const certificate = new Certificate([Buffer.from(this.cipher.sign.cert)]);
 
     const buf = this.createPacket([certificate]);
     return buf;
   }
 
   private sendServerKeyExchange() {
-    if (
-      !this.cipher.localRandom ||
-      !this.cipher.remoteRandom ||
-      !this.cipher.localKeyPair ||
-      !this.cipher.namedCurve ||
-      !this.cipher.localPrivateKey
-    )
-      throw new Error("");
-
-    const serverRandom = this.cipher.localRandom.serialize();
-    const clientRandom = this.cipher.remoteRandom.serialize();
-    const signature = generateKeySignature(
-      clientRandom,
-      serverRandom,
-      this.cipher.localKeyPair.publicKey,
-      this.cipher.namedCurve,
-      this.cipher.localPrivateKey,
-      "sha256"
-    );
+    const signature = this.cipher.generateKeySignature("sha256");
     const keyExchange = new ServerKeyExchange(
-      CurveType.named_curve, // ec curve type
+      CurveType.named_curve,
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,

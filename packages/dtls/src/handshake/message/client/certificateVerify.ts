@@ -12,7 +12,7 @@ export class CertificateVerify implements Handshake {
     signature: types.buffer(types.uint16be),
   };
 
-  constructor(public algorithm: number, public signature: Buffer) {}
+  constructor(public algorithm: SignatureSchemes, public signature: Buffer) {}
 
   static createEmpty() {
     return new CertificateVerify(undefined as any, undefined as any);
@@ -43,3 +43,8 @@ export class CertificateVerify implements Handshake {
     );
   }
 }
+
+export const SignatureScheme = {
+  rsa_pkcs1_sha256: 0x0401,
+} as const;
+export type SignatureSchemes = typeof SignatureScheme[keyof typeof SignatureScheme];

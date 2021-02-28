@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "private": "true",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "lerna run build",
+    "ci": "yarn build && yarn test && yarn e2e",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "e2e": "yarn e2e:browser",
     "e2e:aio": "jest ./e2e/aio/**/*.ts --forceExit",
@@ -36,8 +37,8 @@
     "@typescript-eslint/parser": "^4.11.1",
     "depcheck": "^1.2.0",
     "dependency-cruiser": "^9.23.1",
-    "eslint": "^7.9.0",
-    "eslint-config-prettier": "^7.1.0",
+    "eslint": "^7.21.0",
+    "eslint-config-prettier": "^8.1.0",
     "eslint-plugin-prettier": "^3.1.4",
     "jest": "^26.6.3",
     "lerna": "^3.22.1",
