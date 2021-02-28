@@ -38,7 +38,7 @@
     "@rollup/plugin-commonjs": "^17.0.0",
     "@types/elliptic": "^6.4.12",
     "@types/lodash": "^4.14.161",
-    "rollup": "^2.35.1",
+    "rollup": "^2.40.0",
     "rollup-plugin-typescript2": "^0.30.0"
   },
   "engines": {
