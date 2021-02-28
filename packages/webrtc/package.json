@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -16,7 +16,7 @@
     "name": "shinyoshiaki"
   },
   "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "types": "lib/webrtc/src/index.d.ts",
   "files": [
     "lib",
     "src"
