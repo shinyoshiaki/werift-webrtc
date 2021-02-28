@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "private": "true",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "lerna run build",
+    "ci": "yarn build && yarn test && yarn e2e",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "e2e": "yarn e2e:browser",
     "e2e:aio": "jest ./e2e/aio/**/*.ts --forceExit",
