@@ -20,7 +20,6 @@ import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
 import { CipherContext } from "../../context/cipher";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
-import { parseX509 } from "../../cipher/x509";
 import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
@@ -90,11 +89,8 @@ export class Flight5 extends Flight {
   }
 
   sendCertificate() {
-    if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
-
-    const sign = parseX509(this.cipher.certPem, this.cipher.keyPem);
-    this.cipher.localPrivateKey = sign.key;
-    const certificate = new Certificate([Buffer.from(sign.cert)]);
+    this.cipher.localPrivateKey = this.cipher.sign.key;
+    const certificate = new Certificate([Buffer.from(this.cipher.sign.cert)]);
     const fragments = createFragments(this.dtls)([certificate]);
     this.dtls.bufferHandshakeCache(fragments, true, 5);
     const packets = createPlaintext(this.dtls)(

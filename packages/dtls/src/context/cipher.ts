@@ -1,4 +1,4 @@
-import { PrivateKey, RSAPrivateKey } from "@fidm/x509";
+import { Certificate, PrivateKey, RSAPrivateKey } from "@fidm/x509";
 import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
 import {
@@ -30,6 +30,7 @@ export class CipherContext {
     signature: SignatureAlgorithms;
   };
   localPrivateKey?: PrivateKey;
+  sign = this.parseX509(this.certPem, this.keyPem);
 
   constructor(
     public certPem: string,
@@ -82,5 +83,45 @@ export class CipherContext {
     const key = privKey.toPEM().toString()!;
     const signed = signature.sign(key);
     return signed;
+  }
+
+  private parseX509(certPem: string, keyPem: string) {
+    const cert = Certificate.fromPEM(Buffer.from(certPem));
+    const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
+    return { key: sec, cert: cert.raw };
+  }
+
+  generateKeySignature(
+    clientRandom: Buffer,
+    serverRandom: Buffer,
+    publicKey: Buffer,
+    namedCurve: number,
+    privateKey: PrivateKey,
+    hashAlgorithm: string
+  ) {
+    const sig = this.valueKeySignature(
+      clientRandom,
+      serverRandom,
+      publicKey,
+      namedCurve
+    );
+
+    const enc = privateKey.sign(sig, hashAlgorithm);
+    return enc;
+  }
+
+  private valueKeySignature(
+    clientRandom: Buffer,
+    serverRandom: Buffer,
+    publicKey: Buffer,
+    namedCurve: number
+  ) {
+    const serverParams = Buffer.from(
+      encode(
+        { type: 3, curve: namedCurve, len: publicKey.length },
+        { type: types.uint8, curve: types.uint16be, len: types.uint8 }
+      ).slice()
+    );
+    return Buffer.concat([clientRandom, serverRandom, serverParams, publicKey]);
   }
 }

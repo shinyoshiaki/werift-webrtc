@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { DtlsClient } from "../../src/client";
 import { createSocket } from "dgram";
 import { createUdpTransport } from "../../src";
+import { certPem, keyPem } from "../fixture";
 
 describe("e2e/client", () => {
   test("openssl", (done) => {
@@ -25,8 +26,8 @@ describe("e2e/client", () => {
           address: "127.0.0.1",
           port: 55555,
         }),
-        cert: "",
-        key: "",
+        cert: certPem,
+        key: keyPem,
       });
       client.onConnect.subscribe(() => {
         client.send(Buffer.from("my_dtls"));

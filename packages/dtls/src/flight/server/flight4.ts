@@ -4,7 +4,6 @@ import { DtlsContext } from "../../context/dtls";
 import { CipherContext } from "../../context/cipher";
 import { ServerHello } from "../../handshake/message/server/hello";
 import { Certificate } from "../../handshake/message/certificate";
-import { generateKeySignature, parseX509 } from "../../cipher/x509";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import {
@@ -105,11 +104,8 @@ export class Flight4 extends Flight {
 
   // 7.4.2 Server Certificate
   private sendCertificate() {
-    if (!this.cipher.certPem || !this.cipher.keyPem) throw new Error();
-
-    const sign = parseX509(this.cipher.certPem, this.cipher.keyPem);
-    this.cipher.localPrivateKey = sign.key;
-    const certificate = new Certificate([Buffer.from(sign.cert)]);
+    this.cipher.localPrivateKey = this.cipher.sign.key;
+    const certificate = new Certificate([Buffer.from(this.cipher.sign.cert)]);
 
     const buf = this.createPacket([certificate]);
     return buf;
@@ -127,7 +123,7 @@ export class Flight4 extends Flight {
 
     const serverRandom = this.cipher.localRandom.serialize();
     const clientRandom = this.cipher.remoteRandom.serialize();
-    const signature = generateKeySignature(
+    const signature = this.cipher.generateKeySignature(
       clientRandom,
       serverRandom,
       this.cipher.localKeyPair.publicKey,

@@ -17,8 +17,8 @@ test("e2e/self", (done) => {
       address: "127.0.0.1",
       port,
     }),
-    cert: "",
-    key: "",
+    cert: certPem,
+    key: keyPem,
   });
   server.onData.subscribe((data) => {
     expect(data.toString()).toBe(word);
