@@ -79,7 +79,7 @@ export class Flight6 extends Flight {
       this.dtls.handshakeCache.map((v) => v.data.serialize())
     );
 
-    const localVerifyData = this.cipher.verifyData(cache, false);
+    const localVerifyData = this.cipher.verifyData(cache);
     const finish = new Finished(localVerifyData);
     const fragments = createFragments(this.dtls)([finish]);
     this.dtls.epoch = 1;

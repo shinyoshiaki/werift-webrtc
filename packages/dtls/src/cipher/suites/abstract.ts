@@ -7,10 +7,11 @@ export type CipherHeader = {
   sequenceNumber: number;
 };
 
-export enum SessionType {
-  CLIENT = 1,
-  SERVER = 2,
-}
+export const SessionType = {
+  CLIENT: 1,
+  SERVER: 2,
+} as const;
+export type SessionTypes = typeof SessionType[keyof typeof SessionType];
 
 export default abstract class AbstractCipher {
   id = 0;

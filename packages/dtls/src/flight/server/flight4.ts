@@ -112,27 +112,12 @@ export class Flight4 extends Flight {
   }
 
   private sendServerKeyExchange() {
-    if (
-      !this.cipher.localRandom ||
-      !this.cipher.remoteRandom ||
-      !this.cipher.localKeyPair ||
-      !this.cipher.namedCurve ||
-      !this.cipher.localPrivateKey
-    )
+    if (!this.cipher.localKeyPair || !this.cipher.namedCurve)
       throw new Error("");
 
-    const serverRandom = this.cipher.localRandom.serialize();
-    const clientRandom = this.cipher.remoteRandom.serialize();
-    const signature = this.cipher.generateKeySignature(
-      clientRandom,
-      serverRandom,
-      this.cipher.localKeyPair.publicKey,
-      this.cipher.namedCurve,
-      this.cipher.localPrivateKey,
-      "sha256"
-    );
+    const signature = this.cipher.generateKeySignature("sha256");
     const keyExchange = new ServerKeyExchange(
-      CurveType.named_curve, // ec curve type
+      CurveType.named_curve,
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,

@@ -9,7 +9,7 @@ import {
 } from "../cipher/const";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
-import { SessionType } from "../cipher/suites/abstract";
+import { SessionType, SessionTypes } from "../cipher/suites/abstract";
 import AEADCipher from "../cipher/suites/aead";
 import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
@@ -35,7 +35,7 @@ export class CipherContext {
   constructor(
     public certPem: string,
     public keyPem: string,
-    public sessionType: SessionType
+    public sessionType: SessionTypes
   ) {}
 
   encryptPacket(pkt: DtlsPlaintext) {
@@ -72,15 +72,16 @@ export class CipherContext {
     return dec;
   }
 
-  verifyData(buf: Buffer, isClient = true) {
-    if (isClient) return prfVerifyDataClient(this.masterSecret!, buf);
+  verifyData(buf: Buffer) {
+    if (this.sessionType === SessionType.CLIENT)
+      return prfVerifyDataClient(this.masterSecret!, buf);
     else return prfVerifyDataServer(this.masterSecret!, buf);
   }
 
   signatureData(data: Buffer, hash: string) {
     const signature = createSign(hash).update(data);
     const privKey = RSAPrivateKey.fromPrivateKey(this.localPrivateKey!);
-    const key = privKey.toPEM().toString()!;
+    const key = privKey.toPEM().toString();
     const signed = signature.sign(key);
     return signed;
   }
@@ -91,22 +92,33 @@ export class CipherContext {
     return { key: sec, cert: cert.raw };
   }
 
-  generateKeySignature(
-    clientRandom: Buffer,
-    serverRandom: Buffer,
-    publicKey: Buffer,
-    namedCurve: number,
-    privateKey: PrivateKey,
-    hashAlgorithm: string
-  ) {
+  generateKeySignature(hashAlgorithm: string) {
+    const clientRandom =
+      this.sessionType === SessionType.CLIENT
+        ? this.localRandom
+        : this.remoteRandom;
+    const serverRandom =
+      this.sessionType === SessionType.SERVER
+        ? this.localRandom
+        : this.remoteRandom;
+
+    if (
+      !serverRandom ||
+      !clientRandom ||
+      !this.localKeyPair ||
+      !this.namedCurve ||
+      !this.localPrivateKey
+    )
+      throw new Error();
+
     const sig = this.valueKeySignature(
-      clientRandom,
-      serverRandom,
-      publicKey,
-      namedCurve
+      clientRandom.serialize(),
+      serverRandom.serialize(),
+      this.localKeyPair.publicKey,
+      this.namedCurve
     );
 
-    const enc = privateKey.sign(sig, hashAlgorithm);
+    const enc = this.localPrivateKey.sign(sig, hashAlgorithm);
     return enc;
   }
 
