@@ -71,9 +71,6 @@ export class Flight4 extends Flight {
   }
 
   private sendServerHello() {
-    if (!this.cipher.localRandom || !this.cipher.cipherSuite)
-      throw new Error("");
-
     // todo fix; should use socket.extensions
     const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
@@ -112,9 +109,6 @@ export class Flight4 extends Flight {
   }
 
   private sendServerKeyExchange() {
-    if (!this.cipher.localKeyPair || !this.cipher.namedCurve)
-      throw new Error("");
-
     const signature = this.cipher.generateKeySignature("sha256");
     const keyExchange = new ServerKeyExchange(
       CurveType.named_curve,

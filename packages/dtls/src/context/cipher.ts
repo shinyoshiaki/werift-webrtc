@@ -16,20 +16,20 @@ import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
 
 export class CipherContext {
-  localRandom?: DtlsRandom;
-  remoteRandom?: DtlsRandom;
-  cipherSuite?: CipherSuites;
+  localRandom!: DtlsRandom;
+  remoteRandom!: DtlsRandom;
+  cipherSuite!: CipherSuites;
   remoteCertificate?: Buffer;
-  remoteKeyPair?: Partial<NamedCurveKeyPair>;
-  localKeyPair?: NamedCurveKeyPair;
-  masterSecret?: Buffer;
-  cipher?: AEADCipher;
-  namedCurve?: NamedCurveAlgorithms;
+  remoteKeyPair!: Partial<NamedCurveKeyPair>;
+  localKeyPair!: NamedCurveKeyPair;
+  masterSecret!: Buffer;
+  cipher!: AEADCipher;
+  namedCurve!: NamedCurveAlgorithms;
   signatureHashAlgorithm!: {
     hash: HashAlgorithms;
     signature: SignatureAlgorithms;
   };
-  localPrivateKey?: PrivateKey;
+  localPrivateKey!: PrivateKey;
   sign = this.parseX509(this.certPem, this.keyPem);
 
   constructor(
@@ -39,8 +39,6 @@ export class CipherContext {
   ) {}
 
   encryptPacket(pkt: DtlsPlaintext) {
-    if (!this.cipher || !this.sessionType) throw new Error();
-
     const header = pkt.recordLayerHeader;
     const enc = this.cipher.encrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
@@ -57,8 +55,6 @@ export class CipherContext {
   }
 
   decryptPacket(pkt: DtlsPlaintext) {
-    if (!this.cipher || !this.sessionType) throw new Error("");
-
     const header = pkt.recordLayerHeader;
     const dec = this.cipher.decrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
@@ -74,13 +70,13 @@ export class CipherContext {
 
   verifyData(buf: Buffer) {
     if (this.sessionType === SessionType.CLIENT)
-      return prfVerifyDataClient(this.masterSecret!, buf);
-    else return prfVerifyDataServer(this.masterSecret!, buf);
+      return prfVerifyDataClient(this.masterSecret, buf);
+    else return prfVerifyDataServer(this.masterSecret, buf);
   }
 
   signatureData(data: Buffer, hash: string) {
     const signature = createSign(hash).update(data);
-    const privKey = RSAPrivateKey.fromPrivateKey(this.localPrivateKey!);
+    const privKey = RSAPrivateKey.fromPrivateKey(this.localPrivateKey);
     const key = privKey.toPEM().toString();
     const signed = signature.sign(key);
     return signed;
@@ -101,15 +97,6 @@ export class CipherContext {
       this.sessionType === SessionType.SERVER
         ? this.localRandom
         : this.remoteRandom;
-
-    if (
-      !serverRandom ||
-      !clientRandom ||
-      !this.localKeyPair ||
-      !this.namedCurve ||
-      !this.localPrivateKey
-    )
-      throw new Error();
 
     const sig = this.valueKeySignature(
       clientRandom.serialize(),

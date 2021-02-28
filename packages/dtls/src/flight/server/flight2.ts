@@ -112,7 +112,7 @@ export const flight2 = (
   cipher.cipherSuite = CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256; // todo fix
   log("cipher suite selected", cipher.cipherSuite);
 
-  cipher.localKeyPair = generateKeyPair(cipher.namedCurve!);
+  cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
 
   dtls.cookie = randomBytes(20);
   const helloVerifyReq = new ServerHelloVerifyRequest(
