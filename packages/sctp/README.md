@@ -4,7 +4,7 @@ SCTP Implementation for TypeScript
 
 ```typescript
 import { createSocket } from "dgram";
-import { SCTP, WEBRTC_PPID, createUdpTransport } from "rainy-sctp";
+import { SCTP, WEBRTC_PPID, createUdpTransport } from "werift-sctp";
 
 const port = 5555;
 
@@ -37,7 +37,8 @@ client.send(0, WEBRTC_PPID.STRING, Buffer.from("ping"));
 ```
 
 # reference
-- 
+
+-
 - RFC4960
 - RFC6083
 - RFC6525

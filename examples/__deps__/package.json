@@ -6,10 +6,10 @@
     "WebRTC",
     "node.js"
   ],
-  "homepage": "https://github.com/shinyoshiaki/rainy-webrtc",
+  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shinyoshiaki/rainy-webrtc.git"
+    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
   },
   "license": "MIT",
   "author": {
