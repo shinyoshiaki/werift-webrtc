@@ -61,6 +61,7 @@ export const flight2 = (
           )?.signature;
           if (hash == undefined || signature == undefined)
             throw new Error("invalid signatureHash");
+
           cipher.signatureHashAlgorithm = {
             hash: HashAlgorithm.sha256,
             signature: SignatureAlgorithm.rsa,

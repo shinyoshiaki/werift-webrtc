@@ -29,8 +29,9 @@ export class CipherContext {
     hash: HashAlgorithms;
     signature: SignatureAlgorithms;
   };
-  localPrivateKey!: PrivateKey;
   sign = this.parseX509(this.certPem, this.keyPem);
+  localPrivateKey: PrivateKey = this.sign.key;
+  localCert: Buffer = this.sign.cert;
 
   constructor(
     public certPem: string,
@@ -82,12 +83,6 @@ export class CipherContext {
     return signed;
   }
 
-  private parseX509(certPem: string, keyPem: string) {
-    const cert = Certificate.fromPEM(Buffer.from(certPem));
-    const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
-    return { key: sec, cert: cert.raw };
-  }
-
   generateKeySignature(hashAlgorithm: string) {
     const clientRandom =
       this.sessionType === SessionType.CLIENT
@@ -107,6 +102,12 @@ export class CipherContext {
 
     const enc = this.localPrivateKey.sign(sig, hashAlgorithm);
     return enc;
+  }
+
+  private parseX509(certPem: string, keyPem: string) {
+    const cert = Certificate.fromPEM(Buffer.from(certPem));
+    const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
+    return { key: sec, cert: cert.raw };
   }
 
   private valueKeySignature(

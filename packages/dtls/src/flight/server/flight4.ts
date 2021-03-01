@@ -101,8 +101,7 @@ export class Flight4 extends Flight {
 
   // 7.4.2 Server Certificate
   private sendCertificate() {
-    this.cipher.localPrivateKey = this.cipher.sign.key;
-    const certificate = new Certificate([Buffer.from(this.cipher.sign.cert)]);
+    const certificate = new Certificate([Buffer.from(this.cipher.localCert)]);
 
     const buf = this.createPacket([certificate]);
     return buf;
