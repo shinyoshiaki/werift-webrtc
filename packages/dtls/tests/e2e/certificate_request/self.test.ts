@@ -30,8 +30,7 @@ test("e2e/certificate_request/self", (done) => {
   });
   client.onData.subscribe((data) => {
     expect(data.toString()).toBe(word + "_server");
-    socket.close();
     done();
   });
   client.connect();
-});
+}, 10_000);

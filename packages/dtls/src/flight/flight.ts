@@ -51,7 +51,7 @@ export abstract class Flight {
       return;
     } else {
       if (this.retransmitCount++ > 10) throw new Error("over retransmitCount");
-      log("retransmit", this.dtls.flight);
+      log("retransmit", this.dtls.flight, this.dtls.sessionType);
       this.retransmit().then(() => log(this.dtls.flight, "done"));
     }
   }

@@ -43,4 +43,4 @@ test("e2e/ice", async (done) => {
     done();
   });
   dtlsClient.connect();
-});
+}, 10_000);

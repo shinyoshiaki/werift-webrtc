@@ -8,9 +8,6 @@ import { FragmentedHandshake } from "./record/message/fragment";
 import { ContentType } from "./record/const";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket, Options } from "./socket";
-import { DtlsContext } from "./context/dtls";
-import { CipherContext } from "./context/cipher";
-import { SrtpContext } from "./context/srtp";
 import debug from "debug";
 
 const log = debug("werift/dtls/client");
@@ -18,18 +15,12 @@ const log = debug("werift/dtls/client");
 export class DtlsClient extends DtlsSocket {
   private flight4Buffer: FragmentedHandshake[] = [];
   constructor(options: Options) {
-    super(options, true);
+    super(options, SessionType.CLIENT);
     this.udp.socket.onData = this.udpOnMessage;
+    log("start client");
   }
 
   connect() {
-    this.dtls = new DtlsContext(this.options);
-    this.cipher = new CipherContext(
-      this.options.cert,
-      this.options.key,
-      SessionType.CLIENT
-    );
-    this.srtp = new SrtpContext();
     new Flight1(this.udp, this.dtls, this.cipher).exec(this.extensions);
   }
 

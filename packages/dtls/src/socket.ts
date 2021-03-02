@@ -20,37 +20,34 @@ import { Event } from "rx.mini";
 import debug from "debug";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
+import { SessionType, SessionTypes } from "./cipher/suites/abstract";
 
 const log = debug("werift/dtls/socket");
 
 export interface Options {
   transport: Transport;
   srtpProfiles?: number[];
-  cert: string;
-  key: string;
+  cert?: string;
+  key?: string;
   certificateRequest?: boolean;
   extendedMasterSecret?: boolean;
 }
 
 export class DtlsSocket {
-  onConnect = new Event();
-  onData = new Event<[Buffer]>();
-  onClose = new Event();
-  udp: TransportContext;
-  contexts: {
-    [cookie_hex: string]: {
-      dtls: DtlsContext;
-      cipher: CipherContext;
-      srtp: SrtpContext;
-    };
-  } = {};
-  dtls!: DtlsContext;
-  cipher!: CipherContext;
-  srtp!: SrtpContext;
+  readonly onConnect = new Event();
+  readonly onData = new Event<[Buffer]>();
+  readonly onClose = new Event();
+  readonly udp: TransportContext = new TransportContext(this.options.transport);
+  readonly cipher: CipherContext = new CipherContext(
+    this.sessionType,
+    this.options.cert,
+    this.options.key
+  );
+  readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
+  readonly srtp: SrtpContext = new SrtpContext();
   extensions: Extension[] = [];
 
-  constructor(public options: Options, public isClient: boolean) {
-    this.udp = new TransportContext(options.transport);
+  constructor(public options: Options, public sessionType: SessionTypes) {
     this.setupExtensions();
   }
 
@@ -71,7 +68,7 @@ export class DtlsSocket {
     const signature = Signature.createEmpty();
     signature.data = [
       { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-      { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
+      // { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa }, // todo fix
     ];
     this.extensions.push(signature.extension);
 
@@ -117,7 +114,7 @@ export class DtlsSocket {
       }
     );
 
-    if (this.isClient) {
+    if ((this.sessionType = SessionType.CLIENT)) {
       return {
         localKey: clientKey,
         localSalt: clientSalt,
@@ -138,10 +135,10 @@ export class DtlsSocket {
     return exportKeyingMaterial(
       label,
       length,
-      this.cipher.masterSecret!,
-      this.cipher.localRandom!.serialize(),
-      this.cipher.remoteRandom!.serialize(),
-      this.isClient
+      this.cipher.masterSecret,
+      this.cipher.localRandom.serialize(),
+      this.cipher.remoteRandom.serialize(),
+      this.sessionType === SessionType.CLIENT
     );
   }
 }

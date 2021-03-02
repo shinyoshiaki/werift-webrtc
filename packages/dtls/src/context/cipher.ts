@@ -3,9 +3,11 @@ import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
 import {
   CipherSuites,
-  HashAlgorithms,
+  HashAlgorithm,
+  NamedCurveAlgorithm,
   NamedCurveAlgorithms,
-  SignatureAlgorithms,
+  SignatureAlgorithm,
+  SignatureHash,
 } from "../cipher/const";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
@@ -14,6 +16,15 @@ import AEADCipher from "../cipher/suites/aead";
 import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
+import * as x509 from "@peculiar/x509";
+import { Crypto } from "@peculiar/webcrypto";
+import debug from "debug";
+import { addYears } from "date-fns";
+
+const log = debug("werift/dtls/context/cipher");
+
+const crypto = new Crypto();
+x509.cryptoProvider.set(crypto);
 
 export class CipherContext {
   localRandom!: DtlsRandom;
@@ -25,19 +36,84 @@ export class CipherContext {
   masterSecret!: Buffer;
   cipher!: AEADCipher;
   namedCurve!: NamedCurveAlgorithms;
-  signatureHashAlgorithm!: {
-    hash: HashAlgorithms;
-    signature: SignatureAlgorithms;
-  };
-  sign = this.parseX509(this.certPem, this.keyPem);
-  localPrivateKey: PrivateKey = this.sign.key;
-  localCert: Buffer = this.sign.cert;
+  signatureHashAlgorithm!: SignatureHash;
+  localCert!: Buffer;
+  localPrivateKey!: PrivateKey;
 
   constructor(
-    public certPem: string,
-    public keyPem: string,
-    public sessionType: SessionTypes
-  ) {}
+    public sessionType: SessionTypes,
+    public certPem?: string,
+    public keyPem?: string
+  ) {
+    if (certPem && keyPem) this.parseX509(certPem, keyPem);
+  }
+
+  async createCertificateWithKey(signatureHash: SignatureHash) {
+    this.signatureHashAlgorithm = signatureHash;
+
+    if (this.certPem && this.keyPem) return;
+
+    const name = (() => {
+      switch (signatureHash.signature) {
+        case SignatureAlgorithm.rsa:
+          return "RSASSA-PKCS1-v1_5";
+        case SignatureAlgorithm.ecdsa:
+          return "ECDSA";
+      }
+    })();
+    const hash = (() => {
+      switch (signatureHash.hash) {
+        case HashAlgorithm.sha256:
+          return "SHA-256";
+      }
+    })();
+    const namedCurve = (() => {
+      switch (this.namedCurve) {
+        case NamedCurveAlgorithm.secp256r1:
+          return "P-256";
+        case NamedCurveAlgorithm.x25519:
+          // todo fix (X25519 not supported with ECDSA)
+          if (name === "ECDSA") return "P-256";
+          return "X25519";
+      }
+    })();
+    const alg = (() => {
+      switch (name) {
+        case "ECDSA":
+          return { name, hash, namedCurve };
+        case "RSASSA-PKCS1-v1_5":
+          return {
+            name,
+            hash,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            modulusLength: 2048,
+          };
+      }
+    })();
+
+    log("createCertificateWithKey alg", alg);
+    const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
+
+    const cert = await x509.X509CertificateGenerator.createSelfSigned({
+      serialNumber: "4b5602cd91ef1bb016f9337ba6fb0b498da1d5ca",
+      name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
+      notBefore: new Date(),
+      notAfter: addYears(Date.now(), 10),
+      signingAlgorithm: alg,
+      keys,
+    });
+
+    const certPem = cert.toString("pem");
+    const keyPem = x509.PemConverter.encode(
+      await crypto.subtle.exportKey("pkcs8", keys.privateKey),
+      "private key"
+    );
+    log(certPem);
+    log(keyPem);
+
+    this.parseX509(certPem, keyPem);
+    return { certPem, keyPem };
+  }
 
   encryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;
@@ -107,6 +183,8 @@ export class CipherContext {
   private parseX509(certPem: string, keyPem: string) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
+    this.localCert = cert.raw;
+    this.localPrivateKey = sec;
     return { key: sec, cert: cert.raw };
   }
 
