@@ -68,7 +68,7 @@ export class RTCDtlsTransport {
     await new Promise<void>(async (r) => {
       if (this.role === "server") {
         this.dtls = new DtlsServer({
-          cert: this.localCertificate.cert,
+          cert: this.localCertificate.certPem,
           key: this.localCertificate.privateKey,
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
@@ -76,7 +76,7 @@ export class RTCDtlsTransport {
         });
       } else {
         this.dtls = new DtlsClient({
-          cert: this.localCertificate.cert,
+          cert: this.localCertificate.certPem,
           key: this.localCertificate.privateKey,
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
@@ -188,19 +188,21 @@ export type DtlsRole = "auto" | "server" | "client";
 export class RTCCertificate {
   publicKey: string;
   privateKey: string;
-  cert: string;
-  constructor(privateKeyPem: string, certPem: string) {
+
+  constructor(privateKeyPem: string, public certPem: string) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     this.publicKey = cert.publicKey.toPEM();
     this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
-    this.cert = certPem;
   }
 
   getFingerprints(): RTCDtlsFingerprint[] {
     return [
       new RTCDtlsFingerprint(
         "sha-256",
-        fingerprint(Certificate.fromPEM(Buffer.from(this.cert)).raw, "sha256")
+        fingerprint(
+          Certificate.fromPEM(Buffer.from(this.certPem)).raw,
+          "sha256"
+        )
       ),
     ];
   }

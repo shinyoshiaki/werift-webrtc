@@ -26,7 +26,7 @@
     "e2e:aio": "jest ./e2e/aio/**/*.ts --forceExit",
     "e2e:browser": "cd e2e/browser && yarn ci",
     "format": "lerna run format",
-    "media": "ts-node-dev examples/mediachannel/pubsub/offer.ts",
+    "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
     "test": "lerna run test",
     "type": "lerna run type"
   },

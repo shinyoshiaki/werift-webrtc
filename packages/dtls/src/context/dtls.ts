@@ -16,7 +16,7 @@ export class DtlsContext {
     data: FragmentedHandshake;
     flight: number;
   }[] = [];
-  cookie?: Buffer;
+  cookie!: Buffer;
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
     hash: HashAlgorithms;
