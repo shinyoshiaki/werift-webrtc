@@ -52,7 +52,7 @@ export class CipherContext {
     }
   }
 
-  async createCertificateWithKey(signatureHash: SignatureHash) {
+  async createSelfSignedCertificateWithKey(signatureHash: SignatureHash) {
     this.signatureHashAlgorithm = signatureHash;
 
     if (this.certPem && this.keyPem) return;

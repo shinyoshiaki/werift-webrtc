@@ -40,4 +40,37 @@ describe("e2e/server", () => {
       });
     }, 100);
   }, 10_000);
+
+  test("openssl use self sign certificate", async (done) => {
+    const port = 55556;
+    const socket = createSocket("udp4");
+    socket.bind(port);
+    const server = new DtlsServer({
+      transport: createUdpTransport(socket),
+    });
+    server.onConnect.subscribe(() => {
+      server.send(Buffer.from("my_dtls_server"));
+    });
+    await server.cipher.createSelfSignedCertificateWithKey({
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    });
+
+    setTimeout(() => {
+      const client = spawn("openssl", [
+        "s_client",
+        "-dtls1_2",
+        "-connect",
+        "127.0.0.1:55556",
+      ]);
+      client.stdout.setEncoding("ascii");
+      client.stdout.on("data", (data: string) => {
+        if (data.includes("my_dtls_server")) {
+          socket.close();
+          server.close();
+          done();
+        }
+      });
+    }, 100);
+  }, 10_000);
 });
