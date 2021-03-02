@@ -10,6 +10,7 @@ import {
   NamedCurveAlgorithm,
   HashAlgorithm,
   SignatureAlgorithm,
+  SignatureHash,
 } from "./cipher/const";
 import { Signature } from "./handshake/extensions/signature";
 import { Extension } from "./typings/domain";
@@ -29,6 +30,7 @@ export interface Options {
   srtpProfiles?: number[];
   cert?: string;
   key?: string;
+  signatureHash?: SignatureHash;
   certificateRequest?: boolean;
   extendedMasterSecret?: boolean;
 }
@@ -41,7 +43,8 @@ export class DtlsSocket {
   readonly cipher: CipherContext = new CipherContext(
     this.sessionType,
     this.options.cert,
-    this.options.key
+    this.options.key,
+    this.options.signatureHash
   );
   readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
   readonly srtp: SrtpContext = new SrtpContext();

@@ -3,6 +3,7 @@ import { DtlsClient } from "../../src/client";
 import { createSocket } from "dgram";
 import { createUdpTransport } from "../../src";
 import { certPem, keyPem } from "../fixture";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 
 describe("e2e/client", () => {
   test("openssl", (done) => {
@@ -28,6 +29,10 @@ describe("e2e/client", () => {
         }),
         cert: certPem,
         key: keyPem,
+        signatureHash: {
+          hash: HashAlgorithm.sha256,
+          signature: SignatureAlgorithm.rsa,
+        },
       });
       client.onConnect.subscribe(() => {
         client.send(Buffer.from("my_dtls"));

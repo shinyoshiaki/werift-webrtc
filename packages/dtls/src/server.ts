@@ -101,12 +101,7 @@ export class DtlsServer extends DtlsSocket {
               );
             } else if (!this.dtls.cookie) {
               log("send flight2");
-              await flight2(
-                this.udp,
-                this.dtls,
-                this.cipher,
-                this.srtp
-              )(clientHello);
+              flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
             }
           }
           break;

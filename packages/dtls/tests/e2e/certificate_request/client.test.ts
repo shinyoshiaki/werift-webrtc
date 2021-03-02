@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { createSocket } from "dgram";
 import { createUdpTransport, DtlsClient } from "../../../src";
 import { readFileSync } from "fs";
+import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
 
 describe("e2e/certificate_request/client", () => {
   const port = 55559;
@@ -28,6 +29,10 @@ describe("e2e/certificate_request/client", () => {
         }),
         cert: readFileSync("assets/cert.pem").toString(),
         key: readFileSync("assets/key.pem").toString(),
+        signatureHash: {
+          hash: HashAlgorithm.sha256,
+          signature: SignatureAlgorithm.rsa,
+        },
       });
       client.onConnect.subscribe(() => {
         client.send(Buffer.from("my_dtls"));

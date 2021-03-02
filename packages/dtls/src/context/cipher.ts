@@ -36,16 +36,20 @@ export class CipherContext {
   masterSecret!: Buffer;
   cipher!: AEADCipher;
   namedCurve!: NamedCurveAlgorithms;
-  signatureHashAlgorithm!: SignatureHash;
+  signatureHashAlgorithm: SignatureHash;
   localCert!: Buffer;
   localPrivateKey!: PrivateKey;
 
   constructor(
     public sessionType: SessionTypes,
     public certPem?: string,
-    public keyPem?: string
+    public keyPem?: string,
+    signatureHashAlgorithm?: SignatureHash
   ) {
-    if (certPem && keyPem) this.parseX509(certPem, keyPem);
+    if (certPem && keyPem && signatureHashAlgorithm) {
+      this.parseX509(certPem, keyPem);
+      this.signatureHashAlgorithm = signatureHashAlgorithm;
+    }
   }
 
   async createCertificateWithKey(signatureHash: SignatureHash) {

@@ -3,6 +3,7 @@ import { DtlsServer } from "../../src/server";
 import { createSocket } from "dgram";
 import { createUdpTransport } from "../../src";
 import { certPem, keyPem } from "../fixture";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 
 describe("e2e/server", () => {
   test("openssl", (done) => {
@@ -12,6 +13,10 @@ describe("e2e/server", () => {
     const server = new DtlsServer({
       cert: certPem,
       key: keyPem,
+      signatureHash: {
+        hash: HashAlgorithm.sha256,
+        signature: SignatureAlgorithm.rsa,
+      },
       transport: createUdpTransport(socket),
     });
     server.onConnect.subscribe(() => {

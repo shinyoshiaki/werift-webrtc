@@ -12,10 +12,8 @@ import { randomBytes } from "crypto";
 import {
   CipherSuite,
   CipherSuites,
-  HashAlgorithm,
   NamedCurveAlgorithm,
   NamedCurveAlgorithms,
-  SignatureAlgorithm,
 } from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
@@ -33,75 +31,69 @@ export const flight2 = (
   dtls: DtlsContext,
   cipher: CipherContext,
   srtp: SrtpContext
-) => async (clientHello: ClientHello) => {
+) => (clientHello: ClientHello) => {
   dtls.flight = 2;
 
-  await Promise.all(
-    clientHello.extensions.map(async (extension) => {
-      switch (extension.type) {
-        case EllipticCurves.type:
-          {
-            const curves = EllipticCurves.fromData(extension.data).data;
-            log("curves", curves);
-            const curve = curves.find((curve) =>
-              Object.values(NamedCurveAlgorithm).includes(curve as any)
-            ) as NamedCurveAlgorithms;
-            cipher.namedCurve = curve;
-            log("curve selected", cipher.namedCurve);
-          }
-          break;
-        case Signature.type:
-          {
-            const signatureHash = Signature.fromData(extension.data).data;
-            log("hash,signature", signatureHash);
-            const signature = signatureHash.find((v) =>
-              Object.values(SignatureAlgorithm).includes(v.signature)
-            )?.signature;
-            const hash = signatureHash.find((v) =>
-              Object.values(HashAlgorithm).includes(v.hash)
-            )?.hash;
-            if (signature == undefined || hash == undefined)
-              throw new Error("invalid signatureHash");
+  clientHello.extensions.map(async (extension) => {
+    switch (extension.type) {
+      case EllipticCurves.type:
+        {
+          const curves = EllipticCurves.fromData(extension.data).data;
+          log("curves", curves);
+          const curve = curves.find((curve) =>
+            Object.values(NamedCurveAlgorithm).includes(curve as any)
+          ) as NamedCurveAlgorithms;
+          cipher.namedCurve = curve;
+          log("curve selected", cipher.namedCurve);
+        }
+        break;
+      case Signature.type:
+        {
+          if (!cipher.signatureHashAlgorithm)
+            throw new Error("need to set certificate");
 
-            // todo fix
-            await cipher.createCertificateWithKey({
-              signature: SignatureAlgorithm.rsa,
-              hash,
-            });
-            log("signatureHash selected", cipher.signatureHashAlgorithm);
-          }
-          break;
-        case UseSRTP.type:
-          {
-            if (!dtls.options?.srtpProfiles) return;
-            if (dtls.options.srtpProfiles.length === 0) return;
+          const signatureHash = Signature.fromData(extension.data).data;
+          log("hash,signature", signatureHash);
+          const signature = signatureHash.find(
+            (v) => v.signature === cipher.signatureHashAlgorithm.signature
+          )?.signature;
+          const hash = signatureHash.find(
+            (v) => v.hash === cipher.signatureHashAlgorithm.hash
+          )?.hash;
+          if (signature == undefined || hash == undefined)
+            throw new Error("invalid signatureHash");
+        }
+        break;
+      case UseSRTP.type:
+        {
+          if (!dtls.options?.srtpProfiles) return;
+          if (dtls.options.srtpProfiles.length === 0) return;
 
-            const useSrtp = UseSRTP.fromData(extension.data);
-            log("srtp profiles", useSrtp.profiles);
-            const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles,
-              dtls.options?.srtpProfiles
-            );
-            if (!profile) {
-              throw new Error();
-            }
-            srtp.srtpProfile = profile;
-            log("srtp profile selected", srtp.srtpProfile);
+          const useSrtp = UseSRTP.fromData(extension.data);
+          log("srtp profiles", useSrtp.profiles);
+          const profile = SrtpContext.findMatchingSRTPProfile(
+            useSrtp.profiles,
+            dtls.options?.srtpProfiles
+          );
+          if (!profile) {
+            throw new Error();
           }
-          break;
-        case ExtendedMasterSecret.type:
-          {
-            dtls.remoteExtendedMasterSecret = true;
-          }
-          break;
-        case RenegotiationIndication.type:
-          {
-            log("RenegotiationIndication", extension.data);
-          }
-          break;
-      }
-    })
-  );
+          srtp.srtpProfile = profile;
+          log("srtp profile selected", srtp.srtpProfile);
+        }
+        break;
+      case ExtendedMasterSecret.type:
+        {
+          dtls.remoteExtendedMasterSecret = true;
+        }
+        break;
+      case RenegotiationIndication.type:
+        {
+          log("RenegotiationIndication", extension.data);
+        }
+        break;
+    }
+  });
 
   cipher.localRandom = new DtlsRandom();
   cipher.remoteRandom = DtlsRandom.from(clientHello.random);

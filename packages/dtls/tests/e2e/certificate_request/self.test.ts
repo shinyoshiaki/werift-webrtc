@@ -1,6 +1,7 @@
 import { DtlsServer, DtlsClient, createUdpTransport } from "../../../src";
 import { readFileSync } from "fs";
 import { createSocket } from "dgram";
+import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
 
 test("e2e/certificate_request/self", (done) => {
   const word = "self";
@@ -10,6 +11,10 @@ test("e2e/certificate_request/self", (done) => {
   const server = new DtlsServer({
     cert: readFileSync("assets/cert.pem").toString(),
     key: readFileSync("assets/key.pem").toString(),
+    signatureHash: {
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    },
     transport: createUdpTransport(socket),
     certificateRequest: true,
   });
@@ -24,6 +29,10 @@ test("e2e/certificate_request/self", (done) => {
     }),
     cert: readFileSync("assets/cert.pem").toString(),
     key: readFileSync("assets/key.pem").toString(),
+    signatureHash: {
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    },
   });
   client.onConnect.subscribe(() => {
     client.send(Buffer.from(word));
