@@ -21,8 +21,8 @@ export const CipherSuite = {
 export type CipherSuites = typeof CipherSuite[keyof typeof CipherSuite];
 
 export const NamedCurveAlgorithm = {
-  secp256r1: 23,
   x25519: 29,
+  secp256r1: 23,
 } as const;
 export type NamedCurveAlgorithms = typeof NamedCurveAlgorithm[keyof typeof NamedCurveAlgorithm];
 
