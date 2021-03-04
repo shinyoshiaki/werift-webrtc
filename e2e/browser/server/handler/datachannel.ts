@@ -15,7 +15,7 @@ export class datachannel_answer {
           dc.message.subscribe((msg) => {
             dc.send(msg + "pong");
           });
-          await this.pc.setLocalDescription(this.pc.createOffer());
+          await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
         }
         break;
@@ -46,7 +46,7 @@ export class datachannel_offer {
             iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
           await this.pc.setRemoteDescription(payload);
-          await this.pc.setLocalDescription(this.pc.createAnswer());
+          await this.pc.setLocalDescription(await this.pc.createAnswer());
 
           this.pc.onDataChannel.subscribe((dc) => {
             dc.message.subscribe((msg) => {

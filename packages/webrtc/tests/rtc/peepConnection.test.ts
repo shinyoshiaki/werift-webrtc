@@ -27,7 +27,7 @@ describe("peerConnection", () => {
       }
     });
 
-    const offer = pc1.createOffer()!;
+    const offer = await pc1.createOffer()!;
     expect(offer.type).toBe("offer");
     expect(offer.sdp.includes("m=application")).toBeTruthy();
     expect(offer.sdp.includes("a=candidate")).toBeFalsy();
@@ -47,7 +47,7 @@ describe("peerConnection", () => {
     expect(pc2.remoteDescription!.sdp).toBe(pc1.localDescription!.sdp);
 
     // # create answer
-    const answer = pc2.createAnswer()!;
+    const answer = await pc2.createAnswer()!;
     expect(answer.sdp.includes("m=application")).toBeTruthy();
     // expect(answer.sdp.includes("a=candidate")).toBeFalsy();
     // expect(answer.sdp.includes("a=end-of-candidates")).toBeFalsy();
@@ -107,11 +107,11 @@ describe("peerConnection", () => {
       }
     });
 
-    const offer = pcOffer.createOffer()!;
+    const offer = await pcOffer.createOffer()!;
     await pcOffer.setLocalDescription(offer);
     await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
 
-    const answer = pcAnswer.createAnswer()!;
+    const answer = await pcAnswer.createAnswer()!;
     await pcAnswer.setLocalDescription(answer);
     await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
 

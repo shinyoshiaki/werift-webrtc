@@ -69,9 +69,10 @@ export class DtlsSocket {
     this.extensions.push(curve.extension);
 
     const signature = Signature.createEmpty();
+    // libwebrtc require 4=1 , 4=3 signatureHash
     signature.data = [
       { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-      // { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa }, // todo fix
+      { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa }, // todo fix actual not implemented
     ];
     this.extensions.push(signature.extension);
 

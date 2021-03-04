@@ -695,9 +695,14 @@ export class RTCPeerConnection {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(
         this.signalingState
-      )
+      ) ||
+      !this.dtlsTransport
     )
-      throw new Error();
+      throw new Error("createAnswer failed");
+
+    if (this.certificates.length === 0) {
+      await this.dtlsTransport.setupCertificate();
+    }
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
