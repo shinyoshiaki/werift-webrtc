@@ -14,7 +14,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
-    "build": "rm -rf lib && yarn format && rollup -c",
+    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "ci": "yarn type && yarn test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
     "dep": "depcheck",
