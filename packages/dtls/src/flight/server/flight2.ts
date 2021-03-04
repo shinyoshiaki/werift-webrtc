@@ -34,7 +34,7 @@ export const flight2 = (
 ) => (clientHello: ClientHello) => {
   dtls.flight = 2;
 
-  clientHello.extensions.forEach(async (extension) => {
+  clientHello.extensions.forEach((extension) => {
     switch (extension.type) {
       case EllipticCurves.type:
         {

@@ -15,8 +15,8 @@ export type SignatureHash = {
 };
 
 export const CipherSuite = {
-  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: 0xc02f, //49199 client
-  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b, //49195 server
+  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: 0xc02f, //49199
+  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b, //49195
 } as const;
 export type CipherSuites = typeof CipherSuite[keyof typeof CipherSuite];
 

@@ -5,6 +5,7 @@ import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
 import { addYears } from "date-fns";
 import debug from "debug";
+import { randomBytes } from "tweetnacl";
 import {
   CipherSuites,
   HashAlgorithm,
@@ -97,7 +98,7 @@ export class CipherContext {
     const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      serialNumber: "4b5602cd91ef1bb016f9337ba6fb0b498da1d5ca",
+      serialNumber: Buffer.from(randomBytes(10)).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
       notAfter: addYears(Date.now(), 10),

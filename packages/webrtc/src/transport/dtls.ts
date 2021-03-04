@@ -40,19 +40,14 @@ export class RTCDtlsTransport {
 
   readonly onStateChange = new Event<[DtlsState]>();
 
-  private localCertificate?: RTCCertificate;
+  private localCertificate?: RTCCertificate = this.certificates[0];
 
   constructor(
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
     private readonly srtpProfiles: number[] = []
-  ) {
-    const certificate = certificates[0];
-    if (certificate) {
-      this.localCertificate = certificate;
-    }
-  }
+  ) {}
 
   get localParameters() {
     return new RTCDtlsParameters(

@@ -42,7 +42,7 @@ export class DtlsServer extends DtlsSocket {
     return;
   }
 
-  private udpOnMessage = async (data: Buffer) => {
+  private udpOnMessage = (data: Buffer) => {
     const messages = parsePacket(this.dtls, this.cipher)(data);
     switch (messages[0].type) {
       case ContentType.handshake:
@@ -51,7 +51,7 @@ export class DtlsServer extends DtlsSocket {
             messages.map((v) => v.data as FragmentedHandshake).filter((v) => v)
           );
           if (handshakes) {
-            await this.handleHandshakes(handshakes);
+            this.handleHandshakes(handshakes);
           }
         }
         break;
@@ -67,7 +67,7 @@ export class DtlsServer extends DtlsSocket {
   };
 
   private flight6?: Flight6;
-  private async handleHandshakes(handshakes: FragmentedHandshake[]) {
+  private handleHandshakes(handshakes: FragmentedHandshake[]) {
     const encryptedHandshake = handshakes.find((v) => v.msg_type == undefined);
 
     const assembled = Object.values(
