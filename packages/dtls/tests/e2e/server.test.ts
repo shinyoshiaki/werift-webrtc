@@ -4,6 +4,7 @@ import { createSocket } from "dgram";
 import { createUdpTransport } from "../../src";
 import { certPem, keyPem } from "../fixture";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { CipherContext } from "../../src/context/cipher";
 
 describe("e2e/server", () => {
   test("openssl", (done) => {
@@ -51,10 +52,15 @@ describe("e2e/server", () => {
     server.onConnect.subscribe(() => {
       server.send(Buffer.from("my_dtls_server"));
     });
-    await server.cipher.createSelfSignedCertificateWithKey({
+    const {
+      certPem,
+      keyPem,
+      signatureHash,
+    } = await CipherContext.createSelfSignedCertificateWithKey({
       hash: HashAlgorithm.sha256,
       signature: SignatureAlgorithm.rsa,
     });
+    server.cipher.parseX509(certPem, keyPem, signatureHash);
 
     setTimeout(() => {
       const client = spawn("openssl", [

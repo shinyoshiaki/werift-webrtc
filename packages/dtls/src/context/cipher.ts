@@ -36,7 +36,7 @@ export class CipherContext {
   masterSecret!: Buffer;
   cipher!: AEADCipher;
   namedCurve!: NamedCurveAlgorithms;
-  signatureHashAlgorithm: SignatureHash;
+  signatureHashAlgorithm?: SignatureHash;
   localCert!: Buffer;
   localPrivateKey!: PrivateKey;
 
@@ -47,16 +47,14 @@ export class CipherContext {
     signatureHashAlgorithm?: SignatureHash
   ) {
     if (certPem && keyPem && signatureHashAlgorithm) {
-      this.parseX509(certPem, keyPem);
-      this.signatureHashAlgorithm = signatureHashAlgorithm;
+      this.parseX509(certPem, keyPem, signatureHashAlgorithm);
     }
   }
 
-  async createSelfSignedCertificateWithKey(signatureHash: SignatureHash) {
-    this.signatureHashAlgorithm = signatureHash;
-
-    if (this.certPem && this.keyPem) return;
-
+  static async createSelfSignedCertificateWithKey(
+    signatureHash: SignatureHash,
+    namedCurveAlgorithm?: NamedCurveAlgorithms
+  ) {
     const name = (() => {
       switch (signatureHash.signature) {
         case SignatureAlgorithm.rsa:
@@ -72,7 +70,7 @@ export class CipherContext {
       }
     })();
     const namedCurve = (() => {
-      switch (this.namedCurve) {
+      switch (namedCurveAlgorithm) {
         case NamedCurveAlgorithm.secp256r1:
           return "P-256";
         case NamedCurveAlgorithm.x25519:
@@ -112,11 +110,8 @@ export class CipherContext {
       await crypto.subtle.exportKey("pkcs8", keys.privateKey),
       "private key"
     );
-    log(certPem);
-    log(keyPem);
 
-    this.parseX509(certPem, keyPem);
-    return { certPem, keyPem };
+    return { certPem, keyPem, signatureHash };
   }
 
   encryptPacket(pkt: DtlsPlaintext) {
@@ -184,12 +179,12 @@ export class CipherContext {
     return enc;
   }
 
-  private parseX509(certPem: string, keyPem: string) {
+  parseX509(certPem: string, keyPem: string, signatureHash: SignatureHash) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
     this.localCert = cert.raw;
     this.localPrivateKey = sec;
-    return { key: sec, cert: cert.raw };
+    this.signatureHashAlgorithm = signatureHash;
   }
 
   private valueKeySignature(

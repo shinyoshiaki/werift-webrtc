@@ -52,7 +52,7 @@ const log = debug("werift/webrtc/peerConnection");
 
 export class RTCPeerConnection {
   readonly cname = uuid.v4();
-  masterTransport?: RTCDtlsTransport;
+  dtlsTransport?: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
   configuration: Required<PeerConfig> = cloneDeep(defaultPeerConfig) as any;
@@ -70,7 +70,7 @@ export class RTCPeerConnection {
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
 
   private readonly router = new RtpRouter();
-  private certificates = [RTCCertificate.unsafe_useDefaultCertificate()];
+  private readonly certificates: RTCCertificate[] = [];
   private sctpRemotePort?: number;
   private remoteDtls?: RTCDtlsParameters;
   private remoteIce?: RTCIceParameters;
@@ -156,11 +156,18 @@ export class RTCPeerConnection {
     );
   }
 
-  createOffer() {
-    if (!this.sctpTransport && this.transceivers.length === 0)
+  async createOffer() {
+    if (
+      (!this.sctpTransport && this.transceivers.length === 0) ||
+      !this.dtlsTransport
+    )
       throw new Error(
         "Cannot create an offer with no media and no data channels"
       );
+
+    if (this.certificates.length === 0) {
+      await this.dtlsTransport.setupCertificate();
+    }
 
     this.transceivers.forEach((transceiver) => {
       transceiver.codecs = this.configuration.codecs[transceiver.kind];
@@ -295,7 +302,7 @@ export class RTCPeerConnection {
   }
 
   private createDtlsTransport(srtpProfiles: number[] = []) {
-    if (this.masterTransport) return this.masterTransport;
+    if (this.dtlsTransport) return this.dtlsTransport;
 
     const iceGatherer = new RTCIceGatherer(this.configuration.iceConfig);
     iceGatherer.onGatheringStateChange.subscribe((state) => {
@@ -323,7 +330,7 @@ export class RTCPeerConnection {
       this.certificates,
       srtpProfiles
     );
-    this.masterTransport = dtls;
+    this.dtlsTransport = dtls;
 
     return dtls;
   }
@@ -342,6 +349,9 @@ export class RTCPeerConnection {
   }
 
   async setLocalDescription(sessionDescription: RTCSessionDescription) {
+    const { dtlsTransport } = this;
+    if (!dtlsTransport) throw new Error("seems no media");
+
     // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
@@ -356,19 +366,23 @@ export class RTCPeerConnection {
 
     // # assign MID
     description.media.forEach((media, i) => {
-      const mid = media.rtp.muxId!;
+      const mid = media.rtp.muxId;
+      if (!mid) {
+        log("mid missing");
+        return;
+      }
       this.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
-        const transceiver = this.getTransceiverByMLineIndex(i)!;
-        transceiver.mid = mid;
+        const transceiver = this.getTransceiverByMLineIndex(i);
+        if (transceiver) transceiver.mid = mid;
       }
-      if (media.kind === "application") {
-        this.sctpTransport!.mid = mid;
+      if (media.kind === "application" && this.sctpTransport) {
+        this.sctpTransport.mid = mid;
       }
     });
 
     // # set ICE role
-    const iceTransport = this.masterTransport!.iceTransport;
+    const iceTransport = dtlsTransport.iceTransport;
     if (description.type === "offer") {
       iceTransport.connection.iceControlling = true;
       iceTransport.roleSet = true;
@@ -383,7 +397,7 @@ export class RTCPeerConnection {
     await this.gather();
 
     description.media.map((media) => {
-      addTransportDescription(media, this.masterTransport!);
+      addTransportDescription(media, dtlsTransport);
     });
 
     this.setLocal(description);
@@ -401,23 +415,23 @@ export class RTCPeerConnection {
   }
 
   async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
-    if (!this.masterTransport) throw new Error();
+    if (!this.dtlsTransport) throw new Error();
 
     const candidate = RTCIceCandidate.fromJSON(candidateMessage);
 
-    const iceTransport = this.masterTransport.iceTransport;
+    const iceTransport = this.dtlsTransport.iceTransport;
     await iceTransport.addRemoteCandidate(candidate);
   }
 
   private async gather() {
     if (this.masterTransportEstablished) return;
-    await this.masterTransport!.iceTransport.iceGather.gather();
+    await this.dtlsTransport!.iceTransport.iceGather.gather();
   }
 
   private async connect() {
-    if (this.masterTransportEstablished || !this.masterTransport) return;
+    if (this.masterTransportEstablished || !this.dtlsTransport) return;
 
-    const dtlsTransport = this.masterTransport;
+    const dtlsTransport = this.dtlsTransport;
     const iceTransport = dtlsTransport.iceTransport;
 
     if (this.remoteIce && this.remoteDtls) {
@@ -676,7 +690,7 @@ export class RTCPeerConnection {
     return transceiver;
   }
 
-  createAnswer() {
+  async createAnswer() {
     this.assertNotClosed();
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(

@@ -34,7 +34,7 @@ export const flight2 = (
 ) => (clientHello: ClientHello) => {
   dtls.flight = 2;
 
-  clientHello.extensions.map(async (extension) => {
+  clientHello.extensions.forEach(async (extension) => {
     switch (extension.type) {
       case EllipticCurves.type:
         {
@@ -55,10 +55,10 @@ export const flight2 = (
           const signatureHash = Signature.fromData(extension.data).data;
           log("hash,signature", signatureHash);
           const signature = signatureHash.find(
-            (v) => v.signature === cipher.signatureHashAlgorithm.signature
+            (v) => v.signature === cipher.signatureHashAlgorithm?.signature
           )?.signature;
           const hash = signatureHash.find(
-            (v) => v.hash === cipher.signatureHashAlgorithm.hash
+            (v) => v.hash === cipher.signatureHashAlgorithm?.hash
           )?.hash;
           if (signature == undefined || hash == undefined)
             throw new Error("invalid signatureHash");

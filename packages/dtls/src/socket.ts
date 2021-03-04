@@ -117,7 +117,7 @@ export class DtlsSocket {
       }
     );
 
-    if ((this.sessionType = SessionType.CLIENT)) {
+    if (this.sessionType === SessionType.CLIENT) {
       return {
         localKey: clientKey,
         localSalt: clientSalt,

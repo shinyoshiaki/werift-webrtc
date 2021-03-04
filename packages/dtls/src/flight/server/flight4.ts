@@ -114,8 +114,8 @@ export class Flight4 extends Flight {
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
-      this.cipher.signatureHashAlgorithm.hash,
-      this.cipher.signatureHashAlgorithm.signature,
+      this.cipher.signatureHashAlgorithm!.hash,
+      this.cipher.signatureHashAlgorithm!.signature,
       signature.length,
       signature
     );
