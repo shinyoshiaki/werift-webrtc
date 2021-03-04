@@ -2,6 +2,7 @@ import { Connection, Candidate } from "../../../ice/src";
 import { DtlsServer, DtlsClient } from "../../src";
 import { createIceTransport } from "../../examples/transport/ice";
 import { certPem, keyPem } from "../fixture";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 
 test("e2e/ice", async (done) => {
   const offer = new Connection(true, {
@@ -29,6 +30,10 @@ test("e2e/ice", async (done) => {
     transport: createIceTransport(offer),
     cert: certPem,
     key: keyPem,
+    signatureHash: {
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    },
   });
   dtlsServer.onConnect.subscribe(() => {
     dtlsServer.send(Buffer.from("dtls_over_ice"));
@@ -37,10 +42,14 @@ test("e2e/ice", async (done) => {
     transport: createIceTransport(answer),
     key: keyPem,
     cert: certPem,
+    signatureHash: {
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    },
   });
   dtlsClient.onData.subscribe((buf) => {
     expect(buf.toString()).toBe("dtls_over_ice");
     done();
   });
   dtlsClient.connect();
-});
+}, 10_000);

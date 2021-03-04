@@ -7,6 +7,11 @@ import {
   DtlsSocket,
   Transport,
 } from "../../../dtls/src";
+import {
+  HashAlgorithm,
+  SignatureAlgorithm,
+} from "../../../dtls/src/cipher/const";
+import { CipherContext } from "../../../dtls/src/context/cipher";
 import { Connection } from "../../../ice/src";
 import {
   RtcpPacket,
@@ -35,22 +40,32 @@ export class RTCDtlsTransport {
 
   readonly onStateChange = new Event<[DtlsState]>();
 
-  private localCertificate: RTCCertificate;
+  private localCertificate?: RTCCertificate = this.certificates[0];
 
   constructor(
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
     private readonly srtpProfiles: number[] = []
-  ) {
-    const certificate = certificates[0];
-    this.localCertificate = certificate;
-  }
+  ) {}
 
   get localParameters() {
     return new RTCDtlsParameters(
       this.localCertificate ? this.localCertificate.getFingerprints() : []
     );
+  }
+
+  async setupCertificate() {
+    if (!this.localCertificate) {
+      const {
+        certPem,
+        keyPem,
+      } = await CipherContext.createSelfSignedCertificateWithKey({
+        hash: HashAlgorithm.sha256,
+        signature: SignatureAlgorithm.rsa,
+      });
+      this.localCertificate = new RTCCertificate(keyPem, certPem);
+    }
   }
 
   async start(remoteParameters: RTCDtlsParameters) {
@@ -68,16 +83,24 @@ export class RTCDtlsTransport {
     await new Promise<void>(async (r) => {
       if (this.role === "server") {
         this.dtls = new DtlsServer({
-          cert: this.localCertificate.cert,
-          key: this.localCertificate.privateKey,
+          cert: this.localCertificate?.certPem,
+          key: this.localCertificate?.privateKey,
+          signatureHash: {
+            hash: HashAlgorithm.sha256,
+            signature: SignatureAlgorithm.rsa,
+          },
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
         });
       } else {
         this.dtls = new DtlsClient({
-          cert: this.localCertificate.cert,
-          key: this.localCertificate.privateKey,
+          cert: this.localCertificate?.certPem,
+          key: this.localCertificate?.privateKey,
+          signatureHash: {
+            hash: HashAlgorithm.sha256,
+            signature: SignatureAlgorithm.rsa,
+          },
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
@@ -188,19 +211,21 @@ export type DtlsRole = "auto" | "server" | "client";
 export class RTCCertificate {
   publicKey: string;
   privateKey: string;
-  cert: string;
-  constructor(privateKeyPem: string, certPem: string) {
+
+  constructor(privateKeyPem: string, public certPem: string) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     this.publicKey = cert.publicKey.toPEM();
     this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
-    this.cert = certPem;
   }
 
   getFingerprints(): RTCDtlsFingerprint[] {
     return [
       new RTCDtlsFingerprint(
         "sha-256",
-        fingerprint(Certificate.fromPEM(Buffer.from(this.cert)).raw, "sha256")
+        fingerprint(
+          Certificate.fromPEM(Buffer.from(this.certPem)).raw,
+          "sha256"
+        )
       ),
     ];
   }

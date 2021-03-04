@@ -3,7 +3,7 @@ import { HandshakeType } from "../../const";
 import {
   ClientCertificateType,
   DistinguishedName,
-  SignatureAlgorithm,
+  SignatureHashAlgorithm,
 } from "../../binary";
 import { Handshake } from "../../../typings/domain";
 import { FragmentedHandshake } from "../../../record/message/fragment";
@@ -16,7 +16,7 @@ export class ServerCertificateRequest implements Handshake {
   messageSeq?: number;
   static readonly spec = {
     certificateTypes: types.array(ClientCertificateType, types.uint8, "bytes"),
-    signatures: types.array(SignatureAlgorithm, types.uint16be, "bytes"),
+    signatures: types.array(SignatureHashAlgorithm, types.uint16be, "bytes"),
     authorities: types.array(DistinguishedName, types.uint16be, "bytes"),
   };
 

@@ -37,9 +37,8 @@ describe("socket", () => {
 
     const socket = new DtlsSocket(
       { transport: createSocket("udp4"), key: keyPem, cert: certPem },
-      false
+      SessionType.SERVER
     );
-    socket.cipher = new CipherContext(certPem, keyPem, SessionType.CLIENT);
     socket.cipher.localRandom = new DtlsRandom(500, rand);
     socket.cipher.remoteRandom = new DtlsRandom(1000, rand);
     socket.cipher.masterSecret = Buffer.from([]);
@@ -49,7 +48,7 @@ describe("socket", () => {
       expectedServerKey
     );
 
-    socket.isClient = true;
+    socket.sessionType = SessionType.CLIENT;
     expect(socket.exportKeyingMaterial(exportLabel, 10)).toEqual(
       expectedClientKey
     );

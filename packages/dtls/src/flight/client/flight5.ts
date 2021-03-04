@@ -92,8 +92,7 @@ export class Flight5 extends Flight {
   }
 
   sendCertificate() {
-    this.cipher.localPrivateKey = this.cipher.sign.key;
-    const certificate = new Certificate([Buffer.from(this.cipher.sign.cert)]);
+    const certificate = new Certificate([Buffer.from(this.cipher.localCert)]);
     const fragments = createFragments(this.dtls)([certificate]);
     this.dtls.bufferHandshakeCache(fragments, true, 5);
     const packets = createPlaintext(this.dtls)(

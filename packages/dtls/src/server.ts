@@ -8,9 +8,6 @@ import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { SessionType } from "./cipher/suites/abstract";
 import { DtlsSocket, Options } from "./socket";
-import { DtlsContext } from "./context/dtls";
-import { CipherContext } from "./context/cipher";
-import { SrtpContext } from "./context/srtp";
 import debug from "debug";
 
 const log = debug("werift/dtls/server");
@@ -19,8 +16,9 @@ export class DtlsServer extends DtlsSocket {
   bufferHandshakes: FragmentedHandshake[] = [];
 
   constructor(options: Options) {
-    super(options, false);
+    super(options, SessionType.SERVER);
     this.udp.socket.onData = this.udpOnMessage;
+    log("start server", options);
   }
 
   handleFragmentHandshake(messages: FragmentedHandshake[]) {
@@ -52,7 +50,9 @@ export class DtlsServer extends DtlsSocket {
           const handshakes = this.handleFragmentHandshake(
             messages.map((v) => v.data as FragmentedHandshake).filter((v) => v)
           );
-          if (handshakes) this.handleHandshakes(handshakes);
+          if (handshakes) {
+            this.handleHandshakes(handshakes);
+          }
         }
         break;
       case ContentType.applicationData:
@@ -84,35 +84,24 @@ export class DtlsServer extends DtlsSocket {
 
     log("handleHandshakes", assembled, encryptedHandshake);
 
-    assembled.forEach((handshake) => {
+    for (const handshake of assembled) {
       switch (handshake.msg_type) {
         case HandshakeType.client_hello:
           {
             const clientHello = ClientHello.deSerialize(handshake.fragment);
-            const context = this.contexts[clientHello.cookie.toString("hex")];
-            if (context && !this.dtls) {
-              this.dtls = context.dtls;
-              this.cipher = context.cipher;
-              this.srtp = context.srtp;
-              this.contexts = {};
+
+            if (
+              this.dtls.cookie &&
+              clientHello.cookie.equals(this.dtls.cookie)
+            ) {
+              log("send flight4");
               new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
                 handshake,
                 this.options.certificateRequest
               );
-            } else {
-              const dtls = new DtlsContext(this.options);
-              const cipher = new CipherContext(
-                this.options.cert,
-                this.options.key,
-                SessionType.SERVER
-              );
-              const srtp = new SrtpContext();
-              flight2(this.udp, dtls, cipher, srtp)(clientHello);
-              this.contexts[dtls.cookie!.toString("hex")] = {
-                dtls,
-                cipher,
-                srtp,
-              };
+            } else if (!this.dtls.cookie) {
+              log("send flight2");
+              flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
             }
           }
           break;
@@ -124,12 +113,13 @@ export class DtlsServer extends DtlsSocket {
           break;
         case HandshakeType.finished:
           {
+            log("send flight6");
             this.flight6?.exec(handshake);
             this.onConnect.execute();
           }
           break;
       }
-    });
+    }
 
     if (encryptedHandshake) {
       log("encrypted handshake received");

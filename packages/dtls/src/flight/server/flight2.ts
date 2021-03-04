@@ -12,10 +12,8 @@ import { randomBytes } from "crypto";
 import {
   CipherSuite,
   CipherSuites,
-  HashAlgorithm,
   NamedCurveAlgorithm,
   NamedCurveAlgorithms,
-  SignatureAlgorithm,
 } from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
@@ -51,21 +49,19 @@ export const flight2 = (
         break;
       case Signature.type:
         {
+          if (!cipher.signatureHashAlgorithm)
+            throw new Error("need to set certificate");
+
           const signatureHash = Signature.fromData(extension.data).data;
           log("hash,signature", signatureHash);
-          const hash = signatureHash.find((v) =>
-            Object.values(HashAlgorithm).includes(v.hash)
-          )?.hash;
-          const signature = signatureHash.find((v) =>
-            Object.values(SignatureAlgorithm).includes(v.signature)
+          const signature = signatureHash.find(
+            (v) => v.signature === cipher.signatureHashAlgorithm?.signature
           )?.signature;
-          if (hash == undefined || signature == undefined)
+          const hash = signatureHash.find(
+            (v) => v.hash === cipher.signatureHashAlgorithm?.hash
+          )?.hash;
+          if (signature == undefined || hash == undefined)
             throw new Error("invalid signatureHash");
-          cipher.signatureHashAlgorithm = {
-            hash: HashAlgorithm.sha256,
-            signature: SignatureAlgorithm.rsa,
-          }; // todo fix
-          log("signatureHash selected", cipher.signatureHashAlgorithm);
         }
         break;
       case UseSRTP.type:

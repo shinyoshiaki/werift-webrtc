@@ -1,11 +1,18 @@
 import { Certificate, PrivateKey, RSAPrivateKey } from "@fidm/x509";
+import { Crypto } from "@peculiar/webcrypto";
+import * as x509 from "@peculiar/x509";
 import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
+import { addYears } from "date-fns";
+import debug from "debug";
+import { randomBytes } from "tweetnacl";
 import {
   CipherSuites,
-  HashAlgorithms,
+  HashAlgorithm,
+  NamedCurveAlgorithm,
   NamedCurveAlgorithms,
-  SignatureAlgorithms,
+  SignatureAlgorithm,
+  SignatureHash,
 } from "../cipher/const";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
@@ -14,6 +21,11 @@ import AEADCipher from "../cipher/suites/aead";
 import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
+
+const log = debug("werift/dtls/context/cipher");
+
+const crypto = new Crypto();
+x509.cryptoProvider.set(crypto);
 
 export class CipherContext {
   localRandom!: DtlsRandom;
@@ -25,18 +37,83 @@ export class CipherContext {
   masterSecret!: Buffer;
   cipher!: AEADCipher;
   namedCurve!: NamedCurveAlgorithms;
-  signatureHashAlgorithm!: {
-    hash: HashAlgorithms;
-    signature: SignatureAlgorithms;
-  };
+  signatureHashAlgorithm?: SignatureHash;
+  localCert!: Buffer;
   localPrivateKey!: PrivateKey;
-  sign = this.parseX509(this.certPem, this.keyPem);
 
   constructor(
-    public certPem: string,
-    public keyPem: string,
-    public sessionType: SessionTypes
-  ) {}
+    public sessionType: SessionTypes,
+    public certPem?: string,
+    public keyPem?: string,
+    signatureHashAlgorithm?: SignatureHash
+  ) {
+    if (certPem && keyPem && signatureHashAlgorithm) {
+      this.parseX509(certPem, keyPem, signatureHashAlgorithm);
+    }
+  }
+
+  static async createSelfSignedCertificateWithKey(
+    signatureHash: SignatureHash,
+    namedCurveAlgorithm?: NamedCurveAlgorithms
+  ) {
+    const name = (() => {
+      switch (signatureHash.signature) {
+        case SignatureAlgorithm.rsa:
+          return "RSASSA-PKCS1-v1_5";
+        case SignatureAlgorithm.ecdsa:
+          return "ECDSA";
+      }
+    })();
+    const hash = (() => {
+      switch (signatureHash.hash) {
+        case HashAlgorithm.sha256:
+          return "SHA-256";
+      }
+    })();
+    const namedCurve = (() => {
+      switch (namedCurveAlgorithm) {
+        case NamedCurveAlgorithm.secp256r1:
+          return "P-256";
+        case NamedCurveAlgorithm.x25519:
+          // todo fix (X25519 not supported with ECDSA)
+          if (name === "ECDSA") return "P-256";
+          return "X25519";
+      }
+    })();
+    const alg = (() => {
+      switch (name) {
+        case "ECDSA":
+          return { name, hash, namedCurve };
+        case "RSASSA-PKCS1-v1_5":
+          return {
+            name,
+            hash,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            modulusLength: 2048,
+          };
+      }
+    })();
+
+    log("createCertificateWithKey alg", alg);
+    const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
+
+    const cert = await x509.X509CertificateGenerator.createSelfSigned({
+      serialNumber: Buffer.from(randomBytes(10)).toString("hex"),
+      name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
+      notBefore: new Date(),
+      notAfter: addYears(Date.now(), 10),
+      signingAlgorithm: alg,
+      keys,
+    });
+
+    const certPem = cert.toString("pem");
+    const keyPem = x509.PemConverter.encode(
+      await crypto.subtle.exportKey("pkcs8", keys.privateKey),
+      "private key"
+    );
+
+    return { certPem, keyPem, signatureHash };
+  }
 
   encryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;
@@ -82,12 +159,6 @@ export class CipherContext {
     return signed;
   }
 
-  private parseX509(certPem: string, keyPem: string) {
-    const cert = Certificate.fromPEM(Buffer.from(certPem));
-    const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
-    return { key: sec, cert: cert.raw };
-  }
-
   generateKeySignature(hashAlgorithm: string) {
     const clientRandom =
       this.sessionType === SessionType.CLIENT
@@ -107,6 +178,14 @@ export class CipherContext {
 
     const enc = this.localPrivateKey.sign(sig, hashAlgorithm);
     return enc;
+  }
+
+  parseX509(certPem: string, keyPem: string, signatureHash: SignatureHash) {
+    const cert = Certificate.fromPEM(Buffer.from(certPem));
+    const sec = PrivateKey.fromPEM(Buffer.from(keyPem));
+    this.localCert = cert.raw;
+    this.localPrivateKey = sec;
+    this.signatureHashAlgorithm = signatureHash;
   }
 
   private valueKeySignature(

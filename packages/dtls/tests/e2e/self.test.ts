@@ -1,6 +1,7 @@
 import { DtlsServer, DtlsClient, createUdpTransport } from "../../src";
 import { createSocket } from "dgram";
 import { certPem, keyPem } from "../fixture";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 
 test("e2e/self", (done) => {
   const word = "self";
@@ -10,6 +11,10 @@ test("e2e/self", (done) => {
   const server = new DtlsServer({
     cert: certPem,
     key: keyPem,
+    signatureHash: {
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    },
     transport: createUdpTransport(socket),
   });
   const client = new DtlsClient({
@@ -19,6 +24,10 @@ test("e2e/self", (done) => {
     }),
     cert: certPem,
     key: keyPem,
+    signatureHash: {
+      hash: HashAlgorithm.sha256,
+      signature: SignatureAlgorithm.rsa,
+    },
   });
   server.onData.subscribe((data) => {
     expect(data.toString()).toBe(word);
@@ -29,8 +38,7 @@ test("e2e/self", (done) => {
   });
   client.onData.subscribe((data) => {
     expect(data.toString()).toBe(word + "_server");
-    socket.close();
     done();
   });
   client.connect();
-});
+}, 10_000);

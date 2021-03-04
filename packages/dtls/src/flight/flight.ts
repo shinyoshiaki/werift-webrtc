@@ -32,22 +32,26 @@ export abstract class Flight {
     buf.forEach((v) => this.udp.send(v));
   }
 
+  retransmitCount = 0;
   private async retransmit() {
     this.setState("SENDING");
     this.send(this.buffer);
     this.setState("WAITING");
 
     if (this.nextFlight === undefined) {
+      this.retransmitCount = 0;
       this.setState("FINISHED");
       return;
     }
 
     await sleep(1000);
     if (this.dtls.flight >= this.nextFlight) {
+      this.retransmitCount = 0;
       this.setState("FINISHED");
       return;
     } else {
-      log("retransmit", this.dtls.flight);
+      if (this.retransmitCount++ > 10) throw new Error("over retransmitCount");
+      log("retransmit", this.dtls.flight, this.dtls.sessionType);
       this.retransmit().then(() => log(this.dtls.flight, "done"));
     }
   }

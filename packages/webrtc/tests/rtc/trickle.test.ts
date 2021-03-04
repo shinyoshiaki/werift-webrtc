@@ -30,12 +30,10 @@ describe("trickle", () => {
         }
       });
 
-      const offer = pcOffer.createOffer();
-      pcOffer.setLocalDescription(offer);
+      pcOffer.setLocalDescription(await pcOffer.createOffer());
 
       await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
-      const answer = pcAnswer.createAnswer();
-      await pcAnswer.setLocalDescription(answer);
+      await pcAnswer.setLocalDescription(await pcAnswer.createAnswer());
 
       await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
     },

@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.5.3",
+  "version": "0.5.6",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -15,14 +15,14 @@
   "author": {
     "name": "shinyoshiaki"
   },
-  "main": "lib/index.js",
+  "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
   "files": [
     "lib",
     "src"
   ],
   "scripts": {
-    "build": "rm -rf lib && yarn format && rollup -c",
+    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "depcheck": "depcheck --ignores='@typescript-eslint/*,eslint-*'",
     "doc": "rm -rf doc && typedoc --mode file --out doc ./src/**/*.ts",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
@@ -34,10 +34,13 @@
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
+    "@peculiar/webcrypto": "^1.1.6",
+    "@peculiar/x509": "^1.2.0",
     "aes-js": "^3.1.2",
     "big-integer": "^1.6.48",
     "binary-data": "^0.6.0",
     "buffer-crc32": "^0.2.13",
+    "date-fns": "^2.17.0",
     "debug": "^4.3.1",
     "elliptic": "^6.5.3",
     "int64-buffer": "^1.0.0",

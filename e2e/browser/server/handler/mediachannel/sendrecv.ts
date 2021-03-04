@@ -17,7 +17,7 @@ export class mediachannel_sendrecv_answer {
               transceiver.sendRtp(rtp);
             });
           });
-          await this.pc.setLocalDescription(this.pc.createOffer());
+          await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
         }
         break;
@@ -56,7 +56,7 @@ export class mediachannel_sendrecv_offer {
             });
           });
           await this.pc.setRemoteDescription(payload);
-          await this.pc.setLocalDescription(this.pc.createAnswer());
+          await this.pc.setLocalDescription(await this.pc.createAnswer());
           accept(this.pc.localDescription);
         }
         break;
