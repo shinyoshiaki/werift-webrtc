@@ -107,7 +107,7 @@ export class DtlsSocket {
     // libwebrtc require 4=1 , 4=3 signatureHash
     signature.data = [
       { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-      { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa }, // todo fix actual not implemented
+      { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
     ];
     this.extensions.push(signature.extension);
 

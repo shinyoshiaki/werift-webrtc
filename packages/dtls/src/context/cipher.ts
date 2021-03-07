@@ -52,6 +52,12 @@ export class CipherContext {
     }
   }
 
+  /**
+   *
+   * @param signatureHash
+   * @param namedCurveAlgorithm necessary when use ecdsa
+   * @returns
+   */
   static async createSelfSignedCertificateWithKey(
     signatureHash: SignatureHash,
     namedCurveAlgorithm?: NamedCurveAlgorithms
@@ -78,6 +84,8 @@ export class CipherContext {
           // todo fix (X25519 not supported with ECDSA)
           if (name === "ECDSA") return "P-256";
           return "X25519";
+        default:
+          if (name === "ECDSA") return "P-256";
       }
     })();
     const alg = (() => {
