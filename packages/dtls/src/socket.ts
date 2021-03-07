@@ -22,6 +22,7 @@ import debug from "debug";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { SessionType, SessionTypes } from "./cipher/suites/abstract";
+import { FragmentedHandshake } from "./record/message/fragment";
 
 const log = debug("werift/dtls/socket");
 
@@ -49,6 +50,8 @@ export class DtlsSocket {
   readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
   readonly srtp: SrtpContext = new SrtpContext();
   extensions: Extension[] = [];
+
+  private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
   constructor(public options: Options, public sessionType: SessionTypes) {
     this.setupExtensions();
@@ -85,6 +88,26 @@ export class DtlsSocket {
 
     const renegotiationIndication = RenegotiationIndication.createEmpty();
     this.extensions.push(renegotiationIndication.extension);
+  }
+
+  handleFragmentHandshake(messages: FragmentedHandshake[]) {
+    let handshakes = messages.filter((v) => {
+      // find fragmented
+      if (v.fragment_length !== v.length) {
+        this.bufferFragmentedHandshakes.push(v);
+        return false;
+      }
+      return true;
+    });
+
+    if (this.bufferFragmentedHandshakes.length > 1) {
+      const last = this.bufferFragmentedHandshakes.slice(-1)[0];
+      if (last.fragment_offset + last.fragment_length === last.length) {
+        handshakes = [...this.bufferFragmentedHandshakes, ...handshakes];
+        this.bufferFragmentedHandshakes = [];
+      }
+    }
+    return handshakes; // return un fragmented handshakes
   }
 
   send(buf: Buffer) {

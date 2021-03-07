@@ -42,16 +42,9 @@ export class Flight5 extends Flight {
     super(udp, dtls, 7);
   }
 
-  exec(fragments: FragmentedHandshake[]) {
-    if (this.dtls.flight === 5) {
-      log("flight5 twice");
-      this.send(this.dtls.lastMessage);
-      return;
-    }
-    this.dtls.flight = 5;
-    this.dtls.bufferHandshakeCache(fragments, false, 4);
-
-    const messages = fragments.map((handshake) => {
+  handleHandshake(handshake: FragmentedHandshake) {
+    this.dtls.bufferHandshakeCache([handshake], false, 4);
+    const message = (() => {
       switch (handshake.msg_type) {
         case HandshakeType.server_hello:
           return ServerHello.deSerialize(handshake.fragment);
@@ -64,17 +57,23 @@ export class Flight5 extends Flight {
         case HandshakeType.server_hello_done:
           return ServerHelloDone.deSerialize(handshake.fragment);
         default:
-          return (undefined as any) as ServerHello;
+          throw new Error("invalid message type");
       }
-    });
+    })();
+    handlers[message.msgType]({
+      dtls: this.dtls,
+      cipher: this.cipher,
+      srtp: this.srtp,
+    })(message);
+  }
 
-    messages.forEach((message) => {
-      handlers[message.msgType]({
-        dtls: this.dtls,
-        cipher: this.cipher,
-        srtp: this.srtp,
-      })(message);
-    });
+  exec() {
+    if (this.dtls.flight === 5) {
+      log("flight5 twice");
+      this.send(this.dtls.lastMessage);
+      return;
+    }
+    this.dtls.flight = 5;
 
     const packets = [
       this.dtls.requestedCertificateTypes.length > 0 && this.sendCertificate(),
