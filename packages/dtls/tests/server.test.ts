@@ -29,7 +29,7 @@ describe("server", () => {
     const last = fragments.pop()!;
     const second = fragments.pop()!;
     fragments.forEach((fragment) => server.handleFragmentHandshake([fragment]));
-    expect(server.handleFragmentHandshake([second])).toBeFalsy();
-    expect(server.handleFragmentHandshake([last])).toBeTruthy();
+    expect(server.handleFragmentHandshake([last]).length).toBeGreaterThan(0);
+    expect(server.handleFragmentHandshake([second]).length).toBe(0);
   });
 });
