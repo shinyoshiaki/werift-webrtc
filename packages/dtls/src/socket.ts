@@ -23,18 +23,9 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { SessionType, SessionTypes } from "./cipher/suites/abstract";
 import { FragmentedHandshake } from "./record/message/fragment";
+import { parsePacket, parsePlainText } from "./record/receive";
 
 const log = debug("werift/dtls/socket");
-
-export interface Options {
-  transport: Transport;
-  srtpProfiles?: number[];
-  cert?: string;
-  key?: string;
-  signatureHash?: SignatureHash;
-  certificateRequest?: boolean;
-  extendedMasterSecret?: boolean;
-}
 
 export class DtlsSocket {
   readonly onConnect = new Event();
@@ -49,13 +40,54 @@ export class DtlsSocket {
   );
   readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
   readonly srtp: SrtpContext = new SrtpContext();
+
   extensions: Extension[] = [];
+  onHandleHandshakes: (assembled: FragmentedHandshake[]) => void;
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
   constructor(public options: Options, public sessionType: SessionTypes) {
     this.setupExtensions();
+    this.udp.socket.onData = this.udpOnMessage;
   }
+
+  private udpOnMessage = (data: Buffer) => {
+    const packets = parsePacket(data);
+
+    for (const packet of packets) {
+      const message = parsePlainText(this.dtls, this.cipher)(packet);
+      switch (message.type) {
+        case ContentType.handshake:
+          {
+            const handshake = message.data as FragmentedHandshake;
+            const handshakes = this.handleFragmentHandshake([handshake]);
+            const assembled = Object.values(
+              handshakes.reduce(
+                (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
+                  if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
+                  acc[cur.msg_type].push(cur);
+                  return acc;
+                },
+                {}
+              )
+            )
+              .map((v) => FragmentedHandshake.assemble(v))
+              .sort((a, b) => a.msg_type - b.msg_type);
+
+            this.onHandleHandshakes(assembled);
+          }
+          break;
+        case ContentType.applicationData:
+          {
+            this.onData.execute(message.data as Buffer);
+          }
+          break;
+        case ContentType.alert:
+          this.onClose.execute();
+          break;
+      }
+    }
+  };
 
   private setupExtensions() {
     log("support srtpProfiles", this.options.srtpProfiles);
@@ -168,4 +200,14 @@ export class DtlsSocket {
       this.sessionType === SessionType.CLIENT
     );
   }
+}
+
+export interface Options {
+  transport: Transport;
+  srtpProfiles?: number[];
+  cert?: string;
+  key?: string;
+  signatureHash?: SignatureHash;
+  certificateRequest?: boolean;
+  extendedMasterSecret?: boolean;
 }
