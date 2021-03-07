@@ -153,8 +153,7 @@ export class CipherContext {
 
   signatureData(data: Buffer, hash: string) {
     const signature = createSign(hash).update(data);
-    const privKey = RSAPrivateKey.fromPrivateKey(this.localPrivateKey);
-    const key = privKey.toPEM().toString();
+    const key = this.localPrivateKey.toPEM().toString();
     const signed = signature.sign(key);
     return signed;
   }

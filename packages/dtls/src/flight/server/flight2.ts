@@ -11,9 +11,9 @@ import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVe
 import { randomBytes } from "crypto";
 import {
   CipherSuite,
-  CipherSuites,
   NamedCurveAlgorithm,
   NamedCurveAlgorithms,
+  SignatureAlgorithm,
 } from "../../cipher/const";
 import { ContentType } from "../../record/const";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
@@ -99,14 +99,20 @@ export const flight2 = (
   cipher.remoteRandom = DtlsRandom.from(clientHello.random);
 
   const suites = clientHello.cipherSuites;
-  const suite = suites.find((suite) =>
-    Object.values(CipherSuite).includes(suite as any)
-  ) as CipherSuites;
-  if (!suite) throw new Error("dtls cipher suite negotiation failed");
-
   log("cipher suites", suites);
-  cipher.cipherSuite = CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256; // todo fix
-  log("cipher suite selected", cipher.cipherSuite);
+  const suite = (() => {
+    switch (cipher.signatureHashAlgorithm?.signature) {
+      case SignatureAlgorithm.ecdsa:
+        return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
+      case SignatureAlgorithm.rsa:
+        return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
+    }
+  })();
+  if (suite === undefined || !suites.includes(suite)) {
+    throw new Error("dtls cipher suite negotiation failed");
+  }
+  cipher.cipherSuite = suite;
+  log("selected cipherSuite", cipher.cipherSuite);
 
   cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
 

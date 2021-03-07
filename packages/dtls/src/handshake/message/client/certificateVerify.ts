@@ -2,6 +2,7 @@ import { encode, types, decode } from "binary-data";
 import { HandshakeType } from "../../const";
 import { Handshake } from "../../../typings/domain";
 import { FragmentedHandshake } from "../../../record/message/fragment";
+import { SignatureSchemes } from "../../../cipher/const";
 
 export class CertificateVerify implements Handshake {
   msgType = HandshakeType.certificate_verify;
@@ -43,8 +44,3 @@ export class CertificateVerify implements Handshake {
     );
   }
 }
-
-export const SignatureScheme = {
-  rsa_pkcs1_sha256: 0x0401,
-} as const;
-export type SignatureSchemes = typeof SignatureScheme[keyof typeof SignatureScheme];

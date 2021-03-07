@@ -82,15 +82,11 @@ export class RTCPeerConnection {
   private isClosed = false;
 
   constructor({
-    certificate,
-    privateKey,
     codecs,
     headerExtensions,
     iceConfig,
   }: Partial<PeerConfig> = {}) {
     if (iceConfig) this.configuration.iceConfig = iceConfig;
-    if (certificate && privateKey)
-      this.certificates = [new RTCCertificate(privateKey, certificate)];
     if (codecs?.audio) {
       this.configuration.codecs.audio = codecs.audio;
     }
@@ -917,8 +913,6 @@ export function wrapSessionDescription(sessionDescription: SessionDescription) {
 }
 
 export type PeerConfig = {
-  privateKey?: string;
-  certificate?: string;
   codecs: Partial<{
     audio: RTCRtpCodecParameters[];
     video: RTCRtpCodecParameters[];

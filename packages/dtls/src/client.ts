@@ -57,6 +57,8 @@ export class DtlsClient extends DtlsSocket {
       this.flight4Buffer = handshakes;
     }
 
+    log("handleHandshakes", handshakes);
+
     switch (handshakes.slice(-1)[0].msg_type) {
       case HandshakeType.hello_verify_request:
         {
@@ -96,6 +98,7 @@ export class DtlsClient extends DtlsSocket {
         {
           this.dtls.flight = 7;
           this.onConnect.execute();
+          log("dtls connected");
         }
         break;
     }

@@ -20,10 +20,7 @@ import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
 import { CipherContext } from "../../context/cipher";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
-import {
-  CertificateVerify,
-  SignatureScheme,
-} from "../../handshake/message/client/certificateVerify";
+import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { SrtpContext } from "../../context/srtp";
 import { Flight } from "../flight";
@@ -31,6 +28,7 @@ import { FragmentedHandshake } from "../../record/message/fragment";
 import debug from "debug";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
+import { SignatureAlgorithm, SignatureScheme } from "../../cipher/const";
 
 const log = debug("werift/dtls/flight/client/flight5");
 
@@ -166,10 +164,22 @@ export class Flight5 extends Flight {
       this.dtls.handshakeCache.map((v) => v.data.serialize())
     );
     const signed = this.cipher.signatureData(cache, "sha256");
-    const certificateVerify = new CertificateVerify(
-      SignatureScheme.rsa_pkcs1_sha256,
-      signed
+    const signatureScheme = (() => {
+      switch (this.cipher.signatureHashAlgorithm?.signature) {
+        case SignatureAlgorithm.ecdsa:
+          return SignatureScheme.ecdsa_secp256r1_sha256;
+        case SignatureAlgorithm.rsa:
+          return SignatureScheme.rsa_pkcs1_sha256;
+      }
+    })();
+    if (!signatureScheme) throw new Error();
+    log(
+      "signatureScheme",
+      this.cipher.signatureHashAlgorithm?.signature,
+      signatureScheme
     );
+
+    const certificateVerify = new CertificateVerify(signatureScheme, signed);
     const fragments = createFragments(this.dtls)([certificateVerify]);
     this.dtls.bufferHandshakeCache(fragments, true, 5);
     const packets = createPlaintext(this.dtls)(
