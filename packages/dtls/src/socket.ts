@@ -42,7 +42,7 @@ export class DtlsSocket {
   readonly srtp: SrtpContext = new SrtpContext();
 
   extensions: Extension[] = [];
-  onHandleHandshakes: (assembled: FragmentedHandshake[]) => void;
+  onHandleHandshakes: (assembled: FragmentedHandshake[]) => void = () => {};
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
