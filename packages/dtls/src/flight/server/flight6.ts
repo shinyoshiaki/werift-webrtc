@@ -37,13 +37,14 @@ export class Flight6 extends Flight {
           return ClientKeyExchange.deSerialize(handshake.fragment);
         case HandshakeType.finished:
           return Finished.deSerialize(handshake.fragment);
-        default:
-          throw new Error("invalid message type");
       }
     })();
-    handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
-      message
-    );
+
+    if (message) {
+      handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
+        message
+      );
+    }
   }
 
   exec() {

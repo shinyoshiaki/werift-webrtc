@@ -56,15 +56,16 @@ export class Flight5 extends Flight {
           return ServerCertificateRequest.deSerialize(handshake.fragment);
         case HandshakeType.server_hello_done:
           return ServerHelloDone.deSerialize(handshake.fragment);
-        default:
-          throw new Error("invalid message type");
       }
     })();
-    handlers[message.msgType]({
-      dtls: this.dtls,
-      cipher: this.cipher,
-      srtp: this.srtp,
-    })(message);
+
+    if (message) {
+      handlers[message.msgType]({
+        dtls: this.dtls,
+        cipher: this.cipher,
+        srtp: this.srtp,
+      })(message);
+    }
   }
 
   exec() {
