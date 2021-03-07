@@ -1,4 +1,4 @@
-import { Certificate, PrivateKey, RSAPrivateKey } from "@fidm/x509";
+import { Certificate, PrivateKey } from "@fidm/x509";
 import { Crypto } from "@peculiar/webcrypto";
 import * as x509 from "@peculiar/x509";
 import { decode, encode, types } from "binary-data";
@@ -52,6 +52,12 @@ export class CipherContext {
     }
   }
 
+  /**
+   *
+   * @param signatureHash
+   * @param namedCurveAlgorithm necessary when use ecdsa
+   * @returns
+   */
   static async createSelfSignedCertificateWithKey(
     signatureHash: SignatureHash,
     namedCurveAlgorithm?: NamedCurveAlgorithms
@@ -78,6 +84,8 @@ export class CipherContext {
           // todo fix (X25519 not supported with ECDSA)
           if (name === "ECDSA") return "P-256";
           return "X25519";
+        default:
+          if (name === "ECDSA") return "P-256";
       }
     })();
     const alg = (() => {
@@ -153,8 +161,7 @@ export class CipherContext {
 
   signatureData(data: Buffer, hash: string) {
     const signature = createSign(hash).update(data);
-    const privKey = RSAPrivateKey.fromPrivateKey(this.localPrivateKey);
-    const key = privKey.toPEM().toString();
+    const key = this.localPrivateKey.toPEM().toString();
     const signed = signature.sign(key);
     return signed;
   }

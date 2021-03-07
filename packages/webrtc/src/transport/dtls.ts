@@ -9,7 +9,9 @@ import {
 } from "../../../dtls/src";
 import {
   HashAlgorithm,
+  NamedCurveAlgorithm,
   SignatureAlgorithm,
+  SignatureHash,
 } from "../../../dtls/src/cipher/const";
 import { CipherContext } from "../../../dtls/src/context/cipher";
 import { Connection } from "../../../ice/src";
@@ -21,7 +23,6 @@ import {
   SrtcpSession,
   SrtpSession,
 } from "../../../rtp/src";
-import { defaultCertificate, defaultPrivateKey } from "../const";
 import { sleep } from "../helper";
 import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
@@ -60,11 +61,19 @@ export class RTCDtlsTransport {
       const {
         certPem,
         keyPem,
-      } = await CipherContext.createSelfSignedCertificateWithKey({
-        hash: HashAlgorithm.sha256,
-        signature: SignatureAlgorithm.rsa,
-      });
-      this.localCertificate = new RTCCertificate(keyPem, certPem);
+        signatureHash,
+      } = await CipherContext.createSelfSignedCertificateWithKey(
+        {
+          signature: SignatureAlgorithm.ecdsa,
+          hash: HashAlgorithm.sha256,
+        },
+        NamedCurveAlgorithm.secp256r1
+      );
+      this.localCertificate = new RTCCertificate(
+        keyPem,
+        certPem,
+        signatureHash
+      );
     }
   }
 
@@ -85,10 +94,7 @@ export class RTCDtlsTransport {
         this.dtls = new DtlsServer({
           cert: this.localCertificate?.certPem,
           key: this.localCertificate?.privateKey,
-          signatureHash: {
-            hash: HashAlgorithm.sha256,
-            signature: SignatureAlgorithm.rsa,
-          },
+          signatureHash: this.localCertificate?.signatureHash,
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
@@ -97,10 +103,7 @@ export class RTCDtlsTransport {
         this.dtls = new DtlsClient({
           cert: this.localCertificate?.certPem,
           key: this.localCertificate?.privateKey,
-          signatureHash: {
-            hash: HashAlgorithm.sha256,
-            signature: SignatureAlgorithm.rsa,
-          },
+          signatureHash: this.localCertificate?.signatureHash,
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
@@ -212,7 +215,11 @@ export class RTCCertificate {
   publicKey: string;
   privateKey: string;
 
-  constructor(privateKeyPem: string, public certPem: string) {
+  constructor(
+    privateKeyPem: string,
+    public certPem: string,
+    public signatureHash: SignatureHash
+  ) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     this.publicKey = cert.publicKey.toPEM();
     this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
@@ -228,10 +235,6 @@ export class RTCCertificate {
         )
       ),
     ];
-  }
-
-  static unsafe_useDefaultCertificate() {
-    return new RTCCertificate(defaultPrivateKey, defaultCertificate);
   }
 }
 

@@ -1,4 +1,4 @@
-import { RTCCertificate, RTCDtlsTransport } from "../../../src/transport/dtls";
+import { RTCDtlsTransport } from "../../../src/transport/dtls";
 import { RTCIceGatherer, RTCIceTransport } from "../../../src";
 import { sleep } from "../../../src/helper";
 import { RtpRouter } from "../../../src/media/router";
@@ -21,15 +21,11 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
-  const certificate1 = RTCCertificate.unsafe_useDefaultCertificate();
-  const session1 = new RTCDtlsTransport(transport1, new RtpRouter(), [
-    certificate1,
-  ]);
+  const session1 = new RTCDtlsTransport(transport1, new RtpRouter(), []);
+  await session1.setupCertificate();
 
-  const certificate2 = RTCCertificate.unsafe_useDefaultCertificate();
-  const session2 = new RTCDtlsTransport(transport2, new RtpRouter(), [
-    certificate2,
-  ]);
+  const session2 = new RTCDtlsTransport(transport2, new RtpRouter(), []);
+  await session2.setupCertificate();
 
   await Promise.all([
     session1.start(session2.localParameters),

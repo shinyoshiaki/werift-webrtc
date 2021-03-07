@@ -14,7 +14,7 @@
         "--runInBand",
         "--forceExit",
         "--detectOpenHandles",
-        "./packages/ice/tests"
+        "./packages/webrtc/tests"
       ],
       "windows": {
         "program": "${workspaceRoot}/node_modules/jest/bin/jest.js"
