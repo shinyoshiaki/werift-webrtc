@@ -23,7 +23,6 @@ import {
   SrtcpSession,
   SrtpSession,
 } from "../../../rtp/src";
-import { defaultCertificate, defaultPrivateKey } from "../const";
 import { sleep } from "../helper";
 import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";

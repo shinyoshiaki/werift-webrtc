@@ -1,4 +1,4 @@
-import { Certificate, PrivateKey, RSAPrivateKey } from "@fidm/x509";
+import { Certificate, PrivateKey } from "@fidm/x509";
 import { Crypto } from "@peculiar/webcrypto";
 import * as x509 from "@peculiar/x509";
 import { decode, encode, types } from "binary-data";

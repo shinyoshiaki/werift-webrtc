@@ -63,7 +63,7 @@ export class DtlsClient extends DtlsSocket {
     }
   };
 
-  private flight5: Flight5;
+  private flight5!: Flight5;
   private handleHandshakes(assembled: FragmentedHandshake[]) {
     log("handleHandshakes", assembled);
 
