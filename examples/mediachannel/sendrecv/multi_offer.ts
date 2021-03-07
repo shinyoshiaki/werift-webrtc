@@ -13,8 +13,7 @@ server.on("connection", async (socket) => {
   const transceiver1 = pc.addTransceiver("video", "sendrecv");
   const transceiver2 = pc.addTransceiver("video", "sendrecv");
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 

@@ -26,7 +26,7 @@ server.on("connection", async (socket) => {
     dc.send("pong" + index++);
   });
 
-  const offer = pc.createOffer()!;
+  const offer = await pc.createOffer()!;
   await pc.setLocalDescription(offer);
   socket.send(JSON.stringify(pc.localDescription));
 

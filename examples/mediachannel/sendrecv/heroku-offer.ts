@@ -10,8 +10,7 @@ const socket = io("https://serene-anchorage-28732.herokuapp.com/");
     track.onRtp.subscribe(transceiver.sendRtp)
   );
 
-  const offer = pc.createOffer()!;
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(await pc.createOffer());
 
   socket.emit("join", { roomId: "test" });
   socket.on("join", () => {

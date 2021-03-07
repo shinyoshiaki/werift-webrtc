@@ -23,7 +23,7 @@ server.on("connection", async (socket) => {
     }, 1000);
   });
 
-  const offer = pc.createOffer();
+  const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);

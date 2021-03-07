@@ -28,7 +28,7 @@ server.on("connection", async (socket) => {
   );
   const transceiver = pc.addTransceiver("video", "sendonly");
 
-  await pc.setLocalDescription(pc.createOffer());
+  await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 

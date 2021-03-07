@@ -30,7 +30,7 @@ udp.bind(5000);
     });
   });
 
-  await pc.setLocalDescription(pc.createOffer());
+  await pc.setLocalDescription(await pc.createOffer());
   const { data } = await axios.post(args.url + "/offer", pc.localDescription);
   pc.setRemoteDescription(data);
 

@@ -10,7 +10,7 @@ console.log("start");
   const pc = new RTCPeerConnection({});
   await pc.setRemoteDescription(offer);
   const answer = pc.createAnswer()!;
-  await pc.setLocalDescription(answer);
+  await pc.setLocalDescription(await answer);
   console.log(JSON.stringify(answer));
 
   pc.onDataChannel.subscribe((channel) => {

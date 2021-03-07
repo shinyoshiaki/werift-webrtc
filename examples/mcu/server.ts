@@ -23,7 +23,7 @@ server.on("connection", async (socket) => {
   const mixer = new Mixer();
   const pc = new RTCPeerConnection({});
   const sender = pc.addTransceiver("audio", "sendonly");
-  await pc.setLocalDescription(pc.createOffer());
+  await pc.setLocalDescription(await pc.createOffer());
   send("offer", { sdp: pc.localDescription });
 
   const tracks: {
@@ -56,7 +56,7 @@ server.on("connection", async (socket) => {
             tracks[transceiver.msid] = track;
           });
           send("onPublish", { id: transceiver.msid });
-          await pc.setLocalDescription(pc.createOffer());
+          await pc.setLocalDescription(await pc.createOffer());
           send("offer", { sdp: pc.localDescription });
         }
         break;

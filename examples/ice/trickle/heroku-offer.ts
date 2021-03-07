@@ -18,7 +18,7 @@ console.log("start browser first");
     track.onRtp.subscribe(transceiver.sendRtp)
   );
 
-  const offer = pc.createOffer();
+  const offer = await pc.createOffer();
   pc.setLocalDescription(offer);
   const sdp = JSON.stringify(pc.localDescription);
 

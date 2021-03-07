@@ -20,8 +20,7 @@ server.on("connection", async (socket) => {
     });
   });
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 
@@ -31,9 +30,8 @@ server.on("connection", async (socket) => {
     await pc.setRemoteDescription(sdp);
 
     if (sdp.type === "offer") {
-      const answer = pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.send(JSON.stringify(answer));
+      await pc.setLocalDescription(await pc.createAnswer());
+      socket.send(JSON.stringify(pc.localDescription));
     }
   });
 });

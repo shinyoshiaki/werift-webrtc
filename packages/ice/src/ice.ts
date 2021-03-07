@@ -902,13 +902,10 @@ export class CandidatePair {
 export function validateRemoteCandidate(candidate: Candidate) {
   // """
   // Check the remote candidate is supported.
-
-  // mDNS candidates are not supported yet.
   // """
   if (!["host", "relay", "srflx"].includes(candidate.type))
     throw new Error(`Unexpected candidate type "${candidate.type}"`);
 
-  // TODO check mDNS
   // ipaddress.ip_address(candidate.host)
   return candidate;
 }

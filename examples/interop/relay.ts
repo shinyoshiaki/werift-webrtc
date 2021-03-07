@@ -74,10 +74,12 @@ app.post("/offer", async (req, res) => {
   });
 
   await receiver.setRemoteDescription(offer);
-  const answer = await receiver.setLocalDescription(receiver.createAnswer());
+  const answer = await receiver.setLocalDescription(
+    await receiver.createAnswer()
+  );
   res.send(answer);
 
-  await sender.setLocalDescription(sender.createOffer());
+  await sender.setLocalDescription(await sender.createOffer());
   const { data } = await axios.post(
     "http://localhost:8081" + "/offer",
     sender.localDescription

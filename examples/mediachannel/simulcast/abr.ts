@@ -111,15 +111,14 @@ server.on("connection", async (socket) => {
   bwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
 
   {
-    const offer = receiver.createOffer();
-    await receiver.setLocalDescription(offer);
+    await receiver.setLocalDescription(await receiver.createOffer());
     socket.send(JSON.stringify(receiver.localDescription));
     const [data] = await onMessage.asPromise();
     receiver.setRemoteDescription(JSON.parse(data));
   }
 
   {
-    await sender.setLocalDescription(sender.createOffer());
+    await sender.setLocalDescription(await sender.createOffer());
     socket.send(JSON.stringify(sender.localDescription));
     const [data] = await onMessage.asPromise();
     sender.setRemoteDescription(JSON.parse(data));

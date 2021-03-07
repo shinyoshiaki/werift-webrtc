@@ -12,7 +12,6 @@ const reader = readline.createInterface({
 (async () => {
   const connection = new Connection(true, {
     stunServer: ["stun.l.google.com", 19302],
-    log: false,
   });
   await connection.gatherCandidates();
 
@@ -53,9 +52,6 @@ const reader = readline.createInterface({
       await connection.connect();
       await connection.send(Buffer.from("ice offer"));
 
-      // todo fix
-      // console.log((await connection.recv()).toString());
-
       console.log("server start");
 
       const dtls = new DtlsServer({
@@ -63,7 +59,7 @@ const reader = readline.createInterface({
         cert: readFileSync("assets/cert.pem").toString(),
         key: readFileSync("assets/key.pem").toString(),
       });
-      dtls.onConnect = async () => {
+      dtls.onConnect.once(async () => {
         console.log("dtls connected");
         await new Promise((r) => setTimeout(r, 1000));
         dtls.send(Buffer.from("dtls_client"));
@@ -73,10 +69,10 @@ const reader = readline.createInterface({
           reader.prompt();
         });
         r();
-      };
-      dtls.onData = (v) => {
+      });
+      dtls.onData.subscribe((v) => {
         console.log(v.toString());
-      };
+      });
     };
     reader.on("line", listen);
   });

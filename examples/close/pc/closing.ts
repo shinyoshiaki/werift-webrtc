@@ -7,7 +7,7 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
   const dc = pc.createDataChannel("chat", { protocol: "bob" });
-  const offer = pc.createOffer()!;
+  const offer = await pc.createOffer()!;
   await pc.setLocalDescription(offer);
   socket.send(JSON.stringify(pc.localDescription));
 

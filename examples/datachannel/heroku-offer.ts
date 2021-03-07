@@ -18,7 +18,7 @@ const socket = io("https://serene-anchorage-28732.herokuapp.com/");
     console.log("message", data.toString());
   });
 
-  const offer = pc.createOffer()!;
+  const offer = await pc.createOffer()!;
   await pc.setLocalDescription(offer);
 
   socket.emit("join", { roomId: "test" });

@@ -51,14 +51,12 @@ server.on("connection", async (socket) => {
     sender = pc.addTransceiver("video", "sendonly");
     source = msg.toString();
 
-    const offer = pc.createOffer();
-    await pc.setLocalDescription(offer);
+    await pc.setLocalDescription(await pc.createOffer());
     const sdp = JSON.stringify(pc.localDescription);
     socket.send(sdp);
   });
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 

@@ -13,7 +13,7 @@ socket.on("sdp", async (data: any) => {
   const pc = new RTCPeerConnection({});
   await pc.setRemoteDescription(offer);
   const answer = pc.createAnswer()!;
-  await pc.setLocalDescription(answer);
+  await pc.setLocalDescription(await answer);
 
   socket.emit("sdp", {
     sdp: JSON.stringify(answer),

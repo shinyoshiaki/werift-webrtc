@@ -11,7 +11,6 @@ const reader = readline.createInterface({
 (async () => {
   const connection = new Connection(false, {
     stunServer: ["stun.l.google.com", 19302],
-    log: false,
   });
 
   // set offer; send answer
@@ -54,16 +53,13 @@ const reader = readline.createInterface({
       await connection.connect();
       await connection.send(Buffer.from("ice answer"));
 
-      // todo fix
-      // console.log((await connection.recv()).toString());
-
       await new Promise((r) => setTimeout(r, 1000));
       console.log("client start");
 
       const dtls = new DtlsClient({
         transport: createIceTransport(connection),
       });
-      dtls.onConnect = async () => {
+      dtls.onConnect.once(async () => {
         console.log("dtls connected");
         await new Promise((r) => setTimeout(r, 1000));
         dtls.send(Buffer.from("dtls_server"));
@@ -73,10 +69,10 @@ const reader = readline.createInterface({
           reader.prompt();
         });
         r();
-      };
-      dtls.onData = (v) => {
+      });
+      dtls.onData.subscribe((v) => {
         console.log(v.toString());
-      };
+      });
       dtls.connect();
     };
     reader.on("line", listen);

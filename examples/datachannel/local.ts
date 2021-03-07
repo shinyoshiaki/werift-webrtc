@@ -22,11 +22,11 @@ import { RTCPeerConnection, RTCDataChannel } from "../../packages/webrtc/src";
     console.log("answer sent");
   });
 
-  const offer = pcOffer.createOffer()!;
+  const offer = await pcOffer.createOffer()!;
   await pcOffer.setLocalDescription(offer);
   await pcAnswer.setRemoteDescription(pcOffer.localDescription!);
 
-  const answer = pcAnswer.createAnswer()!;
+  const answer = await pcAnswer.createAnswer()!;
   await pcAnswer.setLocalDescription(answer);
   await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
 

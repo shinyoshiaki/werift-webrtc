@@ -25,8 +25,7 @@ server.on("connection", async (socket) => {
   onTransceiver(pc.addTransceiver("video", "sendrecv"));
   pc.onTransceiver.subscribe(onTransceiver);
 
-  const offer = pc.createOffer();
-  await pc.setLocalDescription(offer);
+  await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 
@@ -39,8 +38,8 @@ server.on("connection", async (socket) => {
     const offer = JSON.parse(data.toString());
     onTransceiver(pc.addTransceiver("video", "sendrecv"));
     await pc.setRemoteDescription(offer);
-    const answer = pc.createAnswer();
-    await pc.setLocalDescription(answer);
+
+    await pc.setLocalDescription(await pc.createAnswer());
     socket.send(JSON.stringify(pc.localDescription));
   };
 });

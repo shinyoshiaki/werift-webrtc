@@ -41,7 +41,7 @@ describe("aio_peerConnection", () => {
       const ws = new WS(WEBSOCKET_URI);
       await new Promise((r) => ws.once("open", r));
 
-      await pc.setLocalDescription(pc.createOffer());
+      await pc.setLocalDescription(await pc.createOffer());
 
       ws.send(JSON.stringify(pc.localDescription));
 

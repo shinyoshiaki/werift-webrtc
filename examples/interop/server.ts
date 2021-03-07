@@ -49,6 +49,6 @@ app.post("/offer", async (req, res) => {
   });
 
   await pc.setRemoteDescription(offer);
-  const answer = await pc.setLocalDescription(pc.createAnswer());
+  const answer = await pc.setLocalDescription(await pc.createAnswer());
   res.send(answer);
 });
