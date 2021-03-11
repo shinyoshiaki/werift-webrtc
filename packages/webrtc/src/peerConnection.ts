@@ -572,6 +572,7 @@ export class RTCPeerConnection {
             this.configuration.codecs[media.kind as "audio" | "video"] || []
           ).find((localCodec) => localCodec.mimeType === remoteCodec.mimeType)
         );
+        log("negotiated codecs", transceiver.codecs);
         if (transceiver.codecs.length === 0) {
           throw new Error("negotiate codecs failed.");
         }
