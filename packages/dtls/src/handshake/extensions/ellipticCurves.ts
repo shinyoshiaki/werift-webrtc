@@ -1,6 +1,7 @@
 import { encode, types, decode } from "binary-data";
 import { Extension } from "../../typings/domain";
 
+// rfc4492
 export class EllipticCurves {
   static type = 10;
   static readonly spec = {

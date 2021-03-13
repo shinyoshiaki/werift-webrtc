@@ -3,6 +3,7 @@ import { HandshakeType } from "../../const";
 import { Handshake } from "../../../typings/domain";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import { encodeBuffer } from "../../../util/binary";
+import { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
 
 export class ServerKeyExchange implements Handshake {
   msgType = HandshakeType.server_key_exchange;
@@ -20,8 +21,8 @@ export class ServerKeyExchange implements Handshake {
   };
 
   constructor(
-    public ellipticCurveType: number,
-    public namedCurve: number,
+    public ellipticCurveType: CurveTypes,
+    public namedCurve: NamedCurveAlgorithms,
     public publicKeyLength: number,
     public publicKey: Buffer,
     public hashAlgorithm: number,

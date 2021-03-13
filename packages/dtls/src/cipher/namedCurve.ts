@@ -1,14 +1,16 @@
 import { ec } from "elliptic";
 import * as nacl from "tweetnacl";
-import { NamedCurveAlgorithm } from "./const";
+import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
 
 export type NamedCurveKeyPair = {
-  curve: number;
+  curve: NamedCurveAlgorithms;
   publicKey: Buffer;
   privateKey: Buffer;
 };
 
-export function generateKeyPair(namedCurve: number): NamedCurveKeyPair {
+export function generateKeyPair(
+  namedCurve: NamedCurveAlgorithms
+): NamedCurveKeyPair {
   switch (namedCurve) {
     case NamedCurveAlgorithm.secp256r1: {
       const elliptic = new ec("p256");

@@ -2,12 +2,12 @@ import { createDecode } from "binary-data";
 import { createHash, createHmac } from "crypto";
 import { ec } from "elliptic";
 import * as nacl from "tweetnacl";
-import { NamedCurveAlgorithm } from "./const";
+import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
 
 export function prfPreMasterSecret(
   publicKey: Buffer,
   privateKey: Buffer,
-  curve: number
+  curve: NamedCurveAlgorithms
 ) {
   switch (curve) {
     case NamedCurveAlgorithm.secp256r1:
