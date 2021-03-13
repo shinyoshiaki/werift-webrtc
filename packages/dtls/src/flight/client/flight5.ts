@@ -13,7 +13,7 @@ import {
 import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
-import { createFragments, createPlaintext } from "../../record/builder";
+import { createPlaintext } from "../../record/builder";
 import { TransportContext } from "../../context/transport";
 import { DtlsRandom } from "../../handshake/random";
 import { ContentType } from "../../record/const";
@@ -104,8 +104,8 @@ export class Flight5 extends Flight {
     const clientKeyExchange = new ClientKeyExchange(
       this.cipher.localKeyPair.publicKey
     );
-    const fragments = createFragments(this.dtls)([clientKeyExchange]);
-    this.dtls.bufferHandshakeCache(fragments, true, 5);
+    const packets = this.createPacket([clientKeyExchange]);
+    const buf = Buffer.concat(packets.map((v) => v.serialize()));
 
     const localKeyPair = this.cipher.localKeyPair!;
     const remoteKeyPair = this.cipher.remoteKeyPair!;
@@ -142,14 +142,6 @@ export class Flight5 extends Flight {
       this.cipher.localRandom!.serialize()
     );
 
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.dtls.recordSequenceNumber
-    );
-    const buf = Buffer.concat(packets.map((v) => v.serialize()));
     return buf;
   }
 
@@ -174,15 +166,7 @@ export class Flight5 extends Flight {
     );
 
     const certificateVerify = new CertificateVerify(signatureScheme, signed);
-    const fragments = createFragments(this.dtls)([certificateVerify]);
-    this.dtls.bufferHandshakeCache(fragments, true, 5);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.dtls.recordSequenceNumber
-    );
+    const packets = this.createPacket([certificateVerify]);
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     return buf;
   }
@@ -204,18 +188,12 @@ export class Flight5 extends Flight {
     const localVerifyData = this.cipher.verifyData(cache);
 
     const finish = new Finished(localVerifyData);
-    const fragments = createFragments(this.dtls)([finish]);
     this.dtls.epoch = 1;
-    const pkt = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.dtls.recordSequenceNumber
-    )[0];
+    const [packet] = this.createPacket([finish]);
+
     this.dtls.recordSequenceNumber = 0;
 
-    const buf = this.cipher.encryptPacket(pkt).serialize();
+    const buf = this.cipher.encryptPacket(packet).serialize();
     return buf;
   }
 }
