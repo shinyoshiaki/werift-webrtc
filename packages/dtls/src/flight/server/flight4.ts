@@ -1,4 +1,3 @@
-import { createFragments, createPlaintext } from "../../record/builder";
 import { TransportContext } from "../../context/transport";
 import { DtlsContext } from "../../context/dtls";
 import { CipherContext } from "../../context/cipher";
@@ -11,8 +10,7 @@ import {
   HashAlgorithm,
   CurveType,
 } from "../../cipher/const";
-import { ContentType } from "../../record/const";
-import { Extension, Handshake } from "../../typings/domain";
+import { Extension } from "../../typings/domain";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 import { SrtpContext } from "../../context/srtp";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
@@ -31,7 +29,7 @@ export class Flight4 extends Flight {
     private cipher: CipherContext,
     private srtp: SrtpContext
   ) {
-    super(udp, dtls, 6);
+    super(udp, dtls, 4, 6);
   }
 
   exec(assemble: FragmentedHandshake, certificateRequest: boolean = false) {
@@ -54,20 +52,6 @@ export class Flight4 extends Flight {
 
     this.dtls.lastMessage = messages;
     this.transmit(messages);
-  }
-
-  private createPacket(handshakes: Handshake[]) {
-    const fragments = createFragments(this.dtls)(handshakes);
-    this.dtls.bufferHandshakeCache(fragments, true, 4);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.dtls.recordSequenceNumber
-    );
-    const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    return buf;
   }
 
   private sendServerHello() {
@@ -95,16 +79,16 @@ export class Flight4 extends Flight {
       0, // do not compression
       extensions
     );
-    const buf = this.createPacket([serverHello]);
-    return buf;
+    const packets = this.createPacket([serverHello]);
+    return Buffer.concat(packets.map((v) => v.serialize()));
   }
 
   // 7.4.2 Server Certificate
   private sendCertificate() {
     const certificate = new Certificate([Buffer.from(this.cipher.localCert)]);
 
-    const buf = this.createPacket([certificate]);
-    return buf;
+    const packets = this.createPacket([certificate]);
+    return Buffer.concat(packets.map((v) => v.serialize()));
   }
 
   private sendServerKeyExchange() {
@@ -120,8 +104,8 @@ export class Flight4 extends Flight {
       signature
     );
 
-    const buf = this.createPacket([keyExchange]);
-    return buf;
+    const packets = this.createPacket([keyExchange]);
+    return Buffer.concat(packets.map((v) => v.serialize()));
   }
 
   // 7.4.4.  Certificate Request
@@ -138,14 +122,14 @@ export class Flight4 extends Flight {
       []
     );
     log("sendCertificateRequest", handshake);
-    const buf = this.createPacket([handshake]);
-    return buf;
+    const packets = this.createPacket([handshake]);
+    return Buffer.concat(packets.map((v) => v.serialize()));
   }
 
   private sendServerHelloDone() {
     const handshake = new ServerHelloDone();
 
-    const buf = this.createPacket([handshake]);
-    return buf;
+    const packets = this.createPacket([handshake]);
+    return Buffer.concat(packets.map((v) => v.serialize()));
   }
 }

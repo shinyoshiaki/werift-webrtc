@@ -2,6 +2,9 @@ import debug from "debug";
 import { DtlsContext } from "../context/dtls";
 import { TransportContext } from "../context/transport";
 import { sleep } from "../helper";
+import { createFragments, createPlaintext } from "../record/builder";
+import { ContentType } from "../record/const";
+import { Handshake } from "../typings/domain";
 
 const log = debug("werift/dtls/flight");
 
@@ -16,11 +19,21 @@ export abstract class Flight {
   constructor(
     private udp: TransportContext,
     public dtls: DtlsContext,
+    private flight: number,
     private nextFlight?: number
   ) {}
 
-  private setState(state: FlightType) {
-    this.state = state;
+  protected createPacket(handshakes: Handshake[]) {
+    const fragments = createFragments(this.dtls)(handshakes);
+    this.dtls.bufferHandshakeCache(fragments, true, this.flight);
+    const packets = createPlaintext(this.dtls)(
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
+      ++this.dtls.recordSequenceNumber
+    );
+    return packets;
   }
 
   protected transmit(buf: Buffer[]) {
@@ -30,6 +43,10 @@ export abstract class Flight {
 
   protected send(buf: Buffer[]) {
     buf.forEach((v) => this.udp.send(v));
+  }
+
+  private setState(state: FlightType) {
+    this.state = state;
   }
 
   retransmitCount = 0;

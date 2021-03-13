@@ -90,36 +90,46 @@ export class DtlsSocket {
   };
 
   private setupExtensions() {
-    log("support srtpProfiles", this.options.srtpProfiles);
-    if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
-      const useSrtp = UseSRTP.create(
-        this.options.srtpProfiles,
-        Buffer.from([0x00])
-      );
-      this.extensions.push(useSrtp.extension);
+    {
+      log("support srtpProfiles", this.options.srtpProfiles);
+      if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
+        const useSrtp = UseSRTP.create(
+          this.options.srtpProfiles,
+          Buffer.from([0x00])
+        );
+        this.extensions.push(useSrtp.extension);
+      }
     }
 
-    const curve = EllipticCurves.createEmpty();
-    curve.data = Object.values(NamedCurveAlgorithm);
-    this.extensions.push(curve.extension);
-
-    const signature = Signature.createEmpty();
-    // libwebrtc require 4=1 , 4=3 signatureHash
-    signature.data = [
-      { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-      { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
-    ];
-    this.extensions.push(signature.extension);
-
-    if (this.options.extendedMasterSecret) {
-      this.extensions.push({
-        type: ExtendedMasterSecret.type,
-        data: Buffer.alloc(0),
-      });
+    {
+      const curve = EllipticCurves.createEmpty();
+      curve.data = Object.values(NamedCurveAlgorithm);
+      this.extensions.push(curve.extension);
     }
 
-    const renegotiationIndication = RenegotiationIndication.createEmpty();
-    this.extensions.push(renegotiationIndication.extension);
+    {
+      const signature = Signature.createEmpty();
+      // libwebrtc/OpenSSL require 4=1 , 4=3 signatureHash
+      signature.data = [
+        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
+        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
+      ];
+      this.extensions.push(signature.extension);
+    }
+
+    {
+      if (this.options.extendedMasterSecret) {
+        this.extensions.push({
+          type: ExtendedMasterSecret.type,
+          data: Buffer.alloc(0),
+        });
+      }
+    }
+
+    {
+      const renegotiationIndication = RenegotiationIndication.createEmpty();
+      this.extensions.push(renegotiationIndication.extension);
+    }
   }
 
   handleFragmentHandshake(messages: FragmentedHandshake[]) {

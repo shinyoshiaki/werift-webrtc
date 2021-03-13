@@ -39,7 +39,7 @@ export class Flight5 extends Flight {
     private cipher: CipherContext,
     private srtp: SrtpContext
   ) {
-    super(udp, dtls, 7);
+    super(udp, dtls, 5, 7);
   }
 
   handleHandshake(handshake: FragmentedHandshake) {
@@ -91,15 +91,9 @@ export class Flight5 extends Flight {
 
   sendCertificate() {
     const certificate = new Certificate([Buffer.from(this.cipher.localCert)]);
-    const fragments = createFragments(this.dtls)([certificate]);
-    this.dtls.bufferHandshakeCache(fragments, true, 5);
-    const packets = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.dtls.recordSequenceNumber
-    );
+
+    const packets = this.createPacket([certificate]);
+
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     return buf;
   }

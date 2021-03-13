@@ -15,7 +15,7 @@ export class Flight1 extends Flight {
     dtls: DtlsContext,
     private cipher: CipherContext
   ) {
-    super(udp, dtls, 3);
+    super(udp, dtls, 1, 3);
   }
 
   exec(extensions: Extension[]) {

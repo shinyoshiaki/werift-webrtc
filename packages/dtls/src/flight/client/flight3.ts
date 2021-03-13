@@ -8,7 +8,7 @@ import { Flight } from "../flight";
 
 export class Flight3 extends Flight {
   constructor(udp: TransportContext, dtls: DtlsContext) {
-    super(udp, dtls, 5);
+    super(udp, dtls, 3, 5);
   }
 
   exec(verifyReq: ServerHelloVerifyRequest) {

@@ -8,7 +8,7 @@ import {
 import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { Finished } from "../../handshake/message/finished";
-import { createFragments, createPlaintext } from "../../record/builder";
+import { createPlaintext } from "../../record/builder";
 import { TransportContext } from "../../context/transport";
 import { ContentType } from "../../record/const";
 import { createCipher } from "../../cipher/create";
@@ -25,7 +25,7 @@ export class Flight6 extends Flight {
     dtls: DtlsContext,
     private cipher: CipherContext
   ) {
-    super(udp, dtls);
+    super(udp, dtls, 6);
   }
 
   handleHandshake(handshake: FragmentedHandshake) {
@@ -77,18 +77,12 @@ export class Flight6 extends Flight {
 
     const localVerifyData = this.cipher.verifyData(cache);
     const finish = new Finished(localVerifyData);
-    const fragments = createFragments(this.dtls)([finish]);
+
     this.dtls.epoch = 1;
-    const pkt = createPlaintext(this.dtls)(
-      fragments.map((fragment) => ({
-        type: ContentType.handshake,
-        fragment: fragment.serialize(),
-      })),
-      ++this.dtls.recordSequenceNumber
-    )[0];
+    const [packet] = this.createPacket([finish]);
     this.dtls.recordSequenceNumber = 0;
 
-    const buf = this.cipher.encryptPacket(pkt).serialize();
+    const buf = this.cipher.encryptPacket(packet).serialize();
     return buf;
   }
 }
