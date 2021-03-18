@@ -3,6 +3,9 @@ import { TransactionFailed, TransactionTimeout } from "../exceptions";
 import { Address, Protocol } from "../types/model";
 import { classes, RETRY_MAX, RETRY_RTO } from "./const";
 import { Message } from "./message";
+import debug from "debug";
+
+const log = debug("werift/ice/stun/transaction");
 
 export class Transaction {
   integrityKey?: Buffer;
@@ -43,6 +46,7 @@ export class Transaction {
   };
 
   private retry = () => {
+    log("retry", this.tries);
     if (this.tries >= this.triesMax) {
       this.onResponse.error(new TransactionTimeout());
       return;

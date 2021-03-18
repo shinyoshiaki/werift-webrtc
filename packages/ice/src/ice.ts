@@ -181,7 +181,7 @@ export class Connection {
                     const candidate = await serverReflexiveCandidate(
                       protocol,
                       stunServer
-                    ).catch(console.log);
+                    ).catch((error) => log("error", error));
                     if (candidate && cb) cb(candidate);
                     r(candidate);
                   } else {
@@ -242,7 +242,7 @@ export class Connection {
     // This coroutine returns if a candidate pair was successfully nominated
     // and raises an exception otherwise.
     // """
-
+    log("start connect ice");
     if (!this._localCandidatesEnd) {
       if (!this.localCandidatesStart)
         throw new Error("Local candidates gathering was not performed");
@@ -697,6 +697,8 @@ export class Connection {
       // Starts a check.
       // """
 
+      log("check start", pair.remoteCandidate);
+
       this.checkState(pair, CandidatePairState.IN_PROGRESS);
 
       const nominate = this.iceControlling && !this.remoteIsLite;
@@ -709,11 +711,13 @@ export class Connection {
           pair.remoteAddr,
           Buffer.from(this.remotePassword, "utf8")
         );
+        log("response", response, addr);
         result.response = response;
         result.addr = addr;
       } catch (error) {
         const exc: TransactionError = error;
         // 7.1.3.1.  Failure Cases
+        log("failure case", exc.response);
         if (exc.response?.attributes["ERROR-CODE"][0] === 487) {
           if (request.attributesKeys.includes("ICE-CONTROLLED")) {
             this.switchRole(true);
@@ -724,6 +728,7 @@ export class Connection {
           r();
           return;
         } else {
+          log("CandidatePairState.FAILED");
           this.checkState(pair, CandidatePairState.FAILED);
           this.checkComplete(pair);
           r();
