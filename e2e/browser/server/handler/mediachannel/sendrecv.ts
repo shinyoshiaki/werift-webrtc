@@ -13,9 +13,7 @@ export class mediachannel_sendrecv_answer {
           });
           const transceiver = this.pc.addTransceiver("video", "sendrecv");
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
-              transceiver.sendRtp(rtp);
-            });
+            transceiver.sender.replaceTrack(track);
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -51,9 +49,7 @@ export class mediachannel_sendrecv_offer {
           });
           const transceiver = this.pc.addTransceiver("video", "sendrecv");
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
-              transceiver.sendRtp(rtp);
-            });
+            transceiver.sender.replaceTrack(track);
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());

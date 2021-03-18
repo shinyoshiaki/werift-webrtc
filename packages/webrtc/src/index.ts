@@ -7,7 +7,7 @@ export {
   RTCRtpTransceiver,
   TransceiverOptions,
 } from "./media/rtpTransceiver";
-export { RtpTrack } from "./media/track";
+export { MediaStreamTrack } from "./media/track";
 export { PeerConfig, RTCPeerConnection } from "./peerConnection";
 export { RTCSessionDescription } from "./sdp";
 export { RTCCertificate } from "./transport/dtls";

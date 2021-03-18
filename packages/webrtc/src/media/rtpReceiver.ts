@@ -14,14 +14,14 @@ import { Nack } from "./nack";
 import { RTCRtpCodecParameters } from "./parameters";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { Extensions } from "./router";
-import { RtpTrack } from "./track";
+import { MediaStreamTrack } from "./track";
 
 export class RTCRtpReceiver {
   readonly type = "receiver";
   readonly uuid = uuid();
-  readonly tracks: RtpTrack[] = [];
-  readonly trackBySSRC: { [ssrc: string]: RtpTrack } = {};
-  readonly trackByRID: { [rid: string]: RtpTrack } = {};
+  readonly tracks: MediaStreamTrack[] = [];
+  readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
+  readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
   readonly nack = new Nack(this);
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
@@ -118,7 +118,7 @@ export class RTCRtpReceiver {
   };
 
   private handleRTP(
-    track: RtpTrack,
+    track: MediaStreamTrack,
     packet: RtpPacket,
     extensions: Extensions
   ) {

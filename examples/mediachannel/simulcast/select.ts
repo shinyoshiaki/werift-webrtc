@@ -2,6 +2,7 @@ import {
   RTCPeerConnection,
   useSdesRTPStreamID,
   useSdesMid,
+  MediaStreamTrack,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
@@ -31,19 +32,17 @@ server.on("connection", async (socket) => {
 
   let sender = pc.addTransceiver("video", "sendonly");
   transceiver.onTrack.subscribe((track) => {
-    let ssrc = 0;
     track.onRtp.subscribe((rtp) => {
-      ssrc = rtp.header.ssrc;
       if (track.rid === source) {
-        sender.sendRtp(rtp);
+        sender.sender.sendRtp(rtp);
       }
     });
 
-    setInterval(() => {
-      if (ssrc) {
-        transceiver.receiver.sendRtcpPLI(ssrc);
-      }
-    }, 1000);
+    track.onRtp.once((rtp) => {
+      setInterval(() => {
+        transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
+      }, 1000);
+    });
   });
 
   pc.createDataChannel("dc").message.subscribe(async (msg) => {

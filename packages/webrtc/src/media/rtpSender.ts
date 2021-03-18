@@ -22,9 +22,11 @@ import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
+import { Kind } from "../typings/domain";
 import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
 import { RTCRtpParameters } from "./parameters";
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
+import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:webrtc:rtpSender");
 
@@ -33,6 +35,10 @@ const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
   readonly type = "sender";
+  readonly kind =
+    typeof this.trackOrKind === "string"
+      ? this.trackOrKind
+      : this.trackOrKind.kind;
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly streamId = uuid.v4();
   readonly trackId = uuid.v4();
@@ -58,11 +64,25 @@ export class RTCRtpSender {
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
 
-  constructor(public kind: string, public dtlsTransport: RTCDtlsTransport) {
+  parameters?: RTCRtpParameters;
+
+  constructor(
+    public trackOrKind: Kind | MediaStreamTrack,
+    public dtlsTransport: RTCDtlsTransport
+  ) {
     dtlsTransport.onStateChange.subscribe((state) => {
       if (state === "connected") {
         this.onReady.execute();
       }
+    });
+    if (trackOrKind instanceof MediaStreamTrack) {
+      this.registerTrack(trackOrKind);
+    }
+  }
+
+  private registerTrack(track: MediaStreamTrack) {
+    track._onWriteRtp.subscribe((rtp) => {
+      if (this.parameters) this.sendRtp(rtp);
     });
   }
 
@@ -118,7 +138,12 @@ export class RTCRtpSender {
     }
   }
 
-  replaceRTP({ sequenceNumber, ssrc, timestamp }: RtpHeader) {
+  replaceTrack(track: MediaStreamTrack) {
+    if (track.cacheHeader) this.replaceRTP(track.cacheHeader);
+    this.registerTrack(track);
+  }
+
+  private replaceRTP({ sequenceNumber, ssrc, timestamp }: RtpHeader) {
     if (this.sequenceNumber) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
     }
@@ -138,8 +163,8 @@ export class RTCRtpSender {
     );
   }
 
-  sendRtp(rtp: Buffer | RtpPacket, parameters: RTCRtpParameters) {
-    if (!this.ready) return;
+  sendRtp(rtp: Buffer | RtpPacket) {
+    if (!this.ready || !this.parameters) return;
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
@@ -153,17 +178,19 @@ export class RTCRtpSender {
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
 
-    this.cname = parameters.rtcp.cname;
+    this.cname = this.parameters.rtcp.cname;
 
-    header.extensions = parameters.headerExtensions
+    header.extensions = this.parameters.headerExtensions
       .map((extension) => {
         let payload: Buffer | undefined;
         switch (extension.uri) {
           case RTP_EXTENSION_URI.sdesMid:
-            if (parameters.muxId) payload = Buffer.from(parameters.muxId);
+            if (this.parameters?.muxId)
+              payload = Buffer.from(this.parameters.muxId);
             break;
           case RTP_EXTENSION_URI.sdesRTPStreamID:
-            if (parameters.rid) payload = Buffer.from(parameters.rid);
+            if (this.parameters?.rid)
+              payload = Buffer.from(this.parameters.rid);
             break;
           case RTP_EXTENSION_URI.transportWideCC:
             {

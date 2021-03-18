@@ -32,10 +32,8 @@ server.on("connection", async (socket) => {
     low: pc.addTransceiver("video", "sendonly"),
   };
   transceiver.onTrack.subscribe((track) => {
-    track.onRtp.subscribe((rtp) => {
-      const sender = multiCast[track.rid as keyof typeof multiCast];
-      sender.sendRtp(rtp);
-    });
+    const sender = multiCast[track.rid as keyof typeof multiCast];
+    sender.sender.replaceTrack(track);
   });
 
   await pc.setLocalDescription(await pc.createOffer());
