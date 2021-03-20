@@ -3,7 +3,7 @@ import { Uint64BE } from "int64-buffer";
 import { range } from "lodash";
 import { isIPv4 } from "net";
 import { divide } from "./helper";
-import { Kind } from "./typings/domain";
+import { Kind } from "./types/domain";
 import {
   DTLS_ROLE_SETUP,
   DTLS_SETUP_ROLE,
