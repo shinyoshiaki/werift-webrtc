@@ -12,7 +12,9 @@ export class MediaStreamTrack {
 
   readonly _onWriteRtp = new Event<[RtpPacket | Buffer]>();
   readonly onRtp = new Event<[RtpPacket]>();
-  readonly stop: () => void;
+  private readonly stopRtp: () => void;
+
+  stopped = false;
 
   constructor(
     props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">
@@ -23,10 +25,16 @@ export class MediaStreamTrack {
       this.header = rtp.header;
       this._onWriteRtp.execute(rtp);
     });
-    this.stop = unSubscribe;
+    this.stopRtp = unSubscribe;
+  }
+
+  stop() {
+    this.stopped = true;
+    this.stopRtp();
   }
 
   writeRtp(rtp: RtpPacket | Buffer) {
+    if (this.stopped) return;
     this._onWriteRtp.execute(rtp);
   }
 }
