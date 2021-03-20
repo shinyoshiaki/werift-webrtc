@@ -1,6 +1,11 @@
-import { MediaStreamTrack, RTCPeerConnection, useSdesMid } from "../../src";
-import { isMedia } from "../../src/utils";
-import { RtpHeader, RtpPacket } from "../../../rtp/src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+  useSdesMid,
+  isMedia,
+  RtpHeader,
+  RtpPacket,
+} from "../src";
 
 describe("media", () => {
   test("test_sendonly_recvonly", async (done) => {

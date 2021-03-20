@@ -1,7 +1,10 @@
-import { RTCDtlsTransport } from "../../../src/transport/dtls";
-import { RTCIceGatherer, RTCIceTransport } from "../../../src";
-import { sleep } from "../../../src/helper";
-import { RtpRouter } from "../../../src/media/router";
+import {
+  RTCIceGatherer,
+  RTCIceTransport,
+  RTCDtlsTransport,
+  sleep,
+} from "../../src";
+import { RtpRouter } from "../../src/media/router";
 
 describe("RTCDtlsTransportTest", () => {
   test("dtls_test_data", async () => {

@@ -1,4 +1,4 @@
-import { RTCIceGatherer, RTCIceTransport } from "../../../src";
+import { RTCIceGatherer, RTCIceTransport } from "../../src";
 
 describe("iceTransport", () => {
   test("test_connect", async () => {

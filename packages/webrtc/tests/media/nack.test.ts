@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable no-var */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Nack } from "../../../src/media/nack";
-import { RtcpPacket, RtpHeader, RtpPacket } from "../../../../rtp/src";
+import { Nack } from "../../src/media/nack";
+import { RtcpPacket, RtpHeader, RtpPacket } from "../../../rtp/src";
 
 describe("media/nack", () => {
   test("16bit rotate", () => {
