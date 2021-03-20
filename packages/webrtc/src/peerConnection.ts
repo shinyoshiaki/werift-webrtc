@@ -2,7 +2,7 @@ import { isEqual, cloneDeep } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 import { enumerate } from "./helper";
-import { ConnectionState, Kind, SignalingState } from "./types/domain";
+import { ConnectionState, Kind, SignalingState } from "./typings/domain";
 import { IceOptions } from "../../ice/src";
 import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";

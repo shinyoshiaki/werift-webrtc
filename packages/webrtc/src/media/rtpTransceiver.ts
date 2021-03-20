@@ -2,7 +2,7 @@ import debug from "debug";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 import { RTCDtlsTransport } from "../transport/dtls";
-import { Kind } from "../types/domain";
+import { Kind } from "../typings/domain";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,

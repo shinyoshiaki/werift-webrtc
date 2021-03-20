@@ -17,5 +17,5 @@ export {
   RTCIceTransport,
 } from "./transport/ice";
 export { RTCSctpTransport } from "./transport/sctp";
-export { Kind } from "./types/domain";
+export { Kind } from "./typings/domain";
 export * from "../../rtp/src";
