@@ -11,7 +11,7 @@ export class MediaStreamTrack {
   header?: RtpHeader;
 
   readonly _onWriteRtp = new Event<[RtpPacket | Buffer]>();
-  readonly onRtp = new Event<[RtpPacket]>();
+  readonly _onReceiveRtp = new Event<[RtpPacket]>();
   private readonly stopRtp: () => void;
 
   stopped = false;
@@ -21,7 +21,7 @@ export class MediaStreamTrack {
   ) {
     Object.assign(this, props);
 
-    const { unSubscribe } = this.onRtp.subscribe((rtp) => {
+    const { unSubscribe } = this._onReceiveRtp.subscribe((rtp) => {
       this.header = rtp.header;
       this._onWriteRtp.execute(rtp);
     });
@@ -34,6 +34,7 @@ export class MediaStreamTrack {
   }
 
   writeRtp(rtp: RtpPacket | Buffer) {
+    if (this.role === "read") throw new Error("wrong role");
     if (this.stopped) return;
     this._onWriteRtp.execute(rtp);
   }

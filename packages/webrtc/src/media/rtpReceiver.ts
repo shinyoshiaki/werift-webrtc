@@ -134,7 +134,7 @@ export class RTCRtpReceiver {
     }
 
     if (track.kind === "video") this.nack.onPacket(packet);
-    track.onRtp.execute(packet);
+    track._onReceiveRtp.execute(packet);
 
     this.runRtcp();
   }

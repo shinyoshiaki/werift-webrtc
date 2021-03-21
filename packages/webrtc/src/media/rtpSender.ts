@@ -47,6 +47,7 @@ export class RTCRtpSender {
   readonly senderBWE = new SenderBandwidthEstimator();
 
   private cname?: string;
+  private disposeTrack?: () => void;
 
   // # stats
   private lsr?: bigint;
@@ -81,9 +82,11 @@ export class RTCRtpSender {
   }
 
   private registerTrack(track: MediaStreamTrack) {
-    track._onWriteRtp.subscribe((rtp) => {
+    if (this.disposeTrack) this.disposeTrack();
+    const { unSubscribe } = track._onWriteRtp.subscribe((rtp) => {
       if (this.parameters) this.sendRtp(rtp);
     });
+    this.disposeTrack = unSubscribe;
   }
 
   get ready() {
@@ -138,8 +141,9 @@ export class RTCRtpSender {
     }
   }
 
-  replaceTrack(track: MediaStreamTrack) {
-    if (track.header) this.replaceRTP(track.header);
+  async replaceTrack(track: MediaStreamTrack) {
+    if (!track.header) await track._onWriteRtp.asPromise();
+    this.replaceRTP(track.header!);
     this.registerTrack(track);
   }
 

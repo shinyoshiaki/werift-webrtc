@@ -26,7 +26,7 @@ describe("media", () => {
     const recvonly = new RTCPeerConnection();
     recvonly.onTransceiver.subscribe((transceiver) => {
       transceiver.onTrack.subscribe((track) => {
-        track.onRtp.subscribe((rtp) => {
+        track._onReceiveRtp.subscribe((rtp) => {
           expect(rtp.payload).toEqual(Buffer.from("test"));
           done();
         });
@@ -49,7 +49,7 @@ describe("media", () => {
           const track = new MediaStreamTrack({ kind: "video" });
           const transceiver = pc1.addTransceiver(track, "sendrecv");
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
+            track._onReceiveRtp.subscribe((rtp) => {
               expect(rtp.payload).toEqual(Buffer.from("pc2"));
               r();
             });
@@ -76,7 +76,7 @@ describe("media", () => {
           });
 
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
+            track._onReceiveRtp.subscribe((rtp) => {
               expect(rtp.payload).toEqual(Buffer.from("pc1"));
               r();
             });
