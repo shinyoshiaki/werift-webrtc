@@ -10,9 +10,7 @@ export class MediaStreamTrack {
   rid?: string;
   header?: RtpHeader;
 
-  readonly _onWriteRtp = new Event<[RtpPacket | Buffer]>();
   readonly _onReceiveRtp = new Event<[RtpPacket]>();
-  private readonly stopRtp: () => void;
 
   stopped = false;
 
@@ -21,21 +19,22 @@ export class MediaStreamTrack {
   ) {
     Object.assign(this, props);
 
-    const { unSubscribe } = this._onReceiveRtp.subscribe((rtp) => {
+    this._onReceiveRtp.subscribe((rtp) => {
       this.header = rtp.header;
-      this._onWriteRtp.execute(rtp);
     });
-    this.stopRtp = unSubscribe;
   }
 
   stop() {
     this.stopped = true;
-    this.stopRtp();
+    this._onReceiveRtp.complete();
   }
 
   writeRtp(rtp: RtpPacket | Buffer) {
     if (this.role === "read") throw new Error("wrong role");
     if (this.stopped) return;
-    this._onWriteRtp.execute(rtp);
+
+    const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+
+    this._onReceiveRtp.execute(packet);
   }
 }

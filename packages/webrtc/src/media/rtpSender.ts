@@ -83,7 +83,7 @@ export class RTCRtpSender {
 
   private registerTrack(track: MediaStreamTrack) {
     if (this.disposeTrack) this.disposeTrack();
-    const { unSubscribe } = track._onWriteRtp.subscribe((rtp) => {
+    const { unSubscribe } = track._onReceiveRtp.subscribe((rtp) => {
       if (this.parameters) this.sendRtp(rtp);
     });
     this.disposeTrack = unSubscribe;
@@ -142,8 +142,10 @@ export class RTCRtpSender {
   }
 
   async replaceTrack(track: MediaStreamTrack) {
-    if (!track.header) await track._onWriteRtp.asPromise();
-    this.replaceRTP(track.header!);
+    const header =
+      track.header || (await track._onReceiveRtp.asPromise())[0].header;
+
+    this.replaceRTP(header);
     this.registerTrack(track);
   }
 

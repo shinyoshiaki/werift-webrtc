@@ -1,4 +1,4 @@
-import { MediaStreamTrack } from "../../src";
+import { MediaStreamTrack, sleep } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
 
@@ -23,7 +23,7 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
   });
 
-  test("replaceTrack", () => {
+  test("replaceTrack", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio", role: "read" });
     const dtls = createDtlsTransport();
     const sender = new RTCRtpSender(track1, dtls);
@@ -36,7 +36,8 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(1);
 
     const track2 = new MediaStreamTrack({ kind: "audio", role: "read" });
-    sender.replaceTrack(track2);
+    sleep(0).then(() => track2._onReceiveRtp.execute(rtp));
+    await sender.replaceTrack(track2);
 
     track1._onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(1);
