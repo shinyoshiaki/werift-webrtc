@@ -12,14 +12,14 @@ describe("media/rtpSender", () => {
 
     const rtp = createRtpPacket();
 
-    track._onReceiveRtp.execute(rtp);
+    track.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(1);
 
-    track._onReceiveRtp.execute(rtp);
+    track.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(2);
 
     track.stop();
-    track._onReceiveRtp.execute(rtp);
+    track.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(2);
   });
 
@@ -32,17 +32,17 @@ describe("media/rtpSender", () => {
 
     const rtp = createRtpPacket();
 
-    track1._onReceiveRtp.execute(rtp);
+    track1.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(1);
 
     const track2 = new MediaStreamTrack({ kind: "audio", role: "read" });
-    sleep(0).then(() => track2._onReceiveRtp.execute(rtp));
+    sleep(0).then(() => track2.onReceiveRtp.execute(rtp));
     await sender.replaceTrack(track2);
 
-    track1._onReceiveRtp.execute(rtp);
+    track1.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(1);
 
-    track2._onReceiveRtp.execute(rtp);
+    track2.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(2);
   });
 });

@@ -10,7 +10,7 @@ export class MediaStreamTrack {
   rid?: string;
   header?: RtpHeader;
 
-  readonly _onReceiveRtp = new Event<[RtpPacket]>();
+  readonly onReceiveRtp = new Event<[RtpPacket]>();
 
   stopped = false;
 
@@ -19,14 +19,14 @@ export class MediaStreamTrack {
   ) {
     Object.assign(this, props);
 
-    this._onReceiveRtp.subscribe((rtp) => {
+    this.onReceiveRtp.subscribe((rtp) => {
       this.header = rtp.header;
     });
   }
 
   stop() {
     this.stopped = true;
-    this._onReceiveRtp.complete();
+    this.onReceiveRtp.complete();
   }
 
   writeRtp(rtp: RtpPacket | Buffer) {
@@ -35,6 +35,6 @@ export class MediaStreamTrack {
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
-    this._onReceiveRtp.execute(packet);
+    this.onReceiveRtp.execute(packet);
   }
 }

@@ -82,8 +82,10 @@ export class RTCRtpSender {
   }
 
   private registerTrack(track: MediaStreamTrack) {
+    if (track.stopped) throw new Error("track is ended");
+
     if (this.disposeTrack) this.disposeTrack();
-    const { unSubscribe } = track._onReceiveRtp.subscribe((rtp) => {
+    const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
       if (this.parameters) this.sendRtp(rtp);
     });
     this.disposeTrack = unSubscribe;
@@ -142,31 +144,29 @@ export class RTCRtpSender {
   }
 
   async replaceTrack(track: MediaStreamTrack) {
-    const header =
-      track.header || (await track._onReceiveRtp.asPromise())[0].header;
+    if (track.stopped) throw new Error("track is ended");
 
-    this.replaceRTP(header);
+    if (this.sequenceNumber != undefined) {
+      const header =
+        track.header || (await track.onReceiveRtp.asPromise())[0].header;
+
+      this.replaceRTP(header);
+    }
+
     this.registerTrack(track);
   }
 
-  private replaceRTP({ sequenceNumber, ssrc, timestamp }: RtpHeader) {
-    if (this.sequenceNumber) {
+  private replaceRTP({ sequenceNumber, timestamp }: RtpHeader) {
+    if (this.sequenceNumber != undefined) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
     }
-    if (this.timestamp) {
+    if (this.timestamp != undefined) {
       this.timestampOffset = Number(
         uint32Add(BigInt(this.timestamp), BigInt(-timestamp))
       );
     }
     this.rtpCache = [];
-    log(
-      "replaceRTP",
-      this.ssrc,
-      ssrc,
-      this.sequenceNumber,
-      sequenceNumber,
-      this.seqOffset
-    );
+    log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
   }
 
   sendRtp(rtp: Buffer | RtpPacket) {
