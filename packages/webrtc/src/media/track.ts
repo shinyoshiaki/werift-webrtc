@@ -24,17 +24,17 @@ export class MediaStreamTrack {
     });
   }
 
-  stop() {
+  stop = () => {
     this.stopped = true;
     this.onReceiveRtp.complete();
-  }
+  };
 
-  writeRtp(rtp: RtpPacket | Buffer) {
+  writeRtp = (rtp: RtpPacket | Buffer) => {
     if (this.role === "read") throw new Error("wrong role");
     if (this.stopped) return;
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
     this.onReceiveRtp.execute(packet);
-  }
+  };
 }
