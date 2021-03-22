@@ -47,6 +47,7 @@ import {
 import { RTCSctpTransport } from "./transport/sctp";
 import { reverseSimulcastDirection } from "./utils";
 import debug from "debug";
+import { MediaStreamTrack } from "./media/track";
 
 const log = debug("werift/webrtc/peerConnection");
 
@@ -652,7 +653,7 @@ export class RTCPeerConnection {
 
     this.transceivers.forEach((transceiver) => {
       if (["sendonly", "sendrecv"].includes(transceiver.direction)) {
-        transceiver.senderParams = this.localRtp(transceiver);
+        transceiver.sender.parameters = this.localRtp(transceiver);
       }
       if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
         const params = this.remoteRtp(transceiver);
@@ -662,7 +663,7 @@ export class RTCPeerConnection {
   }
 
   addTransceiver(
-    kind: Kind,
+    trackOrKind: Kind | MediaStreamTrack,
     direction: Direction,
     options: Partial<TransceiverOptions> = {}
   ) {
@@ -670,7 +671,10 @@ export class RTCPeerConnection {
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
 
-    const sender = new RTCRtpSender(kind, dtlsTransport);
+    const kind =
+      typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
+
+    const sender = new RTCRtpSender(trackOrKind, dtlsTransport);
     const receiver = new RTCRtpReceiver(kind, dtlsTransport, sender.ssrc);
     const transceiver = new RTCRtpTransceiver(
       kind,

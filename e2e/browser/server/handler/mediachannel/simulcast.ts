@@ -26,10 +26,8 @@ export class mediachannel_simulcast_answer {
             low: this.pc.addTransceiver("video", "sendonly"),
           };
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
-              const sender = multiCast[track.rid as keyof typeof multiCast];
-              sender.sendRtp(rtp);
-            });
+            const sender = multiCast[track.rid as keyof typeof multiCast];
+            sender.sender.replaceTrack(track);
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -71,10 +69,8 @@ export class mediachannel_simulcast_offer {
             low: this.pc.addTransceiver("video", "sendonly"),
           };
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
-              const sender = multiCast[track.rid];
-              sender.sendRtp(rtp);
-            });
+            const sender = multiCast[track.rid as keyof typeof multiCast];
+            sender.sender.replaceTrack(track);
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());

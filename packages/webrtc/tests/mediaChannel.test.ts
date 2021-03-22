@@ -1,24 +1,32 @@
-import { RTCPeerConnection, useSdesMid } from "../../src";
-import { isMedia } from "../../src/utils";
-import { RtpHeader, RtpPacket } from "../../../rtp/src";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+  useSdesMid,
+  isMedia,
+  RtpHeader,
+  RtpPacket,
+} from "../src";
 
 describe("media", () => {
   test("test_sendonly_recvonly", async (done) => {
     const sendonly = new RTCPeerConnection();
-    const transceiver = sendonly.addTransceiver("video", "sendonly");
-    transceiver.sender.onReady.subscribe(() => {
-      const rtpPacket = new RtpPacket(
-        new RtpHeader(),
-        Buffer.from("test")
-      ).serialize();
-      expect(isMedia(rtpPacket)).toBe(true);
-      transceiver.sendRtp(rtpPacket);
-    });
+    const track = new MediaStreamTrack({ kind: "video" });
+    sendonly.addTransceiver(track, "sendonly");
+    sendonly.connectionStateChange
+      .watch((v) => v === "connected")
+      .then(() => {
+        const rtpPacket = new RtpPacket(
+          new RtpHeader(),
+          Buffer.from("test")
+        ).serialize();
+        expect(isMedia(rtpPacket)).toBe(true);
+        track.writeRtp(rtpPacket);
+      });
 
     const recvonly = new RTCPeerConnection();
     recvonly.onTransceiver.subscribe((transceiver) => {
       transceiver.onTrack.subscribe((track) => {
-        track.onRtp.subscribe((rtp) => {
+        track.onReceiveRtp.subscribe((rtp) => {
           expect(rtp.payload).toEqual(Buffer.from("test"));
           done();
         });
@@ -38,9 +46,10 @@ describe("media", () => {
     (async () => {
       await Promise.all([
         new Promise<void>((r) => {
-          const transceiver = pc1.addTransceiver("video", "sendrecv");
+          const track = new MediaStreamTrack({ kind: "video" });
+          const transceiver = pc1.addTransceiver(track, "sendrecv");
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
+            track.onReceiveRtp.subscribe((rtp) => {
               expect(rtp.payload).toEqual(Buffer.from("pc2"));
               r();
             });
@@ -51,22 +60,23 @@ describe("media", () => {
               Buffer.from("pc1")
             ).serialize();
             expect(isMedia(rtpPacket)).toBe(true);
-            transceiver.sendRtp(rtpPacket);
+            track.writeRtp(rtpPacket);
           });
         }),
         new Promise<void>((r) => {
-          const transceiver = pc2.addTransceiver("video", "sendrecv");
+          const track = new MediaStreamTrack({ kind: "video" });
+          const transceiver = pc2.addTransceiver(track, "sendrecv");
           transceiver.sender.onReady.subscribe(() => {
             const rtpPacket = new RtpPacket(
               new RtpHeader(),
               Buffer.from("pc2")
             ).serialize();
             expect(isMedia(rtpPacket)).toBe(true);
-            transceiver.sendRtp(rtpPacket);
+            track.writeRtp(rtpPacket);
           });
 
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
+            track.onReceiveRtp.subscribe((rtp) => {
               expect(rtp.payload).toEqual(Buffer.from("pc1"));
               r();
             });

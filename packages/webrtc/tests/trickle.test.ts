@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../src";
 
 describe("trickle", () => {
   test(

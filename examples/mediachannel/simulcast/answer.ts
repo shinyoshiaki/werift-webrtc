@@ -29,10 +29,8 @@ server.on("connection", (socket) => {
       console.log("pc.iceConnectionStateChange", v)
     );
     transceiver.onTrack.subscribe((track) => {
-      track.onRtp.subscribe((rtp) => {
-        const sender = multiCast[track.rid];
-        sender.sendRtp(rtp);
-      });
+      const sender = multiCast[track.rid as keyof typeof multiCast];
+      sender.sender.replaceTrack(track);
     });
 
     await pc.setRemoteDescription(offer);

@@ -17,7 +17,7 @@ import {
 import { RTCRtpReceiver } from "./rtpReceiver";
 import { RTCRtpSender } from "./rtpSender";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
-import { RtpTrack } from "./track";
+import { MediaStreamTrack } from "./track";
 
 export type Extensions = { [uri: string]: number | string };
 
@@ -36,10 +36,11 @@ export class RtpRouter {
     ssrcs.forEach((ssrc) => {
       this.ssrcTable[ssrc] = transceiver.receiver;
       transceiver.addTrack(
-        new RtpTrack({
+        new MediaStreamTrack({
           ssrc,
           kind: transceiver.kind,
           id: transceiver.sender.streamId,
+          role: "read",
         })
       );
     });
@@ -54,10 +55,11 @@ export class RtpRouter {
     param: RTCRtpSimulcastParameters
   ) {
     transceiver.addTrack(
-      new RtpTrack({
+      new MediaStreamTrack({
         rid: param.rid,
         kind: transceiver.kind,
         id: transceiver.sender.streamId,
+        role: "read",
       })
     );
     this.ridTable[param.rid] = transceiver.receiver;

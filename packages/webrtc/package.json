@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.6.2",
+  "version": "0.7.0-beta",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -28,7 +28,7 @@
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "graph": "dependency-cruiser --exclude 'node_modules' --output-type dot src | dot -T svg > dependencygraph.svg",
     "lint": "eslint src/**/*.ts --fix",
-    "test": "npm run type && DEBUG=werift* jest --runInBand --forceExit",
+    "test": "npm run type && jest --runInBand --forceExit  --coverage",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },

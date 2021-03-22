@@ -1,5 +1,4 @@
-import { RTCPeerConnection } from "../../src";
-import { RTCDataChannel } from "../../src/dataChannel";
+import { RTCPeerConnection, RTCDataChannel } from "../src";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async (done) => {

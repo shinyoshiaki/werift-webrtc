@@ -14,9 +14,7 @@ export class mediachannel_send_recv_answer {
           const receiver = this.pc.addTransceiver("video", "recvonly");
           const sender = this.pc.addTransceiver("video", "sendonly");
           receiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
-              sender.sendRtp(rtp);
-            });
+            sender.sender.replaceTrack(track);
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -51,9 +49,7 @@ export class mediachannel_send_recv_offer {
           const receiver = this.pc.addTransceiver("video", "recvonly");
           const sender = this.pc.addTransceiver("video", "sendonly");
           receiver.onTrack.subscribe((track) => {
-            track.onRtp.subscribe((rtp) => {
-              sender.sendRtp(rtp);
-            });
+            sender.sender.replaceTrack(track);
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
