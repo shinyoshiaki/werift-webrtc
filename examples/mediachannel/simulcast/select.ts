@@ -2,7 +2,6 @@ import {
   RTCPeerConnection,
   useSdesRTPStreamID,
   useSdesMid,
-  MediaStreamTrack,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
@@ -28,17 +27,16 @@ server.on("connection", async (socket) => {
     ],
   });
 
-  let source = "middle";
+  const source = "middle";
 
   let sender = pc.addTransceiver("video", "sendonly");
   transceiver.onTrack.subscribe((track) => {
-    track.onRtp.subscribe((rtp) => {
-      if (track.rid === source) {
-        sender.sender.sendRtp(rtp);
-      }
-    });
+    if (track.rid === source) {
+      console.log("init", source);
+      sender.sender.replaceTrack(track);
+    }
 
-    track.onRtp.once((rtp) => {
+    track.onReceiveRtp.once((rtp) => {
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
       }, 1000);
@@ -48,7 +46,12 @@ server.on("connection", async (socket) => {
   pc.createDataChannel("dc").message.subscribe(async (msg) => {
     pc.removeTrack(sender);
     sender = pc.addTransceiver("video", "sendonly");
-    source = msg.toString();
+    const source = msg.toString();
+    const track = transceiver.receiver.trackByRID[source];
+    if (track) {
+      console.log("replace", track);
+      sender.sender.replaceTrack(track);
+    }
 
     await pc.setLocalDescription(await pc.createOffer());
     const sdp = JSON.stringify(pc.localDescription);

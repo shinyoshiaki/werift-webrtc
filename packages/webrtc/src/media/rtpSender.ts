@@ -66,6 +66,7 @@ export class RTCRtpSender {
   private rtpCache: RtpPacket[] = [];
 
   parameters?: RTCRtpParameters;
+  track?: MediaStreamTrack;
 
   constructor(
     public trackOrKind: Kind | MediaStreamTrack,
@@ -88,6 +89,7 @@ export class RTCRtpSender {
     const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
       if (this.parameters) this.sendRtp(rtp);
     });
+    this.track = track;
     this.disposeTrack = unSubscribe;
   }
 

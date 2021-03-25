@@ -7,7 +7,6 @@ import {
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { Event } from "rx.mini";
-import { RtpHeader } from "../../../packages/rtp/src";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -62,49 +61,38 @@ server.on("connection", async (socket) => {
       { rid: "low", direction: "recv" },
     ],
   });
+
   const senderTransceiver = sender.addTransceiver("video", "sendonly");
   let state = "high";
 
-  let low: RtpHeader, high: RtpHeader;
   receiverTransceiver.onTrack.subscribe(async (track) => {
-    let ssrc = 0;
-    track.onRtp.subscribe((rtp) => {
-      ssrc = rtp.header.ssrc;
-      switch (track.rid) {
-        case "high":
-          high = rtp.header;
-          break;
-
-        case "low":
-          low = rtp.header;
-          break;
-      }
-
-      if (state === track.rid) {
-        senderTransceiver.sendRtp(rtp);
-      }
-    });
+    if (track.rid === state) {
+      senderTransceiver.sender.replaceTrack(track);
+    }
+    const [rtp] = await track.onReceiveRtp.asPromise();
     setInterval(() => {
-      if (ssrc) {
-        receiverTransceiver.receiver.sendRtcpPLI(ssrc);
-      }
+      receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
     }, 1000);
   });
   const bwe = senderTransceiver.sender.senderBWE;
   bwe.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
   bwe.onCongestionScore.subscribe((score) => {
     console.log({ score });
-    if (5 <= score) {
+    if (score >= 5) {
       if (state != "low") {
         console.log("low");
         state = "low";
-        senderTransceiver.replaceRtp(low);
+        senderTransceiver.sender.replaceTrack(
+          receiverTransceiver.receiver.trackByRID["low"]
+        );
       }
     } else {
       if (state != "high") {
         console.log("high");
         state = "high";
-        senderTransceiver.replaceRtp(high);
+        senderTransceiver.sender.replaceTrack(
+          receiverTransceiver.receiver.trackByRID["high"]
+        );
       }
     }
   });

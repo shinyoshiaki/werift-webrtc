@@ -1,6 +1,6 @@
 import {
   RTCPeerConnection,
-  RtpTrack,
+  MediaStreamTrack,
   useSdesRTPStreamID,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
@@ -24,7 +24,7 @@ server.on("connection", async (socket) => {
   await pc.setLocalDescription(await pc.createOffer());
   send("offer", { sdp: pc.localDescription });
 
-  const tracks: { [mid: string]: RtpTrack } = {};
+  const tracks: { [mid: string]: MediaStreamTrack } = {};
 
   socket.on("message", async (data: any) => {
     const { type, payload } = JSON.parse(data);
@@ -35,7 +35,7 @@ server.on("connection", async (socket) => {
         {
           const transceiver = pc.addTransceiver("video", "recvonly");
           transceiver.onTrack.subscribe((track) => {
-            track.onRtp.once((rtp) => {
+            track.onReceiveRtp.once((rtp) => {
               setInterval(() => {
                 transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
               }, 1000);
@@ -67,9 +67,8 @@ server.on("connection", async (socket) => {
           send("offer", { sdp: pc.localDescription });
           send("onSubscribe", { media, mid: transceiver.mid });
 
-          tracks[media].onRtp.subscribe((rtp) => {
-            transceiver.sendRtp(rtp);
-          });
+          const track = tracks[media];
+          await transceiver.sender.replaceTrack(track);
         }
         break;
       case "unsubscribe":

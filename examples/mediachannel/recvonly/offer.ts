@@ -12,7 +12,7 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
   pc.addTransceiver("video", "recvonly").onTrack.subscribe((track) =>
-    track.onRtp.subscribe((packet) => {
+    track.onReceiveRtp.subscribe((packet) => {
       udp.send(packet.serialize(), 4002, "127.0.0.1");
     })
   );

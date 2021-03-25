@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { RTCPeerConnection } from "werift";
+import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
 import * as yargs from "yargs";
 import axios from "axios";
 import { createSocket } from "dgram";
@@ -33,9 +33,10 @@ app.post("/offer", async (req, res) => {
     iceConfig: { stunServer: ["stun.l.google.com", 19302] },
   });
 
-  const senderTransceiver = sender.addTransceiver("video", "sendrecv");
+  const senderTrack = new MediaStreamTrack({ kind: "video" });
+  const senderTransceiver = sender.addTransceiver(senderTrack, "sendrecv");
   senderTransceiver.onTrack.once((track) => {
-    track.onRtp.subscribe((rtp) => {
+    track.onReceiveRtp.subscribe((rtp) => {
       console.log("receive", rtp.header);
       udp.send(rtp.serialize(), 4002, "127.0.0.1");
     });
@@ -43,15 +44,14 @@ app.post("/offer", async (req, res) => {
 
   receiver.onTransceiver.subscribe(async (transceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
-    track.onRtp.subscribe((rtp) => {
-      transceiver.sendRtp(rtp);
-    });
+    transceiver.sender.replaceTrack(track);
+
     sender.connectionStateChange
       .watch((state) => state === "connected")
       .then(() => {
-        track.onRtp.subscribe((rtp) => {
+        track.onReceiveRtp.subscribe((rtp) => {
           rtp.header.payloadType = senderTransceiver.codecs[0].payloadType;
-          senderTransceiver.sendRtp(rtp);
+          senderTrack.writeRtp(rtp);
         });
       });
   });

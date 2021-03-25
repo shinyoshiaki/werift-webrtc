@@ -43,9 +43,7 @@ app.post("/offer", async (req, res) => {
   });
   pc.onTransceiver.subscribe(async (transceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
-    track.onRtp.subscribe((rtp) => {
-      transceiver.sendRtp(rtp);
-    });
+    transceiver.sender.replaceTrack(track);
   });
 
   await pc.setRemoteDescription(offer);

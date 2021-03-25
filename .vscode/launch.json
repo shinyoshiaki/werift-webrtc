@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/pubsub/offer.ts"
+        "${workspaceRoot}/examples/mediachannel/simulcast/abr.ts"
       ],
       "env": { "DEBUG": "*" },
       "console": "integratedTerminal",

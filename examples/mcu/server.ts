@@ -1,4 +1,4 @@
-import { RTCPeerConnection, RtpTrack } from "../../packages/webrtc/src";
+import { RTCPeerConnection, MediaStreamTrack } from "../../packages/webrtc/src";
 import { Server } from "ws";
 import { OpusEncoder } from "@discordjs/opus";
 import { RtpHeader, RtpPacket } from "../../packages/rtp/src";
@@ -22,12 +22,13 @@ server.on("connection", async (socket) => {
   const encoder = new OpusEncoder(48000, 2);
   const mixer = new Mixer();
   const pc = new RTCPeerConnection({});
-  const sender = pc.addTransceiver("audio", "sendonly");
+  const senderTrack = new MediaStreamTrack({ kind: "audio" });
+  const sender = pc.addTransceiver(senderTrack, "sendonly");
   await pc.setLocalDescription(await pc.createOffer());
   send("offer", { sdp: pc.localDescription });
 
   const tracks: {
-    [msid: string]: RtpTrack;
+    [msid: string]: MediaStreamTrack;
   } = {};
   const disposers: {
     [msid: string]: () => void;
@@ -65,7 +66,7 @@ server.on("connection", async (socket) => {
           const { id } = payload;
           const track = tracks[id];
           const input = mixer.input();
-          const { unSubscribe } = track.onRtp.subscribe((packet) => {
+          const { unSubscribe } = track.onReceiveRtp.subscribe((packet) => {
             const decoded = encoder.decode(packet.payload);
             input.write(decoded);
           });
@@ -102,6 +103,6 @@ server.on("connection", async (socket) => {
       padding: false,
     });
     const rtp = new RtpPacket(header, encoded);
-    sender.sendRtp(rtp);
+    senderTrack.writeRtp(rtp);
   };
 });

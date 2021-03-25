@@ -1,4 +1,5 @@
 import {
+  MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
@@ -26,7 +27,9 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  const transceiver = pc.addTransceiver("video", "sendonly");
+
+  const track = new MediaStreamTrack({ kind: "video" });
+  pc.addTransceiver(track, "sendonly");
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
@@ -36,8 +39,8 @@ server.on("connection", async (socket) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
 
-  await transceiver.sender.onReady.asPromise();
+  await pc.connectionStateChange.watch((state) => state === "connected");
   udp.on("message", (data) => {
-    transceiver.sendRtp(data);
+    track.writeRtp(data);
   });
 });

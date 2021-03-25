@@ -33,11 +33,11 @@ server.on("connection", async (socket) => {
   {
     const transceiver = pc.addTransceiver("video", "sendrecv");
     transceiver.onTrack.subscribe((track) => {
-      track.onRtp.subscribe((rtp) => {
-        transceiver.sendRtp(rtp);
+      transceiver.sender.replaceTrack(track);
+      track.onReceiveRtp.subscribe((rtp) => {
         udp.send(rtp.serialize(), 4002, "127.0.0.1");
       });
-      track.onRtp.once(() => {
+      track.onReceiveRtp.once(() => {
         setInterval(() => transceiver.receiver.sendRtcpPLI(track.ssrc), 2000);
       });
     });
@@ -45,8 +45,8 @@ server.on("connection", async (socket) => {
   {
     const transceiver = pc.addTransceiver("audio", "sendrecv");
     transceiver.onTrack.subscribe((track) => {
-      track.onRtp.subscribe((rtp) => {
-        transceiver.sendRtp(rtp);
+      transceiver.sender.replaceTrack(track);
+      track.onReceiveRtp.subscribe((rtp) => {
         udp.send(rtp.serialize(), 4003, "127.0.0.1");
       });
     });

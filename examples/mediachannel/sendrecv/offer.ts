@@ -16,9 +16,9 @@ server.on("connection", async (socket) => {
   });
 
   const transceiver = pc.addTransceiver("video", "sendrecv");
-  transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
-  );
+  transceiver.onTrack.subscribe((track) => {
+    transceiver.sender.replaceTrack(track);
+  });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);

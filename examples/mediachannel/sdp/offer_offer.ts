@@ -16,9 +16,7 @@ server.on("connection", async (socket) => {
     console.log("on transceiver", transceiver.sender.ssrc, id);
     const [track] = await transceiver.onTrack.asPromise();
     console.log("ontrack", transceiver.sender.ssrc, track.ssrc, id);
-    track.onRtp.subscribe((rtp) => {
-      transceiver.sendRtp(rtp);
-    });
+    await transceiver.sender.replaceTrack(track);
   };
 
   onTransceiver(pc.addTransceiver("video", "sendrecv"));

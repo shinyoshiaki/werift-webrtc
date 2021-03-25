@@ -12,7 +12,7 @@ server.on("connection", async (socket) => {
 
   const transceiver = pc.addTransceiver("video", "sendrecv");
   transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
+    transceiver.sender.replaceTrack(track)
   );
 
   const offer = await pc.createOffer();

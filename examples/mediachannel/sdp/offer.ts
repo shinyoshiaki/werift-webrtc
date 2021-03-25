@@ -12,10 +12,7 @@ server.on("connection", async (socket) => {
 
   const onTransceiver = async (transceiver: RTCRtpTransceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
-
-    track.onRtp.subscribe((rtp) => {
-      transceiver.sendRtp(rtp);
-    });
+    await transceiver.sender.replaceTrack(track);
 
     setInterval(() => {
       transceiver.receiver.sendRtcpPLI(track.ssrc);

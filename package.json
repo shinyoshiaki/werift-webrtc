@@ -28,7 +28,8 @@
     "format": "lerna run format",
     "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
     "test": "lerna run test",
-    "type": "lerna run type"
+    "type": "lerna run type",
+    "type:example": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/jest": "^26.0.19",

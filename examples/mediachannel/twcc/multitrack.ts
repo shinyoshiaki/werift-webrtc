@@ -34,8 +34,8 @@ server.on("connection", async (socket) => {
   senders.map((sender) => {
     const receiver = pc.addTransceiver("video", "recvonly");
     receiver.onTrack.once((track) => {
-      track.onRtp.subscribe(sender.sendRtp);
-      track.onRtp.once(({ header }) => {
+      sender.sender.replaceTrack(track);
+      track.onReceiveRtp.once(({ header }) => {
         setInterval(() => {
           receiver.receiver.sendRtcpPLI(header.ssrc);
         }, 3000);

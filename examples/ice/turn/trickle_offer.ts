@@ -16,8 +16,9 @@ server.on("connection", async (socket) => {
 
   const transceiver = pc.addTransceiver("video", "sendrecv");
   transceiver.onTrack.subscribe(async (track) => {
-    track.onRtp.subscribe(transceiver.sendRtp);
-    await track.onRtp.asPromise();
+    transceiver.sender.replaceTrack(track);
+
+    await track.onReceiveRtp.asPromise();
     setInterval(() => {
       transceiver.receiver.sendRtcpPLI(track.ssrc);
     }, 1000);

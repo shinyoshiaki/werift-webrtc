@@ -16,7 +16,7 @@ server.on("connection", async (socket) => {
 
   pc.onTransceiver.subscribe((transceiver) => {
     transceiver.onTrack.subscribe((track) => {
-      track.onRtp.subscribe(transceiver.sendRtp);
+      transceiver.sender.replaceTrack(track);
     });
   });
 

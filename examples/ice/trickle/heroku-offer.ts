@@ -14,9 +14,9 @@ console.log("start browser first");
     });
   });
   const transceiver = pc.addTransceiver("video", "sendrecv");
-  transceiver.onTrack.subscribe((track) =>
-    track.onRtp.subscribe(transceiver.sendRtp)
-  );
+  transceiver.onTrack.subscribe((track) => {
+    transceiver.sender.replaceTrack(track);
+  });
 
   const offer = await pc.createOffer();
   pc.setLocalDescription(offer);
