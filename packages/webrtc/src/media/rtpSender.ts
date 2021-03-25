@@ -22,7 +22,7 @@ import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
-import { Kind } from "../typings/domain";
+import { Kind } from "../types/domain";
 import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
 import { RTCRtpParameters } from "./parameters";
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";

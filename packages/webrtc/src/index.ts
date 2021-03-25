@@ -23,5 +23,5 @@ export {
 } from "./media/rtpTransceiver";
 export { MediaStreamTrack } from "./media/track";
 
-export { Kind } from "./typings/domain";
+export { Kind } from "./types/domain";
 export * from "../../rtp/src";

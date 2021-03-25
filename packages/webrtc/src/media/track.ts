@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 import { RtpHeader, RtpPacket } from "../../../rtp/src";
-import { Kind } from "../typings/domain";
+import { Kind } from "../types/domain";
 
 export class MediaStreamTrack {
   role: "read" | "write" = "write";
