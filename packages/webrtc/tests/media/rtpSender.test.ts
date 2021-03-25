@@ -19,7 +19,7 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
 
     track.stop();
-    track.onReceiveRtp.execute(rtp);
+    expect(() => track.onReceiveRtp.execute(rtp)).toThrow();
     expect(spy).toBeCalledTimes(2);
   });
 
