@@ -18,6 +18,9 @@ import { RTCRtpReceiver } from "./rtpReceiver";
 import { RTCRtpSender } from "./rtpSender";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
 import { MediaStreamTrack } from "./track";
+import debug from "debug";
+
+const log = debug("werift/webrtc/media/router");
 
 export type Extensions = { [uri: string]: number | string };
 
@@ -30,6 +33,8 @@ export class RtpRouter {
     transceiver: RTCRtpTransceiver,
     params: RTCRtpReceiveParameters
   ) {
+    log("registerRtpReceiverBySsrc", params);
+
     const ssrcs = params.encodings
       .map((encode) => encode.ssrc)
       .filter((v) => v);
@@ -54,6 +59,7 @@ export class RtpRouter {
     transceiver: RTCRtpTransceiver,
     param: RTCRtpSimulcastParameters
   ) {
+    log("registerRtpReceiverByRid", param);
     transceiver.addTrack(
       new MediaStreamTrack({
         rid: param.rid,

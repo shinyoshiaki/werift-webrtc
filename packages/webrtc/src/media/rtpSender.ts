@@ -154,6 +154,7 @@ export class RTCRtpSender {
     }
 
     this.registerTrack(track);
+    log("replaceTrack", track.ssrc, track.rid);
   }
 
   private replaceRTP({ sequenceNumber, timestamp }: RtpHeader) {
