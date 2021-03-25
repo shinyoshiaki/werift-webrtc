@@ -1,3 +1,4 @@
+import debug from "debug";
 import {
   ReceiverEstimatedMaxBitrate,
   RtcpPacket,
@@ -18,7 +19,6 @@ import { RTCRtpReceiver } from "./rtpReceiver";
 import { RTCRtpSender } from "./rtpSender";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
 import { MediaStreamTrack } from "./track";
-import debug from "debug";
 
 const log = debug("werift/webrtc/media/router");
 
