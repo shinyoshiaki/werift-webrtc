@@ -195,15 +195,15 @@ export class SessionDescription {
             case "rtpmap":
               {
                 const [formatId, formatDesc] = divide(value, " ");
-                const bits = formatDesc.split("/");
+                const [type, clock, channel] = formatDesc.split("/");
                 let channels: number | undefined;
                 if (currentMedia.kind === "audio") {
-                  channels = bits.length > 2 ? parseInt(bits[2]) : 1;
+                  channels = channel ? parseInt(channel) : 1;
                 }
                 const codec = new RTCRtpCodecParameters({
-                  mimeType: currentMedia.kind + "/" + bits[0],
+                  mimeType: currentMedia.kind + "/" + type,
                   channels,
-                  clockRate: parseInt(bits[1]),
+                  clockRate: parseInt(clock),
                   payloadType: parseInt(formatId),
                 });
                 currentMedia.rtp.codecs.push(codec);

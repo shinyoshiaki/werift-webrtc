@@ -567,11 +567,16 @@ export class RTCPeerConnection {
           transceiver.mLineIndex = i;
         }
 
+        log("remote codecs", media.rtp.codecs);
         // # negotiate codecs
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
           (
             this.configuration.codecs[media.kind as "audio" | "video"] || []
-          ).find((localCodec) => localCodec.mimeType === remoteCodec.mimeType)
+          ).find(
+            (localCodec) =>
+              localCodec.mimeType.toLowerCase() ===
+              remoteCodec.mimeType.toLowerCase()
+          )
         );
         log("negotiated codecs", transceiver.codecs);
         if (transceiver.codecs.length === 0) {

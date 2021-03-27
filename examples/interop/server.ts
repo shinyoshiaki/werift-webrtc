@@ -18,6 +18,8 @@ const args = yargs
   .option("static", {})
   .help().argv;
 
+console.log(args);
+
 const app = express();
 app.use(express.json());
 if (args["cert-file"] && args["key-file"]) {
@@ -44,6 +46,9 @@ app.post("/offer", async (req, res) => {
   pc.onTransceiver.subscribe(async (transceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
     transceiver.sender.replaceTrack(track);
+  });
+  pc.onDataChannel.subscribe((dc) => {
+    dc.message.subscribe((msg) => dc.send(msg));
   });
 
   await pc.setRemoteDescription(offer);
