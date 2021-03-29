@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RTCIceTransport*](rtcicetransport.md)
 
-Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L12)
+Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L12)
 
 ## Properties
 
@@ -30,15 +30,15 @@ Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/wer
 
 • **connection**: *Connection*
 
-Defined in: [webrtc/src/transport/ice.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L6)
+Defined in: [webrtc/src/transport/ice.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L6)
 
 ___
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: *default*<[*closed* \| *failed* \| *disconnected* \| *new* \| *connected* \| *checking* \| *completed*]\>
+• `Readonly` **onStateChange**: *default*<[*new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*]\>
 
-Defined in: [webrtc/src/transport/ice.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L10)
+Defined in: [webrtc/src/transport/ice.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L10)
 
 ___
 
@@ -46,23 +46,23 @@ ___
 
 • **roleSet**: *boolean*= false
 
-Defined in: [webrtc/src/transport/ice.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L7)
+Defined in: [webrtc/src/transport/ice.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L7)
 
 ___
 
 ### state
 
-• **state**: *closed* \| *failed* \| *disconnected* \| *new* \| *connected* \| *checking* \| *completed*= "new"
+• **state**: *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*= "new"
 
-Defined in: [webrtc/src/transport/ice.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L8)
+Defined in: [webrtc/src/transport/ice.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L8)
 
 ___
 
 ### waitStart
 
-• `Private` `Optional` **waitStart**: *undefined* \| *default*<[]\>
+• `Private` `Optional` **waitStart**: *default*<[]\>
 
-Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L12)
+Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L12)
 
 ## Accessors
 
@@ -72,7 +72,7 @@ Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/wer
 
 **Returns:** [*RTCIceGatherer*](rtcicegatherer.md)
 
-Defined in: [webrtc/src/transport/ice.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L20)
+Defined in: [webrtc/src/transport/ice.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L20)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 **Returns:** *controlling* \| *controlled*
 
-Defined in: [webrtc/src/transport/ice.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L24)
+Defined in: [webrtc/src/transport/ice.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L24)
 
 ## Methods
 
@@ -98,23 +98,23 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L41)
+Defined in: [webrtc/src/transport/ice.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L41)
 
 ___
 
 ### setState
 
-▸ `Private`**setState**(`state`: *closed* \| *failed* \| *disconnected* \| *new* \| *connected* \| *checking* \| *completed*): *void*
+▸ `Private`**setState**(`state`: *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*): *void*
 
 #### Parameters:
 
 Name | Type |
 :------ | :------ |
-`state` | *closed* \| *failed* \| *disconnected* \| *new* \| *connected* \| *checking* \| *completed* |
+`state` | *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected* |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/ice.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L29)
+Defined in: [webrtc/src/transport/ice.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L29)
 
 ___
 
@@ -130,7 +130,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L51)
+Defined in: [webrtc/src/transport/ice.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L51)
 
 ___
 
@@ -140,4 +140,4 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/ice.ts#L72)
+Defined in: [webrtc/src/transport/ice.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/ice.ts#L72)

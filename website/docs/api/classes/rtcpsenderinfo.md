@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RtcpSenderInfo*](rtcpsenderinfo.md)
 
-Defined in: [rtp/src/rtcp/sr.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L50)
+Defined in: [rtp/src/rtcp/sr.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L50)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/sr.ts:50](https://github.com/shinyoshiaki/werift-webrt
 
 • **ntpTimestamp**: *bigint*
 
-Defined in: [rtp/src/rtcp/sr.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L47)
+Defined in: [rtp/src/rtcp/sr.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L47)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **octetCount**: *number*
 
-Defined in: [rtp/src/rtcp/sr.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L50)
+Defined in: [rtp/src/rtcp/sr.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L50)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **packetCount**: *number*
 
-Defined in: [rtp/src/rtcp/sr.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L49)
+Defined in: [rtp/src/rtcp/sr.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L49)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **rtpTimestamp**: *number*
 
-Defined in: [rtp/src/rtcp/sr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L48)
+Defined in: [rtp/src/rtcp/sr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L48)
 
 ## Methods
 
@@ -64,7 +64,7 @@ Defined in: [rtp/src/rtcp/sr.ts:48](https://github.com/shinyoshiaki/werift-webrt
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/sr.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L56)
+Defined in: [rtp/src/rtcp/sr.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L56)
 
 ___
 
@@ -80,4 +80,4 @@ Name | Type |
 
 **Returns:** [*RtcpSenderInfo*](rtcpsenderinfo.md)
 
-Defined in: [rtp/src/rtcp/sr.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/rtcp/sr.ts#L63)
+Defined in: [rtp/src/rtcp/sr.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L63)

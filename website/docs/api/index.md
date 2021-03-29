@@ -103,6 +103,8 @@ see console & chrome://webrtc-internals/
 ## Road Map Towards 2.0
 
 - [ ] API compatible with browser RTCPeerConnection
+- [ ] ICE
+  - [ ] ICE restart
 - [ ] SDP
   - [ ] reuse inactive m-line
 - [ ] Simulcast

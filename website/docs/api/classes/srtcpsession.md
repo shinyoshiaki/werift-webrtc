@@ -28,7 +28,9 @@ Name | Type |
 
 **Returns:** [*SrtcpSession*](srtcpsession.md)
 
-Defined in: [rtp/src/srtp/srtcp.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/srtcp.ts#L4)
+Overrides: void
+
+Defined in: [rtp/src/srtp/srtcp.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/srtcp.ts#L4)
 
 ## Properties
 
@@ -42,15 +44,33 @@ ___
 
 • **localContext**: *SrtcpContext*
 
-Defined in: [rtp/src/srtp/session.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/session.ts#L16)
+Inherited from: void
+
+Defined in: [rtp/src/srtp/session.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/session.ts#L16)
 
 ___
 
 ### onData
 
-• `Optional` **onData**: *undefined* \| (`buf`: *Buffer*) => *void*
+• `Optional` **onData**: (`buf`: *Buffer*) => *void*
 
-Defined in: [rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/session.ts#L18)
+#### Type declaration:
+
+▸ (`buf`: *Buffer*): *void*
+
+#### Parameters:
+
+Name | Type |
+:------ | :------ |
+`buf` | *Buffer* |
+
+**Returns:** *void*
+
+Defined in: [rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/session.ts#L18)
+
+Inherited from: void
+
+Defined in: [rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/session.ts#L18)
 
 ___
 
@@ -58,7 +78,9 @@ ___
 
 • **remoteContext**: *SrtcpContext*
 
-Defined in: [rtp/src/srtp/session.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/session.ts#L17)
+Inherited from: void
+
+Defined in: [rtp/src/srtp/session.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/session.ts#L17)
 
 ## Methods
 
@@ -74,7 +96,7 @@ Name | Type |
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/srtp/srtcp.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/srtcp.ts#L17)
+Defined in: [rtp/src/srtp/srtcp.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/srtcp.ts#L17)
 
 ___
 
@@ -90,7 +112,7 @@ Name | Type |
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/srtp/srtcp.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/srtcp.ts#L22)
+Defined in: [rtp/src/srtp/srtcp.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/srtcp.ts#L22)
 
 ___
 
@@ -110,4 +132,6 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [rtp/src/srtp/session.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/rtp/src/srtp/session.ts#L22)
+Inherited from: void
+
+Defined in: [rtp/src/srtp/session.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/srtp/session.ts#L22)

@@ -12,7 +12,7 @@ hide_title: true
 
 ### constructor
 
-\+ **new RTCCertificate**(`privateKeyPem`: *string*, `certPem`: *string*): [*RTCCertificate*](rtccertificate.md)
+\+ **new RTCCertificate**(`privateKeyPem`: *string*, `certPem`: *string*, `signatureHash`: SignatureHash): [*RTCCertificate*](rtccertificate.md)
 
 #### Parameters:
 
@@ -20,18 +20,17 @@ Name | Type |
 :------ | :------ |
 `privateKeyPem` | *string* |
 `certPem` | *string* |
+`signatureHash` | SignatureHash |
 
 **Returns:** [*RTCCertificate*](rtccertificate.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/dtls.ts#L191)
+Defined in: [webrtc/src/transport/dtls.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/dtls.ts#L216)
 
 ## Properties
 
-### cert
+### certPem
 
-• **cert**: *string*
-
-Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/dtls.ts#L191)
+• **certPem**: *string*
 
 ___
 
@@ -39,7 +38,7 @@ ___
 
 • **privateKey**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:190](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/dtls.ts#L190)
+Defined in: [webrtc/src/transport/dtls.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/dtls.ts#L216)
 
 ___
 
@@ -47,7 +46,13 @@ ___
 
 • **publicKey**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:189](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/dtls.ts#L189)
+Defined in: [webrtc/src/transport/dtls.ts:215](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/dtls.ts#L215)
+
+___
+
+### signatureHash
+
+• **signatureHash**: SignatureHash
 
 ## Methods
 
@@ -57,14 +62,4 @@ Defined in: [webrtc/src/transport/dtls.ts:189](https://github.com/shinyoshiaki/w
 
 **Returns:** *RTCDtlsFingerprint*[]
 
-Defined in: [webrtc/src/transport/dtls.ts:199](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/dtls.ts#L199)
-
-___
-
-### unsafe\_useDefaultCertificate
-
-▸ `Static`**unsafe_useDefaultCertificate**(): [*RTCCertificate*](rtccertificate.md)
-
-**Returns:** [*RTCCertificate*](rtccertificate.md)
-
-Defined in: [webrtc/src/transport/dtls.ts:208](https://github.com/shinyoshiaki/werift-webrtc/blob/b7c7a6e/packages/webrtc/src/transport/dtls.ts#L208)
+Defined in: [webrtc/src/transport/dtls.ts:228](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/transport/dtls.ts#L228)

@@ -1,0 +1,1 @@
+(window.webpackJsonp=window.webpackJsonp||[]).push([[23],{96:function(t){t.exports=JSON.parse('{"allTagsPath":"/werift-webrtc/website/build/blog/tags","slug":"test","name":"test","count":1,"permalink":"/werift-webrtc/website/build/blog/tags/test"}')}}]);
