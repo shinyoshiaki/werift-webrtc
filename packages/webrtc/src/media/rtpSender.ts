@@ -93,6 +93,20 @@ export class RTCRtpSender {
     this.disposeTrack = unSubscribe;
   }
 
+  async replaceTrack(track: MediaStreamTrack) {
+    if (track.stopped) throw new Error("track is ended");
+
+    if (this.sequenceNumber != undefined) {
+      const header =
+        track.header || (await track.onReceiveRtp.asPromise())[0].header;
+
+      this.replaceRTP(header);
+    }
+
+    this.registerTrack(track);
+    log("replaceTrack", track.ssrc, track.rid);
+  }
+
   get ready() {
     return this.dtlsTransport.state === "connected";
   }
@@ -143,20 +157,6 @@ export class RTCRtpSender {
         await sleep(500 + Math.random() * 1000);
       }
     }
-  }
-
-  async replaceTrack(track: MediaStreamTrack) {
-    if (track.stopped) throw new Error("track is ended");
-
-    if (this.sequenceNumber != undefined) {
-      const header =
-        track.header || (await track.onReceiveRtp.asPromise())[0].header;
-
-      this.replaceRTP(header);
-    }
-
-    this.registerTrack(track);
-    log("replaceTrack", track.ssrc, track.rid);
   }
 
   private replaceRTP({ sequenceNumber, timestamp }: RtpHeader) {

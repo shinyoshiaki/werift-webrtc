@@ -1,11 +1,12 @@
 import Event from "rx.mini";
+import { v4 } from "uuid";
 import { RtpHeader, RtpPacket } from "../../../rtp/src";
 import { Kind } from "../types/domain";
 
 export class MediaStreamTrack {
   role: "read" | "write" = "write";
+  id: string = v4();
   kind!: Kind;
-  id?: string;
   ssrc?: number;
   rid?: string;
   header?: RtpHeader;
