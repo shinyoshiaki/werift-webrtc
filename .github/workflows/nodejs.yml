@@ -39,7 +39,7 @@ jobs:
           CI: true
       - name: e2e:browser
         run: |
-          cd e2e/browser
+          cd e2e
           yarn
           yarn ci
           cd ../..

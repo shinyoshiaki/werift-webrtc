@@ -38,11 +38,8 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^17.0.0",
     "@types/elliptic": "^6.4.12",
-    "@types/lodash": "^4.14.161",
-    "rollup": "^2.42.4",
-    "rollup-plugin-typescript2": "^0.30.0"
+    "@types/lodash": "^4.14.161"
   },
   "engines": {
     "node": ">=10"
