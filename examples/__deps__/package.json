@@ -33,7 +33,6 @@
     "body-parser": "^1.19.0",
     "cors": "^2.8.5",
     "express": "^4.17.1",
-    "python-shell": "^2.0.3",
     "rx.mini": "^1.1.0",
     "socket.io-client": "^4.0.0",
     "speaker": "^0.5.3",

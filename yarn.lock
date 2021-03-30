@@ -8527,11 +8527,6 @@ pvutils@latest:
   resolved "https://registry.yarnpkg.com/pvutils/-/pvutils-1.0.17.tgz#ade3c74dfe7178944fe44806626bd2e249d996bf"
   integrity sha512-wLHYUQxWaXVQvKnwIDWFVKDJku9XDCvyhhxoq8dc5MFdIlRenyPI9eSfEtcvgHgD7FlvCyGAlWgOzRnZD99GZQ==
 
-python-shell@^2.0.1, python-shell@^2.0.3:
-  version "2.0.3"
-  resolved "https://registry.yarnpkg.com/python-shell/-/python-shell-2.0.3.tgz#03040cae27934d88e1226fd34316b39dfb2fddf0"
-  integrity sha512-SBYQzXjexcxmmgzpjdIVxum9tj4Zaov1jNuSGMLssPxRhZ7lxqlpuEtLT0TEed0RAqhGfx2YFVC+imCJOmkVHg==
-
 q@^1.5.1:
   version "1.5.1"
   resolved "https://registry.yarnpkg.com/q/-/q-1.5.1.tgz#7e32f75b41381291d04611f1bf14109ac00651d7"

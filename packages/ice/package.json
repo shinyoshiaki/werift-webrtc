@@ -42,7 +42,6 @@
     "@types/lodash": "^4.14.161",
     "@types/utf8": "^2.1.6",
     "@types/ws": "^7.2.6",
-    "python-shell": "^2.0.1",
     "ws": "^7.4.4"
   },
   "publishConfig": {

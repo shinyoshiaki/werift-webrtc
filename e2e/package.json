@@ -9,31 +9,31 @@
     "debug": "cd debug && yarn dev",
     "dev:server": "DEBUG=werift* ts-node-dev ./server/main.ts",
     "dev:test": "karma start --browsers chrome_with_fake_device",
-    "prod:server": "DEBUG=werift* node lib/e2e/browser/server/main.js",
+    "prod:server": "DEBUG=werift* node lib/e2e/server/main.js",
     "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device && node stop.js"
   },
   "dependencies": {
-    "werift": "^0.0.35"
+    "werift": "^0.7.2"
   },
   "devDependencies": {
     "@types/axios": "^0.14.0",
-    "@types/jasmine": "^3.4.0",
+    "@types/jasmine": "^3.6.9",
     "@types/protoo-client": "^4.0.0",
     "@types/protoo-server": "^4.0.1",
     "axios": "^0.21.1",
     "express": "^4.17.1",
-    "jasmine-core": "^3.3.0",
-    "karma": "^5.2.3",
+    "jasmine-core": "^3.7.1",
+    "karma": "^6.3.2",
     "karma-chrome-launcher": "^3.1.0",
     "karma-firefox-launcher": "^2.1.0",
-    "karma-jasmine": "^2.0.1",
-    "karma-typescript": "^5.2.0",
+    "karma-jasmine": "^4.0.1",
+    "karma-typescript": "^5.5.1",
     "npm-run-all": "^4.1.5",
-    "protoo-client": "^4.0.5",
-    "protoo-server": "^4.0.5",
+    "protoo-client": "^4.0.6",
+    "protoo-server": "^4.0.6",
     "ts-node": "^9.1.1",
-    "ts-node-dev": "^1.1.1",
-    "tslib": "^2.0.3",
-    "typescript": "^4.1.3"
+    "ts-node-dev": "^1.1.6",
+    "tslib": "^2.1.0",
+    "typescript": "^4.2.3"
   }
 }

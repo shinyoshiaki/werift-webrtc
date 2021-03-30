@@ -37,12 +37,12 @@ const WEBSOCKET_URI = "ws://127.0.0.1:8765";
     ws.close();
   });
 
-  await connection.connect();
+  connection.connect();
   console.log("connected");
 
-  const [data, component] = await connection.recvFrom();
+  const [data, component] = await connection.onData.asPromise();
   console.log(`echoing ${data.toString()} on component ${component}`);
-  await connection.sendTo(Buffer.from("ice tea"), component);
+  await connection.send(Buffer.from("ice tea"));
 
   await new Promise((r) => setTimeout(r, 5000));
   await connection.close();
