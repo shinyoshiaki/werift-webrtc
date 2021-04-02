@@ -61,6 +61,7 @@ export class RTCPeerConnection {
   iceConnectionState: IceTransportState = "new";
   iceGatheringState: IceGathererState = "new";
   signalingState: SignalingState = "stable";
+  negotiationneeded = false;
   readonly transceivers: RTCRtpTransceiver[] = [];
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[IceTransportState]>();
@@ -69,6 +70,7 @@ export class RTCPeerConnection {
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly onTransceiver = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
+  readonly onnegotiationneeded = new Event<[]>();
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -636,6 +638,7 @@ export class RTCPeerConnection {
         if (description.type === "answer") {
           dtlsTransport.role =
             media.dtlsParams?.role === "client" ? "server" : "client";
+          this.negotiationneeded = false;
         }
       }
     }
@@ -694,6 +697,56 @@ export class RTCPeerConnection {
     this.transceivers.push(transceiver);
 
     return transceiver;
+  }
+
+  getTransceivers() {
+    return this.transceivers;
+  }
+
+  getSenders() {
+    return this.getTransceivers().map((t) => t.sender);
+  }
+
+  getReceivers() {
+    return this.getTransceivers().map((t) => t.receiver);
+  }
+
+  addTrack(track: MediaStreamTrack) {
+    if (this.isClosed) throw new Error("is closed");
+
+    const senders = this.getSenders();
+    if (senders.find((sender) => sender.track?.id === track.id)) {
+      throw new Error("track exist");
+    }
+
+    const transceiver = this.transceivers.find(
+      (t) =>
+        t.sender.track == undefined &&
+        t.kind === track.kind &&
+        !(["sendonly", "sendrecv"] as Direction[]).includes(t.direction)
+    );
+
+    let newSender: RTCRtpSender;
+    if (transceiver) {
+      const sender = transceiver.sender;
+      sender.registerTrack(track);
+      switch (transceiver.direction) {
+        case "recvonly":
+          transceiver.direction = "sendrecv";
+          break;
+        case "inactive":
+          transceiver.direction = "sendonly";
+          break;
+      }
+      newSender = sender;
+    } else {
+      const transceiver = this.addTransceiver(track, "sendrecv");
+      newSender = transceiver.sender;
+    }
+    this.negotiationneeded = true;
+    this.onnegotiationneeded.execute();
+
+    return newSender;
   }
 
   async createAnswer() {

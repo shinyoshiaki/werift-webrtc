@@ -82,10 +82,11 @@ export class RTCRtpSender {
     }
   }
 
-  private registerTrack(track: MediaStreamTrack) {
+  registerTrack(track: MediaStreamTrack) {
     if (track.stopped) throw new Error("track is ended");
 
     if (this.disposeTrack) this.disposeTrack();
+
     const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
       if (this.parameters) this.sendRtp(rtp);
     });
