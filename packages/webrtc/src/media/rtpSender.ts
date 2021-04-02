@@ -24,7 +24,7 @@ import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
-import { RTCRtpParameters } from "./parameters";
+import { RTCRtpCodecParameters, RTCRtpParameters } from "./parameters";
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
 import { MediaStreamTrack } from "./track";
 
@@ -65,6 +65,12 @@ export class RTCRtpSender {
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
 
+  private _codec?: RTCRtpCodecParameters;
+  set codec(codec: RTCRtpCodecParameters) {
+    this._codec = codec;
+    if (this.track) this.track.codec = codec;
+  }
+
   parameters?: RTCRtpParameters;
   track?: MediaStreamTrack;
 
@@ -92,6 +98,8 @@ export class RTCRtpSender {
     });
     this.track = track;
     this.disposeTrack = unSubscribe;
+
+    track.codec = this._codec;
   }
 
   async replaceTrack(track: MediaStreamTrack) {

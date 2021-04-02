@@ -25,6 +25,7 @@ export class RTCRtpTransceiver {
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
     this.receiver.codecs = codecs;
+    this.sender.codec = codecs[0];
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
