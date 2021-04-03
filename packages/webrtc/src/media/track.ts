@@ -5,7 +5,7 @@ import { Kind } from "../types/domain";
 import { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack {
-  role: "read" | "write" = "write";
+  remote = false;
   id: string = v4();
   kind!: Kind;
   ssrc?: number;
@@ -33,7 +33,7 @@ export class MediaStreamTrack {
   };
 
   writeRtp = (rtp: RtpPacket | Buffer) => {
-    if (this.role === "read") throw new Error("wrong role");
+    if (this.remote) throw new Error("this is remoteTrack");
     if (this.stopped) return;
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;

@@ -827,11 +827,14 @@ export class RTCPeerConnection {
 
     if (this.sctpTransport) {
       this.sctpTransport.stop();
-      this.sctpTransport.dtlsTransport.stop();
-      await this.sctpTransport.dtlsTransport.iceTransport.stop();
+    }
+    if (this.dtlsTransport) {
+      this.dtlsTransport.stop();
+      await this.dtlsTransport.iceTransport.stop();
     }
 
     this.removeAllListeners();
+    log("peerConnection closed");
   }
 
   private assertNotClosed() {
