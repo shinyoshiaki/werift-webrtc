@@ -120,7 +120,9 @@ export class RTCRtpSender {
     return this.dtlsTransport.state === "connected";
   }
 
+  // todo test
   stop() {
+    this.track = undefined;
     this.rtcpRunner = false;
   }
 

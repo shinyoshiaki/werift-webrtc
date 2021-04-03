@@ -4,7 +4,12 @@ import * as uuid from "uuid";
 import { enumerate } from "./helper";
 import { ConnectionState, Kind, SignalingState } from "./types/domain";
 import { IceOptions } from "../../ice/src";
-import { DISCARD_HOST, DISCARD_PORT, SRTP_PROFILE } from "./const";
+import {
+  DISCARD_HOST,
+  DISCARD_PORT,
+  SenderDirections,
+  SRTP_PROFILE,
+} from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import {
   RTCRtpCodecParameters,
@@ -286,10 +291,18 @@ export class RTCPeerConnection {
     return new RTCDataChannel(this.sctpTransport, parameters);
   }
 
-  /**
-   * need createOffer
-   */
-  removeTrack(transceiver: RTCRtpTransceiver) {
+  removeTrack(sender: RTCRtpSender) {
+    if (this.isClosed) throw new Error("peer closed");
+    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc))
+      throw new Error("unExist");
+
+    const transceiver = this.transceivers.find(
+      ({ sender: { ssrc } }) => sender.ssrc === ssrc
+    );
+    if (!transceiver) throw new Error("unExist");
+
+    sender.stop();
+
     if (transceiver.direction === "sendrecv") {
       transceiver.direction = "recvonly";
     } else if (
@@ -298,7 +311,13 @@ export class RTCPeerConnection {
     ) {
       transceiver.direction = "inactive";
     }
+    this.needNegotiation();
   }
+
+  private needNegotiation = () => {
+    this.negotiationneeded = true;
+    this.onnegotiationneeded.execute();
+  };
 
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.dtlsTransport) return this.dtlsTransport;
@@ -373,7 +392,9 @@ export class RTCPeerConnection {
       this.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
         const transceiver = this.getTransceiverByMLineIndex(i);
-        if (transceiver) transceiver.mid = mid;
+        if (transceiver) {
+          transceiver.mid = mid;
+        }
       }
       if (media.kind === "application" && this.sctpTransport) {
         this.sctpTransport.mid = mid;
@@ -720,21 +741,16 @@ export class RTCPeerConnection {
     if (this.getSenders().find((sender) => sender.track?.id === track.id))
       throw new Error("track exist");
 
-    const onnegotiationneeded = () => {
-      this.negotiationneeded = true;
-      this.onnegotiationneeded.execute();
-    };
-
     const emptyTrackSender = this.transceivers.find(
       (t) =>
         t.sender.track == undefined &&
         t.kind === track.kind &&
-        (["sendonly", "sendrecv"] as Direction[]).includes(t.direction) === true
+        SenderDirections.includes(t.direction) === true
     );
     if (emptyTrackSender) {
       const sender = emptyTrackSender.sender;
       sender.registerTrack(track);
-      onnegotiationneeded();
+      this.needNegotiation();
       return sender;
     }
 
@@ -742,8 +758,8 @@ export class RTCPeerConnection {
       (t) =>
         t.sender.track == undefined &&
         t.kind === track.kind &&
-        (["sendonly", "sendrecv"] as Direction[]).includes(t.direction) ===
-          false
+        SenderDirections.includes(t.direction) === false &&
+        !t.usedForSender
     );
     if (notSendTransceiver) {
       const sender = notSendTransceiver.sender;
@@ -756,11 +772,11 @@ export class RTCPeerConnection {
           notSendTransceiver.direction = "sendonly";
           break;
       }
-      onnegotiationneeded();
+      this.needNegotiation();
       return sender;
     } else {
       const transceiver = this.addTransceiver(track, { direction: "sendrecv" });
-      onnegotiationneeded();
+      this.needNegotiation();
       return transceiver.sender;
     }
   }

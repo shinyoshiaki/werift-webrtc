@@ -97,5 +97,23 @@ describe("peerConnection/addTrack", () => {
       await caller.setRemoteDescription(answer);
     }
     expect(transceiver.currentDirection).toBe("sendonly");
+
+    caller.removeTrack(transceiver.sender);
+    {
+      const offer = await caller.createOffer();
+      await caller.setLocalDescription(offer);
+      await callee.setRemoteDescription(offer);
+      const answer = await callee.createAnswer();
+      await callee.setLocalDescription(answer);
+      await caller.setRemoteDescription(answer);
+    }
+    expect(transceiver.direction).toBe("recvonly");
+    // todo fix
+    // expect(transceiver.currentDirection).toBe("inactive");
+
+    // |transceiver.sender| is currently not used for sending, but it should not be reused because it has been used for sending before.
+    const sender = caller.addTrack(track);
+    expect(sender).toBeTruthy();
+    expect(sender).not.toEqual(transceiver.sender);
   });
 });

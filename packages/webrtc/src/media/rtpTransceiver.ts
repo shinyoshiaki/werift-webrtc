@@ -1,6 +1,7 @@
 import debug from "debug";
 import Event from "rx.mini";
 import * as uuid from "uuid";
+import { SenderDirections } from "../const";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { reverseDirection } from "../utils";
@@ -19,9 +20,13 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack]>();
   mid?: string;
   mLineIndex?: number;
-  _currentDirection?: Direction | "stopped";
+  usedForSender = false;
+  private _currentDirection?: Direction | "stopped";
   set currentDirection(direction: Direction) {
     this._currentDirection = reverseDirection(direction);
+    if (SenderDirections.includes(this._currentDirection)) {
+      this.usedForSender = true;
+    }
   }
   get currentDirection() {
     // todo fix typescript 4.3
