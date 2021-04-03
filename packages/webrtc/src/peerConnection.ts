@@ -549,10 +549,9 @@ export class RTCPeerConnection {
               [undefined, media.rtp.muxId].includes(t.mid)
           ) ||
           (() => {
-            const transceiver = this.addTransceiver(
-              media.kind,
-              media.direction === "sendrecv" ? "sendrecv" : "recvonly"
-            );
+            const transceiver = this.addTransceiver(media.kind, {
+              direction: "recvonly",
+            });
             this.onTransceiver.execute(transceiver);
             return transceiver;
           })();
@@ -594,6 +593,10 @@ export class RTCPeerConnection {
         );
 
         transceiver.receiver.setupTWCC(media.ssrc[0]?.ssrc);
+
+        if (description.type === "answer") {
+          transceiver.currentDirection = media.direction || "inactive";
+        }
 
         if (media.dtlsParams && media.iceParams) {
           this.remoteDtls = media.dtlsParams;
@@ -672,7 +675,6 @@ export class RTCPeerConnection {
 
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
-    direction: Direction,
     options: Partial<TransceiverOptions> = {}
   ) {
     const dtlsTransport = this.createDtlsTransport([
@@ -681,6 +683,8 @@ export class RTCPeerConnection {
 
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
+
+    const direction = options.direction || "sendrecv";
 
     const sender = new RTCRtpSender(trackOrKind, dtlsTransport);
     const receiver = new RTCRtpReceiver(kind, dtlsTransport, sender.ssrc);
@@ -713,40 +717,52 @@ export class RTCPeerConnection {
 
   addTrack(track: MediaStreamTrack) {
     if (this.isClosed) throw new Error("is closed");
-
-    const senders = this.getSenders();
-    if (senders.find((sender) => sender.track?.id === track.id)) {
+    if (this.getSenders().find((sender) => sender.track?.id === track.id))
       throw new Error("track exist");
-    }
 
-    const transceiver = this.transceivers.find(
+    const onnegotiationneeded = () => {
+      this.negotiationneeded = true;
+      this.onnegotiationneeded.execute();
+    };
+
+    const emptyTrackSender = this.transceivers.find(
       (t) =>
         t.sender.track == undefined &&
         t.kind === track.kind &&
-        !(["sendonly", "sendrecv"] as Direction[]).includes(t.direction)
+        (["sendonly", "sendrecv"] as Direction[]).includes(t.direction) === true
     );
-
-    let newSender: RTCRtpSender;
-    if (transceiver) {
-      const sender = transceiver.sender;
+    if (emptyTrackSender) {
+      const sender = emptyTrackSender.sender;
       sender.registerTrack(track);
-      switch (transceiver.direction) {
+      onnegotiationneeded();
+      return sender;
+    }
+
+    const notSendTransceiver = this.transceivers.find(
+      (t) =>
+        t.sender.track == undefined &&
+        t.kind === track.kind &&
+        (["sendonly", "sendrecv"] as Direction[]).includes(t.direction) ===
+          false
+    );
+    if (notSendTransceiver) {
+      const sender = notSendTransceiver.sender;
+      sender.registerTrack(track);
+      switch (notSendTransceiver.direction) {
         case "recvonly":
-          transceiver.direction = "sendrecv";
+          notSendTransceiver.direction = "sendrecv";
           break;
         case "inactive":
-          transceiver.direction = "sendonly";
+          notSendTransceiver.direction = "sendonly";
           break;
       }
-      newSender = sender;
+      onnegotiationneeded();
+      return sender;
     } else {
-      const transceiver = this.addTransceiver(track, "sendrecv");
-      newSender = transceiver.sender;
+      const transceiver = this.addTransceiver(track, { direction: "sendrecv" });
+      onnegotiationneeded();
+      return transceiver.sender;
     }
-    this.negotiationneeded = true;
-    this.onnegotiationneeded.execute();
-
-    return newSender;
   }
 
   async createAnswer() {
@@ -813,7 +829,7 @@ export class RTCPeerConnection {
     return wrapSessionDescription(description);
   }
 
-  async close() {
+  close() {
     if (this.isClosed) return;
 
     this.isClosed = true;
@@ -830,7 +846,7 @@ export class RTCPeerConnection {
     }
     if (this.dtlsTransport) {
       this.dtlsTransport.stop();
-      await this.dtlsTransport.iceTransport.stop();
+      this.dtlsTransport.iceTransport.stop();
     }
 
     this.removeAllListeners();

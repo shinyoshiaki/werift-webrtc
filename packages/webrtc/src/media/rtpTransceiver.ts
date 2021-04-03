@@ -3,6 +3,7 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
+import { reverseDirection } from "../utils";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -18,7 +19,15 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack]>();
   mid?: string;
   mLineIndex?: number;
-  _codecs: RTCRtpCodecParameters[] = [];
+  _currentDirection?: Direction | "stopped";
+  set currentDirection(direction: Direction) {
+    this._currentDirection = reverseDirection(direction);
+  }
+  get currentDirection() {
+    // todo fix typescript 4.3
+    return this._currentDirection as any;
+  }
+  private _codecs: RTCRtpCodecParameters[] = [];
   get codecs() {
     return this._codecs;
   }
@@ -55,6 +64,10 @@ export class RTCRtpTransceiver {
       this.onTrack.execute(track);
     }
   }
+
+  // todo impl
+  // https://www.w3.org/TR/webrtc/#methods-8
+  stop() {}
 }
 
 export const Directions = [
@@ -69,5 +82,6 @@ export type Direction = typeof Directions[number];
 type SimulcastDirection = "send" | "recv";
 
 export type TransceiverOptions = {
+  direction: Direction;
   simulcast: { direction: SimulcastDirection; rid: string }[];
 };

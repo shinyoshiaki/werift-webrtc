@@ -15,15 +15,16 @@ export class mediachannel_simulcast_answer {
               audio: [],
             },
           });
-          const transceiver = this.pc.addTransceiver("video", "recvonly", {
+          const transceiver = this.pc.addTransceiver("video", {
+            direction: "recvonly",
             simulcast: [
               { rid: "high", direction: "recv" },
               { rid: "low", direction: "recv" },
             ],
           });
           const multiCast = {
-            high: this.pc.addTransceiver("video", "sendonly"),
-            low: this.pc.addTransceiver("video", "sendonly"),
+            high: this.pc.addTransceiver("video", { direction: "sendonly" }),
+            low: this.pc.addTransceiver("video", { direction: "sendonly" }),
           };
           transceiver.onTrack.subscribe((track) => {
             const sender = multiCast[track.rid as keyof typeof multiCast];
@@ -63,10 +64,12 @@ export class mediachannel_simulcast_offer {
               audio: [],
             },
           });
-          const transceiver = this.pc.addTransceiver("video", "recvonly");
+          const transceiver = this.pc.addTransceiver("video", {
+            direction: "recvonly",
+          });
           const multiCast = {
-            high: this.pc.addTransceiver("video", "sendonly"),
-            low: this.pc.addTransceiver("video", "sendonly"),
+            high: this.pc.addTransceiver("video", { direction: "sendonly" }),
+            low: this.pc.addTransceiver("video", { direction: "sendonly" }),
           };
           transceiver.onTrack.subscribe((track) => {
             const sender = multiCast[track.rid as keyof typeof multiCast];

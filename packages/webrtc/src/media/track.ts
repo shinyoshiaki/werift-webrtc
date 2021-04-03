@@ -6,6 +6,7 @@ import { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack {
   remote = false;
+  label: string;
   id: string = v4();
   kind!: Kind;
   ssrc?: number;
@@ -16,6 +17,7 @@ export class MediaStreamTrack {
   readonly onReceiveRtp = new Event<[RtpPacket]>();
 
   stopped = false;
+  muted = true;
 
   constructor(
     props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">
@@ -23,12 +25,16 @@ export class MediaStreamTrack {
     Object.assign(this, props);
 
     this.onReceiveRtp.subscribe((rtp) => {
+      this.muted = false;
       this.header = rtp.header;
     });
+
+    this.label = `${this.remote ? "remote" : "local"} ${this.kind}`;
   }
 
   stop = () => {
     this.stopped = true;
+    this.muted = true;
     this.onReceiveRtp.complete();
   };
 

@@ -2,6 +2,7 @@
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
+import { Direction } from "./media/rtpTransceiver";
 const now = require("nano-time");
 
 const upper = (s: string) => s.toUpperCase();
@@ -30,6 +31,12 @@ export function isRtcp(buf: Buffer) {
 export function reverseSimulcastDirection(dir: "recv" | "send") {
   if (dir === "recv") return "send";
   return "recv";
+}
+
+export function reverseDirection(dir: Direction): Direction {
+  if (dir === "sendonly") return "recvonly";
+  if (dir === "recvonly") return "sendonly";
+  return dir;
 }
 
 export const microTime = () => now.micro() as number;
