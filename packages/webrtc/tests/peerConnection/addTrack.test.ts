@@ -108,8 +108,7 @@ describe("peerConnection/addTrack", () => {
       await caller.setRemoteDescription(answer);
     }
     expect(transceiver.direction).toBe("recvonly");
-    // todo fix
-    // expect(transceiver.currentDirection).toBe("inactive");
+    expect(transceiver.currentDirection).toBe("inactive");
 
     // |transceiver.sender| is currently not used for sending, but it should not be reused because it has been used for sending before.
     const sender = caller.addTrack(track);

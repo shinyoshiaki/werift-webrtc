@@ -23,7 +23,7 @@ export class RTCRtpTransceiver {
   usedForSender = false;
   private _currentDirection?: Direction | "stopped";
   set currentDirection(direction: Direction) {
-    this._currentDirection = reverseDirection(direction);
+    this._currentDirection = direction;
     if (SenderDirections.includes(this._currentDirection)) {
       this.usedForSender = true;
     }
@@ -32,6 +32,7 @@ export class RTCRtpTransceiver {
     // todo fix typescript 4.3
     return this._currentDirection as any;
   }
+  offerDirection!: Direction;
   private _codecs: RTCRtpCodecParameters[] = [];
   get codecs() {
     return this._codecs;
@@ -76,10 +77,10 @@ export class RTCRtpTransceiver {
 }
 
 export const Directions = [
-  "sendonly",
-  "sendrecv",
-  "recvonly",
   "inactive",
+  "sendonly",
+  "recvonly",
+  "sendrecv",
 ] as const;
 
 export type Direction = typeof Directions[number];

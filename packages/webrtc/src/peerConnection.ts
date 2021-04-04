@@ -50,7 +50,11 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
-import { reverseSimulcastDirection } from "./utils";
+import {
+  andDirection,
+  reverseDirection,
+  reverseSimulcastDirection,
+} from "./utils";
 import debug from "debug";
 import { MediaStreamTrack } from "./media/track";
 
@@ -61,7 +65,9 @@ export class RTCPeerConnection {
   dtlsTransport?: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
-  configuration: Required<PeerConfig> = cloneDeep(defaultPeerConfig) as any;
+  configuration: Required<PeerConfig> = cloneDeep<PeerConfig>(
+    defaultPeerConfig
+  );
   connectionState: ConnectionState = "new";
   iceConnectionState: IceTransportState = "new";
   iceGatheringState: IceGathererState = "new";
@@ -411,11 +417,19 @@ export class RTCPeerConnection {
       iceTransport.roleSet = true;
     }
 
+    // # configure direction
+    this.transceivers.forEach((t) => {
+      if (["answer", "pranswer"].includes(description.type)) {
+        const direction = andDirection(t.direction, t.offerDirection);
+        t.currentDirection = direction;
+      }
+    });
+
+    // for trickle ice
     this.setLocal(description);
 
     // # gather candidates
-    await this.gather();
-
+    await dtlsTransport.iceTransport.iceGather.gather();
     description.media.map((media) => {
       addTransportDescription(media, dtlsTransport);
     });
@@ -441,11 +455,6 @@ export class RTCPeerConnection {
 
     const iceTransport = this.dtlsTransport.iceTransport;
     await iceTransport.addRemoteCandidate(candidate);
-  }
-
-  private async gather() {
-    if (this.masterTransportEstablished) return;
-    await this.dtlsTransport!.iceTransport.iceGather.gather();
   }
 
   private async connect() {
@@ -589,8 +598,8 @@ export class RTCPeerConnection {
           transceiver.mLineIndex = i;
         }
 
-        log("remote codecs", media.rtp.codecs);
         // # negotiate codecs
+        log("remote codecs", media.rtp.codecs);
         transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
           (
             this.configuration.codecs[media.kind as "audio" | "video"] || []
@@ -612,11 +621,14 @@ export class RTCPeerConnection {
               ] || []
             ).find((v) => v.uri === extension.uri)
         );
-
         transceiver.receiver.setupTWCC(media.ssrc[0]?.ssrc);
 
-        if (description.type === "answer") {
-          transceiver.currentDirection = media.direction || "inactive";
+        // # configure direction
+        const direction = reverseDirection(media.direction || "inactive");
+        if (["answer", "pranswer"].includes(description.type)) {
+          transceiver.currentDirection = direction;
+        } else {
+          transceiver.offerDirection = direction;
         }
 
         if (media.dtlsParams && media.iceParams) {
@@ -807,7 +819,7 @@ export class RTCPeerConnection {
         media = createMediaDescriptionForTransceiver(
           transceiver,
           this.cname,
-          transceiver.direction,
+          andDirection(transceiver.direction, transceiver.offerDirection),
           transceiver.mid!
         );
         if (!transceiver.dtlsTransport) throw new Error();
