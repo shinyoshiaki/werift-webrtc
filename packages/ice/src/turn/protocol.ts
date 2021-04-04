@@ -193,6 +193,7 @@ class TurnClient implements Protocol {
       });
 
       while (run) {
+        // refresh before expire
         await sleep((5 / 6) * this.lifetime * 1000);
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
