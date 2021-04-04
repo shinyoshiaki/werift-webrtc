@@ -309,6 +309,11 @@ export class RTCPeerConnection {
 
     sender.stop();
 
+    if (transceiver.currentDirection === "recvonly") {
+      this.needNegotiation();
+      return;
+    }
+
     if (transceiver.direction === "sendrecv") {
       transceiver.direction = "recvonly";
     } else if (

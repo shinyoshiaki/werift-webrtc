@@ -2,6 +2,8 @@ import {
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
+  RTCPeerConnection,
+  RTCSessionDescription,
   RtpHeader,
   RtpPacket,
 } from "../src";
@@ -29,3 +31,11 @@ export const createDtlsTransport = () => {
   );
   return dtls;
 };
+
+export async function generateAnswer(offer: RTCSessionDescription) {
+  const pc = new RTCPeerConnection();
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer();
+  pc.close();
+  return answer;
+}
