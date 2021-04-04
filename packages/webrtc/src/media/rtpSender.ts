@@ -102,7 +102,12 @@ export class RTCRtpSender {
     track.codec = this._codec;
   }
 
-  async replaceTrack(track: MediaStreamTrack) {
+  async replaceTrack(track: MediaStreamTrack | null) {
+    if (track === null) {
+      // todo impl
+      return;
+    }
+
     if (track.stopped) throw new Error("track is ended");
 
     if (this.sequenceNumber != undefined) {

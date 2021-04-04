@@ -171,4 +171,49 @@ describe("peerConnection/removeTrack", () => {
     expect(transceiver.direction).toBe("recvonly");
     expect(transceiver.currentDirection).toBe("recvonly");
   });
+
+  test("Calling removeTrack with currentDirection inactive should not change direction", async () => {
+    const pc = new RTCPeerConnection();
+
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const transceiver = pc.addTransceiver(track, { direction: "inactive" });
+    const { sender } = transceiver;
+
+    expect(sender.track).toEqual(track);
+    expect(transceiver.direction).toBe("inactive");
+    expect(transceiver.currentDirection).toBeFalsy();
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const answer = await generateAnswer(offer);
+    await pc.setRemoteDescription(answer);
+    expect(transceiver.currentDirection).toBe("inactive");
+
+    pc.removeTrack(sender);
+    expect(sender.track).toBeFalsy();
+    expect(transceiver.direction).toBe("inactive");
+    expect(transceiver.currentDirection).toBe("inactive");
+  });
+
+  // test("Calling removeTrack on a stopped transceiver should be a no-op", async () => {
+  //   const pc = new RTCPeerConnection();
+
+  //   const track = new MediaStreamTrack({ kind: "audio" });
+  //   const sender = pc.addTrack(track);
+
+  //   pc.getTransceivers()[0].stop();
+  //   pc.removeTrack(sender);
+  //   expect(sender.track).toEqual(track);
+  // });
+
+  test("Calling removeTrack on a null track should have no effect", async () => {
+    const pc = new RTCPeerConnection();
+
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const sender = pc.addTrack(track);
+
+    await sender.replaceTrack(null);
+    pc.removeTrack(sender);
+    expect(sender.track).toBeFalsy();
+  });
 });

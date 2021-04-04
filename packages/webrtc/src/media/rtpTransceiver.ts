@@ -4,7 +4,6 @@ import * as uuid from "uuid";
 import { SenderDirections } from "../const";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
-import { reverseDirection } from "../utils";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -44,7 +43,8 @@ export class RTCRtpTransceiver {
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
-  inactive = false;
+  stopping = false;
+  stopped = false;
 
   constructor(
     public readonly kind: Kind,
@@ -73,7 +73,13 @@ export class RTCRtpTransceiver {
 
   // todo impl
   // https://www.w3.org/TR/webrtc/#methods-8
-  stop() {}
+  stop() {
+    if (this.stopping) return;
+
+    // todo Stop sending and receiving with transceiver.
+
+    this.stopping = true;
+  }
 }
 
 export const Directions = [
