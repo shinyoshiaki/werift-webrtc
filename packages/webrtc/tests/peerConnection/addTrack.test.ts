@@ -115,4 +115,24 @@ describe("peerConnection/addTrack", () => {
     expect(sender).toBeTruthy();
     expect(sender).not.toEqual(transceiver.sender);
   });
+
+  it("addTrack with existing sender with null track, different kind, and recvonly direction should create new sender", async () => {
+    const pc = new RTCPeerConnection();
+
+    const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
+    expect(transceiver.sender.track).toBeFalsy();
+    expect(transceiver.direction).toBe("recvonly");
+
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const sender = pc.addTrack(track);
+
+    expect(sender.track).toEqual(track);
+    expect(sender).not.toEqual(transceiver.sender);
+
+    const senders = pc.getSenders();
+    expect(senders.length).toBe(2);
+
+    expect(senders.includes(sender)).toBeTruthy();
+    expect(senders.includes(transceiver.sender)).toBeTruthy();
+  });
 });
