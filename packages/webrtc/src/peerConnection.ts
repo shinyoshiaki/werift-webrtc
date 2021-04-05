@@ -707,9 +707,8 @@ export class RTCPeerConnection {
     }
 
     this.transceivers.forEach((transceiver) => {
-      if (["sendonly", "sendrecv"].includes(transceiver.direction)) {
-        transceiver.sender.parameters = this.localRtp(transceiver);
-      }
+      transceiver.sender.parameters = this.localRtp(transceiver);
+
       if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
         const params = this.remoteRtp(transceiver);
         this.router.registerRtpReceiverBySsrc(transceiver, params);
