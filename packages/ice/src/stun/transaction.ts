@@ -56,4 +56,9 @@ export class Transaction {
     this.timeoutDelay *= 2;
     this.tries++;
   };
+
+  // todo use
+  cancel() {
+    if (this.timeoutHandle) clearTimeout(this.timeoutHandle);
+  }
 }

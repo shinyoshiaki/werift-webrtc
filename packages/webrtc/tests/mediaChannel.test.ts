@@ -11,7 +11,7 @@ describe("media", () => {
   test("test_sendonly_recvonly", async (done) => {
     const sendonly = new RTCPeerConnection();
     const track = new MediaStreamTrack({ kind: "video" });
-    sendonly.addTransceiver(track, "sendonly");
+    sendonly.addTransceiver(track, { direction: "sendonly" });
     sendonly.connectionStateChange
       .watch((v) => v === "connected")
       .then(() => {
@@ -47,7 +47,7 @@ describe("media", () => {
       await Promise.all([
         new Promise<void>((r) => {
           const track = new MediaStreamTrack({ kind: "video" });
-          const transceiver = pc1.addTransceiver(track, "sendrecv");
+          const transceiver = pc1.addTransceiver(track);
           transceiver.onTrack.subscribe((track) => {
             track.onReceiveRtp.subscribe((rtp) => {
               expect(rtp.payload).toEqual(Buffer.from("pc2"));
@@ -65,7 +65,7 @@ describe("media", () => {
         }),
         new Promise<void>((r) => {
           const track = new MediaStreamTrack({ kind: "video" });
-          const transceiver = pc2.addTransceiver(track, "sendrecv");
+          const transceiver = pc2.addTransceiver(track);
           transceiver.sender.onReady.subscribe(() => {
             const rtpPacket = new RtpPacket(
               new RtpHeader(),
@@ -96,7 +96,7 @@ describe("media", () => {
     const pc1 = new RTCPeerConnection({
       headerExtensions: { video: [useSdesMid()] },
     });
-    pc1.addTransceiver("video", "sendrecv");
+    pc1.addTransceiver("video");
     const pc2 = new RTCPeerConnection({
       headerExtensions: { video: [useSdesMid()] },
     });

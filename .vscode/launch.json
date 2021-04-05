@@ -77,7 +77,7 @@
         "--files",
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/e2e/browser/server/main.ts"
+        "${workspaceRoot}/e2e/server/main.ts"
       ],
       "env": { "DEBUG": "werift/*" },
       "console": "integratedTerminal",

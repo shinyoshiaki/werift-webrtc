@@ -2,13 +2,14 @@
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
+import { Direction, Directions } from "./media/rtpTransceiver";
 const now = require("nano-time");
 
-const upper = (s: string) => s.toUpperCase();
-const colon = (s: any) => s.match(/(.{2})/g).join(":");
+export function fingerprint(file: Buffer, hashName: string) {
+  const upper = (s: string) => s.toUpperCase();
+  const colon = (s: any) => s.match(/(.{2})/g).join(":");
 
-export function fingerprint(file: Buffer, hashname: string) {
-  const hash = createHash(hashname).update(file).digest("hex");
+  const hash = createHash(hashName).update(file).digest("hex");
 
   return colon(upper(hash));
 }
@@ -30,6 +31,18 @@ export function isRtcp(buf: Buffer) {
 export function reverseSimulcastDirection(dir: "recv" | "send") {
   if (dir === "recv") return "send";
   return "recv";
+}
+
+export const andDirection = (a: Direction, b: Direction) =>
+  Directions[Directions.indexOf(a) & Directions.indexOf(b)];
+
+export const orDirection = (a: Direction, b: Direction) =>
+  Directions[Directions.indexOf(a) & Directions.indexOf(b)];
+
+export function reverseDirection(dir: Direction): Direction {
+  if (dir === "sendonly") return "recvonly";
+  if (dir === "recvonly") return "sendonly";
+  return dir;
 }
 
 export const microTime = () => now.micro() as number;

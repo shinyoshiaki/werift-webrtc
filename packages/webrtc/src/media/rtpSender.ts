@@ -24,7 +24,7 @@ import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
-import { RTCRtpParameters } from "./parameters";
+import { RTCRtpCodecParameters, RTCRtpParameters } from "./parameters";
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
 import { MediaStreamTrack } from "./track";
 
@@ -65,6 +65,12 @@ export class RTCRtpSender {
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
 
+  private _codec?: RTCRtpCodecParameters;
+  set codec(codec: RTCRtpCodecParameters) {
+    this._codec = codec;
+    if (this.track) this.track.codec = codec;
+  }
+
   parameters?: RTCRtpParameters;
   track?: MediaStreamTrack;
 
@@ -82,22 +88,46 @@ export class RTCRtpSender {
     }
   }
 
-  private registerTrack(track: MediaStreamTrack) {
+  registerTrack(track: MediaStreamTrack) {
     if (track.stopped) throw new Error("track is ended");
 
     if (this.disposeTrack) this.disposeTrack();
+
     const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
       if (this.parameters) this.sendRtp(rtp);
     });
     this.track = track;
     this.disposeTrack = unSubscribe;
+
+    track.codec = this._codec;
+  }
+
+  async replaceTrack(track: MediaStreamTrack | null) {
+    if (track === null) {
+      // todo impl
+      return;
+    }
+
+    if (track.stopped) throw new Error("track is ended");
+
+    if (this.sequenceNumber != undefined) {
+      const header =
+        track.header || (await track.onReceiveRtp.asPromise())[0].header;
+
+      this.replaceRTP(header);
+    }
+
+    this.registerTrack(track);
+    log("replaceTrack", track.ssrc, track.rid);
   }
 
   get ready() {
     return this.dtlsTransport.state === "connected";
   }
 
+  // todo test
   stop() {
+    this.track = undefined;
     this.rtcpRunner = false;
   }
 
@@ -143,20 +173,6 @@ export class RTCRtpSender {
         await sleep(500 + Math.random() * 1000);
       }
     }
-  }
-
-  async replaceTrack(track: MediaStreamTrack) {
-    if (track.stopped) throw new Error("track is ended");
-
-    if (this.sequenceNumber != undefined) {
-      const header =
-        track.header || (await track.onReceiveRtp.asPromise())[0].header;
-
-      this.replaceRTP(header);
-    }
-
-    this.registerTrack(track);
-    log("replaceTrack", track.ssrc, track.rid);
   }
 
   private replaceRTP({ sequenceNumber, timestamp }: RtpHeader) {

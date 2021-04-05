@@ -45,7 +45,7 @@ export class RtpRouter {
           ssrc,
           kind: transceiver.kind,
           id: transceiver.sender.streamId,
-          role: "read",
+          remote: true,
         })
       );
     });
@@ -65,7 +65,7 @@ export class RtpRouter {
         rid: param.rid,
         kind: transceiver.kind,
         id: transceiver.sender.streamId,
-        role: "read",
+        remote: true,
       })
     );
     this.ridTable[param.rid] = transceiver.receiver;

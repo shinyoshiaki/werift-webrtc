@@ -11,7 +11,7 @@ export class mediachannel_sendrecv_answer {
           this.pc = new RTCPeerConnection({
             iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
-          const transceiver = this.pc.addTransceiver("video", "sendrecv");
+          const transceiver = this.pc.addTransceiver("video");
           transceiver.onTrack.subscribe((track) => {
             transceiver.sender.replaceTrack(track);
           });
@@ -47,7 +47,7 @@ export class mediachannel_sendrecv_offer {
           this.pc = new RTCPeerConnection({
             iceConfig: { stunServer: ["stun.l.google.com", 19302] },
           });
-          const transceiver = this.pc.addTransceiver("video", "sendrecv");
+          const transceiver = this.pc.addTransceiver("video");
           transceiver.onTrack.subscribe((track) => {
             transceiver.sender.replaceTrack(track);
           });

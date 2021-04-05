@@ -1,6 +1,7 @@
 import debug from "debug";
 import Event from "rx.mini";
 import * as uuid from "uuid";
+import { SenderDirections } from "../const";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import {
@@ -18,17 +19,32 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack]>();
   mid?: string;
   mLineIndex?: number;
-  _codecs: RTCRtpCodecParameters[] = [];
+  usedForSender = false;
+  private _currentDirection?: Direction | "stopped";
+  set currentDirection(direction: Direction) {
+    this._currentDirection = direction;
+    if (SenderDirections.includes(this._currentDirection)) {
+      this.usedForSender = true;
+    }
+  }
+  get currentDirection() {
+    // todo fix typescript 4.3
+    return this._currentDirection as any;
+  }
+  offerDirection!: Direction;
+  private _codecs: RTCRtpCodecParameters[] = [];
   get codecs() {
     return this._codecs;
   }
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
     this.receiver.codecs = codecs;
+    this.sender.codec = codecs[0];
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
-  inactive = false;
+  stopping = false;
+  stopped = false;
 
   constructor(
     public readonly kind: Kind,
@@ -54,13 +70,23 @@ export class RTCRtpTransceiver {
       this.onTrack.execute(track);
     }
   }
+
+  // todo impl
+  // https://www.w3.org/TR/webrtc/#methods-8
+  stop() {
+    if (this.stopping) return;
+
+    // todo Stop sending and receiving with transceiver.
+
+    this.stopping = true;
+  }
 }
 
 export const Directions = [
-  "sendonly",
-  "sendrecv",
-  "recvonly",
   "inactive",
+  "sendonly",
+  "recvonly",
+  "sendrecv",
 ] as const;
 
 export type Direction = typeof Directions[number];
@@ -68,5 +94,6 @@ export type Direction = typeof Directions[number];
 type SimulcastDirection = "send" | "recv";
 
 export type TransceiverOptions = {
+  direction: Direction;
   simulcast: { direction: SimulcastDirection; rid: string }[];
 };

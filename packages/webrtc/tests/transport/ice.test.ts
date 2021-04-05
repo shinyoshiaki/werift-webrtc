@@ -2,11 +2,15 @@ import { RTCIceGatherer, RTCIceTransport } from "../../src";
 
 describe("iceTransport", () => {
   test("test_connect", async () => {
-    const gatherer1 = new RTCIceGatherer();
+    const gatherer1 = new RTCIceGatherer({
+      stunServer: ["stun.l.google.com", 19302],
+    });
     const transport1 = new RTCIceTransport(gatherer1);
     transport1.connection.iceControlling = true;
 
-    const gatherer2 = new RTCIceGatherer();
+    const gatherer2 = new RTCIceGatherer({
+      stunServer: ["stun.l.google.com", 19302],
+    });
     const transport2 = new RTCIceTransport(gatherer2);
     transport2.connection.iceControlling = false;
 
