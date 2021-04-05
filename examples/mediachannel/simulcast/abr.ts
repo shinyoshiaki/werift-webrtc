@@ -55,14 +55,17 @@ server.on("connection", async (socket) => {
     },
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
-  const receiverTransceiver = receiver.addTransceiver("video", "recvonly", {
+  const receiverTransceiver = receiver.addTransceiver("video", {
+    direction: "recvonly",
     simulcast: [
       { rid: "high", direction: "recv" },
       { rid: "low", direction: "recv" },
     ],
   });
 
-  const senderTransceiver = sender.addTransceiver("video", "sendonly");
+  const senderTransceiver = sender.addTransceiver("video", {
+    direction: "sendonly",
+  });
   let state = "high";
 
   receiverTransceiver.onTrack.subscribe(async (track) => {

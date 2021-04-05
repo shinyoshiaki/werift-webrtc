@@ -10,8 +10,8 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
 
-  const transceiver1 = pc.addTransceiver("video", "sendrecv");
-  const transceiver2 = pc.addTransceiver("video", "sendrecv");
+  const transceiver1 = pc.addTransceiver("video");
+  const transceiver2 = pc.addTransceiver("video");
 
   transceiver1.onTrack.subscribe((track) => {
     transceiver1.sender.replaceTrack(track);

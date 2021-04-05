@@ -20,7 +20,7 @@ server.on("connection", async (socket) => {
     },
   });
   // dummy
-  pc.addTransceiver("video", "sendonly");
+  pc.addTransceiver("video", { direction: "sendonly" });
   await pc.setLocalDescription(await pc.createOffer());
   send("offer", { sdp: pc.localDescription });
 
@@ -33,7 +33,9 @@ server.on("connection", async (socket) => {
     switch (type) {
       case "publish":
         {
-          const transceiver = pc.addTransceiver("video", "recvonly");
+          const transceiver = pc.addTransceiver("video", {
+            direction: "recvonly",
+          });
           transceiver.onTrack.subscribe((track) => {
             track.onReceiveRtp.once((rtp) => {
               setInterval(() => {
@@ -52,7 +54,7 @@ server.on("connection", async (socket) => {
         {
           const { media } = payload;
           const transceiver = pc.transceivers.find((t) => t.mid === media);
-          pc.removeTrack(transceiver);
+          pc.removeTrack(transceiver.sender);
           await pc.setLocalDescription(await pc.createOffer());
           send("offer", { sdp: pc.localDescription });
           send("onUnPublish", { media });
@@ -61,7 +63,9 @@ server.on("connection", async (socket) => {
       case "subscribe":
         {
           const { media } = payload;
-          const transceiver = pc.addTransceiver("video", "sendonly");
+          const transceiver = pc.addTransceiver("video", {
+            direction: "sendonly",
+          });
           await pc.setLocalDescription(await pc.createOffer());
 
           send("offer", { sdp: pc.localDescription });
@@ -75,7 +79,7 @@ server.on("connection", async (socket) => {
         {
           const { mid } = payload;
           const transceiver = pc.transceivers.find((t) => t.mid === mid);
-          pc.removeTrack(transceiver);
+          pc.removeTrack(transceiver.sender);
           await pc.setLocalDescription(await pc.createOffer());
 
           send("offer", { sdp: pc.localDescription });

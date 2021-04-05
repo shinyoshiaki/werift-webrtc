@@ -11,10 +11,11 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  pc.addTransceiver("video", "recvonly").onTrack.subscribe((track) =>
-    track.onReceiveRtp.subscribe((packet) => {
-      udp.send(packet.serialize(), 4002, "127.0.0.1");
-    })
+  pc.addTransceiver("video", { direction: "recvonly" }).onTrack.subscribe(
+    (track) =>
+      track.onReceiveRtp.subscribe((packet) => {
+        udp.send(packet.serialize(), 4002, "127.0.0.1");
+      })
   );
 
   await pc.setLocalDescription(await pc.createOffer());

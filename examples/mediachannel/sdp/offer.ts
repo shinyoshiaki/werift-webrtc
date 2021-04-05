@@ -19,7 +19,7 @@ server.on("connection", async (socket) => {
     }, 3000);
   };
 
-  onTransceiver(pc.addTransceiver("video", "sendrecv"));
+  onTransceiver(pc.addTransceiver("video"));
   pc.onTransceiver.subscribe(onTransceiver);
 
   await pc.setLocalDescription(await pc.createOffer());
@@ -33,7 +33,7 @@ server.on("connection", async (socket) => {
 
   socket.onmessage = async ({ data }) => {
     const offer = JSON.parse(data.toString());
-    onTransceiver(pc.addTransceiver("video", "sendrecv"));
+    onTransceiver(pc.addTransceiver("video"));
     await pc.setRemoteDescription(offer);
 
     await pc.setLocalDescription(await pc.createAnswer());

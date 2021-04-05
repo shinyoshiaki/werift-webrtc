@@ -34,7 +34,7 @@ app.post("/offer", async (req, res) => {
   });
 
   const senderTrack = new MediaStreamTrack({ kind: "video" });
-  const senderTransceiver = sender.addTransceiver(senderTrack, "sendrecv");
+  const senderTransceiver = sender.addTransceiver(senderTrack);
   senderTransceiver.onTrack.once((track) => {
     track.onReceiveRtp.subscribe((rtp) => {
       console.log("receive", rtp.header);

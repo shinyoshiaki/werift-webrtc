@@ -31,7 +31,7 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
 
   {
-    const transceiver = pc.addTransceiver("video", "sendrecv");
+    const transceiver = pc.addTransceiver("video");
     transceiver.onTrack.subscribe((track) => {
       transceiver.sender.replaceTrack(track);
       track.onReceiveRtp.subscribe((rtp) => {
@@ -43,7 +43,7 @@ server.on("connection", async (socket) => {
     });
   }
   {
-    const transceiver = pc.addTransceiver("audio", "sendrecv");
+    const transceiver = pc.addTransceiver("audio");
     transceiver.onTrack.subscribe((track) => {
       transceiver.sender.replaceTrack(track);
       track.onReceiveRtp.subscribe((rtp) => {

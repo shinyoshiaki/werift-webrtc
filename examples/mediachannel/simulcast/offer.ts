@@ -19,7 +19,8 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
 
-  const transceiver = pc.addTransceiver("video", "recvonly", {
+  const transceiver = pc.addTransceiver("video", {
+    direction: "recvonly",
     simulcast: [
       { rid: "high", direction: "recv" },
       { rid: "middle", direction: "recv" },
@@ -27,9 +28,9 @@ server.on("connection", async (socket) => {
     ],
   });
   const multiCast = {
-    high: pc.addTransceiver("video", "sendonly"),
-    middle: pc.addTransceiver("video", "sendonly"),
-    low: pc.addTransceiver("video", "sendonly"),
+    high: pc.addTransceiver("video", { direction: "sendonly" }),
+    middle: pc.addTransceiver("video", { direction: "sendonly" }),
+    low: pc.addTransceiver("video", { direction: "sendonly" }),
   };
   transceiver.onTrack.subscribe((track) => {
     const sender = multiCast[track.rid as keyof typeof multiCast];

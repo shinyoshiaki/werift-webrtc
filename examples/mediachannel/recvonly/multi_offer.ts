@@ -11,16 +11,14 @@ server.on("connection", async (socket) => {
   pc.iceConnectionStateChange.subscribe((v) =>
     console.log("pc.iceConnectionStateChange", v)
   );
-  pc.addTransceiver(
-    "video",
-    "recvonly"
-  ).receiver.tracks[0].onReceiveRtp.subscribe((packet) => {
+  pc.addTransceiver("video", {
+    direction: "recvonly",
+  }).receiver.tracks[0].onReceiveRtp.subscribe((packet) => {
     udp.send(packet.serialize(), 4002, "127.0.0.1");
   });
-  pc.addTransceiver(
-    "audio",
-    "recvonly"
-  ).receiver.tracks[0].onReceiveRtp.subscribe((packet) => {
+  pc.addTransceiver("audio", {
+    direction: "recvonly",
+  }).receiver.tracks[0].onReceiveRtp.subscribe((packet) => {
     udp.send(packet.serialize(), 4003, "127.0.0.1");
   });
 

@@ -29,7 +29,7 @@ server.on("connection", async (socket) => {
   );
 
   const track = new MediaStreamTrack({ kind: "video" });
-  pc.addTransceiver(track, "sendonly");
+  pc.addTransceiver(track, { direction: "sendonly" });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);

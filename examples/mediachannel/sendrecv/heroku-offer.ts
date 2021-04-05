@@ -5,7 +5,7 @@ const socket = io("https://serene-anchorage-28732.herokuapp.com/");
 
 (async () => {
   const pc = new RTCPeerConnection({});
-  const transceiver = pc.addTransceiver("video", "sendrecv");
+  const transceiver = pc.addTransceiver("video");
   transceiver.onTrack.subscribe((track) => {
     transceiver.sender.replaceTrack(track);
   });

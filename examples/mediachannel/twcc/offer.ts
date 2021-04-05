@@ -52,8 +52,12 @@ server.on("connection", async (socket) => {
     },
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
-  const receiverTransceiver = receiver.addTransceiver("video", "recvonly");
-  const senderTransceiver = sender.addTransceiver("video", "sendonly");
+  const receiverTransceiver = receiver.addTransceiver("video", {
+    direction: "recvonly",
+  });
+  const senderTransceiver = sender.addTransceiver("video", {
+    direction: "sendonly",
+  });
   senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) =>
     console.log("congestion", b)
   );

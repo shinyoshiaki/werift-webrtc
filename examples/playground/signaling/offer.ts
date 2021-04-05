@@ -10,7 +10,7 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
 
-  pc.addTransceiver("video", "sendonly"); // dummy
+  pc.addTransceiver("video", { direction: "sendonly" }); // dummy
 
   pc.createDataChannel("test");
 

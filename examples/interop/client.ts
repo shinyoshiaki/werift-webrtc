@@ -15,7 +15,7 @@ udp.bind(5000);
   });
 
   const track = new MediaStreamTrack({ kind: "video" });
-  const transceiver = pc.addTransceiver(track, "sendrecv");
+  const transceiver = pc.addTransceiver(track);
   transceiver.onTrack.once((track) => {
     track.onReceiveRtp.subscribe((rtp) => {
       console.log(rtp.header);

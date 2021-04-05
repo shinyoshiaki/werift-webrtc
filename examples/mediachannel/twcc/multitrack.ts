@@ -29,10 +29,10 @@ server.on("connection", async (socket) => {
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
   const senders = [...Array(2)].map(() =>
-    pc.addTransceiver("video", "sendonly")
+    pc.addTransceiver("video", { direction: "sendonly" })
   );
   senders.map((sender) => {
-    const receiver = pc.addTransceiver("video", "recvonly");
+    const receiver = pc.addTransceiver("video", { direction: "recvonly" });
     receiver.onTrack.once((track) => {
       sender.sender.replaceTrack(track);
       track.onReceiveRtp.once(({ header }) => {

@@ -23,7 +23,7 @@ server.on("connection", async (socket) => {
   const mixer = new Mixer();
   const pc = new RTCPeerConnection({});
   const senderTrack = new MediaStreamTrack({ kind: "audio" });
-  const sender = pc.addTransceiver(senderTrack, "sendonly");
+  pc.addTransceiver(senderTrack, { direction: "sendonly" });
   await pc.setLocalDescription(await pc.createOffer());
   send("offer", { sdp: pc.localDescription });
 
@@ -52,7 +52,9 @@ server.on("connection", async (socket) => {
         break;
       case "publish":
         {
-          const transceiver = pc.addTransceiver("audio", "recvonly");
+          const transceiver = pc.addTransceiver("audio", {
+            direction: "recvonly",
+          });
           transceiver.onTrack.once((track) => {
             tracks[transceiver.msid] = track;
           });

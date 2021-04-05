@@ -14,7 +14,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const transceiver = pc.addTransceiver("video", "sendrecv");
+  const transceiver = pc.addTransceiver("video");
   transceiver.onTrack.subscribe(async (track) => {
     transceiver.sender.replaceTrack(track);
 

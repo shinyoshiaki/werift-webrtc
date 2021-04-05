@@ -19,7 +19,8 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
 
-  const transceiver = pc.addTransceiver("video", "recvonly", {
+  const transceiver = pc.addTransceiver("video", {
+    direction: "recvonly",
     simulcast: [
       { rid: "high", direction: "recv" },
       { rid: "middle", direction: "recv" },
@@ -29,7 +30,7 @@ server.on("connection", async (socket) => {
 
   const source = "middle";
 
-  let sender = pc.addTransceiver("video", "sendonly");
+  let sender = pc.addTransceiver("video", { direction: "sendonly" });
   transceiver.onTrack.subscribe((track) => {
     if (track.rid === source) {
       console.log("init", source);
@@ -44,8 +45,8 @@ server.on("connection", async (socket) => {
   });
 
   pc.createDataChannel("dc").message.subscribe(async (msg) => {
-    pc.removeTrack(sender);
-    sender = pc.addTransceiver("video", "sendonly");
+    pc.removeTrack(sender.sender);
+    sender = pc.addTransceiver("video", { direction: "sendonly" });
     const source = msg.toString();
     const track = transceiver.receiver.trackByRID[source];
     if (track) {

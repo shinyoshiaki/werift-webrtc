@@ -19,7 +19,7 @@ server.on("connection", async (socket) => {
     await transceiver.sender.replaceTrack(track);
   };
 
-  onTransceiver(pc.addTransceiver("video", "sendrecv"));
+  onTransceiver(pc.addTransceiver("video"));
   pc.onTransceiver.subscribe(onTransceiver);
 
   await pc.setLocalDescription(await pc.createOffer());
@@ -34,7 +34,7 @@ server.on("connection", async (socket) => {
   let i = 0;
   setInterval(async () => {
     if (i++ >= 5) return;
-    onTransceiver(pc.addTransceiver("video", "sendrecv"));
+    onTransceiver(pc.addTransceiver("video"));
 
     await pc.setLocalDescription(await pc.createOffer());
     const sdp = JSON.stringify(pc.localDescription);

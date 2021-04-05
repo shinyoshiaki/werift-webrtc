@@ -30,9 +30,9 @@ server.on("connection", async (socket) => {
     console.log("pc.iceConnectionStateChange", v)
   );
   const track1 = new MediaStreamTrack({ kind: "video" });
-  pc.addTransceiver(track1, "sendonly");
+  pc.addTransceiver(track1, { direction: "sendonly" });
   const track2 = new MediaStreamTrack({ kind: "video" });
-  pc.addTransceiver(track2, "sendonly");
+  pc.addTransceiver(track2, { direction: "sendonly" });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
