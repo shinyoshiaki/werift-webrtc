@@ -3,13 +3,13 @@ import { generateAnswer } from "../fixture";
 
 // webrtc/RTCPeerConnection-removeTrack.https.html
 describe("peerConnection/removeTrack", () => {
-  test("addTransceiver - Calling removeTrack when connection is closed should throw InvalidStateError", () => {
+  test("addTransceiver - Calling removeTrack when connection is closed should throw InvalidStateError", async () => {
     const pc = new RTCPeerConnection();
     const track = new MediaStreamTrack({ kind: "audio" });
     const transceiver = pc.addTransceiver(track);
     const { sender } = transceiver;
 
-    pc.close();
+    await pc.close();
     expect(() => pc.removeTrack(sender)).toThrowError("peer closed");
   });
 
@@ -19,7 +19,7 @@ describe("peerConnection/removeTrack", () => {
     const track = new MediaStreamTrack({ kind: "audio" });
     const sender = pc.addTrack(track);
 
-    pc.close();
+    await pc.close();
     expect(() => pc.removeTrack(sender)).toThrowError("peer closed");
   });
 
@@ -41,8 +41,10 @@ describe("peerConnection/removeTrack", () => {
     const sender = pc.addTrack(track);
 
     const pc2 = new RTCPeerConnection();
-    pc2.close();
+    await pc2.close();
     expect(() => pc2.removeTrack(sender)).toThrowError("peer closed");
+
+    await pc.close();
   });
 
   test("addTransceiver - Calling removeTrack on different connection should throw InvalidAccessError", async () => {
@@ -54,6 +56,9 @@ describe("peerConnection/removeTrack", () => {
 
     const pc2 = new RTCPeerConnection();
     expect(() => pc2.removeTrack(sender)).toThrowError("unExist");
+
+    await pc.close();
+    await pc2.close();
   });
 
   test("addTrack - Calling removeTrack on different connection should throw InvalidAccessError", async () => {
@@ -64,9 +69,12 @@ describe("peerConnection/removeTrack", () => {
 
     const pc2 = new RTCPeerConnection();
     expect(() => pc2.removeTrack(sender)).toThrowError("unExist");
+
+    await pc.close();
+    await pc2.close();
   });
 
-  test("addTransceiver - Calling removeTrack with valid sender should set sender.track to null", () => {
+  test("addTransceiver - Calling removeTrack with valid sender should set sender.track to null", async () => {
     const pc = new RTCPeerConnection();
 
     const track = new MediaStreamTrack({ kind: "audio" });
@@ -80,7 +88,7 @@ describe("peerConnection/removeTrack", () => {
     pc.removeTrack(sender);
     expect(sender.track).toBeFalsy();
     expect(transceiver.direction).toBe("recvonly");
-    pc.close();
+    await pc.close();
   });
 
   test("addTrack - Calling removeTrack with valid sender should set sender.track to null", () => {
@@ -120,6 +128,9 @@ describe("peerConnection/removeTrack", () => {
     expect(sender.track).toBeFalsy();
     expect(transceiver.direction).toBe("recvonly");
     expect(transceiver.currentDirection).toBe("sendrecv");
+
+    await caller.close();
+    await callee.close();
   });
 
   test("Calling removeTrack with currentDirection sendonly should set direction to inactive", async () => {
@@ -143,6 +154,8 @@ describe("peerConnection/removeTrack", () => {
     expect(sender.track).toBeFalsy();
     expect(transceiver.direction).toBe("inactive");
     expect(transceiver.currentDirection).toBe("sendonly");
+
+    await pc.close();
   });
 
   test("Calling removeTrack with currentDirection recvonly should not change direction", async () => {
@@ -170,6 +183,9 @@ describe("peerConnection/removeTrack", () => {
     expect(sender.track).toBeFalsy();
     expect(transceiver.direction).toBe("recvonly");
     expect(transceiver.currentDirection).toBe("recvonly");
+
+    await caller.close();
+    await callee.close();
   });
 
   test("Calling removeTrack with currentDirection inactive should not change direction", async () => {
@@ -193,6 +209,8 @@ describe("peerConnection/removeTrack", () => {
     expect(sender.track).toBeFalsy();
     expect(transceiver.direction).toBe("inactive");
     expect(transceiver.currentDirection).toBe("inactive");
+
+    await pc.close();
   });
 
   // test("Calling removeTrack on a stopped transceiver should be a no-op", async () => {
@@ -215,5 +233,7 @@ describe("peerConnection/removeTrack", () => {
     await sender.replaceTrack(null);
     pc.removeTrack(sender);
     expect(sender.track).toBeFalsy();
+
+    await pc.close();
   });
 });

@@ -4,15 +4,15 @@ import { RTCRtpSender } from "../../src/media/rtpSender";
 // https://github.com/web-platform-tests/wpt/blob/master/webrtc/RTCPeerConnection-addTrack.https.html
 
 describe("peerConnection/addTrack", () => {
-  it("addTrack when pc is closed should throw InvalidStateError", () => {
+  it("addTrack when pc is closed should throw InvalidStateError", async () => {
     const pc = new RTCPeerConnection();
     const track = new MediaStreamTrack({ kind: "audio" });
-    pc.close();
+    await pc.close();
 
     expect(() => pc.addTrack(track)).toThrowError("is closed");
   });
 
-  it("addTrack with single track argument and no stream should succeed", () => {
+  it("addTrack with single track argument and no stream should succeed", async () => {
     const pc = new RTCPeerConnection();
     const track = new MediaStreamTrack({ kind: "audio" });
 
@@ -36,20 +36,20 @@ describe("peerConnection/addTrack", () => {
     // assert_array_equals([transceiver.receiver], pc.getReceivers(),
     //   'Expect only one receiver associated with transceiver added');
 
-    pc.close();
+    await pc.close();
   });
 
-  it("Adding the same track multiple times should throw InvalidAccessError", () => {
+  it("Adding the same track multiple times should throw InvalidAccessError", async () => {
     const pc = new RTCPeerConnection();
     const track = new MediaStreamTrack({ kind: "audio" });
 
     pc.addTrack(track);
     expect(() => pc.addTrack(track)).toThrowError("track exist");
 
-    pc.close();
+    await pc.close();
   });
 
-  it("addTrack with existing sender with null track, same kind, and recvonly direction should reuse sender", () => {
+  it("addTrack with existing sender with null track, same kind, and recvonly direction should reuse sender", async () => {
     const pc = new RTCPeerConnection();
     const transceiver = pc.addTransceiver("audio", { direction: "recvonly" });
     expect(transceiver.sender.track).toBeFalsy();
@@ -63,10 +63,10 @@ describe("peerConnection/addTrack", () => {
     expect(transceiver.direction).toBe("sendrecv");
     expect([sender]).toEqual(pc.getSenders());
 
-    pc.close();
+    await pc.close();
   });
 
-  it("addTrack with existing sender that has not been used to send should reuse the sender", () => {
+  it("addTrack with existing sender that has not been used to send should reuse the sender", async () => {
     const pc = new RTCPeerConnection();
 
     const transceiver = pc.addTransceiver("audio");
@@ -79,7 +79,7 @@ describe("peerConnection/addTrack", () => {
     expect(sender.track).toEqual(track);
     expect(sender).toEqual(transceiver.sender);
 
-    pc.close();
+    await pc.close();
   });
 
   it("addTrack with existing sender that has been used to send should create new sender", async () => {
@@ -114,6 +114,8 @@ describe("peerConnection/addTrack", () => {
     const sender = caller.addTrack(track);
     expect(sender).toBeTruthy();
     expect(sender).not.toEqual(transceiver.sender);
+
+    await Promise.all([callee.close(), caller.close()]);
   });
 
   it("addTrack with existing sender with null track, different kind, and recvonly direction should create new sender", async () => {
@@ -134,5 +136,7 @@ describe("peerConnection/addTrack", () => {
 
     expect(senders.includes(sender)).toBeTruthy();
     expect(senders.includes(transceiver.sender)).toBeTruthy();
+
+    await pc.close();
   });
 });

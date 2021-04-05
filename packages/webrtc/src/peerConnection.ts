@@ -471,7 +471,10 @@ export class RTCPeerConnection {
     if (this.remoteIce && this.remoteDtls) {
       this.setConnectionState("connecting");
 
-      await iceTransport.start(this.remoteIce);
+      await iceTransport.start(this.remoteIce).catch((err) => {
+        log("iceTransport.start failed", err);
+        throw err;
+      });
       await dtlsTransport.start(this.remoteDtls);
 
       if (this.sctpTransport && this.sctpRemotePort) {
@@ -685,7 +688,10 @@ export class RTCPeerConnection {
     }
 
     // connect transports
-    this.connect();
+    this.connect().catch((err) => {
+      log("connect failed", err);
+      this.setConnectionState("failed");
+    });
 
     if (description.type === "offer") {
       this.setSignalingState("have-remote-offer");
@@ -862,7 +868,7 @@ export class RTCPeerConnection {
     return wrapSessionDescription(description);
   }
 
-  close() {
+  async close() {
     if (this.isClosed) return;
 
     this.isClosed = true;
@@ -879,7 +885,7 @@ export class RTCPeerConnection {
     }
     if (this.dtlsTransport) {
       this.dtlsTransport.stop();
-      this.dtlsTransport.iceTransport.stop();
+      await this.dtlsTransport.iceTransport.stop();
     }
 
     this.removeAllListeners();

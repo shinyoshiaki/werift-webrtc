@@ -29,11 +29,14 @@ export class RTCIceTransport {
   private setState(state: IceTransportState) {
     if (state !== this.state) {
       this.state = state;
-      this.onStateChange.execute(state);
+
+      if (this.onStateChange.ended) return;
 
       if (state === "closed") {
-        this.onStateChange.execute("closed");
+        this.onStateChange.execute(state);
         this.onStateChange.complete();
+      } else {
+        this.onStateChange.execute(state);
       }
     }
   }
