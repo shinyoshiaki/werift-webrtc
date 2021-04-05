@@ -213,16 +213,17 @@ describe("peerConnection/removeTrack", () => {
     await pc.close();
   });
 
-  // test("Calling removeTrack on a stopped transceiver should be a no-op", async () => {
-  //   const pc = new RTCPeerConnection();
+  // todo fix
+  xtest("Calling removeTrack on a stopped transceiver should be a no-op", async () => {
+    const pc = new RTCPeerConnection();
 
-  //   const track = new MediaStreamTrack({ kind: "audio" });
-  //   const sender = pc.addTrack(track);
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const sender = pc.addTrack(track);
 
-  //   pc.getTransceivers()[0].stop();
-  //   pc.removeTrack(sender);
-  //   expect(sender.track).toEqual(track);
-  // });
+    pc.getTransceivers()[0].stop();
+    pc.removeTrack(sender);
+    expect(sender.track).toEqual(track);
+  });
 
   test("Calling removeTrack on a null track should have no effect", async () => {
     const pc = new RTCPeerConnection();

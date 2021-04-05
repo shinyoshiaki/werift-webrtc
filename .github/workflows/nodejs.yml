@@ -33,7 +33,7 @@ jobs:
           cd ../
       - name: test
         run: |
-          yarn test:serial
+          yarn test
           yarn e2e
         env:
           CI: true
