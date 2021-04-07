@@ -5,7 +5,7 @@ import {
   isMedia,
   RtpHeader,
   RtpPacket,
-} from "../src";
+} from "../../src";
 
 describe("media", () => {
   test("test_sendonly_recvonly", async (done) => {

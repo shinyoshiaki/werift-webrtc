@@ -1,4 +1,4 @@
-import { RTCPeerConnection, RTCDataChannel } from "../src";
+import { RTCPeerConnection, RTCDataChannel } from "../../src";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async (done) => {
@@ -26,7 +26,7 @@ describe("peerConnection", () => {
       }
     });
 
-    const offer = await pc1.createOffer()!;
+    const offer = await pc1.createOffer();
     expect(offer.type).toBe("offer");
     expect(offer.sdp.includes("m=application")).toBeTruthy();
     expect(offer.sdp.includes("a=candidate")).toBeFalsy();
