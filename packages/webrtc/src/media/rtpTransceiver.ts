@@ -59,16 +59,8 @@ export class RTCRtpTransceiver {
   }
 
   addTrack(track: MediaStreamTrack) {
-    const exist = this.receiver.tracks.find((t) => {
-      if (t.rid) return t.rid === track.rid;
-      if (t.ssrc) return t.ssrc === track.ssrc;
-    });
-    if (!exist) {
-      this.receiver.tracks.push(track);
-      if (track.ssrc) this.receiver.trackBySSRC[track.ssrc] = track;
-      if (track.rid) this.receiver.trackByRID[track.rid] = track;
-      this.onTrack.execute(track);
-    }
+    const res = this.receiver.addTrack(track);
+    if (res) this.onTrack.execute(track);
   }
 
   // todo impl
@@ -93,7 +85,7 @@ export type Direction = typeof Directions[number];
 
 type SimulcastDirection = "send" | "recv";
 
-export type TransceiverOptions = {
+export interface TransceiverOptions {
   direction: Direction;
   simulcast: { direction: SimulcastDirection; rid: string }[];
-};
+}

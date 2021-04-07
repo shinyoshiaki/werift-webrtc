@@ -55,6 +55,20 @@ export class RTCRtpReceiver {
     }
   }
 
+  addTrack(track: MediaStreamTrack) {
+    const exist = this.tracks.find((t) => {
+      if (t.rid) return t.rid === track.rid;
+      if (t.ssrc) return t.ssrc === track.ssrc;
+    });
+    if (!exist) {
+      this.tracks.push(track);
+      if (track.ssrc) this.trackBySSRC[track.ssrc] = track;
+      if (track.rid) this.trackByRID[track.rid] = track;
+      return true;
+    }
+    return false;
+  }
+
   stop() {
     this.rtcpRunning = false;
     if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
