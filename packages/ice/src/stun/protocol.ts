@@ -73,7 +73,9 @@ export class StunProtocol implements Protocol {
     const data = message.bytes;
     try {
       this.socket.send(data, port, host, (error, size) => {
-        if (error) log("sendStun", port, host, size, error);
+        if (error) {
+          log("sendStun error", port, host, size, error);
+        }
       });
     } catch (error) {}
   }
@@ -81,7 +83,9 @@ export class StunProtocol implements Protocol {
   async sendData(data: Buffer, addr: Address) {
     const [host, port] = addr;
     this.socket.send(data, port, host, (error, size) => {
-      if (error) log("sendData", port, host, size, error);
+      if (error) {
+        log("sendData error", port, host, size, error);
+      }
     });
   }
 
