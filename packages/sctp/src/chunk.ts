@@ -174,7 +174,7 @@ export class DataChunk extends Chunk {
   }
   tsn: number = 0;
   streamId: number = 0;
-  streamSeq: number = 0;
+  streamSeqNum: number = 0;
   protocol: number = 0;
   userData: Buffer = Buffer.from("");
   abandoned: boolean = false;
@@ -190,10 +190,12 @@ export class DataChunk extends Chunk {
   constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
     if (body) {
-      [this.tsn, this.streamId, this.streamSeq, this.protocol] = jspack.Unpack(
-        "!LHHL",
-        body
-      );
+      [
+        this.tsn,
+        this.streamId,
+        this.streamSeqNum,
+        this.protocol,
+      ] = jspack.Unpack("!LHHL", body);
       this.userData = body.slice(12);
     }
   }
@@ -208,7 +210,7 @@ export class DataChunk extends Chunk {
           length,
           this.tsn,
           this.streamId,
-          this.streamSeq,
+          this.streamSeqNum,
           this.protocol,
         ])
       ),

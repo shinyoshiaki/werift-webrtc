@@ -1,4 +1,4 @@
-import { peer, sleep } from "./fixture";
+import { peer, sleep } from "../fixture";
 
 describe("datachannel", () => {
   it(

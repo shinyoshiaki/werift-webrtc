@@ -1,7 +1,7 @@
 import { Event } from "rx.mini";
 import { RTCSctpTransport } from "./transport/sctp";
 
-type DCState = "open" | "closed" | "connecting" | "closing";
+export type DCState = "open" | "closed" | "connecting" | "closing";
 
 export class RTCDataChannelParameters {
   label = "";

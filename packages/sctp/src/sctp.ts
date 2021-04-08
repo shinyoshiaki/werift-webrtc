@@ -29,11 +29,13 @@ import {
   RECONFIG_PARAM_TYPES,
   StreamAddOutgoingParam,
   StreamParam,
-  StreamResetOutgoingParam,
-  StreamResetResponseParam,
+  OutgoingSSNResetRequestParam,
+  ReconfigResponseParam,
 } from "./param";
 import { Transport } from "./transport";
 import { random32, uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./utils";
+
+// SSN: Stream Sequence Number
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -111,6 +113,7 @@ export class SCTP {
   outboundQueue: DataChunk[] = [];
   private outboundStreamSeq: { [key: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
+  /**local transport sequence number */
   private localTsn = Number(random32());
   private lastSackedTsn = tsnMinusOne(this.localTsn);
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
@@ -121,7 +124,7 @@ export class SCTP {
 
   reconfigRequestSeq = this.localTsn;
   reconfigResponseSeq = 0;
-  reconfigRequest?: StreamResetOutgoingParam;
+  reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
 
   // rtt calculation
@@ -390,25 +393,27 @@ export class SCTP {
     }
   }
 
-  onDeleteStreams = (streamIds: number[]) => {};
+  onReconfigStreams?: (streamIds: number[]) => void;
 
   private receiveReconfigParam(param: StreamParam) {
     switch (param.type) {
-      case StreamResetOutgoingParam.type: {
-        const reset = param as StreamResetOutgoingParam;
+      case OutgoingSSNResetRequestParam.type: {
+        const reset = param as OutgoingSSNResetRequestParam;
         const streamIds = reset.streams.map((streamId) => {
           delete this.inboundStreams[streamId];
           return streamId;
         });
-        this.onDeleteStreams(streamIds);
-        const res = new StreamResetResponseParam(reset.requestSequence, 1);
+        if (this.onReconfigStreams) {
+          this.onReconfigStreams(streamIds);
+        }
+        const res = new ReconfigResponseParam(reset.requestSequence, 1);
         this.reconfigResponseSeq = reset.requestSequence;
         this.sendReconfigParam(res);
         break;
       }
-      case StreamResetResponseParam.type:
+      case ReconfigResponseParam.type:
         {
-          const reset = param as StreamResetResponseParam;
+          const reset = param as ReconfigResponseParam;
           if (
             this.reconfigRequest &&
             reset.responseSequence === this.reconfigRequest.requestSequence
@@ -417,7 +422,9 @@ export class SCTP {
               delete this.outboundStreamSeq[streamId];
               return streamId;
             });
-            this.onDeleteStreams(streamIds);
+            if (this.onReconfigStreams) {
+              this.onReconfigStreams(streamIds);
+            }
             this.reconfigRequest = undefined;
             this.transmitReconfig();
           }
@@ -427,7 +434,7 @@ export class SCTP {
         {
           const add = param as StreamAddOutgoingParam;
           this._inboundStreamsCount += add.newStreams;
-          const res = new StreamResetResponseParam(add.requestSequence, 1);
+          const res = new ReconfigResponseParam(add.requestSequence, 1);
           this.reconfigResponseSeq = add.requestSequence;
           this.sendReconfigParam(res);
         }
@@ -587,11 +594,11 @@ export class SCTP {
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
     // # update reassembly
-    for (const [streamId, streamSeq] of chunk.streams) {
+    for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
 
       // # advance sequence number and perform delivery
-      inboundStream.sequenceNumber = uint16Add(streamSeq, 1);
+      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
       for (const message of inboundStream.popMessages()) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);
@@ -663,7 +670,7 @@ export class SCTP {
     maxRetransmits: number | undefined = undefined,
     ordered = true
   ) {
-    const streamSeq = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
+    const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
     const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
     let pos = 0;
@@ -682,7 +689,7 @@ export class SCTP {
       }
       chunk.tsn = this.localTsn;
       chunk.streamId = streamId;
-      chunk.streamSeq = streamSeq;
+      chunk.streamSeqNum = streamSeqNum;
       chunk.protocol = ppId;
       chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
       chunk.bookSize = chunk.userData.length;
@@ -695,7 +702,7 @@ export class SCTP {
     }
 
     if (ordered) {
-      this.outboundStreamSeq[streamId] = uint16Add(streamSeq, 1);
+      this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
     }
 
     if (!this.t3Handle) {
@@ -772,7 +779,7 @@ export class SCTP {
     ) {
       const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
       this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
-      const param = new StreamResetOutgoingParam(
+      const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
         this.reconfigResponseSeq,
         tsnMinusOne(this.localTsn),
@@ -919,7 +926,7 @@ export class SCTP {
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
-        streams[chunk.streamId] = chunk.streamSeq;
+        streams[chunk.streamId] = chunk.streamSeqNum;
       }
     }
 
@@ -1058,7 +1065,9 @@ export class SCTP {
 
 export class InboundStream {
   reassembly: DataChunk[] = [];
-  sequenceNumber = 0;
+  streamSequenceNumber = 0; // SSN
+
+  constructor() {}
 
   addChunk(chunk: DataChunk) {
     if (
@@ -1096,7 +1105,10 @@ export class InboundStream {
             continue;
           }
         }
-        if (ordered && uint16Gt(chunk.streamSeq, this.sequenceNumber)) {
+        if (
+          ordered &&
+          uint16Gt(chunk.streamSeqNum, this.streamSequenceNumber)
+        ) {
           break;
         }
         expectedTsn = chunk.tsn;
@@ -1127,8 +1139,8 @@ export class InboundStream {
           ...this.reassembly.slice(0, startPos),
           ...this.reassembly.slice(pos + 1),
         ];
-        if (ordered && chunk.streamSeq === this.sequenceNumber) {
-          this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
+        if (ordered && chunk.streamSeqNum === this.streamSequenceNumber) {
+          this.streamSequenceNumber = uint16Add(this.streamSequenceNumber, 1);
         }
         pos = startPos;
         yield [chunk.streamId, chunk.protocol, userData];
