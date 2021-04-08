@@ -1,7 +1,11 @@
 import express from "express";
 
 import { WebSocketServer, Room } from "protoo-server";
-import { datachannel_close_server_answer } from "./handler/datachannel/close";
+import {
+  datachannel_close_client_create_close,
+  datachannel_close_client_create_server_close,
+  datachannel_close_server_create,
+} from "./handler/datachannel/close";
 import {
   datachannel_answer,
   datachannel_offer,
@@ -55,7 +59,9 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_send_recv_offer: new mediachannel_send_recv_offer(),
     mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
     mediachannel_addTrack_offer: new mediachannel_addTrack_offer(),
-    datachannel_close_server_answer: new datachannel_close_server_answer(),
+    datachannel_close_server_answer: new datachannel_close_server_create(),
+    datachannel_close_client_create_close: new datachannel_close_client_create_close(),
+    datachannel_close_client_create_server_close: new datachannel_close_client_create_server_close(),
   };
 
   const transport = accept();

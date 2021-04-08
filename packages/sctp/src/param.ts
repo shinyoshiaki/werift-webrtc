@@ -1,13 +1,32 @@
 import { jspack } from "jspack";
 import { range } from "lodash";
 
+// This parameter is used by the sender to request the reset of some or
+// all outgoing streams.
+//  0                   1                   2                   3
+//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |     Parameter Type = 13       | Parameter Length = 16 + 2 * N |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |           Re-configuration Request Sequence Number            |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |           Re-configuration Response Sequence Number           |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                Sender's Last Assigned TSN                     |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |  Stream Number 1 (optional)   |    Stream Number 2 (optional) |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// /                            ......                             /
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |  Stream Number N-1 (optional) |    Stream Number N (optional) |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
 export class OutgoingSSNResetRequestParam {
   static type = 13; // Outgoing SSN Reset Request Parameter
 
   constructor(
     public requestSequence: number,
     public responseSequence: number,
-
     public lastTsn: number,
     public streams: number[]
   ) {}
@@ -70,9 +89,31 @@ export class StreamAddOutgoingParam {
   }
 }
 
+// This parameter is used by the receiver of a Re-configuration Request
+// Parameter to respond to the request.
+//
+// 0                   1                   2                   3
+// 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |     Parameter Type = 16       |      Parameter Length         |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |         Re-configuration Response Sequence Number             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                            Result                             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                   Sender's Next TSN (optional)                |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                  Receiver's Next TSN (optional)               |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+export const reconfigResult = {
+  reconfigResultSuccessPerformed: 1,
+} as const;
+type ReconfigResult = typeof reconfigResult[keyof typeof reconfigResult];
+
 export class ReconfigResponseParam {
   static type = 16; // Re-configuration Response Parameter
-  constructor(public responseSequence: number, public result: number) {}
+  constructor(public responseSequence: number, public result: ReconfigResult) {}
 
   get type() {
     return ReconfigResponseParam.type;
@@ -86,7 +127,7 @@ export class ReconfigResponseParam {
 
   static parse(data: Buffer) {
     const [requestSequence, result] = jspack.Unpack("!LL", data);
-    return new ReconfigResponseParam(requestSequence, result);
+    return new ReconfigResponseParam(requestSequence, result as ReconfigResult);
   }
 }
 

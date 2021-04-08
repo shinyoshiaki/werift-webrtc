@@ -31,6 +31,7 @@ import {
   StreamParam,
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
+  reconfigResult,
 } from "./param";
 import { Transport } from "./transport";
 import { random32, uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./utils";
@@ -75,10 +76,10 @@ const SCTPConnectionStates = [
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
-  stateChanged: {
+  readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
-
+  readonly onReconfigStreams = new Event<[number[]]>();
   associationState = SCTP_STATE.CLOSED;
   started = false;
   state: SCTPConnectionState = "new";
@@ -171,12 +172,14 @@ export class SCTP {
 
   // call from dtls transport
   private handleData(data: Buffer) {
-    let expectedTag;
+    let expectedTag: number;
 
     const [, , verificationTag, chunks] = parsePacket(data);
     const initChunk = chunks.filter((v) => v.type === InitChunk.type).length;
     if (initChunk > 0) {
-      if (chunks.length != 1) throw new Error();
+      if (chunks.length != 1) {
+        throw new Error();
+      }
       expectedTag = 0;
     } else {
       expectedTag = this.localVerificationTag;
@@ -393,22 +396,28 @@ export class SCTP {
     }
   }
 
-  onReconfigStreams?: (streamIds: number[]) => void;
-
   private receiveReconfigParam(param: StreamParam) {
     switch (param.type) {
       case OutgoingSSNResetRequestParam.type: {
-        const reset = param as OutgoingSSNResetRequestParam;
-        const streamIds = reset.streams.map((streamId) => {
+        const p = param as OutgoingSSNResetRequestParam;
+        p.streams.forEach((streamId) => {
           delete this.inboundStreams[streamId];
-          return streamId;
         });
-        if (this.onReconfigStreams) {
-          this.onReconfigStreams(streamIds);
-        }
-        const res = new ReconfigResponseParam(reset.requestSequence, 1);
-        this.reconfigResponseSeq = reset.requestSequence;
+
+        const res = new ReconfigResponseParam(
+          p.requestSequence,
+          reconfigResult.reconfigResultSuccessPerformed
+        );
+        this.reconfigResponseSeq = p.requestSequence;
         this.sendReconfigParam(res);
+
+        // close outgoing
+        this.onReconfigStreams.execute(p.streams);
+        p.streams.forEach((streamId) => {
+          this.reconfigQueue.push(streamId);
+        });
+        this.transmitReconfig();
+
         break;
       }
       case ReconfigResponseParam.type:
@@ -422,9 +431,9 @@ export class SCTP {
               delete this.outboundStreamSeq[streamId];
               return streamId;
             });
-            if (this.onReconfigStreams) {
-              this.onReconfigStreams(streamIds);
-            }
+
+            this.onReconfigStreams.execute(streamIds);
+
             this.reconfigRequest = undefined;
             this.transmitReconfig();
           }

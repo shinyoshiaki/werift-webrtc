@@ -288,6 +288,22 @@ export class HeartbeatAckChunk extends BaseParamsChunk {
   }
 }
 
+// https://tools.ietf.org/html/rfc6525#section-3.1
+// chunkReconfig represents an SCTP Chunk used to reconfigure streams.
+//
+//  0                   1                   2                   3
+//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// | Type = 130    |  Chunk Flags  |      Chunk Length             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// \                                                               \
+// /                  Re-configuration Parameter                   /
+// \                                                               \
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// \                                                               \
+// /             Re-configuration Parameter (optional)             /
+// \                                                               \
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class ReconfigChunk extends BaseParamsChunk {
   static type = 130;
 

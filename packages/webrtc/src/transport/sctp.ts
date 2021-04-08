@@ -12,7 +12,11 @@ import {
   WEBRTC_STRING,
   WEBRTC_STRING_EMPTY,
 } from "../const";
-import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
+import {
+  DCState,
+  RTCDataChannel,
+  RTCDataChannelParameters,
+} from "../dataChannel";
 import { RTCDtlsTransport } from "./dtls";
 
 export class RTCSctpTransport {
@@ -35,7 +39,7 @@ export class RTCSctpTransport {
     this.sctp.onReceive = (streamId, ppId, data) => {
       this.datachannelReceive(streamId, ppId, data);
     };
-    this.sctp.onDeleteStreams = (ids: number[]) => {
+    this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
       ids.forEach((id) => {
         const dc = this.dataChannels[id];
         if (dc) {
@@ -43,7 +47,7 @@ export class RTCSctpTransport {
           delete this.dataChannels[id];
         }
       });
-    };
+    });
 
     this.sctp.stateChanged.connected.subscribe(() => {
       Object.values(this.dataChannels).forEach((channel) => {
@@ -309,7 +313,7 @@ export class RTCSctpTransport {
   }
 
   dataChannelClose(channel: RTCDataChannel) {
-    if (!["closing", "closed"].includes(channel.readyState)) {
+    if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {
       channel.setReadyState("closing");
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
@@ -326,7 +330,6 @@ export class RTCSctpTransport {
         }
         channel.setReadyState("closed");
       }
-      // this.sctp.sendResetRequest(channel.id);
     }
   }
 }
