@@ -5,10 +5,10 @@ describe("trickle", () => {
     "half trickle",
     async (done) => {
       const pcOffer = new RTCPeerConnection({
-        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
       const pcAnswer = new RTCPeerConnection({
-        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
       pcAnswer.onDataChannel.subscribe((dc) => {
         dc.message.subscribe((data) => {
@@ -43,10 +43,10 @@ describe("trickle", () => {
     "trickle",
     async (done) => {
       const pcOffer = new RTCPeerConnection({
-        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
       const pcAnswer = new RTCPeerConnection({
-        iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
       pcAnswer.onDataChannel.subscribe((dc) => {
         dc.message.subscribe((data) => {

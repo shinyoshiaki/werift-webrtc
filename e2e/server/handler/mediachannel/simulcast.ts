@@ -9,7 +9,7 @@ export class mediachannel_simulcast_answer {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             headerExtensions: {
               video: [useSdesRTPStreamID()],
               audio: [],
@@ -58,7 +58,7 @@ export class mediachannel_simulcast_offer {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             headerExtensions: {
               video: [useSdesRTPStreamID()],
               audio: [],
