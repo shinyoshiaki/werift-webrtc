@@ -27,10 +27,10 @@ app.post("/offer", async (req, res) => {
   const offer = req.body;
 
   const receiver = new RTCPeerConnection({
-    iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
   const sender = new RTCPeerConnection({
-    iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
 
   const senderTrack = new MediaStreamTrack({ kind: "video" });

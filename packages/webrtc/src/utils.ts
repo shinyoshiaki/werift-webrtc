@@ -2,8 +2,13 @@
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
+import { Address, IceOptions } from "../../ice/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
+import { IceServer } from "./peerConnection";
+import debug from "debug";
 const now = require("nano-time");
+
+const log = debug("werift/webrtc/utils");
 
 export function fingerprint(file: Buffer, hashName: string) {
   const upper = (s: string) => s.toUpperCase();
@@ -88,4 +93,30 @@ export function uint32Add(a: bigint, b: bigint) {
 
 export function uint24(v: number) {
   return v & 0xffffff;
+}
+
+export function parseIceServers(iceServers: IceServer[]): Partial<IceOptions> {
+  const url2Address = (url?: string) => {
+    if (!url) return;
+    const [address, port] = url.split(":");
+    return [address, Number(port)] as Address;
+  };
+
+  const stunServer = url2Address(
+    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5)
+  );
+  const turnServer = url2Address(
+    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5)
+  );
+  const { credential, username } =
+    iceServers.find(({ urls }) => urls.includes("turn:")) || {};
+
+  const options = {
+    stunServer,
+    turnServer,
+    turnUsername: username,
+    turnPassword: credential,
+  };
+  log("iceOptions", options);
+  return options;
 }

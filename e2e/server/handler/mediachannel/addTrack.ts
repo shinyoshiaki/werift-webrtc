@@ -15,7 +15,7 @@ export class mediachannel_addTrack_answer {
           this.udp.bind(5000);
 
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
@@ -72,7 +72,7 @@ export class mediachannel_addTrack_offer {
           this.udp.bind(5000);
 
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);

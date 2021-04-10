@@ -21,7 +21,7 @@ new Promise<void>(async (r, f) => {
   }, 60_000);
 
   const pc = new RTCPeerConnection({
-    iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
   const senderTrack = new MediaStreamTrack({ kind: "video" });
   const transceiver = pc.addTransceiver(senderTrack);

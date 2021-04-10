@@ -11,6 +11,9 @@ import { Message, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
 import { Address, Protocol } from "../types/model";
 import { future, Future, randomTransactionId, sleep } from "../utils";
+import debug from "debug";
+
+const log = debug("werift/ice/turn/protocol");
 
 const TCP_TRANSPORT = 0x06000000;
 const UDP_TRANSPORT = 0x11000000;
@@ -154,6 +157,7 @@ class TurnClient implements Protocol {
     try {
       [response] = await this.request(request, this.server, this.integrityKey);
     } catch (error) {
+      log("error", error);
       response = (error as TransactionFailed).response;
       if (response.attributes["ERROR-CODE"][0] === 401) {
         this.nonce = response.attributes.NONCE;
