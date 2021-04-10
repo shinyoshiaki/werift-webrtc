@@ -4,7 +4,7 @@ import {
   RTCPeerConnection,
 } from "../../../../packages/webrtc/src";
 
-export class datachannel_close_server_create {
+export class datachannel_close_server_create_close {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -32,6 +32,49 @@ export class datachannel_close_server_create {
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
+          accept({});
+        }
+        break;
+    }
+  }
+}
+
+export class datachannel_close_server_create_client_close {
+  pc!: RTCPeerConnection;
+  dc!: RTCDataChannel;
+
+  async exec(type: string, payload: any, accept: AcceptFn) {
+    switch (type) {
+      case "init":
+        {
+          this.pc = new RTCPeerConnection({
+            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+          });
+          this.dc = this.pc.createDataChannel("dc");
+          this.dc.stateChanged
+            .watch((state) => state === "open")
+            .then(() => {
+              this.dc.send("hello");
+            });
+          await this.pc.setLocalDescription(await this.pc.createOffer());
+          accept(this.pc.localDescription);
+        }
+        break;
+      case "candidate":
+        {
+          await this.pc.addIceCandidate(payload);
+          accept({});
+        }
+        break;
+      case "answer":
+        {
+          await this.pc.setRemoteDescription(payload);
+          accept({});
+        }
+        break;
+      case "done":
+        {
+          await this.dc.stateChanged.watch((state) => state === "closed");
           accept({});
         }
         break;

@@ -2,10 +2,10 @@ import { peer, sleep } from "../fixture";
 
 describe("datachannel/close", () => {
   it(
-    "datachannel_close_server_create",
+    "datachannel_close_server_create_close",
     async () =>
-      new Promise<void>(async (r) => {
-        const label = "datachannel_close_server_answer";
+      new Promise<void>(async (done) => {
+        const label = "datachannel_close_server_create_close";
 
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
@@ -22,7 +22,7 @@ describe("datachannel/close", () => {
         pc.ondatachannel = ({ channel }) => {
           channel.onclose = () => {
             console.log("onclose");
-            r();
+            done();
           };
           channel.send("ping");
         };
@@ -39,7 +39,55 @@ describe("datachannel/close", () => {
           payload: pc.localDescription,
         });
       }),
-    300 * 1000
+    10 * 1000
+  );
+
+  it(
+    "datachannel_close_server_create_client_close",
+    async () =>
+      new Promise<void>(async (done) => {
+        const label = "datachannel_close_server_create_client_close";
+
+        if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+        await sleep(100);
+
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+        pc.onicecandidate = ({ candidate }) => {
+          peer.request(label, {
+            type: "candidate",
+            payload: candidate,
+          });
+        };
+
+        const offer = await peer.request(label, {
+          type: "init",
+        });
+        await pc.setRemoteDescription(offer);
+        await pc.setLocalDescription(await pc.createAnswer());
+
+        pc.ondatachannel = ({ channel }) => {
+          channel.onmessage = () => {
+            Promise.all([
+              peer.request(label, { type: "done" }),
+              new Promise<void>((r) => {
+                channel.onclose = () => {
+                  console.log("onclose");
+                  r();
+                };
+                setTimeout(() => channel.close(), 500);
+              }),
+            ]).then(() => done());
+          };
+        };
+
+        peer.request(label, {
+          type: "answer",
+          payload: pc.localDescription,
+        });
+      }),
+    10 * 1000
   );
 
   fit(

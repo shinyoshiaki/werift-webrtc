@@ -68,6 +68,12 @@ export class OutgoingSSNResetRequestParam {
   }
 }
 
+export class IncomingSSNResetRequestParam {
+  static type = 14;
+
+  // todo impl
+}
+
 export class StreamAddOutgoingParam {
   static type = 17; // Add Outgoing Streams Request Parameter
 
@@ -107,7 +113,8 @@ export class StreamAddOutgoingParam {
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 export const reconfigResult = {
-  reconfigResultSuccessPerformed: 1,
+  ReconfigResultSuccessPerformed: 1,
+  BadSequenceNumber: 5,
 } as const;
 type ReconfigResult = typeof reconfigResult[keyof typeof reconfigResult];
 
@@ -131,8 +138,9 @@ export class ReconfigResponseParam {
   }
 }
 
-export const RECONFIG_PARAM_TYPES = {
+export const RECONFIG_PARAM_BY_TYPES = {
   13: OutgoingSSNResetRequestParam, // Outgoing SSN Reset Request Parameter
+  14: IncomingSSNResetRequestParam,
   16: ReconfigResponseParam, // Re-configuration Response Parameter
   17: StreamAddOutgoingParam, // Add Outgoing Streams Request Parameter
 };

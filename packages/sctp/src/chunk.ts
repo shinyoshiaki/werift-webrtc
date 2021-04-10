@@ -430,10 +430,13 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   ForwardTsnChunk,
 ];
 
-export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
-  acc[cur.type] = cur;
-  return acc;
-}, {} as { [key: string]: typeof Chunk });
+export const CHUNK_BY_TYPE = CHUNK_CLASSES.reduce(
+  (acc: { [key: string]: typeof Chunk }, cur) => {
+    acc[cur.type] = cur;
+    return acc;
+  },
+  {}
+);
 
 function padL(l: number) {
   const m = l % 4;
@@ -498,7 +501,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
       data.slice(pos)
     );
     const chunkBody = data.slice(pos + 4, pos + chunkLength);
-    const ChunkClass = CHUNK_TYPES[chunkType.toString()];
+    const ChunkClass = CHUNK_BY_TYPE[chunkType.toString()];
     if (ChunkClass) {
       chunks.push(new ChunkClass(chunkFlags, chunkBody));
     } else {

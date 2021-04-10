@@ -4,7 +4,8 @@ import { WebSocketServer, Room } from "protoo-server";
 import {
   datachannel_close_client_create_close,
   datachannel_close_client_create_server_close,
-  datachannel_close_server_create,
+  datachannel_close_server_create_client_close,
+  datachannel_close_server_create_close,
 } from "./handler/datachannel/close";
 import {
   datachannel_answer,
@@ -59,9 +60,10 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_send_recv_offer: new mediachannel_send_recv_offer(),
     mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
     mediachannel_addTrack_offer: new mediachannel_addTrack_offer(),
-    datachannel_close_server_answer: new datachannel_close_server_create(),
+    datachannel_close_server_create_close: new datachannel_close_server_create_close(),
     datachannel_close_client_create_close: new datachannel_close_client_create_close(),
     datachannel_close_client_create_server_close: new datachannel_close_client_create_server_close(),
+    datachannel_close_server_create_client_close: new datachannel_close_server_create_client_close(),
   };
 
   const transport = accept();

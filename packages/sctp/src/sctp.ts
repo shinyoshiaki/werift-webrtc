@@ -26,15 +26,19 @@ import {
 import { SCTP_STATE } from "./const";
 import { createEventsFromList, enumerate, Unpacked } from "./helper";
 import {
-  RECONFIG_PARAM_TYPES,
+  RECONFIG_PARAM_BY_TYPES,
   StreamAddOutgoingParam,
   StreamParam,
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
   reconfigResult,
+  IncomingSSNResetRequestParam,
 } from "./param";
 import { Transport } from "./transport";
 import { random32, uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./utils";
+import debug from "debug";
+
+const log = debug("werift/sctp/sctp");
 
 // SSN: Stream Sequence Number
 
@@ -123,7 +127,9 @@ export class SCTP {
 
   // # reconfiguration
 
+  /**初期TSNと同じ値に初期化される単調に増加する数です. これは、新しいre-configuration requestパラメーターを送信するたびに1ずつ増加します */
   reconfigRequestSeq = this.localTsn;
+  /**このフィールドは、incoming要求のre-configuration requestシーケンス番号を保持します. 他の場合では、次に予想されるre-configuration requestシーケンス番号から1を引いた値が保持されます */
   reconfigResponseSeq = 0;
   reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
@@ -373,7 +379,7 @@ export class SCTP {
         if (this.associationState === SCTP_STATE.ESTABLISHED) {
           const reconfig = chunk as ReConfigChunk;
           for (const param of reconfig.params) {
-            const target = RECONFIG_PARAM_TYPES[param[0]];
+            const target = RECONFIG_PARAM_BY_TYPES[param[0]];
             if (target) {
               this.receiveReconfigParam(target.parse(param[1]));
             }
@@ -397,33 +403,48 @@ export class SCTP {
   }
 
   private receiveReconfigParam(param: StreamParam) {
+    log("receiveReconfigParam", RECONFIG_PARAM_BY_TYPES[param.type]);
     switch (param.type) {
-      case OutgoingSSNResetRequestParam.type: {
-        const p = param as OutgoingSSNResetRequestParam;
-        p.streams.forEach((streamId) => {
-          delete this.inboundStreams[streamId];
-        });
+      case OutgoingSSNResetRequestParam.type:
+        {
+          const p = param as OutgoingSSNResetRequestParam;
 
-        const res = new ReconfigResponseParam(
-          p.requestSequence,
-          reconfigResult.reconfigResultSuccessPerformed
-        );
-        this.reconfigResponseSeq = p.requestSequence;
-        this.sendReconfigParam(res);
+          // # mark closed inbound streams
+          p.streams.forEach((streamId) => {
+            delete this.inboundStreams[streamId];
+          });
+          // # close data channel
+          this.onReconfigStreams.execute(p.streams);
+          p.streams.forEach((streamId) => {
+            this.reconfigQueue.push(streamId);
+          });
+          this.transmitReconfig();
 
-        // close outgoing
-        this.onReconfigStreams.execute(p.streams);
-        p.streams.forEach((streamId) => {
-          this.reconfigQueue.push(streamId);
-        });
-        this.transmitReconfig();
-
+          // # send response
+          const res = new ReconfigResponseParam(
+            p.requestSequence,
+            reconfigResult.ReconfigResultSuccessPerformed
+          );
+          this.reconfigResponseSeq = p.requestSequence;
+          this.sendReconfigParam(res);
+        }
         break;
-      }
+      case IncomingSSNResetRequestParam.type:
+        {
+          log("test");
+        }
+        break;
       case ReconfigResponseParam.type:
         {
           const reset = param as ReconfigResponseParam;
-          if (
+          if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
+            log(
+              "OutgoingSSNResetRequestParam failed",
+              Object.keys(reconfigResult).find(
+                (key) => reconfigResult[key] === reset.result
+              )
+            );
+          } else if (
             this.reconfigRequest &&
             reset.responseSequence === this.reconfigRequest.requestSequence
           ) {
@@ -453,6 +474,10 @@ export class SCTP {
 
   private receiveDataChunk(chunk: DataChunk) {
     this.sackNeeded = true;
+
+    if (chunk.userData.length === 0) {
+      log("end of stream");
+    }
 
     if (this.markReceived(chunk.tsn)) return;
 
@@ -753,7 +778,7 @@ export class SCTP {
 
         chunk.misses = 0;
         chunk.retransmit = false;
-        chunk.sentCount!++;
+        chunk.sentCount++;
         this.sendChunk(chunk);
 
         if (retransmitEarliest) {
@@ -770,7 +795,7 @@ export class SCTP {
       this.flightSizeIncrease(chunk);
 
       // # update counters
-      chunk.sentCount!++;
+      chunk.sentCount++;
       chunk.sentTime = Date.now() / 1000;
 
       this.sendChunk(chunk);
@@ -787,6 +812,11 @@ export class SCTP {
       !this.reconfigRequest
     ) {
       const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
+
+      streams.forEach((stream) => {
+        this.sendResetRequest(stream);
+      });
+
       this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
       const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
@@ -800,14 +830,14 @@ export class SCTP {
     }
   }
 
-  sendReconfigParam(param: StreamParam) {
+  private sendReconfigParam(param: StreamParam) {
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
     this.sendChunk(chunk);
   }
 
-  sendResetRequest(streamId: number) {
-    const chunk = new DataChunk(3, undefined);
+  private sendResetRequest(streamId: number) {
+    const chunk = new DataChunk(0, undefined);
     chunk.streamId = streamId;
     this.outboundQueue.push(chunk);
     if (!this.t3Handle) {
