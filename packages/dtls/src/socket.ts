@@ -55,36 +55,40 @@ export class DtlsSocket {
     const packets = parsePacket(data);
 
     for (const packet of packets) {
-      const message = parsePlainText(this.dtls, this.cipher)(packet);
-      switch (message.type) {
-        case ContentType.handshake:
-          {
-            const handshake = message.data as FragmentedHandshake;
-            const handshakes = this.handleFragmentHandshake([handshake]);
-            const assembled = Object.values(
-              handshakes.reduce(
-                (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
-                  if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
-                  acc[cur.msg_type].push(cur);
-                  return acc;
-                },
-                {}
+      try {
+        const message = parsePlainText(this.dtls, this.cipher)(packet);
+        switch (message.type) {
+          case ContentType.handshake:
+            {
+              const handshake = message.data as FragmentedHandshake;
+              const handshakes = this.handleFragmentHandshake([handshake]);
+              const assembled = Object.values(
+                handshakes.reduce(
+                  (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
+                    if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
+                    acc[cur.msg_type].push(cur);
+                    return acc;
+                  },
+                  {}
+                )
               )
-            )
-              .map((v) => FragmentedHandshake.assemble(v))
-              .sort((a, b) => a.msg_type - b.msg_type);
+                .map((v) => FragmentedHandshake.assemble(v))
+                .sort((a, b) => a.msg_type - b.msg_type);
 
-            this.onHandleHandshakes(assembled);
-          }
-          break;
-        case ContentType.applicationData:
-          {
-            this.onData.execute(message.data as Buffer);
-          }
-          break;
-        case ContentType.alert:
-          this.onClose.execute();
-          break;
+              this.onHandleHandshakes(assembled);
+            }
+            break;
+          case ContentType.applicationData:
+            {
+              this.onData.execute(message.data as Buffer);
+            }
+            break;
+          case ContentType.alert:
+            this.onClose.execute();
+            break;
+        }
+      } catch (error) {
+        log("error", error);
       }
     }
   };
