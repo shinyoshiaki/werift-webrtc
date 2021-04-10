@@ -52,6 +52,7 @@ import {
 import { RTCSctpTransport } from "./transport/sctp";
 import {
   andDirection,
+  parseIceServers,
   reverseDirection,
   reverseSimulcastDirection,
 } from "./utils";
@@ -98,9 +99,12 @@ export class RTCPeerConnection {
   constructor({
     codecs,
     headerExtensions,
-    iceConfig,
+    iceServers,
+    iceTransportPolicy,
   }: Partial<PeerConfig> = {}) {
-    if (iceConfig) this.configuration.iceConfig = iceConfig;
+    if (iceServers) this.configuration.iceServers = iceServers;
+    if (iceTransportPolicy)
+      this.configuration.iceTransportPolicy = iceTransportPolicy;
     if (codecs?.audio) {
       this.configuration.codecs.audio = codecs.audio;
     }
@@ -333,7 +337,10 @@ export class RTCPeerConnection {
   private createDtlsTransport(srtpProfiles: number[] = []) {
     if (this.dtlsTransport) return this.dtlsTransport;
 
-    const iceGatherer = new RTCIceGatherer(this.configuration.iceConfig);
+    const iceGatherer = new RTCIceGatherer({
+      ...parseIceServers(this.configuration.iceServers),
+      forceTurn: this.configuration.iceTransportPolicy === "relay",
+    });
     iceGatherer.onGatheringStateChange.subscribe((state) => {
       this.updateIceGatheringState(state);
     });
@@ -1041,7 +1048,14 @@ export type PeerConfig = {
     audio: RTCRtpHeaderExtensionParameters[];
     video: RTCRtpHeaderExtensionParameters[];
   }>;
-  iceConfig: Partial<IceOptions>;
+  iceTransportPolicy: "all" | "relay";
+  iceServers: IceServer[];
+};
+
+export type IceServer = {
+  urls: string;
+  username?: string;
+  credential?: string;
 };
 
 export const defaultPeerConfig: PeerConfig = {
@@ -1072,5 +1086,6 @@ export const defaultPeerConfig: PeerConfig = {
     ],
   },
   headerExtensions: { audio: [], video: [] },
-  iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+  iceTransportPolicy: "all",
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };

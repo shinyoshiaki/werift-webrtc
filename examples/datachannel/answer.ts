@@ -28,8 +28,7 @@ server.on("connection", (socket) => {
     });
 
     await pc.setRemoteDescription(offer);
-    const answer = pc.createAnswer();
-    await pc.setLocalDescription(await answer);
-    socket.send(JSON.stringify(answer));
+    await pc.setLocalDescription(await pc.createAnswer());
+    socket.send(JSON.stringify(pc.localDescription));
   });
 });

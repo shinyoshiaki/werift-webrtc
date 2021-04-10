@@ -6,12 +6,14 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    iceConfig: {
-      turnServer: ["35.200.71.35", 3478],
-      turnUsername: "webrtc",
-      turnPassword: "webrtc",
-      forceTurn: true,
-    },
+    iceServers: [
+      {
+        urls: "turn:relay.backups.cz:3478",
+        credential: "webrtc",
+        username: "webrtc",
+      },
+    ],
+    iceTransportPolicy: "relay",
   });
 
   const transceiver = pc.addTransceiver("video");

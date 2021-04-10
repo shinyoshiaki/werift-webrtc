@@ -212,6 +212,8 @@ export class Connection {
       const candidateAddress = protocol.turn.relayedAddress;
       const relatedAddress = protocol.turn.mappedAddress;
 
+      log("candidateAddress", candidateAddress);
+
       protocol.localCandidate = new Candidate(
         candidateFoundation("relay", "udp", candidateAddress[0]),
         component,

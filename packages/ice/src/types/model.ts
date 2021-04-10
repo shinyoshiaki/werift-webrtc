@@ -3,7 +3,7 @@ import { Message } from "../stun/message";
 
 export type Address = [string, number];
 
-export type Protocol = {
+export interface Protocol {
   type: string;
   localCandidate: Candidate;
   sentMessage?: Message;
@@ -19,4 +19,4 @@ export type Protocol = {
   connectionMade: (...args: any) => Promise<void>;
   sendStun: (message: Message, addr: Address) => void;
   sendData: (data: Buffer, addr: Address) => Promise<void>;
-};
+}
