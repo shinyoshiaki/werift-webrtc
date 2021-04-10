@@ -95,7 +95,7 @@ export function uint24(v: number) {
   return v & 0xffffff;
 }
 
-export function parseIceServers(iceServers: IceServer[]): Partial<IceOptions> {
+export function parseIceServers(iceServers: IceServer[]) {
   const url2Address = (url?: string) => {
     if (!url) return;
     const [address, port] = url.split(":");

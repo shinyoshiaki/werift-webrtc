@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import debug from "debug";
 import { createSocket } from "dgram";
 import { jspack } from "jspack";
 import PCancelable from "p-cancelable";
@@ -11,7 +12,6 @@ import { Message, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
 import { Address, Protocol } from "../types/model";
 import { future, Future, randomTransactionId, sleep } from "../utils";
-import debug from "debug";
 
 const log = debug("werift/ice/turn/protocol");
 
