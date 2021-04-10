@@ -1,3 +1,5 @@
+// client side is ./answer.html
+
 import { RTCPeerConnection } from "../../packages/webrtc/src";
 import { Server } from "ws";
 
