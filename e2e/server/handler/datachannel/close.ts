@@ -12,7 +12,7 @@ export class datachannel_close_server_create_close {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe(() => {
@@ -48,7 +48,7 @@ export class datachannel_close_server_create_client_close {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
           this.dc = this.pc.createDataChannel("dc");
           this.dc.stateChanged
@@ -91,7 +91,7 @@ export class datachannel_close_client_create_close {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
@@ -129,7 +129,7 @@ export class datachannel_close_client_create_server_close {
       case "init":
         {
           this.pc = new RTCPeerConnection({
-            iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
