@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from "crypto";
+import debug from "debug";
 import { jspack } from "jspack";
 import { range } from "lodash";
 import { Event } from "rx.mini";
@@ -26,17 +27,16 @@ import {
 import { SCTP_STATE } from "./const";
 import { createEventsFromList, enumerate, Unpacked } from "./helper";
 import {
-  RECONFIG_PARAM_BY_TYPES,
-  StreamAddOutgoingParam,
-  StreamParam,
+  IncomingSSNResetRequestParam,
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
   reconfigResult,
-  IncomingSSNResetRequestParam,
+  RECONFIG_PARAM_BY_TYPES,
+  StreamAddOutgoingParam,
+  StreamParam,
 } from "./param";
 import { Transport } from "./transport";
 import { random32, uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./utils";
-import debug from "debug";
 
 const log = debug("werift/sctp/sctp");
 
@@ -830,7 +830,7 @@ export class SCTP {
     }
   }
 
-  private sendReconfigParam(param: StreamParam) {
+  sendReconfigParam(param: StreamParam) {
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
     this.sendChunk(chunk);
