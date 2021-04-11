@@ -415,14 +415,6 @@ export class SCTP {
         {
           const p = param as OutgoingSSNResetRequestParam;
 
-          // # mark closed inbound streams
-          p.streams.forEach((streamId) => {
-            delete this.inboundStreams[streamId];
-            this.reconfigQueue.push(streamId);
-          });
-          // # close data channel
-          this.onReconfigStreams.execute(p.streams);
-
           // # send response
           const response = new ReconfigResponseParam(
             p.requestSequence,
@@ -430,6 +422,14 @@ export class SCTP {
           );
           this.reconfigResponseSeq = p.requestSequence;
           this.sendReconfigParam(response);
+
+          // # mark closed inbound streams
+          p.streams.forEach((streamId) => {
+            delete this.inboundStreams[streamId];
+            this.reconfigQueue.push(streamId);
+          });
+          // # close data channel
+          this.onReconfigStreams.execute(p.streams);
 
           this.transmitReconfig();
         }
@@ -818,10 +818,6 @@ export class SCTP {
     ) {
       const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
 
-      streams.forEach((stream) => {
-        this.sendResetRequest(stream);
-      });
-
       this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
       const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
@@ -845,7 +841,8 @@ export class SCTP {
     this.sendChunk(chunk);
   }
 
-  private sendResetRequest(streamId: number) {
+  sendResetRequest(streamId: number) {
+    log("sendResetRequest", streamId);
     const chunk = new DataChunk(0, undefined);
     chunk.streamId = streamId;
     this.outboundQueue.push(chunk);

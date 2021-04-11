@@ -20,7 +20,7 @@ export class RTCDataChannel {
   readonly stateChanged = new Event<[DCState]>();
   readonly message = new Event<[string | Buffer]>();
   readonly bufferedAmountLow = new Event();
-
+  isCreatedByRemote = false;
   id: number = this.parameters.id;
   readyState: DCState = "connecting";
 

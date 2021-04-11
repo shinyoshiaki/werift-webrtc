@@ -42,7 +42,7 @@ describe("datachannel/close", () => {
     10 * 1000
   );
 
-  fit(
+  it(
     "datachannel_close_server_create_client_close",
     async () =>
       new Promise<void>(async (done) => {
@@ -90,7 +90,7 @@ describe("datachannel/close", () => {
     10 * 1000
   );
 
-  fit(
+  it(
     "datachannel_close_client_create_close",
     async () =>
       new Promise<void>(async (done) => {
@@ -140,7 +140,7 @@ describe("datachannel/close", () => {
     600 * 1000
   );
 
-  fit(
+  it(
     "datachannel_close_client_create_server_close",
     async () =>
       new Promise<void>(async (done) => {

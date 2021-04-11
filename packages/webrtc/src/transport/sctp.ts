@@ -42,9 +42,14 @@ export class RTCSctpTransport {
     this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
       ids.forEach((id) => {
         const dc = this.dataChannels[id];
-        if (dc) {
-          dc.setReadyState("closed");
-          delete this.dataChannels[id];
+        if (!dc) return;
+        dc.setReadyState("closed");
+        delete this.dataChannels[id];
+
+        // todo ??
+        // when created by werift
+        if (!dc.isCreatedByRemote) {
+          this.sctp.sendResetRequest(id);
         }
       });
     });
@@ -122,6 +127,7 @@ export class RTCSctpTransport {
             });
             const channel = new RTCDataChannel(this, parameters, false);
             channel.setReadyState("open");
+            channel.isCreatedByRemote = true;
             this.dataChannels[streamId] = channel;
 
             this.dataChannelQueue.push([
