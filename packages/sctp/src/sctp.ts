@@ -164,6 +164,7 @@ export class SCTP {
     if (this._inboundStreamsCount > 0)
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
   }
+
   static client(transport: Transport, port = 5000) {
     const sctp = new SCTP(transport, port);
     sctp.isServer = false;
@@ -233,7 +234,9 @@ export class SCTP {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
         break;
+      // # server
       case InitChunk.type:
+        log("is server");
         const init = chunk as InitChunk;
         if (this.isServer) {
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
@@ -269,12 +272,15 @@ export class SCTP {
           this.sendChunk(ack);
         }
         break;
+      // # client
       case InitAckChunk.type:
+        log("isClient");
+
         if (this.associationState === SCTP_STATE.COOKIE_WAIT) {
           const initAck = chunk as InitAckChunk;
           this.t1Cancel();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
-          this.reconfigRequestSeq = tsnMinusOne(initAck.initialTsn);
+          this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
           this.remoteVerificationTag = initAck.initiateTag;
           this.ssthresh = initAck.advertisedRwnd;
           this.getExtensions(initAck.params);
@@ -378,10 +384,10 @@ export class SCTP {
       case ReconfigChunk.type:
         if (this.associationState === SCTP_STATE.ESTABLISHED) {
           const reconfig = chunk as ReConfigChunk;
-          for (const param of reconfig.params) {
-            const target = RECONFIG_PARAM_BY_TYPES[param[0]];
+          for (const [type, body] of reconfig.params) {
+            const target = RECONFIG_PARAM_BY_TYPES[type];
             if (target) {
-              this.receiveReconfigParam(target.parse(param[1]));
+              this.receiveReconfigParam(target.parse(body));
             }
           }
         }
@@ -412,21 +418,20 @@ export class SCTP {
           // # mark closed inbound streams
           p.streams.forEach((streamId) => {
             delete this.inboundStreams[streamId];
+            this.reconfigQueue.push(streamId);
           });
           // # close data channel
           this.onReconfigStreams.execute(p.streams);
-          p.streams.forEach((streamId) => {
-            this.reconfigQueue.push(streamId);
-          });
-          this.transmitReconfig();
 
           // # send response
-          const res = new ReconfigResponseParam(
+          const response = new ReconfigResponseParam(
             p.requestSequence,
             reconfigResult.ReconfigResultSuccessPerformed
           );
           this.reconfigResponseSeq = p.requestSequence;
-          this.sendReconfigParam(res);
+          this.sendReconfigParam(response);
+
+          this.transmitReconfig();
         }
         break;
       case IncomingSSNResetRequestParam.type:
@@ -826,11 +831,15 @@ export class SCTP {
       );
       this.reconfigRequest = param;
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
+
       this.sendReconfigParam(param);
+    } else {
+      log("not transmit");
     }
   }
 
   sendReconfigParam(param: StreamParam) {
+    log("sendReconfigParam", param);
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
     this.sendChunk(chunk);

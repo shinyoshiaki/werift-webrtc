@@ -42,7 +42,7 @@ describe("datachannel/close", () => {
     10 * 1000
   );
 
-  it(
+  fit(
     "datachannel_close_server_create_client_close",
     async () =>
       new Promise<void>(async (done) => {
