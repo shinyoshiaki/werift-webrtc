@@ -14,8 +14,7 @@
     "inlineSources": true,
     "noUnusedLocals": false,
     "skipLibCheck": true,
-    "strictNullChecks": true,
-    "noImplicitAny": false
+    "strictNullChecks": true
   },
   "include": ["src", "tests"]
 }

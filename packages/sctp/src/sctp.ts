@@ -27,7 +27,6 @@ import {
 import { SCTP_STATE } from "./const";
 import { createEventsFromList, enumerate, Unpacked } from "./helper";
 import {
-  IncomingSSNResetRequestParam,
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
   reconfigResult,
@@ -438,11 +437,6 @@ export class SCTP {
           this.transmitReconfig();
         }
         break;
-      case IncomingSSNResetRequestParam.type:
-        {
-          log("test");
-        }
-        break;
       case ReconfigResponseParam.type:
         {
           const reset = param as ReconfigResponseParam;
@@ -450,7 +444,7 @@ export class SCTP {
             log(
               "OutgoingSSNResetRequestParam failed",
               Object.keys(reconfigResult).find(
-                (key) => reconfigResult[key] === reset.result
+                (key) => reconfigResult[key as never] === reset.result
               )
             );
           } else if (
