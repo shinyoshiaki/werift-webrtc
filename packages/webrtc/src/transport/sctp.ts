@@ -36,9 +36,9 @@ export class RTCSctpTransport {
   private dataChannelId?: number;
 
   constructor(public dtlsTransport: RTCDtlsTransport, public port = 5000) {
-    this.sctp.onReceive = (streamId, ppId, data) => {
+    this.sctp.onReceive.subscribe((streamId, ppId, data) => {
       this.datachannelReceive(streamId, ppId, data);
-    };
+    });
     this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
       ids.forEach((id) => {
         const dc = this.dataChannels[id];

@@ -24,7 +24,7 @@ export class RTCDataChannel {
   id: number = this.parameters.id;
   readyState: DCState = "connecting";
 
-  private bufferedAmount = 0;
+  bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
   constructor(
     private readonly transport: RTCSctpTransport,

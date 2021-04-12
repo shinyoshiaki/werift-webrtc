@@ -84,6 +84,8 @@ export class SCTP {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
   readonly onReconfigStreams = new Event<[number[]]>();
+  /**streamId: number, ppId: number, data: Buffer */
+  readonly onReceive = new Event<[number, number, Buffer]>();
   associationState = SCTP_STATE.CLOSED;
   started = false;
   state: SCTPConnectionState = "new";
@@ -118,7 +120,7 @@ export class SCTP {
   outboundQueue: DataChunk[] = [];
   private outboundStreamSeq: { [key: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
-  /**local transport sequence number */
+  /**local transmission sequence number */
   private localTsn = Number(random32());
   private lastSackedTsn = tsnMinusOne(this.localTsn);
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
@@ -349,7 +351,7 @@ export class SCTP {
             cookie?.length != COOKIE_LENGTH ||
             !cookie.slice(4).equals(digest)
           ) {
-            // console.log("x State cookie is invalid");
+            log("x State cookie is invalid");
             return;
           }
           const now = Date.now() / 1000;
@@ -666,9 +668,8 @@ export class SCTP {
     );
   }
 
-  onReceive?: (streamId: number, ppId: number, data: Buffer) => void;
   private receive(streamId: number, ppId: number, data: Buffer) {
-    if (this.onReceive) this.onReceive(streamId, ppId, data);
+    this.onReceive.execute(streamId, ppId, data);
   }
 
   private getInboundStream(streamId: number) {

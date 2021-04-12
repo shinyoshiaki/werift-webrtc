@@ -8,10 +8,10 @@ test("udp", async (done) => {
   const socket = createSocket("udp4");
   socket.bind(port);
   const server = SCTP.server(createUdpTransport(socket));
-  server.onReceive = (_, __, data) => {
+  server.onReceive.subscribe((_, __, data) => {
     expect(data.toString()).toBe("ping");
     server.send(0, WEBRTC_PPID.STRING, Buffer.from("pong"));
-  };
+  });
 
   const client = SCTP.client(
     createUdpTransport(createSocket("udp4"), {
@@ -19,11 +19,11 @@ test("udp", async (done) => {
       address: "127.0.0.1",
     })
   );
-  client.onReceive = (_, __, data) => {
+  client.onReceive.subscribe((_, __, data) => {
     expect(data.toString()).toBe("pong");
     socket.close();
     done();
-  };
+  });
 
   await Promise.all([client.start(5000), server.start(5000)]);
   await Promise.all([
