@@ -46,12 +46,6 @@ export class RTCSctpTransport {
         if (!dc) return;
         dc.setReadyState("closed");
         delete this.dataChannels[id];
-
-        // todo ??
-        // when created by werift
-        if (!dc.isCreatedByRemote) {
-          this.sctp.sendResetRequest(id);
-        }
       });
     });
 

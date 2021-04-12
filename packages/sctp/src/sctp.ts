@@ -330,6 +330,7 @@ export class SCTP {
         }
         break;
       case ErrorChunk.type:
+        log("ErrorChunk", chunk);
         if (
           [SCTP_STATE.COOKIE_WAIT, SCTP_STATE.COOKIE_ECHOED].indexOf(
             this.associationState
@@ -429,6 +430,8 @@ export class SCTP {
             delete this.inboundStreams[streamId];
             if (this.outboundStreamSeq[streamId]) {
               this.reconfigQueue.push(streamId);
+
+              this.sendResetRequest(streamId);
             }
           });
           // # close data channel
@@ -479,7 +482,7 @@ export class SCTP {
     this.sackNeeded = true;
 
     if (chunk.userData.length === 0) {
-      log("end of stream");
+      log("end of stream eos");
     }
 
     if (this.markReceived(chunk.tsn)) return;
@@ -515,7 +518,7 @@ export class SCTP {
       const sChunk = this.sentQueue.shift()!;
       done++;
       if (!sChunk?.acked) {
-        doneBytes += sChunk.bookSize!;
+        doneBytes += sChunk.bookSize;
         this.flightSizeDecrease(sChunk);
       }
 
@@ -542,7 +545,7 @@ export class SCTP {
           break;
         }
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
-          doneBytes += sChunk.bookSize!;
+          doneBytes += sChunk.bookSize;
           sChunk.acked = true;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
@@ -792,7 +795,11 @@ export class SCTP {
 
     // for performance
     while (this.outboundQueue.length > 0) {
-      const chunk = this.outboundQueue.shift()!;
+      const chunk = this.outboundQueue.shift();
+      if (!chunk) {
+        log("outboundQueue empty");
+        return;
+      }
       this.sentQueue.push(chunk);
       this.flightSizeIncrease(chunk);
 
@@ -836,7 +843,8 @@ export class SCTP {
     this.sendChunk(chunk);
   }
 
-  sendResetRequest(streamId: number) {
+  // https://github.com/pion/sctp/pull/44/files
+  private sendResetRequest(streamId: number) {
     log("sendResetRequest", streamId);
     const chunk = new DataChunk(0, undefined);
     chunk.streamId = streamId;
@@ -847,11 +855,11 @@ export class SCTP {
   }
 
   private flightSizeIncrease(chunk: DataChunk) {
-    this.flightSize += chunk.bookSize!;
+    this.flightSize += chunk.bookSize;
   }
 
   private flightSizeDecrease(chunk: DataChunk) {
-    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize!);
+    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
   }
 
   // # timers

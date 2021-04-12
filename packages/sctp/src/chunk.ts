@@ -25,8 +25,10 @@
 // 192 to 254 - available
 // 255        - reserved for IETF-defined Chunk Extensions
 
+import debug from "debug";
 import { jspack } from "jspack";
 const crc32c = require("turbo-crc32/crc32c");
+const log = debug("werift/sctp/chunk");
 
 export class Chunk {
   public get body(): Buffer | undefined {
@@ -182,7 +184,7 @@ export class DataChunk extends Chunk {
   misses: number = 0;
   retransmit: boolean = false;
   sentCount: number = 0;
-  bookSize?: number;
+  bookSize: number = 0;
   expiry?: number;
   maxRetransmits?: number;
   sentTime?: number;
@@ -201,6 +203,8 @@ export class DataChunk extends Chunk {
   }
 
   get bytes() {
+    if (!this.userData.length) log("userData is empty");
+
     const length = 16 + this.userData.length;
     let data = Buffer.concat([
       Buffer.from(
