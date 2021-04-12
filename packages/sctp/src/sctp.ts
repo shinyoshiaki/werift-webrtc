@@ -118,7 +118,7 @@ export class SCTP {
   private forwardTsnChunk?: ForwardTsnChunk;
   private flightSize = 0;
   outboundQueue: DataChunk[] = [];
-  private outboundStreamSeq: { [key: number]: number } = {};
+  private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
   /**local transmission sequence number */
   private localTsn = Number(random32());
@@ -428,7 +428,9 @@ export class SCTP {
           // # mark closed inbound streams
           p.streams.forEach((streamId) => {
             delete this.inboundStreams[streamId];
-            this.reconfigQueue.push(streamId);
+            if (this.outboundStreamSeq[streamId]) {
+              this.reconfigQueue.push(streamId);
+            }
           });
           // # close data channel
           this.onReconfigStreams.execute(p.streams);
@@ -830,8 +832,6 @@ export class SCTP {
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
       this.sendReconfigParam(param);
-    } else {
-      log("not transmit");
     }
   }
 
