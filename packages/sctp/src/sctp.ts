@@ -235,9 +235,7 @@ export class SCTP {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
         break;
-      // # server
       case InitChunk.type:
-        log("is server");
         const init = chunk as InitChunk;
         if (this.isServer) {
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
@@ -273,10 +271,7 @@ export class SCTP {
           this.sendChunk(ack);
         }
         break;
-      // # client
       case InitAckChunk.type:
-        log("isClient");
-
         if (this.associationState === SCTP_STATE.COOKIE_WAIT) {
           const initAck = chunk as InitAckChunk;
           this.t1Cancel();
@@ -480,10 +475,6 @@ export class SCTP {
 
   private receiveDataChunk(chunk: DataChunk) {
     this.sackNeeded = true;
-
-    if (chunk.userData.length === 0) {
-      log("end of stream eos");
-    }
 
     if (this.markReceived(chunk.tsn)) return;
 
