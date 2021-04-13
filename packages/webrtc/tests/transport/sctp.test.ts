@@ -1,6 +1,6 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
-import { dtlsTransportPair } from "./dtls.test";
+import { dtlsTransportPair } from "../fixture";
 
 describe("RTCSctpTransportTest", () => {
   function trackChannels(transport: RTCSctpTransport) {

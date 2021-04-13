@@ -121,7 +121,6 @@ export class RTCDataChannel {
   }
 
   async send(data: Buffer | string) {
-    if (this.readyState !== "open") return;
     await this.transport.datachannelSend(this, data);
   }
 
