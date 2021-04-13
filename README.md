@@ -39,7 +39,7 @@ see console & chrome://webrtc-internals/
 run
 
 ```sh
-yarn datachannel
+yarn datachannel 
 ```
 
 open
