@@ -13,9 +13,9 @@ import {
   ShutdownChunk,
 } from "../src/chunk";
 import {
+  OutgoingSSNResetRequestParam,
+  ReconfigResponseParam,
   StreamAddOutgoingParam,
-  StreamResetOutgoingParam,
-  StreamResetResponseParam,
 } from "../src/param";
 import { load } from "./utils";
 
@@ -101,7 +101,7 @@ describe("SctpPacketTest", () => {
     expect(chunk.flags).toBe(3);
     expect(chunk.tsn).toBe(2584679421);
     expect(chunk.streamId).toBe(1);
-    expect(chunk.streamSeq).toBe(1);
+    expect(chunk.streamSeqNum).toBe(1);
     expect(chunk.protocol).toBe(51);
     expect(chunk.userData).toEqual(Buffer.from("ping"));
   });
@@ -115,7 +115,7 @@ describe("SctpPacketTest", () => {
     expect(chunk.flags).toBe(3);
     expect(chunk.tsn).toBe(2584679421);
     expect(chunk.streamId).toBe(1);
-    expect(chunk.streamSeq).toBe(1);
+    expect(chunk.streamSeqNum).toBe(1);
     expect(chunk.protocol).toBe(51);
     expect(chunk.userData).toEqual(Buffer.from("M"));
   });
@@ -174,7 +174,7 @@ describe("SctpPacketTest", () => {
     ]);
 
     const paramData = chunk.params[0][1];
-    const param = StreamResetOutgoingParam.parse(paramData);
+    const param = OutgoingSSNResetRequestParam.parse(paramData);
     expect(param.requestSequence).toBe(2346191451);
     expect(param.responseSequence).toBe(3834375283);
     expect(param.lastTsn).toBe(2346191454);
@@ -212,7 +212,7 @@ describe("SctpPacketTest", () => {
     ]);
 
     const paramData = chunk.params[0][1];
-    const param = StreamResetResponseParam.parse(paramData);
+    const param = ReconfigResponseParam.parse(paramData);
     expect(param.responseSequence).toBe(2438143828);
     expect(param.result).toBe(1);
     expect(param.bytes).toEqual(paramData);
