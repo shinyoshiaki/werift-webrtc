@@ -22,7 +22,7 @@ Name | Type | Default value |
 
 **Returns:** [*RTCIceGatherer*](rtcicegatherer.md)
 
-Defined in: [webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L102)
+Defined in: [webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L102)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/we
 
 • `Readonly` **connection**: *Connection*
 
-Defined in: [webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L102)
+Defined in: [webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L102)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **gatheringState**: *new* \| *gathering* \| *complete*= "new"
 
-Defined in: [webrtc/src/transport/ice.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L99)
+Defined in: [webrtc/src/transport/ice.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L99)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • `Readonly` **onGatheringStateChange**: *default*<[*new* \| *gathering* \| *complete*]\>
 
-Defined in: [webrtc/src/transport/ice.ts:101](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L101)
+Defined in: [webrtc/src/transport/ice.ts:101](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L101)
 
 ___
 
@@ -66,9 +66,9 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/ice.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L98)
+Defined in: [webrtc/src/transport/ice.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L98)
 
-Defined in: [webrtc/src/transport/ice.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L98)
+Defined in: [webrtc/src/transport/ice.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L98)
 
 ## Accessors
 
@@ -78,7 +78,7 @@ Defined in: [webrtc/src/transport/ice.ts:98](https://github.com/shinyoshiaki/wer
 
 **Returns:** *RTCIceCandidate*[]
 
-Defined in: [webrtc/src/transport/ice.ts:116](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L116)
+Defined in: [webrtc/src/transport/ice.ts:116](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L116)
 
 ___
 
@@ -88,7 +88,7 @@ ___
 
 **Returns:** *RTCIceParameters*
 
-Defined in: [webrtc/src/transport/ice.ts:120](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L120)
+Defined in: [webrtc/src/transport/ice.ts:120](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L120)
 
 ## Methods
 
@@ -98,7 +98,7 @@ Defined in: [webrtc/src/transport/ice.ts:120](https://github.com/shinyoshiaki/we
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L106)
+Defined in: [webrtc/src/transport/ice.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L106)
 
 ___
 
@@ -114,4 +114,4 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/ice.ts:129](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/ice.ts#L129)
+Defined in: [webrtc/src/transport/ice.ts:129](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L129)

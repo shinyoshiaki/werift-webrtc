@@ -14,7 +14,7 @@ hide_title: true
 
 • **direction**: *inactive* \| *sendonly* \| *recvonly* \| *sendrecv*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:89](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L89)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:89](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L89)
 
 ___
 
@@ -22,4 +22,4 @@ ___
 
 • **simulcast**: { `direction`: SimulcastDirection ; `rid`: *string*  }[]
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L90)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L90)

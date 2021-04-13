@@ -26,7 +26,7 @@ Name | Type |
 
 **Returns:** [*RTCRtpTransceiver*](rtcrtptransceiver.md)
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L47)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L47)
 
 ## Properties
 
@@ -34,7 +34,7 @@ Defined in: [webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshi
 
 • `Private` **\_codecs**: [*RTCRtpCodecParameters*](rtcrtpcodecparameters.md)[]= []
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L35)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L35)
 
 ___
 
@@ -42,7 +42,7 @@ ___
 
 • `Private` `Optional` **\_currentDirection**: *inactive* \| *sendonly* \| *recvonly* \| *sendrecv* \| *stopped*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L23)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L23)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • **headerExtensions**: *RTCRtpHeaderExtensionParameters*[]= []
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L44)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L44)
 
 ___
 
@@ -76,7 +76,7 @@ ___
 
 • `Optional` **mLineIndex**: *number*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L21)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L21)
 
 ___
 
@@ -84,7 +84,7 @@ ___
 
 • `Optional` **mid**: *string*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L20)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L20)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 • **offerDirection**: *inactive* \| *sendonly* \| *recvonly* \| *sendrecv*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L34)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L34)
 
 ___
 
@@ -100,7 +100,7 @@ ___
 
 • `Readonly` **onTrack**: *default*<[[*MediaStreamTrack*](mediastreamtrack.md)]\>
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L19)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L19)
 
 ___
 
@@ -108,7 +108,7 @@ ___
 
 • **options**: *Partial*<[*TransceiverOptions*](../interfaces/transceiveroptions.md)\>= {}
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L45)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L45)
 
 ___
 
@@ -128,7 +128,7 @@ ___
 
 • **stopped**: *boolean*= false
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L47)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L47)
 
 ___
 
@@ -136,7 +136,7 @@ ___
 
 • **stopping**: *boolean*= false
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L46)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L46)
 
 ___
 
@@ -144,7 +144,7 @@ ___
 
 • **usedForSender**: *boolean*= false
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L22)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L22)
 
 ___
 
@@ -152,7 +152,7 @@ ___
 
 • `Readonly` **uuid**: *string*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L18)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L18)
 
 ## Accessors
 
@@ -162,7 +162,7 @@ Defined in: [webrtc/src/media/rtpTransceiver.ts:18](https://github.com/shinyoshi
 
 **Returns:** [*RTCRtpCodecParameters*](rtcrtpcodecparameters.md)[]
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L36)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L36)
 
 • set **codecs**(`codecs`: [*RTCRtpCodecParameters*](rtcrtpcodecparameters.md)[]): *void*
 
@@ -174,7 +174,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L39)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L39)
 
 ___
 
@@ -184,7 +184,7 @@ ___
 
 **Returns:** *inactive* \| *sendonly* \| *recvonly* \| *sendrecv*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L30)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L30)
 
 • set **currentDirection**(`direction`: *inactive* \| *sendonly* \| *recvonly* \| *sendrecv*): *void*
 
@@ -196,7 +196,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L24)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L24)
 
 ___
 
@@ -206,7 +206,7 @@ ___
 
 **Returns:** *string*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L57)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L57)
 
 ## Methods
 
@@ -222,7 +222,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:61](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L61)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:61](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L61)
 
 ___
 
@@ -232,4 +232,4 @@ ___
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/media/rtpTransceiver.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/rtpTransceiver.ts#L68)
+Defined in: [webrtc/src/media/rtpTransceiver.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/rtpTransceiver.ts#L68)

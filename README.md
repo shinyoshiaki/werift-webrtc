@@ -8,7 +8,7 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 
 `npm install werift`
 
-# Documentation <WIP>
+# Documentation (WIP)
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)

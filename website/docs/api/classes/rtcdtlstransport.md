@@ -25,7 +25,7 @@ Name | Type | Default value |
 
 **Returns:** [*RTCDtlsTransport*](rtcdtlstransport.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L44)
+Defined in: [webrtc/src/transport/dtls.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L44)
 
 ## Properties
 
@@ -51,9 +51,9 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/dtls.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L37)
+Defined in: [webrtc/src/transport/dtls.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L37)
 
-Defined in: [webrtc/src/transport/dtls.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L37)
+Defined in: [webrtc/src/transport/dtls.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L37)
 
 ___
 
@@ -61,7 +61,7 @@ ___
 
 • **dtls**: *DtlsSocket*
 
-Defined in: [webrtc/src/transport/dtls.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L34)
+Defined in: [webrtc/src/transport/dtls.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L34)
 
 ___
 
@@ -75,7 +75,7 @@ ___
 
 • `Private` `Optional` **localCertificate**: [*RTCCertificate*](rtccertificate.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L44)
+Defined in: [webrtc/src/transport/dtls.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L44)
 
 ___
 
@@ -83,7 +83,7 @@ ___
 
 • `Readonly` **onStateChange**: *default*<[*new* \| *connecting* \| *connected* \| *closed* \| *failed*]\>
 
-Defined in: [webrtc/src/transport/dtls.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L42)
+Defined in: [webrtc/src/transport/dtls.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L42)
 
 ___
 
@@ -91,7 +91,7 @@ ___
 
 • **role**: DtlsRole= "auto"
 
-Defined in: [webrtc/src/transport/dtls.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L36)
+Defined in: [webrtc/src/transport/dtls.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L36)
 
 ___
 
@@ -105,7 +105,7 @@ ___
 
 • **srtcp**: [*SrtcpSession*](srtcpsession.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L39)
+Defined in: [webrtc/src/transport/dtls.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L39)
 
 ___
 
@@ -113,7 +113,7 @@ ___
 
 • **srtp**: [*SrtpSession*](srtpsession.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L38)
+Defined in: [webrtc/src/transport/dtls.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L38)
 
 ___
 
@@ -121,7 +121,7 @@ ___
 
 • **srtpStarted**: *boolean*= false
 
-Defined in: [webrtc/src/transport/dtls.ts:133](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L133)
+Defined in: [webrtc/src/transport/dtls.ts:133](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L133)
 
 ___
 
@@ -129,7 +129,7 @@ ___
 
 • **state**: *new* \| *connecting* \| *connected* \| *closed* \| *failed*= "new"
 
-Defined in: [webrtc/src/transport/dtls.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L35)
+Defined in: [webrtc/src/transport/dtls.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L35)
 
 ___
 
@@ -137,7 +137,7 @@ ___
 
 • **transportSequenceNumber**: *number*= 0
 
-Defined in: [webrtc/src/transport/dtls.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L40)
+Defined in: [webrtc/src/transport/dtls.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L40)
 
 ## Accessors
 
@@ -147,7 +147,7 @@ Defined in: [webrtc/src/transport/dtls.ts:40](https://github.com/shinyoshiaki/we
 
 **Returns:** *RTCDtlsParameters*
 
-Defined in: [webrtc/src/transport/dtls.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L53)
+Defined in: [webrtc/src/transport/dtls.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L53)
 
 ## Methods
 
@@ -163,7 +163,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/dtls.ts:171](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L171)
+Defined in: [webrtc/src/transport/dtls.ts:171](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L171)
 
 ___
 
@@ -179,7 +179,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/dtls.ts:181](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L181)
+Defined in: [webrtc/src/transport/dtls.ts:181](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L181)
 
 ___
 
@@ -196,7 +196,7 @@ Name | Type |
 
 **Returns:** *number*
 
-Defined in: [webrtc/src/transport/dtls.ts:175](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L175)
+Defined in: [webrtc/src/transport/dtls.ts:175](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L175)
 
 ___
 
@@ -212,7 +212,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L191)
+Defined in: [webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L191)
 
 ___
 
@@ -222,7 +222,7 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/dtls.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L59)
+Defined in: [webrtc/src/transport/dtls.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L59)
 
 ___
 
@@ -238,7 +238,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/dtls.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L80)
+Defined in: [webrtc/src/transport/dtls.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L80)
 
 ___
 
@@ -248,7 +248,7 @@ ___
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/dtls.ts:134](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L134)
+Defined in: [webrtc/src/transport/dtls.ts:134](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L134)
 
 ___
 
@@ -258,4 +258,4 @@ ___
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/dtls.ts:198](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/transport/dtls.ts#L198)
+Defined in: [webrtc/src/transport/dtls.ts:198](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/dtls.ts#L198)
