@@ -25,8 +25,10 @@
 // 192 to 254 - available
 // 255        - reserved for IETF-defined Chunk Extensions
 
+import debug from "debug";
 import { jspack } from "jspack";
 const crc32c = require("turbo-crc32/crc32c");
+const log = debug("werift/sctp/chunk");
 
 export class Chunk {
   public get body(): Buffer | undefined {
@@ -174,7 +176,7 @@ export class DataChunk extends Chunk {
   }
   tsn: number = 0;
   streamId: number = 0;
-  streamSeq: number = 0;
+  streamSeqNum: number = 0;
   protocol: number = 0;
   userData: Buffer = Buffer.from("");
   abandoned: boolean = false;
@@ -182,7 +184,7 @@ export class DataChunk extends Chunk {
   misses: number = 0;
   retransmit: boolean = false;
   sentCount: number = 0;
-  bookSize?: number;
+  bookSize: number = 0;
   expiry?: number;
   maxRetransmits?: number;
   sentTime?: number;
@@ -190,15 +192,19 @@ export class DataChunk extends Chunk {
   constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
     if (body) {
-      [this.tsn, this.streamId, this.streamSeq, this.protocol] = jspack.Unpack(
-        "!LHHL",
-        body
-      );
+      [
+        this.tsn,
+        this.streamId,
+        this.streamSeqNum,
+        this.protocol,
+      ] = jspack.Unpack("!LHHL", body);
       this.userData = body.slice(12);
     }
   }
 
   get bytes() {
+    if (!this.userData.length) log("userData is empty");
+
     const length = 16 + this.userData.length;
     let data = Buffer.concat([
       Buffer.from(
@@ -208,7 +214,7 @@ export class DataChunk extends Chunk {
           length,
           this.tsn,
           this.streamId,
-          this.streamSeq,
+          this.streamSeqNum,
           this.protocol,
         ])
       ),
@@ -286,6 +292,22 @@ export class HeartbeatAckChunk extends BaseParamsChunk {
   }
 }
 
+// https://tools.ietf.org/html/rfc6525#section-3.1
+// chunkReconfig represents an SCTP Chunk used to reconfigure streams.
+//
+//  0                   1                   2                   3
+//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// | Type = 130    |  Chunk Flags  |      Chunk Length             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// \                                                               \
+// /                  Re-configuration Parameter                   /
+// \                                                               \
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// \                                                               \
+// /             Re-configuration Parameter (optional)             /
+// \                                                               \
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class ReconfigChunk extends BaseParamsChunk {
   static type = 130;
 
@@ -412,10 +434,13 @@ const CHUNK_CLASSES: typeof Chunk[] = [
   ForwardTsnChunk,
 ];
 
-export const CHUNK_TYPES = CHUNK_CLASSES.reduce((acc, cur) => {
-  acc[cur.type] = cur;
-  return acc;
-}, {} as { [key: string]: typeof Chunk });
+export const CHUNK_BY_TYPE = CHUNK_CLASSES.reduce(
+  (acc: { [key: string]: typeof Chunk }, cur) => {
+    acc[cur.type] = cur;
+    return acc;
+  },
+  {}
+);
 
 function padL(l: number) {
   const m = l % 4;
@@ -480,7 +505,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
       data.slice(pos)
     );
     const chunkBody = data.slice(pos + 4, pos + chunkLength);
-    const ChunkClass = CHUNK_TYPES[chunkType.toString()];
+    const ChunkClass = CHUNK_BY_TYPE[chunkType.toString()];
     if (ChunkClass) {
       chunks.push(new ChunkClass(chunkFlags, chunkBody));
     } else {

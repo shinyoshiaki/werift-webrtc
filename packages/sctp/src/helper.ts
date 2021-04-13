@@ -10,9 +10,9 @@ export async function sleep(ms: number) {
 
 export type Unpacked<T> = T extends { [K in keyof T]: infer U } ? U : never;
 
-export function createEventsFromList(list: any) {
-  return list.reduce((acc, cur) => {
+export function createEventsFromList<T extends any>(list: readonly T[]) {
+  return list.reduce((acc: any, cur: T) => {
     acc[cur] = new Event();
     return acc;
-  }, {} as any);
+  }, {});
 }

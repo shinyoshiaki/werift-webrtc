@@ -1,7 +1,7 @@
 import { Event } from "rx.mini";
 import { RTCSctpTransport } from "./transport/sctp";
 
-type DCState = "open" | "closed" | "connecting" | "closing";
+export type DCState = "open" | "closed" | "connecting" | "closing";
 
 export class RTCDataChannelParameters {
   label = "";
@@ -20,11 +20,11 @@ export class RTCDataChannel {
   readonly stateChanged = new Event<[DCState]>();
   readonly message = new Event<[string | Buffer]>();
   readonly bufferedAmountLow = new Event();
-
+  isCreatedByRemote = false;
   id: number = this.parameters.id;
   readyState: DCState = "connecting";
 
-  private bufferedAmount = 0;
+  bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
   constructor(
     private readonly transport: RTCSctpTransport,

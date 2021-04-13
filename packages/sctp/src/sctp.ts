@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from "crypto";
+import debug from "debug";
 import { jspack } from "jspack";
 import { range } from "lodash";
 import { Event } from "rx.mini";
@@ -26,14 +27,19 @@ import {
 import { SCTP_STATE } from "./const";
 import { createEventsFromList, enumerate, Unpacked } from "./helper";
 import {
-  RECONFIG_PARAM_TYPES,
+  OutgoingSSNResetRequestParam,
+  ReconfigResponseParam,
+  reconfigResult,
+  RECONFIG_PARAM_BY_TYPES,
   StreamAddOutgoingParam,
   StreamParam,
-  StreamResetOutgoingParam,
-  StreamResetResponseParam,
 } from "./param";
 import { Transport } from "./transport";
 import { random32, uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./utils";
+
+const log = debug("werift/sctp/sctp");
+
+// SSN: Stream Sequence Number
 
 // # local constants
 const COOKIE_LENGTH = 24;
@@ -73,10 +79,12 @@ const SCTPConnectionStates = [
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
-  stateChanged: {
+  readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
-
+  readonly onReconfigStreams = new Event<[number[]]>();
+  /**streamId: number, ppId: number, data: Buffer */
+  readonly onReceive = new Event<[number, number, Buffer]>();
   associationState = SCTP_STATE.CLOSED;
   started = false;
   state: SCTPConnectionState = "new";
@@ -109,8 +117,9 @@ export class SCTP {
   private forwardTsnChunk?: ForwardTsnChunk;
   private flightSize = 0;
   outboundQueue: DataChunk[] = [];
-  private outboundStreamSeq: { [key: number]: number } = {};
+  private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
+  /**local transmission sequence number */
   private localTsn = Number(random32());
   private lastSackedTsn = tsnMinusOne(this.localTsn);
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
@@ -119,9 +128,11 @@ export class SCTP {
 
   // # reconfiguration
 
+  /**初期TSNと同じ値に初期化される単調に増加する数です. これは、新しいre-configuration requestパラメーターを送信するたびに1ずつ増加します */
   reconfigRequestSeq = this.localTsn;
+  /**このフィールドは、incoming要求のre-configuration requestシーケンス番号を保持します. 他の場合では、次に予想されるre-configuration requestシーケンス番号から1を引いた値が保持されます */
   reconfigResponseSeq = 0;
-  reconfigRequest?: StreamResetOutgoingParam;
+  reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
 
   // rtt calculation
@@ -154,6 +165,7 @@ export class SCTP {
     if (this._inboundStreamsCount > 0)
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
   }
+
   static client(transport: Transport, port = 5000) {
     const sctp = new SCTP(transport, port);
     sctp.isServer = false;
@@ -168,12 +180,14 @@ export class SCTP {
 
   // call from dtls transport
   private handleData(data: Buffer) {
-    let expectedTag;
+    let expectedTag: number;
 
     const [, , verificationTag, chunks] = parsePacket(data);
     const initChunk = chunks.filter((v) => v.type === InitChunk.type).length;
     if (initChunk > 0) {
-      if (chunks.length != 1) throw new Error();
+      if (chunks.length != 1) {
+        throw new Error();
+      }
       expectedTag = 0;
     } else {
       expectedTag = this.localVerificationTag;
@@ -262,7 +276,7 @@ export class SCTP {
           const initAck = chunk as InitAckChunk;
           this.t1Cancel();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
-          this.reconfigRequestSeq = tsnMinusOne(initAck.initialTsn);
+          this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
           this.remoteVerificationTag = initAck.initiateTag;
           this.ssthresh = initAck.advertisedRwnd;
           this.getExtensions(initAck.params);
@@ -311,6 +325,7 @@ export class SCTP {
         }
         break;
       case ErrorChunk.type:
+        log("ErrorChunk", chunk);
         if (
           [SCTP_STATE.COOKIE_WAIT, SCTP_STATE.COOKIE_ECHOED].indexOf(
             this.associationState
@@ -331,7 +346,7 @@ export class SCTP {
             cookie?.length != COOKIE_LENGTH ||
             !cookie.slice(4).equals(digest)
           ) {
-            // console.log("x State cookie is invalid");
+            log("x State cookie is invalid");
             return;
           }
           const now = Date.now() / 1000;
@@ -366,10 +381,10 @@ export class SCTP {
       case ReconfigChunk.type:
         if (this.associationState === SCTP_STATE.ESTABLISHED) {
           const reconfig = chunk as ReConfigChunk;
-          for (const param of reconfig.params) {
-            const target = RECONFIG_PARAM_TYPES[param[0]];
+          for (const [type, body] of reconfig.params) {
+            const target = RECONFIG_PARAM_BY_TYPES[type];
             if (target) {
-              this.receiveReconfigParam(target.parse(param[1]));
+              this.receiveReconfigParam(target.parse(body));
             }
           }
         }
@@ -390,26 +405,47 @@ export class SCTP {
     }
   }
 
-  onDeleteStreams = (streamIds: number[]) => {};
-
   private receiveReconfigParam(param: StreamParam) {
+    log("receiveReconfigParam", RECONFIG_PARAM_BY_TYPES[param.type]);
     switch (param.type) {
-      case StreamResetOutgoingParam.type: {
-        const reset = param as StreamResetOutgoingParam;
-        const streamIds = reset.streams.map((streamId) => {
-          delete this.inboundStreams[streamId];
-          return streamId;
-        });
-        this.onDeleteStreams(streamIds);
-        const res = new StreamResetResponseParam(reset.requestSequence, 1);
-        this.reconfigResponseSeq = reset.requestSequence;
-        this.sendReconfigParam(res);
-        break;
-      }
-      case StreamResetResponseParam.type:
+      case OutgoingSSNResetRequestParam.type:
         {
-          const reset = param as StreamResetResponseParam;
-          if (
+          const p = param as OutgoingSSNResetRequestParam;
+
+          // # send response
+          const response = new ReconfigResponseParam(
+            p.requestSequence,
+            reconfigResult.ReconfigResultSuccessPerformed
+          );
+          this.reconfigResponseSeq = p.requestSequence;
+          this.sendReconfigParam(response);
+
+          // # mark closed inbound streams
+          p.streams.forEach((streamId) => {
+            delete this.inboundStreams[streamId];
+            if (this.outboundStreamSeq[streamId]) {
+              this.reconfigQueue.push(streamId);
+
+              this.sendResetRequest(streamId);
+            }
+          });
+          // # close data channel
+          this.onReconfigStreams.execute(p.streams);
+
+          this.transmitReconfig();
+        }
+        break;
+      case ReconfigResponseParam.type:
+        {
+          const reset = param as ReconfigResponseParam;
+          if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
+            log(
+              "OutgoingSSNResetRequestParam failed",
+              Object.keys(reconfigResult).find(
+                (key) => reconfigResult[key as never] === reset.result
+              )
+            );
+          } else if (
             this.reconfigRequest &&
             reset.responseSequence === this.reconfigRequest.requestSequence
           ) {
@@ -417,7 +453,9 @@ export class SCTP {
               delete this.outboundStreamSeq[streamId];
               return streamId;
             });
-            this.onDeleteStreams(streamIds);
+
+            this.onReconfigStreams.execute(streamIds);
+
             this.reconfigRequest = undefined;
             this.transmitReconfig();
           }
@@ -427,7 +465,7 @@ export class SCTP {
         {
           const add = param as StreamAddOutgoingParam;
           this._inboundStreamsCount += add.newStreams;
-          const res = new StreamResetResponseParam(add.requestSequence, 1);
+          const res = new ReconfigResponseParam(add.requestSequence, 1);
           this.reconfigResponseSeq = add.requestSequence;
           this.sendReconfigParam(res);
         }
@@ -471,7 +509,7 @@ export class SCTP {
       const sChunk = this.sentQueue.shift()!;
       done++;
       if (!sChunk?.acked) {
-        doneBytes += sChunk.bookSize!;
+        doneBytes += sChunk.bookSize;
         this.flightSizeDecrease(sChunk);
       }
 
@@ -498,7 +536,7 @@ export class SCTP {
           break;
         }
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
-          doneBytes += sChunk.bookSize!;
+          doneBytes += sChunk.bookSize;
           sChunk.acked = true;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
@@ -587,11 +625,11 @@ export class SCTP {
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
     // # update reassembly
-    for (const [streamId, streamSeq] of chunk.streams) {
+    for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
 
       // # advance sequence number and perform delivery
-      inboundStream.sequenceNumber = uint16Add(streamSeq, 1);
+      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
       for (const message of inboundStream.popMessages()) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);
@@ -620,9 +658,8 @@ export class SCTP {
     );
   }
 
-  onReceive?: (streamId: number, ppId: number, data: Buffer) => void;
   private receive(streamId: number, ppId: number, data: Buffer) {
-    if (this.onReceive) this.onReceive(streamId, ppId, data);
+    this.onReceive.execute(streamId, ppId, data);
   }
 
   private getInboundStream(streamId: number) {
@@ -663,7 +700,7 @@ export class SCTP {
     maxRetransmits: number | undefined = undefined,
     ordered = true
   ) {
-    const streamSeq = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
+    const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
     const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
     let pos = 0;
@@ -682,7 +719,7 @@ export class SCTP {
       }
       chunk.tsn = this.localTsn;
       chunk.streamId = streamId;
-      chunk.streamSeq = streamSeq;
+      chunk.streamSeqNum = streamSeqNum;
       chunk.protocol = ppId;
       chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
       chunk.bookSize = chunk.userData.length;
@@ -695,7 +732,7 @@ export class SCTP {
     }
 
     if (ordered) {
-      this.outboundStreamSeq[streamId] = uint16Add(streamSeq, 1);
+      this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
     }
 
     if (!this.t3Handle) {
@@ -737,7 +774,7 @@ export class SCTP {
 
         chunk.misses = 0;
         chunk.retransmit = false;
-        chunk.sentCount!++;
+        chunk.sentCount++;
         this.sendChunk(chunk);
 
         if (retransmitEarliest) {
@@ -749,12 +786,16 @@ export class SCTP {
 
     // for performance
     while (this.outboundQueue.length > 0) {
-      const chunk = this.outboundQueue.shift()!;
+      const chunk = this.outboundQueue.shift();
+      if (!chunk) {
+        log("outboundQueue empty");
+        return;
+      }
       this.sentQueue.push(chunk);
       this.flightSizeIncrease(chunk);
 
       // # update counters
-      chunk.sentCount!++;
+      chunk.sentCount++;
       chunk.sentTime = Date.now() / 1000;
 
       this.sendChunk(chunk);
@@ -771,8 +812,9 @@ export class SCTP {
       !this.reconfigRequest
     ) {
       const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
+
       this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
-      const param = new StreamResetOutgoingParam(
+      const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
         this.reconfigResponseSeq,
         tsnMinusOne(this.localTsn),
@@ -780,18 +822,22 @@ export class SCTP {
       );
       this.reconfigRequest = param;
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
+
       this.sendReconfigParam(param);
     }
   }
 
   sendReconfigParam(param: StreamParam) {
+    log("sendReconfigParam", param);
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
     this.sendChunk(chunk);
   }
 
-  sendResetRequest(streamId: number) {
-    const chunk = new DataChunk(3, undefined);
+  // https://github.com/pion/sctp/pull/44/files
+  private sendResetRequest(streamId: number) {
+    log("sendResetRequest", streamId);
+    const chunk = new DataChunk(0, undefined);
     chunk.streamId = streamId;
     this.outboundQueue.push(chunk);
     if (!this.t3Handle) {
@@ -800,11 +846,11 @@ export class SCTP {
   }
 
   private flightSizeIncrease(chunk: DataChunk) {
-    this.flightSize += chunk.bookSize!;
+    this.flightSize += chunk.bookSize;
   }
 
   private flightSizeDecrease(chunk: DataChunk) {
-    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize!);
+    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
   }
 
   // # timers
@@ -919,7 +965,7 @@ export class SCTP {
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
-        streams[chunk.streamId] = chunk.streamSeq;
+        streams[chunk.streamId] = chunk.streamSeqNum;
       }
     }
 
@@ -1058,7 +1104,9 @@ export class SCTP {
 
 export class InboundStream {
   reassembly: DataChunk[] = [];
-  sequenceNumber = 0;
+  streamSequenceNumber = 0; // SSN
+
+  constructor() {}
 
   addChunk(chunk: DataChunk) {
     if (
@@ -1096,7 +1144,10 @@ export class InboundStream {
             continue;
           }
         }
-        if (ordered && uint16Gt(chunk.streamSeq, this.sequenceNumber)) {
+        if (
+          ordered &&
+          uint16Gt(chunk.streamSeqNum, this.streamSequenceNumber)
+        ) {
           break;
         }
         expectedTsn = chunk.tsn;
@@ -1127,8 +1178,8 @@ export class InboundStream {
           ...this.reassembly.slice(0, startPos),
           ...this.reassembly.slice(pos + 1),
         ];
-        if (ordered && chunk.streamSeq === this.sequenceNumber) {
-          this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
+        if (ordered && chunk.streamSeqNum === this.streamSequenceNumber) {
+          this.streamSequenceNumber = uint16Add(this.streamSequenceNumber, 1);
         }
         pos = startPos;
         yield [chunk.streamId, chunk.protocol, userData];

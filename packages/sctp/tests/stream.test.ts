@@ -15,11 +15,11 @@ describe("SctpStreamTest", () => {
 
     stream.addChunk(chunks[0]);
     expect(stream.reassembly).toEqual([chunks[0]]);
-    expect(stream.sequenceNumber).toBe(0);
+    expect(stream.streamSequenceNumber).toBe(0);
 
     stream.popMessages();
     expect(stream.reassembly).toEqual([chunks[0]]);
-    expect(stream.sequenceNumber).toEqual(0);
+    expect(stream.streamSequenceNumber).toEqual(0);
 
     try {
       stream.addChunk(chunks[0]);
@@ -40,19 +40,19 @@ describe("SctpStreamTest", () => {
 
     stream.addChunk(chunks[0]);
     expect(stream.reassembly).toEqual([chunks[0]]);
-    expect(stream.sequenceNumber).toEqual(0);
+    expect(stream.streamSequenceNumber).toEqual(0);
 
     expect([...stream.popMessages()]).toEqual([[456, 123, Buffer.from("foo")]]);
     expect(stream.reassembly).toEqual([]);
-    expect(stream.sequenceNumber).toEqual(1);
+    expect(stream.streamSequenceNumber).toEqual(1);
 
     stream.addChunk(chunks[1]);
     expect(stream.reassembly).toEqual([chunks[1]]);
-    expect(stream.sequenceNumber).toEqual(1);
+    expect(stream.streamSequenceNumber).toEqual(1);
 
     expect([...stream.popMessages()]).toEqual([[456, 123, Buffer.from("bar")]]);
     expect(stream.reassembly).toEqual([]);
-    expect(stream.sequenceNumber).toEqual(2);
+    expect(stream.streamSequenceNumber).toEqual(2);
   });
 });
 
@@ -72,7 +72,7 @@ class ChunkFactory {
       const chunk = new DataChunk(flags, undefined);
       chunk.protocol = 123;
       chunk.streamId = 456;
-      if (ordered) chunk.streamSeq = this.streamSeq;
+      if (ordered) chunk.streamSeqNum = this.streamSeq;
       chunk.tsn = this.tsn;
       chunk.userData = frag;
       chunks.push(chunk);
