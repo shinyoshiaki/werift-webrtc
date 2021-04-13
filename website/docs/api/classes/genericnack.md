@@ -16,13 +16,13 @@ hide_title: true
 
 #### Parameters:
 
-Name | Type |
-:------ | :------ |
-`props` | *Partial*<[*GenericNack*](genericnack.md)\> |
+Name | Type | Default value |
+:------ | :------ | :------ |
+`props` | *Partial*<[*GenericNack*](genericnack.md)\> | {} |
 
 **Returns:** [*GenericNack*](genericnack.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L11)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L11)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/rtpfb/nack.ts:11](https://github.com/shinyoshiaki/weri
 
 • `Readonly` **count**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L7)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L7)
 
 ___
 
@@ -38,15 +38,15 @@ ___
 
 • **header**: [*RtcpHeader*](rtcpheader.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L8)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L8)
 
 ___
 
 ### lost
 
-• **lost**: *number*[]
+• **lost**: *number*[]= []
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L11)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L11)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **mediaSourceSsrc**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L10)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L10)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • **senderSsrc**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L9)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L9)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 ▪ `Static` **count**: *number*= 1
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L6)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L6)
 
 ## Methods
 
@@ -80,7 +80,7 @@ Defined in: [rtp/src/rtcp/rtpfb/nack.ts:6](https://github.com/shinyoshiaki/werif
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L48)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L48)
 
 ___
 
@@ -97,4 +97,4 @@ Name | Type |
 
 **Returns:** [*GenericNack*](genericnack.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/nack.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/nack.ts#L24)
+Defined in: [rtp/src/rtcp/rtpfb/nack.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/nack.ts#L24)

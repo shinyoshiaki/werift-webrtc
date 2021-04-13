@@ -48,5 +48,12 @@ module.exports = [
       "api/classes/statusvectorchunk",
       "api/classes/transportwidecc"
     ]
+  },
+  {
+    "type": "category",
+    "label": "Interfaces",
+    "items": [
+      "api/interfaces/transceiveroptions"
+    ]
   }
 ];

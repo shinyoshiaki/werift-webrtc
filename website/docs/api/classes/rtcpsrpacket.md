@@ -16,21 +16,21 @@ hide_title: true
 
 #### Parameters:
 
-Name | Type |
-:------ | :------ |
-`props` | *Partial*<[*RtcpSrPacket*](rtcpsrpacket.md)\> |
+Name | Type | Default value |
+:------ | :------ | :------ |
+`props` | *Partial*<[*RtcpSrPacket*](rtcpsrpacket.md)\> | {} |
 
 **Returns:** [*RtcpSrPacket*](rtcpsrpacket.md)
 
-Defined in: [rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L11)
+Defined in: [rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L11)
 
 ## Properties
 
 ### reports
 
-• **reports**: [*RtcpReceiverInfo*](rtcpreceiverinfo.md)[]
+• **reports**: [*RtcpReceiverInfo*](rtcpreceiverinfo.md)[]= []
 
-Defined in: [rtp/src/rtcp/sr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L9)
+Defined in: [rtp/src/rtcp/sr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L9)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **senderInfo**: [*RtcpSenderInfo*](rtcpsenderinfo.md)
 
-Defined in: [rtp/src/rtcp/sr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L8)
+Defined in: [rtp/src/rtcp/sr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L8)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **ssrc**: *number*= 0
 
-Defined in: [rtp/src/rtcp/sr.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L7)
+Defined in: [rtp/src/rtcp/sr.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L7)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **type**: *number*
 
-Defined in: [rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L11)
+Defined in: [rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L11)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 ▪ `Static` **type**: *number*= 200
 
-Defined in: [rtp/src/rtcp/sr.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L10)
+Defined in: [rtp/src/rtcp/sr.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L10)
 
 ## Methods
 
@@ -72,7 +72,7 @@ Defined in: [rtp/src/rtcp/sr.ts:10](https://github.com/shinyoshiaki/werift-webrt
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/sr.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L17)
+Defined in: [rtp/src/rtcp/sr.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L17)
 
 ___
 
@@ -89,4 +89,4 @@ Name | Type |
 
 **Returns:** [*RtcpSrPacket*](rtcpsrpacket.md)
 
-Defined in: [rtp/src/rtcp/sr.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/sr.ts#L33)
+Defined in: [rtp/src/rtcp/sr.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/sr.ts#L33)

@@ -16,13 +16,13 @@ hide_title: true
 
 #### Parameters:
 
-Name | Type |
-:------ | :------ |
-`props` | *Partial*<[*RtcpPayloadSpecificFeedback*](rtcppayloadspecificfeedback.md)\> |
+Name | Type | Default value |
+:------ | :------ | :------ |
+`props` | *Partial*<[*RtcpPayloadSpecificFeedback*](rtcppayloadspecificfeedback.md)\> | {} |
 
 **Returns:** [*RtcpPayloadSpecificFeedback*](rtcppayloadspecificfeedback.md)
 
-Defined in: [rtp/src/rtcp/psfb/index.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/psfb/index.ts#L16)
+Defined in: [rtp/src/rtcp/psfb/index.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/psfb/index.ts#L16)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/psfb/index.ts:16](https://github.com/shinyoshiaki/weri
 
 • **feedback**: Feedback
 
-Defined in: [rtp/src/rtcp/psfb/index.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/psfb/index.ts#L16)
+Defined in: [rtp/src/rtcp/psfb/index.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/psfb/index.ts#L16)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **type**: *number*
 
-Defined in: [rtp/src/rtcp/psfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/psfb/index.ts#L14)
+Defined in: [rtp/src/rtcp/psfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/psfb/index.ts#L14)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 ▪ `Static` **type**: *number*= 206
 
-Defined in: [rtp/src/rtcp/psfb/index.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/psfb/index.ts#L13)
+Defined in: [rtp/src/rtcp/psfb/index.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/psfb/index.ts#L13)
 
 ## Methods
 
@@ -56,7 +56,7 @@ Defined in: [rtp/src/rtcp/psfb/index.ts:13](https://github.com/shinyoshiaki/weri
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/psfb/index.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/psfb/index.ts#L22)
+Defined in: [rtp/src/rtcp/psfb/index.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/psfb/index.ts#L22)
 
 ___
 
@@ -73,4 +73,4 @@ Name | Type |
 
 **Returns:** [*RtcpPayloadSpecificFeedback*](rtcppayloadspecificfeedback.md)
 
-Defined in: [rtp/src/rtcp/psfb/index.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/psfb/index.ts#L32)
+Defined in: [rtp/src/rtcp/psfb/index.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/psfb/index.ts#L32)

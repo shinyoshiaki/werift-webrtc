@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RTCRtpCodecParameters*](rtcrtpcodecparameters.md)
 
-Defined in: [webrtc/src/media/parameters.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L35)
+Defined in: [webrtc/src/media/parameters.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L35)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [webrtc/src/media/parameters.ts:35](https://github.com/shinyoshiaki/
 
 • `Optional` **channels**: *number*
 
-Defined in: [webrtc/src/media/parameters.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L33)
+Defined in: [webrtc/src/media/parameters.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L33)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **clockRate**: *number*
 
-Defined in: [webrtc/src/media/parameters.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L32)
+Defined in: [webrtc/src/media/parameters.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L32)
 
 ___
 
@@ -46,17 +46,17 @@ ___
 
 • **mimeType**: *string*
 
-Defined in: [webrtc/src/media/parameters.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L31)
+Defined in: [webrtc/src/media/parameters.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L31)
 
 ___
 
 ### parameters
 
-• **parameters**: *object*
+• **parameters**: *object*= {}
 
 #### Type declaration:
 
-Defined in: [webrtc/src/media/parameters.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L35)
+Defined in: [webrtc/src/media/parameters.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L35)
 
 ___
 
@@ -64,15 +64,15 @@ ___
 
 • **payloadType**: *number*
 
-Defined in: [webrtc/src/media/parameters.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L30)
+Defined in: [webrtc/src/media/parameters.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L30)
 
 ___
 
 ### rtcpFeedback
 
-• **rtcpFeedback**: RTCPFB[]
+• **rtcpFeedback**: RTCPFB[]= []
 
-Defined in: [webrtc/src/media/parameters.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L34)
+Defined in: [webrtc/src/media/parameters.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L34)
 
 ## Accessors
 
@@ -82,7 +82,7 @@ Defined in: [webrtc/src/media/parameters.ts:34](https://github.com/shinyoshiaki/
 
 **Returns:** *string*
 
-Defined in: [webrtc/src/media/parameters.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L44)
+Defined in: [webrtc/src/media/parameters.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L44)
 
 ___
 
@@ -92,4 +92,4 @@ ___
 
 **Returns:** *string*
 
-Defined in: [webrtc/src/media/parameters.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/webrtc/src/media/parameters.ts#L48)
+Defined in: [webrtc/src/media/parameters.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/webrtc/src/media/parameters.ts#L48)

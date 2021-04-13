@@ -1,1 +1,0 @@
-(window.webpackJsonp=window.webpackJsonp||[]).push([[16],{88:function(e){e.exports=JSON.parse('{"title":"Recent posts","items":[{"title":"Test","permalink":"/werift-webrtc/website/build/ja/blog/test"}]}')}}]);

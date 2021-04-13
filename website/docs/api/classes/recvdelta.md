@@ -16,13 +16,13 @@ hide_title: true
 
 #### Parameters:
 
-Name | Type |
-:------ | :------ |
-`props` | *Partial*<[*RecvDelta*](recvdelta.md)\> |
+Name | Type | Default value |
+:------ | :------ | :------ |
+`props` | *Partial*<[*RecvDelta*](recvdelta.md)\> | {} |
 
 **Returns:** [*RecvDelta*](recvdelta.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L351)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L351)
 
 ## Properties
 
@@ -32,7 +32,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/wer
 
 micro sec
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L351)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L351)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 • **parsed**: *boolean*= false
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:379](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L379)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:379](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L379)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 optional (If undefined, it will be set automatically.)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:347](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L347)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:347](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L347)
 
 ## Methods
 
@@ -66,7 +66,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:374](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L374)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:374](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L374)
 
 ___
 
@@ -76,7 +76,7 @@ ___
 
 **Returns:** *void*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:380](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L380)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:380](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L380)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:393](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L393)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:393](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L393)
 
 ___
 
@@ -102,4 +102,4 @@ Name | Type |
 
 **Returns:** [*RecvDelta*](recvdelta.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:357](https://github.com/shinyoshiaki/werift-webrtc/blob/92b5725/packages/rtp/src/rtcp/rtpfb/twcc.ts#L357)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:357](https://github.com/shinyoshiaki/werift-webrtc/blob/8232339/packages/rtp/src/rtcp/rtpfb/twcc.ts#L357)
