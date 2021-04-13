@@ -20,6 +20,11 @@ export class RTCDataChannel {
   readonly stateChanged = new Event<[DCState]>();
   readonly message = new Event<[string | Buffer]>();
   readonly bufferedAmountLow = new Event();
+  onopen?: (() => void) | null = () => {};
+  onclose?: (() => void) | null = () => {};
+  onclosing?: (() => void) | null = () => {};
+  // todo impl
+  onerror?: ((props: { error: any }) => void) | null = () => {};
   isCreatedByRemote = false;
   id: number = this.parameters.id;
   readyState: DCState = "connecting";
@@ -90,6 +95,18 @@ export class RTCDataChannel {
     if (state !== this.readyState) {
       this.readyState = state;
       this.stateChanged.execute(state);
+
+      switch (state) {
+        case "open":
+          if (this.onopen) this.onopen();
+          break;
+        case "closed":
+          if (this.onclose) this.onclose();
+          break;
+        case "closing":
+          if (this.onclosing) this.onclosing();
+          break;
+      }
     }
   }
 

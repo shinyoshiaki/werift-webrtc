@@ -3,7 +3,6 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 import { enumerate } from "./helper";
 import { ConnectionState, Kind, SignalingState } from "./types/domain";
-import { IceOptions } from "../../ice/src";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -63,7 +62,8 @@ const log = debug("werift/webrtc/peerConnection");
 
 export class RTCPeerConnection {
   readonly cname = uuid.v4();
-  dtlsTransport?: RTCDtlsTransport;
+  iceTransport: RTCIceTransport;
+  dtlsTransport: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
   configuration: Required<PeerConfig> = cloneDeep<PeerConfig>(
@@ -83,6 +83,9 @@ export class RTCPeerConnection {
   readonly onTransceiver = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onnegotiationneeded = new Event<[]>();
+  ondatachannel?:
+    | ((event: { channel: RTCDataChannel }) => void)
+    | null = () => {};
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -140,6 +143,12 @@ export class RTCPeerConnection {
           break;
       }
     });
+
+    const { iceTransport, dtlsTransport } = this.createTransport([
+      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+    ]);
+    this.iceTransport = iceTransport;
+    this.dtlsTransport = dtlsTransport;
   }
 
   get localDescription() {
@@ -273,7 +282,7 @@ export class RTCPeerConnection {
       negotiated: boolean;
       id?: number;
     }> = {}
-  ) {
+  ): RTCDataChannel {
     const base: typeof options = {
       protocol: "",
       ordered: true,
@@ -334,9 +343,7 @@ export class RTCPeerConnection {
     this.onnegotiationneeded.execute();
   };
 
-  private createDtlsTransport(srtpProfiles: number[] = []) {
-    if (this.dtlsTransport) return this.dtlsTransport;
-
+  private createTransport(srtpProfiles: number[] = []) {
     const iceGatherer = new RTCIceGatherer({
       ...parseIceServers(this.configuration.iceServers),
       forceTurn: this.configuration.iceTransportPolicy === "relay",
@@ -360,25 +367,23 @@ export class RTCPeerConnection {
       this.onIceCandidate.execute(candidate);
     };
 
-    const dtls = new RTCDtlsTransport(
+    const dtlsTransport = new RTCDtlsTransport(
       iceTransport,
       this.router,
       this.certificates,
       srtpProfiles
     );
-    this.dtlsTransport = dtls;
 
-    return dtls;
+    return { dtlsTransport, iceTransport };
   }
 
   private createSctpTransport() {
-    const sctp = new RTCSctpTransport(
-      this.createDtlsTransport([SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80])
-    );
+    const sctp = new RTCSctpTransport(this.dtlsTransport);
     sctp.mid = undefined;
 
     sctp.onDataChannel.subscribe((dc) => {
       this.onDataChannel.execute(dc);
+      if (this.ondatachannel) this.ondatachannel({ channel: dc });
     });
 
     return sctp;
@@ -461,12 +466,8 @@ export class RTCPeerConnection {
   }
 
   async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
-    if (!this.dtlsTransport) throw new Error();
-
     const candidate = RTCIceCandidate.fromJSON(candidateMessage);
-
-    const iceTransport = this.dtlsTransport.iceTransport;
-    await iceTransport.addRemoteCandidate(candidate);
+    await this.iceTransport.addRemoteCandidate(candidate);
   }
 
   private async connect() {
@@ -727,23 +728,19 @@ export class RTCPeerConnection {
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {}
   ) {
-    const dtlsTransport = this.createDtlsTransport([
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
-
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
 
     const direction = options.direction || "sendrecv";
 
-    const sender = new RTCRtpSender(trackOrKind, dtlsTransport);
-    const receiver = new RTCRtpReceiver(kind, dtlsTransport, sender.ssrc);
+    const sender = new RTCRtpSender(trackOrKind, this.dtlsTransport);
+    const receiver = new RTCRtpReceiver(kind, this.dtlsTransport, sender.ssrc);
     const transceiver = new RTCRtpTransceiver(
       kind,
       receiver,
       sender,
       direction,
-      dtlsTransport
+      this.dtlsTransport
     );
     transceiver.options = options;
     this.router.ssrcTable[transceiver.sender.ssrc] = transceiver.sender;
