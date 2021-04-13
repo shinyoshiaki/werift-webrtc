@@ -36,18 +36,18 @@ export class RTCDataChannel {
     private readonly parameters: RTCDataChannelParameters,
     public readonly sendOpen = true
   ) {
-    if (parameters.negotiated && (!this.id || this.id < 0 || this.id > 65534))
-      throw new Error(
-        "ID must be in range 0-65534 if data channel is negotiated out-of-band"
-      );
-
-    if (!parameters.negotiated) {
+    if (parameters.negotiated) {
+      if (this.id == undefined || this.id < 0 || this.id > 65534) {
+        throw new Error(
+          "ID must be in range 0-65534 if data channel is negotiated out-of-band"
+        );
+      }
+      this.transport.dataChannelAddNegotiated(this);
+    } else {
       if (sendOpen) {
         this.sendOpen = false;
         this.transport.dataChannelOpen(this);
       }
-    } else {
-      this.transport.dataChannelAddNegotiated(this);
     }
   }
 

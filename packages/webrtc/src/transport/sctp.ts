@@ -44,6 +44,8 @@ export class RTCSctpTransport {
       ids.forEach((id) => {
         const dc = this.dataChannels[id];
         if (!dc) return;
+        // todo fix
+        dc.setReadyState("closing");
         dc.setReadyState("closed");
         delete this.dataChannels[id];
       });
@@ -131,7 +133,6 @@ export class RTCSctpTransport {
                 id: streamId,
               });
               const channel = new RTCDataChannel(this, parameters, false);
-              channel.setReadyState("open");
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
@@ -144,6 +145,7 @@ export class RTCSctpTransport {
               this.dataChannelFlush();
 
               this.onDataChannel.execute(channel);
+              channel.setReadyState("open");
             }
           }
           break;
@@ -176,8 +178,12 @@ export class RTCSctpTransport {
   };
 
   dataChannelAddNegotiated(channel: RTCDataChannel) {
-    if (!channel.id) throw new Error();
-    if (this.dataChannels[channel.id]) throw new Error();
+    if (channel.id == undefined) {
+      throw new Error();
+    }
+    if (this.dataChannels[channel.id]) {
+      throw new Error();
+    }
 
     this.dataChannels[channel.id] = channel;
 

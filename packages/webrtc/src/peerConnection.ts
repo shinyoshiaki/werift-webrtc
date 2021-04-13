@@ -381,9 +381,11 @@ export class RTCPeerConnection {
     const sctp = new RTCSctpTransport(this.dtlsTransport);
     sctp.mid = undefined;
 
-    sctp.onDataChannel.subscribe((dc) => {
-      this.onDataChannel.execute(dc);
-      if (this.ondatachannel) this.ondatachannel({ channel: dc });
+    sctp.onDataChannel.subscribe((channel) => {
+      this.onDataChannel.execute(channel);
+      if (this.ondatachannel) {
+        this.ondatachannel({ channel });
+      }
     });
 
     return sctp;

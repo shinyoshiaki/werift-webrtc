@@ -37,14 +37,18 @@ export async function createDataChannelPair(
       pair = [pc1.createDataChannel("", options)];
       bothOpen = Promise.all([
         new Promise<void>((r, e) => {
-          pair[0].onopen = r;
+          pair[0].onopen = () => {
+            r();
+          };
           pair[0].onerror = ({ error }) => e(error);
         }),
         new Promise<void>(
           (r, e) =>
             (pc2.ondatachannel = ({ channel }) => {
               pair[1] = channel;
-              channel.onopen = r;
+              channel.onopen = () => {
+                r();
+              };
               channel.onerror = ({ error }) => e(error);
             })
         ),
