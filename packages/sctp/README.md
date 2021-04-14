@@ -1,4 +1,7 @@
-SCTP Implementation for TypeScript
+# werift-sctp
+
+SCTP Implementation for TypeScript  
+based on aiortc/sctp
 
 # Example
 

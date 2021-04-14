@@ -1,11 +1,4 @@
-# `@shinyoshiaki/ice`
+# werift-ice
 
-> TODO: description
-
-## Usage
-
-```
-const ice = require('@shinyoshiaki/ice');
-
-// TODO: DEMONSTRATE API
-```
+ICE/STUN-client/TURN-client Implementation for TypeScript  
+based on aioice
