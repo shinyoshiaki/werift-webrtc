@@ -85,12 +85,14 @@ export class SCTP {
   readonly onReconfigStreams = new Event<[number[]]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
+  readonly onReceiveChunk = new Event();
+
   associationState = SCTP_STATE.CLOSED;
   started = false;
   state: SCTPConnectionState = "new";
-  private hmacKey = randomBytes(16);
   isServer = true;
 
+  private hmacKey = randomBytes(16);
   private localPartialReliability = true;
   private localPort = this.port;
   private localVerificationTag = Number(random32());
@@ -393,6 +395,7 @@ export class SCTP {
         this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
     }
+    this.onReceiveChunk.execute();
   }
 
   private getExtensions(params: [number, Buffer][]) {
