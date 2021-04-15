@@ -3,6 +3,7 @@ import { jspack } from "jspack";
 import { Event } from "rx.mini";
 import * as uuid from "uuid";
 import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
+import { SackChunk } from "../../../sctp/src/chunk";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -59,6 +60,11 @@ export class RTCSctpTransport {
         dc.setReadyState("closed");
       });
       this.dataChannels = {};
+    });
+    this.sctp.onReceiveChunk.subscribe((chunk) => {
+      if (chunk instanceof SackChunk) {
+        this.dataChannelFlush();
+      }
     });
 
     this.dtlsTransport.onStateChange.subscribe((state) => {
