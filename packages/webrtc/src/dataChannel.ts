@@ -120,8 +120,8 @@ export class RTCDataChannel {
     }
   }
 
-  async send(data: Buffer | string) {
-    await this.transport.datachannelSend(this, data);
+  send(data: Buffer | string) {
+    this.transport.datachannelSend(this, data);
   }
 
   close() {

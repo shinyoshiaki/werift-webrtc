@@ -3,6 +3,7 @@ import { jspack } from "jspack";
 import { Event } from "rx.mini";
 import * as uuid from "uuid";
 import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
+import { SackChunk } from "../../../sctp/src/chunk";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -30,12 +31,7 @@ export class RTCSctpTransport {
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
 
-  private dataChannelQueue: [
-    RTCDataChannel,
-    number,
-    Buffer,
-    Event<any> | undefined
-  ][] = [];
+  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
 
   constructor(public dtlsTransport: RTCDtlsTransport, public port = 5000) {
@@ -65,6 +61,12 @@ export class RTCSctpTransport {
       });
       this.dataChannels = {};
     });
+    this.sctp.onReceiveChunk.subscribe((chunk) => {
+      if (chunk instanceof SackChunk) {
+        this.dataChannelFlush();
+      }
+    });
+
     this.dtlsTransport.onStateChange.subscribe((state) => {
       if (state === "closed") {
         this.sctp.setState(SCTP_STATE.CLOSED);
@@ -140,7 +142,6 @@ export class RTCSctpTransport {
                 channel,
                 WEBRTC_DCEP,
                 Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
-                undefined,
               ]);
               this.dataChannelFlush();
 
@@ -230,7 +231,7 @@ export class RTCSctpTransport {
       Buffer.from(channel.label, "utf8"),
       Buffer.from(channel.protocol, "utf8"),
     ]);
-    this.dataChannelQueue.push([channel, WEBRTC_DCEP, send, undefined]);
+    this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
     this.dataChannelFlush();
   }
 
@@ -250,12 +251,7 @@ export class RTCSctpTransport {
       this.dataChannelQueue.length > 0 &&
       this.sctp.outboundQueue.length === 0
     ) {
-      const [
-        channel,
-        protocol,
-        userData,
-        done,
-      ] = this.dataChannelQueue.shift()!;
+      const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
       let streamId = channel.id;
       if (streamId === undefined) {
@@ -275,41 +271,36 @@ export class RTCSctpTransport {
         } else {
           expiry = undefined;
         }
-        this.sctp.send(
-          streamId,
-          protocol,
-          userData,
-          expiry,
-          channel.maxRetransmits,
-          channel.ordered
-        );
+        this.sctp
+          .send(
+            streamId,
+            protocol,
+            userData,
+            expiry,
+            channel.maxRetransmits,
+            channel.ordered
+          )
+          .then(() => this.dataChannelFlush());
         channel.addBufferedAmount(-userData.length);
       }
-      if (done) done.execute();
     }
   }
 
-  datachannelSend = (channel: RTCDataChannel, data: Buffer | string) =>
-    new Promise(async (r) => {
-      channel.addBufferedAmount(data.length);
-      const done = new Event();
+  datachannelSend = (channel: RTCDataChannel, data: Buffer | string) => {
+    channel.addBufferedAmount(data.length);
 
-      if (typeof data === "string") {
-        this.dataChannelQueue.push([
-          channel,
-          WEBRTC_STRING,
-          Buffer.from(data),
-          done,
-        ]);
-      } else {
-        this.dataChannelQueue.push([channel, WEBRTC_BINARY, data, done]);
-      }
-      if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
-        console.warn("sctp not established", this.sctp.associationState);
-      }
-      done.once(r);
-      this.dataChannelFlush();
-    });
+    this.dataChannelQueue.push(
+      typeof data === "string"
+        ? [channel, WEBRTC_STRING, Buffer.from(data)]
+        : [channel, WEBRTC_BINARY, data]
+    );
+
+    if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
+      log("sctp not established", this.sctp.associationState);
+    }
+
+    this.dataChannelFlush();
+  };
 
   static getCapabilities() {
     return new RTCSctpCapabilities(65536);

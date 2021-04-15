@@ -27,6 +27,7 @@
 
 import debug from "debug";
 import { jspack } from "jspack";
+import Event from "rx.mini";
 const crc32c = require("turbo-crc32/crc32c");
 const log = debug("werift/sctp/chunk");
 
@@ -188,6 +189,7 @@ export class DataChunk extends Chunk {
   expiry?: number;
   maxRetransmits?: number;
   sentTime?: number;
+  readonly onTransmit = new Event();
 
   constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
