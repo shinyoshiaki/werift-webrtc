@@ -708,7 +708,7 @@ export class SCTP {
 
       const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
       let pos = 0;
-
+      const chunks: DataChunk[] = [];
       for (const fragment of range(0, fragments)) {
         const chunk = new DataChunk(0, undefined);
         chunk.flags = 0;
@@ -732,9 +732,13 @@ export class SCTP {
 
         pos += USERDATA_MAX_LENGTH;
         this.localTsn = tsnPlusOne(this.localTsn);
-        this.outboundQueue.push(chunk);
-        chunk.onTransmit.once(r);
+        chunks.push(chunk);
       }
+
+      chunks.slice(-1)[0].onTransmit.once(r);
+      chunks.forEach((chunk) => {
+        this.outboundQueue.push(chunk);
+      });
 
       if (ordered) {
         this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
