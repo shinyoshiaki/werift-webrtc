@@ -7,6 +7,7 @@
 	<meta name="description" content="Documentation for werift">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<link rel="stylesheet" href="../assets/css/main.css">
+	<script async src="../assets/js/search.js" id="search-script"></script>
 </head>
 <body>
 <header>
@@ -40,8 +41,6 @@
 							<label class="tsd-widget" for="tsd-filter-inherited">Inherited</label>
 							<input type="checkbox" id="tsd-filter-externals" checked />
 							<label class="tsd-widget" for="tsd-filter-externals">Externals</label>
-							<input type="checkbox" id="tsd-filter-only-exported" />
-							<label class="tsd-widget" for="tsd-filter-only-exported">Only exported</label>
 						</div>
 					</div>
 					<a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a>
@@ -53,7 +52,7 @@
 		<div class="container">
 			<ul class="tsd-breadcrumb">
 				<li>
-					<a href="../globals.html">Globals</a>
+					<a href="../modules.html">werift</a>
 				</li>
 				<li>
 					<a href="rtcdatachannel.html">RTCDataChannel</a>
@@ -88,15 +87,19 @@
 							<h3>Properties</h3>
 							<ul class="tsd-index-list">
 								<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><a href="rtcdatachannel.html#_bufferedamountlowthreshold" class="tsd-kind-icon">_buffered<wbr>Amount<wbr>Low<wbr>Threshold</a></li>
-								<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><a href="rtcdatachannel.html#bufferedamount" class="tsd-kind-icon">buffered<wbr>Amount</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#bufferedamount" class="tsd-kind-icon">buffered<wbr>Amount</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#bufferedamountlow" class="tsd-kind-icon">buffered<wbr>Amount<wbr>Low</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#error" class="tsd-kind-icon">error</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#id" class="tsd-kind-icon">id</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#iscreatedbyremote" class="tsd-kind-icon">is<wbr>Created<wbr>ByRemote</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#message" class="tsd-kind-icon">message</a></li>
-								<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><a href="rtcdatachannel.html#parameters" class="tsd-kind-icon">parameters</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#onclose" class="tsd-kind-icon">onclose</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#onclosing" class="tsd-kind-icon">onclosing</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#onerror" class="tsd-kind-icon">onerror</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#onopen" class="tsd-kind-icon">onopen</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#readystate" class="tsd-kind-icon">ready<wbr>State</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#sendopen" class="tsd-kind-icon">send<wbr>Open</a></li>
 								<li class="tsd-kind-property tsd-parent-kind-class"><a href="rtcdatachannel.html#statechanged" class="tsd-kind-icon">state<wbr>Changed</a></li>
-								<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><a href="rtcdatachannel.html#transport" class="tsd-kind-icon">transport</a></li>
 							</ul>
 						</section>
 						<section class="tsd-index-section ">
@@ -130,28 +133,28 @@
 					<a name="constructor" class="tsd-anchor"></a>
 					<h3>constructor</h3>
 					<ul class="tsd-signatures tsd-kind-constructor tsd-parent-kind-class">
-						<li class="tsd-signature tsd-kind-icon">new RTCData<wbr>Channel<span class="tsd-signature-symbol">(</span>transport<span class="tsd-signature-symbol">: </span><a href="rtcsctptransport.html" class="tsd-signature-type">RTCSctpTransport</a>, parameters<span class="tsd-signature-symbol">: </span><a href="rtcdatachannelparameters.html" class="tsd-signature-type">RTCDataChannelParameters</a>, sendOpen<span class="tsd-signature-symbol">?: </span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><a href="rtcdatachannel.html" class="tsd-signature-type">RTCDataChannel</a></li>
+						<li class="tsd-signature tsd-kind-icon">new RTCData<wbr>Channel<span class="tsd-signature-symbol">(</span>transport<span class="tsd-signature-symbol">: </span><a href="rtcsctptransport.html" class="tsd-signature-type" data-tsd-kind="Class">RTCSctpTransport</a>, parameters<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">RTCDataChannelParameters</span>, sendOpen<span class="tsd-signature-symbol">?: </span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><a href="rtcdatachannel.html" class="tsd-signature-type" data-tsd-kind="Class">RTCDataChannel</a></li>
 					</ul>
 					<ul class="tsd-descriptions">
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L28">src/rtc/dataChannel.ts:28</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L35">webrtc/src/dataChannel.ts:35</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
 							<ul class="tsd-parameters">
 								<li>
-									<h5>transport: <a href="rtcsctptransport.html" class="tsd-signature-type">RTCSctpTransport</a></h5>
+									<h5>transport: <a href="rtcsctptransport.html" class="tsd-signature-type" data-tsd-kind="Class">RTCSctpTransport</a></h5>
 								</li>
 								<li>
-									<h5>parameters: <a href="rtcdatachannelparameters.html" class="tsd-signature-type">RTCDataChannelParameters</a></h5>
+									<h5>parameters: <span class="tsd-signature-type">RTCDataChannelParameters</span></h5>
 								</li>
 								<li>
-									<h5><span class="tsd-flag ts-flagDefault value">Default value</span> sendOpen: <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol"> = true</span></h5>
+									<h5>sendOpen: <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol"> = true</span></h5>
 								</li>
 							</ul>
-							<h4 class="tsd-returns-title">Returns <a href="rtcdatachannel.html" class="tsd-signature-type">RTCDataChannel</a></h4>
+							<h4 class="tsd-returns-title">Returns <a href="rtcdatachannel.html" class="tsd-signature-type" data-tsd-kind="Class">RTCDataChannel</a></h4>
 						</li>
 					</ul>
 				</section>
@@ -164,97 +167,134 @@
 					<div class="tsd-signature tsd-kind-icon">_buffered<wbr>Amount<wbr>Low<wbr>Threshold<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol"> = 0</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L28">src/rtc/dataChannel.ts:28</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L35">webrtc/src/dataChannel.ts:35</a></li>
 						</ul>
 					</aside>
 				</section>
-				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class tsd-is-private">
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="bufferedamount" class="tsd-anchor"></a>
-					<h3><span class="tsd-flag ts-flagPrivate">Private</span> buffered<wbr>Amount</h3>
+					<h3>buffered<wbr>Amount</h3>
 					<div class="tsd-signature tsd-kind-icon">buffered<wbr>Amount<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol"> = 0</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L27">src/rtc/dataChannel.ts:27</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L34">webrtc/src/dataChannel.ts:34</a></li>
 						</ul>
 					</aside>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="bufferedamountlow" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagReadonly">Readonly</span> buffered<wbr>Amount<wbr>Low</h3>
-					<div class="tsd-signature tsd-kind-icon">buffered<wbr>Amount<wbr>Low<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Event</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = new Event()</span></div>
+					<div class="tsd-signature tsd-kind-icon">buffered<wbr>Amount<wbr>Low<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">default</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">any</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L22">src/rtc/dataChannel.ts:22</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L24">webrtc/src/dataChannel.ts:24</a></li>
+						</ul>
+					</aside>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
+					<a name="error" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagReadonly">Readonly</span> error</h3>
+					<div class="tsd-signature tsd-kind-icon">error<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">default</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">[</span><span class="tsd-signature-type">Error</span><span class="tsd-signature-symbol">]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L23">webrtc/src/dataChannel.ts:23</a></li>
 						</ul>
 					</aside>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="id" class="tsd-anchor"></a>
-					<h3><span class="tsd-flag ts-flagOptional">Optional</span> id</h3>
-					<div class="tsd-signature tsd-kind-icon">id<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol"> = this.parameters.id</span></div>
+					<h3>id</h3>
+					<div class="tsd-signature tsd-kind-icon">id<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol"> = ...</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L24">src/rtc/dataChannel.ts:24</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L31">webrtc/src/dataChannel.ts:31</a></li>
+						</ul>
+					</aside>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
+					<a name="iscreatedbyremote" class="tsd-anchor"></a>
+					<h3>is<wbr>Created<wbr>ByRemote</h3>
+					<div class="tsd-signature tsd-kind-icon">is<wbr>Created<wbr>ByRemote<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol"> = false</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L30">webrtc/src/dataChannel.ts:30</a></li>
 						</ul>
 					</aside>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="message" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagReadonly">Readonly</span> message</h3>
-					<div class="tsd-signature tsd-kind-icon">message<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Event</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">Buffer</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = new Event&lt;string | Buffer&gt;()</span></div>
+					<div class="tsd-signature tsd-kind-icon">message<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">default</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">[</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">Buffer</span><span class="tsd-signature-symbol">]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L21">src/rtc/dataChannel.ts:21</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L21">webrtc/src/dataChannel.ts:21</a></li>
 						</ul>
 					</aside>
 				</section>
-				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class tsd-is-private">
-					<a name="parameters" class="tsd-anchor"></a>
-					<h3><span class="tsd-flag ts-flagPrivate">Private</span> <span class="tsd-flag ts-flagReadonly">Readonly</span> parameters</h3>
-					<div class="tsd-signature tsd-kind-icon">parameters<span class="tsd-signature-symbol">:</span> <a href="rtcdatachannelparameters.html" class="tsd-signature-type">RTCDataChannelParameters</a></div>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
+					<a name="onclose" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> onclose</h3>
+					<div class="tsd-signature tsd-kind-icon">onclose<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> =&gt; </span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> = ...</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L31">src/rtc/dataChannel.ts:31</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L26">webrtc/src/dataChannel.ts:26</a></li>
+						</ul>
+					</aside>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
+					<a name="onclosing" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> onclosing</h3>
+					<div class="tsd-signature tsd-kind-icon">onclosing<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> =&gt; </span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> = ...</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L27">webrtc/src/dataChannel.ts:27</a></li>
+						</ul>
+					</aside>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
+					<a name="onerror" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> onerror</h3>
+					<div class="tsd-signature tsd-kind-icon">onerror<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">(</span>props<span class="tsd-signature-symbol">: </span><span class="tsd-signature-symbol">{ </span>error<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">any</span><span class="tsd-signature-symbol"> }</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> =&gt; </span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> = ...</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L29">webrtc/src/dataChannel.ts:29</a></li>
+						</ul>
+					</aside>
+				</section>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
+					<a name="onopen" class="tsd-anchor"></a>
+					<h3><span class="tsd-flag ts-flagOptional">Optional</span> onopen</h3>
+					<div class="tsd-signature tsd-kind-icon">onopen<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> =&gt; </span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol"> = ...</span></div>
+					<aside class="tsd-sources">
+						<ul>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L25">webrtc/src/dataChannel.ts:25</a></li>
 						</ul>
 					</aside>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="readystate" class="tsd-anchor"></a>
 					<h3>ready<wbr>State</h3>
-					<div class="tsd-signature tsd-kind-icon">ready<wbr>State<span class="tsd-signature-symbol">:</span> <a href="../globals.html#dcstate" class="tsd-signature-type">DCState</a><span class="tsd-signature-symbol"> = &quot;connecting&quot;</span></div>
+					<div class="tsd-signature tsd-kind-icon">ready<wbr>State<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">DCState</span><span class="tsd-signature-symbol"> = &quot;connecting&quot;</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L25">src/rtc/dataChannel.ts:25</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L32">webrtc/src/dataChannel.ts:32</a></li>
 						</ul>
 					</aside>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="sendopen" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagReadonly">Readonly</span> send<wbr>Open</h3>
-					<div class="tsd-signature tsd-kind-icon">send<wbr>Open<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span></div>
+					<div class="tsd-signature tsd-kind-icon">send<wbr>Open<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol"> = true</span></div>
 					<aside class="tsd-sources">
-						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L32">src/rtc/dataChannel.ts:32</a></li>
-						</ul>
 					</aside>
 				</section>
 				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class">
 					<a name="statechanged" class="tsd-anchor"></a>
 					<h3><span class="tsd-flag ts-flagReadonly">Readonly</span> state<wbr>Changed</h3>
-					<div class="tsd-signature tsd-kind-icon">state<wbr>Changed<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Event</span><span class="tsd-signature-symbol">&lt;</span><a href="../globals.html#dcstate" class="tsd-signature-type">DCState</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = new Event&lt;DCState&gt;()</span></div>
+					<div class="tsd-signature tsd-kind-icon">state<wbr>Changed<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">default</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">[</span><span class="tsd-signature-type">DCState</span><span class="tsd-signature-symbol">]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L20">src/rtc/dataChannel.ts:20</a></li>
-						</ul>
-					</aside>
-				</section>
-				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-class tsd-is-private">
-					<a name="transport" class="tsd-anchor"></a>
-					<h3><span class="tsd-flag ts-flagPrivate">Private</span> <span class="tsd-flag ts-flagReadonly">Readonly</span> transport</h3>
-					<div class="tsd-signature tsd-kind-icon">transport<span class="tsd-signature-symbol">:</span> <a href="rtcsctptransport.html" class="tsd-signature-type">RTCSctpTransport</a></div>
-					<aside class="tsd-sources">
-						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L30">src/rtc/dataChannel.ts:30</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L20">webrtc/src/dataChannel.ts:20</a></li>
 						</ul>
 					</aside>
 				</section>
@@ -272,7 +312,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L73">src/rtc/dataChannel.ts:73</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L80">webrtc/src/dataChannel.ts:80</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4>
@@ -280,7 +320,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L77">src/rtc/dataChannel.ts:77</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L84">webrtc/src/dataChannel.ts:84</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
@@ -303,7 +343,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L61">src/rtc/dataChannel.ts:61</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L68">webrtc/src/dataChannel.ts:68</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span></h4>
@@ -314,16 +354,16 @@
 					<a name="maxpacketlifetime" class="tsd-anchor"></a>
 					<h3>max<wbr>Packet<wbr>Life<wbr>Time</h3>
 					<ul class="tsd-signatures tsd-kind-get-signature tsd-parent-kind-class">
-						<li class="tsd-signature tsd-kind-icon"><span class="tsd-signature-symbol">get</span> maxPacketLifeTime<span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">number</span></li>
+						<li class="tsd-signature tsd-kind-icon"><span class="tsd-signature-symbol">get</span> maxPacketLifeTime<span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">number</span></li>
 					</ul>
 					<ul class="tsd-descriptions">
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L57">src/rtc/dataChannel.ts:57</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L64">webrtc/src/dataChannel.ts:64</a></li>
 								</ul>
 							</aside>
-							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4>
+							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">number</span></h4>
 						</li>
 					</ul>
 				</section>
@@ -331,16 +371,16 @@
 					<a name="maxretransmits" class="tsd-anchor"></a>
 					<h3>max<wbr>Retransmits</h3>
 					<ul class="tsd-signatures tsd-kind-get-signature tsd-parent-kind-class">
-						<li class="tsd-signature tsd-kind-icon"><span class="tsd-signature-symbol">get</span> maxRetransmits<span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">number</span></li>
+						<li class="tsd-signature tsd-kind-icon"><span class="tsd-signature-symbol">get</span> maxRetransmits<span class="tsd-signature-symbol">(</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">number</span></li>
 					</ul>
 					<ul class="tsd-descriptions">
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L53">src/rtc/dataChannel.ts:53</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L60">webrtc/src/dataChannel.ts:60</a></li>
 								</ul>
 							</aside>
-							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4>
+							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">number</span></h4>
 						</li>
 					</ul>
 				</section>
@@ -354,7 +394,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L69">src/rtc/dataChannel.ts:69</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L76">webrtc/src/dataChannel.ts:76</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4>
@@ -371,7 +411,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L49">src/rtc/dataChannel.ts:49</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L56">webrtc/src/dataChannel.ts:56</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4>
@@ -388,7 +428,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L65">src/rtc/dataChannel.ts:65</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L72">webrtc/src/dataChannel.ts:72</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span></h4>
@@ -408,7 +448,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L96">src/rtc/dataChannel.ts:96</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L115">webrtc/src/dataChannel.ts:115</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
@@ -431,7 +471,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L111">src/rtc/dataChannel.ts:111</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L129">webrtc/src/dataChannel.ts:129</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4>
@@ -442,19 +482,19 @@
 					<a name="send" class="tsd-anchor"></a>
 					<h3>send</h3>
 					<ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
-						<li class="tsd-signature tsd-kind-icon">send<span class="tsd-signature-symbol">(</span>data<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">Buffer</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">void</span></li>
+						<li class="tsd-signature tsd-kind-icon">send<span class="tsd-signature-symbol">(</span>data<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">Buffer</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">void</span></li>
 					</ul>
 					<ul class="tsd-descriptions">
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L106">src/rtc/dataChannel.ts:106</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L125">webrtc/src/dataChannel.ts:125</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
 							<ul class="tsd-parameters">
 								<li>
-									<h5>data: <span class="tsd-signature-type">Buffer</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">string</span></h5>
+									<h5>data: <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">Buffer</span></h5>
 								</li>
 							</ul>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4>
@@ -471,7 +511,7 @@
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L85">src/rtc/dataChannel.ts:85</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L92">webrtc/src/dataChannel.ts:92</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
@@ -488,19 +528,19 @@
 					<a name="setreadystate" class="tsd-anchor"></a>
 					<h3>set<wbr>Ready<wbr>State</h3>
 					<ul class="tsd-signatures tsd-kind-method tsd-parent-kind-class">
-						<li class="tsd-signature tsd-kind-icon">set<wbr>Ready<wbr>State<span class="tsd-signature-symbol">(</span>state<span class="tsd-signature-symbol">: </span><a href="../globals.html#dcstate" class="tsd-signature-type">DCState</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">void</span></li>
+						<li class="tsd-signature tsd-kind-icon">set<wbr>Ready<wbr>State<span class="tsd-signature-symbol">(</span>state<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">DCState</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">void</span></li>
 					</ul>
 					<ul class="tsd-descriptions">
 						<li class="tsd-description">
 							<aside class="tsd-sources">
 								<ul>
-									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/rtc/dataChannel.ts#L89">src/rtc/dataChannel.ts:89</a></li>
+									<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/dataChannel.ts#L96">webrtc/src/dataChannel.ts:96</a></li>
 								</ul>
 							</aside>
 							<h4 class="tsd-parameters-title">Parameters</h4>
 							<ul class="tsd-parameters">
 								<li>
-									<h5>state: <a href="../globals.html#dcstate" class="tsd-signature-type">DCState</a></h5>
+									<h5>state: <span class="tsd-signature-type">DCState</span></h5>
 								</li>
 							</ul>
 							<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4>
@@ -512,8 +552,8 @@
 		<div class="col-4 col-menu menu-sticky-wrap menu-highlight">
 			<nav class="tsd-navigation primary">
 				<ul>
-					<li class="globals  ">
-						<a href="../globals.html"><em>Globals</em></a>
+					<li class=" ">
+						<a href="../modules.html">Exports</a>
 					</li>
 				</ul>
 			</nav>
@@ -530,20 +570,35 @@
 							<li class=" tsd-kind-property tsd-parent-kind-class tsd-is-private">
 								<a href="rtcdatachannel.html#_bufferedamountlowthreshold" class="tsd-kind-icon">_buffered<wbr>Amount<wbr>Low<wbr>Threshold</a>
 							</li>
-							<li class=" tsd-kind-property tsd-parent-kind-class tsd-is-private">
+							<li class=" tsd-kind-property tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#bufferedamount" class="tsd-kind-icon">buffered<wbr>Amount</a>
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#bufferedamountlow" class="tsd-kind-icon">buffered<wbr>Amount<wbr>Low</a>
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-class">
+								<a href="rtcdatachannel.html#error" class="tsd-kind-icon">error</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#id" class="tsd-kind-icon">id</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-class">
+								<a href="rtcdatachannel.html#iscreatedbyremote" class="tsd-kind-icon">is<wbr>Created<wbr>ByRemote</a>
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#message" class="tsd-kind-icon">message</a>
 							</li>
-							<li class=" tsd-kind-property tsd-parent-kind-class tsd-is-private">
-								<a href="rtcdatachannel.html#parameters" class="tsd-kind-icon">parameters</a>
+							<li class=" tsd-kind-property tsd-parent-kind-class">
+								<a href="rtcdatachannel.html#onclose" class="tsd-kind-icon">onclose</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-class">
+								<a href="rtcdatachannel.html#onclosing" class="tsd-kind-icon">onclosing</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-class">
+								<a href="rtcdatachannel.html#onerror" class="tsd-kind-icon">onerror</a>
+							</li>
+							<li class=" tsd-kind-property tsd-parent-kind-class">
+								<a href="rtcdatachannel.html#onopen" class="tsd-kind-icon">onopen</a>
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#readystate" class="tsd-kind-icon">ready<wbr>State</a>
@@ -553,9 +608,6 @@
 							</li>
 							<li class=" tsd-kind-property tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#statechanged" class="tsd-kind-icon">state<wbr>Changed</a>
-							</li>
-							<li class=" tsd-kind-property tsd-parent-kind-class tsd-is-private">
-								<a href="rtcdatachannel.html#transport" class="tsd-kind-icon">transport</a>
 							</li>
 							<li class=" tsd-kind-accessor tsd-parent-kind-class">
 								<a href="rtcdatachannel.html#bufferedamountlowthreshold" class="tsd-kind-icon">buffered<wbr>Amount<wbr>Low<wbr>Threshold</a>
@@ -613,11 +665,19 @@
 				<li class="tsd-kind-accessor tsd-parent-kind-class"><span class="tsd-kind-icon">Accessor</span></li>
 			</ul>
 			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited property</span></li>
+				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited method</span></li>
+			</ul>
+			<ul class="tsd-legend">
 				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private property</span></li>
 				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private method</span></li>
 			</ul>
 			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static property</span></li>
 				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static method</span></li>
+			</ul>
+			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-interface"><span class="tsd-kind-icon">Property</span></li>
 			</ul>
 		</div>
 	</div>

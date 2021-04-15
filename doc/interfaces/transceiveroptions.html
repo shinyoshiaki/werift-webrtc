@@ -3,10 +3,11 @@
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<title>CipherSuite | werift</title>
+	<title>TransceiverOptions | werift</title>
 	<meta name="description" content="Documentation for werift">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<link rel="stylesheet" href="../assets/css/main.css">
+	<script async src="../assets/js/search.js" id="search-script"></script>
 </head>
 <body>
 <header>
@@ -40,8 +41,6 @@
 							<label class="tsd-widget" for="tsd-filter-inherited">Inherited</label>
 							<input type="checkbox" id="tsd-filter-externals" checked />
 							<label class="tsd-widget" for="tsd-filter-externals">Externals</label>
-							<input type="checkbox" id="tsd-filter-only-exported" />
-							<label class="tsd-widget" for="tsd-filter-only-exported">Only exported</label>
 						</div>
 					</div>
 					<a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a>
@@ -53,52 +52,60 @@
 		<div class="container">
 			<ul class="tsd-breadcrumb">
 				<li>
-					<a href="../globals.html">Globals</a>
+					<a href="../modules.html">werift</a>
 				</li>
 				<li>
-					<a href="ciphersuite.html">CipherSuite</a>
+					<a href="transceiveroptions.html">TransceiverOptions</a>
 				</li>
 			</ul>
-			<h1>Enumeration CipherSuite</h1>
+			<h1>Interface TransceiverOptions</h1>
 		</div>
 	</div>
 </header>
 <div class="container container-main">
 	<div class="row">
 		<div class="col-8 col-content">
+			<section class="tsd-panel tsd-hierarchy">
+				<h3>Hierarchy</h3>
+				<ul class="tsd-hierarchy">
+					<li>
+						<span class="target">TransceiverOptions</span>
+					</li>
+				</ul>
+			</section>
 			<section class="tsd-panel-group tsd-index-group">
 				<h2>Index</h2>
 				<section class="tsd-panel tsd-index-panel">
 					<div class="tsd-index-content">
-						<section class="tsd-index-section tsd-is-external">
-							<h3>Enumeration members</h3>
+						<section class="tsd-index-section ">
+							<h3>Properties</h3>
 							<ul class="tsd-index-list">
-								<li class="tsd-kind-enum-member tsd-parent-kind-enum tsd-is-external"><a href="ciphersuite.html#ecdheecdsawithaes128gcmsha256" class="tsd-kind-icon">Ecdhe<wbr>Ecdsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256</a></li>
-								<li class="tsd-kind-enum-member tsd-parent-kind-enum tsd-is-external"><a href="ciphersuite.html#ecdhersawithaes128gcmsha256" class="tsd-kind-icon">Ecdhe<wbr>Rsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="transceiveroptions.html#direction" class="tsd-kind-icon">direction</a></li>
+								<li class="tsd-kind-property tsd-parent-kind-interface"><a href="transceiveroptions.html#simulcast" class="tsd-kind-icon">simulcast</a></li>
 							</ul>
 						</section>
 					</div>
 				</section>
 			</section>
-			<section class="tsd-panel-group tsd-member-group tsd-is-external">
-				<h2>Enumeration members</h2>
-				<section class="tsd-panel tsd-member tsd-kind-enum-member tsd-parent-kind-enum tsd-is-external">
-					<a name="ecdheecdsawithaes128gcmsha256" class="tsd-anchor"></a>
-					<h3>Ecdhe<wbr>Ecdsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256</h3>
-					<div class="tsd-signature tsd-kind-icon">Ecdhe<wbr>Ecdsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol"> = 49195</span></div>
+			<section class="tsd-panel-group tsd-member-group ">
+				<h2>Properties</h2>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
+					<a name="direction" class="tsd-anchor"></a>
+					<h3>direction</h3>
+					<div class="tsd-signature tsd-kind-icon">direction<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">&quot;inactive&quot;</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">&quot;sendonly&quot;</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">&quot;recvonly&quot;</span><span class="tsd-signature-symbol"> | </span><span class="tsd-signature-type">&quot;sendrecv&quot;</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/vendor/dtls/cipher/const.ts#L7">src/vendor/dtls/cipher/const.ts:7</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/media/rtpTransceiver.ts#L89">webrtc/src/media/rtpTransceiver.ts:89</a></li>
 						</ul>
 					</aside>
 				</section>
-				<section class="tsd-panel tsd-member tsd-kind-enum-member tsd-parent-kind-enum tsd-is-external">
-					<a name="ecdhersawithaes128gcmsha256" class="tsd-anchor"></a>
-					<h3>Ecdhe<wbr>Rsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256</h3>
-					<div class="tsd-signature tsd-kind-icon">Ecdhe<wbr>Rsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol"> = 49199</span></div>
+				<section class="tsd-panel tsd-member tsd-kind-property tsd-parent-kind-interface">
+					<a name="simulcast" class="tsd-anchor"></a>
+					<h3>simulcast</h3>
+					<div class="tsd-signature tsd-kind-icon">simulcast<span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{ </span>direction<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">SimulcastDirection</span><span class="tsd-signature-symbol">; </span>rid<span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> }</span><span class="tsd-signature-symbol">[]</span></div>
 					<aside class="tsd-sources">
 						<ul>
-							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/11f0fdc/src/vendor/dtls/cipher/const.ts#L8">src/vendor/dtls/cipher/const.ts:8</a></li>
+							<li>Defined in <a href="https://github.com/shinyoshiaki/werift-webrtc/blob/cfe2ea3/packages/webrtc/src/media/rtpTransceiver.ts#L90">webrtc/src/media/rtpTransceiver.ts:90</a></li>
 						</ul>
 					</aside>
 				</section>
@@ -107,8 +114,8 @@
 		<div class="col-4 col-menu menu-sticky-wrap menu-highlight">
 			<nav class="tsd-navigation primary">
 				<ul>
-					<li class="globals  ">
-						<a href="../globals.html"><em>Globals</em></a>
+					<li class=" ">
+						<a href="../modules.html">Exports</a>
 					</li>
 				</ul>
 			</nav>
@@ -116,14 +123,14 @@
 				<ul class="before-current">
 				</ul>
 				<ul class="current">
-					<li class="current tsd-kind-enum tsd-is-external">
-						<a href="ciphersuite.html" class="tsd-kind-icon">Cipher<wbr>Suite</a>
+					<li class="current tsd-kind-interface">
+						<a href="transceiveroptions.html" class="tsd-kind-icon">Transceiver<wbr>Options</a>
 						<ul>
-							<li class=" tsd-kind-enum-member tsd-parent-kind-enum tsd-is-external">
-								<a href="ciphersuite.html#ecdheecdsawithaes128gcmsha256" class="tsd-kind-icon">Ecdhe<wbr>Ecdsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256</a>
+							<li class=" tsd-kind-property tsd-parent-kind-interface">
+								<a href="transceiveroptions.html#direction" class="tsd-kind-icon">direction</a>
 							</li>
-							<li class=" tsd-kind-enum-member tsd-parent-kind-enum tsd-is-external">
-								<a href="ciphersuite.html#ecdhersawithaes128gcmsha256" class="tsd-kind-icon">Ecdhe<wbr>Rsa<wbr>With<wbr>Aes128<wbr>Gcm<wbr>Sha256</a>
+							<li class=" tsd-kind-property tsd-parent-kind-interface">
+								<a href="transceiveroptions.html#simulcast" class="tsd-kind-icon">simulcast</a>
 							</li>
 						</ul>
 					</li>
@@ -145,11 +152,19 @@
 				<li class="tsd-kind-accessor tsd-parent-kind-class"><span class="tsd-kind-icon">Accessor</span></li>
 			</ul>
 			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited property</span></li>
+				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited method</span></li>
+			</ul>
+			<ul class="tsd-legend">
 				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private property</span></li>
 				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private method</span></li>
 			</ul>
 			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static property</span></li>
 				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static method</span></li>
+			</ul>
+			<ul class="tsd-legend">
+				<li class="tsd-kind-property tsd-parent-kind-interface"><span class="tsd-kind-icon">Property</span></li>
 			</ul>
 		</div>
 	</div>

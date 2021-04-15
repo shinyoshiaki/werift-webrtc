@@ -22,6 +22,7 @@
     "build": "lerna run build",
     "ci": "yarn build && yarn test && yarn e2e",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
+    "doc": "rm -rf doc && cd packages/webrtc && yarn doc && mv doc ../..",
     "e2e": "cd e2e && yarn ci",
     "format": "lerna run format",
     "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
