@@ -10,6 +10,7 @@ import {
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
+import { Kind } from "../types/domain";
 import { Nack } from "./nack";
 import { RTCRtpCodecParameters } from "./parameters";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
@@ -33,7 +34,7 @@ export class RTCRtpReceiver {
   codecs: RTCRtpCodecParameters[] = [];
 
   constructor(
-    public kind: string,
+    public kind: Kind,
     public dtlsTransport: RTCDtlsTransport,
     public rtcpSsrc: number
   ) {}

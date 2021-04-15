@@ -498,7 +498,7 @@ export class RTCPeerConnection {
     }
   }
 
-  private localRtp(transceiver: RTCRtpTransceiver) {
+  private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
     const rtp = new RTCRtpParameters({
       headerExtensions: transceiver.headerExtensions,
       rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
@@ -506,7 +506,7 @@ export class RTCPeerConnection {
     return rtp;
   }
 
-  private remoteRtp(transceiver: RTCRtpTransceiver) {
+  private remoteRtp(transceiver: RTCRtpTransceiver): RTCRtpReceiveParameters {
     const media = this._remoteDescription!.media[transceiver.mLineIndex!];
     const receiveParameters = new RTCRtpReceiveParameters({
       codecs: transceiver.codecs,
@@ -745,7 +745,7 @@ export class RTCPeerConnection {
       this.dtlsTransport
     );
     transceiver.options = options;
-    this.router.ssrcTable[transceiver.sender.ssrc] = transceiver.sender;
+    this.router.registerRtpSender(transceiver.sender);
 
     this.transceivers.push(transceiver);
 

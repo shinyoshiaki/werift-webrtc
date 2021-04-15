@@ -92,15 +92,18 @@ export class RTCRtpCodingParameters {
   payloadType!: number;
   rtx?: RTCRtpRtxParameters;
 
-  constructor(props: Partial<RTCRtpCodingParameters> = {}) {
+  constructor(
+    props: Partial<RTCRtpCodingParameters> &
+      Pick<RTCRtpCodingParameters, "ssrc" | "payloadType">
+  ) {
     Object.assign(this, props);
   }
 }
 
 export class RTCRtpReceiveParameters extends RTCRtpParameters {
-  encodings!: RTCRtpCodingParameters[];
+  encodings: RTCRtpCodingParameters[] = [];
 
-  constructor(props: Partial<RTCRtpReceiveParameters> = {}) {
+  constructor(props: Partial<RTCRtpReceiveParameters>) {
     super(props);
     Object.assign(this, props);
   }

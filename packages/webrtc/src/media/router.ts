@@ -1,5 +1,6 @@
 import debug from "debug";
 import {
+  Extension,
   ReceiverEstimatedMaxBitrate,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
@@ -25,9 +26,15 @@ const log = debug("werift/webrtc/media/router");
 export type Extensions = { [uri: string]: number | string };
 
 export class RtpRouter {
-  ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
-  ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
-  extIdUriMap: { [id: number]: string } = {};
+  private ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
+  private ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
+  private extIdUriMap: { [id: number]: string } = {};
+
+  constructor() {}
+
+  registerRtpSender(sender: RTCRtpSender) {
+    this.ssrcTable[sender.ssrc] = sender;
+  }
 
   registerRtpReceiverBySsrc(
     transceiver: RTCRtpTransceiver,
@@ -38,6 +45,7 @@ export class RtpRouter {
     const ssrcs = params.encodings
       .map((encode) => encode.ssrc)
       .filter((v) => v);
+
     ssrcs.forEach((ssrc) => {
       this.ssrcTable[ssrc] = transceiver.receiver;
       transceiver.addTrack(
@@ -71,10 +79,13 @@ export class RtpRouter {
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
-  routeRtp = (packet: RtpPacket) => {
-    const extensions: Extensions = packet.header.extensions
+  static rtpHeaderExtensionsParser(
+    extensions: Extension[],
+    extIdUriMap: { [id: number]: string }
+  ): Extensions {
+    return extensions
       .map((extension) => {
-        const uri = this.extIdUriMap[extension.id];
+        const uri = extIdUriMap[extension.id];
         switch (uri) {
           case RTP_EXTENSION_URI.sdesMid:
           case RTP_EXTENSION_URI.sdesRTPStreamID:
@@ -92,6 +103,13 @@ export class RtpRouter {
         if (cur) acc[cur.uri] = cur.value;
         return acc;
       }, {});
+  }
+
+  routeRtp = (packet: RtpPacket) => {
+    const extensions = RtpRouter.rtpHeaderExtensionsParser(
+      packet.header.extensions,
+      this.extIdUriMap
+    );
 
     let ssrcReceiver = this.ssrcTable[packet.header.ssrc] as RTCRtpReceiver;
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID] as string;
@@ -105,9 +123,7 @@ export class RtpRouter {
       ssrcReceiver.handleRtpBySsrc(packet, extensions);
     }
 
-    ssrcReceiver.sdesMid = extensions[
-      "urn:ietf:params:rtp-hdrext:sdes:mid"
-    ] as string;
+    ssrcReceiver.sdesMid = extensions[RTP_EXTENSION_URI.sdesMid] as string;
   };
 
   routeRtcp = (packet: RtcpPacket) => {
