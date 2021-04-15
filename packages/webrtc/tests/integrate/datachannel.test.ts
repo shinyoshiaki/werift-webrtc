@@ -1,6 +1,6 @@
 import { RTCPeerConnection } from "../../src";
 
-describe("datachannel/datachannel", () => {
+describe("datachannel", () => {
   test("send some messages at same time", async (done) => {
     const pc1 = new RTCPeerConnection();
     const pc2 = new RTCPeerConnection();

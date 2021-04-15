@@ -85,7 +85,7 @@ export class SCTP {
   readonly onReconfigStreams = new Event<[number[]]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
-  readonly onReceiveChunk = new Event();
+  readonly onReceiveChunk = new Event<[Chunk]>();
 
   associationState = SCTP_STATE.CLOSED;
   started = false;
@@ -395,7 +395,7 @@ export class SCTP {
         this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
     }
-    this.onReceiveChunk.execute();
+    this.onReceiveChunk.execute(chunk);
   }
 
   private getExtensions(params: [number, Buffer][]) {
@@ -695,53 +695,55 @@ export class SCTP {
     return false;
   }
 
-  send(
+  send = (
     streamId: number,
     ppId: number,
     userData: Buffer,
     expiry: number | undefined = undefined,
     maxRetransmits: number | undefined = undefined,
     ordered = true
-  ) {
-    const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
+  ) =>
+    new Promise((r) => {
+      const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
-    const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
-    let pos = 0;
+      const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
+      let pos = 0;
 
-    for (const fragment of range(0, fragments)) {
-      const chunk = new DataChunk(0, undefined);
-      chunk.flags = 0;
-      if (!ordered) {
-        chunk.flags = SCTP_DATA_UNORDERED;
+      for (const fragment of range(0, fragments)) {
+        const chunk = new DataChunk(0, undefined);
+        chunk.flags = 0;
+        if (!ordered) {
+          chunk.flags = SCTP_DATA_UNORDERED;
+        }
+        if (fragment === 0) {
+          chunk.flags |= SCTP_DATA_FIRST_FRAG;
+        }
+        if (fragment === fragments - 1) {
+          chunk.flags |= SCTP_DATA_LAST_FRAG;
+        }
+        chunk.tsn = this.localTsn;
+        chunk.streamId = streamId;
+        chunk.streamSeqNum = streamSeqNum;
+        chunk.protocol = ppId;
+        chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
+        chunk.bookSize = chunk.userData.length;
+        chunk.expiry = expiry;
+        chunk.maxRetransmits = maxRetransmits;
+
+        pos += USERDATA_MAX_LENGTH;
+        this.localTsn = tsnPlusOne(this.localTsn);
+        this.outboundQueue.push(chunk);
+        chunk.onTransmit.once(r);
       }
-      if (fragment === 0) {
-        chunk.flags |= SCTP_DATA_FIRST_FRAG;
+
+      if (ordered) {
+        this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
       }
-      if (fragment === fragments - 1) {
-        chunk.flags |= SCTP_DATA_LAST_FRAG;
+
+      if (!this.t3Handle) {
+        this.transmit();
       }
-      chunk.tsn = this.localTsn;
-      chunk.streamId = streamId;
-      chunk.streamSeqNum = streamSeqNum;
-      chunk.protocol = ppId;
-      chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
-      chunk.bookSize = chunk.userData.length;
-      chunk.expiry = expiry;
-      chunk.maxRetransmits = maxRetransmits;
-
-      pos += USERDATA_MAX_LENGTH;
-      this.localTsn = tsnPlusOne(this.localTsn);
-      this.outboundQueue.push(chunk);
-    }
-
-    if (ordered) {
-      this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
-    }
-
-    if (!this.t3Handle) {
-      this.transmit();
-    }
-  }
+    });
 
   private transmit() {
     // """
@@ -1056,6 +1058,11 @@ export class SCTP {
   sendChunk(chunk: Chunk) {
     if (this.remotePort === undefined) throw new Error("invalid remote port");
     if (this.state === "closed") return;
+
+    if (chunk instanceof DataChunk) {
+      chunk.onTransmit.execute();
+    }
+
     const packet = serializePacket(
       this.localPort,
       this.remotePort,
