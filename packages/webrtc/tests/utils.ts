@@ -106,3 +106,10 @@ async function exchangeAnswer(
   await caller.setRemoteDescription(answer);
   await callee.setLocalDescription(answer);
 }
+
+export function awaitMessage(channel: RTCDataChannel) {
+  return new Promise<string | Buffer>((resolve, reject) => {
+    channel.message.once(resolve);
+    channel.error.once(reject);
+  });
+}

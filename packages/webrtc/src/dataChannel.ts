@@ -19,6 +19,8 @@ export class RTCDataChannelParameters {
 export class RTCDataChannel {
   readonly stateChanged = new Event<[DCState]>();
   readonly message = new Event<[string | Buffer]>();
+  // todo impl
+  readonly error = new Event<[Error]>();
   readonly bufferedAmountLow = new Event();
   onopen?: (() => void) | null = () => {};
   onclose?: (() => void) | null = () => {};
