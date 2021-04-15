@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*RTCIceTransport*](rtcicetransport.md)
 
-Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L12)
+Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L12)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/wer
 
 • **connection**: *Connection*
 
-Defined in: [webrtc/src/transport/ice.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L6)
+Defined in: [webrtc/src/transport/ice.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L6)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • `Readonly` **onStateChange**: *default*<[*new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*]\>
 
-Defined in: [webrtc/src/transport/ice.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L10)
+Defined in: [webrtc/src/transport/ice.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L10)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **roleSet**: *boolean*= false
 
-Defined in: [webrtc/src/transport/ice.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L7)
+Defined in: [webrtc/src/transport/ice.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L7)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **state**: *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*= "new"
 
-Defined in: [webrtc/src/transport/ice.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L8)
+Defined in: [webrtc/src/transport/ice.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L8)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • `Private` `Optional` **waitStart**: *default*<[]\>
 
-Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L12)
+Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L12)
 
 ## Accessors
 
@@ -72,7 +72,7 @@ Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/wer
 
 **Returns:** [*RTCIceGatherer*](rtcicegatherer.md)
 
-Defined in: [webrtc/src/transport/ice.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L20)
+Defined in: [webrtc/src/transport/ice.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L20)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 **Returns:** *controlling* \| *controlled*
 
-Defined in: [webrtc/src/transport/ice.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L24)
+Defined in: [webrtc/src/transport/ice.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L24)
 
 ## Methods
 
@@ -98,7 +98,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L44)
+Defined in: [webrtc/src/transport/ice.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L44)
 
 ___
 
@@ -114,7 +114,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/ice.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L29)
+Defined in: [webrtc/src/transport/ice.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L29)
 
 ___
 
@@ -130,7 +130,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L54)
+Defined in: [webrtc/src/transport/ice.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L54)
 
 ___
 
@@ -140,4 +140,4 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/ice.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/transport/ice.ts#L75)
+Defined in: [webrtc/src/transport/ice.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/ice.ts#L75)

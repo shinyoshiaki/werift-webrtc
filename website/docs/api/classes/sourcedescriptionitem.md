@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*SourceDescriptionItem*](sourcedescriptionitem.md)
 
-Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/sdes.ts#L88)
+Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/sdes.ts#L88)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-web
 
 • **text**: *string*
 
-Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/sdes.ts#L88)
+Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/sdes.ts#L88)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **type**: *number*
 
-Defined in: [rtp/src/rtcp/sdes.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/sdes.ts#L87)
+Defined in: [rtp/src/rtcp/sdes.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/sdes.ts#L87)
 
 ## Accessors
 
@@ -48,7 +48,7 @@ Defined in: [rtp/src/rtcp/sdes.ts:87](https://github.com/shinyoshiaki/werift-web
 
 **Returns:** *number*
 
-Defined in: [rtp/src/rtcp/sdes.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/sdes.ts#L94)
+Defined in: [rtp/src/rtcp/sdes.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/sdes.ts#L94)
 
 ## Methods
 
@@ -58,7 +58,7 @@ Defined in: [rtp/src/rtcp/sdes.ts:94](https://github.com/shinyoshiaki/werift-web
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/sdes.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/sdes.ts#L98)
+Defined in: [rtp/src/rtcp/sdes.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/sdes.ts#L98)
 
 ___
 
@@ -74,4 +74,4 @@ Name | Type |
 
 **Returns:** [*SourceDescriptionItem*](sourcedescriptionitem.md)
 
-Defined in: [rtp/src/rtcp/sdes.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/sdes.ts#L106)
+Defined in: [rtp/src/rtcp/sdes.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/sdes.ts#L106)

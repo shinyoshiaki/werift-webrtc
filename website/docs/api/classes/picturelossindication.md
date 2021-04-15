@@ -22,7 +22,7 @@ Name | Type | Default value |
 
 **Returns:** [*PictureLossIndication*](picturelossindication.md)
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/sh
 
 • **count**: *number*
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L5)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L5)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **length**: *number*= 2
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L6)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L6)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **mediaSsrc**: *number*
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **senderSsrc**: *number*
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L8)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L8)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 ▪ `Static` **count**: *number*= 1
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L4)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L4)
 
 ## Methods
 
@@ -72,7 +72,7 @@ Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:4](https://github.com/sh
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L20)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L20)
 
 ___
 
@@ -88,4 +88,4 @@ Name | Type |
 
 **Returns:** [*PictureLossIndication*](picturelossindication.md)
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L15)
+Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L15)

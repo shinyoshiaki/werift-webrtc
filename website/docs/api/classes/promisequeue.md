@@ -22,7 +22,7 @@ hide_title: true
 
 • **queue**: { `call`: () => *void* ; `promise`: () => *Promise*<any\>  }[]= []
 
-Defined in: [webrtc/src/helper.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/helper.ts#L15)
+Defined in: [webrtc/src/helper.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/helper.ts#L15)
 
 ___
 
@@ -30,7 +30,7 @@ ___
 
 • **running**: *boolean*= false
 
-Defined in: [webrtc/src/helper.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/helper.ts#L16)
+Defined in: [webrtc/src/helper.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/helper.ts#L16)
 
 ## Methods
 
@@ -46,7 +46,7 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/helper.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/helper.ts#L18)
+Defined in: [webrtc/src/helper.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/helper.ts#L18)
 
 ___
 
@@ -56,4 +56,4 @@ ___
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/helper.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/helper.ts#L24)
+Defined in: [webrtc/src/helper.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/helper.ts#L24)

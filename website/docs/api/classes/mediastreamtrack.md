@@ -22,7 +22,7 @@ Name | Type |
 
 **Returns:** [*MediaStreamTrack*](mediastreamtrack.md)
 
-Defined in: [webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L20)
+Defined in: [webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L20)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werif
 
 • `Optional` **codec**: [*RTCRtpCodecParameters*](rtcrtpcodecparameters.md)
 
-Defined in: [webrtc/src/media/track.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L15)
+Defined in: [webrtc/src/media/track.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L15)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • `Optional` **header**: [*RtpHeader*](rtpheader.md)
 
-Defined in: [webrtc/src/media/track.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L14)
+Defined in: [webrtc/src/media/track.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L14)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **id**: *string*
 
-Defined in: [webrtc/src/media/track.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L10)
+Defined in: [webrtc/src/media/track.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L10)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **kind**: [*Kind*](../modules.md#kind)
 
-Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L11)
+Defined in: [webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L11)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • **label**: *string*
 
-Defined in: [webrtc/src/media/track.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L9)
+Defined in: [webrtc/src/media/track.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L9)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 • **muted**: *boolean*= true
 
-Defined in: [webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L20)
+Defined in: [webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L20)
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 • `Readonly` **onReceiveRtp**: *default*<[[*RtpPacket*](rtppacket.md)]\>
 
-Defined in: [webrtc/src/media/track.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L17)
+Defined in: [webrtc/src/media/track.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L17)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 • **remote**: *boolean*= false
 
-Defined in: [webrtc/src/media/track.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L8)
+Defined in: [webrtc/src/media/track.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L8)
 
 ___
 
@@ -94,7 +94,7 @@ ___
 
 • `Optional` **rid**: *string*
 
-Defined in: [webrtc/src/media/track.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L13)
+Defined in: [webrtc/src/media/track.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L13)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 • `Optional` **ssrc**: *number*
 
-Defined in: [webrtc/src/media/track.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L12)
+Defined in: [webrtc/src/media/track.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L12)
 
 ___
 
@@ -110,7 +110,7 @@ ___
 
 • **stopped**: *boolean*= false
 
-Defined in: [webrtc/src/media/track.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L19)
+Defined in: [webrtc/src/media/track.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L19)
 
 ## Methods
 
@@ -120,7 +120,7 @@ Defined in: [webrtc/src/media/track.ts:19](https://github.com/shinyoshiaki/werif
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/media/track.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L35)
+Defined in: [webrtc/src/media/track.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L35)
 
 ___
 
@@ -136,4 +136,4 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/media/track.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/media/track.ts#L41)
+Defined in: [webrtc/src/media/track.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/media/track.ts#L41)

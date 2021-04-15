@@ -24,7 +24,7 @@ Name | Type | Default value |
 
 **Returns:** [*RTCDataChannel*](rtcdatachannel.md)
 
-Defined in: [webrtc/src/dataChannel.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L33)
+Defined in: [webrtc/src/dataChannel.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L33)
 
 ## Properties
 
@@ -32,7 +32,7 @@ Defined in: [webrtc/src/dataChannel.ts:33](https://github.com/shinyoshiaki/werif
 
 • `Private` **\_bufferedAmountLowThreshold**: *number*= 0
 
-Defined in: [webrtc/src/dataChannel.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L33)
+Defined in: [webrtc/src/dataChannel.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L33)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 • **bufferedAmount**: *number*= 0
 
-Defined in: [webrtc/src/dataChannel.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L32)
+Defined in: [webrtc/src/dataChannel.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L32)
 
 ___
 
@@ -48,7 +48,7 @@ ___
 
 • `Readonly` **bufferedAmountLow**: *default*<any[]\>
 
-Defined in: [webrtc/src/dataChannel.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L22)
+Defined in: [webrtc/src/dataChannel.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L22)
 
 ___
 
@@ -56,7 +56,7 @@ ___
 
 • **id**: *number*
 
-Defined in: [webrtc/src/dataChannel.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L29)
+Defined in: [webrtc/src/dataChannel.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L29)
 
 ___
 
@@ -64,7 +64,7 @@ ___
 
 • **isCreatedByRemote**: *boolean*= false
 
-Defined in: [webrtc/src/dataChannel.ts:28](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L28)
+Defined in: [webrtc/src/dataChannel.ts:28](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L28)
 
 ___
 
@@ -72,7 +72,7 @@ ___
 
 • `Readonly` **message**: *default*<[*string* \| *Buffer*]\>
 
-Defined in: [webrtc/src/dataChannel.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L21)
+Defined in: [webrtc/src/dataChannel.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L21)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 • `Optional` **onclose**: *null* \| () => *void*
 
-Defined in: [webrtc/src/dataChannel.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L24)
+Defined in: [webrtc/src/dataChannel.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L24)
 
 ___
 
@@ -88,7 +88,7 @@ ___
 
 • `Optional` **onclosing**: *null* \| () => *void*
 
-Defined in: [webrtc/src/dataChannel.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L25)
+Defined in: [webrtc/src/dataChannel.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L25)
 
 ___
 
@@ -96,7 +96,7 @@ ___
 
 • `Optional` **onerror**: *null* \| (`props`: { `error`: *any*  }) => *void*
 
-Defined in: [webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L27)
+Defined in: [webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L27)
 
 ___
 
@@ -104,7 +104,7 @@ ___
 
 • `Optional` **onopen**: *null* \| () => *void*
 
-Defined in: [webrtc/src/dataChannel.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L23)
+Defined in: [webrtc/src/dataChannel.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L23)
 
 ___
 
@@ -112,7 +112,7 @@ ___
 
 • **readyState**: DCState= "connecting"
 
-Defined in: [webrtc/src/dataChannel.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L30)
+Defined in: [webrtc/src/dataChannel.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L30)
 
 ___
 
@@ -126,7 +126,7 @@ ___
 
 • `Readonly` **stateChanged**: *default*<[DCState]\>
 
-Defined in: [webrtc/src/dataChannel.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L20)
+Defined in: [webrtc/src/dataChannel.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L20)
 
 ## Accessors
 
@@ -136,7 +136,7 @@ Defined in: [webrtc/src/dataChannel.ts:20](https://github.com/shinyoshiaki/werif
 
 **Returns:** *number*
 
-Defined in: [webrtc/src/dataChannel.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L78)
+Defined in: [webrtc/src/dataChannel.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L78)
 
 • set **bufferedAmountLowThreshold**(`value`: *number*): *void*
 
@@ -148,7 +148,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/dataChannel.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L82)
+Defined in: [webrtc/src/dataChannel.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L82)
 
 ___
 
@@ -158,7 +158,7 @@ ___
 
 **Returns:** *string*
 
-Defined in: [webrtc/src/dataChannel.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L66)
+Defined in: [webrtc/src/dataChannel.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L66)
 
 ___
 
@@ -168,7 +168,7 @@ ___
 
 **Returns:** *undefined* \| *number*
 
-Defined in: [webrtc/src/dataChannel.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L62)
+Defined in: [webrtc/src/dataChannel.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L62)
 
 ___
 
@@ -178,7 +178,7 @@ ___
 
 **Returns:** *undefined* \| *number*
 
-Defined in: [webrtc/src/dataChannel.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L58)
+Defined in: [webrtc/src/dataChannel.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L58)
 
 ___
 
@@ -188,7 +188,7 @@ ___
 
 **Returns:** *boolean*
 
-Defined in: [webrtc/src/dataChannel.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L74)
+Defined in: [webrtc/src/dataChannel.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L74)
 
 ___
 
@@ -198,7 +198,7 @@ ___
 
 **Returns:** *boolean*
 
-Defined in: [webrtc/src/dataChannel.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L54)
+Defined in: [webrtc/src/dataChannel.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L54)
 
 ___
 
@@ -208,7 +208,7 @@ ___
 
 **Returns:** *string*
 
-Defined in: [webrtc/src/dataChannel.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L70)
+Defined in: [webrtc/src/dataChannel.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L70)
 
 ## Methods
 
@@ -224,7 +224,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/dataChannel.ts:113](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L113)
+Defined in: [webrtc/src/dataChannel.ts:113](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L113)
 
 ___
 
@@ -234,13 +234,13 @@ ___
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/dataChannel.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L127)
+Defined in: [webrtc/src/dataChannel.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L127)
 
 ___
 
 ### send
 
-▸ **send**(`data`: *string* \| *Buffer*): *Promise*<void\>
+▸ **send**(`data`: *string* \| *Buffer*): *void*
 
 #### Parameters:
 
@@ -248,9 +248,9 @@ Name | Type |
 :------ | :------ |
 `data` | *string* \| *Buffer* |
 
-**Returns:** *Promise*<void\>
+**Returns:** *void*
 
-Defined in: [webrtc/src/dataChannel.ts:123](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L123)
+Defined in: [webrtc/src/dataChannel.ts:123](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L123)
 
 ___
 
@@ -266,7 +266,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/dataChannel.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L90)
+Defined in: [webrtc/src/dataChannel.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L90)
 
 ___
 
@@ -282,4 +282,4 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/dataChannel.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/ad4c7a5/packages/webrtc/src/dataChannel.ts#L94)
+Defined in: [webrtc/src/dataChannel.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/dataChannel.ts#L94)
