@@ -48,8 +48,6 @@ const MAX_STREAMS = 65535;
 const USERDATA_MAX_LENGTH = 1200;
 
 // # protocol constants
-const SCTP_CAUSE_STALE_COOKIE = 0x0003;
-
 const SCTP_DATA_LAST_FRAG = 0x01;
 const SCTP_DATA_FIRST_FRAG = 0x02;
 const SCTP_DATA_UNORDERED = 0x04;
@@ -240,6 +238,7 @@ export class SCTP {
       case InitChunk.type:
         const init = chunk as InitChunk;
         if (this.isServer) {
+          log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
           this.remoteVerificationTag = init.initiateTag;
@@ -270,6 +269,7 @@ export class SCTP {
             createHmac("sha1", this.hmacKey).update(cookie).digest(),
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
+          log("send initAck", ack);
           this.sendChunk(ack);
         }
         break;
@@ -327,15 +327,11 @@ export class SCTP {
         }
         break;
       case ErrorChunk.type:
-        log("ErrorChunk", chunk);
-        if (
-          [SCTP_STATE.COOKIE_WAIT, SCTP_STATE.COOKIE_ECHOED].indexOf(
-            this.associationState
-          )
-        ) {
-          this.t1Cancel();
-          this.setState(SCTP_STATE.CLOSED);
-        }
+        // 3.3.10.  Operation Error (ERROR) (9)
+        // An Operation Error is not considered fatal in and of itself, but may be
+        // used with an ABORT chunk to report a fatal condition.  It has the
+        // following parameters:
+        log("ErrorChunk", (chunk as ErrorChunk).descriptions);
         break;
       case CookieEchoChunk.type:
         const data = chunk as CookieEchoChunk;
@@ -356,7 +352,7 @@ export class SCTP {
           if (stamp < now - COOKIE_LIFETIME || stamp > now) {
             const error = new ErrorChunk(0, undefined);
             error.params.push([
-              SCTP_CAUSE_STALE_COOKIE,
+              ErrorChunk.CODE.StaleCookieError,
               Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
             ]);
             this.sendChunk(error);
@@ -1041,6 +1037,7 @@ export class SCTP {
     init.inboundStreams = this._inboundStreamsMax;
     init.initialTsn = this.localTsn;
     this.setExtensions(init.params);
+    log("send init", init);
     this.sendChunk(init);
 
     // # start T1 timer and enter COOKIE-WAIT state

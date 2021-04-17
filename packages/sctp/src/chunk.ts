@@ -108,7 +108,7 @@ export class BaseInitChunk extends Chunk {
 }
 
 export class InitChunk extends BaseInitChunk {
-  static type = 1;
+  static type = 1 as const;
 
   get type() {
     return InitChunk.type;
@@ -116,7 +116,7 @@ export class InitChunk extends BaseInitChunk {
 }
 
 export class InitAckChunk extends BaseInitChunk {
-  static type = 2;
+  static type = 2 as const;
 
   get type() {
     return InitAckChunk.type;
@@ -124,7 +124,7 @@ export class InitAckChunk extends BaseInitChunk {
 }
 
 export class ReConfigChunk extends BaseInitChunk {
-  static type = 130;
+  static type = 130 as const;
 
   get type() {
     return ReConfigChunk.type;
@@ -132,7 +132,7 @@ export class ReConfigChunk extends BaseInitChunk {
 }
 
 export class ForwardTsnChunk extends Chunk {
-  static type = 192;
+  static type = 192 as const;
   streams: [number, number][] = [];
   cumulativeTsn: number;
 
@@ -171,7 +171,7 @@ export class ForwardTsnChunk extends Chunk {
 }
 
 export class DataChunk extends Chunk {
-  static type = 0;
+  static type = 0 as const;
   get type() {
     return DataChunk.type;
   }
@@ -233,7 +233,7 @@ export class DataChunk extends Chunk {
 }
 
 export class CookieEchoChunk extends Chunk {
-  static type = 10;
+  static type = 10 as const;
 
   get type() {
     return CookieEchoChunk.type;
@@ -241,7 +241,7 @@ export class CookieEchoChunk extends Chunk {
 }
 
 export class CookieAckChunk extends Chunk {
-  static type = 11;
+  static type = 11 as const;
 
   get type() {
     return CookieAckChunk.type;
@@ -263,7 +263,7 @@ export class BaseParamsChunk extends Chunk {
 }
 
 export class AbortChunk extends BaseParamsChunk {
-  static type = 6;
+  static type = 6 as const;
 
   get type() {
     return AbortChunk.type;
@@ -271,15 +271,39 @@ export class AbortChunk extends BaseParamsChunk {
 }
 
 export class ErrorChunk extends BaseParamsChunk {
-  static type = 9;
+  static type = 9 as const;
+  static readonly CODE = {
+    InvalidStreamIdentifier: 1,
+    MissingMandatoryParameter: 2,
+    StaleCookieError: 3,
+    OutofResource: 4,
+    UnresolvableAddress: 5,
+    UnrecognizedChunkType: 6,
+    InvalidMandatoryParameter: 7,
+    UnrecognizedParameters: 8,
+    NoUserData: 9,
+    CookieReceivedWhileShuttingDown: 10,
+    RestartofanAssociationwithNewAddresses: 11,
+    UserInitiatedAbort: 12,
+    ProtocolViolation: 13,
+  } as const;
 
   get type() {
     return ErrorChunk.type;
   }
+
+  get descriptions() {
+    return this.params.map(([code, body]) => {
+      const name = (Object.entries(ErrorChunk.CODE).find(
+        ([, num]) => num === code
+      ) || [])[0];
+      return { name, body };
+    });
+  }
 }
 
 export class HeartbeatChunk extends BaseParamsChunk {
-  static type = 4;
+  static type = 4 as const;
 
   get type() {
     return HeartbeatChunk.type;
@@ -287,7 +311,7 @@ export class HeartbeatChunk extends BaseParamsChunk {
 }
 
 export class HeartbeatAckChunk extends BaseParamsChunk {
-  static type = 5;
+  static type = 5 as const;
 
   get type() {
     return HeartbeatAckChunk.type;
@@ -311,7 +335,7 @@ export class HeartbeatAckChunk extends BaseParamsChunk {
 // \                                                               \
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class ReconfigChunk extends BaseParamsChunk {
-  static type = 130;
+  static type = 130 as const;
 
   get type() {
     return ReconfigChunk.type;
