@@ -1,9 +1,12 @@
+import debug from "debug";
 import { HEADER_SIZE, RtcpHeader } from "./header";
 import { RtcpPayloadSpecificFeedback } from "./psfb";
 import { RtcpRrPacket } from "./rr";
 import { RtcpTransportLayerFeedback } from "./rtpfb";
 import { RtcpSourceDescriptionPacket } from "./sdes";
 import { RtcpSrPacket } from "./sr";
+
+const log = debug("werift/rtp/rtcp/rtcp");
 
 export type RtcpPacket =
   | RtcpRrPacket
@@ -65,7 +68,7 @@ export class RtcpPacketConverter {
           );
           break;
         default:
-          console.log("unknown rtcp packet", header.type);
+          log("unknown rtcp packet", header.type);
           break;
       }
     }

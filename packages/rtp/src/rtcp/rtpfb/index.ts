@@ -1,6 +1,9 @@
+import debug from "debug";
 import { RtcpHeader } from "../header";
 import { GenericNack } from "./nack";
 import { TransportWideCC } from "./twcc";
+
+const log = debug("werift/rtp/rtcp/rtpfb/index");
 
 type Feedback = GenericNack | TransportWideCC;
 
@@ -30,7 +33,7 @@ export class RtcpTransportLayerFeedback {
         feedback = TransportWideCC.deSerialize(data, header);
         break;
       default:
-        console.log("unknown rtpfb packet", header.count);
+        log("unknown rtpfb packet", header.count);
         break;
     }
 

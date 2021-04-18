@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@types/jest": "^26.0.22",
-    "@types/node": "^14.14.39",
+    "@types/node": "^14.14.41",
     "@typescript-eslint/eslint-plugin": "^4.22.0",
     "@typescript-eslint/parser": "^4.22.0",
     "depcheck": "^1.2.0",
@@ -45,7 +45,7 @@
     "lerna": "^4.0.0",
     "organize-imports-cli": "^0.8.0",
     "prettier": "^2.2.1",
-    "ts-jest": "^26.5.4",
+    "ts-jest": "^26.5.5",
     "ts-node": "^9.1.1",
     "ts-node-dev": "^1.1.1",
     "tslib": "^2.2.0",

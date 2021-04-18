@@ -1,3 +1,4 @@
+import debug from "debug";
 import {
   PacketStatus,
   RecvDelta,
@@ -9,6 +10,8 @@ import {
 import { sleep } from "../../../../sctp/src/helper";
 import { RTCDtlsTransport } from "../../transport/dtls";
 import { microTime, uint16Add, uint24, uint8Add } from "../../utils";
+
+const log = debug("werift/webrtc/media/receiver/receiverTwcc");
 
 type ExtensionInfo = { tsn: number; timestamp: number };
 
@@ -141,7 +144,7 @@ export class ReceiverTWCC {
     });
 
     this.dtlsTransport.sendRtcp([packet]).catch((err) => {
-      console.log(err);
+      log(err);
     });
     this.extensionInfo = {};
     this.fbPktCount = uint8Add(this.fbPktCount, 1);

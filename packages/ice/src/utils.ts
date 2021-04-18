@@ -1,6 +1,9 @@
 import { randomBytes } from "crypto";
 import { Event } from "rx.mini";
 import PCancelable from "p-cancelable";
+import debug from "debug";
+
+const log = debug("werift/ice/utils");
 
 export function randomString(length: number) {
   return randomBytes(length).toString("hex").substring(0, length);
@@ -70,7 +73,7 @@ export const future = (pCancel: PCancelable<any>) => {
     })
     .catch((error) => {
       if (error !== "cancel") {
-        console.log("future", error);
+        log("future", error);
       }
     });
 

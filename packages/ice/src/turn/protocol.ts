@@ -135,7 +135,7 @@ class TurnClient implements Protocol {
         this.onDatagramReceived(buf, addr);
       }
     } catch (error) {
-      console.log("parse error", data.toString());
+      log("parse error", data.toString());
     }
   }
 
@@ -176,7 +176,7 @@ class TurnClient implements Protocol {
             this.integrityKey
           );
         } catch (error) {
-          console.log(error);
+          log(error);
           // todo fix
         }
       }
@@ -205,7 +205,7 @@ class TurnClient implements Protocol {
 
         await this.request(request, this.server, this.integrityKey).catch(
           // todo fix
-          console.log
+          log
         );
       }
     });
@@ -246,7 +246,7 @@ class TurnClient implements Protocol {
       this.addrByChannel[channel] = addr;
 
       await this.channelBind(channel, addr);
-      console.log("bind", channel);
+      log("bind", channel);
     }
 
     const header = jspack.Pack("!HH", [channel, data.length]);
@@ -269,7 +269,7 @@ class TurnClient implements Protocol {
       );
       if (response.messageMethod !== methods.CHANNEL_BIND) throw new Error();
     } catch (error) {
-      console.log(error);
+      log(error);
       // todo fix
     }
   }

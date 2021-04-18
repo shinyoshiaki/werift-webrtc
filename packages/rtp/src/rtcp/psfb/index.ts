@@ -3,6 +3,9 @@ import { PictureLossIndication } from "./pictureLossIndication";
 import { RtcpPacketConverter } from "../rtcp";
 import { RtcpHeader } from "../header";
 import { ReceiverEstimatedMaxBitrate } from "./remb";
+import debug from "debug";
+
+const log = debug("werift/rtp/rtcp/psfb/index");
 
 type Feedback =
   | FullIntraRequest
@@ -43,7 +46,7 @@ export class RtcpPayloadSpecificFeedback {
         feedback = ReceiverEstimatedMaxBitrate.deSerialize(data);
         break;
       default:
-        console.log("unknown psfb packet", header.count);
+        log("unknown psfb packet", header.count);
         break;
     }
 

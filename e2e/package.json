@@ -14,10 +14,9 @@
     "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device && node stop.js"
   },
   "dependencies": {
-    "werift": "^0.7.2"
+    "werift": "^0.8.5"
   },
   "devDependencies": {
-    "@types/axios": "^0.14.0",
     "@types/jasmine": "^3.6.9",
     "@types/protoo-client": "^4.0.0",
     "@types/protoo-server": "^4.0.1",
@@ -34,7 +33,7 @@
     "protoo-server": "^4.0.6",
     "ts-node": "^9.1.1",
     "ts-node-dev": "^1.1.6",
-    "tslib": "^2.1.0",
-    "typescript": "^4.2.3"
+    "tslib": "^2.2.0",
+    "typescript": "^4.2.4"
   }
 }

@@ -147,7 +147,7 @@ export class RtpRouter {
       case RtcpSourceDescriptionPacket.type:
         {
           const sdes = packet as RtcpSourceDescriptionPacket;
-          // console.log("sdes", JSON.stringify(sdes.chunks));
+          // log("sdes", JSON.stringify(sdes.chunks));
         }
         break;
       case RtcpTransportLayerFeedback.type:

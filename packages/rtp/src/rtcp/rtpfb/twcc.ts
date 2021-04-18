@@ -1,7 +1,10 @@
+import debug from "debug";
 import { range } from "lodash";
 import { bufferReader, bufferWriter } from "../../helper";
 import { getBit, BitWriter } from "../../utils";
 import { RtcpHeader } from "../header";
+
+const log = debug("werift/rtp/rtcp/rtpfb/twcc");
 
 /* RTP Extensions for Transport-wide Congestion Control
  * draft-holmer-rmcat-transport-wide-cc-extensions-01
@@ -194,7 +197,7 @@ export class TransportWideCC {
           try {
             return delta.serialize();
           } catch (error) {
-            console.log(error.message);
+            log(error.message);
             return undefined;
           }
         })
