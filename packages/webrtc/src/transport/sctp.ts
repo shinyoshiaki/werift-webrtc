@@ -353,8 +353,6 @@ class Bridge implements Transport {
   set onData(onData: (buf: Buffer) => void) {
     this.transport.dataReceiver = onData;
   }
-  send(data: Buffer) {
-    this.transport.sendData(data);
-  }
+  readonly send = this.transport.sendData;
   close() {}
 }

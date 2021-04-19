@@ -17,7 +17,7 @@ export abstract class Flight {
   private buffer: Buffer[] = [];
 
   constructor(
-    private udp: TransportContext,
+    private transport: TransportContext,
     public dtls: DtlsContext,
     private flight: number,
     private nextFlight?: number
@@ -41,9 +41,8 @@ export abstract class Flight {
     this.retransmit();
   }
 
-  protected send(buf: Buffer[]) {
-    buf.forEach((v) => this.udp.send(v));
-  }
+  protected send = (buf: Buffer[]) =>
+    Promise.all(buf.map((v) => this.transport.send(v)));
 
   private setState(state: FlightType) {
     this.state = state;

@@ -31,7 +31,9 @@ export class DtlsSocket {
   readonly onConnect = new Event();
   readonly onData = new Event<[Buffer]>();
   readonly onClose = new Event();
-  readonly udp: TransportContext = new TransportContext(this.options.transport);
+  readonly transport: TransportContext = new TransportContext(
+    this.options.transport
+  );
   readonly cipher: CipherContext = new CipherContext(
     this.sessionType,
     this.options.cert,
@@ -48,7 +50,7 @@ export class DtlsSocket {
 
   constructor(public options: Options, public sessionType: SessionTypes) {
     this.setupExtensions();
-    this.udp.socket.onData = this.udpOnMessage;
+    this.transport.socket.onData = this.udpOnMessage;
   }
 
   private udpOnMessage = (data: Buffer) => {
@@ -156,16 +158,16 @@ export class DtlsSocket {
     return handshakes; // return un fragmented handshakes
   }
 
-  send(buf: Buffer) {
+  send = async (buf: Buffer) => {
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],
       ++this.dtls.recordSequenceNumber
     )[0];
-    this.udp.send(this.cipher.encryptPacket(pkt).serialize());
-  }
+    await this.transport.send(this.cipher.encryptPacket(pkt).serialize());
+  };
 
   close() {
-    this.udp.socket.close();
+    this.transport.socket.close();
   }
 
   extractSessionKeys() {

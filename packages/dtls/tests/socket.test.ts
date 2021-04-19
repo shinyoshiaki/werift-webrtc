@@ -1,7 +1,6 @@
-import { DtlsSocket } from "../src";
+import { createUdpTransport, DtlsSocket } from "../src";
 import { createSocket } from "dgram";
 import { DtlsRandom } from "../src/handshake/random";
-import { CipherContext } from "../src/context/cipher";
 import { SessionType } from "../src/cipher/suites/abstract";
 import { certPem, keyPem } from "./fixture";
 
@@ -36,7 +35,11 @@ describe("socket", () => {
     const rand = Buffer.alloc(28);
 
     const socket = new DtlsSocket(
-      { transport: createSocket("udp4"), key: keyPem, cert: certPem },
+      {
+        transport: createUdpTransport(createSocket("udp4")),
+        key: keyPem,
+        cert: certPem,
+      },
       SessionType.SERVER
     );
     socket.cipher.localRandom = new DtlsRandom(500, rand);
