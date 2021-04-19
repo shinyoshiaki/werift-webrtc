@@ -1,0 +1,10 @@
+{
+	"files.insertFinalNewline": true,
+	"editor.insertSpaces": false,
+	"tslint.autoFixOnSave": true,
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"cSpell.words": [
+		"decompressor",
+		"struct"
+	]
+}
