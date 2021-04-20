@@ -246,7 +246,6 @@ export class RTCSctpTransport {
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
 
-    let expiry: number | undefined;
     while (
       this.dataChannelQueue.length > 0 &&
       this.sctp.outboundQueue.length === 0
@@ -266,11 +265,10 @@ export class RTCSctpTransport {
       if (protocol === WEBRTC_DCEP) {
         this.sctp.send(streamId, protocol, userData);
       } else {
-        if (channel.maxPacketLifeTime) {
-          expiry = Date.now() + channel.maxPacketLifeTime / 1000;
-        } else {
-          expiry = undefined;
-        }
+        const expiry = channel.maxPacketLifeTime
+          ? Date.now() + channel.maxPacketLifeTime / 1000
+          : undefined;
+
         this.sctp
           .send(
             streamId,
