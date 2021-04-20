@@ -80,14 +80,16 @@ export class StunProtocol implements Protocol {
     } catch (error) {}
   }
 
-  async sendData(data: Buffer, addr: Address) {
-    const [host, port] = addr;
-    this.socket.send(data, port, host, (error, size) => {
-      if (error) {
-        log("sendData error", port, host, size, error);
-      }
+  sendData = (data: Buffer, addr: Address) =>
+    new Promise<void>((r) => {
+      const [host, port] = addr;
+      this.socket.send(data, port, host, (error, size) => {
+        if (error) {
+          log("sendData error", port, host, size, error);
+        }
+        r();
+      });
     });
-  }
 
   async request(
     request: Message,

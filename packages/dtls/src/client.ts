@@ -18,7 +18,7 @@ export class DtlsClient extends DtlsSocket {
   }
 
   connect() {
-    new Flight1(this.udp, this.dtls, this.cipher).exec(this.extensions);
+    new Flight1(this.transport, this.dtls, this.cipher).exec(this.extensions);
   }
 
   private flight5!: Flight5;
@@ -32,13 +32,13 @@ export class DtlsClient extends DtlsSocket {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
               handshake.fragment
             );
-            new Flight3(this.udp, this.dtls).exec(verifyReq);
+            new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
           break;
         case HandshakeType.server_hello:
           {
             this.flight5 = new Flight5(
-              this.udp,
+              this.transport,
               this.dtls,
               this.cipher,
               this.srtp

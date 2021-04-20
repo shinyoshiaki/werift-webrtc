@@ -31,13 +31,15 @@ import { RTCIceTransport } from "./ice";
 const log = debug("werift/webrtc/transport/dtls");
 
 export class RTCDtlsTransport {
-  dtls!: DtlsSocket;
   state: DtlsState = "new";
   role: DtlsRole = "auto";
+  srtpStarted = false;
+  transportSequenceNumber = 0;
+
   dataReceiver?: (buf: Buffer) => void;
+  dtls?: DtlsSocket;
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
-  transportSequenceNumber = 0;
 
   readonly onStateChange = new Event<[DtlsState]>();
 
@@ -130,8 +132,9 @@ export class RTCDtlsTransport {
     log("dtls connected");
   }
 
-  srtpStarted = false;
   startSrtp() {
+    if (!this.dtls) throw new Error();
+
     if (this.srtpStarted) return;
     this.srtpStarted = true;
 
@@ -168,9 +171,10 @@ export class RTCDtlsTransport {
     });
   }
 
-  sendData(data: Buffer) {
-    this.dtls.send(data);
-  }
+  readonly sendData = async (data: Buffer) => {
+    if (!this.dtls) throw new Error("dtls not established");
+    await this.dtls.send(data);
+  };
 
   sendRtp(payload: Buffer, header: RtpHeader) {
     const enc = this.srtp.encrypt(payload, header);
@@ -259,9 +263,7 @@ class IceTransport implements Transport {
   }
   onData?: (buf: Buffer) => void;
 
-  send(buf: Buffer) {
-    this.ice.send(buf);
-  }
+  readonly send = this.ice.send;
 
   close() {
     this.ice.close();

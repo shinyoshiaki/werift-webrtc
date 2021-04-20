@@ -464,7 +464,7 @@ export class Connection {
     this.sortCheckList();
   }
 
-  async send(data: Buffer) {
+  send = async (data: Buffer) => {
     // """
     // Send a datagram on the first component.
 
@@ -473,7 +473,7 @@ export class Connection {
     // :param data: The data to be sent.
     // """
     await this.sendTo(data, 1);
-  }
+  };
 
   private async sendTo(data: Buffer, component: number) {
     // """

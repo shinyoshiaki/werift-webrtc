@@ -70,7 +70,7 @@ class TurnTransport implements Protocol {
     await this.turn.sendData(data, addr);
   }
   async sendStun(message: Message, addr: Address) {
-    this.turn.sendData(message.bytes, addr);
+    await this.turn.sendData(message.bytes, addr);
   }
 }
 
@@ -308,9 +308,9 @@ function makeIntegrityKey(username: string, realm: string, password: string) {
     .digest();
 }
 
-abstract class Transport {
-  onData: (data: Buffer, addr: Address) => void = () => {};
-  send(data: Buffer, addr: Address) {}
+interface Transport {
+  onData: (data: Buffer, addr: Address) => void;
+  send: (data: Buffer, addr: Address) => Promise<void>;
 }
 
 class UdpTransport implements Transport {
@@ -325,9 +325,10 @@ class UdpTransport implements Transport {
     });
   }
 
-  send = (data: Buffer, addr: Address) => {
-    this.socket.send(data, addr[1], addr[0]);
-  };
+  send = (data: Buffer, addr: Address) =>
+    new Promise<void>((r) =>
+      this.socket.send(data, addr[1], addr[0], () => r())
+    );
 }
 
 function isChannelData(data: Buffer) {

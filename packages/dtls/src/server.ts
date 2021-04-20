@@ -32,19 +32,26 @@ export class DtlsServer extends DtlsSocket {
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
               log("send flight4");
-              new Flight4(this.udp, this.dtls, this.cipher, this.srtp).exec(
-                handshake,
-                this.options.certificateRequest
-              );
+              new Flight4(
+                this.transport,
+                this.dtls,
+                this.cipher,
+                this.srtp
+              ).exec(handshake, this.options.certificateRequest);
             } else if (!this.dtls.cookie) {
               log("send flight2");
-              flight2(this.udp, this.dtls, this.cipher, this.srtp)(clientHello);
+              flight2(
+                this.transport,
+                this.dtls,
+                this.cipher,
+                this.srtp
+              )(clientHello);
             }
           }
           break;
         case HandshakeType.client_key_exchange:
           {
-            this.flight6 = new Flight6(this.udp, this.dtls, this.cipher);
+            this.flight6 = new Flight6(this.transport, this.dtls, this.cipher);
             this.flight6.handleHandshake(handshake);
           }
           break;

@@ -768,19 +768,19 @@ export class SCTP {
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
     let retransmitEarliest = true;
-    for (const chunk of this.sentQueue) {
-      if (chunk.retransmit) {
+    for (const dataChunk of this.sentQueue) {
+      if (dataChunk.retransmit) {
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
         } else if (this.flightSize >= cwnd) {
           return;
         }
-        this.flightSizeIncrease(chunk);
+        this.flightSizeIncrease(dataChunk);
 
-        chunk.misses = 0;
-        chunk.retransmit = false;
-        chunk.sentCount++;
-        this.sendChunk(chunk);
+        dataChunk.misses = 0;
+        dataChunk.retransmit = false;
+        dataChunk.sentCount++;
+        this.sendChunk(dataChunk);
 
         if (retransmitEarliest) {
           this.t3Restart();
@@ -792,10 +792,8 @@ export class SCTP {
     // for performance
     while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.shift();
-      if (!chunk) {
-        log("outboundQueue empty");
-        return;
-      }
+      if (!chunk) return;
+
       this.sentQueue.push(chunk);
       this.flightSizeIncrease(chunk);
 
@@ -1056,7 +1054,7 @@ export class SCTP {
     params.push([SCTP_SUPPORTED_CHUNK_EXT, Buffer.from(extensions)]);
   }
 
-  sendChunk(chunk: Chunk) {
+  async sendChunk(chunk: Chunk) {
     if (this.remotePort === undefined) throw new Error("invalid remote port");
     if (this.state === "closed") return;
 
@@ -1070,7 +1068,7 @@ export class SCTP {
       this.remoteVerificationTag,
       chunk
     );
-    this.transport.send(packet);
+    await this.transport.send(packet);
   }
 
   setState(state: SCTP_STATE) {
