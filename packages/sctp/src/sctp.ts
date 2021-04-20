@@ -745,7 +745,7 @@ export class SCTP {
       }
     });
 
-  private async transmit() {
+  private transmit() {
     // """
     // Transmit outbound data.
     // """
