@@ -257,7 +257,8 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData);
+        // todo debug
+        this.sctp.send(streamId, protocol, userData);
       } else {
         const expiry = channel.maxPacketLifeTime
           ? Date.now() + channel.maxPacketLifeTime / 1000
