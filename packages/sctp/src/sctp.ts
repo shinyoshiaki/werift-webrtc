@@ -83,7 +83,7 @@ export class SCTP {
   readonly onReconfigStreams = new Event<[number[]]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
-  readonly onReceiveChunk = new Event<[Chunk]>();
+  onSackReceived: () => Promise<void> = async () => {};
 
   associationState = SCTP_STATE.CLOSED;
   started = false;
@@ -179,7 +179,7 @@ export class SCTP {
   }
 
   // call from dtls transport
-  private handleData(data: Buffer) {
+  private async handleData(data: Buffer) {
     let expectedTag: number;
 
     const [, , verificationTag, chunks] = parsePacket(data);
@@ -198,15 +198,15 @@ export class SCTP {
     }
 
     for (const chunk of chunks) {
-      this.receiveChunk(chunk);
+      await this.receiveChunk(chunk);
     }
 
     if (this.sackNeeded) {
-      this.sendSack();
+      await this.sendSack();
     }
   }
 
-  private sendSack() {
+  private async sendSack() {
     const gaps: [number, number][] = [];
     let gapNext: number;
     [...this.sackMisOrdered].sort().forEach((tsn) => {
@@ -224,13 +224,13 @@ export class SCTP {
     sack.duplicates = [...this.sackDuplicates];
     sack.gaps = gaps;
 
-    this.sendChunk(sack);
+    await this.sendChunk(sack);
 
     this.sackDuplicates = [];
     this.sackNeeded = false;
   }
 
-  private receiveChunk(chunk: Chunk) {
+  private async receiveChunk(chunk: Chunk) {
     switch (chunk.type) {
       case DataChunk.type:
         this.receiveDataChunk(chunk as DataChunk);
@@ -270,7 +270,7 @@ export class SCTP {
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
           log("send initAck", ack);
-          this.sendChunk(ack);
+          await this.sendChunk(ack);
         }
         break;
       case InitAckChunk.type:
@@ -299,19 +299,19 @@ export class SCTP {
               break;
             }
           }
-          this.sendChunk(echo);
+          await this.sendChunk(echo);
 
           this.t1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
         }
         break;
       case SackChunk.type:
-        this.receiveSackChunk(chunk as SackChunk);
+        await this.receiveSackChunk(chunk as SackChunk);
         break;
       case HeartbeatChunk.type:
         const ack = new HeartbeatAckChunk();
         ack.params = (chunk as HeartbeatChunk).params;
-        this.sendChunk(ack);
+        await this.sendChunk(ack);
         break;
       case AbortChunk.type:
         this.setState(SCTP_STATE.CLOSED);
@@ -321,7 +321,7 @@ export class SCTP {
           this.t2Cancel();
           this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
           const ack = new ShutdownAckChunk();
-          this.sendChunk(ack);
+          await this.sendChunk(ack);
           this.t2Start(ack);
           this.setState(SCTP_STATE.SHUTDOWN_SENT);
         }
@@ -355,11 +355,11 @@ export class SCTP {
               ErrorChunk.CODE.StaleCookieError,
               Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
             ]);
-            this.sendChunk(error);
+            await this.sendChunk(error);
             return;
           }
           const ack = new CookieAckChunk();
-          this.sendChunk(ack);
+          await this.sendChunk(ack);
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
@@ -382,7 +382,7 @@ export class SCTP {
           for (const [type, body] of reconfig.params) {
             const target = RECONFIG_PARAM_BY_TYPES[type];
             if (target) {
-              this.receiveReconfigParam(target.parse(body));
+              await this.receiveReconfigParam(target.parse(body));
             }
           }
         }
@@ -391,7 +391,6 @@ export class SCTP {
         this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
         break;
     }
-    this.onReceiveChunk.execute(chunk);
   }
 
   private getExtensions(params: [number, Buffer][]) {
@@ -404,7 +403,7 @@ export class SCTP {
     }
   }
 
-  private receiveReconfigParam(param: StreamParam) {
+  private async receiveReconfigParam(param: StreamParam) {
     log("receiveReconfigParam", RECONFIG_PARAM_BY_TYPES[param.type]);
     switch (param.type) {
       case OutgoingSSNResetRequestParam.type:
@@ -417,21 +416,23 @@ export class SCTP {
             reconfigResult.ReconfigResultSuccessPerformed
           );
           this.reconfigResponseSeq = p.requestSequence;
-          this.sendReconfigParam(response);
+          await this.sendReconfigParam(response);
 
           // # mark closed inbound streams
-          p.streams.forEach((streamId) => {
-            delete this.inboundStreams[streamId];
-            if (this.outboundStreamSeq[streamId]) {
-              this.reconfigQueue.push(streamId);
+          await Promise.all(
+            p.streams.map(async (streamId) => {
+              delete this.inboundStreams[streamId];
+              if (this.outboundStreamSeq[streamId]) {
+                this.reconfigQueue.push(streamId);
 
-              this.sendResetRequest(streamId);
-            }
-          });
+                await this.sendResetRequest(streamId);
+              }
+            })
+          );
           // # close data channel
           this.onReconfigStreams.execute(p.streams);
 
-          this.transmitReconfig();
+          await this.transmitReconfig();
         }
         break;
       case ReconfigResponseParam.type:
@@ -456,7 +457,7 @@ export class SCTP {
             this.onReconfigStreams.execute(streamIds);
 
             this.reconfigRequest = undefined;
-            this.transmitReconfig();
+            await this.transmitReconfig();
           }
         }
         break;
@@ -466,7 +467,7 @@ export class SCTP {
           this._inboundStreamsCount += add.newStreams;
           const res = new ReconfigResponseParam(add.requestSequence, 1);
           this.reconfigResponseSeq = add.requestSequence;
-          this.sendReconfigParam(res);
+          await this.sendReconfigParam(res);
         }
         break;
     }
@@ -487,7 +488,7 @@ export class SCTP {
     }
   }
 
-  private receiveSackChunk(chunk: SackChunk) {
+  private async receiveSackChunk(chunk: SackChunk) {
     // """
     // Handle a SACK chunk.
     // """
@@ -596,6 +597,7 @@ export class SCTP {
     }
 
     this.updateAdvancedPeerAckPoint();
+    await this.onSackReceived();
     this.transmit();
   }
 
@@ -699,7 +701,7 @@ export class SCTP {
     maxRetransmits: number | undefined = undefined,
     ordered = true
   ) =>
-    new Promise((r) => {
+    new Promise(async (r) => {
       const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
       const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
@@ -741,11 +743,11 @@ export class SCTP {
       }
 
       if (!this.t3Handle) {
-        this.transmit();
+        await this.transmit();
       }
     });
 
-  private transmit() {
+  private async transmit() {
     // """
     // Transmit outbound data.
     // """
@@ -801,14 +803,14 @@ export class SCTP {
       chunk.sentCount++;
       chunk.sentTime = Date.now() / 1000;
 
-      this.sendChunk(chunk);
+      await this.sendChunk(chunk);
       if (!this.t3Handle) {
         this.t3Start();
       }
     }
   }
 
-  transmitReconfig() {
+  async transmitReconfig() {
     if (
       this.associationState === SCTP_STATE.ESTABLISHED &&
       this.reconfigQueue.length > 0 &&
@@ -826,25 +828,25 @@ export class SCTP {
       this.reconfigRequest = param;
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
-      this.sendReconfigParam(param);
+      await this.sendReconfigParam(param);
     }
   }
 
-  sendReconfigParam(param: StreamParam) {
+  async sendReconfigParam(param: StreamParam) {
     log("sendReconfigParam", param);
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
-    this.sendChunk(chunk);
+    await this.sendChunk(chunk);
   }
 
   // https://github.com/pion/sctp/pull/44/files
-  private sendResetRequest(streamId: number) {
+  private async sendResetRequest(streamId: number) {
     log("sendResetRequest", streamId);
     const chunk = new DataChunk(0, undefined);
     chunk.streamId = streamId;
     this.outboundQueue.push(chunk);
     if (!this.t3Handle) {
-      this.transmit();
+      await this.transmit();
     }
   }
 
@@ -1015,19 +1017,19 @@ export class SCTP {
     return new RTCSctpCapabilities(65536);
   }
 
-  start(remotePort: number) {
+  async start(remotePort: number) {
     if (!this.started) {
       this.started = true;
       this.setConnectionState("connecting");
       this.remotePort = remotePort;
 
       if (!this.isServer) {
-        this.init();
+        await this.init();
       }
     }
   }
 
-  private init() {
+  private async init() {
     const init = new InitChunk();
     init.initiateTag = this.localVerificationTag;
     init.advertisedRwnd = this.advertisedRwnd;
@@ -1036,7 +1038,7 @@ export class SCTP {
     init.initialTsn = this.localTsn;
     this.setExtensions(init.params);
     log("send init", init);
-    this.sendChunk(init);
+    await this.sendChunk(init);
 
     // # start T1 timer and enter COOKIE-WAIT state
     this.t1Start(init);
@@ -1091,9 +1093,9 @@ export class SCTP {
     this.stateChanged[state].execute();
   }
 
-  stop() {
+  async stop() {
     if (this.associationState !== SCTP_STATE.CLOSED) {
-      this.abort();
+      await this.abort();
     }
     this.setState(SCTP_STATE.CLOSED);
     clearTimeout(this.t1Handle);
@@ -1101,9 +1103,9 @@ export class SCTP {
     clearTimeout(this.t3Handle);
   }
 
-  abort() {
+  async abort() {
     const abort = new AbortChunk();
-    this.sendChunk(abort);
+    await this.sendChunk(abort);
   }
 
   private removeAllListeners() {

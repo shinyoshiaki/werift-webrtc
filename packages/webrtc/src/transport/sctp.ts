@@ -3,7 +3,6 @@ import { jspack } from "jspack";
 import { Event } from "rx.mini";
 import * as uuid from "uuid";
 import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
-import { SackChunk } from "../../../sctp/src/chunk";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -26,7 +25,7 @@ const log = debug("werift/webrtc/transport/sctp");
 export class RTCSctpTransport {
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly uuid = uuid.v4();
-  readonly sctp = new SCTP(new Bridge(this.dtlsTransport), this.port);
+  readonly sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
   mid?: string;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
@@ -46,7 +45,6 @@ export class RTCSctpTransport {
         delete this.dataChannels[id];
       });
     });
-
     this.sctp.stateChanged.connected.subscribe(() => {
       Object.values(this.dataChannels).forEach((channel) => {
         if (channel.negotiated && channel.readyState !== "open") {
@@ -61,11 +59,9 @@ export class RTCSctpTransport {
       });
       this.dataChannels = {};
     });
-    this.sctp.onReceiveChunk.subscribe((chunk) => {
-      if (chunk instanceof SackChunk) {
-        this.dataChannelFlush();
-      }
-    });
+    this.sctp.onSackReceived = async () => {
+      await this.dataChannelFlush();
+    };
 
     this.dtlsTransport.onStateChange.subscribe((state) => {
       if (state === "closed") {
@@ -82,7 +78,7 @@ export class RTCSctpTransport {
     return Object.values(this.dataChannels).find((d) => d.label === label);
   }
 
-  private datachannelReceive = (
+  private datachannelReceive = async (
     streamId: number,
     ppId: number,
     data: Buffer
@@ -143,7 +139,7 @@ export class RTCSctpTransport {
                 WEBRTC_DCEP,
                 Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
               ]);
-              this.dataChannelFlush();
+              await this.dataChannelFlush();
 
               this.onDataChannel.execute(channel);
               channel.setReadyState("open");
@@ -235,7 +231,7 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
-  private dataChannelFlush() {
+  private async dataChannelFlush() {
     // """
     // Try to flush buffered data to the SCTP layer.
 
@@ -245,11 +241,9 @@ export class RTCSctpTransport {
     // """
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
+    if (this.sctp.outboundQueue.length > 0) return;
 
-    while (
-      this.dataChannelQueue.length > 0 &&
-      this.sctp.outboundQueue.length === 0
-    ) {
+    while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
 
       let streamId = channel.id;
@@ -346,11 +340,11 @@ export class RTCSctpCapabilities {
   constructor(public maxMessageSize: number) {}
 }
 
-class Bridge implements Transport {
-  constructor(private transport: RTCDtlsTransport) {}
+class BridgeDtls implements Transport {
+  constructor(private dtls: RTCDtlsTransport) {}
   set onData(onData: (buf: Buffer) => void) {
-    this.transport.dataReceiver = onData;
+    this.dtls.dataReceiver = onData;
   }
-  readonly send = this.transport.sendData;
+  readonly send = this.dtls.sendData;
   close() {}
 }

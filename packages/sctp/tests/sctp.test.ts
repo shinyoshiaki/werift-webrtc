@@ -39,7 +39,7 @@ describe("sctp", () => {
     expect(server.remoteExtensions).toEqual([192, 130]);
 
     const param = new StreamAddOutgoingParam(client.reconfigRequestSeq, 16);
-    client.sendReconfigParam(param);
+    await client.sendReconfigParam(param);
     await sleep(100);
 
     expect(server.maxChannels).toBe(272);
