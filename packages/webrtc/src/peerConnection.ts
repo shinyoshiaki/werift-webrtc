@@ -886,10 +886,10 @@ export class RTCPeerConnection {
     });
 
     if (this.sctpTransport) {
-      this.sctpTransport.stop();
+      await this.sctpTransport.stop();
     }
     if (this.dtlsTransport) {
-      this.dtlsTransport.stop();
+      await this.dtlsTransport.stop();
       await this.dtlsTransport.iceTransport.stop();
     }
 

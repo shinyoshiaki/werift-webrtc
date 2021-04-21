@@ -199,8 +199,9 @@ export class RTCDtlsTransport {
     }
   }
 
-  stop() {
+  async stop() {
     this.setState("closed");
+    // todo impl send alert
   }
 }
 

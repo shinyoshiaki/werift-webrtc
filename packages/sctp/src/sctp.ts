@@ -424,7 +424,6 @@ export class SCTP {
               delete this.inboundStreams[streamId];
               if (this.outboundStreamSeq[streamId]) {
                 this.reconfigQueue.push(streamId);
-
                 await this.sendResetRequest(streamId);
               }
             })
@@ -598,7 +597,7 @@ export class SCTP {
 
     this.updateAdvancedPeerAckPoint();
     await this.onSackReceived();
-    this.transmit();
+    await this.transmit();
   }
 
   receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
@@ -693,59 +692,59 @@ export class SCTP {
     return false;
   }
 
-  send = (
+  send = async (
     streamId: number,
     ppId: number,
     userData: Buffer,
     expiry: number | undefined = undefined,
     maxRetransmits: number | undefined = undefined,
     ordered = true
-  ) =>
-    new Promise(async (r) => {
-      const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
+  ) => {
+    const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
-      const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
-      let pos = 0;
-      const chunks: DataChunk[] = [];
-      for (const fragment of range(0, fragments)) {
-        const chunk = new DataChunk(0, undefined);
-        chunk.flags = 0;
-        if (!ordered) {
-          chunk.flags = SCTP_DATA_UNORDERED;
-        }
-        if (fragment === 0) {
-          chunk.flags |= SCTP_DATA_FIRST_FRAG;
-        }
-        if (fragment === fragments - 1) {
-          chunk.flags |= SCTP_DATA_LAST_FRAG;
-        }
-        chunk.tsn = this.localTsn;
-        chunk.streamId = streamId;
-        chunk.streamSeqNum = streamSeqNum;
-        chunk.protocol = ppId;
-        chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
-        chunk.bookSize = chunk.userData.length;
-        chunk.expiry = expiry;
-        chunk.maxRetransmits = maxRetransmits;
-
-        pos += USERDATA_MAX_LENGTH;
-        this.localTsn = tsnPlusOne(this.localTsn);
-        chunks.push(chunk);
+    const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
+    let pos = 0;
+    const chunks: DataChunk[] = [];
+    for (const fragment of range(0, fragments)) {
+      const chunk = new DataChunk(0, undefined);
+      chunk.flags = 0;
+      if (!ordered) {
+        chunk.flags = SCTP_DATA_UNORDERED;
       }
-
-      chunks.slice(-1)[0].onTransmit.once(r);
-      chunks.forEach((chunk) => {
-        this.outboundQueue.push(chunk);
-      });
-
-      if (ordered) {
-        this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
+      if (fragment === 0) {
+        chunk.flags |= SCTP_DATA_FIRST_FRAG;
       }
-
-      if (!this.t3Handle) {
-        await this.transmit();
+      if (fragment === fragments - 1) {
+        chunk.flags |= SCTP_DATA_LAST_FRAG;
       }
+      chunk.tsn = this.localTsn;
+      chunk.streamId = streamId;
+      chunk.streamSeqNum = streamSeqNum;
+      chunk.protocol = ppId;
+      chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
+      chunk.bookSize = chunk.userData.length;
+      chunk.expiry = expiry;
+      chunk.maxRetransmits = maxRetransmits;
+
+      pos += USERDATA_MAX_LENGTH;
+      this.localTsn = tsnPlusOne(this.localTsn);
+      chunks.push(chunk);
+    }
+
+    chunks.forEach((chunk) => {
+      this.outboundQueue.push(chunk);
     });
+
+    if (ordered) {
+      this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
+    }
+
+    if (!this.t3Handle) {
+      await this.transmit();
+    } else {
+      await new Promise((r) => setImmediate(r));
+    }
+  };
 
   private async transmit() {
     // """
@@ -754,7 +753,7 @@ export class SCTP {
 
     // # send FORWARD TSN
     if (this.forwardTsnChunk) {
-      this.sendChunk(this.forwardTsnChunk);
+      await this.sendChunk(this.forwardTsnChunk);
       this.forwardTsnChunk = undefined;
 
       if (!this.t3Handle) {
@@ -782,7 +781,7 @@ export class SCTP {
         dataChunk.misses = 0;
         dataChunk.retransmit = false;
         dataChunk.sentCount++;
-        this.sendChunk(dataChunk);
+        await this.sendChunk(dataChunk);
 
         if (retransmitEarliest) {
           this.t3Restart();
@@ -791,7 +790,7 @@ export class SCTP {
       retransmitEarliest = false;
     }
 
-    // for performance
+    // for performance todo fix
     while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.shift();
       if (!chunk) return;
@@ -875,7 +874,7 @@ export class SCTP {
     if (this.t1Failures > SCTP_MAX_INIT_RETRANS) {
       this.setState(SCTP_STATE.CLOSED);
     } else {
-      this.sendChunk(this.t1Chunk!);
+      setImmediate(() => this.sendChunk(this.t1Chunk!));
       this.t1Handle = setTimeout(this.t1Expired, this.rto * 1000);
     }
   };
@@ -902,7 +901,7 @@ export class SCTP {
     if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
       this.setState(SCTP_STATE.CLOSED);
     } else {
-      this.sendChunk(this.t2Chunk!);
+      setImmediate(() => this.sendChunk(this.t2Chunk!));
       this.t2Handle = setTimeout(this.t2Expired, this.rto * 1000);
     }
   };

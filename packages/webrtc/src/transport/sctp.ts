@@ -257,22 +257,20 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        this.sctp.send(streamId, protocol, userData);
+        await this.sctp.send(streamId, protocol, userData);
       } else {
         const expiry = channel.maxPacketLifeTime
           ? Date.now() + channel.maxPacketLifeTime / 1000
           : undefined;
 
-        this.sctp
-          .send(
-            streamId,
-            protocol,
-            userData,
-            expiry,
-            channel.maxRetransmits,
-            channel.ordered
-          )
-          .then(() => this.dataChannelFlush());
+        await this.sctp.send(
+          streamId,
+          protocol,
+          userData,
+          expiry,
+          channel.maxRetransmits,
+          channel.ordered
+        );
         channel.addBufferedAmount(-userData.length);
       }
     }
@@ -306,12 +304,12 @@ export class RTCSctpTransport {
     }
     this.sctp.isServer = this.isServer;
 
-    this.sctp.start(remotePort);
+    await this.sctp.start(remotePort);
   }
 
-  stop() {
+  async stop() {
     this.dtlsTransport.dataReceiver = undefined;
-    this.sctp.stop();
+    await this.sctp.stop();
   }
 
   dataChannelClose(channel: RTCDataChannel) {
