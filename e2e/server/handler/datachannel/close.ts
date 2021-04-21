@@ -136,6 +136,7 @@ export class datachannel_close_client_create_server_close {
 
           this.pc.onDataChannel.subscribe((dc) => {
             dc.message.once(() => {
+              console.log("onmessage");
               dc.close();
             });
           });

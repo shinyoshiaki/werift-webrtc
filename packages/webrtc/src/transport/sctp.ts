@@ -139,10 +139,11 @@ export class RTCSctpTransport {
                 WEBRTC_DCEP,
                 Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
               ]);
-              await this.dataChannelFlush();
 
               this.onDataChannel.execute(channel);
               channel.setReadyState("open");
+
+              await this.dataChannelFlush();
             }
           }
           break;
@@ -257,8 +258,7 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        // todo debug
-        this.sctp.send(streamId, protocol, userData);
+        await this.sctp.send(streamId, protocol, userData);
       } else {
         const expiry = channel.maxPacketLifeTime
           ? Date.now() + channel.maxPacketLifeTime / 1000
