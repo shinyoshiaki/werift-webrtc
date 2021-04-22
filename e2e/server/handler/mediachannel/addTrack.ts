@@ -22,18 +22,13 @@ export class mediachannel_addTrack_answer {
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
 
-          this.pc.connectionStateChange
-            .watch((state) => state === "connected")
-            .then(() => {
-              this.udp.on("message", (data) => {
-                const rtp = RtpPacket.deSerialize(data);
-                rtp.header.payloadType = track.codec.payloadType;
-                track.writeRtp(rtp);
-              });
-              this.child = exec(
-                "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5000"
-              );
-            });
+          this.udp.on("message", (data) => {
+            const rtp = RtpPacket.deSerialize(data);
+            track.writeRtp(rtp);
+          });
+          this.child = exec(
+            "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5000"
+          );
         }
         break;
       case "candidate":
@@ -81,18 +76,13 @@ export class mediachannel_addTrack_offer {
           await this.pc.setLocalDescription(await this.pc.createAnswer());
           accept(this.pc.localDescription);
 
-          this.pc.connectionStateChange
-            .watch((state) => state === "connected")
-            .then(() => {
-              this.udp.on("message", (data) => {
-                const rtp = RtpPacket.deSerialize(data);
-                rtp.header.payloadType = track.codec.payloadType;
-                track.writeRtp(rtp);
-              });
-              this.child = exec(
-                "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5000"
-              );
-            });
+          this.udp.on("message", (data) => {
+            const rtp = RtpPacket.deSerialize(data);
+            track.writeRtp(rtp);
+          });
+          this.child = exec(
+            "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5000"
+          );
         }
         break;
       case "candidate":

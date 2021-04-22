@@ -993,6 +993,5 @@ function validateAddress(addr?: Address) {
   if (addr && isNaN(addr[1])) {
     addr[1] = 443;
   }
-  console.log("validateAddress", addr);
   return addr;
 }

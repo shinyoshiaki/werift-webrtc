@@ -7,7 +7,7 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
   pc.onIceCandidate.subscribe((candidate) => {
-    socket.send(JSON.stringify(candidate.toJSON()));
+    socket.send(JSON.stringify(candidate));
   });
 
   const transceiver = pc.addTransceiver("video");

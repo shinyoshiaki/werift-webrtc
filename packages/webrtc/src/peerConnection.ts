@@ -153,12 +153,12 @@ export class RTCPeerConnection {
 
   get localDescription() {
     if (!this._localDescription) return;
-    return wrapSessionDescription(this._localDescription);
+    return this._localDescription.toJSON();
   }
 
   get remoteDescription() {
     if (!this._remoteDescription) return;
-    return wrapSessionDescription(this._remoteDescription);
+    return this._remoteDescription.toJSON();
   }
 
   private get _localDescription() {
@@ -269,7 +269,7 @@ export class RTCPeerConnection {
     const bundle = new GroupDescription("BUNDLE", mids);
     description.group.push(bundle);
 
-    return wrapSessionDescription(description);
+    return description.toJSON();
   }
 
   createDataChannel(
@@ -870,7 +870,7 @@ export class RTCPeerConnection {
     });
     description.group.push(bundle);
 
-    return wrapSessionDescription(description);
+    return description.toJSON();
   }
 
   async close() {
@@ -1029,13 +1029,6 @@ export function allocateMid(mids: Set<string>) {
   }
   mids.add(mid);
   return mid;
-}
-
-export function wrapSessionDescription(sessionDescription: SessionDescription) {
-  return new RTCSessionDescription(
-    sessionDescription.toString(),
-    sessionDescription.type
-  );
 }
 
 export type PeerConfig = {

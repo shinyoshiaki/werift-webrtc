@@ -40,10 +40,10 @@ export class MediaStreamTrack {
 
   writeRtp = (rtp: RtpPacket | Buffer) => {
     if (this.remote) throw new Error("this is remoteTrack");
-    if (this.stopped) return;
+    if (!this.codec || this.stopped) return;
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
-
+    packet.header.payloadType = this.codec.payloadType;
     this.onReceiveRtp.execute(packet);
   };
 }

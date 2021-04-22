@@ -96,9 +96,7 @@ export class RTCRtpSender {
     }
 
     const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
-      if (this.parameters) {
-        this.sendRtp(rtp);
-      }
+      this.sendRtp(rtp);
     });
     this.track = track;
     this.disposeTrack = unSubscribe;

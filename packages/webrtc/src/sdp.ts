@@ -310,6 +310,10 @@ export class SessionDescription {
     const sdp = lines.join("\r\n") + "\r\n" + media;
     return sdp;
   }
+
+  toJSON() {
+    return new RTCSessionDescription(this.toString(), this.type);
+  }
 }
 
 export class MediaDescription {
