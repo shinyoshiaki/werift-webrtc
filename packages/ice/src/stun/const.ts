@@ -36,8 +36,8 @@ export const ATTRIBUTES = [
 export enum classes {
   REQUEST = 0x000,
   INDICATION = 0x010,
-  RESPONSE = 0x100,
-  ERROR = 0x110,
+  RESPONSE = 0x100, // 256
+  ERROR = 0x110, // 272
 }
 
 export enum methods {

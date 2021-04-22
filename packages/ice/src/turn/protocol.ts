@@ -327,7 +327,12 @@ class UdpTransport implements Transport {
 
   send = (data: Buffer, addr: Address) =>
     new Promise<void>((r) =>
-      this.socket.send(data, addr[1], addr[0], () => r())
+      this.socket.send(data, addr[1], addr[0], (error) => {
+        if (error) {
+          log("send error", addr, data);
+        }
+        r();
+      })
     );
 }
 

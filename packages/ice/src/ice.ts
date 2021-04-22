@@ -69,6 +69,7 @@ export class Connection {
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
   stunServer?: Address;
+  turnServer?: Address;
   useIpv4: boolean;
   useIpv6: boolean;
   options: IceOptions;
@@ -103,8 +104,15 @@ export class Connection {
       ...defaultOptions,
       ...options,
     };
-    const { components, stunServer, useIpv4, useIpv6 } = this.options;
-    this.stunServer = stunServer;
+    const {
+      components,
+      stunServer,
+      turnServer,
+      useIpv4,
+      useIpv6,
+    } = this.options;
+    this.stunServer = validateAddress(stunServer);
+    this.turnServer = validateAddress(turnServer);
     this.useIpv4 = useIpv4;
     this.useIpv6 = useIpv6;
     this._components = new Set(range(1, components + 1));
@@ -198,12 +206,12 @@ export class Connection {
     }
 
     if (
-      this.options.turnServer &&
+      this.turnServer &&
       this.options.turnUsername &&
       this.options.turnPassword
     ) {
       const protocol = await createTurnEndpoint(
-        this.options.turnServer,
+        this.turnServer,
         this.options.turnUsername,
         this.options.turnPassword
       );
@@ -212,7 +220,7 @@ export class Connection {
       const candidateAddress = protocol.turn.relayedAddress;
       const relatedAddress = protocol.turn.mappedAddress;
 
-      log("candidateAddress", candidateAddress);
+      log("turn candidateAddress", candidateAddress);
 
       protocol.localCandidate = new Candidate(
         candidateFoundation("relay", "udp", candidateAddress[0]),
@@ -979,4 +987,12 @@ export async function serverReflexiveCandidate(
   } catch (error) {
     // todo fix
   }
+}
+
+function validateAddress(addr?: Address) {
+  if (addr && isNaN(addr[1])) {
+    addr[1] = 443;
+  }
+  console.log("validateAddress", addr);
+  return addr;
 }
