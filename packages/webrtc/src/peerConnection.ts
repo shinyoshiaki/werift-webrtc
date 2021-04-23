@@ -998,6 +998,7 @@ export function addTransportDescription(
   media.iceCandidates = iceGatherer.localCandidates;
   media.iceCandidatesComplete = iceGatherer.gatheringState === "complete";
   media.iceParams = iceGatherer.localParameters;
+  media.iceOptions = "trickle";
 
   if (media.iceCandidates.length > 0) {
     const candidate = media.iceCandidates[media.iceCandidates.length - 1];

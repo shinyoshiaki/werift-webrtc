@@ -11,6 +11,7 @@ import {
   datachannel_answer,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
+import { ice_trickle_answer, ice_trickle_offer } from "./handler/ice/trickle";
 import {
   mediachannel_addTrack_answer,
   mediachannel_addTrack_offer,
@@ -64,6 +65,8 @@ server.on("connectionrequest", async (_, accept) => {
     datachannel_close_client_create_close: new datachannel_close_client_create_close(),
     datachannel_close_client_create_server_close: new datachannel_close_client_create_server_close(),
     datachannel_close_server_create_client_close: new datachannel_close_server_create_client_close(),
+    ice_trickle_answer: new ice_trickle_answer(),
+    ice_trickle_offer: new ice_trickle_offer(),
   };
 
   const transport = accept();
@@ -72,7 +75,7 @@ server.on("connectionrequest", async (_, accept) => {
   peer.on("request", (request, accept) => {
     const { type, payload } = request.data;
     try {
-      tests[request.method].exec(type, payload, accept);
+      tests[request.method].exec(type, payload, accept, peer);
     } catch (error) {
       console.log(error);
     }
