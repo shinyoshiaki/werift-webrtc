@@ -15,16 +15,13 @@ server.on("connection", async (socket) => {
     transceiver.sender.replaceTrack(track)
   );
 
-  const offer = await pc.createOffer();
-  pc.setLocalDescription(offer);
+  pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
-  console.log(sdp);
   socket.send(sdp);
 
   socket.on("message", (data: any) => {
     const msg = JSON.parse(data);
     if (msg.candidate) {
-      console.log("on candidate");
       pc.addIceCandidate(msg);
     } else {
       pc.setRemoteDescription(msg);

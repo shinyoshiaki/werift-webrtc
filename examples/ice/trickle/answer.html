@@ -65,15 +65,15 @@
               .getVideoTracks()
               .forEach((track) => peer.addTrack(track, localStream));
 
-            await peer.setRemoteDescription(offer);
             socket.onmessage = (ev) => {
               const msg = JSON.parse(ev.data);
-              console.log("candidate", msg);
+              console.warn("candidate", msg);
               if (msg.candidate) {
                 peer.addIceCandidate(msg);
               }
             };
 
+            await peer.setRemoteDescription(offer);
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
             const sdp = JSON.stringify(peer.localDescription);
