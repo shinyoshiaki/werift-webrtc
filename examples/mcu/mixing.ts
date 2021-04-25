@@ -1,6 +1,6 @@
 export class Mixer {
-  inputs: { [id: string]: Input } = {};
-  pcmList: { [id: string]: Buffer } = {};
+  private inputs: { [id: string]: Input } = {};
+  private pcmMap: { [id: string]: Buffer } = {};
   onData: (buf: Buffer) => void = () => {};
 
   constructor() {}
@@ -13,15 +13,15 @@ export class Mixer {
   }
 
   write(id: string, buf: Buffer) {
-    this.pcmList[id] = buf;
+    this.pcmMap[id] = buf;
     this.merge();
   }
 
   private merge() {
-    if (Object.keys(this.pcmList).length >= Object.keys(this.inputs).length) {
-      const inputs = Object.values(this.pcmList);
+    if (Object.keys(this.pcmMap).length >= Object.keys(this.inputs).length) {
+      const inputs = Object.values(this.pcmMap);
       const base = inputs.shift();
-      this.pcmList = {};
+      this.pcmMap = {};
       const res = inputs.reduce(
         (acc: number[], cur) => {
           const next = acc.map((v, i) => this.mix(v, cur[i]));
@@ -38,15 +38,14 @@ export class Mixer {
     const max = 1 << (16 - 1);
     if (max < res) {
       return max;
-    } else if (0 > res) {
+    } else {
       return res;
     }
-    return res;
   }
 
   remove(id: string) {
     delete this.inputs[id];
-    delete this.pcmList[id];
+    delete this.pcmMap[id];
   }
 }
 

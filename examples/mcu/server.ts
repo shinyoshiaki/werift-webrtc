@@ -1,14 +1,16 @@
-import { RTCPeerConnection, MediaStreamTrack } from "../../packages/webrtc/src";
-import { Server } from "ws";
-import { OpusEncoder } from "@discordjs/opus";
-import { RtpHeader, RtpPacket } from "../../packages/rtp/src";
-import { Mixer } from "./mixing";
 import {
+  RTCPeerConnection,
+  MediaStreamTrack,
   random16,
   random32,
   uint16Add,
   uint32Add,
-} from "../../packages/webrtc/src/utils";
+  RtpHeader,
+  RtpPacket,
+} from "../../packages/webrtc/src";
+import { Server } from "ws";
+import { OpusEncoder } from "@discordjs/opus";
+import { Mixer } from "./mixing";
 
 console.log("start");
 const server = new Server({ port: 8888 });
