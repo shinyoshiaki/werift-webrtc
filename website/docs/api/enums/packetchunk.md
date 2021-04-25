@@ -14,7 +14,7 @@ hide_title: true
 
 • **TypeTCCRunLengthChunk**: = 0
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:410](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L410)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:413](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L413)
 
 ___
 
@@ -22,7 +22,7 @@ ___
 
 • **TypeTCCStatusVectorChunk**: = 1
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:411](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L411)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:414](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L414)
 
 ___
 
@@ -30,4 +30,4 @@ ___
 
 • **packetStatusChunkLength**: = 2
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:412](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L412)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:415](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L415)

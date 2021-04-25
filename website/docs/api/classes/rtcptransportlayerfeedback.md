@@ -22,7 +22,7 @@ Name | Type | Default value |
 
 **Returns:** [*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L11)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L14)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/rtpfb/index.ts:11](https://github.com/shinyoshiaki/wer
 
 • **feedback**: Feedback
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L10)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L13)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **header**: [*RtcpHeader*](rtcpheader.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L11)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L14)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **type**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L9)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L12)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 ▪ `Static` **type**: *number*= 205
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L8)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L11)
 
 ## Methods
 
@@ -64,7 +64,7 @@ Defined in: [rtp/src/rtcp/rtpfb/index.ts:8](https://github.com/shinyoshiaki/weri
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L17)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L20)
 
 ___
 
@@ -81,4 +81,4 @@ Name | Type |
 
 **Returns:** [*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/index.ts#L22)
+Defined in: [rtp/src/rtcp/rtpfb/index.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L25)

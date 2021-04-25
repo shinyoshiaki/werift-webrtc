@@ -23,7 +23,7 @@ Name | Type |
 
 **Returns:** [*RTCSessionDescription*](rtcsessiondescription.md)
 
-Defined in: [webrtc/src/sdp.ts:584](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/sdp.ts#L584)
+Defined in: [webrtc/src/sdp.ts:588](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/sdp.ts#L588)
 
 ## Properties
 

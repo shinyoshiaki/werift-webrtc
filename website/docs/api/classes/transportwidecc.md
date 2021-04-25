@@ -22,7 +22,7 @@ Name | Type | Default value |
 
 **Returns:** [*TransportWideCC*](transportwidecc.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L50)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L53)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:50](https://github.com/shinyoshiaki/weri
 
 • **baseSequenceNumber**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L43)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L46)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **count**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L38)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L41)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **fbPktCount**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L47)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L50)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 • **header**: [*RtcpHeader*](rtcpheader.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L50)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L53)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 • **length**: *number*= 2
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L39)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L42)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 • **mediaSourceSsrc**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L42)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L45)
 
 ___
 
@@ -78,7 +78,7 @@ ___
 
 • **packetChunks**: ([*RunLengthChunk*](runlengthchunk.md) \| [*StatusVectorChunk*](statusvectorchunk.md))[]= []
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L48)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L51)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 • **packetStatusCount**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L44)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L47)
 
 ___
 
@@ -94,7 +94,7 @@ ___
 
 • **recvDeltas**: [*RecvDelta*](recvdelta.md)[]= []
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L49)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:52](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L52)
 
 ___
 
@@ -104,7 +104,7 @@ ___
 
 24bit multiples of 64ms
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L46)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L49)
 
 ___
 
@@ -112,7 +112,7 @@ ___
 
 • **senderSsrc**: *number*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L41)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L44)
 
 ___
 
@@ -120,7 +120,7 @@ ___
 
 ▪ `Static` **count**: *number*= 15
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L37)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L40)
 
 ## Accessors
 
@@ -130,7 +130,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:37](https://github.com/shinyoshiaki/weri
 
 **Returns:** *PacketResult*[]
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:219](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L219)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:222](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L222)
 
 ## Methods
 
@@ -140,7 +140,7 @@ Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:219](https://github.com/shinyoshiaki/wer
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:174](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L174)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:177](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L177)
 
 ___
 
@@ -157,4 +157,4 @@ Name | Type |
 
 **Returns:** [*TransportWideCC*](transportwidecc.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtpfb/twcc.ts#L63)
+Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L66)

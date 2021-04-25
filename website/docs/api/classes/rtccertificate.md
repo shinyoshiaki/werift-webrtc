@@ -24,7 +24,7 @@ Name | Type |
 
 **Returns:** [*RTCCertificate*](rtccertificate.md)
 
-Defined in: [webrtc/src/transport/dtls.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/dtls.ts#L216)
+Defined in: [webrtc/src/transport/dtls.ts:221](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L221)
 
 ## Properties
 
@@ -38,7 +38,7 @@ ___
 
 • **privateKey**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/dtls.ts#L216)
+Defined in: [webrtc/src/transport/dtls.ts:221](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L221)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **publicKey**: *string*
 
-Defined in: [webrtc/src/transport/dtls.ts:215](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/dtls.ts#L215)
+Defined in: [webrtc/src/transport/dtls.ts:220](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L220)
 
 ___
 
@@ -62,4 +62,4 @@ ___
 
 **Returns:** *RTCDtlsFingerprint*[]
 
-Defined in: [webrtc/src/transport/dtls.ts:228](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/dtls.ts#L228)
+Defined in: [webrtc/src/transport/dtls.ts:233](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L233)

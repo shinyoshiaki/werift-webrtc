@@ -22,7 +22,7 @@ Name | Type | Default value |
 
 **Returns:** [*RtcpRrPacket*](rtcprrpacket.md)
 
-Defined in: [rtp/src/rtcp/rr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L9)
+Defined in: [rtp/src/rtcp/rr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L9)
 
 ## Properties
 
@@ -30,7 +30,7 @@ Defined in: [rtp/src/rtcp/rr.ts:9](https://github.com/shinyoshiaki/werift-webrtc
 
 • **reports**: [*RtcpReceiverInfo*](rtcpreceiverinfo.md)[]= []
 
-Defined in: [rtp/src/rtcp/rr.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L7)
+Defined in: [rtp/src/rtcp/rr.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L7)
 
 ___
 
@@ -38,7 +38,7 @@ ___
 
 • **ssrc**: *number*= 0
 
-Defined in: [rtp/src/rtcp/rr.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L6)
+Defined in: [rtp/src/rtcp/rr.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L6)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 • **type**: *number*
 
-Defined in: [rtp/src/rtcp/rr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L9)
+Defined in: [rtp/src/rtcp/rr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L9)
 
 ___
 
@@ -54,7 +54,7 @@ ___
 
 ▪ `Static` **type**: *number*= 201
 
-Defined in: [rtp/src/rtcp/rr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L8)
+Defined in: [rtp/src/rtcp/rr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L8)
 
 ## Methods
 
@@ -64,7 +64,7 @@ Defined in: [rtp/src/rtcp/rr.ts:8](https://github.com/shinyoshiaki/werift-webrtc
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rr.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L15)
+Defined in: [rtp/src/rtcp/rr.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L15)
 
 ___
 
@@ -81,4 +81,4 @@ Name | Type |
 
 **Returns:** [*RtcpRrPacket*](rtcprrpacket.md)
 
-Defined in: [rtp/src/rtcp/rr.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rr.ts#L29)
+Defined in: [rtp/src/rtcp/rr.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L29)

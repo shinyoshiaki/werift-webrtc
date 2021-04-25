@@ -23,7 +23,7 @@ Name | Type | Default value |
 
 **Returns:** [*RTCSctpTransport*](rtcsctptransport.md)
 
-Defined in: [webrtc/src/transport/sctp.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L35)
+Defined in: [webrtc/src/transport/sctp.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L34)
 
 ## Properties
 
@@ -31,7 +31,7 @@ Defined in: [webrtc/src/transport/sctp.ts:35](https://github.com/shinyoshiaki/we
 
 • **bundled**: *boolean*= false
 
-Defined in: [webrtc/src/transport/sctp.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L31)
+Defined in: [webrtc/src/transport/sctp.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L30)
 
 ___
 
@@ -39,7 +39,7 @@ ___
 
 • `Private` `Optional` **dataChannelId**: *number*
 
-Defined in: [webrtc/src/transport/sctp.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L35)
+Defined in: [webrtc/src/transport/sctp.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L34)
 
 ___
 
@@ -47,7 +47,7 @@ ___
 
 • `Private` **dataChannelQueue**: [[*RTCDataChannel*](rtcdatachannel.md), *number*, *Buffer*][]= []
 
-Defined in: [webrtc/src/transport/sctp.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L34)
+Defined in: [webrtc/src/transport/sctp.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L33)
 
 ___
 
@@ -57,7 +57,7 @@ ___
 
 #### Type declaration:
 
-Defined in: [webrtc/src/transport/sctp.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L32)
+Defined in: [webrtc/src/transport/sctp.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L31)
 
 ___
 
@@ -71,7 +71,7 @@ ___
 
 • `Optional` **mid**: *string*
 
-Defined in: [webrtc/src/transport/sctp.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L30)
+Defined in: [webrtc/src/transport/sctp.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L29)
 
 ___
 
@@ -79,7 +79,7 @@ ___
 
 • `Readonly` **onDataChannel**: *default*<[[*RTCDataChannel*](rtcdatachannel.md)]\>
 
-Defined in: [webrtc/src/transport/sctp.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L27)
+Defined in: [webrtc/src/transport/sctp.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L26)
 
 ___
 
@@ -93,7 +93,7 @@ ___
 
 • `Readonly` **sctp**: *SCTP*
 
-Defined in: [webrtc/src/transport/sctp.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L29)
+Defined in: [webrtc/src/transport/sctp.ts:28](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L28)
 
 ___
 
@@ -101,7 +101,7 @@ ___
 
 • `Readonly` **uuid**: *string*
 
-Defined in: [webrtc/src/transport/sctp.ts:28](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L28)
+Defined in: [webrtc/src/transport/sctp.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L27)
 
 ## Accessors
 
@@ -111,7 +111,7 @@ Defined in: [webrtc/src/transport/sctp.ts:28](https://github.com/shinyoshiaki/we
 
 **Returns:** *boolean*
 
-Defined in: [webrtc/src/transport/sctp.ts:77](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L77)
+Defined in: [webrtc/src/transport/sctp.ts:73](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L73)
 
 ## Methods
 
@@ -127,7 +127,7 @@ Name | Type |
 
 **Returns:** *undefined* \| [*RTCDataChannel*](rtcdatachannel.md)
 
-Defined in: [webrtc/src/transport/sctp.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L81)
+Defined in: [webrtc/src/transport/sctp.ts:77](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L77)
 
 ___
 
@@ -143,7 +143,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/sctp.ts:181](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L181)
+Defined in: [webrtc/src/transport/sctp.ts:178](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L178)
 
 ___
 
@@ -159,17 +159,17 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/sctp.ts:325](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L325)
+Defined in: [webrtc/src/transport/sctp.ts:316](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L316)
 
 ___
 
 ### dataChannelFlush
 
-▸ `Private`**dataChannelFlush**(): *void*
+▸ `Private`**dataChannelFlush**(): *Promise*<void\>
 
-**Returns:** *void*
+**Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/sctp.ts:238](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L238)
+Defined in: [webrtc/src/transport/sctp.ts:235](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L235)
 
 ___
 
@@ -185,13 +185,13 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/sctp.ts:196](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L196)
+Defined in: [webrtc/src/transport/sctp.ts:193](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L193)
 
 ___
 
 ### datachannelReceive
 
-▸ `Private`**datachannelReceive**(`streamId`: *number*, `ppId`: *number*, `data`: *Buffer*): *void*
+▸ `Private`**datachannelReceive**(`streamId`: *number*, `ppId`: *number*, `data`: *Buffer*): *Promise*<void\>
 
 #### Parameters:
 
@@ -201,9 +201,9 @@ Name | Type |
 `ppId` | *number* |
 `data` | *Buffer* |
 
-**Returns:** *void*
+**Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/sctp.ts:85](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L85)
+Defined in: [webrtc/src/transport/sctp.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L81)
 
 ___
 
@@ -220,7 +220,7 @@ Name | Type |
 
 **Returns:** *void*
 
-Defined in: [webrtc/src/transport/sctp.ts:289](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L289)
+Defined in: [webrtc/src/transport/sctp.ts:280](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L280)
 
 ___
 
@@ -236,17 +236,17 @@ Name | Type |
 
 **Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/sctp.ts:309](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L309)
+Defined in: [webrtc/src/transport/sctp.ts:300](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L300)
 
 ___
 
 ### stop
 
-▸ **stop**(): *void*
+▸ **stop**(): *Promise*<void\>
 
-**Returns:** *void*
+**Returns:** *Promise*<void\>
 
-Defined in: [webrtc/src/transport/sctp.ts:320](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L320)
+Defined in: [webrtc/src/transport/sctp.ts:311](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L311)
 
 ___
 
@@ -256,4 +256,4 @@ ___
 
 **Returns:** *RTCSctpCapabilities*
 
-Defined in: [webrtc/src/transport/sctp.ts:305](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/webrtc/src/transport/sctp.ts#L305)
+Defined in: [webrtc/src/transport/sctp.ts:296](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/sctp.ts#L296)

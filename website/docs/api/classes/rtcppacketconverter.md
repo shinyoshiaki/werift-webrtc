@@ -30,7 +30,7 @@ Name | Type |
 
 **Returns:** [*RtcpPacket*](../modules.md#rtcppacket)[]
 
-Defined in: [rtp/src/rtcp/rtcp.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtcp.ts#L32)
+Defined in: [rtp/src/rtcp/rtcp.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtcp.ts#L35)
 
 ___
 
@@ -49,4 +49,4 @@ Name | Type |
 
 **Returns:** *Buffer*
 
-Defined in: [rtp/src/rtcp/rtcp.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/71f8ead/packages/rtp/src/rtcp/rtcp.ts#L16)
+Defined in: [rtp/src/rtcp/rtcp.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtcp.ts#L19)
