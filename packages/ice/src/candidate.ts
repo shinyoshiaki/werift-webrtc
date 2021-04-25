@@ -110,10 +110,8 @@ export function candidateFoundation(
   // See RFC 5245 - 4.1.1.3. Computing Foundations
   // """
   const key = `${candidateType}|${candidateTransport}|${baseAddress}`;
-  // chrome & firefox need to include "candidate:"
-  return (
-    "candidate:" + createHash("md5").update(key, "ascii").digest("hex").slice(7)
-  );
+
+  return createHash("md5").update(key, "ascii").digest("hex").slice(7);
 }
 
 // priorityを決める

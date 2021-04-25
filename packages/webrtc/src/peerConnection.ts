@@ -364,6 +364,8 @@ export class RTCPeerConnection {
       const media = sdp.media[0];
       candidate.sdpMLineIndex = 0;
       candidate.sdpMid = media.rtp.muxId;
+      // for chrome & firefox & maybe others
+      candidate.foundation = "candidate:" + candidate.foundation;
       this.onIceCandidate.execute(candidate);
     };
 

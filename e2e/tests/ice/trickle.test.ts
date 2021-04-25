@@ -4,7 +4,7 @@ describe("ice/trickle", () => {
   it(
     "answer",
     async () =>
-      new Promise<void>(async (r) => {
+      new Promise<void>(async (done) => {
         const label = "ice_trickle_answer";
 
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
@@ -17,7 +17,7 @@ describe("ice/trickle", () => {
           channel.onmessage = ({ data }) => {
             expect(data).toBe("ping" + "pong");
             console.warn("answer", "succeed");
-            r();
+            done();
           };
           channel.send("ping");
         };
