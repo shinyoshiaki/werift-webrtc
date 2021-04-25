@@ -1,6 +1,6 @@
 module.exports = {
   title: "werift",
-  tagline: "Pure WebRTC implementation of the WebRTC",
+  tagline: "Pure TypeScript implementation of WebRTC",
   url: "https://your-docusaurus-test-site.com",
   baseUrl: "/werift-webrtc/website/build/",
   onBrokenLinks: "throw",
