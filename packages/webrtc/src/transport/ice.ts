@@ -57,6 +57,7 @@ export class RTCIceTransport {
     this.waitStart = new Event();
 
     this.setState("checking");
+    this.connection.remoteIsLite = remoteParameters.iceLite;
     this.connection.remoteUsername = remoteParameters.usernameFragment;
     this.connection.remotePassword = remoteParameters.password;
 

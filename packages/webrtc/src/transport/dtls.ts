@@ -83,10 +83,12 @@ export class RTCDtlsTransport {
     if (this.state !== "new") throw new Error();
     if (remoteParameters.fingerprints.length === 0) throw new Error();
 
-    if (this.iceTransport.role === "controlling") {
-      this.role = "server";
-    } else {
-      this.role = "client";
+    if (this.role === "auto") {
+      if (this.iceTransport.role === "controlling") {
+        this.role = "server";
+      } else {
+        this.role = "client";
+      }
     }
 
     this.setState("connecting");

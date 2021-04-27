@@ -372,7 +372,7 @@ export class Connection {
       // Periodically check consent (RFC 7675).
       // """
 
-      for (;;) {
+      while (!this.remoteIsLite) {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
         await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
 
@@ -568,11 +568,12 @@ export class Connection {
     response.addFingerprint();
     protocol.sendStun(response, addr);
 
-    if (!this.checkList) {
-      this.earlyChecks.push([message, addr, protocol]);
-    } else {
-      this.checkIncoming(message, addr, protocol);
-    }
+    // todo fix
+    // if (this.checkList.length === 0) {
+    //   this.earlyChecks.push([message, addr, protocol]);
+    // } else {
+    this.checkIncoming(message, addr, protocol);
+    // }
   }
 
   dataReceived(data: Buffer, component: number) {
@@ -627,6 +628,7 @@ export class Connection {
   }
 
   private switchRole(iceControlling: boolean) {
+    log("switch role", iceControlling);
     this.iceControlling = iceControlling;
     this.sortCheckList();
   }
@@ -756,8 +758,10 @@ export class Connection {
 
       // # success
       if (nominate || pair.remoteNominated) {
+        // # nominated by agressive nomination or the remote party
         pair.nominated = true;
       } else if (this.iceControlling && !this.nominating.has(pair.component)) {
+        // # perform regular nomination
         this.nominating.add(pair.component);
         const request = this.buildRequest(pair, true);
         try {

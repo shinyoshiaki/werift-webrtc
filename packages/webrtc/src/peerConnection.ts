@@ -434,6 +434,20 @@ export class RTCPeerConnection {
     } else {
       this.iceTransport.connection.iceControlling = false;
     }
+    // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+    // RFC 8445 S6.1.1
+    if (this.iceTransport.connection.remoteIsLite) {
+      this.iceTransport.connection.iceControlling = true;
+    }
+
+    // # set DTLS role for mediasoup
+    if (description.type === "answer") {
+      const role = description.media.find((media) => media.dtlsParams)
+        ?.dtlsParams?.role;
+      if (role) {
+        dtlsTransport.role = role;
+      }
+    }
 
     // # configure direction
     this.transceivers.forEach((t) => {
@@ -676,26 +690,25 @@ export class RTCPeerConnection {
       }
 
       if (dtlsTransport) {
-        // # add ICE candidates
-        const iceTransport = dtlsTransport.iceTransport;
-        media.iceCandidates.forEach(iceTransport.addRemoteCandidate);
+        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+        // RFC 8445 S6.1.1
+        if (media.iceParams?.iceLite) {
+          this.iceTransport.connection.iceControlling = true;
+        }
 
-        await iceTransport.iceGather.gather();
+        // # add ICE candidates
+        media.iceCandidates.forEach(this.iceTransport.addRemoteCandidate);
+
+        await this.iceTransport.iceGather.gather();
 
         if (media.iceCandidatesComplete) {
-          await iceTransport.addRemoteCandidate(undefined);
+          await this.iceTransport.addRemoteCandidate(undefined);
         }
 
-        // RFC 8445 ICE 6.1.1. Determining Role
-        // One agent full, one lite: The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-        if (media.iceParams?.iceLite) {
-          iceTransport.connection.iceControlling = true;
-        }
-
+        // # set DTLS role
         if (description.type === "answer") {
           dtlsTransport.role =
             media.dtlsParams?.role === "client" ? "server" : "client";
-          this.negotiationneeded = false;
         }
       }
     }
