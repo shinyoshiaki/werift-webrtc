@@ -103,7 +103,10 @@ export class CipherContext {
     })();
 
     log("createCertificateWithKey alg", alg);
-    const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
+    const keys = (await crypto.subtle.generateKey(alg, true, [
+      "sign",
+      "verify",
+    ])) as any;
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
       serialNumber: Buffer.from(randomBytes(10)).toString("hex"),
@@ -116,7 +119,7 @@ export class CipherContext {
 
     const certPem = cert.toString("pem");
     const keyPem = x509.PemConverter.encode(
-      await crypto.subtle.exportKey("pkcs8", keys.privateKey),
+      await crypto.subtle.exportKey("pkcs8", keys.privateKey as any),
       "private key"
     );
 

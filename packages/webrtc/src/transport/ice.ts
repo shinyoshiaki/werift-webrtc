@@ -4,7 +4,6 @@ import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 export class RTCIceTransport {
   connection = this.gather.connection;
-  roleSet = false;
   state: IceTransportState = "new";
 
   readonly onStateChange = new Event<[IceTransportState]>();

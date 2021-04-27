@@ -429,13 +429,10 @@ export class RTCPeerConnection {
     });
 
     // # set ICE role
-    const iceTransport = dtlsTransport.iceTransport;
     if (description.type === "offer") {
-      iceTransport.connection.iceControlling = true;
-      iceTransport.roleSet = true;
+      this.iceTransport.connection.iceControlling = true;
     } else {
-      iceTransport.connection.iceControlling = false;
-      iceTransport.roleSet = true;
+      this.iceTransport.connection.iceControlling = false;
     }
 
     // # configure direction
@@ -689,9 +686,10 @@ export class RTCPeerConnection {
           await iceTransport.addRemoteCandidate(undefined);
         }
 
-        if (description.type === "offer" && !iceTransport.roleSet) {
-          iceTransport.connection.iceControlling = media.iceParams!.iceLite;
-          iceTransport.roleSet = true;
+        // RFC 8445 ICE 6.1.1. Determining Role
+        // One agent full, one lite: The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+        if (media.iceParams?.iceLite) {
+          iceTransport.connection.iceControlling = true;
         }
 
         if (description.type === "answer") {
