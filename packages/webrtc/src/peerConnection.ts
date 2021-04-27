@@ -581,7 +581,10 @@ export class RTCPeerConnection {
     }
   }
 
-  async setRemoteDescription(sessionDescription: RTCSessionDescription) {
+  async setRemoteDescription(sessionDescription: {
+    type: "offer" | "answer";
+    sdp: string;
+  }) {
     // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
