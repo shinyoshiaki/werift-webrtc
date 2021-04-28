@@ -18,7 +18,11 @@ import {
   RTCRtpSimulcastParameters,
 } from "./media/parameters";
 import { Direction } from "./media/rtpTransceiver";
-import { RTCDtlsFingerprint, RTCDtlsParameters } from "./transport/dtls";
+import {
+  DtlsRole,
+  RTCDtlsFingerprint,
+  RTCDtlsParameters,
+} from "./transport/dtls";
 import { RTCIceCandidate, RTCIceParameters } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
 
@@ -35,7 +39,7 @@ export class SessionDescription {
 
   static parse(sdp: string) {
     const dtlsFingerprints: RTCDtlsFingerprint[] = [];
-    let dtlsRole = "";
+    let dtlsRole: DtlsRole | undefined;
     let iceOptions: string;
     let iceLite = false;
     let icePassword = "";
@@ -83,7 +87,7 @@ export class SessionDescription {
             parseGroup(session.msidSemantic, value);
             break;
           case "setup":
-            dtlsRole = DTLS_ROLE_SETUP[value];
+            dtlsRole = DTLS_SETUP_ROLE[value];
             break;
         }
       }

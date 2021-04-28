@@ -1,4 +1,5 @@
 import { Direction } from "./media/rtpTransceiver";
+import { DtlsRole } from "./transport/dtls";
 
 // data channel export constants
 export const DATA_CHANNEL_ACK = 2;
@@ -28,14 +29,13 @@ export const DTLS_ROLE_SETUP = {
   client: "active",
   server: "passive",
 };
-export const DTLS_SETUP_ROLE = Object.keys(DTLS_ROLE_SETUP).reduce(
-  (acc, cur) => {
-    const key = (DTLS_ROLE_SETUP as any)[cur];
-    acc[key] = cur;
-    return acc;
-  },
-  {} as any
-);
+export const DTLS_SETUP_ROLE: { [key: string]: DtlsRole } = Object.keys(
+  DTLS_ROLE_SETUP
+).reduce((acc, cur) => {
+  const key = (DTLS_ROLE_SETUP as any)[cur];
+  acc[key] = cur;
+  return acc;
+}, {} as any);
 export const FMTP_INT_PARAMETERS = [
   "apt",
   "max-fr",
