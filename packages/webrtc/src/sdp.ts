@@ -36,15 +36,14 @@ export class SessionDescription {
   msidSemantic: GroupDescription[] = [];
   media: MediaDescription[] = [];
   type!: "offer" | "answer";
+  dtlsRole!: DtlsRole;
+  iceOptions!: string;
+  iceLite!: boolean;
+  icePassword!: string;
+  iceUsernameFragment!: string;
+  dtlsFingerprints: RTCDtlsFingerprint[] = [];
 
   static parse(sdp: string) {
-    const dtlsFingerprints: RTCDtlsFingerprint[] = [];
-    let dtlsRole: DtlsRole | undefined;
-    let iceOptions: string;
-    let iceLite = false;
-    let icePassword = "";
-    let iceUsernameFragment = "";
-
     const [sessionLines, mediaGroups] = groupLines(sdp);
 
     const session = new SessionDescription();
@@ -64,21 +63,21 @@ export class SessionDescription {
         switch (attr) {
           case "fingerprint":
             const [algorithm, fingerprint] = value?.split(" ") || [];
-            dtlsFingerprints.push(
+            session.dtlsFingerprints.push(
               new RTCDtlsFingerprint(algorithm, fingerprint)
             );
             break;
           case "ice-lite":
-            iceLite = true;
+            session.iceLite = true;
             break;
           case "ice-options":
-            iceOptions = value;
+            session.iceOptions = value;
             break;
           case "ice-pwd":
-            icePassword = value;
+            session.icePassword = value;
             break;
           case "ice-ufrag":
-            iceUsernameFragment = value;
+            session.iceUsernameFragment = value;
             break;
           case "group":
             parseGroup(session.group, value);
@@ -87,7 +86,7 @@ export class SessionDescription {
             parseGroup(session.msidSemantic, value);
             break;
           case "setup":
-            dtlsRole = DTLS_SETUP_ROLE[value];
+            session.dtlsRole = DTLS_SETUP_ROLE[value];
             break;
         }
       }
@@ -114,15 +113,15 @@ export class SessionDescription {
         fmtInt || fmt
       );
       currentMedia.dtlsParams = new RTCDtlsParameters(
-        [...dtlsFingerprints],
-        dtlsRole as any
+        [...session.dtlsFingerprints],
+        session.dtlsRole
       );
       currentMedia.iceParams = new RTCIceParameters({
-        iceLite,
-        usernameFragment: iceUsernameFragment,
-        password: icePassword,
+        iceLite: session.iceLite,
+        usernameFragment: session.iceUsernameFragment,
+        password: session.icePassword,
       });
-      currentMedia.iceOptions = iceOptions;
+      currentMedia.iceOptions = session.iceOptions;
       session.media.push(currentMedia);
 
       mediaLines.slice(1).forEach((line) => {
@@ -379,11 +378,11 @@ export class MediaDescription {
     if (this.iceCandidatesComplete) {
       lines.push("a=end-of-candidates");
     }
-    if (this.iceParams!.usernameFragment) {
-      lines.push(`a=ice-ufrag:${this.iceParams!.usernameFragment}`);
+    if (this.iceParams?.usernameFragment) {
+      lines.push(`a=ice-ufrag:${this.iceParams.usernameFragment}`);
     }
-    if (this.iceParams!.password) {
-      lines.push(`a=ice-pwd:${this.iceParams!.password}`);
+    if (this.iceParams?.password) {
+      lines.push(`a=ice-pwd:${this.iceParams.password}`);
     }
     if (this.iceOptions) {
       lines.push(`a=ice-options:${this.iceOptions}`);
@@ -396,7 +395,6 @@ export class MediaDescription {
           `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
         );
       });
-      if (!this.dtlsParams.role) throw new Error();
       lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtlsParams.role]}`);
     }
 

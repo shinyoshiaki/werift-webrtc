@@ -54,7 +54,8 @@ export class RTCDtlsTransport {
 
   get localParameters() {
     return new RTCDtlsParameters(
-      this.localCertificate ? this.localCertificate.getFingerprints() : []
+      this.localCertificate ? this.localCertificate.getFingerprints() : [],
+      this.role
     );
   }
 
@@ -252,7 +253,7 @@ export class RTCDtlsFingerprint {
 export class RTCDtlsParameters {
   constructor(
     public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | "server" | undefined = "auto"
+    public role: "auto" | "client" | "server"
   ) {}
 }
 

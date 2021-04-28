@@ -706,9 +706,9 @@ export class RTCPeerConnection {
         }
 
         // # set DTLS role
-        if (description.type === "answer") {
+        if (description.type === "answer" && media.dtlsParams?.role) {
           dtlsTransport.role =
-            media.dtlsParams?.role === "client" ? "server" : "client";
+            media.dtlsParams.role === "client" ? "server" : "client";
         }
       }
     }
