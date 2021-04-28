@@ -77,13 +77,14 @@ new Promise<void>(async (done, failed) => {
   pc.setRemoteDescription(data);
 
   await pc.connectionStateChange.watch((state) => state === "connected");
-  if (transceiver.receiver.tracks.length === 0) {
-    console.log("remoteTrack not found");
-    done();
-    return;
-  }
 
   if (testType === TestType.PeerConnection) {
+    if (transceiver.receiver.tracks.length === 0) {
+      console.log("remoteTrack not found");
+      done();
+      return;
+    }
+
     const payloadType = transceiver.codecs.find((codec) =>
       codec.mimeType.toLowerCase().includes("vp8")
     )!.payloadType;
