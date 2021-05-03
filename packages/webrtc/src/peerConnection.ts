@@ -57,10 +57,11 @@ import {
 } from "./utils";
 import debug from "debug";
 import { MediaStreamTrack } from "./media/track";
+import EventEmitter from "events";
 
 const log = debug("werift/webrtc/peerConnection");
 
-export class RTCPeerConnection {
+export class RTCPeerConnection extends EventEmitter {
   readonly cname = uuid.v4();
   iceTransport: RTCIceTransport;
   dtlsTransport: RTCDtlsTransport;
@@ -105,6 +106,8 @@ export class RTCPeerConnection {
     iceServers,
     iceTransportPolicy,
   }: Partial<PeerConfig> = {}) {
+    super();
+
     if (iceServers) this.configuration.iceServers = iceServers;
     if (iceTransportPolicy)
       this.configuration.iceTransportPolicy = iceTransportPolicy;
@@ -366,7 +369,9 @@ export class RTCPeerConnection {
       candidate.sdpMid = media.rtp.muxId;
       // for chrome & firefox & maybe others
       candidate.foundation = "candidate:" + candidate.foundation;
+
       this.onIceCandidate.execute(candidate);
+      this.emit("icecandidate", { candidate });
     };
 
     const dtlsTransport = new RTCDtlsTransport(
@@ -388,6 +393,7 @@ export class RTCPeerConnection {
       if (this.ondatachannel) {
         this.ondatachannel({ channel });
       }
+      this.emit("datachannel", { channel });
     });
 
     return sctp;
@@ -909,7 +915,7 @@ export class RTCPeerConnection {
       await this.dtlsTransport.iceTransport.stop();
     }
 
-    this.removeAllListeners();
+    this.dispose();
     log("peerConnection closed");
   }
 
@@ -921,12 +927,14 @@ export class RTCPeerConnection {
     log("iceGatheringStateChange", state);
     this.iceGatheringState = state;
     this.iceGatheringStateChange.execute(state);
+    this.emit("icegatheringstatechange", state);
   }
 
   private updateIceConnectionState(state: IceTransportState) {
     log("iceConnectionStateChange", state);
     this.iceConnectionState = state;
     this.iceConnectionStateChange.execute(state);
+    this.emit("iceconnectionstatechange", state);
   }
 
   private setSignalingState(state: SignalingState) {
@@ -939,9 +947,10 @@ export class RTCPeerConnection {
     log("connectionStateChange", state);
     this.connectionState = state;
     this.connectionStateChange.execute(state);
+    this.emit("connectionstatechange");
   }
 
-  private removeAllListeners() {
+  private dispose() {
     this.onDataChannel.allUnsubscribe();
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();

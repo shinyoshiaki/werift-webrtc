@@ -1,10 +1,11 @@
+import EventEmitter from "events";
 import Event from "rx.mini";
 import { v4 } from "uuid";
 import { RtpHeader, RtpPacket } from "../../../rtp/src";
 import { Kind } from "../types/domain";
 import { RTCRtpCodecParameters } from "./parameters";
 
-export class MediaStreamTrack {
+export class MediaStreamTrack extends EventEmitter {
   remote = false;
   label: string;
   id: string = v4();
@@ -22,6 +23,7 @@ export class MediaStreamTrack {
   constructor(
     props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">
   ) {
+    super();
     Object.assign(this, props);
 
     this.onReceiveRtp.subscribe((rtp) => {

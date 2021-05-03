@@ -1,22 +1,8 @@
+import EventEmitter from "events";
 import { Event } from "rx.mini";
 import { RTCSctpTransport } from "./transport/sctp";
 
-export type DCState = "open" | "closed" | "connecting" | "closing";
-
-export class RTCDataChannelParameters {
-  label = "";
-  maxPacketLifeTime?: number; // sec
-  maxRetransmits?: number;
-  ordered = true;
-  protocol = "";
-  negotiated = false;
-  id!: number;
-  constructor(props: Partial<RTCDataChannelParameters> = {}) {
-    Object.assign(this, props);
-  }
-}
-
-export class RTCDataChannel {
+export class RTCDataChannel extends EventEmitter {
   readonly stateChanged = new Event<[DCState]>();
   readonly message = new Event<[string | Buffer]>();
   // todo impl
@@ -38,6 +24,8 @@ export class RTCDataChannel {
     private readonly parameters: RTCDataChannelParameters,
     public readonly sendOpen = true
   ) {
+    super();
+
     if (parameters.negotiated) {
       if (this.id == undefined || this.id < 0 || this.id > 65534) {
         throw new Error(
@@ -101,9 +89,11 @@ export class RTCDataChannel {
       switch (state) {
         case "open":
           if (this.onopen) this.onopen();
+          this.emit("open");
           break;
         case "closed":
           if (this.onclose) this.onclose();
+          this.emit("close");
           break;
         case "closing":
           if (this.onclosing) this.onclosing();
@@ -119,6 +109,7 @@ export class RTCDataChannel {
     this.bufferedAmount += amount;
     if (crossesThreshold) {
       this.bufferedAmountLow.execute();
+      this.emit("bufferedamountlow");
     }
   }
 
@@ -128,5 +119,20 @@ export class RTCDataChannel {
 
   close() {
     this.transport.dataChannelClose(this);
+  }
+}
+
+export type DCState = "open" | "closed" | "connecting" | "closing";
+
+export class RTCDataChannelParameters {
+  label = "";
+  maxPacketLifeTime?: number; // sec
+  maxRetransmits?: number;
+  ordered = true;
+  protocol = "";
+  negotiated = false;
+  id!: number;
+  constructor(props: Partial<RTCDataChannelParameters> = {}) {
+    Object.assign(this, props);
   }
 }

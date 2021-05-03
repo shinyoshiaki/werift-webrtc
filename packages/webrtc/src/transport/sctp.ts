@@ -157,20 +157,22 @@ export class RTCSctpTransport {
     } else {
       const channel = this.dataChannels[streamId];
       if (channel) {
-        switch (ppId) {
-          case WEBRTC_STRING:
-            channel.message.execute(data.toString("utf8"));
-            break;
-          case WEBRTC_STRING_EMPTY:
-            channel.message.execute("");
-            break;
-          case WEBRTC_BINARY:
-            channel.message.execute(data);
-            break;
-          case WEBRTC_BINARY_EMPTY:
-            channel.message.execute(Buffer.from([]));
-            break;
-        }
+        const msg = (() => {
+          switch (ppId) {
+            case WEBRTC_STRING:
+              return data.toString("utf8");
+            case WEBRTC_STRING_EMPTY:
+              return "";
+            case WEBRTC_BINARY:
+              return data;
+            case WEBRTC_BINARY_EMPTY:
+              return Buffer.from([]);
+            default:
+              throw new Error();
+          }
+        })();
+        channel.message.execute(msg);
+        channel.emit("message", { data: msg });
       }
     }
   };
