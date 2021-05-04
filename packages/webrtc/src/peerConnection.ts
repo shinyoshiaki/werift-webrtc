@@ -473,6 +473,14 @@ export class RTCPeerConnection extends EventTarget {
 
     this.setLocal(description);
 
+    // connect transports
+    if (description.type === "answer") {
+      this.connect().catch((err) => {
+        log("connect failed", err);
+        this.setConnectionState("failed");
+      });
+    }
+
     return this.localDescription;
   }
 
@@ -705,10 +713,12 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // connect transports
-    this.connect().catch((err) => {
-      log("connect failed", err);
-      this.setConnectionState("failed");
-    });
+    if (description.type === "answer") {
+      this.connect().catch((err) => {
+        log("connect failed", err);
+        this.setConnectionState("failed");
+      });
+    }
 
     if (description.type === "offer") {
       this.setSignalingState("have-remote-offer");
