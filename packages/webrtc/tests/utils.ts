@@ -109,7 +109,15 @@ async function exchangeAnswer(
 
 export function awaitMessage(channel: RTCDataChannel) {
   return new Promise<string | Buffer>((resolve, reject) => {
-    channel.message.once(resolve);
+    Promise.all([
+      new Promise<any>((r) =>
+        channel.addEventListener("message", (e) => {
+          r(e.data);
+        })
+      ),
+      channel.message.asPromise(),
+    ]).then(([msg]) => resolve(msg));
+
     channel.error.once(reject);
   });
 }

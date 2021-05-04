@@ -1,7 +1,7 @@
 import { isEqual, cloneDeep } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
-import { enumerate } from "./helper";
+import { enumerate, EventTarget } from "./helper";
 import { ConnectionState, Kind, SignalingState } from "./types/domain";
 import {
   DISCARD_HOST,
@@ -57,11 +57,10 @@ import {
 } from "./utils";
 import debug from "debug";
 import { MediaStreamTrack } from "./media/track";
-import EventEmitter from "events";
 
 const log = debug("werift/webrtc/peerConnection");
 
-export class RTCPeerConnection extends EventEmitter {
+export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
   iceTransport: RTCIceTransport;
   dtlsTransport: RTCDtlsTransport;

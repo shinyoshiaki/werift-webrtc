@@ -1,8 +1,8 @@
-import EventEmitter from "events";
 import { Event } from "rx.mini";
+import { EventTarget } from "./helper";
 import { RTCSctpTransport } from "./transport/sctp";
 
-export class RTCDataChannel extends EventEmitter {
+export class RTCDataChannel extends EventTarget {
   readonly stateChanged = new Event<[DCState]>();
   readonly message = new Event<[string | Buffer]>();
   // todo impl

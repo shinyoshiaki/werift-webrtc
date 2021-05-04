@@ -1,3 +1,5 @@
+import EventEmitter from "events";
+
 export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);
 }
@@ -33,4 +35,10 @@ export class PromiseQueue {
       this.running = false;
     }
   }
+}
+
+export class EventTarget extends EventEmitter {
+  addEventListener = (type: string, listener: (...args: any[]) => void) => {
+    this.addListener(type, listener);
+  };
 }

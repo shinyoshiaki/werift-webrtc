@@ -1,11 +1,11 @@
-import EventEmitter from "events";
 import Event from "rx.mini";
 import { v4 } from "uuid";
 import { RtpHeader, RtpPacket } from "../../../rtp/src";
+import { EventTarget } from "../helper";
 import { Kind } from "../types/domain";
 import { RTCRtpCodecParameters } from "./parameters";
 
-export class MediaStreamTrack extends EventEmitter {
+export class MediaStreamTrack extends EventTarget {
   remote = false;
   label: string;
   id: string = v4();
