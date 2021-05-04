@@ -503,6 +503,7 @@ export class RTCPeerConnection extends EventTarget {
         log("iceTransport.start failed", err);
         throw err;
       });
+      log("ice connected");
       await dtlsTransport.start(this.remoteDtls);
 
       if (this.sctpTransport && this.sctpRemotePort) {
@@ -511,7 +512,6 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       this.masterTransportEstablished = true;
-
       this.setConnectionState("connected");
     }
   }
@@ -608,8 +608,6 @@ export class RTCPeerConnection extends EventTarget {
 
     // # apply description
     for (const [i, media] of enumerate(description.media)) {
-      let dtlsTransport: RTCDtlsTransport | undefined;
-
       if (["audio", "video"].includes(media.kind)) {
         const transceiver =
           this.transceivers.find(
@@ -629,8 +627,6 @@ export class RTCPeerConnection extends EventTarget {
         media.simulcastParameters.forEach((param) => {
           this.router.registerRtpReceiverByRid(transceiver, param);
         });
-
-        dtlsTransport = transceiver.dtlsTransport;
 
         if (!transceiver.mid) {
           transceiver.mid = media.rtp.muxId;
@@ -669,17 +665,10 @@ export class RTCPeerConnection extends EventTarget {
         } else {
           transceiver.offerDirection = direction;
         }
-
-        if (media.dtlsParams && media.iceParams) {
-          this.remoteDtls = media.dtlsParams;
-          this.remoteIce = media.iceParams;
-        }
       } else if (media.kind === "application") {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
         }
-
-        dtlsTransport = this.sctpTransport.dtlsTransport;
 
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = media.rtp.muxId;
@@ -687,34 +676,31 @@ export class RTCPeerConnection extends EventTarget {
 
         // # configure sctp
         this.sctpRemotePort = media.sctpPort;
-
-        if (media.dtlsParams && media.iceParams) {
-          this.remoteDtls = media.dtlsParams;
-          this.remoteIce = media.iceParams;
-        }
+      }
+      if (media.dtlsParams && media.iceParams) {
+        this.remoteDtls = media.dtlsParams;
+        this.remoteIce = media.iceParams;
       }
 
-      if (dtlsTransport) {
-        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-        // RFC 8445 S6.1.1
-        if (media.iceParams?.iceLite) {
-          this.iceTransport.connection.iceControlling = true;
-        }
+      // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+      // RFC 8445 S6.1.1
+      if (media.iceParams?.iceLite) {
+        this.iceTransport.connection.iceControlling = true;
+      }
 
-        // # add ICE candidates
-        media.iceCandidates.forEach(this.iceTransport.addRemoteCandidate);
+      // # add ICE candidates
+      media.iceCandidates.forEach(this.iceTransport.addRemoteCandidate);
 
-        await this.iceTransport.iceGather.gather();
+      await this.iceTransport.iceGather.gather();
 
-        if (media.iceCandidatesComplete) {
-          await this.iceTransport.addRemoteCandidate(undefined);
-        }
+      if (media.iceCandidatesComplete) {
+        await this.iceTransport.addRemoteCandidate(undefined);
+      }
 
-        // # set DTLS role
-        if (description.type === "answer" && media.dtlsParams?.role) {
-          dtlsTransport.role =
-            media.dtlsParams.role === "client" ? "server" : "client";
-        }
+      // # set DTLS role
+      if (description.type === "answer" && media.dtlsParams?.role) {
+        this.dtlsTransport.role =
+          media.dtlsParams.role === "client" ? "server" : "client";
       }
     }
 
