@@ -159,11 +159,11 @@ export class RtpHeader {
   }
 
   get serializeSize() {
-    const { csrc, extension, extensionProfile, extensions } = this;
+    const { csrc, extensionProfile, extensions } = this;
 
     let size = 12 + csrc.length * csrcLength;
 
-    if (extension) {
+    if (extensions.length > 0) {
       let extSize = 4;
       switch (extensionProfile) {
         case ExtensionProfiles.OneByte:
@@ -273,8 +273,8 @@ export class RtpPacket {
     let buf = this.header.serialize(
       this.header.serializeSize + this.payload.length
     );
-    const n = this.header.payloadOffset;
-    this.payload.copy(buf, n);
+    const { payloadOffset } = this.header;
+    this.payload.copy(buf, payloadOffset);
     if (this.header.padding) {
       const padding = Buffer.alloc(this.header.paddingSize);
       padding.writeUInt8(this.header.paddingSize, this.header.paddingSize - 1);
