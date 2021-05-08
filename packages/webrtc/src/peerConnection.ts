@@ -526,6 +526,7 @@ export class RTCPeerConnection extends EventTarget {
 
   private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
     const rtp = new RTCRtpParameters({
+      muxId: transceiver.mid,
       headerExtensions: transceiver.headerExtensions,
       rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
     });
@@ -1000,7 +1001,6 @@ export function createMediaDescriptionForSctp(
     ["webrtc-datachannel"]
   );
   media.sctpPort = sctp.port;
-
   media.rtp.muxId = mid;
   media.sctpCapabilities = RTCSctpTransport.getCapabilities();
 

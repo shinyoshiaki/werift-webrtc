@@ -39,6 +39,7 @@ export class RtpHeader {
   ssrc: number = 0;
   csrc: number[] = [];
   extensionProfile: number = extensionProfileOneByte;
+  /**deserialize only */
   extensionLength?: number;
   extensions: Extension[] = [];
   constructor(props: Partial<RtpHeader> = {}) {

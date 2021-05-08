@@ -1,7 +1,7 @@
 export class RTCRtpParameters {
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  muxId?: string;
+  muxId!: string;
   rid?: string;
   rtcp!: RTCRtcpParameters;
 

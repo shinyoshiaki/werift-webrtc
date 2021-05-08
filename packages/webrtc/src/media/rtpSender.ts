@@ -191,7 +191,8 @@ export class RTCRtpSender {
   }
 
   sendRtp(rtp: Buffer | RtpPacket) {
-    if (!this.ready || !this.parameters) return;
+    const { parameters } = this;
+    if (!this.ready || !parameters) return;
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
@@ -205,39 +206,36 @@ export class RTCRtpSender {
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
 
-    this.cname = this.parameters.rtcp.cname;
+    this.cname = parameters.rtcp.cname;
 
-    header.extensions = this.parameters.headerExtensions
+    header.extensions = parameters.headerExtensions
       .map((extension) => {
-        let payload: Buffer | undefined;
-        switch (extension.uri) {
-          case RTP_EXTENSION_URI.sdesMid:
-            if (this.parameters?.muxId)
-              payload = Buffer.from(this.parameters.muxId);
-            break;
-          case RTP_EXTENSION_URI.sdesRTPStreamID:
-            if (this.parameters?.rid)
-              payload = Buffer.from(this.parameters.rid);
-            break;
-          case RTP_EXTENSION_URI.transportWideCC:
-            {
+        const payload = (() => {
+          switch (extension.uri) {
+            case RTP_EXTENSION_URI.sdesMid:
+              return Buffer.from(parameters.muxId);
+            case RTP_EXTENSION_URI.sdesRTPStreamID:
+              if (parameters?.rid) {
+                return Buffer.from(parameters.rid);
+              }
+              return;
+            case RTP_EXTENSION_URI.transportWideCC:
               this.dtlsTransport.transportSequenceNumber = uint16Add(
                 this.dtlsTransport.transportSequenceNumber,
                 1
               );
-              payload = bufferWriter(
+              return bufferWriter(
                 [2],
                 [this.dtlsTransport.transportSequenceNumber]
               );
-            }
-            break;
-          case RTP_EXTENSION_URI.absSendTime:
-            const buf = Buffer.alloc(3);
-            const time = (ntpTime() >> 14n) & 0x00ffffffn;
-            buf.writeUIntBE(Number(time), 0, 3);
-            payload = buf;
-            break;
-        }
+            case RTP_EXTENSION_URI.absSendTime:
+              const buf = Buffer.alloc(3);
+              const time = (ntpTime() >> 14n) & 0x00ffffffn;
+              buf.writeUIntBE(Number(time), 0, 3);
+              return buf;
+          }
+        })();
+
         if (payload) return { id: extension.id, payload };
       })
       .filter((v) => v) as Extension[];

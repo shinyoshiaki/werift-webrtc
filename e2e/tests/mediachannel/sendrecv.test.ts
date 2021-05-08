@@ -2,9 +2,11 @@ import { waitVideoPlay, peer, sleep } from "../fixture";
 
 describe("mediachannel_sendrecv", () => {
   it(
-    "answer",
+    "mediachannel_sendrecv_answer",
     async () =>
       new Promise<void>(async (done) => {
+        const label = "mediachannel_sendrecv_answer";
+
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
@@ -20,20 +22,20 @@ describe("mediachannel_sendrecv", () => {
         ).getTracks();
         pc.addTrack(track);
 
-        const offer = await peer.request("mediachannel_sendrecv_answer", {
+        const offer = await peer.request(label, {
           type: "init",
         });
         await pc.setRemoteDescription(offer);
         await pc.setLocalDescription(await pc.createAnswer());
 
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_sendrecv_answer", {
+          peer.request(label, {
             type: "candidate",
             payload: candidate,
           });
         };
 
-        peer.request("mediachannel_sendrecv_answer", {
+        peer.request(label, {
           type: "answer",
           payload: pc.localDescription,
         });
