@@ -23,7 +23,6 @@
   "scripts": {},
   "dependencies": {},
   "devDependencies": {
-    "@discordjs/opus": "^0.5.0",
     "@types/cors": "^2.8.10",
     "@types/express": "^4.17.9",
     "@types/got": "^9.6.11",

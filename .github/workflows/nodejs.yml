@@ -34,6 +34,10 @@ jobs:
       - name: test
         run: |
           yarn test
+        env:
+          CI: true
+      - name: e2e
+        run: |
           yarn e2e
         env:
           CI: true
