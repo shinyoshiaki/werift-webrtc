@@ -30,11 +30,11 @@
     "buffer-crc32": "^0.2.13",
     "debug": "^4.3.1",
     "dgram": "^1.0.1",
-    "int64-buffer": "^1.0.0",
+    "int64-buffer": "^1.0.1",
     "ip": "^1.1.5",
     "jspack": "^0.0.4",
     "lodash": "^4.17.20",
-    "p-cancelable": "^2.1.0",
+    "p-cancelable": "^2.1.1",
     "rx.mini": "^1.1.0"
   },
   "devDependencies": {
@@ -43,7 +43,7 @@
     "@types/ip": "^1.1.0",
     "@types/lodash": "^4.14.161",
     "@types/utf8": "^2.1.6",
-    "@types/ws": "^7.4.1",
+    "@types/ws": "^7.4.2",
     "ws": "^7.4.5"
   },
   "publishConfig": {
