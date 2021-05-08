@@ -2,8 +2,11 @@ import { BitWriter, getBit } from "../utils";
 
 export type Extension = { id: number; payload: Buffer };
 
-const extensionProfileOneByte = 0xbede; // 48862
-const extensionProfileTwoByte = 0x1000; // 4096
+export const ExtensionProfiles = {
+  OneByte: 0xbede, // 48862
+  TwoByte: 0x1000, // 4096
+} as const;
+type ExtensionProfile = typeof ExtensionProfiles[keyof typeof ExtensionProfiles];
 
 const seqNumOffset = 2;
 const timestampOffset = 4;
@@ -38,7 +41,7 @@ export class RtpHeader {
   timestamp: number = 0;
   ssrc: number = 0;
   csrc: number[] = [];
-  extensionProfile: number = extensionProfileOneByte;
+  extensionProfile: ExtensionProfile = ExtensionProfiles.OneByte;
   /**deserialize only */
   extensionLength?: number;
   extensions: Extension[] = [];
@@ -74,7 +77,9 @@ export class RtpHeader {
       h.csrc[i] = rawPacket.slice(offset).readUInt32BE();
     }
     if (h.extension) {
-      h.extensionProfile = rawPacket.slice(currOffset).readUInt16BE();
+      h.extensionProfile = rawPacket
+        .slice(currOffset)
+        .readUInt16BE() as ExtensionProfile;
       currOffset += 2;
       const extensionLength = rawPacket.slice(currOffset).readUInt16BE() * 4;
       h.extensionLength = extensionLength;
@@ -82,7 +87,7 @@ export class RtpHeader {
 
       switch (h.extensionProfile) {
         // RFC 8285 RTP One Byte Header Extension
-        case 0xbede:
+        case ExtensionProfiles.OneByte:
           {
             const end = currOffset + extensionLength;
             while (currOffset < end) {
@@ -108,7 +113,7 @@ export class RtpHeader {
           }
           break;
         // RFC 8285 RTP Two Byte Header Extension
-        case 0x1000:
+        case ExtensionProfiles.TwoByte:
           {
             const end = currOffset + extensionLength;
             while (currOffset < end) {
@@ -154,23 +159,25 @@ export class RtpHeader {
   }
 
   get serializeSize() {
-    let size = 12 + this.csrc.length * csrcLength;
+    const { csrc, extension, extensionProfile, extensions } = this;
 
-    if (this.extension) {
+    let size = 12 + csrc.length * csrcLength;
+
+    if (extension) {
       let extSize = 4;
-      switch (this.extensionProfile) {
-        case extensionProfileOneByte:
-          this.extensions.forEach((extension) => {
+      switch (extensionProfile) {
+        case ExtensionProfiles.OneByte:
+          extensions.forEach((extension) => {
             extSize += 1 + extension.payload.length;
           });
           break;
-        case extensionProfileTwoByte:
-          this.extensions.forEach((extension) => {
+        case ExtensionProfiles.TwoByte:
+          extensions.forEach((extension) => {
             extSize += 2 + extension.payload.length;
           });
           break;
         default:
-          extSize += this.extensions[0].payload.length;
+          extSize += extensions[0].payload.length;
       }
       size += Math.floor((extSize + 3) / 4) * 4;
     }
@@ -214,7 +221,7 @@ export class RtpHeader {
       const startExtensionsPos = offset;
 
       switch (this.extensionProfile) {
-        case extensionProfileOneByte:
+        case ExtensionProfiles.OneByte:
           this.extensions.forEach((extension) => {
             buf.writeUInt8(
               (extension.id << 4) | (extension.payload.length - 1),
@@ -224,7 +231,7 @@ export class RtpHeader {
             offset += extension.payload.length;
           });
           break;
-        case extensionProfileTwoByte: // 1バイトで収まらなくなった歴史的経緯
+        case ExtensionProfiles.TwoByte: // 1バイトで収まらなくなった歴史的経緯
           this.extensions.forEach((extension) => {
             buf.writeUInt8(extension.id, offset++);
             buf.writeUInt8(extension.payload.length, offset++);

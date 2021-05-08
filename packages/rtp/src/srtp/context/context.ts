@@ -3,21 +3,6 @@ import { AES } from "aes-js";
 import { createHmac } from "crypto";
 import bigInt from "big-integer";
 
-export type SrtpSSRCState = {
-  ssrc: number;
-  rolloverCounter: number;
-  rolloverHasProcessed?: boolean;
-  lastSequenceNumber: number;
-};
-
-export type SrtcpSSRCState = {
-  srtcpIndex: number;
-  ssrc: number;
-};
-
-const maxROCDisorder = 100;
-const maxSequenceNumber = 65535;
-
 export class Context {
   srtpSSRCStates: { [key: number]: SrtpSSRCState } = {};
   srtpSessionKey = this.generateSessionKey(0);
@@ -138,17 +123,17 @@ export class Context {
     if (!s.rolloverHasProcessed) {
       s.rolloverHasProcessed = true;
     } else if (sequenceNumber === 0) {
-      if (s.lastSequenceNumber > maxROCDisorder) {
+      if (s.lastSequenceNumber > MaxROCDisorder) {
         s.rolloverCounter++;
       }
     } else if (
-      s.lastSequenceNumber < maxROCDisorder &&
-      sequenceNumber > maxSequenceNumber - maxROCDisorder
+      s.lastSequenceNumber < MaxROCDisorder &&
+      sequenceNumber > MaxSequenceNumber - MaxROCDisorder
     ) {
       s.rolloverCounter--;
     } else if (
-      sequenceNumber < maxROCDisorder &&
-      s.lastSequenceNumber > maxSequenceNumber - maxROCDisorder
+      sequenceNumber < MaxROCDisorder &&
+      s.lastSequenceNumber > MaxSequenceNumber - MaxROCDisorder
     ) {
       s.rolloverCounter++;
     }
@@ -205,3 +190,18 @@ export class Context {
     s.srtcpIndex = index % 0x7fffffff;
   }
 }
+
+export type SrtpSSRCState = {
+  ssrc: number;
+  rolloverCounter: number;
+  rolloverHasProcessed?: boolean;
+  lastSequenceNumber: number;
+};
+
+export type SrtcpSSRCState = {
+  srtcpIndex: number;
+  ssrc: number;
+};
+
+const MaxROCDisorder = 100;
+const MaxSequenceNumber = 65535;

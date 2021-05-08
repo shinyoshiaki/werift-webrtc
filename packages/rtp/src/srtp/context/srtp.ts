@@ -7,6 +7,7 @@ export class SrtpContext extends Context {
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: number) {
     super(masterKey, masterSalt, profile);
   }
+
   decryptRTP(ciphertext: Buffer, header?: RtpHeader): [Buffer, RtpHeader] {
     header = header || RtpHeader.deSerialize(ciphertext);
 
@@ -39,14 +40,13 @@ export class SrtpContext extends Context {
   }
 
   encryptRTP(payload: Buffer, header: RtpHeader) {
-    let dst = Buffer.from([]);
-    dst = growBufferSize(dst, header.serializeSize + payload.length + 10);
+    const dst = Buffer.alloc(header.serializeSize + payload.length + 10);
 
     const s = this.getSRTPSRRCState(header.ssrc);
     this.updateRolloverCount(header.sequenceNumber, s);
 
     header.serialize(dst.length).copy(dst);
-    let n = header.payloadOffset;
+    const { payloadOffset } = header;
 
     const counter = this.generateCounter(
       header.sequenceNumber,
@@ -57,14 +57,14 @@ export class SrtpContext extends Context {
 
     const cipher = createCipheriv("aes-128-ctr", this.srtpSessionKey, counter);
     const buf = cipher.update(payload);
-    buf.copy(dst, header.payloadOffset);
-    n += payload.length;
+    buf.copy(dst, payloadOffset);
+    const totalLength = payloadOffset + payload.length;
 
     const authTag = this.generateSrtpAuthTag(
-      dst.slice(0, n),
+      dst.slice(0, totalLength),
       s.rolloverCounter
     );
-    authTag.copy(dst, n);
+    authTag.copy(dst, totalLength);
     return dst;
   }
 }
