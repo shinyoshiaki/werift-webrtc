@@ -163,7 +163,7 @@ export class RtpHeader {
 
     let size = 12 + csrc.length * csrcLength;
 
-    if (extensions.length > 0) {
+    if (extensions.length > 0 || this.extension === true) {
       let extSize = 4;
       switch (extensionProfile) {
         case ExtensionProfiles.OneByte:
