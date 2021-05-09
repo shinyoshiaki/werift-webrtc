@@ -61,13 +61,11 @@ export class RTCRtpReceiver {
       if (t.rid) return t.rid === track.rid;
       if (t.ssrc) return t.ssrc === track.ssrc;
     });
-    if (!exist) {
-      this.tracks.push(track);
-      if (track.ssrc) this.trackBySSRC[track.ssrc] = track;
-      if (track.rid) this.trackByRID[track.rid] = track;
-      return true;
-    }
-    return false;
+    if (exist) return false;
+    this.tracks.push(track);
+    if (track.ssrc) this.trackBySSRC[track.ssrc] = track;
+    if (track.rid) this.trackByRID[track.rid] = track;
+    return true;
   }
 
   stop() {
