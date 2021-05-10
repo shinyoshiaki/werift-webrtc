@@ -39,5 +39,3 @@ jobs:
       - name: e2e
         run: |
           yarn e2e
-        env:
-          CI: true
