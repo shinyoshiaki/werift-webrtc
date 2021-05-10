@@ -1052,7 +1052,7 @@ export function allocateMid(mids: Set<string>) {
   return mid;
 }
 
-export type PeerConfig = {
+export interface PeerConfig {
   codecs: Partial<{
     audio: RTCRtpCodecParameters[];
     video: RTCRtpCodecParameters[];
@@ -1063,7 +1063,7 @@ export type PeerConfig = {
   }>;
   iceTransportPolicy: "all" | "relay";
   iceServers: IceServer[];
-};
+}
 
 export type IceServer = {
   urls: string;

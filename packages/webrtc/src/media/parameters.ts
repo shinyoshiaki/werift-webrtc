@@ -56,7 +56,10 @@ export class RTCRtpHeaderExtensionParameters {
   id!: number;
   uri!: string;
 
-  constructor(props: Partial<RTCRtpHeaderExtensionParameters> = {}) {
+  constructor(
+    props: Partial<RTCRtpHeaderExtensionParameters> &
+      Pick<RTCRtpHeaderExtensionParameters, "uri">
+  ) {
     Object.assign(this, props);
   }
 }
