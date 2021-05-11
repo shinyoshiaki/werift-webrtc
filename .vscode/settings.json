@@ -29,6 +29,7 @@
     "raddr",
     "reconfig",
     "recvonly",
+    "remb",
     "reset",
     "rport",
     "rtc",

@@ -2,8 +2,13 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
+  useFIR,
+  useNACK,
+  usePLI,
+  useREMB,
   useSdesRTPStreamID,
   useTransportWideCC,
+  useTWCC,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { Event } from "rx.mini";
@@ -23,13 +28,7 @@ server.on("connection", async (socket) => {
         new RTCRtpCodecParameters({
           mimeType: "video/VP8",
           clockRate: 90000,
-          rtcpFeedback: [
-            { type: "ccm", parameter: "fir" },
-            { type: "nack" },
-            { type: "nack", parameter: "pli" },
-            { type: "goog-remb" },
-            { type: "transport-cc" },
-          ],
+          rtcpFeedback: [useFIR(), useNACK(), usePLI(), useREMB(), useTWCC()],
         }),
       ],
     },
@@ -43,13 +42,7 @@ server.on("connection", async (socket) => {
         new RTCRtpCodecParameters({
           mimeType: "video/VP8",
           clockRate: 90000,
-          rtcpFeedback: [
-            { type: "ccm", parameter: "fir" },
-            { type: "nack" },
-            { type: "nack", parameter: "pli" },
-            { type: "goog-remb" },
-            { type: "transport-cc" },
-          ],
+          rtcpFeedback: [useFIR(), useNACK(), usePLI(), useREMB(), useTWCC()],
         }),
       ],
     },

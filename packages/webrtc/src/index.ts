@@ -14,6 +14,7 @@ export { PeerConfig, RTCPeerConnection } from "./peerConnection";
 export { RTCSessionDescription } from "./sdp";
 
 export * from "./extension/rtpExtension";
+export * from "./extension/rtcpFeedback";
 export * from "./media/parameters";
 export {
   Direction,
