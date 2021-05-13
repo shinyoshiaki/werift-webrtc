@@ -27,6 +27,7 @@ export class RTCRtpTransceiver {
       this.usedForSender = true;
     }
   }
+  /**RFC 8829 4.2.5. last negotiated direction */
   get currentDirection() {
     // todo fix typescript 4.3
     return this._currentDirection as any;
@@ -50,6 +51,7 @@ export class RTCRtpTransceiver {
     public readonly kind: Kind,
     public readonly receiver: RTCRtpReceiver,
     public readonly sender: RTCRtpSender,
+    /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
     public direction: Direction,
     public dtlsTransport: RTCDtlsTransport
   ) {}

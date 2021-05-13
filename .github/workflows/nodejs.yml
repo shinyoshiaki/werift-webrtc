@@ -32,10 +32,12 @@ jobs:
           yarn
           cd ../
       - name: test
-        run: |
-          yarn test
         env:
           CI: true
+        run: |
+          yarn test
       - name: e2e
+        env:
+          CI: false
         run: |
           yarn e2e
