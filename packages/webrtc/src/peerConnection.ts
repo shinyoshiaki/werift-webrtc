@@ -398,7 +398,10 @@ export class RTCPeerConnection extends EventTarget {
     return sctp;
   }
 
-  async setLocalDescription(sessionDescription: RTCSessionDescription) {
+  async setLocalDescription(sessionDescription: {
+    type: "offer" | "answer";
+    sdp: string;
+  }) {
     const { dtlsTransport } = this;
     if (!dtlsTransport) throw new Error("seems no media");
 

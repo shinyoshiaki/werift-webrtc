@@ -589,6 +589,10 @@ export function candidateFromSdp(sdp: string) {
 
 export class RTCSessionDescription {
   constructor(public sdp: string, public type: "offer" | "answer") {}
+
+  get object() {
+    return SessionDescription.parse(this.sdp);
+  }
 }
 
 export function addSDPHeader(
