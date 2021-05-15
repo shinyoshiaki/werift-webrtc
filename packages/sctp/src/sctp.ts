@@ -973,10 +973,11 @@ export class SCTP {
     );
   }
 
-  private timerReconfigHandleExpired() {
+  private timerReconfigHandleExpired = () => {
     this.timerReconfigFailures++;
     this.timerReconfigHandle = undefined;
     if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
+      log("timerReconfigFailures", this.timerReconfigFailures);
       this.setState(SCTP_STATE.CLOSED);
     } else if (this.reconfigRequest) {
       log("timerReconfigHandleExpired", this.timerReconfigFailures);
@@ -986,10 +987,11 @@ export class SCTP {
         this.rto * 1000
       );
     }
-  }
+  };
 
   private timerReconfigCancel() {
     if (this.timerReconfigHandle) {
+      log("timerReconfigCancel");
       clearTimeout(this.timerReconfigHandle);
       this.timerReconfigHandle = undefined;
     }
