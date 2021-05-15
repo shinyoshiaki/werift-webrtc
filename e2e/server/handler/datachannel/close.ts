@@ -111,7 +111,6 @@ export class datachannel_close_client_create_close {
         }
         break;
       case "done": {
-        console.log("wait for done");
         if (this.dc.readyState !== "closed") {
           await this.dc.stateChanged.watch((state) => state === "closed");
         }

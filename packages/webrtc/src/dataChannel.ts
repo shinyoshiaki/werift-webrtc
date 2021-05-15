@@ -1,6 +1,9 @@
+import debug from "debug";
 import { Event } from "rx.mini";
 import { EventTarget } from "./helper";
 import { RTCSctpTransport } from "./transport/sctp";
+
+const log = debug("werift/webrtc/datachannel");
 
 export class RTCDataChannel extends EventTarget {
   readonly stateChanged = new Event<[DCState]>();
@@ -99,6 +102,7 @@ export class RTCDataChannel extends EventTarget {
           if (this.onclosing) this.onclosing();
           break;
       }
+      log("change state", state);
     }
   }
 

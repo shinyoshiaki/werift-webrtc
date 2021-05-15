@@ -322,7 +322,7 @@ export class RTCSctpTransport {
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
         this.sctp.reconfigQueue.push(channel.id);
         if (this.sctp.reconfigQueue.length === 1) {
-          this.sctp.transmitReconfig();
+          this.sctp.transmitReconfigRequest();
         }
       } else {
         this.dataChannelQueue = this.dataChannelQueue.filter(
