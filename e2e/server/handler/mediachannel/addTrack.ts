@@ -12,7 +12,7 @@ export class mediachannel_addTrack_answer {
     switch (type) {
       case "init":
         {
-          this.udp.bind(5009);
+          this.udp.bind(5099);
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -27,7 +27,7 @@ export class mediachannel_addTrack_answer {
             track.writeRtp(rtp);
           });
           this.child = exec(
-            "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5009"
+            "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5099"
           );
         }
         break;
@@ -64,7 +64,7 @@ export class mediachannel_addTrack_offer {
     switch (type) {
       case "init":
         {
-          this.udp.bind(5009);
+          this.udp.bind(5089);
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -81,7 +81,7 @@ export class mediachannel_addTrack_offer {
             track.writeRtp(rtp);
           });
           this.child = exec(
-            "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5009"
+            "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5089"
           );
         }
         break;

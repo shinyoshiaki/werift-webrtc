@@ -153,6 +153,7 @@ export class SCTP {
   private timer3Handle?: any;
   /**Re-configuration Timer */
   private timerReconfigHandle?: any;
+  private timerReconfigFailures = 0;
 
   // etc
   private ssthresh?: number; // slow start threshold
@@ -447,8 +448,7 @@ export class SCTP {
               )
             );
           } else if (
-            this.reconfigRequest &&
-            reset.responseSequence === this.reconfigRequest.requestSequence
+            reset.responseSequence === this.reconfigRequest?.requestSequence
           ) {
             const streamIds = this.reconfigRequest.streams.map((streamId) => {
               delete this.outboundStreamSeq[streamId];
@@ -458,7 +458,10 @@ export class SCTP {
             this.onReconfigStreams.execute(streamIds);
 
             this.reconfigRequest = undefined;
-            await this.transmitReconfigRequest();
+            this.timerReconfigCancel();
+            if (this.reconfigQueue.length > 0) {
+              await this.transmitReconfigRequest();
+            }
           }
         }
         break;
@@ -813,8 +816,8 @@ export class SCTP {
 
   async transmitReconfigRequest() {
     if (
-      this.associationState === SCTP_STATE.ESTABLISHED &&
       this.reconfigQueue.length > 0 &&
+      this.associationState === SCTP_STATE.ESTABLISHED &&
       !this.reconfigRequest
     ) {
       const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
@@ -826,11 +829,11 @@ export class SCTP {
         tsnMinusOne(this.localTsn),
         streams
       );
-      this.reconfigRequest = param;
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
-      // todo retransmit
-      await this.sendReconfigParam(param);
+      this.reconfigRequest = param;
+      this.sendReconfigParam(param);
+      this.timerReconfigHandleStart();
     }
   }
 
@@ -960,15 +963,37 @@ export class SCTP {
     }
   }
 
+  /**Re-configuration Timer */
   private timerReconfigHandleStart() {
     if (this.timerReconfigHandle) return;
+    this.timerReconfigFailures = 0;
     this.timerReconfigHandle = setTimeout(
       this.timerReconfigHandleExpired,
       this.rto * 1000
     );
   }
 
-  private timerReconfigHandleExpired() {}
+  private timerReconfigHandleExpired() {
+    this.timerReconfigFailures++;
+    this.timerReconfigHandle = undefined;
+    if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
+      this.setState(SCTP_STATE.CLOSED);
+    } else if (this.reconfigRequest) {
+      log("timerReconfigHandleExpired", this.timerReconfigFailures);
+      this.sendReconfigParam(this.reconfigRequest);
+      this.timerReconfigHandle = setTimeout(
+        this.timerReconfigHandleExpired,
+        this.rto * 1000
+      );
+    }
+  }
+
+  private timerReconfigCancel() {
+    if (this.timerReconfigHandle) {
+      clearTimeout(this.timerReconfigHandle);
+      this.timerReconfigHandle = undefined;
+    }
+  }
 
   private updateAdvancedPeerAckPoint() {
     if (uint32Gt(this.lastSackedTsn, this.advancedPeerAckTsn)) {
