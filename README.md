@@ -2,7 +2,7 @@
 
 werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
 
-werift is a WebRTC Implementation for TypeScript (Node.js)
+werift is a WebRTC Implementation for TypeScript (Node.js), includes ICE/DTLS/SCTP/RTP.
 
 # install
 
