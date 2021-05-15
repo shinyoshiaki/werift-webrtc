@@ -975,7 +975,8 @@ export class SCTP {
 
   private timerReconfigHandleExpired = async () => {
     this.timerReconfigFailures++;
-    this.rto *= 2;
+    // back off
+    this.rto = Math.ceil(this.rto * 1.5);
 
     if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
       log("timerReconfigFailures", this.timerReconfigFailures);

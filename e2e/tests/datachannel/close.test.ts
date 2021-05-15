@@ -120,7 +120,6 @@ describe("datachannel/close", () => {
           channel.onmessage = () => {
             console.warn("onmessage");
             r();
-            channel.close();
           };
         });
 
@@ -130,6 +129,7 @@ describe("datachannel/close", () => {
               console.warn("onclose");
               r();
             };
+            channel.close();
           }),
           peer.request(label, { type: "done" }),
         ]).then(() => {
