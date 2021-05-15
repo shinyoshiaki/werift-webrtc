@@ -431,10 +431,9 @@ export class SCTP {
               }
             })
           );
+          await this.transmitReconfigRequest();
           // # close data channel
           this.onReconfigStreams.execute(p.streams);
-
-          await this.transmitReconfigRequest();
         }
         break;
       case ReconfigResponseParam.type:
@@ -832,7 +831,7 @@ export class SCTP {
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
       this.reconfigRequest = param;
-      this.sendReconfigParam(param);
+      await this.sendReconfigParam(param);
       this.timerReconfigHandleStart();
     }
   }
@@ -966,6 +965,7 @@ export class SCTP {
   /**Re-configuration Timer */
   private timerReconfigHandleStart() {
     if (this.timerReconfigHandle) return;
+    log("timerReconfigHandleStart", { rto: this.rto });
     this.timerReconfigFailures = 0;
     this.timerReconfigHandle = setTimeout(
       this.timerReconfigHandleExpired,
