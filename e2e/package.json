@@ -11,7 +11,7 @@
     "dev:server": "DEBUG=werift* ts-node-dev ./server/main.ts",
     "dev:test": "karma start --browsers chrome_with_fake_device",
     "prod:server": "DEBUG=werift/sctp* node lib/e2e/server/main.js",
-    "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device"
+    "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device && node stop.js"
   },
   "dependencies": {
     "werift": "^0.8.5"
