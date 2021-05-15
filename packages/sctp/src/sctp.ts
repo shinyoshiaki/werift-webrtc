@@ -1103,10 +1103,6 @@ export class SCTP {
     if (this.remotePort === undefined) throw new Error("invalid remote port");
     if (this.state === "closed") return;
 
-    if (chunk instanceof DataChunk) {
-      chunk.onTransmit.execute();
-    }
-
     const packet = serializePacket(
       this.localPort,
       this.remotePort,

@@ -189,7 +189,6 @@ export class DataChunk extends Chunk {
   expiry?: number;
   maxRetransmits?: number;
   sentTime?: number;
-  readonly onTransmit = new Event();
 
   constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
