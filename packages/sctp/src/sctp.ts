@@ -427,7 +427,7 @@ export class SCTP {
               delete this.inboundStreams[streamId];
               if (this.outboundStreamSeq[streamId]) {
                 this.reconfigQueue.push(streamId);
-                await this.sendResetRequest(streamId);
+                // await this.sendResetRequest(streamId);
               }
             })
           );
