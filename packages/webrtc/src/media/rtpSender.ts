@@ -6,7 +6,9 @@ import * as uuid from "uuid";
 import {
   Extension,
   GenericNack,
+  ReceiverEstimatedMaxBitrate,
   RtcpPacket,
+  RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
   RtcpSenderInfo,
   RtcpSourceDescriptionPacket,
@@ -57,6 +59,7 @@ export class RTCRtpSender {
   private octetCount = 0;
   private packetCount = 0;
   private rtt?: number;
+  receiverEstimatedMaxBitrate: bigint = 0n;
 
   // rtp
   private sequenceNumber?: number;
@@ -295,7 +298,6 @@ export class RTCRtpSender {
             case GenericNack.count:
               {
                 const feedback = packet.feedback as GenericNack;
-
                 feedback.lost.forEach((seqNum) => {
                   const rtp = this.rtpCache.find(
                     (rtp) => rtp.header.sequenceNumber === seqNum
@@ -304,6 +306,19 @@ export class RTCRtpSender {
                     this.dtlsTransport.sendRtp(rtp.payload, rtp.header);
                   }
                 });
+              }
+              break;
+          }
+        }
+        break;
+      case RtcpPayloadSpecificFeedback.type:
+        {
+          const packet = rtcpPacket as RtcpPayloadSpecificFeedback;
+          switch (packet.feedback.count) {
+            case ReceiverEstimatedMaxBitrate.count:
+              {
+                const feedback = packet.feedback as ReceiverEstimatedMaxBitrate;
+                this.receiverEstimatedMaxBitrate = feedback.bitrate;
               }
               break;
           }

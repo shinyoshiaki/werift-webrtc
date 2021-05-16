@@ -94,7 +94,9 @@ export class mediachannel_addTrack_offer {
       case "done":
         {
           this.udp.close();
-          process.kill(this.child.pid + 1);
+          try {
+            process.kill(this.child.pid + 1);
+          } catch (error) {}
           this.pc.close();
           accept({});
         }

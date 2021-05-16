@@ -2,10 +2,11 @@
 import { createHash, randomBytes } from "crypto";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
-import { Address, IceOptions } from "../../ice/src";
+import { Address } from "../../ice/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
 import { IceServer } from "./peerConnection";
 import debug from "debug";
+import { RtpHeader, RtpPacket } from "../../rtp/src";
 const now = require("nano-time");
 
 const log = debug("werift/webrtc/utils");
@@ -119,4 +120,25 @@ export function parseIceServers(iceServers: IceServer[]) {
   };
   log("iceOptions", options);
   return options;
+}
+
+export class RtpBuilder {
+  sequenceNumber = random16();
+  timestamp = random32();
+
+  create(payload: Buffer) {
+    this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
+    this.timestamp = uint32Add(this.timestamp, BigInt(960));
+
+    const header = new RtpHeader({
+      sequenceNumber: this.sequenceNumber,
+      timestamp: Number(this.timestamp),
+      payloadType: 96,
+      extension: true,
+      marker: false,
+      padding: false,
+    });
+    const rtp = new RtpPacket(header, payload);
+    return rtp;
+  }
 }
