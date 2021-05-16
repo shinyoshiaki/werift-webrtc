@@ -108,6 +108,7 @@ see console & chrome://webrtc-internals/
 - [ ] Simulcast
   - [ ] send
 - [ ] support more cipher suites
+- [ ] getStats
 
 # reference
 
