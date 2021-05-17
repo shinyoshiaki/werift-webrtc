@@ -14,6 +14,8 @@ export class MediaStreamTrack extends EventTarget {
   rid?: string;
   header?: RtpHeader;
   codec?: RTCRtpCodecParameters;
+  /**todo impl */
+  enabled = true;
 
   readonly onReceiveRtp = new Event<[RtpPacket]>();
 

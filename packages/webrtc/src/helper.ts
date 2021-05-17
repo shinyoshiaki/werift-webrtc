@@ -41,4 +41,8 @@ export class EventTarget extends EventEmitter {
   addEventListener = (type: string, listener: (...args: any[]) => void) => {
     this.addListener(type, listener);
   };
+
+  removeEventListener = (type: string, listener: (...args: any[]) => void) => {
+    this.removeListener(type, listener);
+  };
 }
