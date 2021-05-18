@@ -909,10 +909,8 @@ export class RTCPeerConnection extends EventTarget {
     if (this.sctpTransport) {
       await this.sctpTransport.stop();
     }
-    if (this.dtlsTransport) {
-      await this.dtlsTransport.stop();
-      await this.dtlsTransport.iceTransport.stop();
-    }
+    await this.dtlsTransport.stop();
+    await this.iceTransport.stop();
 
     this.dispose();
     log("peerConnection closed");

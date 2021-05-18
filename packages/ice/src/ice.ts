@@ -360,8 +360,10 @@ export class Connection {
     new PCancelable(async (r, f, onCancel) => {
       let failures = 0;
 
+      const cancelEvent = new Event();
       onCancel(() => {
         failures += CONSENT_FAILURES;
+        cancelEvent.execute();
         f("cancel");
       });
 
@@ -371,9 +373,16 @@ export class Connection {
 
       while (!this.remoteIsLite && this.state !== "closed") {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        await new Promise((r) =>
-          setTimeout(r, CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000)
-        );
+        await new Promise<void>((r) => {
+          const timer = setTimeout(
+            r,
+            CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000
+          );
+          cancelEvent.once(() => {
+            clearTimeout(timer);
+            r();
+          });
+        });
 
         for (const key of this.nominatedKeys) {
           const pair = this.nominated[Number(key)];
@@ -406,6 +415,8 @@ export class Connection {
     // Close the connection.
     // """
 
+    this.setState("closed");
+
     // # stop consent freshness tests
     if (this.queryConsentHandle && !this.queryConsentHandle.done()) {
       this.queryConsentHandle.cancel();
@@ -430,8 +441,6 @@ export class Connection {
 
     this.protocols = [];
     this.localCandidates = [];
-
-    this.setState("closed");
   }
 
   private setState(state: IceState) {
