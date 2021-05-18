@@ -84,6 +84,7 @@ describe("media", () => {
           });
         }),
       ]);
+      await Promise.all([pc1.close, pc2.close]);
       done();
     })();
 

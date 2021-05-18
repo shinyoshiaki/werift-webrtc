@@ -12,12 +12,11 @@ const LOST_SIZE = 30 * 5;
 export class Nack {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
+  private nackLoop = setInterval(() => this.packetLost(), 20);
 
   mediaSourceSsrc?: number;
 
-  constructor(private receiver: RTCRtpReceiver) {
-    setInterval(() => this.packetLost(), 20);
-  }
+  constructor(private receiver: RTCRtpReceiver) {}
 
   get lost() {
     return Object.keys(this._lost).map(Number);
@@ -57,6 +56,10 @@ export class Nack {
           }, {} as { [seqNum: number]: number });
       }
     }
+  }
+
+  close() {
+    clearInterval(this.nackLoop);
   }
 
   private increment() {

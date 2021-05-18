@@ -22,7 +22,6 @@ import {
 } from "../../../rtp/src";
 import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
-import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
@@ -76,6 +75,7 @@ export class RTCRtpSender {
 
   parameters?: RTCRtpParameters;
   track?: MediaStreamTrack;
+  stopped = false;
 
   constructor(
     public trackOrKind: Kind | MediaStreamTrack,
@@ -130,19 +130,27 @@ export class RTCRtpSender {
     return this.dtlsTransport.state === "connected";
   }
 
-  // todo test
   stop() {
+    this.stopped = true;
     this.track = undefined;
     this.rtcpRunner = false;
+    this.rtcpCancel.execute();
   }
 
   rtcpRunner = false;
+  private rtcpCancel = new Event();
   async runRtcp() {
-    if (this.rtcpRunner) return;
+    if (this.rtcpRunner || this.stopped) return;
     this.rtcpRunner = true;
 
     while (this.rtcpRunner) {
-      await sleep(500 + Math.random() * 1000);
+      await new Promise<void>((r) => {
+        const timer = setTimeout(r, 500 + Math.random() * 1000);
+        this.rtcpCancel.once(() => {
+          clearTimeout(timer);
+          r();
+        });
+      });
 
       const packets: RtcpPacket[] = [
         new RtcpSrPacket({
@@ -175,7 +183,7 @@ export class RTCRtpSender {
       try {
         await this.dtlsTransport.sendRtcp(packets);
       } catch (error) {
-        await sleep(500 + Math.random() * 1000);
+        await new Promise((r) => setTimeout(r, 500 + Math.random() * 1000));
       }
     }
   }

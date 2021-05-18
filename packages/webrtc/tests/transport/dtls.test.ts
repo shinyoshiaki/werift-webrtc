@@ -1,4 +1,4 @@
-import { sleep } from "../../src";
+import { sleep } from "../utils";
 import { dtlsTransportPair } from "../fixture";
 
 describe("RTCDtlsTransportTest", () => {
