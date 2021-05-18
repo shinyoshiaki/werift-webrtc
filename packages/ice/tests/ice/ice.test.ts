@@ -2,7 +2,7 @@ import { Connection, CandidatePair, CandidatePairState } from "../../src/ice";
 import { Protocol, Address } from "../../src/types/model";
 import { Candidate } from "../../src/candidate";
 import { inviteAccept, assertCandidateTypes } from "../utils";
-import { sleep } from "../../src/utils";
+import { sleep } from "../../tests/utils";
 import { Message } from "../../src/stun/message";
 import { classes, methods } from "../../src/stun/const";
 

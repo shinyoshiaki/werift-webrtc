@@ -9,14 +9,7 @@ import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { TransactionError } from "./exceptions";
 import { Address, Protocol } from "./types/model";
 import { createTurnEndpoint } from "./turn/protocol";
-import {
-  difference,
-  Future,
-  future,
-  PQueue,
-  randomString,
-  sleep,
-} from "./utils";
+import { difference, Future, future, PQueue, randomString } from "./utils";
 import { StunProtocol } from "./stun/protocol";
 import { Message, parseMessage } from "./stun/message";
 import { classes, methods } from "./stun/const";
@@ -39,7 +32,7 @@ export enum CandidatePairState {
   FAILED = 4,
 }
 
-type IceState = "disconnected" | "closed" | "completed";
+type IceState = "disconnected" | "closed" | "completed" | "new";
 
 export interface IceOptions {
   components: number;
@@ -77,6 +70,7 @@ export class Connection {
   _components: Set<number>;
   _localCandidatesEnd = false;
   _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
+  state: IceState = "new";
 
   readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -181,7 +175,7 @@ export class Connection {
             this.protocols.map(
               (protocol) =>
                 new Promise(async (r, f) => {
-                  setTimeout(f, timeout * 1000);
+                  const timer = setTimeout(f, timeout * 1000);
                   if (
                     protocol.localCandidate?.host &&
                     isIPv4(protocol.localCandidate?.host)
@@ -191,8 +185,11 @@ export class Connection {
                       stunServer
                     ).catch((error) => log("error", error));
                     if (candidate && cb) cb(candidate);
+
+                    clearTimeout(timer);
                     r(candidate);
                   } else {
+                    clearTimeout(timer);
                     r();
                   }
                 })
@@ -277,7 +274,7 @@ export class Connection {
     // 5.8.  Scheduling Checks
     for (;;) {
       if (!this.schedulingChecks()) break;
-      await sleep(20);
+      await new Promise((r) => setTimeout(r, 20));
     }
 
     // # wait for completion
@@ -294,7 +291,7 @@ export class Connection {
     // # start consent freshness tests
     this.queryConsentHandle = future(this.queryConsent());
 
-    this.stateChanged.execute("completed");
+    this.setState("completed");
   }
 
   private unfreezeInitial() {
@@ -372,9 +369,11 @@ export class Connection {
       // Periodically check consent (RFC 7675).
       // """
 
-      while (!this.remoteIsLite) {
+      while (!this.remoteIsLite && this.state !== "closed") {
         // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        await sleep(CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000);
+        await new Promise((r) =>
+          setTimeout(r, CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000)
+        );
 
         for (const key of this.nominatedKeys) {
           const pair = this.nominated[Number(key)];
@@ -389,7 +388,7 @@ export class Connection {
             failures = 0;
           } catch (error) {
             failures++;
-            this.stateChanged.execute("disconnected");
+            this.setState("disconnected");
           }
           if (failures >= CONSENT_FAILURES) {
             log("Consent to send expired");
@@ -424,13 +423,20 @@ export class Connection {
 
     this.nominated = {};
     for (const protocol of this.protocols) {
-      if (protocol.close) await protocol.close();
+      if (protocol.close) {
+        await protocol.close();
+      }
     }
 
     this.protocols = [];
     this.localCandidates = [];
 
-    this.stateChanged.execute("closed");
+    this.setState("closed");
+  }
+
+  private setState(state: IceState) {
+    this.state = state;
+    this.stateChanged.execute(state);
   }
 
   async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
@@ -451,7 +457,7 @@ export class Connection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      await sleep(10);
+      await new Promise((r) => setTimeout(r, 10));
 
       const res = await util
         .promisify(dns.lookup)(remoteCandidate.host)
