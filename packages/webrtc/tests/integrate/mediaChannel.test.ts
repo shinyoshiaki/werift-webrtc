@@ -26,8 +26,9 @@ describe("media", () => {
     const recvonly = new RTCPeerConnection();
     recvonly.onTransceiver.subscribe((transceiver) => {
       transceiver.onTrack.subscribe((track) => {
-        track.onReceiveRtp.subscribe((rtp) => {
+        track.onReceiveRtp.subscribe(async (rtp) => {
           expect(rtp.payload).toEqual(Buffer.from("test"));
+          await Promise.all([sendonly.close(), recvonly.close()]);
           done();
         });
       });
@@ -83,6 +84,7 @@ describe("media", () => {
           });
         }),
       ]);
+      await Promise.all([pc1.close, pc2.close]);
       done();
     })();
 

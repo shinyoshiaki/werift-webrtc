@@ -121,3 +121,7 @@ export function awaitMessage(channel: RTCDataChannel) {
     channel.error.once(reject);
   });
 }
+
+export async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}

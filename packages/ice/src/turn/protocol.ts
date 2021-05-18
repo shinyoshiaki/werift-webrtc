@@ -11,7 +11,7 @@ import { classes, methods } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
 import { Address, Protocol } from "../types/model";
-import { future, Future, randomTransactionId, sleep } from "../utils";
+import { future, Future, randomTransactionId } from "../utils";
 
 const log = debug("werift/ice/turn/protocol");
 
@@ -198,7 +198,7 @@ class TurnClient implements Protocol {
 
       while (run) {
         // refresh before expire
-        await sleep((5 / 6) * this.lifetime * 1000);
+        await new Promise((r) => setTimeout(r, (5 / 6) * this.lifetime * 1000));
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.attributes.LIFETIME = this.lifetime;

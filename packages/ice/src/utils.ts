@@ -81,5 +81,3 @@ export const future = (pCancel: PCancelable<any>) => {
 };
 
 export type Future = ReturnType<typeof future>;
-
-export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

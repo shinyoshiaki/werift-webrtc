@@ -1,6 +1,7 @@
-import { MediaStreamTrack, sleep } from "../../src";
+import { MediaStreamTrack } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
+import { sleep } from "../utils";
 
 describe("media/rtpSender", () => {
   test("stop track", () => {

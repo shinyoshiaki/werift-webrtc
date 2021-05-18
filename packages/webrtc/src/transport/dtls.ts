@@ -23,7 +23,6 @@ import {
   SrtcpSession,
   SrtpSession,
 } from "../../../rtp/src";
-import { sleep } from "../helper";
 import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
 import { RTCIceTransport } from "./ice";
@@ -123,7 +122,7 @@ export class RTCDtlsTransport {
       this.dtls.onConnect.once(r);
 
       if (this.dtls instanceof DtlsClient) {
-        await sleep(100);
+        await new Promise((r) => setTimeout(r, 100));
         this.dtls.connect();
       }
     });

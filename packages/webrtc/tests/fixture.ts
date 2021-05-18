@@ -6,9 +6,9 @@ import {
   RTCSessionDescription,
   RtpHeader,
   RtpPacket,
-  sleep,
 } from "../src";
 import { RtpRouter } from "../src/media/router";
+import { sleep } from "./utils";
 
 export const createRtpPacket = () => {
   const header = new RtpHeader({

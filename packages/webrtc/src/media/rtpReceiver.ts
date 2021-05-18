@@ -1,3 +1,4 @@
+import Event from "rx.mini";
 import { v4 as uuid } from "uuid";
 import {
   PictureLossIndication,
@@ -8,7 +9,6 @@ import {
   RtpPacket,
 } from "../../../rtp/src";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
-import { sleep } from "../helper";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { Nack } from "./nack";
@@ -32,6 +32,7 @@ export class RTCRtpReceiver {
   receiverTWCC?: ReceiverTWCC;
   supportTWCC = false;
   codecs: RTCRtpCodecParameters[] = [];
+  stopped = false;
 
   constructor(
     public kind: Kind,
@@ -69,17 +70,27 @@ export class RTCRtpReceiver {
   }
 
   stop() {
+    this.stopped = true;
+    this.rtcpCancel.execute();
     this.rtcpRunning = false;
     if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
+    this.nack.close();
   }
 
   rtcpRunning = false;
+  private rtcpCancel = new Event();
   async runRtcp() {
-    if (this.rtcpRunning) return;
+    if (this.rtcpRunning || this.stopped) return;
     this.rtcpRunning = true;
 
     while (this.rtcpRunning) {
-      await sleep(500 + Math.random() * 1000);
+      await new Promise<void>((r) => {
+        const timer = setTimeout(r, 500 + Math.random() * 1000);
+        this.rtcpCancel.once(() => {
+          clearTimeout(timer);
+          r();
+        });
+      });
 
       const reports = [];
       const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
@@ -87,7 +98,7 @@ export class RTCRtpReceiver {
       try {
         await this.dtlsTransport.sendRtcp([packet]);
       } catch (error) {
-        await sleep(500 + Math.random() * 1000);
+        await new Promise((r) => setTimeout(r, 500 + Math.random() * 1000));
       }
     }
   }
@@ -135,6 +146,8 @@ export class RTCRtpReceiver {
     packet: RtpPacket,
     extensions: Extensions
   ) {
+    if (this.stopped) return;
+
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
