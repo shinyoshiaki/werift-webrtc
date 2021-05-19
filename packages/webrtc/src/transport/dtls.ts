@@ -35,7 +35,7 @@ export class RTCDtlsTransport {
   srtpStarted = false;
   transportSequenceNumber = 0;
 
-  dataReceiver?: (buf: Buffer) => void;
+  dataReceiver: (buf: Buffer) => void = () => {};
   dtls?: DtlsSocket;
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
@@ -114,7 +114,7 @@ export class RTCDtlsTransport {
         });
       }
       this.dtls.onData.subscribe((buf) => {
-        if (this.dataReceiver) this.dataReceiver(buf);
+        this.dataReceiver(buf);
       });
       this.dtls.onClose.once(() => {
         this.setState("closed");

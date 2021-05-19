@@ -86,6 +86,7 @@ export class RTCPeerConnection extends EventTarget {
   ondatachannel?:
     | ((event: { channel: RTCDataChannel }) => void)
     | null = () => {};
+  onicecandidate: (e: { candidate: RTCIceCandidateJSON }) => void = () => {};
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -370,6 +371,7 @@ export class RTCPeerConnection extends EventTarget {
       candidate.foundation = "candidate:" + candidate.foundation;
 
       this.onIceCandidate.execute(candidate);
+      this.onicecandidate({ candidate: candidate.toJSON() });
       this.emit("icecandidate", { candidate });
     };
 

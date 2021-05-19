@@ -311,7 +311,7 @@ export class RTCSctpTransport {
   }
 
   async stop() {
-    this.dtlsTransport.dataReceiver = undefined;
+    this.dtlsTransport.dataReceiver = () => {};
     await this.sctp.stop();
   }
 
