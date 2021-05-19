@@ -21,5 +21,5 @@ declare module "binary-data" {
   type CreateDecode = (buf: Buffer) => any;
   declare const createDecode: CreateDecode;
 
-  export { types, encode, decode, createDecode };
+  export { createDecode, decode, encode, types };
 }

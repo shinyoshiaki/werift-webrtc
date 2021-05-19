@@ -1,5 +1,6 @@
 import { ec } from "elliptic";
 import * as nacl from "tweetnacl";
+
 import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
 
 export type NamedCurveKeyPair = {

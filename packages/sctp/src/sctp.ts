@@ -3,6 +3,7 @@ import debug from "debug";
 import { jspack } from "jspack";
 import { range } from "lodash";
 import { Event } from "rx.mini";
+
 import {
   AbortChunk,
   Chunk,
@@ -28,9 +29,9 @@ import { SCTP_STATE } from "./const";
 import { createEventsFromList, enumerate, Unpacked } from "./helper";
 import {
   OutgoingSSNResetRequestParam,
+  RECONFIG_PARAM_BY_TYPES,
   ReconfigResponseParam,
   reconfigResult,
-  RECONFIG_PARAM_BY_TYPES,
   StreamAddOutgoingParam,
   StreamParam,
 } from "./param";

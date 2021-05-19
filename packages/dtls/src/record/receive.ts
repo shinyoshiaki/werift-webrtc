@@ -1,4 +1,5 @@
 import debug from "debug";
+
 import { CipherContext } from "../context/cipher";
 import { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
@@ -58,6 +59,7 @@ export const parsePlainText = (dtls: DtlsContext, cipher: CipherContext) => (
       log("ContentType.alert", alert, dtls.flight, dtls.lastFlight);
       if (alert.level > 1) throw new Error("alert fatal error");
     }
+    // eslint-disable-next-line no-fallthrough
     default: {
       return { type: ContentType.alert, data: undefined };
     }

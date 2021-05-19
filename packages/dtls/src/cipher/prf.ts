@@ -2,6 +2,7 @@ import { createDecode } from "binary-data";
 import { createHash, createHmac } from "crypto";
 import { ec } from "elliptic";
 import * as nacl from "tweetnacl";
+
 import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
 
 export function prfPreMasterSecret(

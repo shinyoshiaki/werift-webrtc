@@ -4,6 +4,7 @@ import { createSocket } from "dgram";
 import { jspack } from "jspack";
 import PCancelable from "p-cancelable";
 import Event from "rx.mini";
+
 import { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
 import { Connection } from "../ice";
@@ -11,7 +12,7 @@ import { classes, methods } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
 import { Address, Protocol } from "../types/model";
-import { future, Future, randomTransactionId } from "../utils";
+import { Future, future, randomTransactionId } from "../utils";
 
 const log = debug("werift/ice/turn/protocol");
 

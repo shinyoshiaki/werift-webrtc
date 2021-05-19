@@ -1,5 +1,6 @@
 import debug from "debug";
 import { Event } from "rx.mini";
+
 import { TransactionFailed, TransactionTimeout } from "../exceptions";
 import { Address, Protocol } from "../types/model";
 import { classes, RETRY_MAX, RETRY_RTO } from "./const";
