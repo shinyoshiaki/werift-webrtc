@@ -8,6 +8,8 @@ werift is a WebRTC Implementation for TypeScript (Node.js), includes ICE/DTLS/SC
 
 `npm install werift`
 
+requires at least Node.js 14
+
 # Documentation (WIP)
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
@@ -39,7 +41,7 @@ see console & chrome://webrtc-internals/
 run
 
 ```sh
-yarn datachannel 
+yarn datachannel
 ```
 
 open
@@ -110,6 +112,7 @@ see console & chrome://webrtc-internals/
 - [ ] support more cipher suites
 - [ ] getStats
 - [ ] Media Engine
+
 # reference
 
 - aiortc https://github.com/aiortc/aiortc
