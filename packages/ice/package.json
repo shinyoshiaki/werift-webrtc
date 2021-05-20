@@ -20,7 +20,7 @@
   "scripts": {
     "build": "yarn format && tsc -p ./tsconfig.production.json",
     "format": "yarn unused && yarn lint && prettier --write {src,tests}/**/*.{ts,test.ts}",
-    "lint": "eslint src/**/*.ts --fix",
+    "lint": "eslint ./src --fix",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
     "test": "yarn type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json",

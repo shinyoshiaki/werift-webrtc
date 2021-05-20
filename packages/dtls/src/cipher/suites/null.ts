@@ -1,5 +1,5 @@
-import Cipher from "./abstract";
 import { createNULLKeyExchange } from "../key-exchange";
+import Cipher from "./abstract";
 
 /**
  * Default passthrough cipher.

@@ -1,10 +1,11 @@
-import { encode, types, decode } from "binary-data";
-import { HandshakeType } from "../../const";
-import { ProtocolVersion, ExtensionList } from "../../binary";
-import { DtlsRandom } from "../../random";
-import { Version, Random, Handshake, Extension } from "../../../typings/domain";
-import { FragmentedHandshake } from "../../../record/message/fragment";
+import { decode, encode, types } from "binary-data";
+
 import { CipherSuites } from "../../../cipher/const";
+import { FragmentedHandshake } from "../../../record/message/fragment";
+import { Extension, Handshake, Random, Version } from "../../../typings/domain";
+import { ExtensionList, ProtocolVersion } from "../../binary";
+import { HandshakeType } from "../../const";
+import { DtlsRandom } from "../../random";
 
 // 7.4.1.3.  Server Hello
 

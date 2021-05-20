@@ -1,8 +1,9 @@
-import { encode, decode, types } from "binary-data";
-import { HandshakeType } from "../../const";
-import { ProtocolVersion } from "../../binary";
-import { Handshake } from "../../../typings/domain";
+import { decode, encode, types } from "binary-data";
+
 import { FragmentedHandshake } from "../../../record/message/fragment";
+import { Handshake } from "../../../typings/domain";
+import { ProtocolVersion } from "../../binary";
+import { HandshakeType } from "../../const";
 
 // 4.2.1.  Denial-of-Service Countermeasures
 

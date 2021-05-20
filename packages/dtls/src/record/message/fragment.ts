@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { encode, types, decode } from "binary-data";
+import { decode, encode, types } from "binary-data";
+
 import { HandshakeType } from "../../handshake/const";
 
 export class FragmentedHandshake {

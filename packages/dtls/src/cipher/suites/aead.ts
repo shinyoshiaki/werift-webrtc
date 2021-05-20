@@ -1,6 +1,7 @@
 import * as crypto from "crypto";
-import Cipher, { CipherHeader, SessionType } from "./abstract";
+
 import { prfEncryptionKeys } from "../prf";
+import Cipher, { CipherHeader, SessionType } from "./abstract";
 const {
   createDecode,
   encode,

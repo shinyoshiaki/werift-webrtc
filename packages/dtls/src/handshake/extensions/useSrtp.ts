@@ -1,6 +1,7 @@
-import { encode, types, decode } from "binary-data";
-import { Extension } from "../../typings/domain";
+import { decode, encode, types } from "binary-data";
 import { times } from "lodash";
+
+import { Extension } from "../../typings/domain";
 
 export class UseSRTP {
   static type = 14; // 9.  IANA Considerations

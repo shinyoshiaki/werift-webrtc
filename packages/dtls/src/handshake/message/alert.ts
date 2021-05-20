@@ -1,4 +1,4 @@
-import { encode, types, decode } from "binary-data";
+import { decode, encode, types } from "binary-data";
 
 export class Alert {
   static readonly spec = {

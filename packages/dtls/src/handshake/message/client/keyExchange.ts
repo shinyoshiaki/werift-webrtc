@@ -1,7 +1,8 @@
-import { encode, types, decode } from "binary-data";
-import { HandshakeType } from "../../const";
-import { Handshake } from "../../../typings/domain";
+import { decode, encode, types } from "binary-data";
+
 import { FragmentedHandshake } from "../../../record/message/fragment";
+import { Handshake } from "../../../typings/domain";
+import { HandshakeType } from "../../const";
 
 export class ClientKeyExchange implements Handshake {
   msgType = HandshakeType.client_key_exchange;

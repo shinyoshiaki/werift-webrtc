@@ -1,13 +1,14 @@
-import { encode, types, decode } from "binary-data";
-import { HandshakeType } from "../../const";
+import { decode, encode, types } from "binary-data";
+
+import { HashAlgorithms, SignatureAlgorithms } from "../../../cipher/const";
+import { FragmentedHandshake } from "../../../record/message/fragment";
+import { Handshake } from "../../../typings/domain";
 import {
   ClientCertificateType,
   DistinguishedName,
   SignatureHashAlgorithm,
 } from "../../binary";
-import { Handshake } from "../../../typings/domain";
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import { HashAlgorithms, SignatureAlgorithms } from "../../../cipher/const";
+import { HandshakeType } from "../../const";
 
 // 7.4.4.  Certificate Request
 

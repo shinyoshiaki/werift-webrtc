@@ -1,8 +1,9 @@
-import { encode, types, decode } from "binary-data";
-import { HandshakeType } from "../const";
-import { ASN11Cert } from "../binary";
-import { Handshake } from "../../typings/domain";
+import { decode, encode, types } from "binary-data";
+
 import { FragmentedHandshake } from "../../record/message/fragment";
+import { Handshake } from "../../typings/domain";
+import { ASN11Cert } from "../binary";
+import { HandshakeType } from "../const";
 
 // 7.4.2.  Server Certificate
 // 7.4.6.  Client Certificate

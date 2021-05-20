@@ -1,12 +1,13 @@
 /* eslint-disable prefer-const */
 import { createHash, randomBytes } from "crypto";
+import debug from "debug";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
+
 import { Address } from "../../ice/src";
+import { RtpHeader, RtpPacket } from "../../rtp/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
 import { IceServer } from "./peerConnection";
-import debug from "debug";
-import { RtpHeader, RtpPacket } from "../../rtp/src";
 const now = require("nano-time");
 
 const log = debug("werift/webrtc/utils");

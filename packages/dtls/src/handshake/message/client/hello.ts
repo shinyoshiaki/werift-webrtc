@@ -1,9 +1,10 @@
-import { encode, types, decode } from "binary-data";
-import { HandshakeType } from "../../const";
-import { ExtensionList } from "../../binary";
+import { decode, encode, types } from "binary-data";
+
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { DtlsRandom } from "../../random";
 import { Extension } from "../../../typings/domain";
+import { ExtensionList } from "../../binary";
+import { HandshakeType } from "../../const";
+import { DtlsRandom } from "../../random";
 
 // 7.4.1.2.  Client Hello
 

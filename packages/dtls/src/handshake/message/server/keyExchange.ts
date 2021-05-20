@@ -1,9 +1,10 @@
-import { types, decode } from "binary-data";
-import { HandshakeType } from "../../const";
-import { Handshake } from "../../../typings/domain";
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import { encodeBuffer } from "../../../util/binary";
+import { decode, types } from "binary-data";
+
 import { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
+import { FragmentedHandshake } from "../../../record/message/fragment";
+import { Handshake } from "../../../typings/domain";
+import { encodeBuffer } from "../../../util/binary";
+import { HandshakeType } from "../../const";
 
 export class ServerKeyExchange implements Handshake {
   msgType = HandshakeType.server_key_exchange;

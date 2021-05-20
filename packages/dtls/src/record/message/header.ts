@@ -1,4 +1,5 @@
-import { encode, types, decode } from "binary-data";
+import { decode, encode, types } from "binary-data";
+
 import { ProtocolVersion } from "../../handshake/binary";
 
 export class DtlsPlaintextHeader {

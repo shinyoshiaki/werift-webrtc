@@ -1,21 +1,22 @@
-import { HandshakeType } from "../../handshake/const";
-import { DtlsContext } from "../../context/dtls";
+import debug from "debug";
+
+import { createCipher } from "../../cipher/create";
 import {
-  prfPreMasterSecret,
-  prfMasterSecret,
   prfExtendedMasterSecret,
+  prfMasterSecret,
+  prfPreMasterSecret,
 } from "../../cipher/prf";
-import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
+import { CipherContext } from "../../context/cipher";
+import { DtlsContext } from "../../context/dtls";
+import { TransportContext } from "../../context/transport";
+import { HandshakeType } from "../../handshake/const";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
+import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { Finished } from "../../handshake/message/finished";
 import { createPlaintext } from "../../record/builder";
-import { TransportContext } from "../../context/transport";
 import { ContentType } from "../../record/const";
-import { createCipher } from "../../cipher/create";
-import { CipherContext } from "../../context/cipher";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { Flight } from "../flight";
-import debug from "debug";
 
 const log = debug("werift/dtls/flight6");
 

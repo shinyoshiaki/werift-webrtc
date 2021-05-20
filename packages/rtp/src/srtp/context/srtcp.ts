@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv } from "crypto";
-import { Context } from "./context";
+
 import { RtcpHeader } from "../../rtcp/header";
+import { Context } from "./context";
 
 export class SrtcpContext extends Context {
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: number) {

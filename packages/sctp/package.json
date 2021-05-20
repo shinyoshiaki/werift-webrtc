@@ -17,7 +17,7 @@
     "ci": "yarn type && yarn lint && yarn test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
-    "lint": "eslint **/*.ts --fix",
+    "lint": "eslint ./src --fix",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
     "test": "yarn type && jest --forceExit",
     "type": "tsc --noEmit -p .",

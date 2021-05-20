@@ -1,4 +1,4 @@
-import { encode, types, decode } from "binary-data";
+import { decode, encode, types } from "binary-data";
 
 // 7.1.  Change Cipher Spec Protocol
 

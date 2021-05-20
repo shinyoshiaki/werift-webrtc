@@ -1,6 +1,6 @@
+import { FragmentedHandshake } from "../../record/message/fragment";
 import { Handshake } from "../../typings/domain";
 import { HandshakeType } from "../const";
-import { FragmentedHandshake } from "../../record/message/fragment";
 
 // 7.4.9.  Finished
 

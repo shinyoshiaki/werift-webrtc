@@ -1,8 +1,8 @@
-import { isEqual, cloneDeep } from "lodash";
+import debug from "debug";
+import { cloneDeep, isEqual } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
-import { enumerate, EventTarget } from "./helper";
-import { ConnectionState, Kind, SignalingState } from "./types/domain";
+
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -10,6 +10,7 @@ import {
   SRTP_PROFILE,
 } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import { enumerate, EventTarget } from "./helper";
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -26,6 +27,7 @@ import {
   RTCRtpTransceiver,
   TransceiverOptions,
 } from "./media/rtpTransceiver";
+import { MediaStreamTrack } from "./media/track";
 import {
   addSDPHeader,
   GroupDescription,
@@ -49,14 +51,13 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
+import { ConnectionState, Kind, SignalingState } from "./types/domain";
 import {
   andDirection,
   parseIceServers,
   reverseDirection,
   reverseSimulcastDirection,
 } from "./utils";
-import debug from "debug";
-import { MediaStreamTrack } from "./media/track";
 
 const log = debug("werift/webrtc/peerConnection");
 

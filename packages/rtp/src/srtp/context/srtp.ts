@@ -1,7 +1,8 @@
-import { RtpHeader } from "../../rtp/rtp";
 import { createCipheriv, createDecipheriv } from "crypto";
-import { Context } from "./context";
+
 import { growBufferSize } from "../../helper";
+import { RtpHeader } from "../../rtp/rtp";
+import { Context } from "./context";
 
 export class SrtpContext extends Context {
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: number) {

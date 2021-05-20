@@ -1,7 +1,8 @@
-import { encode, decode } from "binary-data";
-import { HandshakeType } from "../../const";
-import { Handshake } from "../../../typings/domain";
+import { decode, encode } from "binary-data";
+
 import { FragmentedHandshake } from "../../../record/message/fragment";
+import { Handshake } from "../../../typings/domain";
+import { HandshakeType } from "../../const";
 
 // 7.4.5.  Server Hello Done
 

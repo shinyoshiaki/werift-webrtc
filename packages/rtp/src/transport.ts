@@ -1,4 +1,4 @@
-import { Socket, RemoteInfo } from "dgram";
+import { RemoteInfo, Socket } from "dgram";
 
 export interface Transport {
   onData?: (buf: Buffer) => void;

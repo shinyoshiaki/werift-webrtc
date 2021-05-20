@@ -2,14 +2,14 @@ import { randomBytes } from "crypto";
 import { Uint64BE } from "int64-buffer";
 import { range } from "lodash";
 import { isIPv4 } from "net";
-import { divide } from "./helper";
-import { Kind } from "./types/domain";
+
 import {
   DTLS_ROLE_SETUP,
   DTLS_SETUP_ROLE,
   FMTP_INT_PARAMETERS,
   SSRC_INFO_ATTRS,
 } from "./const";
+import { divide } from "./helper";
 import {
   RTCRtcpFeedback,
   RTCRtpCodecParameters,
@@ -25,6 +25,7 @@ import {
 } from "./transport/dtls";
 import { RTCIceCandidate, RTCIceParameters } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
+import { Kind } from "./types/domain";
 
 export class SessionDescription {
   version = 0;

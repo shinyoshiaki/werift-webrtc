@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { encode, types, decode } from "binary-data";
-import { MACHeader, DtlsPlaintextHeader } from "./header";
+import { decode, encode, types } from "binary-data";
+
+import { DtlsPlaintextHeader, MACHeader } from "./header";
 
 export class DtlsPlaintext {
   static readonly spec = {
