@@ -14,7 +14,7 @@ server.on("connection", async (socket) => {
 
   pc.createDataChannel("test");
 
-  pc.onTransceiver.subscribe((transceiver) => {
+  pc.onRemoteTransceiver.subscribe((transceiver) => {
     transceiver.onTrack.subscribe((track) => {
       transceiver.sender.replaceTrack(track);
     });

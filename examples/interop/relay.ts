@@ -42,7 +42,7 @@ app.post("/offer", async (req, res) => {
     });
   });
 
-  receiver.onTransceiver.subscribe(async (transceiver) => {
+  receiver.onRemoteTransceiver.subscribe(async (transceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
     transceiver.sender.replaceTrack(track);
 

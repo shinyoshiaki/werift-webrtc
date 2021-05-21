@@ -7,6 +7,7 @@ import * as uuid from "uuid";
 import {
   Extension,
   GenericNack,
+  PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
@@ -328,6 +329,10 @@ export class RTCRtpSender {
               {
                 const feedback = packet.feedback as ReceiverEstimatedMaxBitrate;
                 this.receiverEstimatedMaxBitrate = feedback.bitrate;
+              }
+              break;
+            case PictureLossIndication.count:
+              {
               }
               break;
           }

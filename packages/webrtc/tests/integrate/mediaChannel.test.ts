@@ -1,10 +1,10 @@
 import {
+  isMedia,
   MediaStreamTrack,
   RTCPeerConnection,
-  useSdesMid,
-  isMedia,
   RtpHeader,
   RtpPacket,
+  useSdesMid,
 } from "../../src";
 
 describe("media", () => {
@@ -24,7 +24,7 @@ describe("media", () => {
       });
 
     const recvonly = new RTCPeerConnection();
-    recvonly.onTransceiver.subscribe((transceiver) => {
+    recvonly.onRemoteTransceiver.subscribe((transceiver) => {
       transceiver.onTrack.subscribe((track) => {
         track.onReceiveRtp.subscribe(async (rtp) => {
           expect(rtp.payload).toEqual(Buffer.from("test"));

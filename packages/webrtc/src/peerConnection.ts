@@ -81,7 +81,8 @@ export class RTCPeerConnection extends EventTarget {
   readonly signalingStateChange = new Event<[SignalingState]>();
   readonly connectionStateChange = new Event<[ConnectionState]>();
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly onTransceiver = new Event<[RTCRtpTransceiver]>();
+  readonly onRemoteTransceiver = new Event<[RTCRtpTransceiver]>();
+  readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onnegotiationneeded = new Event<[]>();
   ondatachannel?:
@@ -634,7 +635,7 @@ export class RTCPeerConnection extends EventTarget {
             const transceiver = this.addTransceiver(media.kind, {
               direction: "recvonly",
             });
-            this.onTransceiver.execute(transceiver);
+            this.onRemoteTransceiver.execute(transceiver);
             return transceiver;
           })();
 
@@ -772,6 +773,7 @@ export class RTCPeerConnection extends EventTarget {
     this.router.registerRtpSender(transceiver.sender);
 
     this.transceivers.push(transceiver);
+    this.onTransceiverAdded.execute(transceiver);
 
     return transceiver;
   }
@@ -955,7 +957,8 @@ export class RTCPeerConnection extends EventTarget {
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
     this.signalingStateChange.allUnsubscribe();
-    this.onTransceiver.allUnsubscribe();
+    this.onTransceiverAdded.allUnsubscribe();
+    this.onRemoteTransceiver.allUnsubscribe();
     this.onIceCandidate.allUnsubscribe();
   }
 }

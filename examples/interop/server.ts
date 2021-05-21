@@ -43,7 +43,7 @@ app.post("/offer", async (req, res) => {
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
-  pc.onTransceiver.subscribe(async (transceiver) => {
+  pc.onRemoteTransceiver.subscribe(async (transceiver) => {
     const [track] = await transceiver.onTrack.asPromise();
     pc.addTrack(track);
   });
