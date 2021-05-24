@@ -1,4 +1,5 @@
 import { readFileSync } from "fs";
+
 import { RTCDataChannel, RTCPeerConnection } from "../src";
 
 export function load(name: string) {
@@ -124,4 +125,9 @@ export function awaitMessage(channel: RTCDataChannel) {
 
 export async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
+}
+
+export async function generateAudioReceiveOnlyOffer(pc: RTCPeerConnection) {
+  pc.addTransceiver("audio", { direction: "recvonly" });
+  return pc.createOffer();
 }

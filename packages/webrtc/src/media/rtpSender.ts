@@ -75,7 +75,8 @@ export class RTCRtpSender {
     if (this.track) this.track.codec = codec;
   }
 
-  parameters?: RTCRtpParameters;
+  parameters?: RTCRtpParameters &
+    Pick<Required<RTCRtpParameters>, "muxId" | "rtcp">;
   track?: MediaStreamTrack;
   stopped = false;
 

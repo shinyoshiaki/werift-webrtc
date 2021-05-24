@@ -84,11 +84,13 @@ export class RTCPeerConnection extends EventTarget {
   readonly onRemoteTransceiver = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
-  readonly onnegotiationneeded = new Event<[]>();
+  readonly onNegotiationneeded = new Event<[]>();
+
   ondatachannel?:
     | ((event: { channel: RTCDataChannel }) => void)
     | null = () => {};
-  onicecandidate: (e: { candidate: RTCIceCandidateJSON }) => void = () => {};
+  onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
+  onnegotiationneeded?: (e: any) => void;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -300,6 +302,7 @@ export class RTCPeerConnection extends EventTarget {
 
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
+      this.needNegotiation();
     }
 
     const parameters = new RTCDataChannelParameters({
@@ -344,8 +347,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private needNegotiation = () => {
+    if (this.negotiationneeded) return;
     this.negotiationneeded = true;
-    this.onnegotiationneeded.execute();
+    this.onNegotiationneeded.execute();
+    if (this.onnegotiationneeded) this.onnegotiationneeded({});
   };
 
   private createTransport(srtpProfiles: number[] = []) {
@@ -373,7 +378,8 @@ export class RTCPeerConnection extends EventTarget {
       candidate.foundation = "candidate:" + candidate.foundation;
 
       this.onIceCandidate.execute(candidate);
-      this.onicecandidate({ candidate: candidate.toJSON() });
+      if (this.onicecandidate)
+        this.onicecandidate({ candidate: candidate.toJSON() });
       this.emit("icecandidate", { candidate });
     };
 
@@ -406,9 +412,6 @@ export class RTCPeerConnection extends EventTarget {
     type: "offer" | "answer";
     sdp: string;
   }) {
-    const { dtlsTransport } = this;
-    if (!dtlsTransport) throw new Error("seems no media");
-
     // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
@@ -425,8 +428,7 @@ export class RTCPeerConnection extends EventTarget {
     description.media.forEach((media, i) => {
       const mid = media.rtp.muxId;
       if (!mid) {
-        log("mid missing");
-        return;
+        throw new Error("mid not exist");
       }
       this.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
@@ -457,7 +459,7 @@ export class RTCPeerConnection extends EventTarget {
       const role = description.media.find((media) => media.dtlsParams)
         ?.dtlsParams?.role;
       if (role) {
-        dtlsTransport.role = role;
+        this.dtlsTransport.role = role;
       }
     }
 
@@ -473,9 +475,9 @@ export class RTCPeerConnection extends EventTarget {
     this.setLocal(description);
 
     // # gather candidates
-    await dtlsTransport.iceTransport.iceGather.gather();
+    await this.dtlsTransport.iceTransport.iceGather.gather();
     description.media.map((media) => {
-      addTransportDescription(media, dtlsTransport);
+      addTransportDescription(media, this.dtlsTransport);
     });
 
     this.setLocal(description);
@@ -532,21 +534,34 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
-    const rtp = new RTCRtpParameters({
+    if (transceiver.mid == undefined)
+      throw new Error("transceiver mid not assigned");
+
+    const rtp: RTCRtpParameters = {
+      codecs: [],
       muxId: transceiver.mid,
       headerExtensions: transceiver.headerExtensions,
       rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
-    });
+    };
     return rtp;
   }
 
-  private remoteRtp(transceiver: RTCRtpTransceiver): RTCRtpReceiveParameters {
-    const media = this._remoteDescription!.media[transceiver.mLineIndex!];
-    const receiveParameters = new RTCRtpReceiveParameters({
+  private remoteRtp(
+    remoteDescription: SessionDescription,
+    transceiver: RTCRtpTransceiver
+  ): RTCRtpReceiveParameters {
+    if (transceiver.mLineIndex == undefined)
+      throw new Error("mLineIndex not assigned");
+    const media = remoteDescription.media[transceiver.mLineIndex];
+    if (!media) throw new Error("media line not exist");
+
+    const receiveParameters: RTCRtpReceiveParameters = {
       codecs: transceiver.codecs,
       muxId: media.rtp.muxId,
       rtcp: media.rtp.rtcp,
-    });
+      encodings: [],
+      headerExtensions: [],
+    };
     const encodings = transceiver.codecs.map(
       (codec) =>
         new RTCRtpCodingParameters({
@@ -742,10 +757,16 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     this.transceivers.forEach((transceiver) => {
-      transceiver.sender.parameters = this.localRtp(transceiver);
+      const local = this.localRtp(transceiver);
+      const { muxId, rtcp } = local;
+      if (muxId == undefined || rtcp == undefined) {
+        throw new Error("param missing");
+      }
+
+      transceiver.sender.parameters = { ...local, muxId, rtcp };
 
       if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-        const params = this.remoteRtp(transceiver);
+        const params = this.remoteRtp(description, transceiver);
         this.router.registerRtpReceiverBySsrc(transceiver, params);
       }
     });
@@ -774,6 +795,8 @@ export class RTCPeerConnection extends EventTarget {
 
     this.transceivers.push(transceiver);
     this.onTransceiverAdded.execute(transceiver);
+
+    this.needNegotiation();
 
     return transceiver;
   }
@@ -977,11 +1000,11 @@ export function createMediaDescriptionForTransceiver(
   );
   media.direction = direction;
   media.msid = transceiver.msid;
-  media.rtp = new RTCRtpParameters({
+  media.rtp = {
     codecs: transceiver.codecs,
     headerExtensions: transceiver.headerExtensions,
     muxId: mid,
-  });
+  };
   media.rtcpHost = "0.0.0.0";
   media.rtcpPort = 9;
   media.rtcpMux = true;
@@ -993,7 +1016,7 @@ export function createMediaDescriptionForTransceiver(
     );
   }
 
-  addTransportDescription(media, transceiver.dtlsTransport!);
+  addTransportDescription(media, transceiver.dtlsTransport);
   return media;
 }
 
