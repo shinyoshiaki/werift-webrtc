@@ -91,6 +91,7 @@ export class RTCPeerConnection extends EventTarget {
     | null = () => {};
   onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
   onnegotiationneeded?: (e: any) => void;
+  onsignalingstatechange?: (e: any) => void;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -977,6 +978,7 @@ export class RTCPeerConnection extends EventTarget {
     log("signalingStateChange", state);
     this.signalingState = state;
     this.signalingStateChange.execute(state);
+    if (this.onsignalingstatechange) this.onsignalingstatechange({});
   }
 
   private setConnectionState(state: ConnectionState) {
