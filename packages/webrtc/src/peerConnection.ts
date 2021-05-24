@@ -188,14 +188,6 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async createOffer() {
-    if (
-      (!this.sctpTransport && this.transceivers.length === 0) ||
-      !this.dtlsTransport
-    )
-      throw new Error(
-        "Cannot create an offer with no media and no data channels"
-      );
-
     if (this.certificates.length === 0) {
       await this.dtlsTransport.setupCertificate();
     }
@@ -349,7 +341,7 @@ export class RTCPeerConnection extends EventTarget {
 
   private needNegotiation = async () => {
     this.shouldNegotiationneeded = true;
-    if (this.negotiationneeded) return;
+    if (this.negotiationneeded || this.signalingState !== "stable") return;
     this.shouldNegotiationneeded = false;
     setImmediate(() => {
       this.negotiationneeded = true;
@@ -377,6 +369,10 @@ export class RTCPeerConnection extends EventTarget {
       if (!this.localDescription) return;
       const sdp = SessionDescription.parse(this.localDescription.sdp);
       const media = sdp.media[0];
+      if (!media) {
+        log("media not exist");
+        return;
+      }
       candidate.sdpMLineIndex = 0;
       candidate.sdpMid = media.rtp.muxId;
       // for chrome & firefox & maybe others
@@ -495,6 +491,10 @@ export class RTCPeerConnection extends EventTarget {
       });
     }
 
+    if (this.shouldNegotiationneeded) {
+      this.needNegotiation();
+    }
+
     return this.localDescription;
   }
 
@@ -539,8 +539,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
-    if (transceiver.mid == undefined)
-      throw new Error("transceiver mid not assigned");
+    if (transceiver.mid == undefined) throw new Error();
 
     const rtp: RTCRtpParameters = {
       codecs: [],
@@ -761,20 +760,22 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingRemoteDescription = description;
     }
 
-    this.transceivers.forEach((transceiver) => {
-      const local = this.localRtp(transceiver);
-      const { muxId, rtcp } = local;
-      if (muxId == undefined || rtcp == undefined) {
-        throw new Error("param missing");
-      }
+    this.transceivers
+      .filter((t) => t.mid != undefined)
+      .forEach((transceiver) => {
+        const local = this.localRtp(transceiver);
+        const { muxId, rtcp } = local;
+        if (muxId == undefined || rtcp == undefined) {
+          throw new Error("param missing");
+        }
 
-      transceiver.sender.parameters = { ...local, muxId, rtcp };
+        transceiver.sender.parameters = { ...local, muxId, rtcp };
 
-      if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-        const params = this.remoteRtp(description, transceiver);
-        this.router.registerRtpReceiverBySsrc(transceiver, params);
-      }
-    });
+        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+          const params = this.remoteRtp(description, transceiver);
+          this.router.registerRtpReceiverBySsrc(transceiver, params);
+        }
+      });
 
     this.negotiationneeded = false;
     if (this.shouldNegotiationneeded) {

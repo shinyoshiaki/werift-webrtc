@@ -1,7 +1,7 @@
 // webrtc/RTCPeerConnection-onnegotiationneeded.html
 
 import { RTCPeerConnection } from "../../src";
-import { generateAnswer } from "../fixture";
+import { generateAnswer, generateOffer } from "../fixture";
 import { generateAudioReceiveOnlyOffer } from "../utils";
 
 describe("onnegotiationneeded", () => {
@@ -112,6 +112,23 @@ describe("onnegotiationneeded", () => {
     pc.onnegotiationneeded = (e) => (fired = true);
     pc.createDataChannel("test");
     await pc.setRemoteDescription(await generateAnswer(offer));
+    expect(fired).toBe(false);
+
+    await new Promise((resolve) => (pc.onnegotiationneeded = resolve));
+    await pc.close();
+  });
+
+  test("negotiationneeded event should fire only after signaling state goes back to stable after setLocalDescription", async () => {
+    const pc = new RTCPeerConnection();
+
+    pc.addTransceiver("audio");
+    await new Promise((resolve) => (pc.onnegotiationneeded = resolve));
+
+    let fired = false;
+    pc.onnegotiationneeded = (e) => (fired = true);
+    await pc.setRemoteDescription(await generateOffer());
+    pc.createDataChannel("test");
+    await pc.setLocalDescription(await pc.createAnswer());
     expect(fired).toBe(false);
 
     await new Promise((resolve) => (pc.onnegotiationneeded = resolve));
