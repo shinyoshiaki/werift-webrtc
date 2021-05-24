@@ -103,6 +103,7 @@ export class RTCPeerConnection extends EventTarget {
   private pendingLocalDescription?: SessionDescription;
   private pendingRemoteDescription?: SessionDescription;
   private isClosed = false;
+  private shouldNegotiationneeded = false;
 
   constructor({
     codecs,
@@ -346,11 +347,15 @@ export class RTCPeerConnection extends EventTarget {
     this.needNegotiation();
   }
 
-  private needNegotiation = () => {
+  private needNegotiation = async () => {
+    this.shouldNegotiationneeded = true;
     if (this.negotiationneeded) return;
-    this.negotiationneeded = true;
-    this.onNegotiationneeded.execute();
-    if (this.onnegotiationneeded) this.onnegotiationneeded({});
+    this.shouldNegotiationneeded = false;
+    setImmediate(() => {
+      this.negotiationneeded = true;
+      this.onNegotiationneeded.execute();
+      if (this.onnegotiationneeded) this.onnegotiationneeded({});
+    });
   };
 
   private createTransport(srtpProfiles: number[] = []) {
@@ -770,6 +775,11 @@ export class RTCPeerConnection extends EventTarget {
         this.router.registerRtpReceiverBySsrc(transceiver, params);
       }
     });
+
+    this.negotiationneeded = false;
+    if (this.shouldNegotiationneeded) {
+      this.needNegotiation();
+    }
   }
 
   addTransceiver(
