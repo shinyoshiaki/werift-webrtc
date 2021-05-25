@@ -1,8 +1,5 @@
 import { AcceptFn } from "protoo-server";
-import {
-  RTCDataChannel,
-  RTCPeerConnection,
-} from "../../../../packages/webrtc/src";
+import { RTCDataChannel, RTCPeerConnection } from "../../";
 
 export class datachannel_close_server_create_close {
   pc!: RTCPeerConnection;
