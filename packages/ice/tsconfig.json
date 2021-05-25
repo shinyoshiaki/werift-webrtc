@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es6",
+    "target": "ES2020",
     "module": "commonjs",
     "lib": ["esnext"],
     "declaration": true,
@@ -8,7 +8,6 @@
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "importHelpers": true,
     "pretty": true,
     "sourceMap": true,
     "inlineSources": true,
