@@ -99,13 +99,8 @@ export class Connection {
       ...defaultOptions,
       ...options,
     };
-    const {
-      components,
-      stunServer,
-      turnServer,
-      useIpv4,
-      useIpv6,
-    } = this.options;
+    const { components, stunServer, turnServer, useIpv4, useIpv6 } =
+      this.options;
     this.stunServer = validateAddress(stunServer);
     this.turnServer = validateAddress(turnServer);
     this.useIpv4 = useIpv4;

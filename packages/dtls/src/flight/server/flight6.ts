@@ -95,52 +95,52 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.client_key_exchange] = ({ cipher, dtls }) => (
-  message: ClientKeyExchange
-) => {
-  cipher.remoteKeyPair = {
-    curve: cipher.namedCurve,
-    publicKey: message.publicKey,
+handlers[HandshakeType.client_key_exchange] =
+  ({ cipher, dtls }) =>
+  (message: ClientKeyExchange) => {
+    cipher.remoteKeyPair = {
+      curve: cipher.namedCurve,
+      publicKey: message.publicKey,
+    };
+    if (
+      !cipher.remoteKeyPair.publicKey ||
+      !cipher.localKeyPair ||
+      !cipher.remoteRandom ||
+      !cipher.localRandom
+    )
+      throw new Error();
+
+    const preMasterSecret = prfPreMasterSecret(
+      cipher.remoteKeyPair.publicKey,
+      cipher.localKeyPair.privateKey,
+      cipher.localKeyPair.curve
+    );
+
+    log(
+      "extendedMasterSecret",
+      dtls.options.extendedMasterSecret,
+      dtls.remoteExtendedMasterSecret
+    );
+
+    const handshakes = Buffer.concat(
+      dtls.handshakeCache.map((v) => v.data.serialize())
+    );
+    cipher.masterSecret =
+      dtls.options.extendedMasterSecret && dtls.remoteExtendedMasterSecret
+        ? prfExtendedMasterSecret(preMasterSecret, handshakes)
+        : prfMasterSecret(
+            preMasterSecret,
+            cipher.remoteRandom.serialize(),
+            cipher.localRandom.serialize()
+          );
+
+    cipher.cipher = createCipher(cipher.cipherSuite!);
+    cipher.cipher.init(
+      cipher.masterSecret,
+      cipher.localRandom.serialize(),
+      cipher.remoteRandom.serialize()
+    );
   };
-  if (
-    !cipher.remoteKeyPair.publicKey ||
-    !cipher.localKeyPair ||
-    !cipher.remoteRandom ||
-    !cipher.localRandom
-  )
-    throw new Error();
-
-  const preMasterSecret = prfPreMasterSecret(
-    cipher.remoteKeyPair.publicKey,
-    cipher.localKeyPair.privateKey,
-    cipher.localKeyPair.curve
-  );
-
-  log(
-    "extendedMasterSecret",
-    dtls.options.extendedMasterSecret,
-    dtls.remoteExtendedMasterSecret
-  );
-
-  const handshakes = Buffer.concat(
-    dtls.handshakeCache.map((v) => v.data.serialize())
-  );
-  cipher.masterSecret =
-    dtls.options.extendedMasterSecret && dtls.remoteExtendedMasterSecret
-      ? prfExtendedMasterSecret(preMasterSecret, handshakes)
-      : prfMasterSecret(
-          preMasterSecret,
-          cipher.remoteRandom.serialize(),
-          cipher.localRandom.serialize()
-        );
-
-  cipher.cipher = createCipher(cipher.cipherSuite!);
-  cipher.cipher.init(
-    cipher.masterSecret,
-    cipher.localRandom.serialize(),
-    cipher.remoteRandom.serialize()
-  );
-};
 
 handlers[HandshakeType.finished] = () => (message: Finished) => {
   log("finished", message);

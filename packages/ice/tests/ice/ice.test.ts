@@ -1,10 +1,10 @@
-import { Connection, CandidatePair, CandidatePairState } from "../../src/ice";
-import { Protocol, Address } from "../../src/types/model";
 import { Candidate } from "../../src/candidate";
-import { inviteAccept, assertCandidateTypes } from "../utils";
-import { sleep } from "../../tests/utils";
-import { Message } from "../../src/stun/message";
+import { CandidatePair, CandidatePairState, Connection } from "../../src/ice";
 import { classes, methods } from "../../src/stun/const";
+import { Message } from "../../src/stun/message";
+import { Address, Protocol } from "../../src/types/model";
+import { sleep } from "../../tests/utils";
+import { assertCandidateTypes, inviteAccept } from "../utils";
 
 class ProtocolMock implements Protocol {
   type = "mock";
@@ -138,26 +138,27 @@ describe("ice", () => {
 
   test(
     "test_connect_close",
-    async (done) => {
-      const a = new Connection(true, {});
-      const b = new Connection(false, {});
-      await inviteAccept(a, b);
+    async () =>
+      new Promise<void>(async (done) => {
+        const a = new Connection(true, {});
+        const b = new Connection(false, {});
+        await inviteAccept(a, b);
 
-      await b.close();
+        await b.close();
 
-      try {
-        await Promise.all([
-          a.connect(),
-          async () => {
-            await sleep(1000);
-            await a.close();
-          },
-        ]);
-      } catch (error) {
-        expect(true).toBe(true);
-        done();
-      }
-    },
+        try {
+          await Promise.all([
+            a.connect(),
+            async () => {
+              await sleep(1000);
+              await a.close();
+            },
+          ]);
+        } catch (error) {
+          expect(true).toBe(true);
+          done();
+        }
+      }),
     1000 * 10
   );
 
@@ -314,131 +315,137 @@ describe("ice", () => {
     await b.close();
   });
 
-  test("test_connect_invalid_password", async (done) => {
-    const a = new Connection(true);
-    const b = new Connection(false);
+  test("test_connect_invalid_password", async () =>
+    new Promise<void>(async (done) => {
+      const a = new Connection(true);
+      const b = new Connection(false);
 
-    await a.gatherCandidates();
-    b.remoteCandidates = a.localCandidates;
-    b.remoteUsername = a.localUserName;
-    b.remotePassword = a.remotePassword;
+      await a.gatherCandidates();
+      b.remoteCandidates = a.localCandidates;
+      b.remoteUsername = a.localUserName;
+      b.remotePassword = a.remotePassword;
 
-    await b.gatherCandidates();
-    a.remoteCandidates = b.localCandidates;
-    a.remoteUsername = b.localUserName;
-    a.remotePassword = "wrong-password";
+      await b.gatherCandidates();
+      a.remoteCandidates = b.localCandidates;
+      a.remoteUsername = b.localUserName;
+      a.remotePassword = "wrong-password";
 
-    try {
-      await Promise.all([a.connect(), b.connect()]);
-    } catch (error) {
-      expect(error.message).toBe("Remote username or password is missing");
-      await a.close();
-      await b.close();
-      done();
-    }
-  });
+      try {
+        await Promise.all([a.connect(), b.connect()]);
+      } catch (error) {
+        expect(error.message).toBe("Remote username or password is missing");
+        await a.close();
+        await b.close();
+        done();
+      }
+    }));
 
-  test("test_connect_invalid_username", async (done) => {
-    const a = new Connection(true);
-    const b = new Connection(false);
+  test("test_connect_invalid_username", async () =>
+    new Promise<void>(async (done) => {
+      const a = new Connection(true);
+      const b = new Connection(false);
 
-    await a.gatherCandidates();
-    b.remoteCandidates = a.localCandidates;
-    b.remoteUsername = a.localUserName;
-    b.remotePassword = a.remotePassword;
+      await a.gatherCandidates();
+      b.remoteCandidates = a.localCandidates;
+      b.remoteUsername = a.localUserName;
+      b.remotePassword = a.remotePassword;
 
-    await b.gatherCandidates();
-    a.remoteCandidates = b.localCandidates;
-    a.remoteUsername = "wrong-username";
-    a.remotePassword = b.localPassword;
+      await b.gatherCandidates();
+      a.remoteCandidates = b.localCandidates;
+      a.remoteUsername = "wrong-username";
+      a.remotePassword = b.localPassword;
 
-    try {
-      await Promise.all([a.connect(), b.connect()]);
-    } catch (error) {
-      expect(error.message).toBe("Remote username or password is missing");
-      await a.close();
-      await b.close();
-      done();
-    }
-  });
+      try {
+        await Promise.all([a.connect(), b.connect()]);
+      } catch (error) {
+        expect(error.message).toBe("Remote username or password is missing");
+        await a.close();
+        await b.close();
+        done();
+      }
+    }));
 
-  test("test_connect_no_gather", async (done) => {
-    // """
-    // If local candidates gathering was not performed, connect fails.
-    // """
+  test("test_connect_no_gather", async () =>
+    new Promise<void>(async (done) => {
+      // """
+      // If local candidates gathering was not performed, connect fails.
+      // """
 
-    const conn = new Connection(true);
-    conn.remoteCandidates = [
-      Candidate.fromSdp(
-        "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
-      ),
-    ];
-    conn.remoteUsername = "foo";
-    conn.remotePassword = "bar";
-    try {
-      await conn.connect();
-    } catch (error) {
-      expect(error.message).toBe(
-        "Local candidates gathering was not performed"
-      );
-      await conn.close();
-      done();
-    }
-  });
+      const conn = new Connection(true);
+      conn.remoteCandidates = [
+        Candidate.fromSdp(
+          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+        ),
+      ];
+      conn.remoteUsername = "foo";
+      conn.remotePassword = "bar";
+      try {
+        await conn.connect();
+      } catch (error) {
+        expect(error.message).toBe(
+          "Local candidates gathering was not performed"
+        );
+        await conn.close();
+        done();
+      }
+    }));
 
-  test("test_connect_no_local_candidates", async (done) => {
-    const conn = new Connection(true);
+  test("test_connect_no_local_candidates", async () =>
+    new Promise<void>(async (done) => {
+      const conn = new Connection(true);
 
-    conn._localCandidatesEnd = true;
-    conn.remoteCandidates = [
-      Candidate.fromSdp(
-        "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
-      ),
-    ];
-    conn.remoteUsername = "foo";
-    conn.remotePassword = "bar";
-    try {
-      await conn.connect();
-    } catch (error) {
-      expect(error.message).toBe("ICE negotiation failed");
-      await conn.close();
-      done();
-    }
-  });
+      conn._localCandidatesEnd = true;
+      conn.remoteCandidates = [
+        Candidate.fromSdp(
+          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+        ),
+      ];
+      conn.remoteUsername = "foo";
+      conn.remotePassword = "bar";
+      try {
+        await conn.connect();
+      } catch (error) {
+        expect(error.message).toBe("ICE negotiation failed");
+        await conn.close();
+        done();
+      }
+    }));
 
-  test("test_connect_no_remote_candidates", async (done) => {
-    const conn = new Connection(true);
+  test("test_connect_no_remote_candidates", async () =>
+    new Promise<void>(async (done) => {
+      const conn = new Connection(true);
 
-    await conn.gatherCandidates();
-    conn.remoteCandidates = [];
-    conn.remoteUsername = "foo";
-    conn.remotePassword = "bar";
-    try {
-      await conn.connect();
-    } catch (error) {
-      expect(error.message).toBe("ICE negotiation failed");
-      await conn.close();
-      done();
-    }
-  });
+      await conn.gatherCandidates();
+      conn.remoteCandidates = [];
+      conn.remoteUsername = "foo";
+      conn.remotePassword = "bar";
+      try {
+        await conn.connect();
+      } catch (error) {
+        expect(error.message).toBe("ICE negotiation failed");
+        await conn.close();
+        done();
+      }
+    }));
 
-  test("test_connect_no_remote_credentials", async (done) => {
-    const conn = new Connection(true);
+  test("test_connect_no_remote_credentials", async () =>
+    new Promise<void>(async (done) => {
+      const conn = new Connection(true);
 
-    await conn.gatherCandidates();
-    conn.remoteCandidates = [
-      Candidate.fromSdp(
-        "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
-      ),
-    ];
-    try {
-      await conn.connect();
-    } catch (error) {
-      expect(error.message).toBe("Remote username or password is missing");
-      await conn.close();
-      done();
-    }
-  });
+      await conn.gatherCandidates();
+      conn.remoteCandidates = [
+        Candidate.fromSdp(
+          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+        ),
+      ];
+      try {
+        await conn.connect();
+      } catch (error) {
+        expect(error.message).toBe("Remote username or password is missing");
+        await conn.close();
+        done();
+      }
+    }));
 
   test(
     "test_connect_role_conflict_both_controlling",

@@ -34,28 +34,29 @@ describe.each([{}, { negotiated: true, id: 0 }])(
         });
     });
 
-    test(`${mode} sending multiple messages with different types should succeed and be received`, async (done) => {
-      const receivedMessages: any[] = [];
+    test(`${mode} sending multiple messages with different types should succeed and be received`, async () =>
+      new Promise<void>(async (done) => {
+        const receivedMessages: any[] = [];
 
-      const onMessage = (data: any) => {
-        receivedMessages.push(data);
+        const onMessage = (data: any) => {
+          receivedMessages.push(data);
 
-        if (receivedMessages.length === 3) {
-          expect(receivedMessages[0]).toEqual(helloBuffer);
-          expect(receivedMessages[1]).toBe(unicodeString);
-          expect(receivedMessages[2]).toEqual(helloBuffer);
+          if (receivedMessages.length === 3) {
+            expect(receivedMessages[0]).toEqual(helloBuffer);
+            expect(receivedMessages[1]).toBe(unicodeString);
+            expect(receivedMessages[2]).toEqual(helloBuffer);
 
-          done();
-        }
-      };
+            done();
+          }
+        };
 
-      createDataChannelPair(options).then(([channel1, channel2]) => {
-        channel2.message.subscribe(onMessage);
+        createDataChannelPair(options).then(([channel1, channel2]) => {
+          channel2.message.subscribe(onMessage);
 
-        channel1.send(helloBuffer);
-        channel1.send(unicodeString);
-        channel1.send(helloBuffer);
-      });
-    });
+          channel1.send(helloBuffer);
+          channel1.send(unicodeString);
+          channel1.send(helloBuffer);
+        });
+      }));
   }
 );

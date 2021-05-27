@@ -67,9 +67,8 @@ export class RTCPeerConnection extends EventTarget {
   dtlsTransport: RTCDtlsTransport;
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
-  configuration: Required<PeerConfig> = cloneDeep<PeerConfig>(
-    defaultPeerConfig
-  );
+  configuration: Required<PeerConfig> =
+    cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: IceTransportState = "new";
   iceGatheringState: IceGathererState = "new";
@@ -91,9 +90,8 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onNegotiationneeded = new Event<[]>();
 
-  ondatachannel?:
-    | ((event: { channel: RTCDataChannel }) => void)
-    | null = () => {};
+  ondatachannel?: ((event: { channel: RTCDataChannel }) => void) | null =
+    () => {};
   onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
   onnegotiationneeded?: (e: any) => void;
   onsignalingstatechange?: (e: any) => void;
@@ -200,9 +198,8 @@ export class RTCPeerConnection extends EventTarget {
 
     this.transceivers.forEach((transceiver) => {
       transceiver.codecs = this.configuration.codecs[transceiver.kind];
-      transceiver.headerExtensions = this.configuration.headerExtensions[
-        transceiver.kind
-      ];
+      transceiver.headerExtensions =
+        this.configuration.headerExtensions[transceiver.kind];
     });
 
     const description = new SessionDescription();

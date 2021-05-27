@@ -19,13 +19,10 @@ export class ReceiverEstimatedMaxBitrate {
   }
 
   static deSerialize(data: Buffer) {
-    const [senderSsrc, mediaSsrc, uniqueID, ssrcNum, e_m] = bufferReader(data, [
-      4,
-      4,
-      4,
-      1,
-      1,
-    ]);
+    const [senderSsrc, mediaSsrc, uniqueID, ssrcNum, e_m] = bufferReader(
+      data,
+      [4, 4, 4, 1, 1]
+    );
 
     const brExp = getBit(e_m, 0, 6);
     const brMantissa = (getBit(e_m, 6, 2) << 16) + (data[14] << 8) + data[15];

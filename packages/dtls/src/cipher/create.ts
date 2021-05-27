@@ -151,7 +151,7 @@ export function createCipher(cipher: number) {
       break;
   }
 
-  return (null as any) as AEADCipher;
+  return null as any as AEADCipher;
 }
 
 /**

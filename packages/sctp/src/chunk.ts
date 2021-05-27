@@ -190,12 +190,8 @@ export class DataChunk extends Chunk {
   constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
     if (body) {
-      [
-        this.tsn,
-        this.streamId,
-        this.streamSeqNum,
-        this.protocol,
-      ] = jspack.Unpack("!LHHL", body);
+      [this.tsn, this.streamId, this.streamSeqNum, this.protocol] =
+        jspack.Unpack("!LHHL", body);
       this.userData = body.slice(12);
     }
   }
@@ -351,12 +347,8 @@ export class SackChunk extends Chunk {
     super(flags, body);
 
     if (body) {
-      const [
-        cumulativeTsn,
-        advertisedRwnd,
-        nbGaps,
-        nbDuplicates,
-      ] = jspack.Unpack("!LLHH", body);
+      const [cumulativeTsn, advertisedRwnd, nbGaps, nbDuplicates] =
+        jspack.Unpack("!LLHH", body);
       this.cumulativeTsn = cumulativeTsn;
       this.advertisedRwnd = advertisedRwnd;
 

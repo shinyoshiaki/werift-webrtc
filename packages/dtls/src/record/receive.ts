@@ -24,44 +24,43 @@ export const parsePacket = (data: Buffer) => {
   return packets;
 };
 
-export const parsePlainText = (dtls: DtlsContext, cipher: CipherContext) => (
-  plain: DtlsPlaintext
-) => {
-  const contentType = plain.recordLayerHeader.contentType;
+export const parsePlainText =
+  (dtls: DtlsContext, cipher: CipherContext) => (plain: DtlsPlaintext) => {
+    const contentType = plain.recordLayerHeader.contentType;
 
-  switch (contentType) {
-    case ContentType.changeCipherSpec: {
-      log("change cipher spec");
-      return {
-        type: ContentType.changeCipherSpec,
-        data: undefined,
-      };
-    }
-    case ContentType.handshake: {
-      let raw = plain.fragment;
-      if (plain.recordLayerHeader.epoch > 0) {
-        log("decrypt handshake");
-        raw = cipher.decryptPacket(plain);
+    switch (contentType) {
+      case ContentType.changeCipherSpec: {
+        log("change cipher spec");
+        return {
+          type: ContentType.changeCipherSpec,
+          data: undefined,
+        };
       }
-      return {
-        type: ContentType.handshake,
-        data: FragmentedHandshake.deSerialize(raw),
-      };
+      case ContentType.handshake: {
+        let raw = plain.fragment;
+        if (plain.recordLayerHeader.epoch > 0) {
+          log("decrypt handshake");
+          raw = cipher.decryptPacket(plain);
+        }
+        return {
+          type: ContentType.handshake,
+          data: FragmentedHandshake.deSerialize(raw),
+        };
+      }
+      case ContentType.applicationData: {
+        return {
+          type: ContentType.applicationData,
+          data: cipher.decryptPacket(plain),
+        };
+      }
+      case ContentType.alert: {
+        const alert = Alert.deSerialize(plain.fragment);
+        log("ContentType.alert", alert, dtls.flight, dtls.lastFlight);
+        if (alert.level > 1) throw new Error("alert fatal error");
+      }
+      // eslint-disable-next-line no-fallthrough
+      default: {
+        return { type: ContentType.alert, data: undefined };
+      }
     }
-    case ContentType.applicationData: {
-      return {
-        type: ContentType.applicationData,
-        data: cipher.decryptPacket(plain),
-      };
-    }
-    case ContentType.alert: {
-      const alert = Alert.deSerialize(plain.fragment);
-      log("ContentType.alert", alert, dtls.flight, dtls.lastFlight);
-      if (alert.level > 1) throw new Error("alert fatal error");
-    }
-    // eslint-disable-next-line no-fallthrough
-    default: {
-      return { type: ContentType.alert, data: undefined };
-    }
-  }
-};
+  };

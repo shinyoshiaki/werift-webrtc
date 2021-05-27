@@ -61,17 +61,14 @@ export class RTCDtlsTransport {
 
   async setupCertificate() {
     if (!this.localCertificate) {
-      const {
-        certPem,
-        keyPem,
-        signatureHash,
-      } = await CipherContext.createSelfSignedCertificateWithKey(
-        {
-          signature: SignatureAlgorithm.ecdsa,
-          hash: HashAlgorithm.sha256,
-        },
-        NamedCurveAlgorithm.secp256r1
-      );
+      const { certPem, keyPem, signatureHash } =
+        await CipherContext.createSelfSignedCertificateWithKey(
+          {
+            signature: SignatureAlgorithm.ecdsa,
+            hash: HashAlgorithm.sha256,
+          },
+          NamedCurveAlgorithm.secp256r1
+        );
       this.localCertificate = new RTCCertificate(
         keyPem,
         certPem,
@@ -141,12 +138,8 @@ export class RTCDtlsTransport {
     if (this.srtpStarted) return;
     this.srtpStarted = true;
 
-    const {
-      localKey,
-      localSalt,
-      remoteKey,
-      remoteSalt,
-    } = this.dtls.extractSessionKeys();
+    const { localKey, localSalt, remoteKey, remoteSalt } =
+      this.dtls.extractSessionKeys();
     if (!this.dtls.srtp.srtpProfile) throw new Error("need srtpProfile");
     const config = {
       keys: {

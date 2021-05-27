@@ -27,113 +27,115 @@ const log = debug("werift/dtls/flight/server/flight2");
 
 // HelloVerifyRequest do not retransmit
 
-export const flight2 = (
-  udp: TransportContext,
-  dtls: DtlsContext,
-  cipher: CipherContext,
-  srtp: SrtpContext
-) => (clientHello: ClientHello) => {
-  dtls.flight = 2;
+export const flight2 =
+  (
+    udp: TransportContext,
+    dtls: DtlsContext,
+    cipher: CipherContext,
+    srtp: SrtpContext
+  ) =>
+  (clientHello: ClientHello) => {
+    dtls.flight = 2;
 
-  clientHello.extensions.forEach((extension) => {
-    switch (extension.type) {
-      case EllipticCurves.type:
-        {
-          const curves = EllipticCurves.fromData(extension.data).data;
-          log("curves", curves);
-          const curve = curves.find((curve) =>
-            Object.values(NamedCurveAlgorithm).includes(curve as any)
-          ) as NamedCurveAlgorithms;
-          cipher.namedCurve = curve;
-          log("curve selected", cipher.namedCurve);
-        }
-        break;
-      case Signature.type:
-        {
-          if (!cipher.signatureHashAlgorithm)
-            throw new Error("need to set certificate");
-
-          const signatureHash = Signature.fromData(extension.data).data;
-          log("hash,signature", signatureHash);
-          const signature = signatureHash.find(
-            (v) => v.signature === cipher.signatureHashAlgorithm?.signature
-          )?.signature;
-          const hash = signatureHash.find(
-            (v) => v.hash === cipher.signatureHashAlgorithm?.hash
-          )?.hash;
-          if (signature == undefined || hash == undefined)
-            throw new Error("invalid signatureHash");
-        }
-        break;
-      case UseSRTP.type:
-        {
-          if (!dtls.options?.srtpProfiles) return;
-          if (dtls.options.srtpProfiles.length === 0) return;
-
-          const useSrtp = UseSRTP.fromData(extension.data);
-          log("srtp profiles", useSrtp.profiles);
-          const profile = SrtpContext.findMatchingSRTPProfile(
-            useSrtp.profiles,
-            dtls.options?.srtpProfiles
-          );
-          if (!profile) {
-            throw new Error();
+    clientHello.extensions.forEach((extension) => {
+      switch (extension.type) {
+        case EllipticCurves.type:
+          {
+            const curves = EllipticCurves.fromData(extension.data).data;
+            log("curves", curves);
+            const curve = curves.find((curve) =>
+              Object.values(NamedCurveAlgorithm).includes(curve as any)
+            ) as NamedCurveAlgorithms;
+            cipher.namedCurve = curve;
+            log("curve selected", cipher.namedCurve);
           }
-          srtp.srtpProfile = profile;
-          log("srtp profile selected", srtp.srtpProfile);
-        }
-        break;
-      case ExtendedMasterSecret.type:
-        {
-          dtls.remoteExtendedMasterSecret = true;
-        }
-        break;
-      case RenegotiationIndication.type:
-        {
-          log("RenegotiationIndication", extension.data);
-        }
-        break;
+          break;
+        case Signature.type:
+          {
+            if (!cipher.signatureHashAlgorithm)
+              throw new Error("need to set certificate");
+
+            const signatureHash = Signature.fromData(extension.data).data;
+            log("hash,signature", signatureHash);
+            const signature = signatureHash.find(
+              (v) => v.signature === cipher.signatureHashAlgorithm?.signature
+            )?.signature;
+            const hash = signatureHash.find(
+              (v) => v.hash === cipher.signatureHashAlgorithm?.hash
+            )?.hash;
+            if (signature == undefined || hash == undefined)
+              throw new Error("invalid signatureHash");
+          }
+          break;
+        case UseSRTP.type:
+          {
+            if (!dtls.options?.srtpProfiles) return;
+            if (dtls.options.srtpProfiles.length === 0) return;
+
+            const useSrtp = UseSRTP.fromData(extension.data);
+            log("srtp profiles", useSrtp.profiles);
+            const profile = SrtpContext.findMatchingSRTPProfile(
+              useSrtp.profiles,
+              dtls.options?.srtpProfiles
+            );
+            if (!profile) {
+              throw new Error();
+            }
+            srtp.srtpProfile = profile;
+            log("srtp profile selected", srtp.srtpProfile);
+          }
+          break;
+        case ExtendedMasterSecret.type:
+          {
+            dtls.remoteExtendedMasterSecret = true;
+          }
+          break;
+        case RenegotiationIndication.type:
+          {
+            log("RenegotiationIndication", extension.data);
+          }
+          break;
+      }
+    });
+
+    cipher.localRandom = new DtlsRandom();
+    cipher.remoteRandom = DtlsRandom.from(clientHello.random);
+
+    const suites = clientHello.cipherSuites;
+    log("cipher suites", suites);
+    const suite = (() => {
+      switch (cipher.signatureHashAlgorithm?.signature) {
+        case SignatureAlgorithm.ecdsa:
+          return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
+        case SignatureAlgorithm.rsa:
+          return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
+      }
+    })();
+    if (suite === undefined || !suites.includes(suite)) {
+      throw new Error("dtls cipher suite negotiation failed");
     }
-  });
+    cipher.cipherSuite = suite;
+    log("selected cipherSuite", cipher.cipherSuite);
 
-  cipher.localRandom = new DtlsRandom();
-  cipher.remoteRandom = DtlsRandom.from(clientHello.random);
+    cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
 
-  const suites = clientHello.cipherSuites;
-  log("cipher suites", suites);
-  const suite = (() => {
-    switch (cipher.signatureHashAlgorithm?.signature) {
-      case SignatureAlgorithm.ecdsa:
-        return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
-      case SignatureAlgorithm.rsa:
-        return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
-    }
-  })();
-  if (suite === undefined || !suites.includes(suite)) {
-    throw new Error("dtls cipher suite negotiation failed");
-  }
-  cipher.cipherSuite = suite;
-  log("selected cipherSuite", cipher.cipherSuite);
+    dtls.cookie = randomBytes(20);
+    const helloVerifyReq = new ServerHelloVerifyRequest(
+      {
+        major: 255 - 1,
+        minor: 255 - 2,
+      },
+      dtls.cookie
+    );
+    const fragments = createFragments(dtls)([helloVerifyReq]);
+    const packets = createPlaintext(dtls)(
+      fragments.map((fragment) => ({
+        type: ContentType.handshake,
+        fragment: fragment.serialize(),
+      })),
+      ++dtls.recordSequenceNumber
+    );
 
-  cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
-
-  dtls.cookie = randomBytes(20);
-  const helloVerifyReq = new ServerHelloVerifyRequest(
-    {
-      major: 255 - 1,
-      minor: 255 - 2,
-    },
-    dtls.cookie
-  );
-  const fragments = createFragments(dtls)([helloVerifyReq]);
-  const packets = createPlaintext(dtls)(
-    fragments.map((fragment) => ({
-      type: ContentType.handshake,
-      fragment: fragment.serialize(),
-    })),
-    ++dtls.recordSequenceNumber
-  );
-
-  const buf = packets.map((v) => v.serialize());
-  buf.forEach((v) => udp.send(v));
-};
+    const buf = packets.map((v) => v.serialize());
+    buf.forEach((v) => udp.send(v));
+  };

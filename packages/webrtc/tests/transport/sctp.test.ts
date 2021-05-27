@@ -23,33 +23,34 @@ describe("RTCSctpTransportTest", () => {
     ]);
   }
 
-  test("test_connect_then_client_creates_data_channel", async (done) => {
-    const [clientTransport, serverTransport] = await dtlsTransportPair();
+  test("test_connect_then_client_creates_data_channel", async () =>
+    new Promise<void>(async (done) => {
+      const [clientTransport, serverTransport] = await dtlsTransportPair();
 
-    const client = new RTCSctpTransport(clientTransport);
-    const server = new RTCSctpTransport(serverTransport);
+      const client = new RTCSctpTransport(clientTransport);
+      const server = new RTCSctpTransport(serverTransport);
 
-    await Promise.all([server.start(client.port), client.start(server.port)]);
+      await Promise.all([server.start(client.port), client.start(server.port)]);
 
-    // wait for sctp connected
-    await waitForOutcome(client, server);
+      // wait for sctp connected
+      await waitForOutcome(client, server);
 
-    const serverChannels = trackChannels(server);
-    serverChannels.event.subscribe((channel) => {
-      channel.send(Buffer.from("ping"));
-      channel.message.subscribe((data) => {
-        expect(data.toString()).toBe("pong");
-        done();
+      const serverChannels = trackChannels(server);
+      serverChannels.event.subscribe((channel) => {
+        channel.send(Buffer.from("ping"));
+        channel.message.subscribe((data) => {
+          expect(data.toString()).toBe("pong");
+          done();
+        });
       });
-    });
 
-    const channel = new RTCDataChannel(
-      client,
-      new RTCDataChannelParameters({ label: "chat", id: 1 })
-    );
-    channel.message.subscribe((data) => {
-      expect(data.toString()).toBe("ping");
-      channel.send(Buffer.from("pong"));
-    });
-  });
+      const channel = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "chat", id: 1 })
+      );
+      channel.message.subscribe((data) => {
+        expect(data.toString()).toBe("ping");
+        channel.send(Buffer.from("pong"));
+      });
+    }));
 });

@@ -8,91 +8,93 @@ import {
 } from "../../src";
 
 describe("media", () => {
-  test("test_sendonly_recvonly", async (done) => {
-    const sendonly = new RTCPeerConnection();
-    const track = new MediaStreamTrack({ kind: "video" });
-    sendonly.addTransceiver(track, { direction: "sendonly" });
-    sendonly.connectionStateChange
-      .watch((v) => v === "connected")
-      .then(() => {
-        const rtpPacket = new RtpPacket(
-          new RtpHeader(),
-          Buffer.from("test")
-        ).serialize();
-        expect(isMedia(rtpPacket)).toBe(true);
-        track.writeRtp(rtpPacket);
-      });
+  test("test_sendonly_recvonly", async () =>
+    new Promise<void>(async (done) => {
+      const sendonly = new RTCPeerConnection();
+      const track = new MediaStreamTrack({ kind: "video" });
+      sendonly.addTransceiver(track, { direction: "sendonly" });
+      sendonly.connectionStateChange
+        .watch((v) => v === "connected")
+        .then(() => {
+          const rtpPacket = new RtpPacket(
+            new RtpHeader(),
+            Buffer.from("test")
+          ).serialize();
+          expect(isMedia(rtpPacket)).toBe(true);
+          track.writeRtp(rtpPacket);
+        });
 
-    const recvonly = new RTCPeerConnection();
-    recvonly.onRemoteTransceiverAdded.subscribe((transceiver) => {
-      transceiver.onTrack.subscribe((track) => {
-        track.onReceiveRtp.subscribe(async (rtp) => {
-          expect(rtp.payload).toEqual(Buffer.from("test"));
-          await Promise.all([sendonly.close(), recvonly.close()]);
-          done();
+      const recvonly = new RTCPeerConnection();
+      recvonly.onRemoteTransceiverAdded.subscribe((transceiver) => {
+        transceiver.onTrack.subscribe((track) => {
+          track.onReceiveRtp.subscribe(async (rtp) => {
+            expect(rtp.payload).toEqual(Buffer.from("test"));
+            await Promise.all([sendonly.close(), recvonly.close()]);
+            done();
+          });
         });
       });
-    });
 
-    await sendonly.setLocalDescription(await sendonly.createOffer());
-    await recvonly.setRemoteDescription(sendonly.localDescription!);
-    await recvonly.setLocalDescription(await recvonly.createAnswer());
-    await sendonly.setRemoteDescription(recvonly.localDescription!);
-  });
+      await sendonly.setLocalDescription(await sendonly.createOffer());
+      await recvonly.setRemoteDescription(sendonly.localDescription!);
+      await recvonly.setLocalDescription(await recvonly.createAnswer());
+      await sendonly.setRemoteDescription(recvonly.localDescription!);
+    }));
 
-  test("test_sendrecv_sendrecv", async (done) => {
-    const pc1 = new RTCPeerConnection();
-    const pc2 = new RTCPeerConnection();
+  test("test_sendrecv_sendrecv", async () =>
+    new Promise<void>(async (done) => {
+      const pc1 = new RTCPeerConnection();
+      const pc2 = new RTCPeerConnection();
 
-    (async () => {
-      await Promise.all([
-        new Promise<void>((r) => {
-          const track = new MediaStreamTrack({ kind: "video" });
-          const transceiver = pc1.addTransceiver(track);
-          transceiver.onTrack.subscribe((track) => {
-            track.onReceiveRtp.subscribe((rtp) => {
-              expect(rtp.payload).toEqual(Buffer.from("pc2"));
-              r();
+      (async () => {
+        await Promise.all([
+          new Promise<void>((r) => {
+            const track = new MediaStreamTrack({ kind: "video" });
+            const transceiver = pc1.addTransceiver(track);
+            transceiver.onTrack.subscribe((track) => {
+              track.onReceiveRtp.subscribe((rtp) => {
+                expect(rtp.payload).toEqual(Buffer.from("pc2"));
+                r();
+              });
             });
-          });
-          transceiver.sender.onReady.subscribe(() => {
-            const rtpPacket = new RtpPacket(
-              new RtpHeader(),
-              Buffer.from("pc1")
-            ).serialize();
-            expect(isMedia(rtpPacket)).toBe(true);
-            track.writeRtp(rtpPacket);
-          });
-        }),
-        new Promise<void>((r) => {
-          const track = new MediaStreamTrack({ kind: "video" });
-          const transceiver = pc2.addTransceiver(track);
-          transceiver.sender.onReady.subscribe(() => {
-            const rtpPacket = new RtpPacket(
-              new RtpHeader(),
-              Buffer.from("pc2")
-            ).serialize();
-            expect(isMedia(rtpPacket)).toBe(true);
-            track.writeRtp(rtpPacket);
-          });
-
-          transceiver.onTrack.subscribe((track) => {
-            track.onReceiveRtp.subscribe((rtp) => {
-              expect(rtp.payload).toEqual(Buffer.from("pc1"));
-              r();
+            transceiver.sender.onReady.subscribe(() => {
+              const rtpPacket = new RtpPacket(
+                new RtpHeader(),
+                Buffer.from("pc1")
+              ).serialize();
+              expect(isMedia(rtpPacket)).toBe(true);
+              track.writeRtp(rtpPacket);
             });
-          });
-        }),
-      ]);
-      await Promise.all([pc1.close, pc2.close]);
-      done();
-    })();
+          }),
+          new Promise<void>((r) => {
+            const track = new MediaStreamTrack({ kind: "video" });
+            const transceiver = pc2.addTransceiver(track);
+            transceiver.sender.onReady.subscribe(() => {
+              const rtpPacket = new RtpPacket(
+                new RtpHeader(),
+                Buffer.from("pc2")
+              ).serialize();
+              expect(isMedia(rtpPacket)).toBe(true);
+              track.writeRtp(rtpPacket);
+            });
 
-    await pc1.setLocalDescription(await pc1.createOffer());
-    await pc2.setRemoteDescription(pc1.localDescription!);
-    await pc2.setLocalDescription(await pc2.createAnswer());
-    await pc1.setRemoteDescription(pc2.localDescription!);
-  });
+            transceiver.onTrack.subscribe((track) => {
+              track.onReceiveRtp.subscribe((rtp) => {
+                expect(rtp.payload).toEqual(Buffer.from("pc1"));
+                r();
+              });
+            });
+          }),
+        ]);
+        await Promise.all([pc1.close, pc2.close]);
+        done();
+      })();
+
+      await pc1.setLocalDescription(await pc1.createOffer());
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      await pc2.setLocalDescription(await pc2.createAnswer());
+      await pc1.setRemoteDescription(pc2.localDescription!);
+    }));
 
   test("rtp_extension", async () => {
     const pc1 = new RTCPeerConnection({

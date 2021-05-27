@@ -49,15 +49,8 @@ export class Candidate {
         (kwargs as any)["generation"] = Number(bits[i + 1]);
       }
     }
-    const {
-      foundation,
-      component,
-      transport,
-      priority,
-      host,
-      port,
-      type,
-    } = kwargs;
+    const { foundation, component, transport, priority, host, port, type } =
+      kwargs;
 
     return new Candidate(
       foundation,

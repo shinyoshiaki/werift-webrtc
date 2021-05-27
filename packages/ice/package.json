@@ -41,10 +41,10 @@
     "@types/buffer-crc32": "^0.2.0",
     "@types/debug": "^4.1.5",
     "@types/ip": "^1.1.0",
-    "@types/lodash": "^4.14.161",
-    "@types/utf8": "^2.1.6",
-    "@types/ws": "^7.4.2",
-    "ws": "^7.4.5"
+    "@types/lodash": "^4.14.170",
+    "@types/utf8": "^3.0.0",
+    "@types/ws": "^7.4.4",
+    "ws": "^7.4.6"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

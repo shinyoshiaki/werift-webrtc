@@ -207,67 +207,67 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.server_hello] = ({ cipher, srtp, dtls }) => (
-  message: ServerHello
-) => {
-  log("serverHello", message);
-  cipher.remoteRandom = DtlsRandom.from(message.random);
-  cipher.cipherSuite = message.cipherSuite;
-  log("selected cipherSuite", cipher.cipherSuite);
+handlers[HandshakeType.server_hello] =
+  ({ cipher, srtp, dtls }) =>
+  (message: ServerHello) => {
+    log("serverHello", message);
+    cipher.remoteRandom = DtlsRandom.from(message.random);
+    cipher.cipherSuite = message.cipherSuite;
+    log("selected cipherSuite", cipher.cipherSuite);
 
-  if (message.extensions) {
-    message.extensions.forEach((extension) => {
-      switch (extension.type) {
-        case UseSRTP.type:
-          const useSrtp = UseSRTP.fromData(extension.data);
-          const profile = SrtpContext.findMatchingSRTPProfile(
-            useSrtp.profiles,
-            dtls.options.srtpProfiles || []
-          );
-          log("selected srtp profile", profile);
-          if (profile == undefined) return;
-          srtp.srtpProfile = profile;
-          break;
-        case ExtendedMasterSecret.type:
-          dtls.remoteExtendedMasterSecret = true;
-          break;
-        case RenegotiationIndication.type:
-          log("RenegotiationIndication", extension.data);
-          break;
-      }
-    });
-  }
-};
-
-handlers[HandshakeType.certificate] = ({ cipher }) => (
-  message: Certificate
-) => {
-  log("handshake certificate", message);
-  cipher.remoteCertificate = message.certificateList[0];
-};
-
-handlers[HandshakeType.server_key_exchange] = ({ cipher }) => (
-  message: ServerKeyExchange
-) => {
-  if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
-  log("ServerKeyExchange", message);
-
-  log("selected curve", message.namedCurve);
-  cipher.remoteKeyPair = {
-    curve: message.namedCurve,
-    publicKey: message.publicKey,
+    if (message.extensions) {
+      message.extensions.forEach((extension) => {
+        switch (extension.type) {
+          case UseSRTP.type:
+            const useSrtp = UseSRTP.fromData(extension.data);
+            const profile = SrtpContext.findMatchingSRTPProfile(
+              useSrtp.profiles,
+              dtls.options.srtpProfiles || []
+            );
+            log("selected srtp profile", profile);
+            if (profile == undefined) return;
+            srtp.srtpProfile = profile;
+            break;
+          case ExtendedMasterSecret.type:
+            dtls.remoteExtendedMasterSecret = true;
+            break;
+          case RenegotiationIndication.type:
+            log("RenegotiationIndication", extension.data);
+            break;
+        }
+      });
+    }
   };
-  cipher.localKeyPair = generateKeyPair(message.namedCurve);
-};
+
+handlers[HandshakeType.certificate] =
+  ({ cipher }) =>
+  (message: Certificate) => {
+    log("handshake certificate", message);
+    cipher.remoteCertificate = message.certificateList[0];
+  };
+
+handlers[HandshakeType.server_key_exchange] =
+  ({ cipher }) =>
+  (message: ServerKeyExchange) => {
+    if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
+    log("ServerKeyExchange", message);
+
+    log("selected curve", message.namedCurve);
+    cipher.remoteKeyPair = {
+      curve: message.namedCurve,
+      publicKey: message.publicKey,
+    };
+    cipher.localKeyPair = generateKeyPair(message.namedCurve);
+  };
 
 handlers[HandshakeType.server_hello_done] = () => (msg) => {
   log("server_hello_done", msg);
 };
 
-handlers[HandshakeType.certificate_request] = ({ dtls }) => (
-  message: ServerCertificateRequest
-) => {
-  log("certificate_request", message);
-  dtls.requestedCertificateTypes = message.certificateTypes;
-  dtls.requestedSignatureAlgorithms = message.signatures;
-};
+handlers[HandshakeType.certificate_request] =
+  ({ dtls }) =>
+  (message: ServerCertificateRequest) => {
+    log("certificate_request", message);
+    dtls.requestedCertificateTypes = message.certificateTypes;
+    dtls.requestedSignatureAlgorithms = message.signatures;
+  };

@@ -62,12 +62,10 @@ export class RtcpSenderInfo {
   }
 
   static deSerialize(data: Buffer) {
-    const [
-      ntpTimestamp,
-      rtpTimestamp,
-      packetCount,
-      octetCount,
-    ] = bufferReader(data, [8, 4, 4, 4]);
+    const [ntpTimestamp, rtpTimestamp, packetCount, octetCount] = bufferReader(
+      data,
+      [8, 4, 4, 4]
+    );
 
     return new RtcpSenderInfo({
       ntpTimestamp,
