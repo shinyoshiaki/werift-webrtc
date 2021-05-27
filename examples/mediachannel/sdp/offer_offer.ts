@@ -20,7 +20,7 @@ server.on("connection", async (socket) => {
   };
 
   onTransceiver(pc.addTransceiver("video"));
-  pc.onRemoteTransceiver.subscribe(onTransceiver);
+  pc.onRemoteTransceiverAdded.subscribe(onTransceiver);
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
