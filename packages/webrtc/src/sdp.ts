@@ -336,7 +336,7 @@ export class MediaDescription {
   ssrcGroup: GroupDescription[] = [];
 
   // formats
-  rtp = new RTCRtpParameters();
+  rtp: RTCRtpParameters = { codecs: [], headerExtensions: [] };
 
   // sctp
   sctpCapabilities?: RTCSctpCapabilities;

@@ -28,12 +28,11 @@ describe("media/router", () => {
     const track = new MediaStreamTrack({ kind: "audio", ssrc });
     transceiver.addTrack(track);
 
-    router.registerRtpReceiverBySsrc(
-      transceiver,
-      new RTCRtpReceiveParameters({
-        encodings: [new RTCRtpCodingParameters({ ssrc, payloadType: 0 })],
-      })
-    );
+    router.registerRtpReceiverBySsrc(transceiver, {
+      encodings: [new RTCRtpCodingParameters({ ssrc, payloadType: 0 })],
+      codecs: [],
+      headerExtensions: [],
+    });
 
     const packet = new RtpPacket(new RtpHeader({ ssrc }), Buffer.from("hello"));
     track.onReceiveRtp.once((rtp) => {

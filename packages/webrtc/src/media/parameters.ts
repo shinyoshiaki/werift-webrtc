@@ -1,13 +1,9 @@
-export class RTCRtpParameters {
-  codecs: RTCRtpCodecParameters[] = [];
-  headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  muxId!: string;
+export interface RTCRtpParameters {
+  codecs: RTCRtpCodecParameters[];
+  headerExtensions: RTCRtpHeaderExtensionParameters[];
+  muxId?: string;
   rid?: string;
-  rtcp!: RTCRtcpParameters;
-
-  constructor(props: Partial<RTCRtpParameters> = {}) {
-    Object.assign(this, props);
-  }
+  rtcp?: RTCRtcpParameters;
 }
 
 export class RTCRtpCodecCapability {
@@ -103,13 +99,8 @@ export class RTCRtpCodingParameters {
   }
 }
 
-export class RTCRtpReceiveParameters extends RTCRtpParameters {
-  encodings: RTCRtpCodingParameters[] = [];
-
-  constructor(props: Partial<RTCRtpReceiveParameters>) {
-    super(props);
-    Object.assign(this, props);
-  }
+export interface RTCRtpReceiveParameters extends RTCRtpParameters {
+  encodings: RTCRtpCodingParameters[];
 }
 
 export class RTCRtpSimulcastParameters {

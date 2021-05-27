@@ -33,6 +33,13 @@ export const createDtlsTransport = () => {
   return dtls;
 };
 
+export async function generateOffer() {
+  const pc = new RTCPeerConnection();
+  const offer = await pc.createOffer();
+  pc.close();
+  return offer;
+}
+
 export async function generateAnswer(offer: RTCSessionDescription) {
   const pc = new RTCPeerConnection();
   await pc.setRemoteDescription(offer);
