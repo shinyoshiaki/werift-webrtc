@@ -2,90 +2,106 @@
 id: "picturelossindication"
 title: "Class: PictureLossIndication"
 sidebar_label: "PictureLossIndication"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: PictureLossIndication
 
 ## Constructors
 
 ### constructor
 
-\+ **new PictureLossIndication**(`props?`: *Partial*<[*PictureLossIndication*](picturelossindication.md)\>): [*PictureLossIndication*](picturelossindication.md)
+• **new PictureLossIndication**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*PictureLossIndication*](picturelossindication.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[PictureLossIndication](picturelossindication.md)\> |
 
-**Returns:** [*PictureLossIndication*](picturelossindication.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
 
 ## Properties
 
 ### count
 
-• **count**: *number*
+• **count**: `number`
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L5)
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L5)
 
 ___
 
 ### length
 
-• **length**: *number*= 2
+• **length**: `number` = 2
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L6)
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L6)
 
 ___
 
 ### mediaSsrc
 
-• **mediaSsrc**: *number*
+• **mediaSsrc**: `number`
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
 
 ___
 
 ### senderSsrc
 
-• **senderSsrc**: *number*
+• **senderSsrc**: `number`
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L8)
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L8)
 
 ___
 
 ### count
 
-▪ `Static` **count**: *number*= 1
+▪ `Static` **count**: `number` = 1
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L4)
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L4)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L20)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L20)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*): [*PictureLossIndication*](picturelossindication.md)
+▸ `Static` **deSerialize**(`data`): [PictureLossIndication](picturelossindication.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
 
-**Returns:** [*PictureLossIndication*](picturelossindication.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/psfb/pictureLossIndication.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L15)
+[PictureLossIndication](picturelossindication.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L15)

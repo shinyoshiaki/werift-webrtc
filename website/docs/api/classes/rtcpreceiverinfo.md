@@ -2,106 +2,126 @@
 id: "rtcpreceiverinfo"
 title: "Class: RtcpReceiverInfo"
 sidebar_label: "RtcpReceiverInfo"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RtcpReceiverInfo
 
 ## Constructors
 
 ### constructor
 
-\+ **new RtcpReceiverInfo**(`props?`: *Partial*<[*RtcpReceiverInfo*](rtcpreceiverinfo.md)\>): [*RtcpReceiverInfo*](rtcpreceiverinfo.md)
+• **new RtcpReceiverInfo**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*RtcpReceiverInfo*](rtcpreceiverinfo.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[RtcpReceiverInfo](rtcpreceiverinfo.md)\> |
 
-**Returns:** [*RtcpReceiverInfo*](rtcpreceiverinfo.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/rr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L48)
+[packages/rtp/src/rtcp/rr.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L49)
 
 ## Properties
 
 ### dlsr
 
-• **dlsr**: *number*
+• **dlsr**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L48)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L49)
 
 ___
 
 ### fractionLost
 
-• **fractionLost**: *number*
+• **fractionLost**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L43)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L44)
 
 ___
 
 ### highestSequence
 
-• **highestSequence**: *number*
+• **highestSequence**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L45)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L46)
 
 ___
 
 ### jitter
 
-• **jitter**: *number*
+• **jitter**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L46)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L47)
 
 ___
 
 ### lsr
 
-• **lsr**: *number*
+• **lsr**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L47)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L48)
 
 ___
 
 ### packetsLost
 
-• **packetsLost**: *number*
+• **packetsLost**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L44)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L45)
 
 ___
 
 ### ssrc
 
-• **ssrc**: *number*
+• **ssrc**: `number`
 
-Defined in: [rtp/src/rtcp/rr.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L42)
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L43)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/rr.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L54)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L55)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*): [*RtcpReceiverInfo*](rtcpreceiverinfo.md)
+▸ `Static` **deSerialize**(`data`): [RtcpReceiverInfo](rtcpreceiverinfo.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
 
-**Returns:** [*RtcpReceiverInfo*](rtcpreceiverinfo.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/rr.ts:69](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rr.ts#L69)
+[RtcpReceiverInfo](rtcpreceiverinfo.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rr.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rr.ts#L70)

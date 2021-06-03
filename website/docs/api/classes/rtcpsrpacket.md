@@ -2,91 +2,107 @@
 id: "rtcpsrpacket"
 title: "Class: RtcpSrPacket"
 sidebar_label: "RtcpSrPacket"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RtcpSrPacket
 
 ## Constructors
 
 ### constructor
 
-\+ **new RtcpSrPacket**(`props?`: *Partial*<[*RtcpSrPacket*](rtcpsrpacket.md)\>): [*RtcpSrPacket*](rtcpsrpacket.md)
+• **new RtcpSrPacket**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*RtcpSrPacket*](rtcpsrpacket.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[RtcpSrPacket](rtcpsrpacket.md)\> |
 
-**Returns:** [*RtcpSrPacket*](rtcpsrpacket.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L11)
+[packages/rtp/src/rtcp/sr.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L12)
 
 ## Properties
 
 ### reports
 
-• **reports**: [*RtcpReceiverInfo*](rtcpreceiverinfo.md)[]= []
+• **reports**: [RtcpReceiverInfo](rtcpreceiverinfo.md)[] = []
 
-Defined in: [rtp/src/rtcp/sr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L9)
+#### Defined in
+
+[packages/rtp/src/rtcp/sr.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L10)
 
 ___
 
 ### senderInfo
 
-• **senderInfo**: [*RtcpSenderInfo*](rtcpsenderinfo.md)
+• **senderInfo**: [RtcpSenderInfo](rtcpsenderinfo.md)
 
-Defined in: [rtp/src/rtcp/sr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L8)
+#### Defined in
+
+[packages/rtp/src/rtcp/sr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L9)
 
 ___
 
 ### ssrc
 
-• **ssrc**: *number*= 0
+• **ssrc**: `number` = 0
 
-Defined in: [rtp/src/rtcp/sr.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L7)
+#### Defined in
 
-___
-
-### type
-
-• **type**: *number*
-
-Defined in: [rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L11)
+[packages/rtp/src/rtcp/sr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L8)
 
 ___
 
 ### type
 
-▪ `Static` **type**: *number*= 200
+• **type**: `number`
 
-Defined in: [rtp/src/rtcp/sr.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L10)
+#### Defined in
+
+[packages/rtp/src/rtcp/sr.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L12)
+
+___
+
+### type
+
+▪ `Static` **type**: `number` = 200
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sr.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L11)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/sr.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L17)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sr.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L18)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`payload`: *Buffer*, `count`: *number*): [*RtcpSrPacket*](rtcpsrpacket.md)
+▸ `Static` **deSerialize**(`payload`, `count`): [RtcpSrPacket](rtcpsrpacket.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`payload` | *Buffer* |
-`count` | *number* |
+| Name | Type |
+| :------ | :------ |
+| `payload` | `Buffer` |
+| `count` | `number` |
 
-**Returns:** [*RtcpSrPacket*](rtcpsrpacket.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/sr.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sr.ts#L33)
+[RtcpSrPacket](rtcpsrpacket.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sr.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sr.ts#L34)

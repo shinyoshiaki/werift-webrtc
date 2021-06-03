@@ -2,83 +2,97 @@
 id: "rtcptransportlayerfeedback"
 title: "Class: RtcpTransportLayerFeedback"
 sidebar_label: "RtcpTransportLayerFeedback"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RtcpTransportLayerFeedback
 
 ## Constructors
 
 ### constructor
 
-\+ **new RtcpTransportLayerFeedback**(`props?`: *Partial*<[*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)\>): [*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)
+• **new RtcpTransportLayerFeedback**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[RtcpTransportLayerFeedback](rtcptransportlayerfeedback.md)\> |
 
-**Returns:** [*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L14)
+[packages/rtp/src/rtcp/rtpfb/index.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L15)
 
 ## Properties
 
 ### feedback
 
-• **feedback**: Feedback
+• **feedback**: `Feedback`
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L13)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L14)
 
 ___
 
 ### header
 
-• **header**: [*RtcpHeader*](rtcpheader.md)
+• **header**: [RtcpHeader](rtcpheader.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L14)
+#### Defined in
 
-___
-
-### type
-
-• **type**: *number*
-
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L12)
+[packages/rtp/src/rtcp/rtpfb/index.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L15)
 
 ___
 
 ### type
 
-▪ `Static` **type**: *number*= 205
+• **type**: `number`
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L11)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/index.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L13)
+
+___
+
+### type
+
+▪ `Static` **type**: `number` = 205
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/index.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L12)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L20)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/index.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L21)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*, `header`: [*RtcpHeader*](rtcpheader.md)): [*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)
+▸ `Static` **deSerialize**(`data`, `header`): [RtcpTransportLayerFeedback](rtcptransportlayerfeedback.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
-`header` | [*RtcpHeader*](rtcpheader.md) |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
+| `header` | [RtcpHeader](rtcpheader.md) |
 
-**Returns:** [*RtcpTransportLayerFeedback*](rtcptransportlayerfeedback.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/index.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/index.ts#L25)
+[RtcpTransportLayerFeedback](rtcptransportlayerfeedback.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/index.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/index.ts#L26)

@@ -2,90 +2,106 @@
 id: "rtcpheader"
 title: "Class: RtcpHeader"
 sidebar_label: "RtcpHeader"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RtcpHeader
 
 ## Constructors
 
 ### constructor
 
-\+ **new RtcpHeader**(`props?`: *Partial*<[*RtcpHeader*](rtcpheader.md)\>): [*RtcpHeader*](rtcpheader.md)
+• **new RtcpHeader**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*RtcpHeader*](rtcpheader.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[RtcpHeader](rtcpheader.md)\> |
 
-**Returns:** [*RtcpHeader*](rtcpheader.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L19)
+[packages/rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L19)
 
 ## Properties
 
 ### count
 
-• **count**: *number*= 0
+• **count**: `number` = 0
 
-Defined in: [rtp/src/rtcp/header.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L17)
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L17)
 
 ___
 
 ### length
 
-• **length**: *number*= 0
+• **length**: `number` = 0
 
-Defined in: [rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L19)
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L19)
 
 ___
 
 ### padding
 
-• **padding**: *boolean*= false
+• **padding**: `boolean` = false
 
-Defined in: [rtp/src/rtcp/header.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L16)
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L16)
 
 ___
 
 ### type
 
-• **type**: *number*= 0
+• **type**: `number` = 0
 
-Defined in: [rtp/src/rtcp/header.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L18)
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L18)
 
 ___
 
 ### version
 
-• **version**: *number*= 2
+• **version**: `number` = 2
 
-Defined in: [rtp/src/rtcp/header.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L15)
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L15)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/header.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L25)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L25)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`buf`: *Buffer*): [*RtcpHeader*](rtcpheader.md)
+▸ `Static` **deSerialize**(`buf`): [RtcpHeader](rtcpheader.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`buf` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `buf` | `Buffer` |
 
-**Returns:** [*RtcpHeader*](rtcpheader.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/header.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/header.ts#L34)
+[RtcpHeader](rtcpheader.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/header.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/header.ts#L34)

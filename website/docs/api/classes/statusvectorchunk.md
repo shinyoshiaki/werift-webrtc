@@ -2,74 +2,86 @@
 id: "statusvectorchunk"
 title: "Class: StatusVectorChunk"
 sidebar_label: "StatusVectorChunk"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: StatusVectorChunk
 
 ## Constructors
 
 ### constructor
 
-\+ **new StatusVectorChunk**(`props?`: *Partial*<[*StatusVectorChunk*](statusvectorchunk.md)\>): [*StatusVectorChunk*](statusvectorchunk.md)
+• **new StatusVectorChunk**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*StatusVectorChunk*](statusvectorchunk.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[StatusVectorChunk](statusvectorchunk.md)\> |
 
-**Returns:** [*StatusVectorChunk*](statusvectorchunk.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L303)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
 
 ## Properties
 
 ### symbolList
 
-• **symbolList**: *number*[]= []
+• **symbolList**: `number`[] = []
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L303)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
 
 ___
 
 ### symbolSize
 
-• **symbolSize**: *number*
+• **symbolSize**: `number`
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:302](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L302)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L303)
 
 ___
 
 ### type
 
-• **type**: *number*
+• **type**: `number`
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:301](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L301)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:302](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L302)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:330](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L330)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:331](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L331)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*): [*StatusVectorChunk*](statusvectorchunk.md)
+▸ `Static` **deSerialize**(`data`): [StatusVectorChunk](statusvectorchunk.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
 
-**Returns:** [*StatusVectorChunk*](statusvectorchunk.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:309](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L309)
+[StatusVectorChunk](statusvectorchunk.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:310](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L310)

@@ -2,73 +2,83 @@
 id: "rtppacket"
 title: "Class: RtpPacket"
 sidebar_label: "RtpPacket"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RtpPacket
 
 ## Constructors
 
 ### constructor
 
-\+ **new RtpPacket**(`header`: [*RtpHeader*](rtpheader.md), `payload`: *Buffer*): [*RtpPacket*](rtppacket.md)
+• **new RtpPacket**(`header`, `payload`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`header` | [*RtpHeader*](rtpheader.md) |
-`payload` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `header` | [RtpHeader](rtpheader.md) |
+| `payload` | `Buffer` |
 
-**Returns:** [*RtpPacket*](rtppacket.md)
+#### Defined in
 
-Defined in: [rtp/src/rtp/rtp.ts:257](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L257)
+[packages/rtp/src/rtp/rtp.ts:266](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L266)
 
 ## Properties
 
 ### header
 
-• **header**: [*RtpHeader*](rtpheader.md)
+• **header**: [RtpHeader](rtpheader.md)
 
 ___
 
 ### payload
 
-• **payload**: *Buffer*
+• **payload**: `Buffer`
 
 ## Accessors
 
 ### serializeSize
 
-• get **serializeSize**(): *number*
+• `get` **serializeSize**(): `number`
 
-**Returns:** *number*
+#### Returns
 
-Defined in: [rtp/src/rtp/rtp.ts:260](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L260)
+`number`
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L269)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtp/rtp.ts:264](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L264)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:273](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L273)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`buf`: *Buffer*): [*RtpPacket*](rtppacket.md)
+▸ `Static` **deSerialize**(`buf`): [RtpPacket](rtppacket.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`buf` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `buf` | `Buffer` |
 
-**Returns:** [*RtpPacket*](rtppacket.md)
+#### Returns
 
-Defined in: [rtp/src/rtp/rtp.ts:279](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L279)
+[RtpPacket](rtppacket.md)
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:288](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L288)

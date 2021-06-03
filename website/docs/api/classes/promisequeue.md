@@ -2,58 +2,66 @@
 id: "promisequeue"
 title: "Class: PromiseQueue"
 sidebar_label: "PromiseQueue"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: PromiseQueue
 
 ## Constructors
 
 ### constructor
 
-\+ **new PromiseQueue**(): [*PromiseQueue*](promisequeue.md)
-
-**Returns:** [*PromiseQueue*](promisequeue.md)
+• **new PromiseQueue**()
 
 ## Properties
 
 ### queue
 
-• **queue**: { `call`: () => *void* ; `promise`: () => *Promise*<any\>  }[]= []
+• **queue**: { `call`: () => `void` ; `promise`: () => `Promise`<any\>  }[] = []
 
-Defined in: [webrtc/src/helper.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/helper.ts#L15)
+#### Defined in
+
+[packages/webrtc/src/helper.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/helper.ts#L13)
 
 ___
 
 ### running
 
-• **running**: *boolean*= false
+• **running**: `boolean` = false
 
-Defined in: [webrtc/src/helper.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/helper.ts#L16)
+#### Defined in
+
+[packages/webrtc/src/helper.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/helper.ts#L14)
 
 ## Methods
 
 ### push
 
-▸ **push**(`promise`: () => *Promise*<any\>): *Promise*<void\>
+▸ **push**(`promise`): `Promise`<void\>
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`promise` | () => *Promise*<any\> |
+| Name | Type |
+| :------ | :------ |
+| `promise` | () => `Promise`<any\> |
 
-**Returns:** *Promise*<void\>
+#### Returns
 
-Defined in: [webrtc/src/helper.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/helper.ts#L18)
+`Promise`<void\>
+
+#### Defined in
+
+[packages/webrtc/src/helper.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/helper.ts#L16)
 
 ___
 
 ### run
 
-▸ **run**(): *Promise*<void\>
+▸ **run**(): `Promise`<void\>
 
-**Returns:** *Promise*<void\>
+#### Returns
 
-Defined in: [webrtc/src/helper.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/helper.ts#L24)
+`Promise`<void\>
+
+#### Defined in
+
+[packages/webrtc/src/helper.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/helper.ts#L22)

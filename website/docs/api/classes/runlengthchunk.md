@@ -2,92 +2,108 @@
 id: "runlengthchunk"
 title: "Class: RunLengthChunk"
 sidebar_label: "RunLengthChunk"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RunLengthChunk
 
 ## Constructors
 
 ### constructor
 
-\+ **new RunLengthChunk**(`props?`: *Partial*<[*RunLengthChunk*](runlengthchunk.md)\>): [*RunLengthChunk*](runlengthchunk.md)
+• **new RunLengthChunk**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*RunLengthChunk*](runlengthchunk.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[RunLengthChunk](runlengthchunk.md)\> |
 
-**Returns:** [*RunLengthChunk*](runlengthchunk.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:255](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L255)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:256](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L256)
 
 ## Properties
 
 ### packetStatus
 
-• **packetStatus**: [*PacketStatus*](../enums/packetstatus.md)
+• **packetStatus**: [PacketStatus](../enums/packetstatus.md)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:253](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L253)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:254](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L254)
 
 ___
 
 ### runLength
 
-• **runLength**: *number*
+• **runLength**: `number`
 
 13bit
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:255](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L255)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:256](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L256)
 
 ___
 
 ### type
 
-• **type**: [*TypeTCCRunLengthChunk*](../enums/packetchunk.md#typetccrunlengthchunk)
+• **type**: [TypeTCCRunLengthChunk](../enums/packetchunk.md#typetccrunlengthchunk)
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:252](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L252)
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:253](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L253)
 
 ## Methods
 
 ### results
 
-▸ **results**(`currentSequenceNumber`: *number*): *PacketResult*[]
+▸ **results**(`currentSequenceNumber`): `PacketResult`[]
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`currentSequenceNumber` | *number* |
+| Name | Type |
+| :------ | :------ |
+| `currentSequenceNumber` | `number` |
 
-**Returns:** *PacketResult*[]
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:281](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L281)
+`PacketResult`[]
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:282](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L282)
 
 ___
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L269)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:270](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L270)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*): [*RunLengthChunk*](runlengthchunk.md)
+▸ `Static` **deSerialize**(`data`): [RunLengthChunk](runlengthchunk.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
 
-**Returns:** [*RunLengthChunk*](runlengthchunk.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/rtpfb/twcc.ts:262](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/rtpfb/twcc.ts#L262)
+[RunLengthChunk](runlengthchunk.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:263](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L263)

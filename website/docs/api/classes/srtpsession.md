@@ -2,15 +2,13 @@
 id: "srtpsession"
 title: "Class: SrtpSession"
 sidebar_label: "SrtpSession"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: SrtpSession
 
 ## Hierarchy
 
-* *Session*<SrtpContext\>
+- `Session`<SrtpContext\>
 
   ↳ **SrtpSession**
 
@@ -18,121 +16,149 @@ hide_title: true
 
 ### constructor
 
-\+ **new SrtpSession**(`config`: Config): [*SrtpSession*](srtpsession.md)
+• **new SrtpSession**(`config`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`config` | Config |
+| Name | Type |
+| :------ | :------ |
+| `config` | `Config` |
 
-**Returns:** [*SrtpSession*](srtpsession.md)
+#### Overrides
 
-Overrides: Session&lt;SrtpContext&gt;.constructor
+Session&lt;SrtpContext\&gt;.constructor
 
-Defined in: [rtp/src/srtp/srtp.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/srtp.ts#L5)
+#### Defined in
+
+[packages/rtp/src/srtp/srtp.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/srtp.ts#L5)
 
 ## Properties
 
 ### config
 
-• **config**: Config
+• **config**: `Config`
 
 ___
 
 ### localContext
 
-• **localContext**: *SrtpContext*
+• **localContext**: `SrtpContext`
 
-Inherited from: Session.localContext
+#### Inherited from
 
-Defined in: [rtp/src/srtp/session.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/session.ts#L16)
+Session.localContext
+
+#### Defined in
+
+[packages/rtp/src/srtp/session.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/session.ts#L16)
 
 ___
 
 ### onData
 
-• `Optional` **onData**: (`buf`: *Buffer*) => *void*
+• `Optional` **onData**: (`buf`: `Buffer`) => `void`
 
-#### Type declaration:
+#### Type declaration
 
-▸ (`buf`: *Buffer*): *void*
+▸ (`buf`): `void`
 
-#### Parameters:
+##### Parameters
 
-Name | Type |
-:------ | :------ |
-`buf` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `buf` | `Buffer` |
 
-**Returns:** *void*
+##### Returns
 
-Defined in: [rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/session.ts#L18)
+`void`
 
-Inherited from: Session.onData
+#### Inherited from
 
-Defined in: [rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/session.ts#L18)
+Session.onData
+
+#### Defined in
+
+[packages/rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/session.ts#L18)
 
 ___
 
 ### remoteContext
 
-• **remoteContext**: *SrtpContext*
+• **remoteContext**: `SrtpContext`
 
-Inherited from: Session.remoteContext
+#### Inherited from
 
-Defined in: [rtp/src/srtp/session.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/session.ts#L17)
+Session.remoteContext
+
+#### Defined in
+
+[packages/rtp/src/srtp/session.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/session.ts#L17)
 
 ## Methods
 
 ### decrypt
 
-▸ **decrypt**(`buf`: *Buffer*): *Buffer*
+▸ **decrypt**(`buf`): `Buffer`
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`buf` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `buf` | `Buffer` |
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/srtp/srtp.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/srtp.ts#L17)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/srtp/srtp.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/srtp.ts#L17)
 
 ___
 
 ### encrypt
 
-▸ **encrypt**(`payload`: *Buffer*, `header`: [*RtpHeader*](rtpheader.md)): *Buffer*
+▸ **encrypt**(`payload`, `header`): `Buffer`
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`payload` | *Buffer* |
-`header` | [*RtpHeader*](rtpheader.md) |
+| Name | Type |
+| :------ | :------ |
+| `payload` | `Buffer` |
+| `header` | [RtpHeader](rtpheader.md) |
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/srtp/srtp.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/srtp.ts#L22)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/srtp/srtp.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/srtp.ts#L22)
 
 ___
 
 ### start
 
-▸ **start**(`localMasterKey`: *Buffer*, `localMasterSalt`: *Buffer*, `remoteMasterKey`: *Buffer*, `remoteMasterSalt`: *Buffer*, `profile`: *number*): *void*
+▸ **start**(`localMasterKey`, `localMasterSalt`, `remoteMasterKey`, `remoteMasterSalt`, `profile`): `void`
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`localMasterKey` | *Buffer* |
-`localMasterSalt` | *Buffer* |
-`remoteMasterKey` | *Buffer* |
-`remoteMasterSalt` | *Buffer* |
-`profile` | *number* |
+| Name | Type |
+| :------ | :------ |
+| `localMasterKey` | `Buffer` |
+| `localMasterSalt` | `Buffer` |
+| `remoteMasterKey` | `Buffer` |
+| `remoteMasterSalt` | `Buffer` |
+| `profile` | `number` |
 
-**Returns:** *void*
+#### Returns
 
-Inherited from: Session.start
+`void`
 
-Defined in: [rtp/src/srtp/session.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/srtp/session.ts#L22)
+#### Inherited from
+
+Session.start
+
+#### Defined in
+
+[packages/rtp/src/srtp/session.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/srtp/session.ts#L22)

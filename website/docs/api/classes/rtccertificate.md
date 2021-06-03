@@ -2,64 +2,70 @@
 id: "rtccertificate"
 title: "Class: RTCCertificate"
 sidebar_label: "RTCCertificate"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RTCCertificate
 
 ## Constructors
 
 ### constructor
 
-\+ **new RTCCertificate**(`privateKeyPem`: *string*, `certPem`: *string*, `signatureHash`: SignatureHash): [*RTCCertificate*](rtccertificate.md)
+• **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`privateKeyPem` | *string* |
-`certPem` | *string* |
-`signatureHash` | SignatureHash |
+| Name | Type |
+| :------ | :------ |
+| `privateKeyPem` | `string` |
+| `certPem` | `string` |
+| `signatureHash` | `SignatureHash` |
 
-**Returns:** [*RTCCertificate*](rtccertificate.md)
+#### Defined in
 
-Defined in: [webrtc/src/transport/dtls.ts:221](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L221)
+[packages/webrtc/src/transport/dtls.ts:217](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/dtls.ts#L217)
 
 ## Properties
 
 ### certPem
 
-• **certPem**: *string*
+• **certPem**: `string`
 
 ___
 
 ### privateKey
 
-• **privateKey**: *string*
+• **privateKey**: `string`
 
-Defined in: [webrtc/src/transport/dtls.ts:221](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L221)
+#### Defined in
+
+[packages/webrtc/src/transport/dtls.ts:217](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/dtls.ts#L217)
 
 ___
 
 ### publicKey
 
-• **publicKey**: *string*
+• **publicKey**: `string`
 
-Defined in: [webrtc/src/transport/dtls.ts:220](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L220)
+#### Defined in
+
+[packages/webrtc/src/transport/dtls.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/dtls.ts#L216)
 
 ___
 
 ### signatureHash
 
-• **signatureHash**: SignatureHash
+• **signatureHash**: `SignatureHash`
 
 ## Methods
 
 ### getFingerprints
 
-▸ **getFingerprints**(): *RTCDtlsFingerprint*[]
+▸ **getFingerprints**(): `RTCDtlsFingerprint`[]
 
-**Returns:** *RTCDtlsFingerprint*[]
+#### Returns
 
-Defined in: [webrtc/src/transport/dtls.ts:233](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/dtls.ts#L233)
+`RTCDtlsFingerprint`[]
+
+#### Defined in
+
+[packages/webrtc/src/transport/dtls.ts:229](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/dtls.ts#L229)

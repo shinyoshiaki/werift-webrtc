@@ -2,76 +2,90 @@
 id: "sourcedescriptionchunk"
 title: "Class: SourceDescriptionChunk"
 sidebar_label: "SourceDescriptionChunk"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: SourceDescriptionChunk
 
 ## Constructors
 
 ### constructor
 
-\+ **new SourceDescriptionChunk**(`props?`: *Partial*<[*SourceDescriptionChunk*](sourcedescriptionchunk.md)\>): [*SourceDescriptionChunk*](sourcedescriptionchunk.md)
+• **new SourceDescriptionChunk**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*SourceDescriptionChunk*](sourcedescriptionchunk.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[SourceDescriptionChunk](sourcedescriptionchunk.md)\> |
 
-**Returns:** [*SourceDescriptionChunk*](sourcedescriptionchunk.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/sdes.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L46)
+[packages/rtp/src/rtcp/sdes.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L46)
 
 ## Properties
 
 ### items
 
-• **items**: [*SourceDescriptionItem*](sourcedescriptionitem.md)[]= []
+• **items**: [SourceDescriptionItem](sourcedescriptionitem.md)[] = []
 
-Defined in: [rtp/src/rtcp/sdes.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L46)
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L46)
 
 ___
 
 ### source
 
-• **source**: *number*
+• **source**: `number`
 
-Defined in: [rtp/src/rtcp/sdes.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L45)
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L45)
 
 ## Accessors
 
 ### length
 
-• get **length**(): *number*
+• `get` **length**(): `number`
 
-**Returns:** *number*
+#### Returns
 
-Defined in: [rtp/src/rtcp/sdes.ts:52](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L52)
+`number`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:52](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L52)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/sdes.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L60)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L60)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*): [*SourceDescriptionChunk*](sourcedescriptionchunk.md)
+▸ `Static` **deSerialize**(`data`): [SourceDescriptionChunk](sourcedescriptionchunk.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
 
-**Returns:** [*SourceDescriptionChunk*](sourcedescriptionchunk.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/sdes.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L70)
+[SourceDescriptionChunk](sourcedescriptionchunk.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L70)

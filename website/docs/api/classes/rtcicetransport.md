@@ -2,142 +2,164 @@
 id: "rtcicetransport"
 title: "Class: RTCIceTransport"
 sidebar_label: "RTCIceTransport"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RTCIceTransport
 
 ## Constructors
 
 ### constructor
 
-\+ **new RTCIceTransport**(`gather`: [*RTCIceGatherer*](rtcicegatherer.md)): [*RTCIceTransport*](rtcicetransport.md)
+• **new RTCIceTransport**(`gather`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`gather` | [*RTCIceGatherer*](rtcicegatherer.md) |
+| Name | Type |
+| :------ | :------ |
+| `gather` | [RTCIceGatherer](rtcicegatherer.md) |
 
-**Returns:** [*RTCIceTransport*](rtcicetransport.md)
+#### Defined in
 
-Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L12)
+[packages/webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L12)
 
 ## Properties
 
 ### connection
 
-• **connection**: *Connection*
+• **connection**: `Connection`
 
-Defined in: [webrtc/src/transport/ice.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L6)
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L7)
 
 ___
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: *default*<[*new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*]\>
+• `Readonly` **onStateChange**: `default`<[``"closed"`` \| ``"failed"`` \| ``"disconnected"`` \| ``"new"`` \| ``"connected"`` \| ``"checking"`` \| ``"completed"``]\>
 
-Defined in: [webrtc/src/transport/ice.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L10)
+#### Defined in
 
-___
-
-### roleSet
-
-• **roleSet**: *boolean*= false
-
-Defined in: [webrtc/src/transport/ice.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L7)
+[packages/webrtc/src/transport/ice.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L10)
 
 ___
 
 ### state
 
-• **state**: *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*= "new"
+• **state**: ``"closed"`` \| ``"failed"`` \| ``"disconnected"`` \| ``"new"`` \| ``"connected"`` \| ``"checking"`` \| ``"completed"`` = "new"
 
-Defined in: [webrtc/src/transport/ice.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L8)
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L8)
 
 ___
 
 ### waitStart
 
-• `Private` `Optional` **waitStart**: *default*<[]\>
+• `Private` `Optional` **waitStart**: `default`<[]\>
 
-Defined in: [webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L12)
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L12)
 
 ## Accessors
 
 ### iceGather
 
-• get **iceGather**(): [*RTCIceGatherer*](rtcicegatherer.md)
+• `get` **iceGather**(): [RTCIceGatherer](rtcicegatherer.md)
 
-**Returns:** [*RTCIceGatherer*](rtcicegatherer.md)
+#### Returns
 
-Defined in: [webrtc/src/transport/ice.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L20)
+[RTCIceGatherer](rtcicegatherer.md)
+
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L20)
 
 ___
 
 ### role
 
-• get **role**(): *controlling* \| *controlled*
+• `get` **role**(): ``"controlling"`` \| ``"controlled"``
 
-**Returns:** *controlling* \| *controlled*
+#### Returns
 
-Defined in: [webrtc/src/transport/ice.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L24)
+``"controlling"`` \| ``"controlled"``
+
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L24)
 
 ## Methods
 
 ### addRemoteCandidate
 
-▸ **addRemoteCandidate**(`candidate?`: *RTCIceCandidate*): *Promise*<void\>
+▸ **addRemoteCandidate**(`candidate?`): `Promise`<void\>
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`candidate?` | *RTCIceCandidate* |
+| Name | Type |
+| :------ | :------ |
+| `candidate?` | `RTCIceCandidate` |
 
-**Returns:** *Promise*<void\>
+#### Returns
 
-Defined in: [webrtc/src/transport/ice.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L44)
+`Promise`<void\>
+
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L44)
 
 ___
 
 ### setState
 
-▸ `Private`**setState**(`state`: *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected*): *void*
+▸ `Private` **setState**(`state`): `void`
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`state` | *new* \| *connected* \| *closed* \| *failed* \| *checking* \| *completed* \| *disconnected* |
+| Name | Type |
+| :------ | :------ |
+| `state` | ``"closed"`` \| ``"failed"`` \| ``"disconnected"`` \| ``"new"`` \| ``"connected"`` \| ``"checking"`` \| ``"completed"`` |
 
-**Returns:** *void*
+#### Returns
 
-Defined in: [webrtc/src/transport/ice.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L29)
+`void`
+
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L29)
 
 ___
 
 ### start
 
-▸ **start**(`remoteParameters`: *RTCIceParameters*): *Promise*<void\>
+▸ **start**(`remoteParameters`): `Promise`<void\>
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`remoteParameters` | *RTCIceParameters* |
+| Name | Type |
+| :------ | :------ |
+| `remoteParameters` | `RTCIceParameters` |
 
-**Returns:** *Promise*<void\>
+#### Returns
 
-Defined in: [webrtc/src/transport/ice.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L54)
+`Promise`<void\>
+
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L54)
 
 ___
 
 ### stop
 
-▸ **stop**(): *Promise*<void\>
+▸ **stop**(): `Promise`<void\>
 
-**Returns:** *Promise*<void\>
+#### Returns
 
-Defined in: [webrtc/src/transport/ice.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/webrtc/src/transport/ice.ts#L75)
+`Promise`<void\>
+
+#### Defined in
+
+[packages/webrtc/src/transport/ice.ts:76](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L76)

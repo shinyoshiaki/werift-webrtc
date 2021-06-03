@@ -3,8 +3,8 @@ id: "index"
 title: "werift"
 slug: "/api"
 sidebar_label: "Overview"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
 
 # werift

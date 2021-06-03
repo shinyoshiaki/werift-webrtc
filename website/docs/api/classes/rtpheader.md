@@ -2,178 +2,218 @@
 id: "rtpheader"
 title: "Class: RtpHeader"
 sidebar_label: "RtpHeader"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: RtpHeader
 
 ## Constructors
 
 ### constructor
 
-\+ **new RtpHeader**(`props?`: *Partial*<[*RtpHeader*](rtpheader.md)\>): [*RtpHeader*](rtpheader.md)
+• **new RtpHeader**(`props?`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type | Default value |
-:------ | :------ | :------ |
-`props` | *Partial*<[*RtpHeader*](rtpheader.md)\> | {} |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[RtpHeader](rtpheader.md)\> |
 
-**Returns:** [*RtpHeader*](rtpheader.md)
+#### Defined in
 
-Defined in: [rtp/src/rtp/rtp.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L43)
+[packages/rtp/src/rtp/rtp.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L48)
 
 ## Properties
 
 ### csrc
 
-• **csrc**: *number*[]= []
+• **csrc**: `number`[] = []
 
-Defined in: [rtp/src/rtp/rtp.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L40)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L44)
 
 ___
 
 ### extension
 
-• **extension**: *boolean*= false
+• **extension**: `boolean` = false
 
-Defined in: [rtp/src/rtp/rtp.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L33)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L37)
 
 ___
 
 ### extensionLength
 
-• `Optional` **extensionLength**: *number*
+• `Optional` **extensionLength**: `number`
 
-Defined in: [rtp/src/rtp/rtp.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L42)
+deserialize only
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L47)
 
 ___
 
 ### extensionProfile
 
-• **extensionProfile**: *number*
+• **extensionProfile**: `ExtensionProfile`
 
-Defined in: [rtp/src/rtp/rtp.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L41)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L45)
 
 ___
 
 ### extensions
 
-• **extensions**: [*Extension*](../modules.md#extension)[]= []
+• **extensions**: [Extension](../modules.md#extension)[] = []
 
-Defined in: [rtp/src/rtp/rtp.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L43)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L48)
 
 ___
 
 ### marker
 
-• **marker**: *boolean*= false
+• **marker**: `boolean` = false
 
-Defined in: [rtp/src/rtp/rtp.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L34)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L38)
 
 ___
 
 ### padding
 
-• **padding**: *boolean*= false
+• **padding**: `boolean` = false
 
-Defined in: [rtp/src/rtp/rtp.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L31)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L35)
 
 ___
 
 ### paddingSize
 
-• **paddingSize**: *number*= 0
+• **paddingSize**: `number` = 0
 
-Defined in: [rtp/src/rtp/rtp.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L32)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L36)
 
 ___
 
 ### payloadOffset
 
-• **payloadOffset**: *number*= 0
+• **payloadOffset**: `number` = 0
 
-Defined in: [rtp/src/rtp/rtp.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L35)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L39)
 
 ___
 
 ### payloadType
 
-• **payloadType**: *number*= 0
+• **payloadType**: `number` = 0
 
-Defined in: [rtp/src/rtp/rtp.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L36)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L40)
 
 ___
 
 ### sequenceNumber
 
-• **sequenceNumber**: *number*= 0
+• **sequenceNumber**: `number` = 0
 
-Defined in: [rtp/src/rtp/rtp.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L37)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L41)
 
 ___
 
 ### ssrc
 
-• **ssrc**: *number*= 0
+• **ssrc**: `number` = 0
 
-Defined in: [rtp/src/rtp/rtp.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L39)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L43)
 
 ___
 
 ### timestamp
 
-• **timestamp**: *number*= 0
+• **timestamp**: `number` = 0
 
-Defined in: [rtp/src/rtp/rtp.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L38)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L42)
 
 ___
 
 ### version
 
-• **version**: *number*= 2
+• **version**: `number` = 2
 
-Defined in: [rtp/src/rtp/rtp.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L30)
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L34)
 
 ## Accessors
 
 ### serializeSize
 
-• get **serializeSize**(): *number*
+• `get` **serializeSize**(): `number`
 
-**Returns:** *number*
+#### Returns
 
-Defined in: [rtp/src/rtp/rtp.ts:155](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L155)
+`number`
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:162](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L162)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(`size`: *number*): *Buffer*
+▸ **serialize**(`size`): `Buffer`
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`size` | *number* |
+| Name | Type |
+| :------ | :------ |
+| `size` | `number` |
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtp/rtp.ts:180](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L180)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:189](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L189)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`rawPacket`: *Buffer*): [*RtpHeader*](rtpheader.md)
+▸ `Static` **deSerialize**(`rawPacket`): [RtpHeader](rtpheader.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`rawPacket` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `rawPacket` | `Buffer` |
 
-**Returns:** [*RtpHeader*](rtpheader.md)
+#### Returns
 
-Defined in: [rtp/src/rtp/rtp.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtp/rtp.ts#L48)
+[RtpHeader](rtpheader.md)
+
+#### Defined in
+
+[packages/rtp/src/rtp/rtp.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtp/rtp.ts#L53)

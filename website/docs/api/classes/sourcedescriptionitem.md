@@ -2,76 +2,90 @@
 id: "sourcedescriptionitem"
 title: "Class: SourceDescriptionItem"
 sidebar_label: "SourceDescriptionItem"
+sidebar_position: 0
 custom_edit_url: null
-hide_title: true
 ---
-
-# Class: SourceDescriptionItem
 
 ## Constructors
 
 ### constructor
 
-\+ **new SourceDescriptionItem**(`props`: *Partial*<[*SourceDescriptionItem*](sourcedescriptionitem.md)\>): [*SourceDescriptionItem*](sourcedescriptionitem.md)
+• **new SourceDescriptionItem**(`props`)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`props` | *Partial*<[*SourceDescriptionItem*](sourcedescriptionitem.md)\> |
+| Name | Type |
+| :------ | :------ |
+| `props` | `Partial`<[SourceDescriptionItem](sourcedescriptionitem.md)\> |
 
-**Returns:** [*SourceDescriptionItem*](sourcedescriptionitem.md)
+#### Defined in
 
-Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L88)
+[packages/rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L88)
 
 ## Properties
 
 ### text
 
-• **text**: *string*
+• **text**: `string`
 
-Defined in: [rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L88)
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L88)
 
 ___
 
 ### type
 
-• **type**: *number*
+• **type**: `number`
 
-Defined in: [rtp/src/rtcp/sdes.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L87)
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L87)
 
 ## Accessors
 
 ### length
 
-• get **length**(): *number*
+• `get` **length**(): `number`
 
-**Returns:** *number*
+#### Returns
 
-Defined in: [rtp/src/rtcp/sdes.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L94)
+`number`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L94)
 
 ## Methods
 
 ### serialize
 
-▸ **serialize**(): *Buffer*
+▸ **serialize**(): `Buffer`
 
-**Returns:** *Buffer*
+#### Returns
 
-Defined in: [rtp/src/rtcp/sdes.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L98)
+`Buffer`
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L98)
 
 ___
 
 ### deSerialize
 
-▸ `Static`**deSerialize**(`data`: *Buffer*): [*SourceDescriptionItem*](sourcedescriptionitem.md)
+▸ `Static` **deSerialize**(`data`): [SourceDescriptionItem](sourcedescriptionitem.md)
 
-#### Parameters:
+#### Parameters
 
-Name | Type |
-:------ | :------ |
-`data` | *Buffer* |
+| Name | Type |
+| :------ | :------ |
+| `data` | `Buffer` |
 
-**Returns:** [*SourceDescriptionItem*](sourcedescriptionitem.md)
+#### Returns
 
-Defined in: [rtp/src/rtcp/sdes.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/915ed10/packages/rtp/src/rtcp/sdes.ts#L106)
+[SourceDescriptionItem](sourcedescriptionitem.md)
+
+#### Defined in
+
+[packages/rtp/src/rtcp/sdes.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/sdes.ts#L106)

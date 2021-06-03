@@ -1,0 +1,1 @@
+(self.webpackChunkmy_website=self.webpackChunkmy_website||[]).push([[6193],{541:function(e){"use strict";e.exports=JSON.parse('{"test":{"allTagsPath":"/werift-webrtc/website/build/ja/blog/tags","slug":"test","name":"test","count":1,"permalink":"/werift-webrtc/website/build/ja/blog/tags/test"}}')}}]);
