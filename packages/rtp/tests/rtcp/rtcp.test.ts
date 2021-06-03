@@ -1,7 +1,7 @@
-import { load } from "../utils";
+import { RtcpRrPacket } from "../../src/rtcp/rr";
 import { RtcpPacketConverter } from "../../src/rtcp/rtcp";
 import { RtcpSrPacket } from "../../src/rtcp/sr";
-import { RtcpRrPacket } from "../../src/rtcp/rr";
+import { load } from "../utils";
 
 describe("rtcp/rtcp", () => {
   test("test_sr", () => {

@@ -11,20 +11,7 @@ describe("rtcp/rtpfb/nack", () => {
     ];
     const nack = rtpfb.feedback as GenericNack;
     expect(nack.lost).toEqual([
-      12,
-      32,
-      39,
-      54,
-      76,
-      110,
-      123,
-      142,
-      183,
-      187,
-      223,
-      236,
-      271,
-      292,
+      12, 32, 39, 54, 76, 110, 123, 142, 183, 187, 223, 236, 271, 292,
     ]);
     const res = rtpfb.serialize();
     expect(res).toEqual(data);
