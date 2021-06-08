@@ -57,6 +57,34 @@ a=ssrc:1001 cname:some`;
 
     await pc.close();
   });
+
+  it("setRemoteDescription() with m= line of recvonly direction should not trigger track event", async () => {
+    //     const pc = new RTCPeerConnection();
+    //     const sdp = `v=0
+    // o=- 166855176514521964 2 IN IP4 127.0.0.1
+    // s=-
+    // t=0 0
+    // a=msid-semantic:WMS *
+    // m=audio 9 UDP/TLS/RTP/SAVPF 111
+    // c=IN IP4 0.0.0.0
+    // a=rtcp:9 IN IP4 0.0.0.0
+    // a=ice-ufrag:someufrag
+    // a=ice-pwd:somelongpwdwithenoughrandomness
+    // a=fingerprint:sha-256 8C:71:B3:8D:A5:38:FD:8F:A4:2E:A2:65:6C:86:52:BC:E0:6E:94:F2:9F:7C:4D:B5:DF:AF:AA:6F:44:90:8D:F4
+    // a=setup:actpass
+    // a=rtcp-mux
+    // a=mid:mid1
+    // a=recvonly
+    // a=rtpmap:111 opus/48000/2
+    // a=msid:stream1 track1
+    // a=ssrc:1001 cname:some
+    // `;
+    //     pc.ontrack = t.unreached_func(
+    //       "ontrack event should not fire for track with recvonly direction"
+    //     );
+    //     await pc.setRemoteDescription({ type: "offer", sdp });
+    //     await new Promise((resolve) => setTimeout(resolve, 100));
+  });
 });
 
 function validateTrackEvent(trackEvent) {

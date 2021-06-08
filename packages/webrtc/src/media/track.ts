@@ -1,4 +1,5 @@
 import Event from "rx.mini";
+import { v4 } from "uuid";
 
 import { RtpHeader, RtpPacket } from "../../../rtp/src";
 import { EventTarget } from "../helper";
@@ -6,11 +7,11 @@ import { Kind } from "../types/domain";
 import { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack extends EventTarget {
+  readonly uuid = v4();
   remote = false;
   label: string;
   kind!: Kind;
   id?: string;
-
   ssrc?: number;
   rid?: string;
   header?: RtpHeader;

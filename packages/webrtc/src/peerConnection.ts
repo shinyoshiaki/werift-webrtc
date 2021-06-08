@@ -94,6 +94,7 @@ export class RTCPeerConnection extends EventTarget {
   onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
   onnegotiationneeded?: (e: any) => void;
   onsignalingstatechange?: (e: any) => void;
+  ontrack?: (e: any) => void;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -853,8 +854,9 @@ export class RTCPeerConnection extends EventTarget {
 
   addTrack(track: MediaStreamTrack) {
     if (this.isClosed) throw new Error("is closed");
-    if (this.getSenders().find((sender) => sender.trackId === track.id))
+    if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw new Error("track exist");
+    }
 
     const emptyTrackSender = this.transceivers.find(
       (t) =>
@@ -1171,3 +1173,10 @@ export const defaultPeerConfig: PeerConfig = {
   iceTransportPolicy: "all",
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
+
+export interface OnTrackEvent {
+  track: MediaStreamTrack;
+  streams: MediaStream[];
+  transceiver: RTCRtpTransceiver;
+  receiver: RTCRtpReceiver;
+}
