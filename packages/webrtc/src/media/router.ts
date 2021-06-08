@@ -53,7 +53,7 @@ export class RtpRouter {
         new MediaStreamTrack({
           ssrc,
           kind: transceiver.kind,
-          id: transceiver.sender.streamId,
+          id: transceiver.sender.trackId,
           remote: true,
         })
       );
@@ -73,7 +73,7 @@ export class RtpRouter {
       new MediaStreamTrack({
         rid: param.rid,
         kind: transceiver.kind,
-        id: transceiver.sender.streamId,
+        id: transceiver.sender.trackId,
         remote: true,
       })
     );

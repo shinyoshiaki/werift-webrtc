@@ -27,12 +27,11 @@ import {
   RTCRtpTransceiver,
   TransceiverOptions,
 } from "./media/rtpTransceiver";
-import { MediaStreamTrack } from "./media/track";
+import { MediaStream, MediaStreamTrack } from "./media/track";
 import {
   addSDPHeader,
   GroupDescription,
   MediaDescription,
-  RTCSessionDescription,
   SessionDescription,
   SsrcDescription,
 } from "./sdp";
@@ -654,18 +653,15 @@ export class RTCPeerConnection extends EventTarget {
               [undefined, media.rtp.muxId].includes(t.mid)
           ) ||
           (() => {
+            // create remote transceiver
             const transceiver = this.addTransceiver(media.kind, {
               direction: "recvonly",
             });
+
             this.onRemoteTransceiverAdded.execute(transceiver);
             this.onTransceiver.execute(transceiver);
             return transceiver;
           })();
-
-        // simulcast
-        media.simulcastParameters.forEach((param) => {
-          this.router.registerRtpReceiverByRid(transceiver, param);
-        });
 
         if (!transceiver.mid) {
           transceiver.mid = media.rtp.muxId;
@@ -703,6 +699,37 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.currentDirection = direction;
         } else {
           transceiver.offerDirection = direction;
+        }
+
+        const local = this.localRtp(transceiver);
+        const { muxId, rtcp } = local;
+        if (muxId == undefined || rtcp == undefined) {
+          throw new Error("param missing");
+        }
+        transceiver.sender.parameters = { ...local, muxId, rtcp };
+
+        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+          // register simulcast receiver
+          media.simulcastParameters.forEach((param) => {
+            this.router.registerRtpReceiverByRid(transceiver, param);
+          });
+
+          const params = this.remoteRtp(description, transceiver);
+          // register ssrc receiver
+          this.router.registerRtpReceiverBySsrc(transceiver, params);
+
+          // assign msid
+          if (media.msid != undefined) {
+            const [streamId, trackId] = media.msid.split(" ");
+            transceiver.receiver.remoteStreamId = streamId;
+            transceiver.receiver.remoteTrackId = trackId;
+
+            this.fireOnTrack(
+              transceiver.receiver.tracks[0],
+              transceiver,
+              new MediaStream({ id: streamId })
+            );
+          }
         }
       } else if (media.kind === "application") {
         if (!this.sctpTransport) {
@@ -764,27 +791,23 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingRemoteDescription = description;
     }
 
-    this.transceivers
-      .filter((t) => t.mid != undefined)
-      .forEach((transceiver) => {
-        const local = this.localRtp(transceiver);
-        const { muxId, rtcp } = local;
-        if (muxId == undefined || rtcp == undefined) {
-          throw new Error("param missing");
-        }
-
-        transceiver.sender.parameters = { ...local, muxId, rtcp };
-
-        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-          const params = this.remoteRtp(description, transceiver);
-          this.router.registerRtpReceiverBySsrc(transceiver, params);
-        }
-      });
-
     this.negotiationneeded = false;
     if (this.shouldNegotiationneeded) {
       this.needNegotiation();
     }
+  }
+
+  private fireOnTrack(
+    track: MediaStreamTrack,
+    transceiver: RTCRtpTransceiver,
+    stream: MediaStream
+  ) {
+    this.emit("track", {
+      track,
+      streams: [stream],
+      transceiver,
+      receiver: transceiver.receiver,
+    });
   }
 
   addTransceiver(
@@ -830,7 +853,7 @@ export class RTCPeerConnection extends EventTarget {
 
   addTrack(track: MediaStreamTrack) {
     if (this.isClosed) throw new Error("is closed");
-    if (this.getSenders().find((sender) => sender.track?.id === track.id))
+    if (this.getSenders().find((sender) => sender.trackId === track.id))
       throw new Error("track exist");
 
     const emptyTrackSender = this.transceivers.find(

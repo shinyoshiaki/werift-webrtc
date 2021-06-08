@@ -131,3 +131,34 @@ export async function generateAudioReceiveOnlyOffer(pc: RTCPeerConnection) {
   pc.addTransceiver("audio", { direction: "recvonly" });
   return pc.createOffer();
 }
+
+function waitUntilEvent(obj, name) {
+  return new Promise((r) => obj.addEventListener(name, r, { once: true }));
+}
+
+export function addEventListenerPromise(
+  obj,
+  type,
+  listener?: (...args: any[]) => any
+) {
+  if (!listener) {
+    return waitUntilEvent(obj, type);
+  }
+  return new Promise((r) =>
+    obj.addEventListener(
+      type,
+      (e) => {
+        r(listener(e));
+      },
+      { once: true }
+    )
+  );
+}
+
+export function assert_equals(a, b, msg: string) {
+  expect(a).toEqual(b);
+}
+
+export function assert_true(a, msg: string) {
+  expect(a).toBeTruthy();
+}

@@ -522,7 +522,12 @@ function groupLines(sdp: string): [string[], string[][]] {
   const session: string[] = [];
   const media: string[][] = [];
 
-  sdp.split("\r\n").forEach((line) => {
+  let lines = sdp.split("\r\n");
+  if (lines.length === 1) {
+    lines = sdp.split("\n");
+  }
+
+  lines.forEach((line) => {
     if (line.startsWith("m=")) {
       media.push([line]);
     } else if (media.length > 0) {

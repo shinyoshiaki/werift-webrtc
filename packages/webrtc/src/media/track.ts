@@ -1,5 +1,4 @@
 import Event from "rx.mini";
-import { v4 } from "uuid";
 
 import { RtpHeader, RtpPacket } from "../../../rtp/src";
 import { EventTarget } from "../helper";
@@ -9,8 +8,9 @@ import { RTCRtpCodecParameters } from "./parameters";
 export class MediaStreamTrack extends EventTarget {
   remote = false;
   label: string;
-  id: string = v4();
   kind!: Kind;
+  id?: string;
+
   ssrc?: number;
   rid?: string;
   header?: RtpHeader;
@@ -51,4 +51,11 @@ export class MediaStreamTrack extends EventTarget {
     packet.header.payloadType = this.codec.payloadType;
     this.onReceiveRtp.execute(packet);
   };
+}
+
+export class MediaStream {
+  id!: string;
+  constructor(props: MediaStream) {
+    Object.assign(this, props);
+  }
 }
