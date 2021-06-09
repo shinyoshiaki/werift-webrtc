@@ -30,8 +30,8 @@ import {
 } from "./handler/mediachannel/simulcast";
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json() as never);
+app.use(express.urlencoded({ extended: true }) as never);
 app.use((_, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
@@ -61,10 +61,14 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_send_recv_offer: new mediachannel_send_recv_offer(),
     mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
     mediachannel_addTrack_offer: new mediachannel_addTrack_offer(),
-    datachannel_close_server_create_close: new datachannel_close_server_create_close(),
-    datachannel_close_client_create_close: new datachannel_close_client_create_close(),
-    datachannel_close_client_create_server_close: new datachannel_close_client_create_server_close(),
-    datachannel_close_server_create_client_close: new datachannel_close_server_create_client_close(),
+    datachannel_close_server_create_close:
+      new datachannel_close_server_create_close(),
+    datachannel_close_client_create_close:
+      new datachannel_close_client_create_close(),
+    datachannel_close_client_create_server_close:
+      new datachannel_close_client_create_server_close(),
+    datachannel_close_server_create_client_close:
+      new datachannel_close_server_create_client_close(),
     ice_trickle_answer: new ice_trickle_answer(),
     ice_trickle_offer: new ice_trickle_offer(),
   };

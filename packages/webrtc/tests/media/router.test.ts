@@ -4,10 +4,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../src";
-import {
-  RTCRtpCodingParameters,
-  RTCRtpReceiveParameters,
-} from "../../src/media/parameters";
+import { RTCRtpCodingParameters } from "../../src/media/parameters";
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { RTCRtpSender } from "../../src/media/rtpSender";

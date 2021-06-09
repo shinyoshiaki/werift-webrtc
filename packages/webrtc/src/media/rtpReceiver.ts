@@ -34,12 +34,19 @@ export class RTCRtpReceiver {
   supportTWCC = false;
   codecs: RTCRtpCodecParameters[] = [];
   stopped = false;
+  remoteStreamId?: string;
+  remoteTrackId?: string;
 
   constructor(
     public kind: Kind,
     public dtlsTransport: RTCDtlsTransport,
     public rtcpSsrc: number
   ) {}
+
+  // todo fix
+  get track() {
+    return this.tracks[0];
+  }
 
   /**
    * setup TWCC if supported

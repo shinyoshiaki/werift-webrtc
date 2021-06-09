@@ -7,10 +7,11 @@ import { Kind } from "../types/domain";
 import { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack extends EventTarget {
+  readonly uuid = v4();
   remote = false;
   label: string;
-  id: string = v4();
   kind!: Kind;
+  id?: string;
   ssrc?: number;
   rid?: string;
   header?: RtpHeader;
@@ -51,4 +52,21 @@ export class MediaStreamTrack extends EventTarget {
     packet.header.payloadType = this.codec.payloadType;
     this.onReceiveRtp.execute(packet);
   };
+}
+
+export class MediaStream {
+  id!: string;
+  tracks: MediaStreamTrack[] = [];
+
+  constructor(props: Partial<MediaStream> & Pick<MediaStream, "id">) {
+    Object.assign(this, props);
+  }
+
+  addTrack(track: MediaStreamTrack) {
+    this.tracks.push(track);
+  }
+
+  getTracks() {
+    return this.tracks;
+  }
 }
