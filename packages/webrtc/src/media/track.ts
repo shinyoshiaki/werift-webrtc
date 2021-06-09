@@ -56,7 +56,17 @@ export class MediaStreamTrack extends EventTarget {
 
 export class MediaStream {
   id!: string;
-  constructor(props: MediaStream) {
+  tracks: MediaStreamTrack[] = [];
+
+  constructor(props: Partial<MediaStream> & Pick<MediaStream, "id">) {
     Object.assign(this, props);
+  }
+
+  addTrack(track: MediaStreamTrack) {
+    this.tracks.push(track);
+  }
+
+  getTracks() {
+    return this.tracks;
   }
 }

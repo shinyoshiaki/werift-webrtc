@@ -6,6 +6,7 @@ import {
   RTCRtpTransceiver,
 } from "../../src";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
+import { MediaStream } from "../../src/media/track";
 import { addEventListenerPromise, assert_equals, assert_true } from "../utils";
 
 describe("wpt/ontrack", () => {
@@ -88,6 +89,60 @@ a=ssrc:1001 cname:some
     expect(called).toBeFalsy();
     pc.close();
   });
+
+  it("addTrack() should cause remote connection to fire ontrack when setRemoteDescription()", async () => {
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+    const [track, mediaStream] = [
+      new MediaStreamTrack({ kind: "audio" }),
+      new MediaStream({ id: "id" }),
+    ];
+    pc1.addTrack(track, mediaStream);
+    const trackEventPromise = addEventListenerPromise(pc2, "track");
+    await pc2.setRemoteDescription(await pc1.createOffer());
+    const trackEvent: any = await trackEventPromise;
+    assert_equals(
+      trackEvent.track.kind,
+      "audio",
+      "Expect track.kind to be audio"
+    );
+    validateTrackEvent(trackEvent);
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
+
+  it("addTransceiver('video') should cause remote connection to fire ontrack when setRemoteDescription()", async () => {
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+
+    pc1.addTransceiver("video");
+
+    const trackEventPromise = addEventListenerPromise(pc2, "track");
+    await pc2.setRemoteDescription(await pc1.createOffer());
+    const trackEvent: any = await trackEventPromise;
+    const { track } = trackEvent;
+
+    assert_equals(track.kind, "video", "Expect track.kind to be video");
+
+    validateTrackEvent(trackEvent);
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
+
+  it("addTransceiver() with inactive direction should not cause remote connection to fire ontrack when setRemoteDescription()", async () => {
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+
+    pc1.addTransceiver("audio", { direction: "inactive" });
+    let called = false;
+    pc2.ontrack = () => {
+      called = true;
+    };
+
+    await pc2.setRemoteDescription(await pc1.createOffer());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(called).toBeFalsy();
+
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
 });
 
 function validateTrackEvent(trackEvent) {
@@ -100,17 +155,17 @@ function validateTrackEvent(trackEvent) {
 
   assert_true(Array.isArray(streams), "Expect streams to be an array");
 
-  //   for (const mediaStream of streams) {
-  //     assert_true(
-  //       mediaStream instanceof MediaStream,
-  //       "Expect elements in streams to be instance of MediaStream"
-  //     );
+  for (const mediaStream of streams) {
+    assert_true(
+      mediaStream instanceof MediaStream,
+      "Expect elements in streams to be instance of MediaStream"
+    );
 
-  //     assert_true(
-  //       mediaStream.getTracks().includes(track),
-  //       "Expect each mediaStream to have track as one of their tracks"
-  //     );
-  //   }
+    assert_true(
+      mediaStream.getTracks().includes(track),
+      "Expect each mediaStream to have track as one of their tracks"
+    );
+  }
 
   assert_true(
     receiver instanceof RTCRtpReceiver,

@@ -728,9 +728,12 @@ export class RTCPeerConnection extends EventTarget {
             transceiver.receiver.remoteTrackId = trackId;
 
             this.fireOnTrack(
-              transceiver.receiver.tracks[0],
+              transceiver.receiver.track,
               transceiver,
-              new MediaStream({ id: streamId })
+              new MediaStream({
+                id: streamId,
+                tracks: [transceiver.receiver.track],
+              })
             );
           }
         }
@@ -856,7 +859,8 @@ export class RTCPeerConnection extends EventTarget {
     return this.getTransceivers().map((t) => t.receiver);
   }
 
-  addTrack(track: MediaStreamTrack) {
+  // todo fix
+  addTrack(track: MediaStreamTrack, ms?: MediaStream) {
     if (this.isClosed) throw new Error("is closed");
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw new Error("track exist");
