@@ -143,6 +143,9 @@ a=ssrc:1001 cname:some
 
     await Promise.all([pc1.close(), pc2.close()]);
   });
+
+  // todo impl
+  // Using offerToReceiveAudio and offerToReceiveVideo should only cause a ${type} track event to fire, if ${type} was the only type negotiated
 });
 
 function validateTrackEvent(trackEvent) {
