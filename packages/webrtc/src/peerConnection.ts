@@ -94,7 +94,7 @@ export class RTCPeerConnection extends EventTarget {
   onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
   onnegotiationneeded?: (e: any) => void;
   onsignalingstatechange?: (e: any) => void;
-  ontrack?: (e: any) => void;
+  ontrack?: (e: OnTrackEvent) => void;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -695,7 +695,8 @@ export class RTCPeerConnection extends EventTarget {
         transceiver.receiver.setupTWCC(media.ssrc[0]?.ssrc);
 
         // # configure direction
-        const direction = reverseDirection(media.direction || "inactive");
+        const mediaDirection = media.direction || "inactive";
+        const direction = reverseDirection(mediaDirection);
         if (["answer", "pranswer"].includes(description.type)) {
           transceiver.currentDirection = direction;
         } else {
@@ -718,7 +719,8 @@ export class RTCPeerConnection extends EventTarget {
           const params = this.remoteRtp(description, transceiver);
           // register ssrc receiver
           this.router.registerRtpReceiverBySsrc(transceiver, params);
-
+        }
+        if (["sendonly", "sendrecv"].includes(mediaDirection)) {
           // assign msid
           if (media.msid != undefined) {
             const [streamId, trackId] = media.msid.split(" ");
@@ -803,12 +805,14 @@ export class RTCPeerConnection extends EventTarget {
     transceiver: RTCRtpTransceiver,
     stream: MediaStream
   ) {
-    this.emit("track", {
+    const event: OnTrackEvent = {
       track,
       streams: [stream],
       transceiver,
       receiver: transceiver.receiver,
-    });
+    };
+    this.emit("track", event);
+    if (this.ontrack) this.ontrack(event);
   }
 
   addTransceiver(
