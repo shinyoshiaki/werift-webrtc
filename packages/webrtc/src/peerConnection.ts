@@ -94,7 +94,7 @@ export class RTCPeerConnection extends EventTarget {
   onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
   onnegotiationneeded?: (e: any) => void;
   onsignalingstatechange?: (e: any) => void;
-  ontrack?: (e: OnTrackEvent) => void;
+  ontrack?: (e: RTCTrackEvent) => void;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -403,10 +403,10 @@ export class RTCPeerConnection extends EventTarget {
 
     sctp.onDataChannel.subscribe((channel) => {
       this.onDataChannel.execute(channel);
-      if (this.ondatachannel) {
-        this.ondatachannel({ channel });
-      }
-      this.emit("datachannel", { channel });
+
+      const event: RTCDataChannelEvent = { channel };
+      if (this.ondatachannel) this.ondatachannel(event);
+      this.emit("datachannel", event);
     });
 
     return sctp;
@@ -808,7 +808,7 @@ export class RTCPeerConnection extends EventTarget {
     transceiver: RTCRtpTransceiver,
     stream: MediaStream
   ) {
-    const event: OnTrackEvent = {
+    const event: RTCTrackEvent = {
       track,
       streams: [stream],
       transceiver,
@@ -1182,9 +1182,13 @@ export const defaultPeerConfig: PeerConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-export interface OnTrackEvent {
+export interface RTCTrackEvent {
   track: MediaStreamTrack;
   streams: MediaStream[];
   transceiver: RTCRtpTransceiver;
   receiver: RTCRtpReceiver;
+}
+
+export interface RTCDataChannelEvent {
+  channel: RTCDataChannel;
 }
