@@ -15,6 +15,7 @@ export class RTCDataChannel extends EventTarget {
   onopen?: (() => void) | null = () => {};
   onclose?: (() => void) | null = () => {};
   onclosing?: (() => void) | null = () => {};
+  onmessage?: (ev: { data: string | Buffer }) => void;
   // todo impl
   onerror?: ((props: { error: any }) => void) | null = () => {};
   isCreatedByRemote = false;

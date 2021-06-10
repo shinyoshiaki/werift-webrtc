@@ -9,7 +9,7 @@ export const SignalingStates = [
   "closed",
 ] as const;
 
-export type SignalingState = typeof SignalingStates[number];
+export type RTCSignalingState = typeof SignalingStates[number];
 
 export const ConnectionStates = [
   "closed",

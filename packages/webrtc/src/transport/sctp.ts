@@ -174,6 +174,7 @@ export class RTCSctpTransport {
         })();
         channel.message.execute(msg);
         channel.emit("message", { data: msg });
+        if (channel.onmessage) channel.onmessage({ data: msg });
       }
     }
   };

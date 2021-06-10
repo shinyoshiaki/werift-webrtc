@@ -41,16 +41,16 @@ import {
   RTCDtlsTransport,
 } from "./transport/dtls";
 import {
+  IceCandidate,
   IceGathererState,
   IceTransportState,
   RTCIceCandidate,
-  RTCIceCandidateJSON,
   RTCIceGatherer,
   RTCIceParameters,
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
-import { ConnectionState, Kind, SignalingState } from "./types/domain";
+import { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import {
   andDirection,
   parseIceServers,
@@ -71,12 +71,12 @@ export class RTCPeerConnection extends EventTarget {
   connectionState: ConnectionState = "new";
   iceConnectionState: IceTransportState = "new";
   iceGatheringState: IceGathererState = "new";
-  signalingState: SignalingState = "stable";
+  signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   readonly transceivers: RTCRtpTransceiver[] = [];
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[IceTransportState]>();
-  readonly signalingStateChange = new Event<[SignalingState]>();
+  readonly signalingStateChange = new Event<[RTCSignalingState]>();
   readonly connectionStateChange = new Event<[ConnectionState]>();
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
@@ -91,10 +91,11 @@ export class RTCPeerConnection extends EventTarget {
 
   ondatachannel?: ((event: { channel: RTCDataChannel }) => void) | null =
     () => {};
-  onicecandidate?: (e: { candidate: RTCIceCandidateJSON }) => void;
+  onicecandidate?: (e: { candidate: RTCIceCandidate }) => void;
   onnegotiationneeded?: (e: any) => void;
   onsignalingstatechange?: (e: any) => void;
   ontrack?: (e: RTCTrackEvent) => void;
+  onconnectionstatechange?: () => void;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -381,7 +382,7 @@ export class RTCPeerConnection extends EventTarget {
       // for chrome & firefox & maybe others
       candidate.foundation = "candidate:" + candidate.foundation;
 
-      this.onIceCandidate.execute(candidate);
+      this.onIceCandidate.execute(candidate.toJSON());
       if (this.onicecandidate)
         this.onicecandidate({ candidate: candidate.toJSON() });
       this.emit("icecandidate", { candidate });
@@ -510,8 +511,8 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  async addIceCandidate(candidateMessage: RTCIceCandidateJSON) {
-    const candidate = RTCIceCandidate.fromJSON(candidateMessage);
+  async addIceCandidate(candidateMessage: RTCIceCandidate) {
+    const candidate = IceCandidate.fromJSON(candidateMessage);
     await this.iceTransport.addRemoteCandidate(candidate);
   }
 
@@ -1010,7 +1011,7 @@ export class RTCPeerConnection extends EventTarget {
     this.emit("iceconnectionstatechange", state);
   }
 
-  private setSignalingState(state: SignalingState) {
+  private setSignalingState(state: RTCSignalingState) {
     log("signalingStateChange", state);
     this.signalingState = state;
     this.signalingStateChange.execute(state);
@@ -1021,6 +1022,7 @@ export class RTCPeerConnection extends EventTarget {
     log("connectionStateChange", state);
     this.connectionState = state;
     this.connectionStateChange.execute(state);
+    if (this.onconnectionstatechange) this.onconnectionstatechange();
     this.emit("connectionstatechange");
   }
 

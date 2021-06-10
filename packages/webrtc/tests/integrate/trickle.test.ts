@@ -19,7 +19,7 @@ describe("trickle", () => {
         });
 
         pcOffer.onIceCandidate.subscribe((candidate) => {
-          pcAnswer.addIceCandidate(candidate.toJSON());
+          pcAnswer.addIceCandidate(candidate);
         });
 
         const dc = pcOffer.createDataChannel("dc");
@@ -58,10 +58,10 @@ describe("trickle", () => {
         });
 
         pcOffer.onIceCandidate.subscribe((candidate) => {
-          pcAnswer.addIceCandidate(candidate.toJSON());
+          pcAnswer.addIceCandidate(candidate);
         });
         pcAnswer.onIceCandidate.subscribe((candidate) => {
-          pcOffer.addIceCandidate(candidate.toJSON());
+          pcOffer.addIceCandidate(candidate);
         });
 
         const dc = pcOffer.createDataChannel("dc");

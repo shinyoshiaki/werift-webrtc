@@ -14,7 +14,8 @@
     "noUnusedLocals": false,
     "skipLibCheck": true,
     "strictNullChecks": false,
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "jsx": "react-jsx"
   },
   "include": ["e2e", "examples"]
 }

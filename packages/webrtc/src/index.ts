@@ -14,7 +14,7 @@ export * from "./peerConnection";
 export { RTCSessionDescription } from "./sdp";
 export { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
 export {
-  RTCIceCandidateJSON,
+  RTCIceCandidate as RTCIceCandidateJSON,
   RTCIceGatherer,
   RTCIceTransport,
 } from "./transport/ice";

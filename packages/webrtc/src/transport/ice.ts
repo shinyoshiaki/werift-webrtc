@@ -41,7 +41,7 @@ export class RTCIceTransport {
     }
   }
 
-  addRemoteCandidate = async (candidate?: RTCIceCandidate) => {
+  addRemoteCandidate = async (candidate?: IceCandidate) => {
     if (!this.connection.remoteCandidatesEnd) {
       if (!candidate) {
         await this.connection.addRemoteCandidate(undefined);
@@ -96,7 +96,7 @@ export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = typeof IceGathererStates[number];
 
 export class RTCIceGatherer {
-  onIceCandidate: (candidate: RTCIceCandidate) => void = () => {};
+  onIceCandidate: (candidate: IceCandidate) => void = () => {};
   gatheringState: IceGathererState = "new";
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
@@ -136,7 +136,7 @@ export class RTCIceGatherer {
 }
 
 export function candidateFromIce(c: Candidate) {
-  const candidate = new RTCIceCandidate(
+  const candidate = new IceCandidate(
     c.component,
     c.foundation,
     c.host,
@@ -151,7 +151,7 @@ export function candidateFromIce(c: Candidate) {
   return candidate;
 }
 
-export function candidateToIce(x: RTCIceCandidate) {
+export function candidateToIce(x: IceCandidate) {
   return new Candidate(
     x.foundation,
     x.component,
@@ -166,13 +166,13 @@ export function candidateToIce(x: RTCIceCandidate) {
   );
 }
 
-export type RTCIceCandidateJSON = {
+export type RTCIceCandidate = {
   candidate: string;
   sdpMid: string;
   sdpMLineIndex: number;
 };
 
-export class RTCIceCandidate {
+export class IceCandidate {
   // """
   // The :class:`RTCIceCandidate` interface represents a candidate Interactive
   // Connectivity Establishment (ICE) configuration which may be used to
@@ -194,7 +194,7 @@ export class RTCIceCandidate {
     public type: string
   ) {}
 
-  toJSON(): RTCIceCandidateJSON {
+  toJSON(): RTCIceCandidate {
     return {
       candidate: candidateToSdp(this),
       sdpMLineIndex: this.sdpMLineIndex!,
@@ -202,7 +202,7 @@ export class RTCIceCandidate {
     };
   }
 
-  static fromJSON(data: RTCIceCandidateJSON) {
+  static fromJSON(data: RTCIceCandidate) {
     try {
       const candidate = candidateFromSdp(data.candidate);
       candidate.sdpMLineIndex = data.sdpMLineIndex;

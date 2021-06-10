@@ -71,7 +71,7 @@ function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
   function doExchange(localPc: RTCPeerConnection, remotePc: RTCPeerConnection) {
     localPc.onIceCandidate.subscribe((candidate) => {
       if (remotePc.signalingState !== "closed") {
-        remotePc.addIceCandidate(candidate.toJSON());
+        remotePc.addIceCandidate(candidate);
       }
     });
   }

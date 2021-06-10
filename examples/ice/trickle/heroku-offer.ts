@@ -9,7 +9,7 @@ console.log("start browser first");
   const pc = new RTCPeerConnection({});
   pc.onIceCandidate.subscribe((candidate) => {
     socket.emit("sdp", {
-      candidate: JSON.stringify(candidate.toJSON()),
+      candidate: JSON.stringify(candidate),
       roomId: "test",
     });
   });

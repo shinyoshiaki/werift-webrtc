@@ -23,7 +23,7 @@ import {
   RTCDtlsFingerprint,
   RTCDtlsParameters,
 } from "./transport/dtls";
-import { RTCIceCandidate, RTCIceParameters } from "./transport/ice";
+import { IceCandidate, RTCIceParameters } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
 import { Kind } from "./types/domain";
 
@@ -348,7 +348,7 @@ export class MediaDescription {
 
   // ICE
   iceParams?: RTCIceParameters;
-  iceCandidates: RTCIceCandidate[] = [];
+  iceCandidates: IceCandidate[] = [];
   iceCandidatesComplete = false;
   iceOptions?: string;
 
@@ -504,7 +504,7 @@ function ipAddressToSdp(addr: string) {
   return `IN IP${version} ${addr}`;
 }
 
-export function candidateToSdp(c: RTCIceCandidate) {
+export function candidateToSdp(c: IceCandidate) {
   let sdp = `${c.foundation} ${c.component} ${c.protocol} ${c.priority} ${c.ip} ${c.port} typ ${c.type}`;
   if (c.relatedAddress) {
     sdp += ` raddr ${c.relatedAddress}`;
@@ -566,7 +566,7 @@ export function candidateFromSdp(sdp: string) {
     throw new Error();
   }
 
-  const candidate = new RTCIceCandidate(
+  const candidate = new IceCandidate(
     parseInt(bits[1], 10),
     bits[0],
     bits[4],
