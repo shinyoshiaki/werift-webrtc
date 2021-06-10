@@ -51,6 +51,7 @@ import {
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
 import { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
+import { Callback, CallbackWithValue } from "./types/util";
 import {
   andDirection,
   parseIceServers,
@@ -89,12 +90,12 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onNegotiationneeded = new Event<[]>();
 
-  ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
-  onicecandidate?: (e: RTCPeerConnectionIceEvent) => void | null;
-  onnegotiationneeded?: (e: any) => void | null;
-  onsignalingstatechange?: (e: any) => void | null;
-  ontrack?: (e: RTCTrackEvent) => void | null;
-  onconnectionstatechange?: () => void | null;
+  ondatachannel?: CallbackWithValue<RTCDataChannelEvent>;
+  onicecandidate?: CallbackWithValue<RTCPeerConnectionIceEvent>;
+  onnegotiationneeded?: CallbackWithValue<any>;
+  onsignalingstatechange?: CallbackWithValue<any>;
+  ontrack?: CallbackWithValue<RTCTrackEvent>;
+  onconnectionstatechange?: Callback;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];

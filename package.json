@@ -29,6 +29,7 @@
     "test": "lerna run test",
     "test:serial": "lerna run test --concurrency 1",
     "type": "lerna run type",
+    "type:all": "yarn type:example && lerna run type",
     "type:example": "tsc --noEmit"
   },
   "devDependencies": {

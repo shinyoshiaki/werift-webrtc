@@ -3,6 +3,7 @@ import { Event } from "rx.mini";
 
 import { EventTarget } from "./helper";
 import { RTCSctpTransport } from "./transport/sctp";
+import { Callback, CallbackWithValue } from "./types/util";
 
 const log = debug("werift/webrtc/datachannel");
 
@@ -12,12 +13,12 @@ export class RTCDataChannel extends EventTarget {
   // todo impl
   readonly error = new Event<[Error]>();
   readonly bufferedAmountLow = new Event();
-  onopen?: (() => void) | null = () => {};
-  onclose?: (() => void) | null = () => {};
-  onclosing?: (() => void) | null = () => {};
-  onmessage?: (ev: { data: string | Buffer }) => void;
+  onopen?: Callback;
+  onclose?: Callback;
+  onclosing?: Callback;
+  onmessage?: CallbackWithValue<MessageEvent>;
   // todo impl
-  onerror?: ((props: { error: any }) => void) | null = () => {};
+  onerror?: CallbackWithValue<RTCErrorEvent>;
   isCreatedByRemote = false;
   id: number = this.parameters.id;
   readyState: DCState = "connecting";
@@ -141,4 +142,12 @@ export class RTCDataChannelParameters {
   constructor(props: Partial<RTCDataChannelParameters> = {}) {
     Object.assign(this, props);
   }
+}
+
+export interface MessageEvent {
+  data: string | Buffer;
+}
+
+export interface RTCErrorEvent {
+  error: any;
 }
