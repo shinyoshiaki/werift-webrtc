@@ -5,9 +5,9 @@ import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 export class RTCIceTransport {
   connection = this.gather.connection;
-  state: IceTransportState = "new";
+  state: RTCIceConnectionState = "new";
 
-  readonly onStateChange = new Event<[IceTransportState]>();
+  readonly onStateChange = new Event<[RTCIceConnectionState]>();
 
   private waitStart?: Event<[]>;
 
@@ -26,7 +26,7 @@ export class RTCIceTransport {
     else return "controlled";
   }
 
-  private setState(state: IceTransportState) {
+  private setState(state: RTCIceConnectionState) {
     if (state !== this.state) {
       this.state = state;
 
@@ -90,7 +90,7 @@ export const IceTransportStates = [
   "failed",
   "closed",
 ] as const;
-export type IceTransportState = typeof IceTransportStates[number];
+export type RTCIceConnectionState = typeof IceTransportStates[number];
 
 export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = typeof IceGathererStates[number];

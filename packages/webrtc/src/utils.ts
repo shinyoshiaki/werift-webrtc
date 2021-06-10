@@ -7,7 +7,7 @@ import { performance } from "perf_hooks";
 import { Address } from "../../ice/src";
 import { RtpHeader, RtpPacket } from "../../rtp/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
-import { IceServer } from "./peerConnection";
+import { RTCIceServer } from "./peerConnection";
 const now = require("nano-time");
 
 const log = debug("werift/webrtc/utils");
@@ -97,7 +97,7 @@ export function uint24(v: number) {
   return v & 0xffffff;
 }
 
-export function parseIceServers(iceServers: IceServer[]) {
+export function parseIceServers(iceServers: RTCIceServer[]) {
   const url2Address = (url?: string) => {
     if (!url) return;
     const [address, port] = url.split(":");

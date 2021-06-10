@@ -1,16 +1,12 @@
 import { parseIceServers } from "../src";
-import { IceServer } from "../src/peerConnection";
+import { RTCIceServer } from "../src/peerConnection";
 
 describe("utils", () => {
   describe("parseIceServers", () => {
     test("stun", () => {
       const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
-      const {
-        stunServer,
-        turnPassword,
-        turnServer,
-        turnUsername,
-      } = parseIceServers(iceServers);
+      const { stunServer, turnPassword, turnServer, turnUsername } =
+        parseIceServers(iceServers);
       expect(stunServer).toEqual(["stun.l.google.com", 19302]);
       expect(turnPassword).toBeFalsy();
       expect(turnServer).toBeFalsy();
@@ -18,19 +14,15 @@ describe("utils", () => {
     });
 
     test("turn", () => {
-      const iceServers: IceServer[] = [
+      const iceServers: RTCIceServer[] = [
         {
           urls: "turn:turn.l.google.com:19302",
           credential: "credential",
           username: "username",
         },
       ];
-      const {
-        stunServer,
-        turnPassword,
-        turnServer,
-        turnUsername,
-      } = parseIceServers(iceServers);
+      const { stunServer, turnPassword, turnServer, turnUsername } =
+        parseIceServers(iceServers);
       expect(stunServer).toBeFalsy();
       expect(turnServer).toEqual(["turn.l.google.com", 19302]);
       expect(turnUsername).toBe("username");
@@ -38,7 +30,7 @@ describe("utils", () => {
     });
 
     test("turn & stun", () => {
-      const iceServers: IceServer[] = [
+      const iceServers: RTCIceServer[] = [
         {
           urls: "turn:turn.l.google.com:19302",
           credential: "credential",
@@ -46,12 +38,8 @@ describe("utils", () => {
         },
         { urls: "stun:stun.l.google.com:19302" },
       ];
-      const {
-        stunServer,
-        turnPassword,
-        turnServer,
-        turnUsername,
-      } = parseIceServers(iceServers);
+      const { stunServer, turnPassword, turnServer, turnUsername } =
+        parseIceServers(iceServers);
       expect(stunServer).toEqual(["stun.l.google.com", 19302]);
       expect(turnServer).toEqual(["turn.l.google.com", 19302]);
       expect(turnUsername).toBe("username");

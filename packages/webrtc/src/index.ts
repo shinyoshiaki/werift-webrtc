@@ -1,23 +1,15 @@
 export * from "../../rtp/src";
-export { RTCDataChannel } from "./dataChannel";
+export * from "./dataChannel";
 export * from "./extension/rtcpFeedback";
 export * from "./extension/rtpExtension";
 export * from "./helper";
 export * from "./media/parameters";
-export {
-  Direction,
-  RTCRtpTransceiver,
-  TransceiverOptions,
-} from "./media/rtpTransceiver";
+export * from "./media/rtpTransceiver";
 export * from "./media/track";
 export * from "./peerConnection";
-export { RTCSessionDescription } from "./sdp";
-export { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
-export {
-  RTCIceCandidate as RTCIceCandidateJSON,
-  RTCIceGatherer,
-  RTCIceTransport,
-} from "./transport/ice";
-export { RTCSctpTransport } from "./transport/sctp";
-export { Kind } from "./types/domain";
+export * from "./sdp";
+export * from "./transport/dtls";
+export * from "./transport/ice";
+export * from "./transport/sctp";
+export * from "./types/domain";
 export * from "./utils";

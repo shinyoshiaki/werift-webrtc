@@ -43,8 +43,8 @@ import {
 import {
   IceCandidate,
   IceGathererState,
-  IceTransportState,
   RTCIceCandidate,
+  RTCIceConnectionState,
   RTCIceGatherer,
   RTCIceParameters,
   RTCIceTransport,
@@ -69,13 +69,13 @@ export class RTCPeerConnection extends EventTarget {
   configuration: Required<PeerConfig> =
     cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
-  iceConnectionState: IceTransportState = "new";
+  iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   readonly transceivers: RTCRtpTransceiver[] = [];
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
-  readonly iceConnectionStateChange = new Event<[IceTransportState]>();
+  readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
   readonly signalingStateChange = new Event<[RTCSignalingState]>();
   readonly connectionStateChange = new Event<[ConnectionState]>();
   readonly onDataChannel = new Event<[RTCDataChannel]>();
@@ -89,13 +89,12 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onNegotiationneeded = new Event<[]>();
 
-  ondatachannel?: ((event: { channel: RTCDataChannel }) => void) | null =
-    () => {};
-  onicecandidate?: (e: { candidate: RTCIceCandidate }) => void;
-  onnegotiationneeded?: (e: any) => void;
-  onsignalingstatechange?: (e: any) => void;
-  ontrack?: (e: RTCTrackEvent) => void;
-  onconnectionstatechange?: () => void;
+  ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
+  onicecandidate?: (e: RTCPeerConnectionIceEvent) => void | null;
+  onnegotiationneeded?: (e: any) => void | null;
+  onsignalingstatechange?: (e: any) => void | null;
+  ontrack?: (e: RTCTrackEvent) => void | null;
+  onconnectionstatechange?: () => void | null;
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
@@ -1004,7 +1003,7 @@ export class RTCPeerConnection extends EventTarget {
     this.emit("icegatheringstatechange", state);
   }
 
-  private updateIceConnectionState(state: IceTransportState) {
+  private updateIceConnectionState(state: RTCIceConnectionState) {
     log("iceConnectionStateChange", state);
     this.iceConnectionState = state;
     this.iceConnectionStateChange.execute(state);
@@ -1143,10 +1142,10 @@ export interface PeerConfig {
     video: RTCRtpHeaderExtensionParameters[];
   }>;
   iceTransportPolicy: "all" | "relay";
-  iceServers: IceServer[];
+  iceServers: RTCIceServer[];
 }
 
-export type IceServer = {
+export type RTCIceServer = {
   urls: string;
   username?: string;
   credential?: string;
@@ -1193,4 +1192,8 @@ export interface RTCTrackEvent {
 
 export interface RTCDataChannelEvent {
   channel: RTCDataChannel;
+}
+
+export interface RTCPeerConnectionIceEvent {
+  candidate: RTCIceCandidate;
 }
