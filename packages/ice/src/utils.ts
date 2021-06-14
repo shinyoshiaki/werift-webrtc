@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import debug from "debug";
+import { createSocket, SocketType } from "dgram";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 
@@ -81,3 +82,32 @@ export const future = (pCancel: PCancelable<any>) => {
 };
 
 export type Future = ReturnType<typeof future>;
+
+export async function findPort(
+  min: number,
+  max: number,
+  protocol: SocketType = "udp4"
+) {
+  let port: number | undefined;
+
+  for (let i = min; i <= max; i++) {
+    const socket = createSocket(protocol);
+
+    setImmediate(() => socket.bind(i));
+
+    await new Promise<void>((r) => {
+      socket.once("error", r);
+      socket.once("listening", r);
+    });
+
+    port = socket.address()?.port;
+    socket.close();
+    if (min <= port && port <= max) {
+      break;
+    }
+  }
+
+  if (port == undefined) throw new Error("port not found");
+
+  return port;
+}

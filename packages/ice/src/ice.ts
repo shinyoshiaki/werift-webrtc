@@ -46,6 +46,7 @@ export interface IceOptions {
   forceTurn?: boolean;
   useIpv4: boolean;
   useIpv6: boolean;
+  portRange?: [number, number];
 }
 
 const defaultOptions: IceOptions = {
@@ -141,12 +142,12 @@ export class Connection {
     for (const address of addresses) {
       // # create transport
       const protocol = new StunProtocol(this);
-      await protocol.connectionMade(isIPv4(address));
+      await protocol.connectionMade(isIPv4(address), this.options.portRange);
       protocol.localAddress = address;
       this.protocols.push(protocol);
 
       // # add host candidate
-      const candidateAddress: Address = [address, protocol.getExtraInfo[1]];
+      const candidateAddress: Address = [address, protocol.getExtraInfo()[1]];
 
       protocol.localCandidate = new Candidate(
         candidateFoundation("host", "udp", candidateAddress[0]),
