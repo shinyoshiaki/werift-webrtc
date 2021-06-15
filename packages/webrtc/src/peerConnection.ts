@@ -122,7 +122,12 @@ export class RTCPeerConnection extends EventTarget {
     if (iceServers) this.configuration.iceServers = iceServers;
     if (iceTransportPolicy)
       this.configuration.iceTransportPolicy = iceTransportPolicy;
-    if (icePortRange) this.configuration.icePortRange = icePortRange;
+    if (icePortRange) {
+      const [min, max] = icePortRange;
+      if (min === max) throw new Error("should not be same value");
+      if (min >= max) throw new Error("The min must be less than max");
+      this.configuration.icePortRange = icePortRange;
+    }
     if (codecs?.audio) this.configuration.codecs.audio = codecs.audio;
     if (codecs?.video) this.configuration.codecs.video = codecs.video;
 

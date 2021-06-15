@@ -35,7 +35,7 @@ describe("iceTransport", () => {
     expect(transport2.state).toBe("closed");
   });
 
-  test("portRange", async () => {
+  xtest("portRange", async () => {
     const gatherer = new RTCIceGatherer({
       stunServer: ["stun.l.google.com", 19302],
       portRange: [44444, 44455],
@@ -46,6 +46,21 @@ describe("iceTransport", () => {
     const candidates = gatherer.localCandidates;
     for (const candidate of candidates) {
       expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
+    }
+    await gatherer.connection.close();
+  });
+
+  xtest("minimum target port", async () => {
+    const gatherer = new RTCIceGatherer({
+      stunServer: ["stun.l.google.com", 19302],
+      portRange: [44546, 44547],
+    });
+
+    await gatherer.gather();
+
+    const candidates = gatherer.localCandidates;
+    for (const candidate of candidates) {
+      expect(inRange(candidate.port, 44546, 44547 + 1)).toBeTruthy();
     }
     await gatherer.connection.close();
   });

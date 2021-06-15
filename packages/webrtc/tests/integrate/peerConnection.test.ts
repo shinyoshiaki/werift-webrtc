@@ -126,7 +126,7 @@ describe("peerConnection", () => {
       await assertDataChannelOpen(dc);
     }));
 
-  test("portRange", async () => {
+  xtest("portRange", async () => {
     const peer = new RTCPeerConnection({ icePortRange: [44444, 44455] });
     peer.createDataChannel("test");
     const offer = await peer.createOffer();

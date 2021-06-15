@@ -107,7 +107,7 @@ export async function findPort(
     }
   }
 
-  if (port == undefined) throw new Error("port not found");
+  if (!port) throw new Error("port not found");
 
   return port;
 }
