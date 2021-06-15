@@ -1147,6 +1147,7 @@ export interface PeerConfig {
   }>;
   iceTransportPolicy: "all" | "relay";
   iceServers: RTCIceServer[];
+  /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
 }
 

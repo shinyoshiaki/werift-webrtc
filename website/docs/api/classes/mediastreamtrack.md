@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L24)
+[packages/webrtc/src/media/track.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L25)
 
 ## Properties
 
@@ -40,7 +40,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L17)
+[packages/webrtc/src/media/track.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L18)
 
 ___
 
@@ -52,7 +52,7 @@ todo impl
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L19)
+[packages/webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L20)
 
 ___
 
@@ -62,17 +62,17 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L16)
+[packages/webrtc/src/media/track.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L17)
 
 ___
 
 ### id
 
-• **id**: `string`
+• `Optional` **id**: `string`
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L12)
+[packages/webrtc/src/media/track.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L14)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L13)
+[packages/webrtc/src/media/track.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L13)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L11)
+[packages/webrtc/src/media/track.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L12)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L24)
+[packages/webrtc/src/media/track.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L25)
 
 ___
 
@@ -112,7 +112,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L21)
+[packages/webrtc/src/media/track.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L22)
 
 ___
 
@@ -122,7 +122,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L10)
+[packages/webrtc/src/media/track.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L11)
 
 ___
 
@@ -132,7 +132,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L15)
+[packages/webrtc/src/media/track.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L16)
 
 ___
 
@@ -142,7 +142,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L14)
+[packages/webrtc/src/media/track.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L15)
 
 ___
 
@@ -152,7 +152,17 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L23)
+[packages/webrtc/src/media/track.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L24)
+
+___
+
+### uuid
+
+• `Readonly` **uuid**: `string`
+
+#### Defined in
+
+[packages/webrtc/src/media/track.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L10)
 
 ___
 
@@ -243,7 +253,7 @@ node_modules/@types/node/events.d.ts:45
 
 #### Defined in
 
-[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/helper.ts#L37)
+[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/helper.ts#L37)
 
 ___
 
@@ -575,7 +585,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/helper.ts#L41)
+[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/helper.ts#L41)
 
 ___
 
@@ -638,7 +648,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L40)
+[packages/webrtc/src/media/track.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L41)
 
 ___
 
@@ -658,7 +668,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/track.ts#L46)
+[packages/webrtc/src/media/track.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L47)
 
 ___
 

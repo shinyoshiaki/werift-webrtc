@@ -14,7 +14,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1102](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/peerConnection.ts#L1102)
+[packages/webrtc/src/peerConnection.ts:1140](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1140)
 
 ___
 
@@ -24,17 +24,29 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1106](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/peerConnection.ts#L1106)
+[packages/webrtc/src/peerConnection.ts:1144](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1144)
+
+___
+
+### icePortRange
+
+• **icePortRange**: `undefined` \| [`number`, `number`]
+
+Minimum port and Maximum port must not be the same value
+
+#### Defined in
+
+[packages/webrtc/src/peerConnection.ts:1151](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1151)
 
 ___
 
 ### iceServers
 
-• **iceServers**: `IceServer`[]
+• **iceServers**: [RTCIceServer](../modules.md#rtciceserver)[]
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1111](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/peerConnection.ts#L1111)
+[packages/webrtc/src/peerConnection.ts:1149](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1149)
 
 ___
 
@@ -44,4 +56,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1110](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/peerConnection.ts#L1110)
+[packages/webrtc/src/peerConnection.ts:1148](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1148)

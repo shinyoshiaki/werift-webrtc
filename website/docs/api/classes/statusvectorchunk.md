@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L303)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L303)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:302](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L302)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:302](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L302)
 
 ## Methods
 
@@ -64,7 +64,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:331](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L331)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:331](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L331)
 
 ___
 
@@ -84,4 +84,4 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:310](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/rtpfb/twcc.ts#L310)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:310](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L310)

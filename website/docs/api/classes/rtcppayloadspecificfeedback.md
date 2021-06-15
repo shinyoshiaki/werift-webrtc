@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/index.ts#L20)
+[packages/rtp/src/rtcp/psfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/index.ts#L20)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/index.ts#L20)
+[packages/rtp/src/rtcp/psfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/index.ts#L20)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/index.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/index.ts#L18)
+[packages/rtp/src/rtcp/psfb/index.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/index.ts#L18)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/index.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/index.ts#L17)
+[packages/rtp/src/rtcp/psfb/index.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/index.ts#L17)
 
 ## Methods
 
@@ -64,7 +64,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/index.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/index.ts#L26)
+[packages/rtp/src/rtcp/psfb/index.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/index.ts#L26)
 
 ___
 
@@ -85,4 +85,4 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/index.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/index.ts#L36)
+[packages/rtp/src/rtcp/psfb/index.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/index.ts#L36)

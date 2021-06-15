@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L15)
+[packages/rtp/src/rtcp/psfb/remb.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L15)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L14)
+[packages/rtp/src/rtcp/psfb/remb.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L14)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L12)
+[packages/rtp/src/rtcp/psfb/remb.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L12)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L13)
+[packages/rtp/src/rtcp/psfb/remb.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L13)
 
 ___
 
@@ -60,7 +60,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L7)
+[packages/rtp/src/rtcp/psfb/remb.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L7)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L6)
+[packages/rtp/src/rtcp/psfb/remb.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L6)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L9)
+[packages/rtp/src/rtcp/psfb/remb.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L9)
 
 ___
 
@@ -90,7 +90,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L8)
+[packages/rtp/src/rtcp/psfb/remb.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L8)
 
 ___
 
@@ -100,7 +100,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L15)
+[packages/rtp/src/rtcp/psfb/remb.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L15)
 
 ___
 
@@ -110,7 +110,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L11)
+[packages/rtp/src/rtcp/psfb/remb.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L11)
 
 ___
 
@@ -120,7 +120,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L10)
+[packages/rtp/src/rtcp/psfb/remb.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L10)
 
 ___
 
@@ -130,7 +130,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L5)
+[packages/rtp/src/rtcp/psfb/remb.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L5)
 
 ## Methods
 
@@ -144,7 +144,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L51)
+[packages/rtp/src/rtcp/psfb/remb.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L51)
 
 ___
 
@@ -164,4 +164,4 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/psfb/remb.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/rtp/src/rtcp/psfb/remb.ts#L21)
+[packages/rtp/src/rtcp/psfb/remb.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/psfb/remb.ts#L21)

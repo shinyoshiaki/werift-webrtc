@@ -21,7 +21,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:591](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/sdp.ts#L591)
+[packages/webrtc/src/sdp.ts:596](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L596)
 
 ## Properties
 
@@ -39,12 +39,12 @@ ___
 
 ### object
 
-• `get` **object**(): `SessionDescription`
+• `get` **object**(): [SessionDescription](sessiondescription.md)
 
 #### Returns
 
-`SessionDescription`
+[SessionDescription](sessiondescription.md)
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:594](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/sdp.ts#L594)
+[packages/webrtc/src/sdp.ts:599](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L599)

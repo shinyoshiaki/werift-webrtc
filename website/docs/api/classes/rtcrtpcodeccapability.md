@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/parameters.ts#L13)
+[packages/webrtc/src/media/parameters.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L13)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/parameters.ts#L12)
+[packages/webrtc/src/media/parameters.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L12)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/parameters.ts#L11)
+[packages/webrtc/src/media/parameters.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L11)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/parameters.ts#L10)
+[packages/webrtc/src/media/parameters.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L10)
 
 ___
 
@@ -60,7 +60,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/parameters.ts#L13)
+[packages/webrtc/src/media/parameters.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L13)
 
 ## Accessors
 
@@ -74,4 +74,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/media/parameters.ts#L18)
+[packages/webrtc/src/media/parameters.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L18)

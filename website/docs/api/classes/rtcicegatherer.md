@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L103)
+[packages/webrtc/src/transport/ice.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L103)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L103)
+[packages/webrtc/src/transport/ice.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L103)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:100](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L100)
+[packages/webrtc/src/transport/ice.ts:100](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L100)
 
 ___
 
@@ -50,13 +50,13 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L102)
+[packages/webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L102)
 
 ___
 
 ### onIceCandidate
 
-• **onIceCandidate**: (`candidate`: `RTCIceCandidate`) => `void`
+• **onIceCandidate**: (`candidate`: [IceCandidate](icecandidate.md)) => `void`
 
 #### Type declaration
 
@@ -66,7 +66,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `candidate` | `RTCIceCandidate` |
+| `candidate` | [IceCandidate](icecandidate.md) |
 
 ##### Returns
 
@@ -74,35 +74,35 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L99)
+[packages/webrtc/src/transport/ice.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L99)
 
 ## Accessors
 
 ### localCandidates
 
-• `get` **localCandidates**(): `RTCIceCandidate`[]
+• `get` **localCandidates**(): [IceCandidate](icecandidate.md)[]
 
 #### Returns
 
-`RTCIceCandidate`[]
+[IceCandidate](icecandidate.md)[]
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:117](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L117)
+[packages/webrtc/src/transport/ice.ts:117](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L117)
 
 ___
 
 ### localParameters
 
-• `get` **localParameters**(): `RTCIceParameters`
+• `get` **localParameters**(): [RTCIceParameters](rtciceparameters.md)
 
 #### Returns
 
-`RTCIceParameters`
+[RTCIceParameters](rtciceparameters.md)
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:121](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L121)
+[packages/webrtc/src/transport/ice.ts:121](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L121)
 
 ## Methods
 
@@ -116,7 +116,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:107](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L107)
+[packages/webrtc/src/transport/ice.ts:107](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L107)
 
 ___
 
@@ -136,4 +136,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:130](https://github.com/shinyoshiaki/werift-webrtc/blob/9b072fd/packages/webrtc/src/transport/ice.ts#L130)
+[packages/webrtc/src/transport/ice.ts:130](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L130)
