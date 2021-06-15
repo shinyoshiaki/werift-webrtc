@@ -1,6 +1,6 @@
 import { Connection } from "../../src";
-import { assertCandidateTypes } from "../utils";
 import { sleep } from "../../tests/utils";
+import { assertCandidateTypes } from "../utils";
 
 describe("IceTrickleTest", () => {
   test("test_trickle_connect", async () => {

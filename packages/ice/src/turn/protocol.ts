@@ -1,6 +1,5 @@
 import { createHash } from "crypto";
 import debug from "debug";
-import { createSocket } from "dgram";
 import { jspack } from "jspack";
 import PCancelable from "p-cancelable";
 import Event from "rx.mini";
@@ -11,6 +10,7 @@ import { Connection } from "../ice";
 import { classes, methods } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
+import { Transport, UdpTransport } from "../transport";
 import { Address, Protocol } from "../types/model";
 import { Future, future, randomTransactionId } from "../utils";
 
@@ -284,16 +284,26 @@ export async function createTurnEndpoint(
   serverAddr: Address,
   username: string,
   password: string,
-  lifetime = 600,
-  ssl = false,
-  transport = "udp"
+  {
+    lifetime,
+    portRange,
+  }: {
+    lifetime?: number;
+    ssl?: boolean;
+    transport?: "udp";
+    portRange?: [number, number];
+  }
 ) {
+  if (lifetime == undefined) lifetime = 600;
+
+  const transport = await UdpTransport.init("udp4", portRange);
+
   const turnClient = new TurnClient(
     serverAddr,
     username,
     password,
     lifetime,
-    new UdpTransport()
+    transport
   );
 
   await turnClient.connectionMade();
@@ -307,34 +317,6 @@ function makeIntegrityKey(username: string, realm: string, password: string) {
   return createHash("md5")
     .update(Buffer.from([username, realm, password].join(":")))
     .digest();
-}
-
-interface Transport {
-  onData: (data: Buffer, addr: Address) => void;
-  send: (data: Buffer, addr: Address) => Promise<void>;
-}
-
-class UdpTransport implements Transport {
-  socket = createSocket("udp4");
-  onData: (data: Buffer, addr: Address) => void = () => {};
-  _address?: Address;
-  constructor() {
-    this.socket.bind();
-    this.socket.on("message", (data, rInfo) => {
-      this._address = [rInfo.address, rInfo.port];
-      this.onData(data, this._address);
-    });
-  }
-
-  send = (data: Buffer, addr: Address) =>
-    new Promise<void>((r) =>
-      this.socket.send(data, addr[1], addr[0], (error) => {
-        if (error) {
-          log("send error", addr, data);
-        }
-        r();
-      })
-    );
 }
 
 function isChannelData(data: Buffer) {
