@@ -115,30 +115,32 @@ export class RTCPeerConnection extends EventTarget {
     headerExtensions,
     iceServers,
     iceTransportPolicy,
+    icePortRange,
   }: Partial<PeerConfig> = {}) {
     super();
 
     if (iceServers) this.configuration.iceServers = iceServers;
     if (iceTransportPolicy)
       this.configuration.iceTransportPolicy = iceTransportPolicy;
-    if (codecs?.audio) {
-      this.configuration.codecs.audio = codecs.audio;
+    if (icePortRange) {
+      const [min, max] = icePortRange;
+      if (min === max) throw new Error("should not be same value");
+      if (min >= max) throw new Error("The min must be less than max");
+      this.configuration.icePortRange = icePortRange;
     }
-    if (codecs?.video) {
-      this.configuration.codecs.video = codecs.video;
-    }
+    if (codecs?.audio) this.configuration.codecs.audio = codecs.audio;
+    if (codecs?.video) this.configuration.codecs.video = codecs.video;
+
     [
       ...(this.configuration.codecs.audio || []),
       ...(this.configuration.codecs.video || []),
     ].forEach((v, i) => {
       v.payloadType = 96 + i;
     });
-    if (headerExtensions?.audio) {
+    if (headerExtensions?.audio)
       this.configuration.headerExtensions.audio = headerExtensions.audio;
-    }
-    if (headerExtensions?.video) {
+    if (headerExtensions?.video)
       this.configuration.headerExtensions.video = headerExtensions.video;
-    }
     [
       ...(this.configuration.headerExtensions.audio || []),
       ...(this.configuration.headerExtensions.video || []),
@@ -358,6 +360,7 @@ export class RTCPeerConnection extends EventTarget {
     const iceGatherer = new RTCIceGatherer({
       ...parseIceServers(this.configuration.iceServers),
       forceTurn: this.configuration.iceTransportPolicy === "relay",
+      portRange: this.configuration.icePortRange,
     });
     iceGatherer.onGatheringStateChange.subscribe((state) => {
       this.updateIceGatheringState(state);
@@ -480,7 +483,7 @@ export class RTCPeerConnection extends EventTarget {
     this.setLocal(description);
 
     // # gather candidates
-    await this.dtlsTransport.iceTransport.iceGather.gather();
+    await this.iceTransport.iceGather.gather();
     description.media.map((media) => {
       addTransportDescription(media, this.dtlsTransport);
     });
@@ -1144,6 +1147,7 @@ export interface PeerConfig {
   }>;
   iceTransportPolicy: "all" | "relay";
   iceServers: RTCIceServer[];
+  icePortRange: [number, number] | undefined;
 }
 
 export type RTCIceServer = {
@@ -1182,6 +1186,7 @@ export const defaultPeerConfig: PeerConfig = {
   headerExtensions: { audio: [], video: [] },
   iceTransportPolicy: "all",
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  icePortRange: undefined,
 };
 
 export interface RTCTrackEvent {

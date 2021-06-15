@@ -101,7 +101,7 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   const url2Address = (url?: string) => {
     if (!url) return;
     const [address, port] = url.split(":");
-    return [address, Number(port)] as Address;
+    return [address, parseInt(port)] as Address;
   };
 
   const stunServer = url2Address(
