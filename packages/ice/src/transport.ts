@@ -6,7 +6,7 @@ import { findPort } from "./utils";
 
 const log = debug("werift/ice/transport");
 
-export class UdpTransport {
+export class UdpTransport implements Transport {
   private socket = createSocket(this.type);
   onData: (data: Buffer, addr: Address) => void = () => {};
 
@@ -67,4 +67,9 @@ export class UdpTransport {
         r();
       }
     });
+}
+
+export interface Transport {
+  onData: (data: Buffer, addr: Address) => void;
+  send: (data: Buffer, addr: Address) => Promise<void>;
 }

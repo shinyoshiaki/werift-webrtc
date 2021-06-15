@@ -207,7 +207,8 @@ export class Connection {
       const protocol = await createTurnEndpoint(
         this.turnServer,
         this.options.turnUsername,
-        this.options.turnPassword
+        this.options.turnPassword,
+        { portRange: this.options.portRange }
       );
       this.protocols.push(protocol);
 
