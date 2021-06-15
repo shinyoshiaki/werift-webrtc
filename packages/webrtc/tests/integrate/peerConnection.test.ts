@@ -1,3 +1,5 @@
+import { inRange } from "lodash";
+
 import { RTCDataChannel, RTCPeerConnection } from "../../src";
 
 describe("peerConnection", () => {
@@ -123,6 +125,19 @@ describe("peerConnection", () => {
       await assertIceCompleted(pcOffer, pcAnswer);
       await assertDataChannelOpen(dc);
     }));
+
+  test("portRange", async () => {
+    const peer = new RTCPeerConnection({ icePortRange: [44444, 44455] });
+    peer.createDataChannel("test");
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+
+    const candidates = peer.iceTransport.iceGather.localCandidates;
+    for (const candidate of candidates) {
+      expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
+    }
+    await peer.close();
+  });
 });
 
 function assertHasIceCandidate(sdp: string) {
