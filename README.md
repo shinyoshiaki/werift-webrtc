@@ -59,6 +59,8 @@ see console & chrome://webrtc-internals/
 - [x] ICE
   - [x] Vanilla ICE
   - [x] Trickle ICE
+  - [x] ICE-Lite Client Side
+  - [ ] ICE-Lite Server Side
 - [x] DTLS
   - [x] DTLS-SRTP
   - [x] Curve25519
