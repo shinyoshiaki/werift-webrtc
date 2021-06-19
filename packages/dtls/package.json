@@ -31,7 +31,7 @@
     "@peculiar/webcrypto": "^1.1.6",
     "@peculiar/x509": "^1.2.2",
     "binary-data": "^0.6.0",
-    "date-fns": "^2.21.3",
+    "date-fns": "^2.22.1",
     "elliptic": "^6.5.3",
     "lodash": "^4.17.20",
     "rx.mini": "^1.1.0",
