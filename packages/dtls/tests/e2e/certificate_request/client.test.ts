@@ -1,8 +1,9 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
+
 import { createUdpTransport, DtlsClient } from "../../../src";
-import { readFileSync } from "fs";
 import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
+import { certPem, keyPem } from "../../fixture";
 
 describe("e2e/certificate_request/client", () => {
   const port = 55559;
@@ -27,8 +28,8 @@ describe("e2e/certificate_request/client", () => {
           address: "127.0.0.1",
           port,
         }),
-        cert: readFileSync("assets/cert.pem").toString(),
-        key: readFileSync("assets/key.pem").toString(),
+        cert: certPem,
+        key: keyPem,
         signatureHash: {
           hash: HashAlgorithm.sha256,
           signature: SignatureAlgorithm.rsa,

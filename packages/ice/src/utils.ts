@@ -83,6 +83,21 @@ export const future = (pCancel: PCancelable<any>) => {
 
 export type Future = ReturnType<typeof future>;
 
+export async function randomPort(protocol: SocketType = "udp4") {
+  const socket = createSocket(protocol);
+
+  setImmediate(() => socket.bind(0));
+
+  await new Promise<void>((r) => {
+    socket.once("error", r);
+    socket.once("listening", r);
+  });
+
+  const port = socket.address()?.port;
+  await new Promise<void>((r) => socket.close(() => r()));
+  return port;
+}
+
 export async function findPort(
   min: number,
   max: number,
@@ -101,7 +116,7 @@ export async function findPort(
     });
 
     port = socket.address()?.port;
-    socket.close();
+    await new Promise<void>((r) => socket.close(() => r()));
     if (min <= port && port <= max) {
       break;
     }
