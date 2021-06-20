@@ -217,24 +217,27 @@ export class Connection {
 
       log("turn candidateAddress", candidateAddress);
 
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("relay", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "relay"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "relay",
-        relatedAddress[0],
-        relatedAddress[1]
-      );
-      protocol.receiver = this;
-
       if (this.options.forceTurn) {
         candidates = [];
       }
 
-      candidates.push(protocol.localCandidate);
+      if (candidateAddress && relatedAddress) {
+        protocol.localCandidate = new Candidate(
+          candidateFoundation("relay", "udp", candidateAddress[0]),
+          component,
+          "udp",
+          candidatePriority(component, "relay"),
+          candidateAddress[0],
+          candidateAddress[1],
+          "relay",
+          relatedAddress[0],
+          relatedAddress[1]
+        );
+        protocol.receiver = this;
+        candidates.push(protocol.localCandidate);
+      } else {
+        log("candidate missing");
+      }
     }
 
     return candidates;

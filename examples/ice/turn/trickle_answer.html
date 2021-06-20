@@ -22,8 +22,6 @@
       <div class="section" id="app1"></div>
     </div>
     <script type="text/babel">
-      let rtc;
-
       const App = () => {
         const videoRef = React.useRef();
 
@@ -38,16 +36,9 @@
             );
             console.log("offer", offer.sdp);
 
-            const peer = (rtc = new RTCPeerConnection({
-              iceServers: [
-                {
-                  urls: "turn:35.200.71.35:3478",
-                  username: "webrtc",
-                  credential: "webrtc",
-                },
-              ],
-              iceTransportPolicy: "relay",
-            }));
+            const peer = new RTCPeerConnection({
+              iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            });
             peer.onicecandidate = ({ candidate }) => {
               if (candidate) {
                 socket.send(JSON.stringify(candidate));

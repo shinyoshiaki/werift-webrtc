@@ -19,6 +19,8 @@ const log = debug("werift/ice/turn/protocol");
 const TCP_TRANSPORT = 0x06000000;
 const UDP_TRANSPORT = 0x11000000;
 
+const SOFTWARE = "werift turn client";
+
 class TurnTransport implements Protocol {
   readonly type = "turn";
   localCandidate!: Candidate;
@@ -82,8 +84,8 @@ class TurnClient implements Protocol {
   integrityKey?: Buffer;
   nonce?: Buffer;
   realm?: string;
-  relayedAddress!: Address;
-  mappedAddress!: Address;
+  relayedAddress?: Address;
+  mappedAddress?: Address;
   refreshHandle?: Future;
   channelNumber = 0x4000;
   channelByAddr: { [key: string]: number } = {};
@@ -151,34 +153,58 @@ class TurnClient implements Protocol {
 
   async connect() {
     const request = new Message(methods.ALLOCATE, classes.REQUEST);
+    request.attributes.SOFTWARE = SOFTWARE;
     request.attributes["LIFETIME"] = this.lifetime;
     request.attributes["REQUESTED-TRANSPORT"] = UDP_TRANSPORT;
 
     let response: Message;
     try {
-      [response] = await this.request(request, this.server, this.integrityKey);
+      [response] = await this.request(request);
     } catch (error) {
-      log("error", error);
+      log("connect error", error?.response);
       response = (error as TransactionFailed).response;
-      if (response.attributes["ERROR-CODE"][0] === 401) {
+      const errorCode = response.attributes["ERROR-CODE"][0];
+
+      if (
+        (response.attributes.NONCE && this.username != undefined,
+        this.password != undefined &&
+          ((errorCode === 401 && response.attributes.REALM) ||
+            (errorCode === 403 && this.realm != undefined)))
+      ) {
+        if (errorCode === 401) {
+          this.realm = response.attributes.REALM;
+        }
         this.nonce = response.attributes.NONCE;
-        this.realm = response.attributes.REALM;
+
+        request.transactionId = randomTransactionId();
         this.integrityKey = makeIntegrityKey(
           this.username,
           this.realm!,
           this.password
         );
-        request.transactionId = randomTransactionId();
 
         try {
-          [response] = await this.request(
-            request,
-            this.server,
-            this.integrityKey
-          );
+          [response] = await this.request(request);
+          log("Allocate success response", response);
         } catch (error) {
-          log(error);
-          // todo fix
+          response = (error as TransactionFailed).response;
+          log("response error", response);
+
+          this.nonce = response.attributes.NONCE;
+          this.realm = response.attributes.REALM;
+          this.integrityKey = makeIntegrityKey(
+            this.username,
+            this.realm!,
+            this.password
+          );
+
+          request.transactionId = randomTransactionId();
+          try {
+            [response] = await this.request(request);
+            log("!!!!", response);
+          } catch (error) {
+            log("critical error", error?.response);
+          }
         }
       }
     }
@@ -204,32 +230,25 @@ class TurnClient implements Protocol {
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.attributes.LIFETIME = this.lifetime;
 
-        await this.request(request, this.server, this.integrityKey).catch(
+        await this.request(request).catch(
           // todo fix
           log
         );
       }
     });
 
-  async request(
-    request: Message,
-    addr: Address,
-    integrityKey?: Buffer
-  ): Promise<[Message, Address]> {
+  async request(request: Message): Promise<[Message, Address]> {
     if (this.transactions[request.transactionIdHex]) throw new Error("exist");
 
-    if (integrityKey) {
-      request.addMessageIntegrity(integrityKey);
-
+    if (this.integrityKey) {
       request.attributes["USERNAME"] = this.username;
       request.attributes["REALM"] = this.realm;
       request.attributes["NONCE"] = this.nonce;
-
+      request.addMessageIntegrity(this.integrityKey);
       request.addFingerprint();
     }
 
-    const transaction = new Transaction(request, addr, this);
-    transaction.integrityKey = integrityKey;
+    const transaction = new Transaction(request, this.server, this);
     this.transactions[request.transactionIdHex] = transaction;
 
     try {
@@ -263,14 +282,10 @@ class TurnClient implements Protocol {
     request.attributes["CHANNEL-NUMBER"] = channelNumber;
     request.attributes["XOR-PEER-ADDRESS"] = addr;
     try {
-      const [response] = await this.request(
-        request,
-        this.server,
-        this.integrityKey
-      );
+      const [response] = await this.request(request);
       if (response.messageMethod !== methods.CHANNEL_BIND) throw new Error();
     } catch (error) {
-      log(error);
+      log("channelBind", error);
       // todo fix
     }
   }
@@ -294,7 +309,7 @@ export async function createTurnEndpoint(
     portRange?: [number, number];
   }
 ) {
-  if (lifetime == undefined) lifetime = 600;
+  if (lifetime == undefined) lifetime = 3600;
 
   const transport = await UdpTransport.init("udp4", portRange);
 
