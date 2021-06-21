@@ -502,7 +502,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     }
 
-    return this.localDescription;
+    return description;
   }
 
   private setLocal(description: SessionDescription) {
