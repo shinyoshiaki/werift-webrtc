@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/sendrecv/offer.ts"
+        "${workspaceRoot}/examples/save_to_disk/separate-recoder/recoder.ts"
       ],
       "env": { "DEBUG": "*" },
       "console": "integratedTerminal",

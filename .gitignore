@@ -2,3 +2,5 @@ node_modules
 yarn-error.log
 lib
 coverage
+.parcel-cache
+dist
