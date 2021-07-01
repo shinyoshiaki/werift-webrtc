@@ -26,7 +26,7 @@ export const isKeyframe = (buf: Buffer) => {
       const pictureId = parseInt(_7 + _8, 2);
 
       if (m === 0) {
-        index += 2;
+        index += 1;
       } else {
         index += 2;
       }
