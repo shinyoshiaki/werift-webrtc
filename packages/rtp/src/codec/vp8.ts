@@ -1,48 +1,67 @@
 import { getBit, paddingByte } from "../utils";
 
-export const isKeyframe = (buf: Buffer) => {
-  let index = 0;
+export class Vp8RtpPayload {
+  x: number;
+  n: number;
+  s: number;
+  pid: number;
+  i: number;
+  l: number;
+  t: number;
+  k: number;
+  m: number;
+  pictureId: number;
+  size: number;
+  h: number;
+  ver: number;
+  p: number;
 
-  const x = getBit(buf[index], 0);
-  const n = getBit(buf[index], 2);
-  const s = getBit(buf[index], 3);
-  const pid = getBit(buf[index], 5, 3);
+  static deSerialize(buf: Buffer) {
+    const vp8 = new Vp8RtpPayload();
 
-  index++;
+    let index = 0;
 
-  if (x === 1) {
-    const i = getBit(buf[index], 0);
-    const l = getBit(buf[index], 1);
-    const t = getBit(buf[index], 2);
-    const k = getBit(buf[index], 3);
+    vp8.x = getBit(buf[index], 0);
+    vp8.n = getBit(buf[index], 2);
+    vp8.s = getBit(buf[index], 3);
+    vp8.pid = getBit(buf[index], 5, 3);
 
     index++;
 
-    if (i) {
-      const m = getBit(buf[index], 0);
+    if (vp8.x === 1) {
+      vp8.i = getBit(buf[index], 0);
+      vp8.l = getBit(buf[index], 1);
+      vp8.t = getBit(buf[index], 2);
+      vp8.k = getBit(buf[index], 3);
 
-      const _7 = paddingByte(getBit(buf[index], 1, 7));
-      const _8 = paddingByte(buf[index + 1]);
-      const pictureId = parseInt(_7 + _8, 2);
+      index++;
 
-      if (m === 0) {
-        index += 1;
-      } else {
-        index += 2;
+      if (vp8.i) {
+        vp8.m = getBit(buf[index], 0);
+
+        const _7 = paddingByte(getBit(buf[index], 1, 7));
+        const _8 = paddingByte(buf[index + 1]);
+        vp8.pictureId = parseInt(_7 + _8, 2);
+
+        if (vp8.m === 0) {
+          index++;
+        } else {
+          index += 2;
+        }
       }
     }
+
+    if (vp8.s === 1 && vp8.pid === 0) {
+      vp8.size = getBit(buf[index], 0, 3);
+      vp8.h = getBit(buf[index], 3);
+      vp8.ver = getBit(buf[index], 4, 3);
+      vp8.p = getBit(buf[index], 7);
+    }
+
+    return vp8;
   }
 
-  if (s === 1 && pid === 0) {
-    const size = getBit(buf[index], 0, 3);
-    const h = getBit(buf[index], 3);
-    const ver = getBit(buf[index], 4, 3);
-    const p = getBit(buf[index], 7);
-
-    const keyframe = p === 0;
-
-    return keyframe;
+  get isKeyframe() {
+    return this.p === 0;
   }
-
-  return false;
-};
+}

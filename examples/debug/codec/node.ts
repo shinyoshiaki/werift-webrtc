@@ -1,4 +1,4 @@
-import { RTCPeerConnection, isKeyframe } from "../../../packages/webrtc/src";
+import { RTCPeerConnection, Vp8RtpPayload } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
@@ -12,11 +12,12 @@ console.log("start");
     pc.ontrack = ({ track, transceiver }) => {
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(track.ssrc);
-      }, 1000);
+      }, 3000);
       track.onReceiveRtp.subscribe(async (rtp) => {
-        const keyframe = isKeyframe(rtp.payload);
-        if (keyframe) {
-          console.log({ keyframe });
+        const vp8 = Vp8RtpPayload.deSerialize(rtp.payload);
+
+        if (vp8.isKeyframe) {
+          console.log("on keyframe");
         }
       });
     };
