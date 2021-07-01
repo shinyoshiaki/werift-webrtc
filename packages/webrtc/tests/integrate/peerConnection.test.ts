@@ -2,6 +2,8 @@ import { inRange } from "lodash";
 
 import { RTCDataChannel, RTCPeerConnection } from "../../src";
 
+jest.setTimeout(10_000);
+
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
     new Promise<void>(async (done) => {

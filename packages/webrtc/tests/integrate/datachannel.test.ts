@@ -1,5 +1,7 @@
 import { RTCPeerConnection } from "../../src";
 
+jest.setTimeout(10_000);
+
 describe("datachannel", () => {
   test("send some messages at same time", async () =>
     new Promise<void>(async (done) => {

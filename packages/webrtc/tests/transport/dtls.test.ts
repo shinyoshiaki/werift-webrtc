@@ -1,5 +1,7 @@
-import { sleep } from "../utils";
 import { dtlsTransportPair } from "../fixture";
+import { sleep } from "../utils";
+
+jest.setTimeout(10_000);
 
 describe("RTCDtlsTransportTest", () => {
   test("dtls_test_data", async () => {

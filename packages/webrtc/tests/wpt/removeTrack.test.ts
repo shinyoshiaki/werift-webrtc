@@ -1,6 +1,8 @@
 import { MediaStreamTrack, RTCPeerConnection } from "../../src";
 import { generateAnswer } from "../fixture";
 
+jest.setTimeout(10_000);
+
 // webrtc/RTCPeerConnection-removeTrack.https.html
 describe("peerConnection/removeTrack", () => {
   test("addTransceiver - Calling removeTrack when connection is closed should throw InvalidStateError", async () => {

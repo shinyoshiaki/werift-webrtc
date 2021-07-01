@@ -2,6 +2,8 @@ import { inRange } from "lodash";
 
 import { RTCIceGatherer, RTCIceTransport } from "../../src";
 
+jest.setTimeout(10_000);
+
 describe("iceTransport", () => {
   test("test_connect", async () => {
     const gatherer1 = new RTCIceGatherer({

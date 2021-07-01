@@ -2,6 +2,8 @@ import { RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
 
+jest.setTimeout(10_000);
+
 describe("RTCSctpTransportTest", () => {
   function trackChannels(transport: RTCSctpTransport) {
     const channels: RTCDataChannel[] = [];

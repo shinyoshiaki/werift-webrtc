@@ -1,6 +1,8 @@
 import { MediaStreamTrack, RTCPeerConnection } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 
+jest.setTimeout(10_000);
+
 // https://github.com/web-platform-tests/wpt/blob/master/webrtc/RTCPeerConnection-addTrack.https.html
 
 describe("peerConnection/addTrack", () => {

@@ -7,6 +7,8 @@ import {
   useSdesMid,
 } from "../../src";
 
+jest.setTimeout(10_000);
+
 describe("media", () => {
   test("test_sendonly_recvonly", async () =>
     new Promise<void>(async (done) => {

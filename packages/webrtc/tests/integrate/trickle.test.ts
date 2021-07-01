@@ -1,5 +1,7 @@
 import { RTCPeerConnection } from "../../src";
 
+jest.setTimeout(10_000);
+
 describe("trickle", () => {
   test(
     "half trickle",
