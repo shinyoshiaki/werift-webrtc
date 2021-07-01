@@ -12,6 +12,7 @@ export class MediaStreamTrack extends EventTarget {
   label: string;
   kind!: Kind;
   id?: string;
+  /**mediaSsrc */
   ssrc?: number;
   rid?: string;
   header?: RtpHeader;
