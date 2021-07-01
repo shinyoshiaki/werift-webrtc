@@ -32,7 +32,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L27)
+[packages/webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L27)
 
 ## Properties
 
@@ -42,7 +42,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L27)
+[packages/webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L27)
 
 ___
 
@@ -52,7 +52,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L26)
+[packages/webrtc/src/dataChannel.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L26)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L15)
+[packages/webrtc/src/dataChannel.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L15)
 
 ___
 
@@ -72,7 +72,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L14)
+[packages/webrtc/src/dataChannel.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L14)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L23)
+[packages/webrtc/src/dataChannel.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L23)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L22)
+[packages/webrtc/src/dataChannel.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L22)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L12)
+[packages/webrtc/src/dataChannel.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L12)
 
 ___
 
@@ -112,7 +112,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L17)
+[packages/webrtc/src/dataChannel.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L17)
 
 ___
 
@@ -122,7 +122,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L18)
+[packages/webrtc/src/dataChannel.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L18)
 
 ___
 
@@ -132,7 +132,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L21)
+[packages/webrtc/src/dataChannel.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L21)
 
 ___
 
@@ -142,7 +142,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L19)
+[packages/webrtc/src/dataChannel.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L19)
 
 ___
 
@@ -152,7 +152,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L16)
+[packages/webrtc/src/dataChannel.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L16)
 
 ___
 
@@ -162,7 +162,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L24)
+[packages/webrtc/src/dataChannel.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L24)
 
 ___
 
@@ -178,7 +178,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L11)
+[packages/webrtc/src/dataChannel.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L11)
 
 ___
 
@@ -192,7 +192,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:46
+node_modules/@types/node/events.d.ts:43
 
 ___
 
@@ -208,7 +208,7 @@ Sets or gets the default captureRejection value for all emitters.
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:52
+node_modules/@types/node/events.d.ts:49
 
 ___
 
@@ -222,7 +222,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:53
+node_modules/@types/node/events.d.ts:50
 
 ___
 
@@ -244,7 +244,7 @@ regular `'error'` listener is installed.
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:45
+node_modules/@types/node/events.d.ts:42
 
 ## Accessors
 
@@ -258,7 +258,7 @@ node_modules/@types/node/events.d.ts:45
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L74)
+[packages/webrtc/src/dataChannel.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L74)
 
 • `set` **bufferedAmountLowThreshold**(`value`): `void`
 
@@ -274,7 +274,7 @@ node_modules/@types/node/events.d.ts:45
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L78)
+[packages/webrtc/src/dataChannel.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L78)
 
 ___
 
@@ -288,7 +288,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L62)
+[packages/webrtc/src/dataChannel.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L62)
 
 ___
 
@@ -302,7 +302,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L58)
+[packages/webrtc/src/dataChannel.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L58)
 
 ___
 
@@ -316,7 +316,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L54)
+[packages/webrtc/src/dataChannel.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L54)
 
 ___
 
@@ -330,7 +330,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L70)
+[packages/webrtc/src/dataChannel.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L70)
 
 ___
 
@@ -344,7 +344,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L50)
+[packages/webrtc/src/dataChannel.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L50)
 
 ___
 
@@ -358,7 +358,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L66)
+[packages/webrtc/src/dataChannel.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L66)
 
 ## Methods
 
@@ -378,7 +378,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:112](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L112)
+[packages/webrtc/src/dataChannel.ts:112](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L112)
 
 ___
 
@@ -403,7 +403,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/helper.ts#L37)
+[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/helper.ts#L37)
 
 ___
 
@@ -428,7 +428,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:72
+node_modules/@types/node/events.d.ts:62
 
 ___
 
@@ -442,7 +442,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L127)
+[packages/webrtc/src/dataChannel.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L127)
 
 ___
 
@@ -467,7 +467,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:82
+node_modules/@types/node/events.d.ts:72
 
 ___
 
@@ -485,7 +485,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:87
+node_modules/@types/node/events.d.ts:77
 
 ___
 
@@ -503,7 +503,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:79
+node_modules/@types/node/events.d.ts:69
 
 ___
 
@@ -527,7 +527,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:83
+node_modules/@types/node/events.d.ts:73
 
 ___
 
@@ -551,7 +551,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:80
+node_modules/@types/node/events.d.ts:70
 
 ___
 
@@ -576,7 +576,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:76
+node_modules/@types/node/events.d.ts:66
 
 ___
 
@@ -601,7 +601,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:73
+node_modules/@types/node/events.d.ts:63
 
 ___
 
@@ -626,7 +626,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:74
+node_modules/@types/node/events.d.ts:64
 
 ___
 
@@ -651,7 +651,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:85
+node_modules/@types/node/events.d.ts:75
 
 ___
 
@@ -676,7 +676,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:86
+node_modules/@types/node/events.d.ts:76
 
 ___
 
@@ -700,7 +700,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:81
+node_modules/@types/node/events.d.ts:71
 
 ___
 
@@ -724,7 +724,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:77
+node_modules/@types/node/events.d.ts:67
 
 ___
 
@@ -749,7 +749,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/helper.ts#L41)
+[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/helper.ts#L41)
 
 ___
 
@@ -774,7 +774,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:75
+node_modules/@types/node/events.d.ts:65
 
 ___
 
@@ -794,7 +794,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:123](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L123)
+[packages/webrtc/src/dataChannel.ts:123](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L123)
 
 ___
 
@@ -814,7 +814,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L86)
+[packages/webrtc/src/dataChannel.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L86)
 
 ___
 
@@ -838,7 +838,7 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:78
+node_modules/@types/node/events.d.ts:68
 
 ___
 
@@ -858,34 +858,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L90)
-
-___
-
-### getEventListener
-
-▸ `Static` **getEventListener**(`emitter`, `name`): `Function`[]
-
-Returns a list listener for a specific emitter event name.
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `DOMEventTarget` \| `EventEmitter` |
-| `name` | `string` \| `symbol` |
-
-#### Returns
-
-`Function`[]
-
-#### Inherited from
-
-[EventTarget](eventtarget.md).[getEventListener](eventtarget.md#geteventlistener)
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:34
+[packages/webrtc/src/dataChannel.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L90)
 
 ___
 
@@ -912,13 +885,13 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:30
+node_modules/@types/node/events.d.ts:31
 
 ___
 
 ### on
 
-▸ `Static` **on**(`emitter`, `event`, `options?`): `AsyncIterableIterator`<any\>
+▸ `Static` **on**(`emitter`, `event`): `AsyncIterableIterator`<any\>
 
 #### Parameters
 
@@ -926,7 +899,6 @@ ___
 | :------ | :------ |
 | `emitter` | `EventEmitter` |
 | `event` | `string` |
-| `options?` | `StaticEventEmitterOptions` |
 
 #### Returns
 
@@ -938,13 +910,13 @@ ___
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:27
+node_modules/@types/node/events.d.ts:28
 
 ___
 
 ### once
 
-▸ `Static` **once**(`emitter`, `event`, `options?`): `Promise`<any[]\>
+▸ `Static` **once**(`emitter`, `event`): `Promise`<any[]\>
 
 #### Parameters
 
@@ -952,29 +924,6 @@ ___
 | :------ | :------ |
 | `emitter` | `NodeEventTarget` |
 | `event` | `string` \| `symbol` |
-| `options?` | `StaticEventEmitterOptions` |
-
-#### Returns
-
-`Promise`<any[]\>
-
-#### Inherited from
-
-[EventTarget](eventtarget.md).[once](eventtarget.md#once)
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:25
-
-▸ `Static` **once**(`emitter`, `event`, `options?`): `Promise`<any[]\>
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `DOMEventTarget` |
-| `event` | `string` |
-| `options?` | `StaticEventEmitterOptions` |
 
 #### Returns
 
@@ -987,3 +936,24 @@ node_modules/@types/node/events.d.ts:25
 #### Defined in
 
 node_modules/@types/node/events.d.ts:26
+
+▸ `Static` **once**(`emitter`, `event`): `Promise`<any[]\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `emitter` | `DOMEventTarget` |
+| `event` | `string` |
+
+#### Returns
+
+`Promise`<any[]\>
+
+#### Inherited from
+
+[EventTarget](eventtarget.md).[once](eventtarget.md#once)
+
+#### Defined in
+
+node_modules/@types/node/events.d.ts:27

@@ -24,7 +24,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:2](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L2)
+[packages/webrtc/src/media/parameters.ts:2](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L2)
 
 ___
 
@@ -34,7 +34,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L103)
+[packages/webrtc/src/media/parameters.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L103)
 
 ___
 
@@ -48,7 +48,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L3)
+[packages/webrtc/src/media/parameters.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L3)
 
 ___
 
@@ -62,7 +62,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L4)
+[packages/webrtc/src/media/parameters.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L4)
 
 ___
 
@@ -76,7 +76,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L5)
+[packages/webrtc/src/media/parameters.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L5)
 
 ___
 
@@ -90,4 +90,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L6)
+[packages/webrtc/src/media/parameters.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L6)

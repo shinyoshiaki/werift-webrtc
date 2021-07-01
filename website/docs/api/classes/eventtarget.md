@@ -36,7 +36,7 @@ EventEmitter.constructor
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:22
+node_modules/@types/node/events.d.ts:23
 
 ## Properties
 
@@ -50,7 +50,7 @@ EventEmitter.captureRejectionSymbol
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:46
+node_modules/@types/node/events.d.ts:43
 
 ___
 
@@ -66,7 +66,7 @@ EventEmitter.captureRejections
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:52
+node_modules/@types/node/events.d.ts:49
 
 ___
 
@@ -80,7 +80,7 @@ EventEmitter.defaultMaxListeners
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:53
+node_modules/@types/node/events.d.ts:50
 
 ___
 
@@ -102,7 +102,7 @@ EventEmitter.errorMonitor
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:45
+node_modules/@types/node/events.d.ts:42
 
 ## Methods
 
@@ -123,7 +123,7 @@ node_modules/@types/node/events.d.ts:45
 
 #### Defined in
 
-[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/helper.ts#L37)
+[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/helper.ts#L37)
 
 ___
 
@@ -148,7 +148,7 @@ EventEmitter.addListener
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:72
+node_modules/@types/node/events.d.ts:62
 
 ___
 
@@ -173,7 +173,7 @@ EventEmitter.emit
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:82
+node_modules/@types/node/events.d.ts:72
 
 ___
 
@@ -191,7 +191,7 @@ EventEmitter.eventNames
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:87
+node_modules/@types/node/events.d.ts:77
 
 ___
 
@@ -209,7 +209,7 @@ EventEmitter.getMaxListeners
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:79
+node_modules/@types/node/events.d.ts:69
 
 ___
 
@@ -233,7 +233,7 @@ EventEmitter.listenerCount
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:83
+node_modules/@types/node/events.d.ts:73
 
 ___
 
@@ -257,7 +257,7 @@ EventEmitter.listeners
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:80
+node_modules/@types/node/events.d.ts:70
 
 ___
 
@@ -282,7 +282,7 @@ EventEmitter.off
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:76
+node_modules/@types/node/events.d.ts:66
 
 ___
 
@@ -307,7 +307,7 @@ EventEmitter.on
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:73
+node_modules/@types/node/events.d.ts:63
 
 ___
 
@@ -332,7 +332,7 @@ EventEmitter.once
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:74
+node_modules/@types/node/events.d.ts:64
 
 ___
 
@@ -357,7 +357,7 @@ EventEmitter.prependListener
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:85
+node_modules/@types/node/events.d.ts:75
 
 ___
 
@@ -382,7 +382,7 @@ EventEmitter.prependOnceListener
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:86
+node_modules/@types/node/events.d.ts:76
 
 ___
 
@@ -406,7 +406,7 @@ EventEmitter.rawListeners
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:81
+node_modules/@types/node/events.d.ts:71
 
 ___
 
@@ -430,7 +430,7 @@ EventEmitter.removeAllListeners
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:77
+node_modules/@types/node/events.d.ts:67
 
 ___
 
@@ -451,7 +451,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/helper.ts#L41)
+[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/helper.ts#L41)
 
 ___
 
@@ -476,7 +476,7 @@ EventEmitter.removeListener
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:75
+node_modules/@types/node/events.d.ts:65
 
 ___
 
@@ -500,34 +500,7 @@ EventEmitter.setMaxListeners
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:78
-
-___
-
-### getEventListener
-
-▸ `Static` **getEventListener**(`emitter`, `name`): `Function`[]
-
-Returns a list listener for a specific emitter event name.
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `DOMEventTarget` \| `EventEmitter` |
-| `name` | `string` \| `symbol` |
-
-#### Returns
-
-`Function`[]
-
-#### Inherited from
-
-EventEmitter.getEventListener
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:34
+node_modules/@types/node/events.d.ts:68
 
 ___
 
@@ -554,13 +527,13 @@ EventEmitter.listenerCount
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:30
+node_modules/@types/node/events.d.ts:31
 
 ___
 
 ### on
 
-▸ `Static` **on**(`emitter`, `event`, `options?`): `AsyncIterableIterator`<any\>
+▸ `Static` **on**(`emitter`, `event`): `AsyncIterableIterator`<any\>
 
 #### Parameters
 
@@ -568,7 +541,6 @@ ___
 | :------ | :------ |
 | `emitter` | `EventEmitter` |
 | `event` | `string` |
-| `options?` | `StaticEventEmitterOptions` |
 
 #### Returns
 
@@ -580,13 +552,13 @@ EventEmitter.on
 
 #### Defined in
 
-node_modules/@types/node/events.d.ts:27
+node_modules/@types/node/events.d.ts:28
 
 ___
 
 ### once
 
-▸ `Static` **once**(`emitter`, `event`, `options?`): `Promise`<any[]\>
+▸ `Static` **once**(`emitter`, `event`): `Promise`<any[]\>
 
 #### Parameters
 
@@ -594,29 +566,6 @@ ___
 | :------ | :------ |
 | `emitter` | `NodeEventTarget` |
 | `event` | `string` \| `symbol` |
-| `options?` | `StaticEventEmitterOptions` |
-
-#### Returns
-
-`Promise`<any[]\>
-
-#### Inherited from
-
-EventEmitter.once
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:25
-
-▸ `Static` **once**(`emitter`, `event`, `options?`): `Promise`<any[]\>
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `DOMEventTarget` |
-| `event` | `string` |
-| `options?` | `StaticEventEmitterOptions` |
 
 #### Returns
 
@@ -629,3 +578,24 @@ EventEmitter.once
 #### Defined in
 
 node_modules/@types/node/events.d.ts:26
+
+▸ `Static` **once**(`emitter`, `event`): `Promise`<any[]\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `emitter` | `DOMEventTarget` |
+| `event` | `string` |
+
+#### Returns
+
+`Promise`<any[]\>
+
+#### Inherited from
+
+EventEmitter.once
+
+#### Defined in
+
+node_modules/@types/node/events.d.ts:27

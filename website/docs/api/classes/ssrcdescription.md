@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:650](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L650)
+[packages/webrtc/src/sdp.ts:650](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L650)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:647](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L647)
+[packages/webrtc/src/sdp.ts:647](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L647)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:650](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L650)
+[packages/webrtc/src/sdp.ts:650](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L650)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:649](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L649)
+[packages/webrtc/src/sdp.ts:649](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L649)
 
 ___
 
@@ -60,7 +60,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:648](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L648)
+[packages/webrtc/src/sdp.ts:648](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L648)
 
 ___
 
@@ -70,4 +70,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:646](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L646)
+[packages/webrtc/src/sdp.ts:646](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L646)

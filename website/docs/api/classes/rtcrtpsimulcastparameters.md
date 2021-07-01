@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L108)
+[packages/webrtc/src/media/parameters.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L108)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L108)
+[packages/webrtc/src/media/parameters.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L108)
 
 ___
 
@@ -40,4 +40,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/parameters.ts:107](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/parameters.ts#L107)
+[packages/webrtc/src/media/parameters.ts:107](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/parameters.ts#L107)

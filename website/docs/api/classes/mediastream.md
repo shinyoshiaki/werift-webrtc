@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L59)
+[packages/webrtc/src/media/track.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/track.ts#L59)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L58)
+[packages/webrtc/src/media/track.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/track.ts#L58)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L59)
+[packages/webrtc/src/media/track.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/track.ts#L59)
 
 ## Methods
 
@@ -60,7 +60,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L65)
+[packages/webrtc/src/media/track.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/track.ts#L65)
 
 ___
 
@@ -74,4 +74,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/track.ts:69](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/track.ts#L69)
+[packages/webrtc/src/media/track.ts:69](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/track.ts#L69)

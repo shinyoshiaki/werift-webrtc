@@ -23,7 +23,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L46)
+[packages/webrtc/src/transport/dtls.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L46)
 
 ## Properties
 
@@ -53,7 +53,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L39)
+[packages/webrtc/src/transport/dtls.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L39)
 
 ___
 
@@ -63,7 +63,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L40)
+[packages/webrtc/src/transport/dtls.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L40)
 
 ___
 
@@ -79,7 +79,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L46)
+[packages/webrtc/src/transport/dtls.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L46)
 
 ___
 
@@ -89,7 +89,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L44)
+[packages/webrtc/src/transport/dtls.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L44)
 
 ___
 
@@ -99,7 +99,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L35)
+[packages/webrtc/src/transport/dtls.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L35)
 
 ___
 
@@ -115,7 +115,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L42)
+[packages/webrtc/src/transport/dtls.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L42)
 
 ___
 
@@ -125,7 +125,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L41)
+[packages/webrtc/src/transport/dtls.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L41)
 
 ___
 
@@ -135,7 +135,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L36)
+[packages/webrtc/src/transport/dtls.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L36)
 
 ___
 
@@ -145,7 +145,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L34)
+[packages/webrtc/src/transport/dtls.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L34)
 
 ___
 
@@ -155,7 +155,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L37)
+[packages/webrtc/src/transport/dtls.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L37)
 
 ## Accessors
 
@@ -169,7 +169,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L55)
+[packages/webrtc/src/transport/dtls.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L55)
 
 ## Methods
 
@@ -189,7 +189,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:170](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L170)
+[packages/webrtc/src/transport/dtls.ts:170](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L170)
 
 ___
 
@@ -209,7 +209,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:181](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L181)
+[packages/webrtc/src/transport/dtls.ts:181](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L181)
 
 ___
 
@@ -230,7 +230,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:175](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L175)
+[packages/webrtc/src/transport/dtls.ts:175](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L175)
 
 ___
 
@@ -250,7 +250,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L191)
+[packages/webrtc/src/transport/dtls.ts:191](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L191)
 
 ___
 
@@ -264,7 +264,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L62)
+[packages/webrtc/src/transport/dtls.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L62)
 
 ___
 
@@ -284,7 +284,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L80)
+[packages/webrtc/src/transport/dtls.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L80)
 
 ___
 
@@ -298,7 +298,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:135](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L135)
+[packages/webrtc/src/transport/dtls.ts:135](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L135)
 
 ___
 
@@ -312,4 +312,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/dtls.ts:198](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/dtls.ts#L198)
+[packages/webrtc/src/transport/dtls.ts:198](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/dtls.ts#L198)

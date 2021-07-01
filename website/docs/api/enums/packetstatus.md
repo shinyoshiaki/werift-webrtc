@@ -14,7 +14,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:420](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L420)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:420](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L420)
 
 ___
 
@@ -24,7 +24,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:422](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L422)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:422](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L422)
 
 ___
 
@@ -34,7 +34,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:421](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L421)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:421](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L421)
 
 ___
 
@@ -44,4 +44,4 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:423](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L423)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:423](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L423)

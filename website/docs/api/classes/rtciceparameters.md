@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:218](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L218)
+[packages/webrtc/src/transport/ice.ts:218](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/ice.ts#L218)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L216)
+[packages/webrtc/src/transport/ice.ts:216](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/ice.ts#L216)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:218](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L218)
+[packages/webrtc/src/transport/ice.ts:218](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/ice.ts#L218)
 
 ___
 
@@ -50,4 +50,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/transport/ice.ts:217](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/ice.ts#L217)
+[packages/webrtc/src/transport/ice.ts:217](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/ice.ts#L217)

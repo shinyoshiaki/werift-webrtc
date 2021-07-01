@@ -21,7 +21,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:488](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L488)
+[packages/webrtc/src/sdp.ts:488](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L488)
 
 ## Properties
 
@@ -47,4 +47,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/sdp.ts:491](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/sdp.ts#L491)
+[packages/webrtc/src/sdp.ts:491](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/sdp.ts#L491)

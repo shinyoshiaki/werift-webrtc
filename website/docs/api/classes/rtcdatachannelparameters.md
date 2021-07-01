@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:141](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L141)
+[packages/webrtc/src/dataChannel.ts:141](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L141)
 
 ## Properties
 
@@ -30,7 +30,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:141](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L141)
+[packages/webrtc/src/dataChannel.ts:141](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L141)
 
 ___
 
@@ -40,7 +40,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:135](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L135)
+[packages/webrtc/src/dataChannel.ts:135](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L135)
 
 ___
 
@@ -50,7 +50,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:136](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L136)
+[packages/webrtc/src/dataChannel.ts:136](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L136)
 
 ___
 
@@ -60,7 +60,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:137](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L137)
+[packages/webrtc/src/dataChannel.ts:137](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L137)
 
 ___
 
@@ -70,7 +70,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:140](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L140)
+[packages/webrtc/src/dataChannel.ts:140](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L140)
 
 ___
 
@@ -80,7 +80,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:138](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L138)
+[packages/webrtc/src/dataChannel.ts:138](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L138)
 
 ___
 
@@ -90,4 +90,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:139](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L139)
+[packages/webrtc/src/dataChannel.ts:139](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L139)

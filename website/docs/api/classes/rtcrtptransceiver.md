@@ -24,7 +24,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L49)
+[packages/webrtc/src/media/rtpTransceiver.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L49)
 
 ## Properties
 
@@ -34,7 +34,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L37)
+[packages/webrtc/src/media/rtpTransceiver.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L37)
 
 ___
 
@@ -44,7 +44,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L24)
+[packages/webrtc/src/media/rtpTransceiver.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L24)
 
 ___
 
@@ -66,7 +66,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L46)
+[packages/webrtc/src/media/rtpTransceiver.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L46)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L22)
+[packages/webrtc/src/media/rtpTransceiver.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L22)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L21)
+[packages/webrtc/src/media/rtpTransceiver.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L21)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L36)
+[packages/webrtc/src/media/rtpTransceiver.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L36)
 
 ___
 
@@ -112,7 +112,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L20)
+[packages/webrtc/src/media/rtpTransceiver.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L20)
 
 ___
 
@@ -122,7 +122,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L47)
+[packages/webrtc/src/media/rtpTransceiver.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L47)
 
 ___
 
@@ -144,7 +144,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L49)
+[packages/webrtc/src/media/rtpTransceiver.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L49)
 
 ___
 
@@ -154,7 +154,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L48)
+[packages/webrtc/src/media/rtpTransceiver.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L48)
 
 ___
 
@@ -164,7 +164,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L23)
+[packages/webrtc/src/media/rtpTransceiver.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L23)
 
 ___
 
@@ -174,7 +174,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L19)
+[packages/webrtc/src/media/rtpTransceiver.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L19)
 
 ## Accessors
 
@@ -188,7 +188,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L38)
+[packages/webrtc/src/media/rtpTransceiver.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L38)
 
 • `set` **codecs**(`codecs`): `void`
 
@@ -204,7 +204,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L41)
+[packages/webrtc/src/media/rtpTransceiver.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L41)
 
 ___
 
@@ -220,7 +220,7 @@ RFC 8829 4.2.5. last negotiated direction
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L32)
+[packages/webrtc/src/media/rtpTransceiver.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L32)
 
 • `set` **currentDirection**(`direction`): `void`
 
@@ -236,7 +236,7 @@ RFC 8829 4.2.5. last negotiated direction
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L25)
+[packages/webrtc/src/media/rtpTransceiver.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L25)
 
 ___
 
@@ -250,7 +250,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L60)
+[packages/webrtc/src/media/rtpTransceiver.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L60)
 
 ## Methods
 
@@ -270,7 +270,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:64](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L64)
+[packages/webrtc/src/media/rtpTransceiver.ts:64](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L64)
 
 ___
 
@@ -284,4 +284,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/media/rtpTransceiver.ts:71](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/media/rtpTransceiver.ts#L71)
+[packages/webrtc/src/media/rtpTransceiver.ts:71](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/media/rtpTransceiver.ts#L71)

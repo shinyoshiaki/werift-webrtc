@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/transport/sctp.ts:342](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/transport/sctp.ts#L342)
+[packages/webrtc/src/transport/sctp.ts:342](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/transport/sctp.ts#L342)
 
 ## Properties
 

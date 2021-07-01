@@ -14,7 +14,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1140](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1140)
+[packages/webrtc/src/peerConnection.ts:1140](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1140)
 
 ___
 
@@ -24,7 +24,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1144](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1144)
+[packages/webrtc/src/peerConnection.ts:1144](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1144)
 
 ___
 
@@ -36,7 +36,7 @@ Minimum port and Maximum port must not be the same value
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1151](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1151)
+[packages/webrtc/src/peerConnection.ts:1151](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1151)
 
 ___
 
@@ -46,7 +46,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1149](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1149)
+[packages/webrtc/src/peerConnection.ts:1149](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1149)
 
 ___
 
@@ -56,4 +56,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1148](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1148)
+[packages/webrtc/src/peerConnection.ts:1148](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1148)

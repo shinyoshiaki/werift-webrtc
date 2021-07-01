@@ -14,4 +14,4 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/dataChannel.ts:148](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/dataChannel.ts#L148)
+[packages/webrtc/src/dataChannel.ts:148](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/dataChannel.ts#L148)

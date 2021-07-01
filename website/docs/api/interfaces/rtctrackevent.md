@@ -14,7 +14,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1197](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1197)
+[packages/webrtc/src/peerConnection.ts:1197](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1197)
 
 ___
 
@@ -24,7 +24,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1195](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1195)
+[packages/webrtc/src/peerConnection.ts:1195](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1195)
 
 ___
 
@@ -34,7 +34,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1194](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1194)
+[packages/webrtc/src/peerConnection.ts:1194](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1194)
 
 ___
 
@@ -44,4 +44,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/peerConnection.ts:1196](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/peerConnection.ts#L1196)
+[packages/webrtc/src/peerConnection.ts:1196](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/peerConnection.ts#L1196)

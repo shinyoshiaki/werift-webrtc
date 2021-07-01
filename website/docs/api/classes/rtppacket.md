@@ -21,7 +21,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtp/rtp.ts:266](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtp/rtp.ts#L266)
+[packages/rtp/src/rtp/rtp.ts:266](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtp/rtp.ts#L266)
 
 ## Properties
 
@@ -47,7 +47,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtp/rtp.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtp/rtp.ts#L269)
+[packages/rtp/src/rtp/rtp.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtp/rtp.ts#L269)
 
 ## Methods
 
@@ -61,7 +61,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtp/rtp.ts:273](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtp/rtp.ts#L273)
+[packages/rtp/src/rtp/rtp.ts:273](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtp/rtp.ts#L273)
 
 ___
 
@@ -81,4 +81,4 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtp/rtp.ts:288](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtp/rtp.ts#L288)
+[packages/rtp/src/rtp/rtp.ts:288](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtp/rtp.ts#L288)

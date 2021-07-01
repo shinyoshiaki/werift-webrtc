@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/webrtc/src/utils.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/utils.ts#L127)
+[packages/webrtc/src/utils.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/utils.ts#L127)
 
 ___
 
@@ -30,7 +30,7 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/utils.ts:128](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/utils.ts#L128)
+[packages/webrtc/src/utils.ts:128](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/utils.ts#L128)
 
 ## Methods
 
@@ -50,4 +50,4 @@ ___
 
 #### Defined in
 
-[packages/webrtc/src/utils.ts:130](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/webrtc/src/utils.ts#L130)
+[packages/webrtc/src/utils.ts:130](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/webrtc/src/utils.ts#L130)

@@ -20,7 +20,7 @@ custom_edit_url: null
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:355](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L355)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:355](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L355)
 
 ## Properties
 
@@ -32,7 +32,7 @@ micro sec
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:355](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L355)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:355](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L355)
 
 ___
 
@@ -42,7 +42,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:383](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L383)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:383](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L383)
 
 ___
 
@@ -54,7 +54,7 @@ optional (If undefined, it will be set automatically.)
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L351)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:351](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L351)
 
 ## Methods
 
@@ -74,7 +74,7 @@ optional (If undefined, it will be set automatically.)
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:378](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L378)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:378](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L378)
 
 ___
 
@@ -88,7 +88,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:384](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L384)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:384](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L384)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:397](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L397)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:397](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L397)
 
 ___
 
@@ -122,4 +122,4 @@ ___
 
 #### Defined in
 
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:361](https://github.com/shinyoshiaki/werift-webrtc/blob/32ca930/packages/rtp/src/rtcp/rtpfb/twcc.ts#L361)
+[packages/rtp/src/rtcp/rtpfb/twcc.ts:361](https://github.com/shinyoshiaki/werift-webrtc/blob/8a77e73/packages/rtp/src/rtcp/rtpfb/twcc.ts#L361)
