@@ -1,20 +1,20 @@
 import { getBit, paddingByte } from "../utils";
 
 export class Vp8RtpPayload {
-  x: number;
-  n: number;
-  s: number;
-  pid: number;
-  i: number;
-  l: number;
-  t: number;
-  k: number;
-  m: number;
-  pictureId: number;
-  size: number;
-  h: number;
-  ver: number;
-  p: number;
+  x!: number;
+  n!: number;
+  s!: number;
+  pid!: number;
+  i?: number;
+  l?: number;
+  t?: number;
+  k?: number;
+  m?: number;
+  pictureId?: number;
+  size?: number;
+  h?: number;
+  ver?: number;
+  p?: number;
 
   static deSerialize(buf: Buffer) {
     const vp8 = new Vp8RtpPayload();
