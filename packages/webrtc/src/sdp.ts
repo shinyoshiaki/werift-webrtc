@@ -300,7 +300,7 @@ export class SessionDescription {
     return;
   }
 
-  toString() {
+  get string() {
     const lines = [`v=${this.version}`, `o=${this.origin}`, `s=${this.name}`];
     if (this.host) {
       lines.push(`c=${ipAddressFromSdp(this.host)}`);
@@ -316,7 +316,7 @@ export class SessionDescription {
   }
 
   toJSON() {
-    return new RTCSessionDescription(this.toString(), this.type);
+    return new RTCSessionDescription(this.string, this.type);
   }
 }
 

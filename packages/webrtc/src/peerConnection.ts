@@ -419,7 +419,7 @@ export class RTCPeerConnection extends EventTarget {
   async setLocalDescription(sessionDescription: {
     type: "offer" | "answer";
     sdp: string;
-  }) {
+  }): Promise<SessionDescription> {
     // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
