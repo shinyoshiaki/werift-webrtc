@@ -1,5 +1,39 @@
 import { getBit, paddingByte } from "../utils";
 
+// RFC 7741 - RTP Payload Format for VP8 Video
+
+//        0 1 2 3 4 5 6 7                      0 1 2 3 4 5 6 7
+//       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
+//       |X|R|N|S|R| PID | (REQUIRED)        |X|R|N|S|R| PID | (REQUIRED)
+//       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
+//  X:   |I|L|T|K| RSV   | (OPTIONAL)   X:   |I|L|T|K| RSV   | (OPTIONAL)
+//       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
+//  I:   |M| PictureID   | (OPTIONAL)   I:   |M| PictureID   | (OPTIONAL)
+//       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
+//  L:   |   TL0PICIDX   | (OPTIONAL)        |   PictureID   |
+//       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
+//  T/K: |TID|Y| KEYIDX  | (OPTIONAL)   L:   |   TL0PICIDX   | (OPTIONAL)
+//       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
+//                                      T/K: |TID|Y| KEYIDX  | (OPTIONAL)
+//                                           +-+-+-+-+-+-+-+-+
+
+// 0 1 2 3 4 5 6 7
+// +-+-+-+-+-+-+-+-+
+// |Size0|H| VER |P|
+// +-+-+-+-+-+-+-+-+
+// |     Size1     |
+// +-+-+-+-+-+-+-+-+
+// |     Size2     |
+// +-+-+-+-+-+-+-+-+
+// | Octets 4..N of|
+// | VP8 payload   |
+// :               :
+// +-+-+-+-+-+-+-+-+
+// | OPTIONAL RTP  |
+// | padding       |
+// :               :
+// +-+-+-+-+-+-+-+-+
+
 export class Vp8RtpPayload {
   x!: number;
   n!: number;
@@ -11,7 +45,7 @@ export class Vp8RtpPayload {
   k?: number;
   m?: number;
   pictureId?: number;
-  size?: number;
+  size0?: number;
   h?: number;
   ver?: number;
   p?: number;
@@ -52,7 +86,7 @@ export class Vp8RtpPayload {
     }
 
     if (vp8.s === 1 && vp8.pid === 0) {
-      vp8.size = getBit(buf[index], 0, 3);
+      vp8.size0 = getBit(buf[index], 0, 3);
       vp8.h = getBit(buf[index], 3);
       vp8.ver = getBit(buf[index], 4, 3);
       vp8.p = getBit(buf[index], 7);
