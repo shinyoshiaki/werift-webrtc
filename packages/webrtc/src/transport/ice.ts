@@ -51,16 +51,21 @@ export class RTCIceTransport {
     }
   };
 
-  async start(remoteParameters: RTCIceParameters) {
+  setRemoteParams(remoteParameters: RTCIceParameters) {
+    this.connection.remoteIsLite = remoteParameters.iceLite;
+    this.connection.remoteUsername = remoteParameters.usernameFragment;
+    this.connection.remotePassword = remoteParameters.password;
+  }
+
+  async start() {
     if (this.state === "closed") throw new Error("RTCIceTransport is closed");
+    if (!this.connection.remotePassword || !this.connection.remoteUsername)
+      throw new Error("remoteParams missing");
 
     if (this.waitStart) await this.waitStart.asPromise();
     this.waitStart = new Event();
 
     this.setState("checking");
-    this.connection.remoteIsLite = remoteParameters.iceLite;
-    this.connection.remoteUsername = remoteParameters.usernameFragment;
-    this.connection.remotePassword = remoteParameters.password;
 
     try {
       await this.connection.connect();

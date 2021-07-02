@@ -140,6 +140,24 @@ describe("peerConnection", () => {
     }
     await peer.close();
   });
+
+  test("remote offer isLite", async () => {
+    const a = new RTCPeerConnection();
+    const b = new RTCPeerConnection();
+
+    a.createDataChannel("test");
+    const offer = await a.setLocalDescription(await a.createOffer());
+    offer.media.forEach((m) => (m.iceParams!.iceLite = true));
+
+    await b.setRemoteDescription(offer.toJSON());
+    expect(b.iceTransport.connection.remoteIsLite).toBeTruthy();
+
+    await b.setLocalDescription(await b.createAnswer());
+    expect(b.iceTransport.connection.iceControlling).toBeTruthy();
+
+    a.close();
+    b.close();
+  });
 });
 
 function assertHasIceCandidate(sdp: string) {
