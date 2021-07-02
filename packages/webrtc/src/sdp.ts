@@ -168,6 +168,9 @@ export class SessionDescription {
             case "ice-ufrag":
               currentMedia.iceParams!.usernameFragment = value;
               break;
+            case "ice-lite":
+              currentMedia.iceParams!.iceLite = true;
+              break;
             case "max-message-size":
               currentMedia.sctpCapabilities = new RTCSctpCapabilities(
                 parseInt(value, 10)
@@ -384,6 +387,9 @@ export class MediaDescription {
     }
     if (this.iceParams?.password) {
       lines.push(`a=ice-pwd:${this.iceParams.password}`);
+    }
+    if (this.iceParams?.iceLite) {
+      lines.push(`a=ice-lite`);
     }
     if (this.iceOptions) {
       lines.push(`a=ice-options:${this.iceOptions}`);
