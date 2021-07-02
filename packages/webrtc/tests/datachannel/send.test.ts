@@ -1,6 +1,6 @@
 import { awaitMessage, createDataChannelPair } from "../utils";
 
-jest.setTimeout(10_000);
+jest.setTimeout(15_000);
 
 const helloString = "hello";
 const unicodeString = "世界你好";

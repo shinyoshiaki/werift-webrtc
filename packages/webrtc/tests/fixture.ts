@@ -60,10 +60,9 @@ export async function dtlsTransportPair() {
   const session2 = new RTCDtlsTransport(transport2, new RtpRouter(), []);
   await session2.setupCertificate();
 
-  await Promise.all([
-    session1.start(session2.localParameters),
-    session2.start(session1.localParameters),
-  ]);
+  session1.setRemoteParams(session2.localParameters);
+  session2.setRemoteParams(session1.localParameters);
+  await Promise.all([session1.start(), session2.start()]);
 
   if (session1.role === "client") {
     return [session1, session2];
@@ -87,10 +86,9 @@ export const iceTransportPair = async () => {
   expect(transport1.state).toBe("new");
   expect(transport2.state).toBe("new");
 
-  await Promise.all([
-    transport1.start(gatherer2.localParameters),
-    transport2.start(gatherer1.localParameters),
-  ]);
+  transport1.setRemoteParams(gatherer2.localParameters);
+  transport2.setRemoteParams(gatherer1.localParameters);
+  await Promise.all([transport1.start(), transport2.start()]);
 
   return [transport1, transport2];
 };

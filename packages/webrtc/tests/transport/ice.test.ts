@@ -25,10 +25,9 @@ describe("iceTransport", () => {
     expect(transport1.state).toBe("new");
     expect(transport2.state).toBe("new");
 
-    await Promise.all([
-      transport1.start(gatherer2.localParameters),
-      transport2.start(gatherer1.localParameters),
-    ]);
+    transport1.setRemoteParams(gatherer2.localParameters);
+    transport2.setRemoteParams(gatherer1.localParameters);
+    await Promise.all([transport1.start(), transport2.start()]);
     expect(transport1.state).toBe("completed");
     expect(transport2.state).toBe("completed");
 
