@@ -547,11 +547,10 @@ export class Connection {
       return;
     }
 
+    const { iceControlling } = this;
+
     // 7.2.1.1.  Detecting and Repairing Role Conflicts
-    if (
-      this.iceControlling &&
-      message.attributesKeys.includes("ICE-CONTROLLING")
-    ) {
+    if (iceControlling && message.attributesKeys.includes("ICE-CONTROLLING")) {
       if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
         this.respondError(message, addr, protocol, [487, "Role Conflict"]);
         return;
@@ -559,7 +558,7 @@ export class Connection {
         this.switchRole(false);
       }
     } else if (
-      !this.iceControlling &&
+      !iceControlling &&
       message.attributesKeys.includes("ICE-CONTROLLED")
     ) {
       if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {

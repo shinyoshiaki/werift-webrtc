@@ -595,40 +595,42 @@ export class RTCPeerConnection extends EventTarget {
     sdp: string;
   }) {
     // # parse and validate description
-    const description = SessionDescription.parse(sessionDescription.sdp);
-    description.type = sessionDescription.type;
-    this.validateDescription(description, false);
+    const remoteSdp = SessionDescription.parse(sessionDescription.sdp);
+    remoteSdp.type = sessionDescription.type;
+    this.validateDescription(remoteSdp, false);
 
     // # apply description
-    for (const [i, media] of enumerate(description.media)) {
-      if (["audio", "video"].includes(media.kind)) {
+    for (const [i, remoteMedia] of enumerate(remoteSdp.media)) {
+      if (["audio", "video"].includes(remoteMedia.kind)) {
         const transceiver =
           this.transceivers.find(
             (t) =>
-              t.kind === media.kind &&
-              [undefined, media.rtp.muxId].includes(t.mid)
+              t.kind === remoteMedia.kind &&
+              [undefined, remoteMedia.rtp.muxId].includes(t.mid)
           ) ||
           (() => {
             // create remote transceiver
-            const transceiver = this.addTransceiver(media.kind, {
+            const transceiver = this.addTransceiver(remoteMedia.kind, {
               direction: "recvonly",
             });
 
             this.onRemoteTransceiverAdded.execute(transceiver);
             this.onTransceiver.execute(transceiver);
+
             return transceiver;
           })();
 
         if (!transceiver.mid) {
-          transceiver.mid = media.rtp.muxId;
+          transceiver.mid = remoteMedia.rtp.muxId;
           transceiver.mLineIndex = i;
         }
 
         // # negotiate codecs
-        log("remote codecs", media.rtp.codecs);
-        transceiver.codecs = media.rtp.codecs.filter((remoteCodec) =>
+        log("remote codecs", remoteMedia.rtp.codecs);
+        transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) =>
           (
-            this.configuration.codecs[media.kind as "audio" | "video"] || []
+            this.configuration.codecs[remoteMedia.kind as "audio" | "video"] ||
+            []
           ).find(
             (localCodec) =>
               localCodec.mimeType.toLowerCase() ===
@@ -639,20 +641,20 @@ export class RTCPeerConnection extends EventTarget {
         if (transceiver.codecs.length === 0) {
           throw new Error("negotiate codecs failed.");
         }
-        transceiver.headerExtensions = media.rtp.headerExtensions.filter(
+        transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
           (extension) =>
             (
               this.configuration.headerExtensions[
-                media.kind as "video" | "audio"
+                remoteMedia.kind as "video" | "audio"
               ] || []
             ).find((v) => v.uri === extension.uri)
         );
-        transceiver.receiver.setupTWCC(media.ssrc[0]?.ssrc);
+        transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
 
         // # configure direction
-        const mediaDirection = media.direction || "inactive";
+        const mediaDirection = remoteMedia.direction || "inactive";
         const direction = reverseDirection(mediaDirection);
-        if (["answer", "pranswer"].includes(description.type)) {
+        if (["answer", "pranswer"].includes(remoteSdp.type)) {
           transceiver.currentDirection = direction;
         } else {
           transceiver.offerDirection = direction;
@@ -667,18 +669,18 @@ export class RTCPeerConnection extends EventTarget {
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
           // register simulcast receiver
-          media.simulcastParameters.forEach((param) => {
+          remoteMedia.simulcastParameters.forEach((param) => {
             this.router.registerRtpReceiverByRid(transceiver, param);
           });
 
-          const params = this.remoteRtp(description, transceiver);
+          const params = this.remoteRtp(remoteSdp, transceiver);
           // register ssrc receiver
           this.router.registerRtpReceiverBySsrc(transceiver, params);
         }
         if (["sendonly", "sendrecv"].includes(mediaDirection)) {
           // assign msid
-          if (media.msid != undefined) {
-            const [streamId, trackId] = media.msid.split(" ");
+          if (remoteMedia.msid != undefined) {
+            const [streamId, trackId] = remoteMedia.msid.split(" ");
             transceiver.receiver.remoteStreamId = streamId;
             transceiver.receiver.remoteTrackId = trackId;
 
@@ -692,64 +694,65 @@ export class RTCPeerConnection extends EventTarget {
             );
           }
         }
-      } else if (media.kind === "application") {
+      } else if (remoteMedia.kind === "application") {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
         }
 
         if (!this.sctpTransport.mid) {
-          this.sctpTransport.mid = media.rtp.muxId;
+          this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
         // # configure sctp
-        this.sctpRemotePort = media.sctpPort;
+        this.sctpRemotePort = remoteMedia.sctpPort;
       }
-      if (media.dtlsParams && media.iceParams) {
-        this.remoteDtls = media.dtlsParams;
-        this.remoteIce = media.iceParams;
+
+      if (remoteMedia.dtlsParams && remoteMedia.iceParams) {
+        this.remoteDtls = remoteMedia.dtlsParams;
+        this.remoteIce = remoteMedia.iceParams;
 
         // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
         // RFC 8445 S6.1.1
-        if (media.iceParams?.iceLite) {
+        if (remoteMedia.iceParams?.iceLite) {
           this.iceTransport.connection.iceControlling = true;
         }
       }
 
       // # add ICE candidates
-      media.iceCandidates.forEach(this.iceTransport.addRemoteCandidate);
+      remoteMedia.iceCandidates.forEach(this.iceTransport.addRemoteCandidate);
 
       await this.iceTransport.iceGather.gather();
 
-      if (media.iceCandidatesComplete) {
+      if (remoteMedia.iceCandidatesComplete) {
         await this.iceTransport.addRemoteCandidate(undefined);
       }
 
       // # set DTLS role
-      if (description.type === "answer" && media.dtlsParams?.role) {
+      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
         this.dtlsTransport.role =
-          media.dtlsParams.role === "client" ? "server" : "client";
+          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
       }
     }
 
     // connect transports
-    if (description.type === "answer") {
+    if (remoteSdp.type === "answer") {
       this.connect().catch((err) => {
         log("connect failed", err);
         this.setConnectionState("failed");
       });
     }
 
-    if (description.type === "offer") {
+    if (remoteSdp.type === "offer") {
       this.setSignalingState("have-remote-offer");
-    } else if (description.type === "answer") {
+    } else if (remoteSdp.type === "answer") {
       this.setSignalingState("stable");
     }
 
-    if (description.type === "answer") {
-      this.currentRemoteDescription = description;
+    if (remoteSdp.type === "answer") {
+      this.currentRemoteDescription = remoteSdp;
       this.pendingRemoteDescription = undefined;
     } else {
-      this.pendingRemoteDescription = description;
+      this.pendingRemoteDescription = remoteSdp;
     }
 
     this.negotiationneeded = false;
