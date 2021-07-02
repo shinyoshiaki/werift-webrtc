@@ -99,8 +99,6 @@ export class RTCPeerConnection extends EventTarget {
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
-  private remoteIce?: RTCIceParameters;
-  private remoteDtls?: RTCDtlsParameters;
   private sctpRemotePort?: number;
   private seenMid = new Set<string>();
   private currentLocalDescription?: SessionDescription;
@@ -525,17 +523,14 @@ export class RTCPeerConnection extends EventTarget {
     const dtlsTransport = this.dtlsTransport;
     const iceTransport = dtlsTransport.iceTransport;
 
-    const { remoteIce, remoteDtls } = this;
-    if (!remoteIce || !remoteDtls) throw new Error("properties not exist");
-
     this.setConnectionState("connecting");
 
-    await iceTransport.start(remoteIce).catch((err) => {
+    await iceTransport.start().catch((err) => {
       log("iceTransport.start failed", err);
       throw err;
     });
     log("ice connected");
-    await dtlsTransport.start(remoteDtls).catch((err) => {
+    await dtlsTransport.start().catch((err) => {
       log("dtlsTransport.start failed", err);
       throw err;
     });
@@ -707,9 +702,9 @@ export class RTCPeerConnection extends EventTarget {
         this.sctpRemotePort = remoteMedia.sctpPort;
       }
 
-      if (remoteMedia.dtlsParams && remoteMedia.iceParams) {
-        this.remoteDtls = remoteMedia.dtlsParams;
-        this.remoteIce = remoteMedia.iceParams;
+      if (remoteMedia.iceParams && remoteMedia.dtlsParams) {
+        this.iceTransport.setRemoteParams(remoteMedia.iceParams);
+        this.dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
 
         // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
         // RFC 8445 S6.1.1

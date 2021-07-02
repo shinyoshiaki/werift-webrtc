@@ -44,6 +44,7 @@ export class RTCDtlsTransport {
   readonly onStateChange = new Event<[DtlsState]>();
 
   private localCertificate?: RTCCertificate = this.certificates[0];
+  private remoteParameters?: RTCDtlsParameters;
 
   constructor(
     readonly iceTransport: RTCIceTransport,
@@ -77,9 +78,13 @@ export class RTCDtlsTransport {
     }
   }
 
-  async start(remoteParameters: RTCDtlsParameters) {
+  setRemoteParams(remoteParameters: RTCDtlsParameters) {
+    this.remoteParameters = remoteParameters;
+  }
+
+  async start() {
     if (this.state !== "new") throw new Error();
-    if (remoteParameters.fingerprints.length === 0) throw new Error();
+    if (this.remoteParameters?.fingerprints.length === 0) throw new Error();
 
     if (this.role === "auto") {
       if (this.iceTransport.role === "controlling") {
