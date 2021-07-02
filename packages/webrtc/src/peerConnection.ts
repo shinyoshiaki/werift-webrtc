@@ -99,9 +99,9 @@ export class RTCPeerConnection extends EventTarget {
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
-  private sctpRemotePort?: number;
-  private remoteDtls?: RTCDtlsParameters;
   private remoteIce?: RTCIceParameters;
+  private remoteDtls?: RTCDtlsParameters;
+  private sctpRemotePort?: number;
   private seenMid = new Set<string>();
   private currentLocalDescription?: SessionDescription;
   private currentRemoteDescription?: SessionDescription;
@@ -520,29 +520,34 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async connect() {
-    if (this.masterTransportEstablished || !this.dtlsTransport) return;
+    if (this.masterTransportEstablished) return;
 
     const dtlsTransport = this.dtlsTransport;
     const iceTransport = dtlsTransport.iceTransport;
 
-    if (this.remoteIce && this.remoteDtls) {
-      this.setConnectionState("connecting");
+    const { remoteIce, remoteDtls } = this;
+    if (!remoteIce || !remoteDtls) throw new Error("properties not exist");
 
-      await iceTransport.start(this.remoteIce).catch((err) => {
-        log("iceTransport.start failed", err);
-        throw err;
-      });
-      log("ice connected");
-      await dtlsTransport.start(this.remoteDtls);
+    this.setConnectionState("connecting");
 
-      if (this.sctpTransport && this.sctpRemotePort) {
-        await this.sctpTransport.start(this.sctpRemotePort);
-        await this.sctpTransport.sctp.stateChanged.connected.asPromise();
-      }
+    await iceTransport.start(remoteIce).catch((err) => {
+      log("iceTransport.start failed", err);
+      throw err;
+    });
+    log("ice connected");
+    await dtlsTransport.start(remoteDtls).catch((err) => {
+      log("dtlsTransport.start failed", err);
+      throw err;
+    });
+    log("dtls connected");
 
-      this.masterTransportEstablished = true;
-      this.setConnectionState("connected");
+    if (this.sctpTransport && this.sctpRemotePort) {
+      await this.sctpTransport.start(this.sctpRemotePort);
+      await this.sctpTransport.sctp.stateChanged.connected.asPromise();
     }
+
+    this.masterTransportEstablished = true;
+    this.setConnectionState("connected");
   }
 
   private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
@@ -583,60 +588,6 @@ export class RTCPeerConnection extends EventTarget {
     receiveParameters.encodings = encodings;
     receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
-  }
-
-  private validateDescription(
-    description: SessionDescription,
-    isLocal: boolean
-  ) {
-    if (isLocal) {
-      if (description.type === "offer") {
-        if (!["stable", "have-local-offer"].includes(this.signalingState))
-          throw new Error("Cannot handle offer in signaling state");
-      } else if (description.type === "answer") {
-        if (
-          !["have-remote-offer", "have-local-pranswer"].includes(
-            this.signalingState
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    } else {
-      if (description.type === "offer") {
-        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
-          throw new Error("Cannot handle offer in signaling state");
-        }
-      } else if (description.type === "answer") {
-        if (
-          !["have-local-offer", "have-remote-pranswer"].includes(
-            this.signalingState
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    }
-
-    description.media.forEach((media) => {
-      if (media.direction === "inactive") return;
-      if (
-        !media.iceParams ||
-        !media.iceParams.usernameFragment ||
-        !media.iceParams.password
-      )
-        throw new Error("ICE username fragment or password is missing");
-    });
-
-    if (["answer", "pranswer"].includes(description.type || "")) {
-      const offer = isLocal ? this._remoteDescription : this._localDescription;
-      if (!offer) throw new Error();
-
-      const offerMedia = offer.media.map((v) => [v.kind, v.rtp.muxId]);
-      const answerMedia = description.media.map((v) => [v.kind, v.rtp.muxId]);
-      if (!isEqual(offerMedia, answerMedia))
-        throw new Error("Media sections in answer do not match offer");
-    }
   }
 
   async setRemoteDescription(sessionDescription: {
@@ -756,12 +707,12 @@ export class RTCPeerConnection extends EventTarget {
       if (media.dtlsParams && media.iceParams) {
         this.remoteDtls = media.dtlsParams;
         this.remoteIce = media.iceParams;
-      }
 
-      // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-      // RFC 8445 S6.1.1
-      if (media.iceParams?.iceLite) {
-        this.iceTransport.connection.iceControlling = true;
+        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+        // RFC 8445 S6.1.1
+        if (media.iceParams?.iceLite) {
+          this.iceTransport.connection.iceControlling = true;
+        }
       }
 
       // # add ICE candidates
@@ -804,6 +755,60 @@ export class RTCPeerConnection extends EventTarget {
     this.negotiationneeded = false;
     if (this.shouldNegotiationneeded) {
       this.needNegotiation();
+    }
+  }
+
+  private validateDescription(
+    description: SessionDescription,
+    isLocal: boolean
+  ) {
+    if (isLocal) {
+      if (description.type === "offer") {
+        if (!["stable", "have-local-offer"].includes(this.signalingState))
+          throw new Error("Cannot handle offer in signaling state");
+      } else if (description.type === "answer") {
+        if (
+          !["have-remote-offer", "have-local-pranswer"].includes(
+            this.signalingState
+          )
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    } else {
+      if (description.type === "offer") {
+        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
+          throw new Error("Cannot handle offer in signaling state");
+        }
+      } else if (description.type === "answer") {
+        if (
+          !["have-local-offer", "have-remote-pranswer"].includes(
+            this.signalingState
+          )
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    }
+
+    description.media.forEach((media) => {
+      if (media.direction === "inactive") return;
+      if (
+        !media.iceParams ||
+        !media.iceParams.usernameFragment ||
+        !media.iceParams.password
+      )
+        throw new Error("ICE username fragment or password is missing");
+    });
+
+    if (["answer", "pranswer"].includes(description.type || "")) {
+      const offer = isLocal ? this._remoteDescription : this._localDescription;
+      if (!offer) throw new Error();
+
+      const offerMedia = offer.media.map((v) => [v.kind, v.rtp.muxId]);
+      const answerMedia = description.media.map((v) => [v.kind, v.rtp.muxId]);
+      if (!isEqual(offerMedia, answerMedia))
+        throw new Error("Media sections in answer do not match offer");
     }
   }
 
