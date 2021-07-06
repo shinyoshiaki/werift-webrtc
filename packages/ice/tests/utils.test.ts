@@ -1,5 +1,4 @@
 import { createSocket } from "dgram";
-import exp from "node:constants";
 
 import { randomString } from "../src/helper";
 import { findPort, getGlobalIp } from "../src/utils";
