@@ -11,12 +11,12 @@ import util from "util";
 
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { TransactionError } from "./exceptions";
+import { difference, Future, future, PQueue, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
-import { difference, Future, future, PQueue, randomString } from "./utils";
 
 const log = debug("werift/ice/ice");
 
@@ -1002,6 +1002,7 @@ export async function serverReflexiveCandidate(
     );
   } catch (error) {
     // todo fix
+    log("error serverReflexiveCandidate", error);
   }
 }
 

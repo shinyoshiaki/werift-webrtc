@@ -1,6 +1,8 @@
 import { createSocket } from "dgram";
+import exp from "node:constants";
 
-import { findPort, randomString } from "../src/utils";
+import { randomString } from "../src/helper";
+import { findPort, getGlobalIp } from "../src/utils";
 
 describe("utils", () => {
   test("randomString", () => {
@@ -17,4 +19,9 @@ describe("utils", () => {
     });
     socket.close();
   }, 60_000);
+
+  test("getGlobalIp", async () => {
+    const gip = await getGlobalIp();
+    expect(gip).toBeTruthy();
+  });
 });

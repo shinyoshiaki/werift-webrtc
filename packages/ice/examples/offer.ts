@@ -1,5 +1,6 @@
-import { Connection } from "../src";
 import readline from "readline";
+
+import { Connection } from "../src";
 import { Candidate } from "../src/candidate";
 
 const reader = readline.createInterface({
@@ -10,7 +11,6 @@ const reader = readline.createInterface({
 (async () => {
   const connection = new Connection(true, {
     stunServer: ["stun.l.google.com", 19302],
-    log: false,
   });
   await connection.gatherCandidates();
 

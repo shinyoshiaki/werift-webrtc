@@ -1,87 +1,8 @@
-import { randomBytes } from "crypto";
-import debug from "debug";
 import { createSocket, SocketType } from "dgram";
-import PCancelable from "p-cancelable";
-import { Event } from "rx.mini";
 
-const log = debug("werift/ice/utils");
-
-export function randomString(length: number) {
-  return randomBytes(length).toString("hex").substring(0, length);
-}
-
-export function randomTransactionId() {
-  return randomBytes(12);
-}
-
-export function bufferXor(a: Buffer, b: Buffer): Buffer {
-  if (a.length !== b.length) {
-    throw new TypeError(
-      "[webrtc-stun] You can not XOR buffers which length are different"
-    );
-  }
-
-  const length = a.length;
-  const buffer = Buffer.allocUnsafe(length);
-
-  for (let i = 0; i < length; i++) {
-    buffer[i] = a[i] ^ b[i];
-  }
-
-  return buffer;
-}
-
-export function difference<T>(x: Set<T>, y: Set<T>) {
-  return new Set([...x].filter((e) => !y.has(e)));
-}
-
-// infinite size queue
-export class PQueue<T> {
-  private queue: Promise<T>[] = [];
-  private wait = new Event<[Promise<T>]>();
-
-  put(v: Promise<T>) {
-    this.queue.push(v);
-    if (this.queue.length === 1) {
-      this.wait.execute(v);
-    }
-  }
-
-  get(): Promise<T> {
-    const v = this.queue.shift();
-    if (!v) {
-      return new Promise((r) => {
-        this.wait.subscribe((v) => {
-          this.queue.shift();
-          r(v);
-        });
-      });
-    }
-    return v!;
-  }
-}
-
-export const future = (pCancel: PCancelable<any>) => {
-  const state = { done: false };
-
-  const cancel = () => pCancel.cancel();
-
-  const done = () => state.done;
-
-  pCancel
-    .then(() => {
-      state.done = true;
-    })
-    .catch((error) => {
-      if (error !== "cancel") {
-        log("future", error);
-      }
-    });
-
-  return { cancel, promise: pCancel, done };
-};
-
-export type Future = ReturnType<typeof future>;
+import { Connection, serverReflexiveCandidate } from "./ice";
+import { StunProtocol } from "./stun/protocol";
+import { Address } from "./types/model";
 
 export async function randomPort(protocol: SocketType = "udp4") {
   const socket = createSocket(protocol);
@@ -125,4 +46,24 @@ export async function findPort(
   if (!port) throw new Error("port not found");
 
   return port;
+}
+
+export async function getGlobalIp(stunServer?: Address) {
+  const connection = new Connection(true, {
+    stunServer: stunServer ?? ["stun.l.google.com", 19302],
+  });
+  await connection.gatherCandidates();
+
+  const protocol = new StunProtocol(connection);
+  protocol.localCandidate = connection.localCandidates[0];
+  await protocol.connectionMade(true);
+  const candidate = await serverReflexiveCandidate(protocol, [
+    "stun.l.google.com",
+    19302,
+  ]);
+
+  await connection.close();
+  await protocol.close();
+
+  return candidate?.host;
 }

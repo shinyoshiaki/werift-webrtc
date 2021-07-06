@@ -2,7 +2,7 @@ import crc32 from "buffer-crc32";
 import { createHmac } from "crypto";
 import { jspack } from "jspack";
 
-import { bufferXor, randomTransactionId } from "../utils";
+import { bufferXor, randomTransactionId } from "../helper";
 import {
   ATTRIBUTES_BY_NAME,
   ATTRIBUTES_BY_TYPE,
