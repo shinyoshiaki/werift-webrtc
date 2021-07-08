@@ -34,6 +34,7 @@ export class SessionDescription {
   time = "0 0";
   host?: string;
   group: GroupDescription[] = [];
+  extMapAllowMixed = true;
   msidSemantic: GroupDescription[] = [];
   media: MediaDescription[] = [];
   type!: "offer" | "answer";
@@ -88,6 +89,9 @@ export class SessionDescription {
             break;
           case "setup":
             session.dtlsRole = DTLS_SETUP_ROLE[value];
+            break;
+          case "extmap-allow-mixed":
+            session.extMapAllowMixed = true;
             break;
         }
       }
@@ -310,6 +314,9 @@ export class SessionDescription {
     }
     lines.push(`t=${this.time}`);
     this.group.forEach((group) => lines.push(`a=group:${group.str()}`));
+    if (this.extMapAllowMixed) {
+      lines.push(`a=extmap-allow-mixed`);
+    }
     this.msidSemantic.forEach((group) =>
       lines.push(`a=msid-semantic:${group.str()}`)
     );
