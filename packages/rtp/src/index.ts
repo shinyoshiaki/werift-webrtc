@@ -1,3 +1,4 @@
+export * from "./codec/av1";
 export * from "./codec/h264";
 export * from "./codec/vp8";
 export * from "./codec/vp9";
