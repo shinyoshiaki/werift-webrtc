@@ -1,4 +1,8 @@
-import { RTCPeerConnection, Vp8RtpPayload } from "../../../packages/webrtc/src";
+import {
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+  H264RtpPayload,
+} from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
@@ -7,17 +11,32 @@ console.log("start");
 (async () => {
   server.on("connection", async (socket) => {
     console.log("new peer");
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection({
+      codecs: {
+        video: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/H264",
+            clockRate: 90000,
+            rtcpFeedback: [
+              { type: "ccm", parameter: "fir" },
+              { type: "nack" },
+              { type: "nack", parameter: "pli" },
+              { type: "goog-remb" },
+            ],
+          }),
+        ],
+      },
+    });
 
     pc.ontrack = ({ track, transceiver }) => {
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(track.ssrc);
       }, 3000);
       track.onReceiveRtp.subscribe(async (rtp) => {
-        const vp8 = Vp8RtpPayload.deSerialize(rtp.payload);
+        const h264 = H264RtpPayload.deSerialize(rtp.payload);
 
-        if (vp8.isKeyframe) {
-          console.log("on keyframe");
+        if (h264.isKeyframe && rtp.header.marker) {
+          console.log("on keyframe", rtp.payload.length);
         }
       });
     };

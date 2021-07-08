@@ -1,4 +1,6 @@
+export * from "./codec/h264";
 export * from "./codec/vp8";
+export * from "./codec/vp9";
 export { RtcpHeader } from "./rtcp/header";
 export { RtcpPayloadSpecificFeedback } from "./rtcp/psfb";
 export { PictureLossIndication } from "./rtcp/psfb/pictureLossIndication";
