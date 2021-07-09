@@ -88,4 +88,44 @@ describe("srtp/context", () => {
     c.updateRolloverCount(8, s);
     expect(s.rolloverCounter).toBe(1);
   });
+
+  test("TestRolloverCount Packet out of order", () => {
+    const masterKey = Buffer.from([
+      0x0d, 0xcd, 0x21, 0x3e, 0x4c, 0xbc, 0xf2, 0x8f, 0x01, 0x7f, 0x69, 0x94,
+      0x40, 0x1e, 0x28, 0x89,
+    ]);
+    const masterSalt = Buffer.from([
+      0x62, 0x77, 0x60, 0x38, 0xc0, 0x6d, 0xc9, 0x41, 0x9f, 0x6d, 0xd9, 0x43,
+      0x3e, 0x7c,
+    ]);
+
+    const c = new Context(masterKey, masterSalt, 1);
+    const s: SrtpSSRCState = {
+      ssrc: 0,
+      rolloverCounter: 0,
+      lastSequenceNumber: 0,
+    };
+
+    c.updateRolloverCount(0, s);
+    c.updateRolloverCount(65535, s);
+    expect(s.rolloverCounter).toBe(0);
+    c.updateRolloverCount(1, s);
+    expect(s.rolloverCounter).toBe(1);
+
+    c.updateRolloverCount(65534, s);
+    expect(s.rolloverCounter).toBe(0);
+
+    c.updateRolloverCount(99, s);
+    expect(s.rolloverCounter).toBe(1);
+
+    c.updateRolloverCount(101, s);
+    c.updateRolloverCount(65535, s);
+    c.updateRolloverCount(0, s);
+    expect(s.rolloverCounter).toBe(2);
+
+    c.updateRolloverCount(65534, s);
+    expect(s.rolloverCounter).toBe(1);
+    c.updateRolloverCount(1, s);
+    expect(s.rolloverCounter).toBe(2);
+  });
 });

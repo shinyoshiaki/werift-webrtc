@@ -130,7 +130,9 @@ export class Context {
       s.lastSequenceNumber < MaxROCDisorder &&
       sequenceNumber > MaxSequenceNumber - MaxROCDisorder
     ) {
-      s.rolloverCounter--;
+      if (s.rolloverCounter > 0) {
+        s.rolloverCounter--;
+      }
     } else if (
       sequenceNumber < MaxROCDisorder &&
       s.lastSequenceNumber > MaxSequenceNumber - MaxROCDisorder
