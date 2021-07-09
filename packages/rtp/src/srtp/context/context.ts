@@ -4,12 +4,12 @@ import { createHmac } from "crypto";
 import { range } from "lodash";
 
 export class Context {
-  srtpSSRCStates: { [key: number]: SrtpSSRCState } = {};
+  srtpSSRCStates: { [ssrc: number]: SrtpSSRCState } = {};
   srtpSessionKey = this.generateSessionKey(0);
   srtpSessionSalt = this.generateSessionSalt(2);
   srtpSessionAuthTag = this.generateSessionAuthTag(1);
   srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
-  srtcpSSRCStates: { [key: number]: SrtcpSSRCState } = {};
+  srtcpSSRCStates: { [ssrc: number]: SrtcpSSRCState } = {};
   srtcpSessionKey = this.generateSessionKey(3);
   srtcpSessionSalt = this.generateSessionSalt(5);
   srtcpSessionAuthTag = this.generateSessionAuthTag(4);
@@ -191,12 +191,12 @@ export class Context {
   }
 }
 
-export type SrtpSSRCState = {
+export interface SrtpSSRCState {
   ssrc: number;
   rolloverCounter: number;
   rolloverHasProcessed?: boolean;
   lastSequenceNumber: number;
-};
+}
 
 export type SrtcpSSRCState = {
   srtcpIndex: number;

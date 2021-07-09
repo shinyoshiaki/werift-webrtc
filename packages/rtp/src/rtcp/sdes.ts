@@ -1,4 +1,4 @@
-import { bufferWriter } from "../helper";
+import { bufferWriter } from "../../../common/src";
 import { RtcpHeader } from "./header";
 import { RtcpPacketConverter } from "./rtcp";
 

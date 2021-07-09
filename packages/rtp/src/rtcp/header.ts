@@ -1,5 +1,9 @@
-import { bufferReader, bufferWriter } from "../helper";
-import { BitWriter, getBit } from "../utils";
+import {
+  BitWriter,
+  bufferReader,
+  bufferWriter,
+  getBit,
+} from "../../../common/src";
 
 export const HEADER_SIZE = 4;
 

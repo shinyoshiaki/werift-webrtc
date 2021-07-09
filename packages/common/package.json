@@ -1,0 +1,40 @@
+{
+  "name": "common",
+  "version": "0.0.1",
+  "description": "",
+  "keywords": [
+    "WebRTC",
+    "node.js"
+  ],
+  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
+    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "lint": "eslint ./src --fix",
+    "test": "npm run type",
+    "type": "tsc --noEmit --project ./tsconfig.json",
+    "unused": "organize-imports-cli src/**/*.ts"
+  },
+  "dependencies": {
+    "jspack": "^0.0.4"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=14"
+  },
+  "readme": "README.md"
+}

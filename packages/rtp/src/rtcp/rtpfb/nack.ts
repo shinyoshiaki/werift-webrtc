@@ -1,6 +1,6 @@
 import { range } from "lodash";
 
-import { bufferReader, bufferWriter } from "../../helper";
+import { bufferReader, bufferWriter } from "../../../../common/src";
 import { RtcpHeader } from "../header";
 
 export class GenericNack {

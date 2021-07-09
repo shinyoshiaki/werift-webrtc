@@ -11,13 +11,14 @@
   "author": {
     "name": "shinyoshiaki"
   },
-  "main": "./lib/index.js",
+  "main": "./lib/rtp/src/index.js",
+  "types": "lib/rtp/src/index.d.ts",
   "files": [
     "lib",
     "src"
   ],
   "scripts": {
-    "build": "yarn format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "ci": "yarn type && yarn lint && yarn test",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix && eslint ./tests --fix",

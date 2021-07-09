@@ -1,6 +1,6 @@
 // RTP Payload Format For AV1
 
-import { getBit } from "../utils";
+import { getBit } from "../../../common/src";
 
 //  0 1 2 3 4 5 6 7
 // +-+-+-+-+-+-+-+-+

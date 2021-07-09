@@ -1,4 +1,4 @@
-import { BitWriter, getBit } from "../utils";
+import { BitWriter, getBit } from "../../../common/src";
 
 export type Extension = { id: number; payload: Buffer };
 

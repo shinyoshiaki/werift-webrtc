@@ -1,6 +1,6 @@
 // draft-ietf-payload-vp9-16
 
-import { getBit, paddingByte } from "../utils";
+import { getBit, paddingByte } from "../../../common/src";
 
 //          0 1 2 3 4 5 6 7
 //         +-+-+-+-+-+-+-+-+

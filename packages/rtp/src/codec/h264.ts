@@ -1,6 +1,6 @@
 // RFC 6184 - RTP Payload Format for H.264 Video
 
-import { getBit } from "../utils";
+import { getBit } from "../../../common/src";
 
 export class H264RtpPayload {
   f!: number;

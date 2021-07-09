@@ -1,6 +1,6 @@
 import { range } from "lodash";
 
-import { bufferReader, bufferWriter } from "../helper";
+import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpReceiverInfo } from "./rr";
 import { RtcpPacketConverter } from "./rtcp";
 

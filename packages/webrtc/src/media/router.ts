@@ -1,5 +1,6 @@
 import debug from "debug";
 
+import { bufferReader } from "../../../common/src";
 import {
   Extension,
   ReceiverEstimatedMaxBitrate,
@@ -11,7 +12,6 @@ import {
   RtcpTransportLayerFeedback,
   RtpPacket,
 } from "../../../rtp/src";
-import { bufferReader } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import {
   RTCRtpReceiveParameters,

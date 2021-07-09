@@ -1,4 +1,4 @@
-import { getBit, paddingByte } from "../utils";
+import { getBit, paddingByte } from "../../../common/src";
 
 // RFC 7741 - RTP Payload Format for VP8 Video
 

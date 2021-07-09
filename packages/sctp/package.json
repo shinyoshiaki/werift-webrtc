@@ -11,7 +11,8 @@
   "author": {
     "name": "shinyoshiaki"
   },
-  "main": "./lib/index.js",
+  "main": "./lib/sctp/src/index.js",
+  "types": "lib/sctp/src/index.d.ts",
   "scripts": {
     "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "ci": "yarn type && yarn lint && yarn test",

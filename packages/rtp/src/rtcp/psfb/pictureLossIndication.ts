@@ -1,4 +1,4 @@
-import { bufferReader, bufferWriter } from "../../helper";
+import { bufferReader, bufferWriter } from "../../../../common/src";
 
 export class PictureLossIndication {
   static count = 1;

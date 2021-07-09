@@ -4,6 +4,7 @@ import { jspack } from "jspack";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
+import { bufferWriter, uint16Add, uint32Add } from "../../../common/src";
 import {
   Extension,
   GenericNack,
@@ -22,11 +23,10 @@ import {
   SourceDescriptionItem,
   TransportWideCC,
 } from "../../../rtp/src";
-import { bufferWriter } from "../../../rtp/src/helper";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
-import { milliTime, ntpTime, uint16Add, uint32Add } from "../utils";
+import { milliTime, ntpTime } from "../utils";
 import { RTCRtpCodecParameters, RTCRtpParameters } from "./parameters";
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
 import { MediaStreamTrack } from "./track";

@@ -4,6 +4,7 @@ import debug from "debug";
 import { jspack } from "jspack";
 import { performance } from "perf_hooks";
 
+import { random16, random32, uint16Add, uint32Add } from "../../common/src";
 import { Address } from "../../ice/src";
 import { RtpHeader, RtpPacket } from "../../rtp/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
@@ -72,30 +73,6 @@ export const ntpTime = () => {
 
   return (high << 32n) | low;
 };
-
-export function random16() {
-  return jspack.Unpack("!H", randomBytes(2))[0];
-}
-
-export function random32() {
-  return BigInt(jspack.Unpack("!L", randomBytes(4))[0]);
-}
-
-export function uint8Add(a: number, b: number) {
-  return (a + b) & 0xff;
-}
-
-export function uint16Add(a: number, b: number) {
-  return (a + b) & 0xffff;
-}
-
-export function uint32Add(a: bigint, b: bigint) {
-  return (a + b) & 0xffffffffn;
-}
-
-export function uint24(v: number) {
-  return v & 0xffffff;
-}
 
 export function parseIceServers(iceServers: RTCIceServer[]) {
   const url2Address = (url?: string) => {

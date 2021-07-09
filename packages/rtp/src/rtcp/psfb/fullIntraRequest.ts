@@ -1,4 +1,4 @@
-import { bufferReader, bufferWriter } from "../../helper";
+import { bufferReader, bufferWriter } from "../../../../common/src";
 
 type firEntry = { ssrc: number; sequenceNumber: number };
 
