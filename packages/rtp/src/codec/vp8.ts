@@ -73,14 +73,14 @@ export class Vp8RtpPayload {
       if (c.i) {
         c.m = getBit(buf[index], 0);
 
-        const _7 = paddingByte(getBit(buf[index], 1, 7));
-        const _8 = paddingByte(buf[index + 1]);
-        c.pictureId = parseInt(_7 + _8, 2);
-
-        if (c.m === 0) {
-          index++;
-        } else {
+        if (c.m === 1) {
+          const _7 = paddingByte(getBit(buf[index], 1, 7));
+          const _8 = paddingByte(buf[index + 1]);
+          c.pictureId = parseInt(_7 + _8, 2);
           index += 2;
+        } else {
+          c.pictureId = getBit(buf[index], 1, 7);
+          index++;
         }
       }
     }
