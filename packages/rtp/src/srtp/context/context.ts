@@ -119,6 +119,9 @@ export class Context {
     return s;
   }
 
+  // 3.3.1.  Packet Index Determination, and ROC, s_l Update
+  // In particular, out-of-order RTP packets with
+  // sequence numbers close to 2^16 or zero must be properly handled.
   updateRolloverCount(sequenceNumber: number, s: SrtpSSRCState) {
     if (!s.rolloverHasProcessed) {
       s.rolloverHasProcessed = true;
@@ -130,6 +133,7 @@ export class Context {
       s.lastSequenceNumber < MaxROCDisorder &&
       sequenceNumber > MaxSequenceNumber - MaxROCDisorder
     ) {
+      // https://github.com/shinyoshiaki/werift-webrtc/issues/94
       if (s.rolloverCounter > 0) {
         s.rolloverCounter--;
       }
