@@ -46,6 +46,8 @@ module.exports = function (config) {
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
+          "--disable-gpu",
+          "--no-sandbox",
         ],
       },
       chrome_with_fake_device: {
@@ -53,6 +55,8 @@ module.exports = function (config) {
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
+          "--disable-gpu",
+          "--no-sandbox",
         ],
       },
       firefox_with_fake_device: {
@@ -63,7 +67,7 @@ module.exports = function (config) {
         },
       },
     },
-
+    browserNoActivityTimeout: 120000,
     // Continuous Integration mode
     // if true, Karma captures browsers, runs the tests and exits
     // singleRun: true,
