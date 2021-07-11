@@ -152,22 +152,20 @@ export class RTCRtpReceiver {
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
     const track = this.trackBySSRC[packet.header.ssrc];
-    if (!track) throw new Error();
 
-    this.handleRTP(track, packet, extensions);
+    this.handleRTP(packet, extensions, track);
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
-    if (!track) throw new Error();
 
-    this.handleRTP(track, packet, extensions);
+    this.handleRTP(packet, extensions, track);
   };
 
   private handleRTP(
-    track: MediaStreamTrack,
     packet: RtpPacket,
-    extensions: Extensions
+    extensions: Extensions,
+    track?: MediaStreamTrack
   ) {
     if (this.stopped) return;
 
@@ -183,18 +181,21 @@ export class RTCRtpReceiver {
     }
 
     const codec = this.codecs[packet.header.payloadType];
-    if (codec) {
-      if (codec.name.toLowerCase() === "rtx") {
-        const originalSsrc = this.rtxSsrc[packet.header.ssrc];
-        const rtxCodec = this.codecs[codec.parameters["apt"]];
-        packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
-      }
+    if (!codec) throw new Error("unknown codec " + packet.header.payloadType);
+
+    if (codec.name.toLowerCase() === "rtx") {
+      const originalSsrc = this.rtxSsrc[packet.header.ssrc];
+      const rtxCodec = this.codecs[codec.parameters["apt"]];
+      if (packet.payload.length < 2) return;
+
+      packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
+      track = this.trackBySSRC[originalSsrc];
     }
 
     // todo fix
-    if (track.kind === "video") this.nack.addPacket(packet);
+    if (track?.kind === "video") this.nack.addPacket(packet);
 
-    track.onReceiveRtp.execute(packet);
+    if (track) track.onReceiveRtp.execute(packet);
 
     this.runRtcp();
   }

@@ -130,6 +130,9 @@ export class RTCPeerConnection extends EventTarget {
       ...(this.configuration.codecs.video || []),
     ].forEach((v, i) => {
       v.payloadType = 96 + i;
+      if (v.name.toLowerCase() === "rtx") {
+        v.parameters = { apt: v.payloadType - 1 };
+      }
     });
     if (headerExtensions?.audio)
       this.configuration.headerExtensions.audio = headerExtensions.audio;

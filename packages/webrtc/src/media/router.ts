@@ -43,20 +43,19 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    const ssrcs = params.encodings
-      .map((encode) => encode.ssrc)
-      .filter((v) => v);
-
-    ssrcs.forEach((ssrc) => {
-      this.ssrcTable[ssrc] = transceiver.receiver;
+    params.encodings.forEach((encode) => {
+      this.ssrcTable[encode.ssrc] = transceiver.receiver;
       transceiver.addTrack(
         new MediaStreamTrack({
-          ssrc,
+          ssrc: encode.ssrc,
           kind: transceiver.kind,
           id: transceiver.sender.trackId,
           remote: true,
         })
       );
+      if (encode.rtx) {
+        this.ssrcTable[encode.rtx.ssrc] = transceiver.receiver;
+      }
     });
 
     params.headerExtensions.forEach((extension) => {

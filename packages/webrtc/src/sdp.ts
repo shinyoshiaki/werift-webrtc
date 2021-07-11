@@ -650,7 +650,7 @@ function parametersToSDP(parameters: { [key: string]: string }) {
     else return k;
   });
   if (params.length > 0) {
-    return params.join(";") + ";";
+    return params.join(";");
   }
   return undefined;
 }
