@@ -30,6 +30,8 @@ export class RTCRtpReceiver {
 
   sdesMid?: string;
   rid?: string;
+  repairedRid?: string;
+
   receiverTWCC?: ReceiverTWCC;
   supportTWCC = false;
   codecs: RTCRtpCodecParameters[] = [];

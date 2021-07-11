@@ -1,6 +1,7 @@
 import {
   RTCPeerConnection,
   useSdesRTPStreamID,
+  useRepairedRtpStreamId,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
@@ -9,9 +10,8 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     headerExtensions: {
-      video: [useSdesRTPStreamID()],
+      video: [useSdesRTPStreamID(), useRepairedRtpStreamId()],
       audio: [],
     },
   });

@@ -90,6 +90,7 @@ export class RtpRouter {
         switch (uri) {
           case RTP_EXTENSION_URI.sdesMid:
           case RTP_EXTENSION_URI.sdesRTPStreamID:
+          case RTP_EXTENSION_URI.repairedRtpStreamId:
             return { uri, value: extension.payload.toString() };
           case RTP_EXTENSION_URI.transportWideCC:
             return { uri, value: extension.payload.readUInt16BE() };
@@ -113,10 +114,11 @@ export class RtpRouter {
     );
 
     let ssrcReceiver = this.ssrcTable[packet.header.ssrc] as RTCRtpReceiver;
-    const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID] as string;
 
-    if (rid) {
+    const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
+    if (typeof rid === "string") {
       ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
+      ssrcReceiver.rid = rid;
       ssrcReceiver.handleRtpByRid(packet, rid, extensions);
     } else {
       if (!ssrcReceiver) return; // simulcast + absSendTime
@@ -124,7 +126,17 @@ export class RtpRouter {
       ssrcReceiver.handleRtpBySsrc(packet, extensions);
     }
 
-    ssrcReceiver.sdesMid = extensions[RTP_EXTENSION_URI.sdesMid] as string;
+    const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
+    if (typeof sdesMid === "string") {
+      ssrcReceiver.sdesMid = sdesMid;
+    }
+
+    const repairedRid = extensions[
+      RTP_EXTENSION_URI.repairedRtpStreamId
+    ] as string;
+    if (typeof repairedRid === "string") {
+      ssrcReceiver.repairedRid = repairedRid;
+    }
   };
 
   routeRtcp = (packet: RtcpPacket) => {

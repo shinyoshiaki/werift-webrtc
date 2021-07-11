@@ -231,8 +231,13 @@ export class RTCRtpSender {
             case RTP_EXTENSION_URI.sdesMid:
               return Buffer.from(parameters.muxId);
             case RTP_EXTENSION_URI.sdesRTPStreamID:
-              if (parameters?.rid) {
-                return Buffer.from(parameters.rid);
+              if (parameters?.rtpStreamId) {
+                return Buffer.from(parameters.rtpStreamId);
+              }
+              return;
+            case RTP_EXTENSION_URI.repairedRtpStreamId:
+              if (parameters?.repairedRtpStreamId) {
+                return Buffer.from(parameters.repairedRtpStreamId);
               }
               return;
             case RTP_EXTENSION_URI.transportWideCC:
@@ -262,6 +267,7 @@ export class RTCRtpSender {
     this.packetCount = Number(uint32Add(BigInt(this.packetCount), 1n));
 
     rtp.header = header;
+
     this.rtpCache.push(rtp);
     this.rtpCache = this.rtpCache.slice(-RTP_HISTORY_SIZE);
 

@@ -2,7 +2,8 @@ export interface RTCRtpParameters {
   codecs: RTCRtpCodecParameters[];
   headerExtensions: RTCRtpHeaderExtensionParameters[];
   muxId?: string;
-  rid?: string;
+  rtpStreamId?: string;
+  repairedRtpStreamId?: string;
   rtcp?: RTCRtcpParameters;
 }
 
