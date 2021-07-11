@@ -104,6 +104,8 @@ export interface RTCRtpReceiveParameters extends RTCRtpParameters {
   encodings: RTCRtpCodingParameters[];
 }
 
+export interface RTCRtpSendParameters extends RTCRtpParameters {}
+
 export class RTCRtpSimulcastParameters {
   rid!: string;
   direction!: "send" | "recv";

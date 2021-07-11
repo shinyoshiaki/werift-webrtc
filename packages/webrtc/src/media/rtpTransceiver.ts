@@ -40,7 +40,10 @@ export class RTCRtpTransceiver {
   }
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
-    this.receiver.codecs = codecs;
+    this.receiver.codecs = codecs.reduce((acc, cur) => {
+      acc[cur.payloadType] = cur;
+      return acc;
+    }, {});
     this.sender.codec = codecs[0];
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];

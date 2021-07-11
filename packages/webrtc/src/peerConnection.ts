@@ -17,6 +17,7 @@ import {
   RTCRtpHeaderExtensionParameters,
   RTCRtpParameters,
   RTCRtpReceiveParameters,
+  RTCRtpRtxParameters,
   RTCRtpSimulcastParameters,
 } from "./media/parameters";
 import { RtpRouter } from "./media/router";
@@ -35,18 +36,13 @@ import {
   SessionDescription,
   SsrcDescription,
 } from "./sdp";
-import {
-  RTCCertificate,
-  RTCDtlsParameters,
-  RTCDtlsTransport,
-} from "./transport/dtls";
+import { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
 import {
   IceCandidate,
   IceGathererState,
   RTCIceCandidate,
   RTCIceConnectionState,
   RTCIceGatherer,
-  RTCIceParameters,
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
@@ -573,14 +569,26 @@ export class RTCPeerConnection extends EventTarget {
       encodings: [],
       headerExtensions: [],
     };
-    const encodings = transceiver.codecs.map(
-      (codec) =>
-        new RTCRtpCodingParameters({
+    const encodings = transceiver.codecs.reduce(
+      (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
+        if (codec.name.toLowerCase() === "rtx") {
+          if (acc[codec.parameters["apt"]] && media.ssrc.length === 2) {
+            acc[codec.parameters["apt"]].rtx = new RTCRtpRtxParameters({
+              ssrc: media.ssrc[1].ssrc,
+            });
+          }
+          return acc;
+        }
+        acc[codec.payloadType] = new RTCRtpCodingParameters({
           ssrc: media.ssrc[0]?.ssrc,
           payloadType: codec.payloadType,
-        })
+        });
+        return acc;
+      },
+      {}
     );
-    receiveParameters.encodings = encodings;
+
+    receiveParameters.encodings = Object.values(encodings);
     receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
   }
@@ -660,7 +668,6 @@ export class RTCPeerConnection extends EventTarget {
         if (muxId == undefined || rtcp == undefined) {
           throw new Error("param missing");
         }
-        transceiver.sender.parameters = { ...local, muxId, rtcp };
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
           // register simulcast receiver
@@ -671,6 +678,8 @@ export class RTCPeerConnection extends EventTarget {
           const params = this.remoteRtp(remoteSdp, transceiver);
           // register ssrc receiver
           this.router.registerRtpReceiverBySsrc(transceiver, params);
+
+          transceiver.receiver.prepareReceive(params);
         }
         if (["sendonly", "sendrecv"].includes(mediaDirection)) {
           // assign msid
@@ -688,6 +697,8 @@ export class RTCPeerConnection extends EventTarget {
               })
             );
           }
+
+          transceiver.sender.prepareSend({ ...local, muxId, rtcp });
         }
       } else if (remoteMedia.kind === "application") {
         if (!this.sctpTransport) {
@@ -1071,6 +1082,18 @@ export function createMediaDescriptionForTransceiver(
     media.simulcastParameters = transceiver.options.simulcast.map(
       (o) => new RTCRtpSimulcastParameters(o)
     );
+  }
+
+  if (media.rtp.codecs.find((c) => c.name.toLowerCase() === "rtx")) {
+    media.ssrc.push(
+      new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname })
+    );
+    media.ssrcGroup = [
+      new GroupDescription("FID", [
+        transceiver.sender.ssrc.toString(),
+        transceiver.sender.rtxSsrc.toString(),
+      ]),
+    ];
   }
 
   addTransportDescription(media, transceiver.dtlsTransport);

@@ -11,13 +11,13 @@ describe("media/nack", () => {
       new RtpHeader({ sequenceNumber: 65535, ssrc: 1 }),
       Buffer.from("")
     );
-    nack.onPacket(packet);
+    nack.addPacket(packet);
 
     var packet = new RtpPacket(
       new RtpHeader({ sequenceNumber: 3, ssrc: 1 }),
       Buffer.from("")
     );
-    nack.onPacket(packet);
+    nack.addPacket(packet);
 
     expect(nack.lost).toEqual([0, 1, 2]);
   });
