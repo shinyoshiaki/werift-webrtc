@@ -43,20 +43,22 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    params.encodings.forEach((encode) => {
-      this.ssrcTable[encode.ssrc] = transceiver.receiver;
-      transceiver.addTrack(
-        new MediaStreamTrack({
-          ssrc: encode.ssrc,
-          kind: transceiver.kind,
-          id: transceiver.sender.trackId,
-          remote: true,
-        })
-      );
-      if (encode.rtx) {
-        this.ssrcTable[encode.rtx.ssrc] = transceiver.receiver;
-      }
-    });
+    params.encodings
+      .filter((e) => e.ssrc != undefined) // todo fix
+      .forEach((encode) => {
+        this.ssrcTable[encode.ssrc] = transceiver.receiver;
+        transceiver.addTrack(
+          new MediaStreamTrack({
+            ssrc: encode.ssrc,
+            kind: transceiver.kind,
+            id: transceiver.sender.trackId,
+            remote: true,
+          })
+        );
+        if (encode.rtx) {
+          this.ssrcTable[encode.rtx.ssrc] = transceiver.receiver;
+        }
+      });
 
     params.headerExtensions.forEach((extension) => {
       this.extIdUriMap[extension.id] = extension.uri;
