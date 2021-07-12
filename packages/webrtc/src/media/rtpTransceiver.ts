@@ -13,8 +13,6 @@ import { RTCRtpReceiver } from "./rtpReceiver";
 import { RTCRtpSender } from "./rtpSender";
 import { MediaStreamTrack } from "./track";
 
-const log = debug("werift:webrtc:rtpTransceiver");
-
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
   readonly onTrack = new Event<[MediaStreamTrack]>();
@@ -34,18 +32,7 @@ export class RTCRtpTransceiver {
     return this._currentDirection as any;
   }
   offerDirection!: Direction;
-  private _codecs: RTCRtpCodecParameters[] = [];
-  get codecs() {
-    return this._codecs;
-  }
-  set codecs(codecs: RTCRtpCodecParameters[]) {
-    this._codecs = codecs;
-    this.receiver.codecs = codecs.reduce((acc, cur) => {
-      acc[cur.payloadType] = cur;
-      return acc;
-    }, {});
-    this.sender.codec = codecs[0];
-  }
+  codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
   stopping = false;

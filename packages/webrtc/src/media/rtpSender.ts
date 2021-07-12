@@ -84,12 +84,7 @@ export class RTCRtpSender {
   private timestampOffset = 0;
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
-
   private _codec?: RTCRtpCodecParameters;
-  set codec(codec: RTCRtpCodecParameters) {
-    this._codec = codec;
-    if (this.track) this.track.codec = codec;
-  }
 
   track?: MediaStreamTrack;
   stopped = false;
@@ -124,6 +119,11 @@ export class RTCRtpSender {
         break;
       }
     }
+
+    this._codec = params.codecs[0];
+    if (this.track) {
+      this.track.codec = this._codec;
+    }
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -141,7 +141,9 @@ export class RTCRtpSender {
     this.track = track;
     this.disposeTrack = unSubscribe;
 
-    track.codec = this._codec;
+    if (this._codec) {
+      track.codec = this._codec;
+    }
   }
 
   async replaceTrack(track: MediaStreamTrack | null) {

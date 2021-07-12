@@ -545,10 +545,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
-    if (transceiver.mid == undefined) throw new Error();
+    if (transceiver.mid == undefined) throw new Error("mid not assigned");
 
     const rtp: RTCRtpParameters = {
-      codecs: [],
+      codecs: transceiver.codecs,
       muxId: transceiver.mid,
       headerExtensions: transceiver.headerExtensions,
       rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
@@ -566,33 +566,31 @@ export class RTCPeerConnection extends EventTarget {
     if (!media) throw new Error("media line not exist");
 
     const receiveParameters: RTCRtpReceiveParameters = {
-      codecs: transceiver.codecs,
       muxId: media.rtp.muxId,
       rtcp: media.rtp.rtcp,
-      encodings: [],
-      headerExtensions: [],
-    };
-    const encodings = transceiver.codecs.reduce(
-      (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
-        if (codec.name.toLowerCase() === "rtx") {
-          if (acc[codec.parameters["apt"]] && media.ssrc.length === 2) {
-            acc[codec.parameters["apt"]].rtx = new RTCRtpRtxParameters({
-              ssrc: media.ssrc[1].ssrc,
+      codecs: transceiver.codecs,
+      headerExtensions: transceiver.headerExtensions,
+      encodings: Object.values(
+        transceiver.codecs.reduce(
+          (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
+            if (codec.name.toLowerCase() === "rtx") {
+              const apt = acc[codec.parameters["apt"]];
+              if (apt && media.ssrc.length === 2) {
+                apt.rtx = new RTCRtpRtxParameters({ ssrc: media.ssrc[1].ssrc });
+              }
+              return acc;
+            }
+            acc[codec.payloadType] = new RTCRtpCodingParameters({
+              ssrc: media.ssrc[0]?.ssrc,
+              payloadType: codec.payloadType,
             });
-          }
-          return acc;
-        }
-        acc[codec.payloadType] = new RTCRtpCodingParameters({
-          ssrc: media.ssrc[0]?.ssrc,
-          payloadType: codec.payloadType,
-        });
-        return acc;
-      },
-      {}
-    );
+            return acc;
+          },
+          {}
+        )
+      ),
+    };
 
-    receiveParameters.encodings = Object.values(encodings);
-    receiveParameters.headerExtensions = transceiver.headerExtensions;
     return receiveParameters;
   }
 
@@ -666,11 +664,8 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.offerDirection = direction;
         }
 
-        const local = this.localRtp(transceiver);
-        const { muxId, rtcp } = local;
-        if (muxId == undefined || rtcp == undefined) {
-          throw new Error("param missing");
-        }
+        const localParams = this.localRtp(transceiver);
+        transceiver.sender.prepareSend(localParams);
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
           // register simulcast receiver
@@ -678,11 +673,10 @@ export class RTCPeerConnection extends EventTarget {
             this.router.registerRtpReceiverByRid(transceiver, param);
           });
 
-          const params = this.remoteRtp(remoteSdp, transceiver);
+          const remotePrams = this.remoteRtp(remoteSdp, transceiver);
+          transceiver.receiver.prepareReceive(remotePrams);
           // register ssrc receiver
-          this.router.registerRtpReceiverBySsrc(transceiver, params);
-
-          transceiver.receiver.prepareReceive(params);
+          this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
         }
         if (["sendonly", "sendrecv"].includes(mediaDirection)) {
           // assign msid
@@ -700,8 +694,6 @@ export class RTCPeerConnection extends EventTarget {
               })
             );
           }
-
-          transceiver.sender.prepareSend({ ...local, muxId, rtcp });
         }
       } else if (remoteMedia.kind === "application") {
         if (!this.sctpTransport) {
