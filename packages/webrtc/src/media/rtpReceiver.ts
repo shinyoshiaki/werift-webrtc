@@ -28,7 +28,7 @@ export class RTCRtpReceiver {
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
-  codecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   readonly rtxSsrc: { [rtxSsrc: number]: number } = {};
   readonly nack = new Nack(this);
 
@@ -181,7 +181,9 @@ export class RTCRtpReceiver {
     }
 
     const codec = this.codecs[packet.header.payloadType];
-    if (!codec) throw new Error("unknown codec " + packet.header.payloadType);
+    if (!codec) {
+      throw new Error("unknown codec " + packet.header.payloadType);
+    }
 
     if (codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.rtxSsrc[packet.header.ssrc];
