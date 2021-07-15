@@ -28,9 +28,9 @@ export class RTCRtpReceiver {
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
-  private codecs: { [pt: number]: RTCRtpCodecParameters } = {};
-  readonly rtxSsrc: { [rtxSsrc: number]: number } = {};
-  readonly nack = new Nack(this);
+  private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  private readonly nack = new Nack(this);
 
   sdesMid?: string;
   rid?: string;
@@ -59,7 +59,7 @@ export class RTCRtpReceiver {
     });
     params.encodings.forEach((e) => {
       if (e.rtx) {
-        this.rtxSsrc[e.rtx.ssrc] = e.ssrc;
+        this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
       }
     });
   }
@@ -186,7 +186,7 @@ export class RTCRtpReceiver {
     }
 
     if (codec.name.toLowerCase() === "rtx") {
-      const originalSsrc = this.rtxSsrc[packet.header.ssrc];
+      const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
       const rtxCodec = this.codecs[codec.parameters["apt"]];
       if (packet.payload.length < 2) return;
 

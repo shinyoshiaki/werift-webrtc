@@ -55,7 +55,7 @@ import {
   reverseSimulcastDirection,
 } from "./utils";
 
-const log = debug("werift/webrtc/peerConnection");
+const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();

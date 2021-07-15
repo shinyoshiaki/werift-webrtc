@@ -13,6 +13,8 @@ import { RTCRtpReceiver } from "./rtpReceiver";
 import { RTCRtpSender } from "./rtpSender";
 import { MediaStreamTrack } from "./track";
 
+const log = debug("werift:webrtc:rtpTransceiver");
+
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
   readonly onTrack = new Event<[MediaStreamTrack]>();
