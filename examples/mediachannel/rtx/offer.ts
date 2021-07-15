@@ -37,6 +37,15 @@ server.on("connection", async (socket) => {
   const transceiver = pc.addTransceiver("video");
   transceiver.onTrack.subscribe((track) => {
     transceiver.sender.replaceTrack(track);
+
+    transceiver.sender.onPictureLossIndication.subscribe(() => {
+      console.log("incoming PLI");
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    });
+
+    transceiver.sender.onGenericNack.subscribe(() => {
+      // console.log("incoming Nack");
+    });
   });
 
   await pc.setLocalDescription(await pc.createOffer());

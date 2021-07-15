@@ -57,6 +57,8 @@ export class RTCRtpSender {
   readonly trackId = uuid.v4();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();
+  readonly onPictureLossIndication = new Event<[]>();
+  readonly onGenericNack = new Event<[GenericNack]>();
   readonly senderBWE = new SenderBandwidthEstimator();
 
   private cname?: string;
@@ -84,7 +86,7 @@ export class RTCRtpSender {
   private timestampOffset = 0;
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
-  private _codec?: RTCRtpCodecParameters;
+  private codec?: RTCRtpCodecParameters;
 
   track?: MediaStreamTrack;
   stopped = false;
@@ -120,9 +122,9 @@ export class RTCRtpSender {
       }
     }
 
-    this._codec = params.codecs[0];
+    this.codec = params.codecs[0];
     if (this.track) {
-      this.track.codec = this._codec;
+      this.track.codec = this.codec;
     }
   }
 
@@ -141,8 +143,8 @@ export class RTCRtpSender {
     this.track = track;
     this.disposeTrack = unSubscribe;
 
-    if (this._codec) {
-      track.codec = this._codec;
+    if (this.codec) {
+      track.codec = this.codec;
     }
   }
 
@@ -241,7 +243,10 @@ export class RTCRtpSender {
   }
 
   sendRtp(rtp: Buffer | RtpPacket) {
-    if (!this.ready) return;
+    if (!this.ready) {
+      log("dtls have not established");
+      return;
+    }
     const { headerExtensions } = this;
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
@@ -372,6 +377,7 @@ export class RTCRtpSender {
                     this.dtlsTransport.sendRtp(packet.payload, packet.header);
                   }
                 });
+                this.onGenericNack.execute(feedback);
               }
               break;
           }
@@ -389,6 +395,7 @@ export class RTCRtpSender {
               break;
             case PictureLossIndication.count:
               {
+                this.onPictureLossIndication.execute();
               }
               break;
           }

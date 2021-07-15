@@ -242,6 +242,9 @@ export class SessionDescription {
                 ssrcInfo[ssrcAttr] = ssrcValue;
               }
               break;
+            case "ssrc-group":
+              parseGroup(currentMedia.ssrcGroup, value);
+              break;
             case "rid":
               {
                 const [rid, direction] = divide(value, " ");
@@ -313,12 +316,12 @@ export class SessionDescription {
       lines.push(`c=${ipAddressFromSdp(this.host)}`);
     }
     lines.push(`t=${this.time}`);
-    this.group.forEach((group) => lines.push(`a=group:${group.str()}`));
+    this.group.forEach((group) => lines.push(`a=group:${group.str}`));
     if (this.extMapAllowMixed) {
       lines.push(`a=extmap-allow-mixed`);
     }
     this.msidSemantic.forEach((group) =>
-      lines.push(`a=msid-semantic:${group.str()}`)
+      lines.push(`a=msid-semantic:${group.str}`)
     );
     const media = this.media.map((m) => m.toString()).join("");
     const sdp = lines.join("\r\n") + "\r\n" + media;
@@ -430,7 +433,7 @@ export class MediaDescription {
     }
 
     this.ssrcGroup.forEach((group) => {
-      lines.push(`a=ssrc-group:${group}`);
+      lines.push(`a=ssrc-group:${group.str}`);
     });
     this.ssrc.forEach((ssrcInfo) => {
       SSRC_INFO_ATTRS.forEach((ssrcAttr) => {
@@ -501,7 +504,7 @@ export class MediaDescription {
 export class GroupDescription {
   constructor(public semantic: string, public items: string[]) {}
 
-  str() {
+  get str() {
     return `${this.semantic} ${this.items.join(" ")}`;
   }
 }
@@ -562,7 +565,7 @@ function parseAttr(line: string): [string, string] {
   }
 }
 
-function parseGroup(
+export function parseGroup(
   dest: GroupDescription[],
   value: string,
   type: (v: string) => any = (v) => v.toString()

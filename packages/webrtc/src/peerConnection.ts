@@ -1081,7 +1081,7 @@ export function createMediaDescriptionForTransceiver(
 
   if (media.rtp.codecs.find((c) => c.name.toLowerCase() === "rtx")) {
     media.ssrc.push(
-      new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname })
+      new SsrcDescription({ ssrc: transceiver.sender.rtxSsrc, cname })
     );
     media.ssrcGroup = [
       new GroupDescription("FID", [
