@@ -1,7 +1,7 @@
 import { Candidate } from "../candidate";
 import { Message } from "../stun/message";
 
-export type Address = [string, number];
+export type Address = Readonly<[string, number]>;
 
 export interface Protocol {
   type: string;
