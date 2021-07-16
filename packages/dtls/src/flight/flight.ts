@@ -7,7 +7,7 @@ import { createFragments, createPlaintext } from "../record/builder";
 import { ContentType } from "../record/const";
 import { Handshake } from "../typings/domain";
 
-const log = debug("werift/dtls/flight");
+const log = debug("werift:packages/dtls/src/flight/flight.ts");
 
 const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 
@@ -15,7 +15,7 @@ type FlightType = typeof flightTypes[number];
 
 export abstract class Flight {
   state: FlightType = "PREPARING";
-  private buffer: Buffer[] = [];
+  static RetransmitCount = 10;
 
   constructor(
     private transport: TransportContext,
@@ -37,9 +37,32 @@ export abstract class Flight {
     return packets;
   }
 
-  protected transmit(buf: Buffer[]) {
-    this.buffer = buf;
-    this.retransmit();
+  protected async transmit(buffers: Buffer[]) {
+    let retransmitCount = 0;
+    for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
+      this.setState("SENDING");
+      this.send(buffers);
+      this.setState("WAITING");
+
+      if (this.nextFlight === undefined) {
+        this.setState("FINISHED");
+        break;
+      }
+
+      await sleep(1000 * ((retransmitCount + 1) / 2));
+
+      if (this.dtls.flight >= this.nextFlight) {
+        this.setState("FINISHED");
+        break;
+      } else {
+        log("retransmit", retransmitCount, this.dtls.flight);
+      }
+    }
+
+    if (retransmitCount > Flight.RetransmitCount) {
+      log("retransmit failed", retransmitCount);
+      throw new Error("over retransmitCount");
+    }
   }
 
   protected send = (buf: Buffer[]) =>
@@ -47,29 +70,5 @@ export abstract class Flight {
 
   private setState(state: FlightType) {
     this.state = state;
-  }
-
-  retransmitCount = 0;
-  private async retransmit() {
-    this.setState("SENDING");
-    this.send(this.buffer);
-    this.setState("WAITING");
-
-    if (this.nextFlight === undefined) {
-      this.retransmitCount = 0;
-      this.setState("FINISHED");
-      return;
-    }
-
-    await sleep(1000);
-    if (this.dtls.flight >= this.nextFlight) {
-      this.retransmitCount = 0;
-      this.setState("FINISHED");
-      return;
-    } else {
-      if (this.retransmitCount++ > 10) throw new Error("over retransmitCount");
-      log("retransmit", this.dtls.flight, this.dtls.sessionType);
-      this.retransmit().then(() => log(this.dtls.flight, "done"));
-    }
   }
 }

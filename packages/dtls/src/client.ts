@@ -18,12 +18,14 @@ export class DtlsClient extends DtlsSocket {
     log("start client", options);
   }
 
-  connect() {
-    new Flight1(this.transport, this.dtls, this.cipher).exec(this.extensions);
+  async connect() {
+    await new Flight1(this.transport, this.dtls, this.cipher).exec(
+      this.extensions
+    );
   }
 
   private flight5!: Flight5;
-  private handleHandshakes = (assembled: FragmentedHandshake[]) => {
+  private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log("handleHandshakes", assembled);
 
     for (const handshake of assembled) {
@@ -33,7 +35,7 @@ export class DtlsClient extends DtlsSocket {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
               handshake.fragment
             );
-            new Flight3(this.transport, this.dtls).exec(verifyReq);
+            await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
           break;
         case HandshakeType.server_hello:
@@ -57,7 +59,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.server_hello_done:
           {
             this.flight5.handleHandshake(handshake);
-            this.flight5.exec();
+            await this.flight5.exec();
           }
           break;
         case HandshakeType.finished:

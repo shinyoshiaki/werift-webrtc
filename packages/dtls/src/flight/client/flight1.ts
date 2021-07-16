@@ -16,7 +16,7 @@ export class Flight1 extends Flight {
     super(udp, dtls, 1, 3);
   }
 
-  exec(extensions: Extension[]) {
+  async exec(extensions: Extension[]) {
     if (this.dtls.flight === 1) throw new Error();
     this.dtls.flight = 1;
 
@@ -34,6 +34,6 @@ export class Flight1 extends Flight {
 
     const packets = this.createPacket([hello]);
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.transmit([buf]);
+    await this.transmit([buf]);
   }
 }

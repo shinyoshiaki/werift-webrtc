@@ -28,7 +28,7 @@ import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
 import { RTCIceTransport } from "./ice";
 
-const log = debug("werift/webrtc/transport/dtls");
+const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
 export class RTCDtlsTransport {
   state: DtlsState = "new";
@@ -123,10 +123,17 @@ export class RTCDtlsTransport {
         this.setState("closed");
       });
       this.dtls.onConnect.once(r);
+      this.dtls.onError.once((error) => {
+        this.setState("failed");
+        log("dtls failed", error);
+      });
 
       if (this.dtls instanceof DtlsClient) {
         await new Promise((r) => setTimeout(r, 100));
-        this.dtls.connect();
+        this.dtls.connect().catch((error) => {
+          this.setState("failed");
+          log("dtls connect failed", error);
+        });
       }
     });
 
