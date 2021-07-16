@@ -1,4 +1,4 @@
-import Event from "rx.mini";
+import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -38,6 +38,9 @@ export class RTCRtpReceiver {
   stopped = false;
   remoteStreamId?: string;
   remoteTrackId?: string;
+
+  rtcpRunning = false;
+  private rtcpCancel = new AbortController();
 
   constructor(
     public kind: Kind,
@@ -81,36 +84,33 @@ export class RTCRtpReceiver {
 
   stop() {
     this.stopped = true;
-    this.rtcpCancel.execute();
     this.rtcpRunning = false;
+    this.rtcpCancel.abort();
+
     if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
     this.nack.close();
   }
 
-  rtcpRunning = false;
-  private rtcpCancel = new Event();
   async runRtcp() {
     if (this.rtcpRunning || this.stopped) return;
     this.rtcpRunning = true;
 
-    while (this.rtcpRunning) {
-      await new Promise<void>((r) => {
-        const timer = setTimeout(r, 500 + Math.random() * 1000);
-        this.rtcpCancel.once(() => {
-          clearTimeout(timer);
-          r();
+    try {
+      while (this.rtcpRunning) {
+        await setTimeout(500 + Math.random() * 1000, undefined, {
+          signal: this.rtcpCancel.signal,
         });
-      });
 
-      const reports = [];
-      const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
+        const reports = [];
+        const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
-      try {
-        await this.dtlsTransport.sendRtcp([packet]);
-      } catch (error) {
-        await new Promise((r) => setTimeout(r, 500 + Math.random() * 1000));
+        try {
+          await this.dtlsTransport.sendRtcp([packet]);
+        } catch (error) {
+          await setTimeout(500 + Math.random() * 1000);
+        }
       }
-    }
+    } catch (error) {}
   }
 
   async sendRtcpPLI(mediaSsrc: number) {

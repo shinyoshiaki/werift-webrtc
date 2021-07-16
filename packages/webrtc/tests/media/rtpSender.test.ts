@@ -1,3 +1,5 @@
+import { setTimeout } from "timers/promises";
+
 import { MediaStreamTrack } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
@@ -46,4 +48,22 @@ describe("media/rtpSender", () => {
     track2.onReceiveRtp.execute(rtp);
     expect(spy).toBeCalledTimes(2);
   });
+
+  test("abort runRtcp", async () =>
+    new Promise<void>(async (done) => {
+      const dtls = createDtlsTransport();
+      const receiver = new RTCRtpSender("audio", dtls);
+      jest.spyOn(dtls, "sendRtcp");
+
+      Promise.any([
+        setTimeout(200).then(() => false),
+        receiver.runRtcp().then(() => true),
+      ]).then((res) => {
+        expect(res).toBeTruthy();
+        done();
+      });
+
+      await setTimeout(10);
+      receiver.stop();
+    }));
 });

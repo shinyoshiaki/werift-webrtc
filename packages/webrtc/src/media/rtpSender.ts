@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import debug from "debug";
 import { jspack } from "jspack";
 import Event from "rx.mini";
+import { setTimeout } from "timers/promises";
 import * as uuid from "uuid";
 
 import { bufferWriter, uint16Add, uint32Add } from "../../../common/src";
@@ -79,6 +80,8 @@ export class RTCRtpSender {
     Pick<Required<RTCRtpParameters>, "muxId" | "rtcp">;
   track?: MediaStreamTrack;
   stopped = false;
+  rtcpRunning = false;
+  private rtcpCancel = new AbortController();
 
   constructor(
     public trackOrKind: Kind | MediaStreamTrack,
@@ -137,60 +140,57 @@ export class RTCRtpSender {
 
   stop() {
     this.stopped = true;
+    this.rtcpRunning = false;
+    this.rtcpCancel.abort();
+
     this.track = undefined;
-    this.rtcpRunner = false;
-    this.rtcpCancel.execute();
   }
 
-  rtcpRunner = false;
-  private rtcpCancel = new Event();
   async runRtcp() {
-    if (this.rtcpRunner || this.stopped) return;
-    this.rtcpRunner = true;
+    if (this.rtcpRunning || this.stopped) return;
+    this.rtcpRunning = true;
 
-    while (this.rtcpRunner) {
-      await new Promise<void>((r) => {
-        const timer = setTimeout(r, 500 + Math.random() * 1000);
-        this.rtcpCancel.once(() => {
-          clearTimeout(timer);
-          r();
+    try {
+      while (this.rtcpRunning) {
+        await setTimeout(500 + Math.random() * 1000, undefined, {
+          signal: this.rtcpCancel.signal,
         });
-      });
 
-      const packets: RtcpPacket[] = [
-        new RtcpSrPacket({
-          ssrc: this.ssrc,
-          senderInfo: new RtcpSenderInfo({
-            ntpTimestamp: this.ntpTimestamp,
-            rtpTimestamp: this.rtpTimestamp,
-            packetCount: this.packetCount,
-            octetCount: this.octetCount,
+        const packets: RtcpPacket[] = [
+          new RtcpSrPacket({
+            ssrc: this.ssrc,
+            senderInfo: new RtcpSenderInfo({
+              ntpTimestamp: this.ntpTimestamp,
+              rtpTimestamp: this.rtpTimestamp,
+              packetCount: this.packetCount,
+              octetCount: this.octetCount,
+            }),
           }),
-        }),
-      ];
-      if (this.cname) {
-        packets.push(
-          new RtcpSourceDescriptionPacket({
-            chunks: [
-              new SourceDescriptionChunk({
-                source: this.ssrc,
-                items: [
-                  new SourceDescriptionItem({ type: 1, text: this.cname }),
-                ],
-              }),
-            ],
-          })
-        );
-      }
-      this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
-      this.lsrTime = Date.now() / 1000;
+        ];
+        if (this.cname) {
+          packets.push(
+            new RtcpSourceDescriptionPacket({
+              chunks: [
+                new SourceDescriptionChunk({
+                  source: this.ssrc,
+                  items: [
+                    new SourceDescriptionItem({ type: 1, text: this.cname }),
+                  ],
+                }),
+              ],
+            })
+          );
+        }
+        this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
+        this.lsrTime = Date.now() / 1000;
 
-      try {
-        await this.dtlsTransport.sendRtcp(packets);
-      } catch (error) {
-        await new Promise((r) => setTimeout(r, 500 + Math.random() * 1000));
+        try {
+          await this.dtlsTransport.sendRtcp(packets);
+        } catch (error) {
+          await setTimeout(500 + Math.random() * 1000);
+        }
       }
-    }
+    } catch (error) {}
   }
 
   private replaceRTP({ sequenceNumber, timestamp }: RtpHeader) {
