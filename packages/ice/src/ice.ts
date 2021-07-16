@@ -7,6 +7,7 @@ import { isEqual, range } from "lodash";
 import { isIPv4 } from "net";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
+import timers from "timers/promises";
 import util from "util";
 
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
@@ -272,7 +273,7 @@ export class Connection {
     // 5.8.  Scheduling Checks
     for (;;) {
       if (!this.schedulingChecks()) break;
-      await new Promise((r) => setTimeout(r, 20));
+      await timers.setTimeout(20);
     }
 
     // # wait for completion
@@ -358,10 +359,10 @@ export class Connection {
     new PCancelable(async (r, f, onCancel) => {
       let failures = 0;
 
-      const cancelEvent = new Event();
+      const cancelEvent = new AbortController();
       onCancel(() => {
         failures += CONSENT_FAILURES;
-        cancelEvent.execute();
+        cancelEvent.abort();
         f("cancel");
       });
 
@@ -369,43 +370,40 @@ export class Connection {
       // Periodically check consent (RFC 7675).
       // """
 
-      while (!this.remoteIsLite && this.state !== "closed") {
-        // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-        await new Promise<void>((r) => {
-          const timer = setTimeout(
-            r,
-            CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000
+      try {
+        while (!this.remoteIsLite && this.state !== "closed") {
+          // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
+          await timers.setTimeout(
+            CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000,
+            undefined,
+            { signal: cancelEvent.signal }
           );
-          cancelEvent.once(() => {
-            clearTimeout(timer);
-            r();
-          });
-        });
 
-        for (const key of this.nominatedKeys) {
-          const pair = this.nominated[Number(key)];
-          const request = this.buildRequest(pair, false);
-          try {
-            const [msg, addr] = await pair.protocol.request(
-              request,
-              pair.remoteAddr,
-              Buffer.from(this.remotePassword, "utf8"),
-              0
-            );
-            failures = 0;
-          } catch (error) {
-            failures++;
-            this.setState("disconnected");
-          }
-          if (failures >= CONSENT_FAILURES) {
-            log("Consent to send expired");
-            this.queryConsentHandle = undefined;
-            // 切断検知
-            r(await this.close());
-            return;
+          for (const key of this.nominatedKeys) {
+            const pair = this.nominated[Number(key)];
+            const request = this.buildRequest(pair, false);
+            try {
+              const [msg, addr] = await pair.protocol.request(
+                request,
+                pair.remoteAddr,
+                Buffer.from(this.remotePassword, "utf8"),
+                0
+              );
+              failures = 0;
+            } catch (error) {
+              failures++;
+              this.setState("disconnected");
+            }
+            if (failures >= CONSENT_FAILURES) {
+              log("Consent to send expired");
+              this.queryConsentHandle = undefined;
+              // 切断検知
+              r(await this.close());
+              return;
+            }
           }
         }
-      }
+      } catch (error) {}
     });
 
   async close() {
@@ -464,7 +462,7 @@ export class Connection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      await new Promise((r) => setTimeout(r, 10));
+      await timers.setTimeout(10);
 
       const res = await util
         .promisify(dns.lookup)(remoteCandidate.host)
