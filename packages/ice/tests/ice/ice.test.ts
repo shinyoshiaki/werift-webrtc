@@ -1,9 +1,10 @@
+import { setTimeout } from "timers/promises";
+
 import { Candidate } from "../../src/candidate";
 import { CandidatePair, CandidatePairState, Connection } from "../../src/ice";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { Address, Protocol } from "../../src/types/model";
-import { sleep } from "../../tests/utils";
 import { assertCandidateTypes, inviteAccept } from "../utils";
 
 class ProtocolMock implements Protocol {
@@ -150,7 +151,7 @@ describe("ice", () => {
           await Promise.all([
             a.connect(),
             async () => {
-              await sleep(1000);
+              await setTimeout(1000);
               await a.close();
             },
           ]);
@@ -293,10 +294,10 @@ describe("ice", () => {
     // # introduce a delay so that B's checks complete before A's
     await Promise.all([
       new Promise<void>((r) =>
-        setTimeout(async () => {
+        setTimeout(1000).then(async () => {
           await a.connect();
           r();
-        }, 1000)
+        })
       ),
       b.connect(),
     ]);

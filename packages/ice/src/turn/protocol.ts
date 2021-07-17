@@ -3,6 +3,7 @@ import debug from "debug";
 import { jspack } from "jspack";
 import PCancelable from "p-cancelable";
 import Event from "rx.mini";
+import { setTimeout } from "timers/promises";
 
 import { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
@@ -199,7 +200,7 @@ class TurnClient implements Protocol {
 
       while (run) {
         // refresh before expire
-        await new Promise((r) => setTimeout(r, (5 / 6) * this.lifetime * 1000));
+        await setTimeout((5 / 6) * this.lifetime * 1000);
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.attributes.LIFETIME = this.lifetime;

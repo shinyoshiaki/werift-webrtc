@@ -1,3 +1,5 @@
+import { debug } from "debug";
+import { jspack } from "jspack";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
 
@@ -7,16 +9,19 @@ import {
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
   RtcpSrPacket,
+  RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
 import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { Nack } from "./nack";
-import { RTCRtpCodecParameters } from "./parameters";
+import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
+
+const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
   readonly type = "receiver";
@@ -24,9 +29,11 @@ export class RTCRtpReceiver {
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
-  readonly nack = new Nack(this);
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
+  private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  private readonly nack = new Nack(this);
 
   sdesMid?: string;
   rid?: string;
@@ -34,7 +41,6 @@ export class RTCRtpReceiver {
 
   receiverTWCC?: ReceiverTWCC;
   supportTWCC = false;
-  codecs: RTCRtpCodecParameters[] = [];
   stopped = false;
   remoteStreamId?: string;
   remoteTrackId?: string;
@@ -53,12 +59,22 @@ export class RTCRtpReceiver {
     return this.tracks[0];
   }
 
+  prepareReceive(params: RTCRtpReceiveParameters) {
+    params.codecs.forEach((c) => {
+      this.codecs[c.payloadType] = c;
+    });
+    params.encodings.forEach((e) => {
+      if (e.rtx) {
+        this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
+      }
+    });
+  }
+
   /**
    * setup TWCC if supported
-   * @param mediaSourceSsrc
    */
   setupTWCC(mediaSourceSsrc?: number) {
-    this.supportTWCC = !!this.codecs.find((codec) =>
+    this.supportTWCC = !!Object.values(this.codecs).find((codec) =>
       codec.rtcpFeedback.find((v) => v.type === "transport-cc")
     );
     if (this.supportTWCC && mediaSourceSsrc) {
@@ -139,22 +155,20 @@ export class RTCRtpReceiver {
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
     const track = this.trackBySSRC[packet.header.ssrc];
-    if (!track) throw new Error();
 
-    this.handleRTP(track, packet, extensions);
+    this.handleRTP(packet, extensions, track);
   };
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
-    if (!track) throw new Error();
 
-    this.handleRTP(track, packet, extensions);
+    this.handleRTP(packet, extensions, track);
   };
 
   private handleRTP(
-    track: MediaStreamTrack,
     packet: RtpPacket,
-    extensions: Extensions
+    extensions: Extensions,
+    track?: MediaStreamTrack
   ) {
     if (this.stopped) return;
 
@@ -169,9 +183,40 @@ export class RTCRtpReceiver {
       this.setupTWCC(packet.header.ssrc);
     }
 
-    if (track.kind === "video") this.nack.onPacket(packet);
-    track.onReceiveRtp.execute(packet);
+    const codec = this.codecs[packet.header.payloadType];
+    if (!codec) {
+      log("unknown codec " + packet.header.payloadType);
+      return;
+    }
+
+    if (codec.name.toLowerCase() === "rtx") {
+      const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
+      const rtxCodec = this.codecs[codec.parameters["apt"]];
+      if (packet.payload.length < 2) return;
+
+      packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
+      track = this.trackBySSRC[originalSsrc];
+    }
+
+    // todo fix
+    if (track?.kind === "video") this.nack.addPacket(packet);
+
+    if (track) track.onReceiveRtp.execute(packet);
 
     this.runRtcp();
   }
+}
+
+export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
+  const packet = new RtpPacket(
+    new RtpHeader({
+      payloadType,
+      marker: rtx.header.marker,
+      sequenceNumber: jspack.Unpack("!H", rtx.payload.slice(0, 2))[0],
+      timestamp: rtx.header.timestamp,
+      ssrc,
+    }),
+    rtx.payload.slice(2)
+  );
+  return packet;
 }

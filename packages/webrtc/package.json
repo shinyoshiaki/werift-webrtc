@@ -62,7 +62,7 @@
     "@types/ip": "^1.1.0",
     "@types/lodash": "^4.14.170",
     "@types/uuid": "^8.3.0",
-    "typedoc": "^0.21.2"
+    "typedoc": "^0.21.4"
   },
   "engines": {
     "node": ">=15"

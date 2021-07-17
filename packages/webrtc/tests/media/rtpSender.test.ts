@@ -3,14 +3,13 @@ import { setTimeout } from "timers/promises";
 import { MediaStreamTrack } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
-import { sleep } from "../utils";
 
 describe("media/rtpSender", () => {
   test("stop track", () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
     const sender = new RTCRtpSender(track, dtls);
-    sender.parameters = true as any;
+
     const spy = jest.spyOn(sender, "sendRtp");
 
     const rtp = createRtpPacket();
@@ -30,7 +29,6 @@ describe("media/rtpSender", () => {
     const track1 = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
     const sender = new RTCRtpSender(track1, dtls);
-    sender.parameters = true as any;
     const spy = jest.spyOn(sender, "sendRtp");
 
     const rtp = createRtpPacket();
@@ -39,7 +37,7 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(1);
 
     const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
-    sleep(0).then(() => track2.onReceiveRtp.execute(rtp));
+    setTimeout(0).then(() => track2.onReceiveRtp.execute(rtp));
     await sender.replaceTrack(track2);
 
     track1.onReceiveRtp.execute(rtp);

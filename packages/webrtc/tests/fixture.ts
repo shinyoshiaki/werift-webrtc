@@ -1,3 +1,5 @@
+import { setTimeout } from "timers/promises";
+
 import {
   RTCDtlsTransport,
   RTCIceGatherer,
@@ -8,7 +10,6 @@ import {
   RtpPacket,
 } from "../src";
 import { RtpRouter } from "../src/media/router";
-import { sleep } from "./utils";
 
 export const createRtpPacket = () => {
   const header = new RtpHeader({
@@ -50,7 +51,7 @@ export async function generateAnswer(offer: RTCSessionDescription) {
 
 export async function dtlsTransportPair() {
   const [transport1, transport2] = await iceTransportPair();
-  await sleep(100);
+  await setTimeout(100);
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 

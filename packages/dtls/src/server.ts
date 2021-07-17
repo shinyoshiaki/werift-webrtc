@@ -9,13 +9,13 @@ import { ClientHello } from "./handshake/message/client/hello";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, Options } from "./socket";
 
-const log = debug("werift/dtls/server");
+const log = debug("werift:packages/dtls/src/server.ts");
 
 export class DtlsServer extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.SERVER);
     this.onHandleHandshakes = this.handleHandshakes;
-    log("start server", options);
+    log("start server");
   }
 
   private flight6!: Flight6;

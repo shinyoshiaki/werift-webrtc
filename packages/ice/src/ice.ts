@@ -1004,9 +1004,9 @@ export async function serverReflexiveCandidate(
   }
 }
 
-function validateAddress(addr?: Address) {
+export function validateAddress(addr?: Address): Address | undefined {
   if (addr && isNaN(addr[1])) {
-    addr[1] = 443;
+    return [addr[0], 443];
   }
   return addr;
 }

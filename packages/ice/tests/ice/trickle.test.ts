@@ -1,5 +1,6 @@
+import { setTimeout } from "timers/promises";
+
 import { Connection } from "../../src";
-import { sleep } from "../../tests/utils";
 import { assertCandidateTypes } from "../utils";
 
 describe("IceTrickleTest", () => {
@@ -26,10 +27,10 @@ describe("IceTrickleTest", () => {
     expect(candidate).toBeUndefined();
 
     const addCandidatesLater = async (a: Connection, b: Connection) => {
-      await sleep(100);
+      await setTimeout(100);
       for (const candidate of b.localCandidates) {
         a.addRemoteCandidate(candidate);
-        await sleep(100);
+        await setTimeout(100);
       }
       a.addRemoteCandidate(undefined);
     };

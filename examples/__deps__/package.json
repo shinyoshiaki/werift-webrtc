@@ -43,7 +43,7 @@
     "rx.mini": "^1.1.0",
     "socket.io-client": "^4.1.2",
     "ws": "^7.5.1",
-    "wtfnode": "^0.9.0"
+    "wtfnode": "^0.9.1"
   },
   "engines": {
     "node": ">=14"

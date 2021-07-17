@@ -1,5 +1,6 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
+
 import { Connection } from "../src/ice";
 
 export function readMessage(name: string) {
@@ -25,5 +26,3 @@ export function assertCandidateTypes(conn: Connection, expected: string[]) {
   const types = conn.localCandidates.map((v) => v.type);
   deepStrictEqual(new Set(types), new Set(expected));
 }
-
-export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

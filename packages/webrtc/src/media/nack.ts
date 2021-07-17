@@ -23,7 +23,7 @@ export class Nack {
     return Object.keys(this._lost).map(Number);
   }
 
-  onPacket(packet: RtpPacket) {
+  addPacket(packet: RtpPacket) {
     const { sequenceNumber, ssrc } = packet.header;
     this.mediaSourceSsrc = ssrc;
 
