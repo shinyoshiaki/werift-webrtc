@@ -630,7 +630,6 @@ export class RTCPeerConnection extends EventTarget {
         }
 
         // # negotiate codecs
-        log("remote codecs", remoteMedia.rtp.codecs);
         transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) =>
           (
             this.configuration.codecs[remoteMedia.kind as "audio" | "video"] ||

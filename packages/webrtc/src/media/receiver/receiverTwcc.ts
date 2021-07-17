@@ -1,4 +1,5 @@
 import debug from "debug";
+import { setTimeout } from "timers/promises";
 
 import { uint8Add, uint16Add, uint24 } from "../../../../common/src";
 import {
@@ -9,7 +10,6 @@ import {
   StatusVectorChunk,
   TransportWideCC,
 } from "../../../../rtp/src";
-import { sleep } from "../../../../sctp/src/helper";
 import { RTCDtlsTransport } from "../../transport/dtls";
 import { microTime } from "../../utils";
 
@@ -48,7 +48,7 @@ export class ReceiverTWCC {
   private async runTWCC() {
     while (this.twccRunning) {
       this.sendTWCC();
-      await sleep(100);
+      await setTimeout(100);
     }
   }
 

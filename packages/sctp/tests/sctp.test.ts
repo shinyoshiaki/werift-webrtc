@@ -1,6 +1,6 @@
 import { createSocket } from "dgram";
+import { setTimeout } from "timers/promises";
 import { SCTP, SCTP_STATE } from "../src";
-import { sleep } from "../src/helper";
 import { StreamAddOutgoingParam } from "../src/param";
 import { createUdpTransport } from "../src/transport";
 
@@ -41,7 +41,7 @@ describe("sctp", () => {
 
     const param = new StreamAddOutgoingParam(client.reconfigRequestSeq, 16);
     await client.sendReconfigParam(param);
-    await sleep(100);
+    await setTimeout(100);
 
     expect(server.maxChannels).toBe(272);
     expect(server._inboundStreamsCount).toBe(272);

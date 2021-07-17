@@ -207,7 +207,7 @@ export class RTCRtpReceiver {
   }
 }
 
-function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
+export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
   const packet = new RtpPacket(
     new RtpHeader({
       payloadType,

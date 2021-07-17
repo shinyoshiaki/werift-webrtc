@@ -1,7 +1,7 @@
 import { createSocket } from "dgram";
 import { range } from "lodash";
+import { setTimeout } from "timers/promises";
 import { SCTP, SCTP_STATE, WEBRTC_PPID } from "../src";
-import { sleep } from "../src/helper";
 import { createUdpTransport } from "../src/transport";
 
 
@@ -11,10 +11,10 @@ import { createUdpTransport } from "../src/transport";
   const transport = createUdpTransport(socket);
 
   const sctp = SCTP.server(transport);
-  sctp.onReceive = (...args) => {
+  sctp.onReceive.subscribe((...args) => {
     console.log(args[2].toString());
     console.log(args);
-  };
+  });
   await sctp.start(5000);
   await waitForOutcome(sctp);
   setInterval(
@@ -30,6 +30,6 @@ async function waitForOutcome(sctp: SCTP) {
       break;
     }
 
-    await sleep(100);
+    await setTimeout(100);
   }
 }

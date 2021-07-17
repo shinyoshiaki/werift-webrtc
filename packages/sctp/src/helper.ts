@@ -4,10 +4,6 @@ export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);
 }
 
-export async function sleep(ms: number) {
-  await new Promise((r) => setTimeout(r, ms));
-}
-
 export type Unpacked<T> = T extends { [K in keyof T]: infer U } ? U : never;
 
 export function createEventsFromList<T extends any>(list: readonly T[]) {

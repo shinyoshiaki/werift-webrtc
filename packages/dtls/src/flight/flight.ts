@@ -1,8 +1,8 @@
 import debug from "debug";
+import { setTimeout } from "timers/promises";
 
 import { DtlsContext } from "../context/dtls";
 import { TransportContext } from "../context/transport";
-import { sleep } from "../helper";
 import { createFragments, createPlaintext } from "../record/builder";
 import { ContentType } from "../record/const";
 import { Handshake } from "../typings/domain";
@@ -49,7 +49,7 @@ export abstract class Flight {
         break;
       }
 
-      await sleep(1000 * ((retransmitCount + 1) / 2));
+      await setTimeout(1000 * ((retransmitCount + 1) / 2));
 
       if (this.dtls.flight >= this.nextFlight) {
         this.setState("FINISHED");

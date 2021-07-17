@@ -401,7 +401,7 @@ export class RTCRtpSender {
   }
 }
 
-function wrapRtx(
+export function wrapRtx(
   packet: RtpPacket,
   payloadType: number,
   sequenceNumber: number,
