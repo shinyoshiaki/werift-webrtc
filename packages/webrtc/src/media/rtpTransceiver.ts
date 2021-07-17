@@ -1,4 +1,3 @@
-import debug from "debug";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
@@ -13,8 +12,6 @@ import { RTCRtpReceiver } from "./rtpReceiver";
 import { RTCRtpSender } from "./rtpSender";
 import { MediaStreamTrack } from "./track";
 
-const log = debug("werift:webrtc:rtpTransceiver");
-
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
   readonly onTrack = new Event<[MediaStreamTrack]>();
@@ -22,17 +19,17 @@ export class RTCRtpTransceiver {
   mLineIndex?: number;
   usedForSender = false;
   private _currentDirection?: Direction | "stopped";
-  set currentDirection(direction: Direction) {
+  set currentDirection(direction: Direction | "stopped" | undefined) {
     this._currentDirection = direction;
-    if (SenderDirections.includes(this._currentDirection)) {
+    if (SenderDirections.includes(this._currentDirection || "")) {
       this.usedForSender = true;
     }
   }
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection() {
-    // todo fix typescript 4.3
-    return this._currentDirection as any;
+  get currentDirection(): Direction | "stopped" | undefined {
+    return this._currentDirection;
   }
+
   offerDirection!: Direction;
   codecs: RTCRtpCodecParameters[] = [];
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];

@@ -1,3 +1,4 @@
+import { debug } from "debug";
 import { jspack } from "jspack";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
@@ -19,6 +20,8 @@ import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
+
+const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
   readonly type = "receiver";
@@ -182,7 +185,8 @@ export class RTCRtpReceiver {
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
-      throw new Error("unknown codec " + packet.header.payloadType);
+      log("unknown codec " + packet.header.payloadType);
+      return;
     }
 
     if (codec.name.toLowerCase() === "rtx") {

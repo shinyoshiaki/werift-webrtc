@@ -1,4 +1,3 @@
-import { Direction } from "./media/rtpTransceiver";
 import { DtlsRole } from "./transport/dtls";
 
 // data channel export constants
@@ -52,5 +51,5 @@ export enum SRTP_PROFILE {
   SRTP_AES128_CM_HMAC_SHA1_80 = 1,
 }
 
-export const SenderDirections: Direction[] = ["sendonly", "sendrecv"];
-export const NotSenderDirections: Direction[] = ["inactive", "recvonly"];
+export const SenderDirections = ["sendonly", "sendrecv"];
+export const NotSenderDirections = ["inactive", "recvonly"];

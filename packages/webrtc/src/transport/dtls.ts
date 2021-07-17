@@ -1,6 +1,7 @@
 import { Certificate, PrivateKey } from "@fidm/x509";
 import debug from "debug";
 import Event from "rx.mini";
+import { setTimeout } from "timers/promises";
 
 import {
   DtlsClient,
@@ -129,7 +130,7 @@ export class RTCDtlsTransport {
       });
 
       if (this.dtls instanceof DtlsClient) {
-        await new Promise((r) => setTimeout(r, 100));
+        await setTimeout(100);
         this.dtls.connect().catch((error) => {
           this.setState("failed");
           log("dtls connect failed", error);

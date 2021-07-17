@@ -1,4 +1,5 @@
 // webrtc/RTCPeerConnection-ontrack.https.html
+import { setTimeout } from "timers/promises";
 
 import {
   MediaStreamTrack,
@@ -87,7 +88,7 @@ a=ssrc:1001 cname:some
       called = true;
     };
     await pc.setRemoteDescription({ type: "offer", sdp });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await setTimeout(100);
     expect(called).toBeFalsy();
     pc.close();
   });
@@ -140,7 +141,7 @@ a=ssrc:1001 cname:some
     };
 
     await pc2.setRemoteDescription(await pc1.createOffer());
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await setTimeout(100);
     expect(called).toBeFalsy();
 
     await Promise.all([pc1.close(), pc2.close()]);

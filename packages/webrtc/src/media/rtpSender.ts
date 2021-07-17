@@ -170,10 +170,6 @@ export class RTCRtpSender {
     log("replaceTrack", track.ssrc, track.rid);
   }
 
-  get ready() {
-    return this.dtlsTransport.state === "connected";
-  }
-
   stop() {
     this.stopped = true;
     this.rtcpRunning = false;
@@ -243,17 +239,16 @@ export class RTCRtpSender {
   }
 
   sendRtp(rtp: Buffer | RtpPacket) {
-    if (!this.ready) {
-      log("dtls have not established");
+    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+      log("not ready", this.dtlsTransport.state, this.codec);
       return;
     }
-    const { headerExtensions } = this;
 
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
     const header = rtp.header;
     header.ssrc = this.ssrc;
-    // todo : header.payloadType=parameters.codecs
+    header.payloadType = this.codec.payloadType;
     header.timestamp = Number(
       uint32Add(BigInt(header.timestamp), BigInt(this.timestampOffset))
     );
@@ -261,7 +256,7 @@ export class RTCRtpSender {
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
 
-    header.extensions = headerExtensions
+    header.extensions = this.headerExtensions
       .map((extension) => {
         const payload = (() => {
           switch (extension.uri) {

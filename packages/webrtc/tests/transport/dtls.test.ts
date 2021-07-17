@@ -1,5 +1,6 @@
+import { setTimeout } from "timers/promises";
+
 import { dtlsTransportPair } from "../fixture";
-import { sleep } from "../utils";
 
 jest.setTimeout(10_000);
 
@@ -10,7 +11,7 @@ describe("RTCDtlsTransportTest", () => {
     session2.dataReceiver = receiver2.handleData;
 
     session1.sendData(Buffer.from("ping"));
-    await sleep(100);
+    await setTimeout(100);
     expect(receiver2.data).toEqual([Buffer.from("ping")]);
   });
 });
