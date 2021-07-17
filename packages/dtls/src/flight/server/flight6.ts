@@ -48,7 +48,7 @@ export class Flight6 extends Flight {
     }
   }
 
-  exec() {
+  async exec() {
     if (this.dtls.flight === 6) {
       log("flight6 twice");
       this.send(this.dtls.lastMessage);
@@ -58,7 +58,7 @@ export class Flight6 extends Flight {
 
     const messages = [this.sendChangeCipherSpec(), this.sendFinished()];
     this.dtls.lastMessage = messages;
-    this.transmit(messages);
+    await this.transmit(messages);
   }
 
   sendChangeCipherSpec() {

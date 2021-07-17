@@ -26,11 +26,12 @@ import { parsePacket, parsePlainText } from "./record/receive";
 import { Transport } from "./transport";
 import { Extension } from "./typings/domain";
 
-const log = debug("werift/dtls/socket");
+const log = debug("werift:packages/dtls/src/socket.ts");
 
 export class DtlsSocket {
   readonly onConnect = new Event();
   readonly onData = new Event<[Buffer]>();
+  readonly onError = new Event<[Error]>();
   readonly onClose = new Event();
   readonly transport: TransportContext = new TransportContext(
     this.options.transport
@@ -45,7 +46,7 @@ export class DtlsSocket {
   readonly srtp: SrtpContext = new SrtpContext();
 
   extensions: Extension[] = [];
-  onHandleHandshakes: (assembled: FragmentedHandshake[]) => void = () => {};
+  onHandleHandshakes!: (assembled: FragmentedHandshake[]) => Promise<void>;
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
@@ -78,7 +79,10 @@ export class DtlsSocket {
                 .map((v) => FragmentedHandshake.assemble(v))
                 .sort((a, b) => a.msg_type - b.msg_type);
 
-              this.onHandleHandshakes(assembled);
+              this.onHandleHandshakes(assembled).catch((error) => {
+                log("onHandleHandshakes error", error);
+                this.onError.execute(error);
+              });
             }
             break;
           case ContentType.applicationData:

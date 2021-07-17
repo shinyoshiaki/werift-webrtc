@@ -19,7 +19,7 @@ export class DtlsServer extends DtlsSocket {
   }
 
   private flight6!: Flight6;
-  private handleHandshakes = (assembled: FragmentedHandshake[]) => {
+  private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log("handleHandshakes", assembled);
 
     for (const handshake of assembled) {
@@ -33,7 +33,7 @@ export class DtlsServer extends DtlsSocket {
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
               log("send flight4");
-              new Flight4(
+              await new Flight4(
                 this.transport,
                 this.dtls,
                 this.cipher,
@@ -59,7 +59,7 @@ export class DtlsServer extends DtlsSocket {
         case HandshakeType.finished:
           {
             this.flight6.handleHandshake(handshake);
-            this.flight6.exec();
+            await this.flight6.exec();
 
             this.onConnect.execute();
             log("dtls connected");

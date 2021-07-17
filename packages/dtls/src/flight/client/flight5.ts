@@ -69,7 +69,7 @@ export class Flight5 extends Flight {
     }
   }
 
-  exec() {
+  async exec() {
     if (this.dtls.flight === 5) {
       log("flight5 twice");
       this.send(this.dtls.lastMessage);
@@ -77,7 +77,7 @@ export class Flight5 extends Flight {
     }
     this.dtls.flight = 5;
 
-    const packets = [
+    const messages = [
       this.dtls.requestedCertificateTypes.length > 0 && this.sendCertificate(),
       this.sendClientKeyExchange(),
       this.dtls.requestedCertificateTypes.length > 0 &&
@@ -86,8 +86,8 @@ export class Flight5 extends Flight {
       this.sendFinished(),
     ].filter((v) => v) as Buffer[];
 
-    this.dtls.lastMessage = packets;
-    this.transmit(packets);
+    this.dtls.lastMessage = messages;
+    await this.transmit(messages);
   }
 
   sendCertificate() {

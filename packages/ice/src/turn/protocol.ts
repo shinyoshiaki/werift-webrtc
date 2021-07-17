@@ -77,7 +77,7 @@ class TurnTransport implements Protocol {
 
 class TurnClient implements Protocol {
   type = "inner_turn";
-  onData = new Event<[Buffer, Address]>();
+  readonly onData = new Event<[Buffer, Address]>();
   transactions: { [hexId: string]: Transaction } = {};
   integrityKey?: Buffer;
   nonce?: Buffer;

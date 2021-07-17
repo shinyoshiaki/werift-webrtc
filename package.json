@@ -38,7 +38,6 @@
     "@typescript-eslint/eslint-plugin": "^4.28.1",
     "@typescript-eslint/parser": "^4.28.1",
     "depcheck": "^1.4.2",
-    "dependency-cruiser": "^10.0.4",
     "eslint": "^7.29.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-prettier": "^3.4.0",
@@ -53,7 +52,7 @@
     "typescript": "^4.3.5"
   },
   "engines": {
-    "node": ">=14"
+    "node": ">=15"
   },
   "readme": "README.md"
 }

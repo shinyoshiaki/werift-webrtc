@@ -33,7 +33,10 @@ export class Flight4 extends Flight {
     super(udp, dtls, 4, 6);
   }
 
-  exec(assemble: FragmentedHandshake, certificateRequest: boolean = false) {
+  async exec(
+    assemble: FragmentedHandshake,
+    certificateRequest: boolean = false
+  ) {
     if (this.dtls.flight === 4) {
       log("flight4 twice");
       this.send(this.dtls.lastMessage);
@@ -52,7 +55,7 @@ export class Flight4 extends Flight {
     ].filter((v) => v) as Buffer[];
 
     this.dtls.lastMessage = messages;
-    this.transmit(messages);
+    await this.transmit(messages);
   }
 
   private sendServerHello() {

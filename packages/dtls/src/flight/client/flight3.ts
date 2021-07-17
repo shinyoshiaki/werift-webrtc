@@ -9,7 +9,7 @@ export class Flight3 extends Flight {
     super(udp, dtls, 3, 5);
   }
 
-  exec(verifyReq: ServerHelloVerifyRequest) {
+  async exec(verifyReq: ServerHelloVerifyRequest) {
     if (this.dtls.flight === 3) throw new Error();
     this.dtls.flight = 3;
 
@@ -21,6 +21,6 @@ export class Flight3 extends Flight {
     const packets = this.createPacket([clientHello]);
 
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
-    this.transmit([buf]);
+    await this.transmit([buf]);
   }
 }

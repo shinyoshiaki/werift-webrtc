@@ -19,7 +19,6 @@
     "client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
     "dep": "depcheck",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
-    "graph": "dependency-cruiser --exclude 'node_modules' --output-type dot src | dot -T svg > dependencygraph.svg",
     "lint": "eslint ./src --fix",
     "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
     "test": "yarn type && jest --forceExit",
