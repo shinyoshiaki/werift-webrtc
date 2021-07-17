@@ -8,7 +8,7 @@ werift is a WebRTC Implementation for TypeScript (Node.js), includes ICE/DTLS/SC
 
 `npm install werift`
 
-requires at least Node.js 14
+requires at least Node.js 15
 
 # Documentation (WIP)
 
@@ -71,10 +71,11 @@ see console & chrome://webrtc-internals/
   - [x] recvonly
   - [x] sendrecv
   - [x] multi track
+  - [x] RTX
 - [x] RTP
   - [x] RFC 3550
   - [x] Parse RTP Payload Format for VP8 Video
-  - [ ] Parse RTP Payload Format for H264 Video
+  - [x] Parse RTP Payload Format for H264 Video
 - [x] RTCP
   - [x] SR/RR
   - [x] Picture Loss Indication
