@@ -6,7 +6,7 @@ import {
   useNACK,
   usePLI,
   useREMB,
-  useSdesRTPStreamID,
+  useSdesRTPStreamId,
   useTransportWideCC,
   useTWCC,
 } from "../../../packages/webrtc/src";
@@ -33,7 +33,7 @@ server.on("connection", async (socket) => {
       ],
     },
     headerExtensions: {
-      video: [useAbsSendTime(), useSdesRTPStreamID(), useTransportWideCC()],
+      video: [useAbsSendTime(), useSdesRTPStreamId(), useTransportWideCC()],
     },
   });
   const sender = new RTCPeerConnection({

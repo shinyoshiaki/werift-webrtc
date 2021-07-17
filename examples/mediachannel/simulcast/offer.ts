@@ -1,6 +1,6 @@
 import {
   RTCPeerConnection,
-  useSdesRTPStreamID,
+  useSdesRTPStreamId,
   useRepairedRtpStreamId,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
@@ -11,7 +11,7 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     headerExtensions: {
-      video: [useSdesRTPStreamID(), useRepairedRtpStreamId()],
+      video: [useSdesRTPStreamId(), useRepairedRtpStreamId()],
       audio: [],
     },
   });

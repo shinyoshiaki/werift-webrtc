@@ -30,7 +30,7 @@
     "test:serial": "lerna run test --concurrency 1",
     "type": "lerna run type",
     "type:all": "yarn type:example && lerna run type",
-    "type:example": "tsc --noEmit"
+    "type:example": "tsc --noEmit -p ./tsconfig.json"
   },
   "devDependencies": {
     "@types/jest": "^26.0.23",

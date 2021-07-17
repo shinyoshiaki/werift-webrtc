@@ -15,7 +15,7 @@ export function useSdesMid() {
   });
 }
 
-export function useSdesRTPStreamID() {
+export function useSdesRTPStreamId() {
   return new RTCRtpHeaderExtensionParameters({
     uri: RTP_EXTENSION_URI.sdesRTPStreamID,
   });

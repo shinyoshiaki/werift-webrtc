@@ -2,7 +2,7 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
-  useSdesRTPStreamID,
+  useSdesRTPStreamId,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
@@ -29,7 +29,7 @@ server.on("connection", async (socket) => {
       ],
     },
     headerExtensions: {
-      video: [useSdesRTPStreamID(), useAbsSendTime(), useTransportWideCC()],
+      video: [useSdesRTPStreamId(), useAbsSendTime(), useTransportWideCC()],
     },
   });
   const transceiver = pc.addTransceiver("video", {

@@ -15,7 +15,7 @@
     "skipLibCheck": true,
     "strictNullChecks": false,
     "noImplicitAny": false,
-    "jsx": "react-jsx"
+    "jsx": "react"
   },
   "include": ["e2e", "examples"]
 }

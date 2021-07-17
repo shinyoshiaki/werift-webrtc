@@ -1,6 +1,6 @@
 import {
   RTCPeerConnection,
-  useSdesRTPStreamID,
+  useSdesRTPStreamId,
   useSdesMid,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
@@ -12,7 +12,7 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     headerExtensions: {
-      video: [useSdesMid(), useSdesRTPStreamID()],
+      video: [useSdesMid(), useSdesRTPStreamId()],
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>

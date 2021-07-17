@@ -1,5 +1,5 @@
 import { AcceptFn } from "protoo-server";
-import { useSdesRTPStreamID, RTCPeerConnection } from "../../";
+import { useSdesRTPStreamId, RTCPeerConnection } from "../../";
 
 export class mediachannel_simulcast_answer {
   pc!: RTCPeerConnection;
@@ -11,7 +11,7 @@ export class mediachannel_simulcast_answer {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             headerExtensions: {
-              video: [useSdesRTPStreamID()],
+              video: [useSdesRTPStreamId()],
               audio: [],
             },
           });
@@ -60,7 +60,7 @@ export class mediachannel_simulcast_offer {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             headerExtensions: {
-              video: [useSdesRTPStreamID()],
+              video: [useSdesRTPStreamId()],
               audio: [],
             },
           });
