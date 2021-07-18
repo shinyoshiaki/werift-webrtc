@@ -265,11 +265,13 @@ export class RTCRtpSender {
                 return Buffer.from(this.mid);
               }
               return;
+            // todo : sender simulcast unsupported now
             case RTP_EXTENSION_URI.sdesRTPStreamID:
               if (this.rtpStreamId) {
                 return Buffer.from(this.rtpStreamId);
               }
               return;
+            // todo : sender simulcast unsupported now
             case RTP_EXTENSION_URI.repairedRtpStreamId:
               if (this.repairedRtpStreamId) {
                 return Buffer.from(this.repairedRtpStreamId);

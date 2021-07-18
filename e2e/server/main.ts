@@ -17,6 +17,10 @@ import {
   mediachannel_addTrack_offer,
 } from "./handler/mediachannel/addTrack";
 import {
+  mediachannel_rtx_client_answer,
+  mediachannel_rtx_client_offer,
+} from "./handler/mediachannel/rtx";
+import {
   mediachannel_send_recv_answer,
   mediachannel_send_recv_offer,
 } from "./handler/mediachannel/send-recv";
@@ -71,6 +75,8 @@ server.on("connectionrequest", async (_, accept) => {
       new datachannel_close_server_create_client_close(),
     ice_trickle_answer: new ice_trickle_answer(),
     ice_trickle_offer: new ice_trickle_offer(),
+    mediachannel_rtx_client_answer: new mediachannel_rtx_client_answer(),
+    mediachannel_rtx_client_offer: new mediachannel_rtx_client_offer(),
   };
 
   const transport = accept();

@@ -630,16 +630,24 @@ export class RTCPeerConnection extends EventTarget {
         }
 
         // # negotiate codecs
-        transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) =>
-          (
-            this.configuration.codecs[remoteMedia.kind as "audio" | "video"] ||
-            []
-          ).find(
-            (localCodec) =>
-              localCodec.mimeType.toLowerCase() ===
-              remoteCodec.mimeType.toLowerCase()
-          )
-        );
+        transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
+          const localCodecs = this.configuration.codecs[remoteMedia.kind] || [];
+
+          const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
+          if (!existCodec) return false;
+
+          if (existCodec?.name.toLowerCase() === "rtx") {
+            const pt = existCodec.parameters["apt"];
+            const origin = remoteMedia.rtp.codecs.find(
+              (c) => c.payloadType === pt
+            );
+            if (!origin) return false;
+            return !!findCodecByMimeType(localCodecs, origin);
+          }
+
+          return true;
+        });
+
         log("negotiated codecs", transceiver.codecs);
         if (transceiver.codecs.length === 0) {
           throw new Error("negotiate codecs failed.");
@@ -1170,6 +1178,17 @@ export interface PeerConfig {
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
 }
+
+export const findCodecByMimeType = (
+  codecs: RTCRtpCodecParameters[],
+  target: RTCRtpCodecParameters
+) =>
+  codecs.find(
+    (localCodec) =>
+      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase()
+  )
+    ? target
+    : undefined;
 
 export type RTCIceServer = {
   urls: string;

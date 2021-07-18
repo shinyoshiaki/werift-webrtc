@@ -1,4 +1,5 @@
 import { range } from "lodash";
+import Event from "rx.mini";
 
 import { uint16Add } from "../../../common/src";
 import {
@@ -15,6 +16,7 @@ export class Nack {
   private _lost: { [seqNum: number]: number } = {};
   private nackLoop = setInterval(() => this.packetLost(), 20);
 
+  readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
 
   constructor(private receiver: RTCRtpReceiver) {}
@@ -73,16 +75,18 @@ export class Nack {
 
   private packetLost() {
     if (this.lost.length > 0 && this.mediaSourceSsrc) {
+      const nack = new GenericNack({
+        senderSsrc: this.receiver.rtcpSsrc,
+        mediaSourceSsrc: this.mediaSourceSsrc,
+        lost: this.lost,
+      });
       const rtcp = new RtcpTransportLayerFeedback({
-        feedback: new GenericNack({
-          senderSsrc: this.receiver.rtcpSsrc,
-          mediaSourceSsrc: this.mediaSourceSsrc,
-          lost: this.lost,
-        }),
+        feedback: nack,
       });
       this.receiver.dtlsTransport.sendRtcp([rtcp]);
 
       this.increment();
+      this.onPacketLost.execute(nack);
     }
   }
 }

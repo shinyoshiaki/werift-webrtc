@@ -1,10 +1,15 @@
 import { ChildProcess, exec } from "child_process";
 import { createSocket } from "dgram";
 import { AcceptFn } from "protoo-server";
-import { RTCPeerConnection, MediaStreamTrack, RtpPacket } from "../../";
-import { randomPort } from "../../../../packages/ice/src";
+import {
+  RTCPeerConnection,
+  MediaStreamTrack,
+  RtpPacket,
+  RTCRtpCodecParameters,
+  randomPort,
+} from "../../";
 
-export class mediachannel_addTrack_answer {
+export class mediachannel_rtx_client_answer {
   pc!: RTCPeerConnection;
   child!: ChildProcess;
   udp = createSocket("udp4");
@@ -18,6 +23,24 @@ export class mediachannel_addTrack_answer {
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            codecs: {
+              video: [
+                new RTCRtpCodecParameters({
+                  mimeType: "video/VP8",
+                  clockRate: 90000,
+                  rtcpFeedback: [
+                    { type: "ccm", parameter: "fir" },
+                    { type: "nack" },
+                    { type: "nack", parameter: "pli" },
+                    { type: "goog-remb" },
+                  ],
+                }),
+                new RTCRtpCodecParameters({
+                  mimeType: "video/rtx",
+                  clockRate: 90000,
+                }),
+              ],
+            },
           });
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
@@ -57,7 +80,7 @@ export class mediachannel_addTrack_answer {
   }
 }
 
-export class mediachannel_addTrack_offer {
+export class mediachannel_rtx_client_offer {
   pc!: RTCPeerConnection;
   child!: ChildProcess;
   udp = createSocket("udp4");
@@ -71,6 +94,24 @@ export class mediachannel_addTrack_offer {
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            codecs: {
+              video: [
+                new RTCRtpCodecParameters({
+                  mimeType: "video/VP8",
+                  clockRate: 90000,
+                  rtcpFeedback: [
+                    { type: "ccm", parameter: "fir" },
+                    { type: "nack" },
+                    { type: "nack", parameter: "pli" },
+                    { type: "goog-remb" },
+                  ],
+                }),
+                new RTCRtpCodecParameters({
+                  mimeType: "video/rtx",
+                  clockRate: 90000,
+                }),
+              ],
+            },
           });
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);

@@ -1,3 +1,4 @@
+export * from "../../ice/src";
 export * from "../../rtp/src";
 export * from "./dataChannel";
 export * from "./extension/rtcpFeedback";

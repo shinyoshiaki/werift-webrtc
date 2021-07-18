@@ -24,6 +24,10 @@ import { MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
+  private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  private readonly nack = new Nack(this);
+
   readonly type = "receiver";
   readonly uuid = uuid();
   readonly tracks: MediaStreamTrack[] = [];
@@ -31,9 +35,7 @@ export class RTCRtpReceiver {
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
   readonly lsr: { [key: number]: BigInt } = {};
   readonly lsrTime: { [key: number]: number } = {};
-  private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
-  private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
-  private readonly nack = new Nack(this);
+  readonly onPacketLost = this.nack.onPacketLost;
 
   sdesMid?: string;
   rid?: string;

@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/rtx/offer.ts"
+        "${workspaceRoot}/examples/mediachannel/rtx/simulcast_answer.ts"
       ],
       "env": { "DEBUG": "*" },
       "console": "integratedTerminal",
@@ -80,7 +80,7 @@
         "${workspaceRoot}/tsconfig.json",
         "${workspaceRoot}/examples/interop/server.ts"
       ],
-      "env": { "DEBUG": "werift/*" },
+      "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     },
@@ -96,7 +96,7 @@
         "${workspaceRoot}/tsconfig.json",
         "${workspaceRoot}/e2e/server/main.ts"
       ],
-      "env": { "DEBUG": "werift/*" },
+      "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     }
