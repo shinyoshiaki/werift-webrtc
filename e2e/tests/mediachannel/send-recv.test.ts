@@ -11,8 +11,10 @@ describe("mediachannel_sendrecv", () => {
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
-        pc.ontrack = ({ track }) => {
-          waitVideoPlay(track).then(done);
+        pc.ontrack = async ({ track }) => {
+          await waitVideoPlay(track);
+          pc.close();
+          done();
         };
 
         const [track] = (
@@ -51,8 +53,10 @@ describe("mediachannel_sendrecv", () => {
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
-        pc.ontrack = ({ track }) => {
-          waitVideoPlay(track).then(done);
+        pc.ontrack = async ({ track }) => {
+          await waitVideoPlay(track);
+          pc.close();
+          done();
         };
         pc.onicecandidate = ({ candidate }) => {
           peer.request("mediachannel_send_recv_offer", {

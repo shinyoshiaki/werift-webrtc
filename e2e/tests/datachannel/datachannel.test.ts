@@ -4,7 +4,7 @@ describe("datachannel", () => {
   it(
     "answer",
     async () =>
-      new Promise<void>(async (r) => {
+      new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
@@ -20,8 +20,8 @@ describe("datachannel", () => {
         pc.ondatachannel = ({ channel }) => {
           channel.onmessage = ({ data }) => {
             expect(data).toBe("ping" + "pong");
-            console.warn("answer", "succeed");
-            r();
+            pc.close();
+            done();
           };
           channel.send("ping");
         };

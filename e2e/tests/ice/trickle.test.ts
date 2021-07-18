@@ -16,7 +16,7 @@ describe("ice/trickle", () => {
         pc.ondatachannel = ({ channel }) => {
           channel.onmessage = ({ data }) => {
             expect(data).toBe("ping" + "pong");
-            console.warn("answer", "succeed");
+            pc.close();
             done();
           };
           channel.send("ping");
@@ -72,7 +72,7 @@ describe("ice/trickle", () => {
         };
         channel.onmessage = ({ data }) => {
           expect(data).toBe("ping" + "pong");
-          console.warn("offer", "succeed");
+          pc.close();
           done();
         };
         pc.onicecandidate = ({ candidate }) => {

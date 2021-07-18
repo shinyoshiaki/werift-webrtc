@@ -14,10 +14,15 @@ describe("mediachannel_simulcast", () => {
 
         let count = 0;
         const finish = () => {
-          if (++count == 2) done();
+          if (++count == 2) {
+            pc.close();
+            done();
+          }
         };
-        pc.ontrack = ({ track }) => {
-          waitVideoPlay(track).then(finish);
+        pc.ontrack = async ({ track }) => {
+          await waitVideoPlay(track);
+
+          finish();
         };
 
         const [track] = (
@@ -88,10 +93,15 @@ describe("mediachannel_simulcast", () => {
 
         let count = 0;
         const finish = () => {
-          if (++count == 2) done();
+          if (++count == 2) {
+            pc.close();
+            done();
+          }
         };
-        pc.ontrack = ({ track }) => {
-          waitVideoPlay(track).then(finish);
+        pc.ontrack = async ({ track }) => {
+          await waitVideoPlay(track);
+
+          finish();
         };
 
         const [track] = (

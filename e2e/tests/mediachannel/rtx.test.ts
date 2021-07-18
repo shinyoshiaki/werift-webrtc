@@ -22,6 +22,7 @@ describe("mediachannel_rtx", () => {
           await peer.request("mediachannel_rtx_client_answer", {
             type: "done",
           });
+          pc.close();
           done();
         };
 
@@ -56,6 +57,7 @@ describe("mediachannel_rtx", () => {
           await peer.request("mediachannel_rtx_client_offer", {
             type: "done",
           });
+          pc.close();
           done();
         };
         pc.onicecandidate = ({ candidate }) => {

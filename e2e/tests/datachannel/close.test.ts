@@ -21,7 +21,7 @@ describe("datachannel/close", () => {
 
         pc.ondatachannel = ({ channel }) => {
           channel.onclose = () => {
-            console.log("onclose");
+            pc.close();
             done();
           };
           channel.send("ping");

@@ -22,6 +22,7 @@ describe("mediachannel_addTrack", () => {
           await peer.request("mediachannel_addTrack_answer", {
             type: "done",
           });
+          pc.close();
           done();
         };
 
@@ -54,6 +55,7 @@ describe("mediachannel_addTrack", () => {
           await peer.request("mediachannel_addTrack_offer", {
             type: "done",
           });
+          pc.close();
           done();
         };
         pc.onicecandidate = ({ candidate }) => {

@@ -13,8 +13,10 @@ describe("mediachannel_sendrecv", () => {
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
-        pc.ontrack = ({ track }) => {
-          waitVideoPlay(track).then(done);
+        pc.ontrack = async ({ track }) => {
+          await waitVideoPlay(track);
+          pc.close();
+          done();
         };
 
         const [track] = (
@@ -46,15 +48,17 @@ describe("mediachannel_sendrecv", () => {
   it(
     "offer",
     async () =>
-      new Promise(async (done) => {
+      new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
-        pc.ontrack = ({ track }) => {
-          waitVideoPlay(track).then(done);
+        pc.ontrack = async ({ track }) => {
+          await waitVideoPlay(track);
+          pc.close();
+          done();
         };
         const [track] = (
           await navigator.mediaDevices.getUserMedia({ video: true })
