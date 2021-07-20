@@ -21,7 +21,7 @@ import { FragmentedHandshake } from "../../record/message/fragment";
 import { Extension } from "../../typings/domain";
 import { Flight } from "../flight";
 
-const log = debug("werift/dtls/flight4");
+const log = debug("werift-dtls:packages/dtls/flight/server/flight4.ts");
 
 export class Flight4 extends Flight {
   constructor(

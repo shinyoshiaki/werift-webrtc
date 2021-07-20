@@ -7,7 +7,7 @@ import { ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
 
-const log = debug("werift/dtls/record/receive");
+const log = debug("werift-dtls:packages/dtls/record/receive.ts");
 
 export const parsePacket = (data: Buffer) => {
   let start = 0;

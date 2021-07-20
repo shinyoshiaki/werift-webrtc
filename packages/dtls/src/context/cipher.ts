@@ -23,7 +23,7 @@ import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
 
-const log = debug("werift/dtls/context/cipher");
+const log = debug("werift-dtls:packages/dtls/src/context/cipher.ts");
 
 const crypto = new Crypto();
 x509.cryptoProvider.set(crypto);

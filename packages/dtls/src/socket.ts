@@ -26,7 +26,7 @@ import { parsePacket, parsePlainText } from "./record/receive";
 import { Transport } from "./transport";
 import { Extension } from "./typings/domain";
 
-const log = debug("werift:packages/dtls/src/socket.ts");
+const log = debug("werift-dtls:packages/dtls/src/socket.ts");
 
 export class DtlsSocket {
   readonly onConnect = new Event();

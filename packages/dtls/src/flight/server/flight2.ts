@@ -23,7 +23,7 @@ import { DtlsRandom } from "../../handshake/random";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 
-const log = debug("werift/dtls/flight/server/flight2");
+const log = debug("werift-dtls:packages/dtls/flight/server/flight2.ts");
 
 // HelloVerifyRequest do not retransmit
 

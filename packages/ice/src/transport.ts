@@ -4,7 +4,7 @@ import { createSocket, SocketType } from "dgram";
 import { Address } from "./types/model";
 import { findPort } from "./utils";
 
-const log = debug("werift/ice/transport");
+const log = debug("werift-ice:packages/ice/src/transport.ts");
 
 export class UdpTransport implements Transport {
   private socket = createSocket(this.type);

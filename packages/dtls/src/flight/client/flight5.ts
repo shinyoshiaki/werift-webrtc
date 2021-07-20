@@ -31,7 +31,7 @@ import { ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { Flight } from "../flight";
 
-const log = debug("werift/dtls/flight/client/flight5");
+const log = debug("werift-dtls:packages/dtls/src/flight/client/flight5.ts");
 
 export class Flight5 extends Flight {
   constructor(

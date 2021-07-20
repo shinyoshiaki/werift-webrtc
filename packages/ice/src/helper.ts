@@ -3,7 +3,7 @@ import debug from "debug";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 
-const log = debug("werift/ice/utils");
+const log = debug("werift-ice:packages/ice/src/helper.ts");
 
 export function randomString(length: number) {
   return randomBytes(length).toString("hex").substring(0, length);

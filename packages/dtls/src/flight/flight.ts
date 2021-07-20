@@ -7,7 +7,7 @@ import { createFragments, createPlaintext } from "../record/builder";
 import { ContentType } from "../record/const";
 import { Handshake } from "../typings/domain";
 
-const log = debug("werift:packages/dtls/src/flight/flight.ts");
+const log = debug("werift-dtls:packages/dtls/src/flight/flight.ts");
 
 const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 

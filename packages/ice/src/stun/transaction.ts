@@ -6,7 +6,7 @@ import { Address, Protocol } from "../types/model";
 import { classes, RETRY_MAX, RETRY_RTO } from "./const";
 import { Message } from "./message";
 
-const log = debug("werift/ice/stun/transaction");
+const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
 
 export class Transaction {
   integrityKey?: Buffer;

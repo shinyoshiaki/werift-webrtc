@@ -15,7 +15,7 @@ import { Transaction } from "../stun/transaction";
 import { Transport, UdpTransport } from "../transport";
 import { Address, Protocol } from "../types/model";
 
-const log = debug("werift/ice/turn/protocol");
+const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 
 const TCP_TRANSPORT = 0x06000000;
 const UDP_TRANSPORT = 0x11000000;

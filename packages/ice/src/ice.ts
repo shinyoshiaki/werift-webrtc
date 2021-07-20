@@ -19,7 +19,7 @@ import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
 
-const log = debug("werift/ice/ice");
+const log = debug("werift-ice:packages/ice/src/ice.ts");
 
 const ICE_COMPLETED = 1;
 const ICE_FAILED = 2;

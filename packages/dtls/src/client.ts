@@ -9,7 +9,7 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, Options } from "./socket";
 
-const log = debug("werift:packages/dtls/src/client.ts");
+const log = debug("werift-dtls:packages/dtls/src/client.ts");
 
 export class DtlsClient extends DtlsSocket {
   constructor(options: Options) {
