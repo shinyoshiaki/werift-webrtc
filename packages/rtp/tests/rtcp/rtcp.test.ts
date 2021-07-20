@@ -1,3 +1,4 @@
+import { PictureLossIndication, RtcpPayloadSpecificFeedback } from "../../src";
 import { RtcpRrPacket } from "../../src/rtcp/rr";
 import { RtcpPacketConverter } from "../../src/rtcp/rtcp";
 import { RtcpSrPacket } from "../../src/rtcp/sr";
@@ -53,5 +54,16 @@ describe("rtcp/rtcp", () => {
     expect(packets.length).toBe(2);
     expect(packets[0].type).toBe(RtcpSrPacket.type);
     expect(packets[1].type).toBe(RtcpRrPacket.type);
+  });
+
+  test("should fail", () => {
+    const rtcp = RtcpPacketConverter.serialize(
+      RtcpPayloadSpecificFeedback.type,
+      PictureLossIndication.count,
+      Buffer.from([0]),
+      2
+    );
+    const packets = RtcpPacketConverter.deSerialize(rtcp);
+    expect(packets.length).toBe(0);
   });
 });

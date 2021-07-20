@@ -7,7 +7,7 @@ import { RtcpTransportLayerFeedback } from "./rtpfb";
 import { RtcpSourceDescriptionPacket } from "./sdes";
 import { RtcpSrPacket } from "./sr";
 
-const log = debug("werift/rtp/rtcp/rtcp");
+const log = debug("werift-rtp:packages/rtp/src/rtcp/rtcp.ts");
 
 export type RtcpPacket =
   | RtcpRrPacket
@@ -48,29 +48,35 @@ export class RtcpPacketConverter {
         payload = payload.slice(0, payload.length - payload.slice(-1)[0]);
       }
 
-      switch (header.type) {
-        case RtcpSrPacket.type:
-          packets.push(RtcpSrPacket.deSerialize(payload, header.count));
-          break;
-        case RtcpRrPacket.type:
-          packets.push(RtcpRrPacket.deSerialize(payload, header.count));
-          break;
-        case RtcpSourceDescriptionPacket.type:
-          packets.push(
-            RtcpSourceDescriptionPacket.deSerialize(payload, header)
-          );
-          break;
-        case RtcpTransportLayerFeedback.type:
-          packets.push(RtcpTransportLayerFeedback.deSerialize(payload, header));
-          break;
-        case RtcpPayloadSpecificFeedback.type:
-          packets.push(
-            RtcpPayloadSpecificFeedback.deSerialize(payload, header)
-          );
-          break;
-        default:
-          log("unknown rtcp packet", header.type);
-          break;
+      try {
+        switch (header.type) {
+          case RtcpSrPacket.type:
+            packets.push(RtcpSrPacket.deSerialize(payload, header.count));
+            break;
+          case RtcpRrPacket.type:
+            packets.push(RtcpRrPacket.deSerialize(payload, header.count));
+            break;
+          case RtcpSourceDescriptionPacket.type:
+            packets.push(
+              RtcpSourceDescriptionPacket.deSerialize(payload, header)
+            );
+            break;
+          case RtcpTransportLayerFeedback.type:
+            packets.push(
+              RtcpTransportLayerFeedback.deSerialize(payload, header)
+            );
+            break;
+          case RtcpPayloadSpecificFeedback.type:
+            packets.push(
+              RtcpPayloadSpecificFeedback.deSerialize(payload, header)
+            );
+            break;
+          default:
+            log("unknown rtcp packet", header.type);
+            break;
+        }
+      } catch (error) {
+        log("deSerialize RTCP", error);
       }
     }
 
