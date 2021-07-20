@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
