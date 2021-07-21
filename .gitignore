@@ -1,6 +1,7 @@
 node_modules
 yarn-error.log
 lib
+build
 coverage
 .parcel-cache
 dist

@@ -61,7 +61,9 @@ export abstract class Flight {
 
     if (retransmitCount > Flight.RetransmitCount) {
       log("retransmit failed", retransmitCount);
-      throw new Error("over retransmitCount");
+      throw new Error(
+        `over retransmitCount : ${this.flight} ${this.nextFlight}`
+      );
     }
   }
 
