@@ -23,7 +23,7 @@ import { DtlsRandom } from "../../handshake/random";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 
-const log = debug("werift-dtls:packages/dtls/flight/server/flight2.ts");
+const log = debug("werift-dtls : packages/dtls/flight/server/flight2.ts : log");
 
 // HelloVerifyRequest do not retransmit
 
@@ -42,12 +42,12 @@ export const flight2 =
         case EllipticCurves.type:
           {
             const curves = EllipticCurves.fromData(extension.data).data;
-            log("curves", curves);
+            log(dtls.id, "curves", curves);
             const curve = curves.find((curve) =>
               Object.values(NamedCurveAlgorithm).includes(curve as any)
             ) as NamedCurveAlgorithms;
             cipher.namedCurve = curve;
-            log("curve selected", cipher.namedCurve);
+            log(dtls.id, "curve selected", cipher.namedCurve);
           }
           break;
         case Signature.type:
@@ -56,7 +56,7 @@ export const flight2 =
               throw new Error("need to set certificate");
 
             const signatureHash = Signature.fromData(extension.data).data;
-            log("hash,signature", signatureHash);
+            log(dtls.id, "hash,signature", signatureHash);
             const signature = signatureHash.find(
               (v) => v.signature === cipher.signatureHashAlgorithm?.signature
             )?.signature;
@@ -73,7 +73,7 @@ export const flight2 =
             if (dtls.options.srtpProfiles.length === 0) return;
 
             const useSrtp = UseSRTP.fromData(extension.data);
-            log("srtp profiles", useSrtp.profiles);
+            log(dtls.id, "srtp profiles", useSrtp.profiles);
             const profile = SrtpContext.findMatchingSRTPProfile(
               useSrtp.profiles,
               dtls.options?.srtpProfiles
@@ -82,7 +82,7 @@ export const flight2 =
               throw new Error();
             }
             srtp.srtpProfile = profile;
-            log("srtp profile selected", srtp.srtpProfile);
+            log(dtls.id, "srtp profile selected", srtp.srtpProfile);
           }
           break;
         case ExtendedMasterSecret.type:
@@ -92,7 +92,7 @@ export const flight2 =
           break;
         case RenegotiationIndication.type:
           {
-            log("RenegotiationIndication", extension.data);
+            log(dtls.id, "RenegotiationIndication", extension.data);
           }
           break;
       }
@@ -102,7 +102,7 @@ export const flight2 =
     cipher.remoteRandom = DtlsRandom.from(clientHello.random);
 
     const suites = clientHello.cipherSuites;
-    log("cipher suites", suites);
+    log(dtls.id, "cipher suites", suites);
     const suite = (() => {
       switch (cipher.signatureHashAlgorithm?.signature) {
         case SignatureAlgorithm.ecdsa:
@@ -115,7 +115,7 @@ export const flight2 =
       throw new Error("dtls cipher suite negotiation failed");
     }
     cipher.cipherSuite = suite;
-    log("selected cipherSuite", cipher.cipherSuite);
+    log(dtls.id, "selected cipherSuite", cipher.cipherSuite);
 
     cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
 

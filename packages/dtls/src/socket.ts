@@ -26,7 +26,8 @@ import { parsePacket, parsePlainText } from "./record/receive";
 import { Transport } from "./transport";
 import { Extension } from "./typings/domain";
 
-const log = debug("werift-dtls:packages/dtls/src/socket.ts");
+const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
+const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
 
 export class DtlsSocket {
   readonly onConnect = new Event();
@@ -80,7 +81,7 @@ export class DtlsSocket {
                 .sort((a, b) => a.msg_type - b.msg_type);
 
               this.onHandleHandshakes(assembled).catch((error) => {
-                log("onHandleHandshakes error", error);
+                err(this.dtls.id, "onHandleHandshakes error", error);
                 this.onError.execute(error);
               });
             }
@@ -95,14 +96,14 @@ export class DtlsSocket {
             break;
         }
       } catch (error) {
-        log("error", error);
+        err(this.dtls.id, "catch udpOnMessage error", error);
       }
     }
   };
 
   private setupExtensions() {
     {
-      log("support srtpProfiles", this.options.srtpProfiles);
+      log(this.dtls.id, "support srtpProfiles", this.options.srtpProfiles);
       if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
         const useSrtp = UseSRTP.create(
           this.options.srtpProfiles,

@@ -9,13 +9,13 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, Options } from "./socket";
 
-const log = debug("werift-dtls:packages/dtls/src/client.ts");
+const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
-    log("start client");
+    log(this.dtls.id, "start client");
   }
 
   async connect() {
@@ -26,7 +26,11 @@ export class DtlsClient extends DtlsSocket {
 
   private flight5!: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
-    log("handleHandshakes", assembled);
+    log(
+      this.dtls.id,
+      "handleHandshakes",
+      assembled.map((a) => a.msg_type)
+    );
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
@@ -66,7 +70,7 @@ export class DtlsClient extends DtlsSocket {
           {
             this.dtls.flight = 7;
             this.onConnect.execute();
-            log("dtls connected");
+            log(this.dtls.id, "dtls connected");
           }
           break;
       }

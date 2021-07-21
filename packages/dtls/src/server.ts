@@ -9,18 +9,22 @@ import { ClientHello } from "./handshake/message/client/hello";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, Options } from "./socket";
 
-const log = debug("werift-dtls:packages/dtls/src/server.ts");
+const log = debug("werift-dtls : packages/dtls/src/server.ts : log");
 
 export class DtlsServer extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.SERVER);
     this.onHandleHandshakes = this.handleHandshakes;
-    log("start server");
+    log(this.dtls.id, "start server");
   }
 
   private flight6!: Flight6;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
-    log("handleHandshakes", assembled);
+    log(
+      this.dtls.id,
+      "handleHandshakes",
+      assembled.map((a) => a.msg_type)
+    );
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
@@ -32,7 +36,7 @@ export class DtlsServer extends DtlsSocket {
               this.dtls.cookie &&
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
-              log("send flight4");
+              log(this.dtls.id, "send flight4");
               await new Flight4(
                 this.transport,
                 this.dtls,
@@ -40,7 +44,7 @@ export class DtlsServer extends DtlsSocket {
                 this.srtp
               ).exec(handshake, this.options.certificateRequest);
             } else if (!this.dtls.cookie) {
-              log("send flight2");
+              log(this.dtls.id, "send flight2");
               flight2(
                 this.transport,
                 this.dtls,
@@ -62,7 +66,7 @@ export class DtlsServer extends DtlsSocket {
             await this.flight6.exec();
 
             this.onConnect.execute();
-            log("dtls connected");
+            log(this.dtls.id, "dtls connected");
           }
           break;
       }

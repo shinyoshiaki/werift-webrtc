@@ -7,7 +7,8 @@ import { ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
 
-const log = debug("werift-dtls:packages/dtls/record/receive.ts");
+const log = debug("werift-dtls : packages/dtls/record/receive.ts : log");
+const err = debug("werift-dtls : packages/dtls/record/receive.ts : err");
 
 export const parsePacket = (data: Buffer) => {
   let start = 0;
@@ -30,7 +31,7 @@ export const parsePlainText =
 
     switch (contentType) {
       case ContentType.changeCipherSpec: {
-        log("change cipher spec");
+        log(dtls.id, "change cipher spec");
         return {
           type: ContentType.changeCipherSpec,
           data: undefined,
@@ -39,7 +40,7 @@ export const parsePlainText =
       case ContentType.handshake: {
         let raw = plain.fragment;
         if (plain.recordLayerHeader.epoch > 0) {
-          log("decrypt handshake");
+          log(dtls.id, "decrypt handshake");
           raw = cipher.decryptPacket(plain);
         }
         return {
@@ -55,7 +56,7 @@ export const parsePlainText =
       }
       case ContentType.alert: {
         const alert = Alert.deSerialize(plain.fragment);
-        log("ContentType.alert", alert, dtls.flight, dtls.lastFlight);
+        err(dtls.id, "ContentType.alert", alert, dtls.flight, dtls.lastFlight);
         if (alert.level > 1) throw new Error("alert fatal error");
       }
       // eslint-disable-next-line no-fallthrough

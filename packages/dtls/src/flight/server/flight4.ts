@@ -21,7 +21,10 @@ import { FragmentedHandshake } from "../../record/message/fragment";
 import { Extension } from "../../typings/domain";
 import { Flight } from "../flight";
 
-const log = debug("werift-dtls:packages/dtls/flight/server/flight4.ts");
+const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
+const warn = debug(
+  "werift-dtls : packages/dtls/flight/server/flight4.ts : warn"
+);
 
 export class Flight4 extends Flight {
   constructor(
@@ -38,7 +41,7 @@ export class Flight4 extends Flight {
     certificateRequest: boolean = false
   ) {
     if (this.dtls.flight === 4) {
-      log("flight4 twice");
+      warn(this.dtls.id, "flight4 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
@@ -125,7 +128,7 @@ export class Flight4 extends Flight {
       ],
       []
     );
-    log("sendCertificateRequest", handshake);
+    log(this.dtls.id, "sendCertificateRequest", handshake);
     const packets = this.createPacket([handshake]);
     return Buffer.concat(packets.map((v) => v.serialize()));
   }
