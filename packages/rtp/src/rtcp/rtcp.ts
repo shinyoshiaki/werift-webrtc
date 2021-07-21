@@ -72,7 +72,7 @@ export class RtcpPacketConverter {
             );
             break;
           default:
-            log("unknown rtcp packet", header.type);
+            // log("unknown rtcp packet", header.type);
             break;
         }
       } catch (error) {
