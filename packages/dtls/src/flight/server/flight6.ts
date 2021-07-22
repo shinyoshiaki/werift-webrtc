@@ -108,7 +108,7 @@ handlers[HandshakeType.client_key_exchange_16] =
       !cipher.remoteRandom ||
       !cipher.localRandom
     )
-      throw new Error();
+      throw new Error("not exist");
 
     const preMasterSecret = prfPreMasterSecret(
       cipher.remoteKeyPair.publicKey,

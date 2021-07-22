@@ -46,6 +46,7 @@ export const parsePlainText =
           }
         } catch (error) {
           err(dtls.session, "decrypt failed", error, raw);
+          throw error;
         }
         try {
           const data = FragmentedHandshake.deSerialize(raw);

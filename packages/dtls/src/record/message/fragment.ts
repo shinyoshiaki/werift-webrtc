@@ -2,6 +2,7 @@
 import { decode, encode, types } from "binary-data";
 
 import { HandshakeType } from "../../handshake/const";
+import { getObjectSummary } from "../../helper";
 
 export class FragmentedHandshake {
   static readonly spec = {
@@ -23,15 +24,7 @@ export class FragmentedHandshake {
   ) {}
 
   get summary() {
-    const formatted = Object.entries({ ...this }).reduce(
-      (acc: {}, [key, value]) => {
-        if (typeof value === "number" || typeof value === "string")
-          acc[key] = value;
-        return acc;
-      },
-      {}
-    );
-    return formatted;
+    return getObjectSummary(this);
   }
 
   static createEmpty() {

@@ -9,3 +9,14 @@ export function divide(from: string, split: string): [string, string] {
 
 export const dumpBuffer = (data: Buffer) =>
   data.toString("hex").replace(/(.)(.)/g, "$1$2 ");
+
+export const getObjectSummary = (obj: any) =>
+  Object.entries({ ...obj }).reduce((acc: {}, [key, value]) => {
+    if (typeof value === "number" || typeof value === "string") {
+      acc[key] = value;
+    }
+    if (Buffer.isBuffer(value)) {
+      acc[key] = dumpBuffer(value);
+    }
+    return acc;
+  }, {});
