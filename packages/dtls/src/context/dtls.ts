@@ -50,7 +50,11 @@ export class DtlsContext {
     // ];
     // for (const task of order) {
     // }
-    const sorted = this.handshakeCache.sort((h) => h.data.msg_type);
+
+    // todo fix
+    const sorted = this.handshakeCache.sort(
+      (a, b) => a.data.msg_type - b.data.msg_type
+    );
     return sorted;
   }
 
@@ -66,7 +70,7 @@ export class DtlsContext {
         h.flight === flight
     );
     if (exist) {
-      log("exist handshake", exist.data.summary, isLocal, flight);
+      log(this.session, "exist handshake", exist.data.summary, isLocal, flight);
       return;
     }
 
