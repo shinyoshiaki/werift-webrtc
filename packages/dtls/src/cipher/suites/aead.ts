@@ -1,4 +1,5 @@
 import * as crypto from "crypto";
+import debug from "debug";
 
 import { prfEncryptionKeys } from "../prf";
 import Cipher, { CipherHeader, SessionType } from "./abstract";
@@ -18,6 +19,10 @@ const AEADAdditionalData = {
   version: ProtocolVersion,
   length: uint16be,
 };
+
+const err = debug(
+  "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err"
+);
 
 /**
  * This class implements AEAD cipher family.
@@ -144,10 +149,14 @@ export default class AEADCipher extends Cipher {
     });
 
     const headPart = decipher.update(encrypted);
-    const finalPart = decipher.final();
-
-    return finalPart.length > 0
-      ? Buffer.concat([headPart, finalPart])
-      : headPart;
+    try {
+      const finalPart = decipher.final();
+      return finalPart.length > 0
+        ? Buffer.concat([headPart, finalPart])
+        : headPart;
+    } catch (error) {
+      err("decrypt failed", error, this);
+      throw error;
+    }
   }
 }

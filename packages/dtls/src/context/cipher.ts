@@ -4,7 +4,6 @@ import * as x509 from "@peculiar/x509";
 import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
 import { addYears } from "date-fns";
-import debug from "debug";
 import { randomBytes } from "tweetnacl";
 
 import {
