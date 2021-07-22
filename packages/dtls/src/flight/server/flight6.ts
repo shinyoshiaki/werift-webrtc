@@ -34,9 +34,9 @@ export class Flight6 extends Flight {
 
     const message = (() => {
       switch (handshake.msg_type) {
-        case HandshakeType.client_key_exchange:
+        case HandshakeType.client_key_exchange_16:
           return ClientKeyExchange.deSerialize(handshake.fragment);
-        case HandshakeType.finished:
+        case HandshakeType.finished_20:
           return Finished.deSerialize(handshake.fragment);
       }
     })();
@@ -95,7 +95,7 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.client_key_exchange] =
+handlers[HandshakeType.client_key_exchange_16] =
   ({ cipher, dtls }) =>
   (message: ClientKeyExchange) => {
     cipher.remoteKeyPair = {
@@ -143,7 +143,7 @@ handlers[HandshakeType.client_key_exchange] =
     );
   };
 
-handlers[HandshakeType.finished] =
+handlers[HandshakeType.finished_20] =
   ({ dtls }) =>
   (message: Finished) => {
     log(dtls.id, "finished", message);

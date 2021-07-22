@@ -7,7 +7,7 @@ import { encodeBuffer } from "../../../util/binary";
 import { HandshakeType } from "../../const";
 
 export class ServerKeyExchange implements Handshake {
-  msgType = HandshakeType.server_key_exchange;
+  msgType = HandshakeType.server_key_exchange_12;
   messageSeq?: number;
 
   static readonly spec = {

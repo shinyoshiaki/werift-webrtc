@@ -28,7 +28,7 @@ export class DtlsServer extends DtlsSocket {
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
-        case HandshakeType.client_hello:
+        case HandshakeType.client_hello_1:
           {
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 
@@ -54,13 +54,13 @@ export class DtlsServer extends DtlsSocket {
             }
           }
           break;
-        case HandshakeType.client_key_exchange:
+        case HandshakeType.client_key_exchange_16:
           {
             this.flight6 = new Flight6(this.transport, this.dtls, this.cipher);
             this.flight6.handleHandshake(handshake);
           }
           break;
-        case HandshakeType.finished:
+        case HandshakeType.finished_20:
           {
             this.flight6.handleHandshake(handshake);
             await this.flight6.exec();

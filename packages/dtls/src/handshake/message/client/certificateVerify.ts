@@ -6,7 +6,7 @@ import { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
 
 export class CertificateVerify implements Handshake {
-  msgType = HandshakeType.certificate_verify;
+  msgType = HandshakeType.certificate_verify_15;
   messageSeq?: number;
 
   static readonly spec = {

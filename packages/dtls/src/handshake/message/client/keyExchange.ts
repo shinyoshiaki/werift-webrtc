@@ -5,7 +5,7 @@ import { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
 
 export class ClientKeyExchange implements Handshake {
-  msgType = HandshakeType.client_key_exchange;
+  msgType = HandshakeType.client_key_exchange_16;
   messageSeq?: number;
 
   static readonly spec = {

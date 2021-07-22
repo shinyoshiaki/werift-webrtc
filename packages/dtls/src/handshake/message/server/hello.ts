@@ -10,7 +10,7 @@ import { DtlsRandom } from "../../random";
 // 7.4.1.3.  Server Hello
 
 export class ServerHello implements Handshake {
-  msgType = HandshakeType.server_hello;
+  msgType = HandshakeType.server_hello_2;
   messageSeq?: number;
   static readonly spec = {
     serverVersion: ProtocolVersion,

@@ -7,7 +7,7 @@ import { HandshakeType } from "../../const";
 // 7.4.5.  Server Hello Done
 
 export class ServerHelloDone implements Handshake {
-  msgType = HandshakeType.server_hello_done;
+  msgType = HandshakeType.server_hello_done_14;
   messageSeq?: number;
   static readonly spec = {};
 

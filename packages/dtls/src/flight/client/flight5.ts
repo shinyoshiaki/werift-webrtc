@@ -49,15 +49,15 @@ export class Flight5 extends Flight {
     this.dtls.bufferHandshakeCache([handshake], false, 4);
     const message = (() => {
       switch (handshake.msg_type) {
-        case HandshakeType.server_hello:
+        case HandshakeType.server_hello_2:
           return ServerHello.deSerialize(handshake.fragment);
-        case HandshakeType.certificate:
+        case HandshakeType.certificate_11:
           return Certificate.deSerialize(handshake.fragment);
-        case HandshakeType.server_key_exchange:
+        case HandshakeType.server_key_exchange_12:
           return ServerKeyExchange.deSerialize(handshake.fragment);
-        case HandshakeType.certificate_request:
+        case HandshakeType.certificate_request_13:
           return ServerCertificateRequest.deSerialize(handshake.fragment);
-        case HandshakeType.server_hello_done:
+        case HandshakeType.server_hello_done_14:
           return ServerHelloDone.deSerialize(handshake.fragment);
       }
     })();
@@ -213,7 +213,7 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.server_hello] =
+handlers[HandshakeType.server_hello_2] =
   ({ cipher, srtp, dtls }) =>
   (message: ServerHello) => {
     log(dtls.id, "serverHello", message.cipherSuite);
@@ -245,14 +245,14 @@ handlers[HandshakeType.server_hello] =
     }
   };
 
-handlers[HandshakeType.certificate] =
+handlers[HandshakeType.certificate_11] =
   ({ cipher, dtls }) =>
   (message: Certificate) => {
     log(dtls.id, "handshake certificate", message);
     cipher.remoteCertificate = message.certificateList[0];
   };
 
-handlers[HandshakeType.server_key_exchange] =
+handlers[HandshakeType.server_key_exchange_12] =
   ({ cipher, dtls }) =>
   (message: ServerKeyExchange) => {
     if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
@@ -266,16 +266,16 @@ handlers[HandshakeType.server_key_exchange] =
     cipher.localKeyPair = generateKeyPair(message.namedCurve);
   };
 
-handlers[HandshakeType.server_hello_done] =
-  ({ dtls }) =>
-  (msg) => {
-    log(dtls.id, "server_hello_done", msg);
-  };
-
-handlers[HandshakeType.certificate_request] =
+handlers[HandshakeType.certificate_request_13] =
   ({ dtls }) =>
   (message: ServerCertificateRequest) => {
     log(dtls.id, "certificate_request", message);
     dtls.requestedCertificateTypes = message.certificateTypes;
     dtls.requestedSignatureAlgorithms = message.signatures;
+  };
+
+handlers[HandshakeType.server_hello_done_14] =
+  ({ dtls }) =>
+  (msg) => {
+    log(dtls.id, "server_hello_done", msg);
   };

@@ -34,15 +34,7 @@ export class DtlsClient extends DtlsSocket {
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
-        case HandshakeType.hello_verify_request:
-          {
-            const verifyReq = ServerHelloVerifyRequest.deSerialize(
-              handshake.fragment
-            );
-            await new Flight3(this.transport, this.dtls).exec(verifyReq);
-          }
-          break;
-        case HandshakeType.server_hello:
+        case HandshakeType.server_hello_2:
           {
             this.flight5 = new Flight5(
               this.transport,
@@ -53,20 +45,28 @@ export class DtlsClient extends DtlsSocket {
             this.flight5.handleHandshake(handshake);
           }
           break;
-        case HandshakeType.certificate:
-        case HandshakeType.server_key_exchange:
-        case HandshakeType.certificate_request:
+        case HandshakeType.hello_verify_request_3:
+          {
+            const verifyReq = ServerHelloVerifyRequest.deSerialize(
+              handshake.fragment
+            );
+            await new Flight3(this.transport, this.dtls).exec(verifyReq);
+          }
+          break;
+        case HandshakeType.certificate_11:
+        case HandshakeType.server_key_exchange_12:
+        case HandshakeType.certificate_request_13:
           {
             this.flight5.handleHandshake(handshake);
           }
           break;
-        case HandshakeType.server_hello_done:
+        case HandshakeType.server_hello_done_14:
           {
             this.flight5.handleHandshake(handshake);
             await this.flight5.exec();
           }
           break;
-        case HandshakeType.finished:
+        case HandshakeType.finished_20:
           {
             this.dtls.flight = 7;
             this.onConnect.execute();

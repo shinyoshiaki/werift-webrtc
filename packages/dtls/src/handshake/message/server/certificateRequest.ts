@@ -13,7 +13,7 @@ import { HandshakeType } from "../../const";
 // 7.4.4.  Certificate Request
 
 export class ServerCertificateRequest implements Handshake {
-  msgType = HandshakeType.certificate_request;
+  msgType = HandshakeType.certificate_request_13;
   messageSeq?: number;
   static readonly spec = {
     certificateTypes: types.array(ClientCertificateType, types.uint8, "bytes"),

@@ -9,7 +9,7 @@ import { DtlsRandom } from "../../random";
 // 7.4.1.2.  Client Hello
 
 export class ClientHello {
-  msgType = HandshakeType.client_hello;
+  msgType = HandshakeType.client_hello_1;
   messageSeq: number = 0;
   static readonly spec = {
     clientVersion: { major: types.uint8, minor: types.uint8 },
