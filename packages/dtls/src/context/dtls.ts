@@ -5,7 +5,6 @@ import { Options } from "../socket";
 import { Handshake } from "../typings/domain";
 
 export class DtlsContext {
-  id = Math.random().toString().slice(2);
   version = { major: 255 - 1, minor: 255 - 2 };
   lastFlight: Handshake[] = [];
   lastMessage: Buffer[] = [];

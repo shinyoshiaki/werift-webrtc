@@ -31,7 +31,7 @@ export const parsePlainText =
 
     switch (contentType) {
       case ContentType.changeCipherSpec: {
-        log(dtls.id, "change cipher spec");
+        log(dtls.cookie, "change cipher spec");
         return {
           type: ContentType.changeCipherSpec,
           data: undefined,
@@ -41,11 +41,11 @@ export const parsePlainText =
         let raw = plain.fragment;
         try {
           if (plain.recordLayerHeader.epoch > 0) {
-            log(dtls.id, "decrypt handshake");
+            log(dtls.cookie, "decrypt handshake");
             raw = cipher.decryptPacket(plain);
           }
         } catch (error) {
-          err(dtls.id, "decrypt failed", error, raw);
+          err(dtls.cookie, "decrypt failed", error, raw);
         }
         try {
           const data = FragmentedHandshake.deSerialize(raw);
@@ -54,7 +54,7 @@ export const parsePlainText =
             data,
           };
         } catch (error) {
-          err(dtls.id, "decSerialize failed", error, raw);
+          err(dtls.cookie, "decSerialize failed", error, raw);
           throw error;
         }
       }
@@ -66,7 +66,13 @@ export const parsePlainText =
       }
       case ContentType.alert: {
         const alert = Alert.deSerialize(plain.fragment);
-        err(dtls.id, "ContentType.alert", alert, dtls.flight, dtls.lastFlight);
+        err(
+          dtls.cookie,
+          "ContentType.alert",
+          alert,
+          dtls.flight,
+          dtls.lastFlight
+        );
         if (alert.level > 1) throw new Error("alert fatal error");
       }
       // eslint-disable-next-line no-fallthrough

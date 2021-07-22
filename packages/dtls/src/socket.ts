@@ -82,7 +82,7 @@ export class DtlsSocket {
                 .sort((a, b) => a.msg_type - b.msg_type);
 
               this.onHandleHandshakes(assembled).catch((error) => {
-                err(this.dtls.id, "onHandleHandshakes error", error);
+                err(this.dtls.cookie, "onHandleHandshakes error", error);
                 this.onError.execute(error);
               });
             }
@@ -97,14 +97,19 @@ export class DtlsSocket {
             break;
         }
       } catch (error) {
-        err(this.dtls.id, "catch udpOnMessage error", error, dumpBuffer(data));
+        err(
+          this.dtls.cookie,
+          "catch udpOnMessage error",
+          error,
+          dumpBuffer(data)
+        );
       }
     }
   };
 
   private setupExtensions() {
     {
-      log(this.dtls.id, "support srtpProfiles", this.options.srtpProfiles);
+      log(this.dtls.cookie, "support srtpProfiles", this.options.srtpProfiles);
       if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
         const useSrtp = UseSRTP.create(
           this.options.srtpProfiles,

@@ -15,7 +15,7 @@ export class DtlsClient extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
-    log(this.dtls.id, "start client");
+    log(this.dtls.cookie, "start client");
   }
 
   async connect() {
@@ -27,13 +27,21 @@ export class DtlsClient extends DtlsSocket {
   private flight5!: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log(
-      this.dtls.id,
+      this.dtls.cookie,
       "handleHandshakes",
       assembled.map((a) => a.msg_type)
     );
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
+        case HandshakeType.hello_verify_request_3:
+          {
+            const verifyReq = ServerHelloVerifyRequest.deSerialize(
+              handshake.fragment
+            );
+            await new Flight3(this.transport, this.dtls).exec(verifyReq);
+          }
+          break;
         case HandshakeType.server_hello_2:
           {
             this.flight5 = new Flight5(
@@ -43,14 +51,6 @@ export class DtlsClient extends DtlsSocket {
               this.srtp
             );
             this.flight5.handleHandshake(handshake);
-          }
-          break;
-        case HandshakeType.hello_verify_request_3:
-          {
-            const verifyReq = ServerHelloVerifyRequest.deSerialize(
-              handshake.fragment
-            );
-            await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
           break;
         case HandshakeType.certificate_11:
@@ -70,7 +70,7 @@ export class DtlsClient extends DtlsSocket {
           {
             this.dtls.flight = 7;
             this.onConnect.execute();
-            log(this.dtls.id, "dtls connected");
+            log(this.dtls.cookie, "dtls connected");
           }
           break;
       }

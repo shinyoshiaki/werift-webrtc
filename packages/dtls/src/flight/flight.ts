@@ -56,12 +56,12 @@ export abstract class Flight {
         this.setState("FINISHED");
         break;
       } else {
-        warn(this.dtls.id, "retransmit", retransmitCount, this.dtls.flight);
+        warn(this.dtls.cookie, "retransmit", retransmitCount, this.dtls.flight);
       }
     }
 
     if (retransmitCount > Flight.RetransmitCount) {
-      err(this.dtls.id, "retransmit failed", retransmitCount);
+      err(this.dtls.cookie, "retransmit failed", retransmitCount);
       throw new Error(
         `over retransmitCount : ${this.flight} ${this.nextFlight}`
       );

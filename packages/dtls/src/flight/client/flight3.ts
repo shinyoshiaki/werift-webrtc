@@ -17,6 +17,7 @@ export class Flight3 extends Flight {
 
     const clientHello = this.dtls.lastFlight[0] as ClientHello;
     clientHello.cookie = verifyReq.cookie;
+    this.dtls.cookie = verifyReq.cookie;
 
     const packets = this.createPacket([clientHello]);
 
