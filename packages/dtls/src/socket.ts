@@ -170,6 +170,7 @@ export class DtlsSocket {
     return handshakes; // return un fragmented handshakes
   }
 
+  /**send application data */
   send = async (buf: Buffer) => {
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],
