@@ -19,6 +19,7 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import { dumpBuffer } from "./helper";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -96,7 +97,7 @@ export class DtlsSocket {
             break;
         }
       } catch (error) {
-        err(this.dtls.id, "catch udpOnMessage error", error, data, this);
+        err(this.dtls.id, "catch udpOnMessage error", error, dumpBuffer(data));
       }
     }
   };
