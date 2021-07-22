@@ -3,6 +3,7 @@ import debug from "debug";
 import { CipherContext } from "../context/cipher";
 import { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
+import { dumpBuffer } from "../helper";
 import { ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
@@ -45,7 +46,16 @@ export const parsePlainText =
             raw = cipher.decryptPacket(plain);
           }
         } catch (error) {
-          err(dtls.session, "decrypt failed", error, raw);
+          err(
+            dtls.session,
+            "decrypt failed",
+            error,
+            dumpBuffer(raw),
+            dtls.sortedHandshakeCache.map((h) => [
+              h.data.msg_type,
+              h.data.message_seq,
+            ])
+          );
           throw error;
         }
         try {
