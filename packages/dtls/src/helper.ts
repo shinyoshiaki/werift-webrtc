@@ -8,7 +8,12 @@ export function divide(from: string, split: string): [string, string] {
 }
 
 export const dumpBuffer = (data: Buffer) =>
-  data.toString("hex").replace(/(.)(.)/g, "$1$2 ");
+  "0x" +
+  data
+    .toString("hex")
+    .replace(/(.)(.)/g, "$1$2 ")
+    .split(" ")
+    .join(",0x");
 
 export const getObjectSummary = (obj: any) =>
   Object.entries({ ...obj }).reduce((acc: {}, [key, value]) => {
