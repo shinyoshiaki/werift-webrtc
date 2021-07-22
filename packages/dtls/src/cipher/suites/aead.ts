@@ -3,7 +3,7 @@ import debug from "debug";
 
 import { dumpBuffer, getObjectSummary } from "../../helper";
 import { prfEncryptionKeys } from "../prf";
-import Cipher, { CipherHeader, SessionType } from "./abstract";
+import Cipher, { CipherHeader, SessionType, SessionTypes } from "./abstract";
 const {
   createDecode,
   encode,
@@ -59,7 +59,7 @@ export default class AEADCipher extends Cipher {
       this.keyLength,
       this.ivLength,
       this.nonceLength,
-      this.hash
+      this.hashAlgorithm
     );
 
     this.clientWriteKey = keys.clientWriteKey;
@@ -71,7 +71,7 @@ export default class AEADCipher extends Cipher {
   /**
    * Encrypt message.
    */
-  encrypt(type: number, data: Buffer, header: CipherHeader) {
+  encrypt(type: SessionTypes, data: Buffer, header: CipherHeader) {
     const isClient = type === SessionType.CLIENT;
     const iv = isClient ? this.clientNonce : this.serverNonce;
     const writeKey = isClient ? this.clientWriteKey : this.serverWriteKey;
@@ -93,7 +93,7 @@ export default class AEADCipher extends Cipher {
     const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
 
     const cipher = crypto.createCipheriv(
-      this.blockAlgorithm as any,
+      this.blockAlgorithm as crypto.CipherCCMTypes,
       writeKey,
       iv,
       {
@@ -107,15 +107,15 @@ export default class AEADCipher extends Cipher {
 
     const headPart = cipher.update(data);
     const finalPart = cipher.final();
-    const authtag = cipher.getAuthTag();
+    const authTag = cipher.getAuthTag();
 
-    return Buffer.concat([explicitNonce, headPart, finalPart, authtag]);
+    return Buffer.concat([explicitNonce, headPart, finalPart, authTag]);
   }
 
   /**
    * Decrypt message.
    */
-  decrypt(type: number, data: Buffer, header: CipherHeader) {
+  decrypt(type: SessionTypes, data: Buffer, header: CipherHeader) {
     const isClient = type === SessionType.CLIENT;
     const iv = isClient ? this.serverNonce : this.clientNonce;
     const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
@@ -140,7 +140,7 @@ export default class AEADCipher extends Cipher {
     const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
 
     const decipher = crypto.createDecipheriv(
-      this.blockAlgorithm as any,
+      this.blockAlgorithm as crypto.CipherCCMTypes,
       writeKey,
       iv,
       {

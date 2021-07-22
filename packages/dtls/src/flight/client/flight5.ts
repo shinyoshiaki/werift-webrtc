@@ -26,6 +26,7 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
+import { dumpBuffer } from "../../helper";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";
@@ -129,7 +130,7 @@ export class Flight5 extends Flight {
     );
 
     const handshakes = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
     );
     this.cipher.masterSecret =
       this.dtls.options.extendedMasterSecret &&
@@ -153,7 +154,7 @@ export class Flight5 extends Flight {
 
   sendCertificateVerify() {
     const cache = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
     );
     const signed = this.cipher.signatureData(cache, "sha256");
     const signatureScheme = (() => {
@@ -190,17 +191,24 @@ export class Flight5 extends Flight {
 
   sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
     );
     const localVerifyData = this.cipher.verifyData(cache);
 
     const finish = new Finished(localVerifyData);
     this.dtls.epoch = 1;
     const [packet] = this.createPacket([finish]);
+    log(this.dtls.session, "raw finish packet", packet.summary);
 
     this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(packet).serialize();
+    log(
+      this.dtls.session,
+      "finished",
+      dumpBuffer(buf),
+      this.cipher.cipher.summary
+    );
     return buf;
   }
 }

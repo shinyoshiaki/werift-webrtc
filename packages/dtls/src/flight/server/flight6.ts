@@ -73,7 +73,7 @@ export class Flight6 extends Flight {
 
   sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
     );
 
     const localVerifyData = this.cipher.verifyData(cache);
@@ -124,7 +124,7 @@ handlers[HandshakeType.client_key_exchange_16] =
     );
 
     const handshakes = Buffer.concat(
-      dtls.handshakeCache.map((v) => v.data.serialize())
+      dtls.sortedHandshakeCache.map((v) => v.data.serialize())
     );
     cipher.masterSecret =
       dtls.options.extendedMasterSecret && dtls.remoteExtendedMasterSecret
