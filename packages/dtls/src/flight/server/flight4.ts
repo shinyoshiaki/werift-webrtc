@@ -100,13 +100,15 @@ export class Flight4 extends Flight {
 
   private sendServerKeyExchange() {
     const signature = this.cipher.generateKeySignature("sha256");
+    if (!this.cipher.signatureHashAlgorithm) throw new Error("not exist");
+
     const keyExchange = new ServerKeyExchange(
       CurveType.named_curve,
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
-      this.cipher.signatureHashAlgorithm!.hash,
-      this.cipher.signatureHashAlgorithm!.signature,
+      this.cipher.signatureHashAlgorithm.hash,
+      this.cipher.signatureHashAlgorithm.signature,
       signature.length,
       signature
     );

@@ -16,7 +16,7 @@ type FlightType = typeof flightTypes[number];
 
 export abstract class Flight {
   state: FlightType = "PREPARING";
-  static RetransmitCount = 10;
+  static RetransmitCount = 4;
 
   constructor(
     private transport: TransportContext,
