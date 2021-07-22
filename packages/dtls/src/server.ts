@@ -57,6 +57,7 @@ export class DtlsServer extends DtlsSocket {
           break;
         case HandshakeType.client_key_exchange_16:
           {
+            if (this.connected) return;
             this.flight6 = new Flight6(this.transport, this.dtls, this.cipher);
             this.flight6.handleHandshake(handshake);
           }
@@ -76,6 +77,7 @@ export class DtlsServer extends DtlsSocket {
               ) {
                 log(this.dtls.session, "ready flight5", i);
                 await this.flight6.exec();
+                this.connected = true;
                 this.onConnect.execute();
                 log(this.dtls.session, "dtls connected");
                 break;

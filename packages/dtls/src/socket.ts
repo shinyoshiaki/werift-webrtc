@@ -47,6 +47,7 @@ export class DtlsSocket {
   readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
   readonly srtp: SrtpContext = new SrtpContext();
 
+  connected = false;
   extensions: Extension[] = [];
   onHandleHandshakes!: (assembled: FragmentedHandshake[]) => Promise<void>;
 

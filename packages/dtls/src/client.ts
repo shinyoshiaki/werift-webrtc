@@ -90,6 +90,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.finished_20:
           {
             this.dtls.flight = 7;
+            this.connected = true;
             this.onConnect.execute();
             log(this.dtls.session, "dtls connected");
           }
