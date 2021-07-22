@@ -71,7 +71,7 @@ export class DtlsServer extends DtlsSocket {
                 ![16].find(
                   (type) =>
                     this.dtls.sortedHandshakeCache.find(
-                      (h) => h.data.msg_type === type
+                      (h) => h.msg_type === type
                     ) == undefined
                 )
               ) {
@@ -85,7 +85,7 @@ export class DtlsServer extends DtlsSocket {
                 log(
                   this.dtls.session,
                   "not arrived",
-                  this.dtls.sortedHandshakeCache.map((h) => h.data.summary)
+                  this.dtls.sortedHandshakeCache.map((h) => h.summary)
                 );
                 await setTimeout(100 * i);
               }

@@ -2,6 +2,7 @@ import { debug } from "debug";
 
 import { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import { SessionTypes } from "../cipher/suites/abstract";
+import { HandshakeType } from "../handshake/const";
 import { FragmentedHandshake } from "../record/message/fragment";
 import { Options } from "../socket";
 import { Handshake } from "../typings/domain";
@@ -17,10 +18,12 @@ export class DtlsContext {
   epoch = 0;
   flight = 0;
   handshakeCache: {
-    isLocal: boolean;
-    data: FragmentedHandshake;
-    flight: number;
-  }[] = [];
+    [flight: number]: {
+      isLocal: boolean;
+      data: FragmentedHandshake[];
+      flight: number;
+    };
+  } = {};
   cookie?: Buffer;
   requestedCertificateTypes: number[] = [];
   requestedSignatureAlgorithms: {
@@ -36,26 +39,10 @@ export class DtlsContext {
   }
 
   get sortedHandshakeCache() {
-    // const order = [
-    //   HandshakeType.client_hello_1,
-    //   HandshakeType.server_hello_2,
-    //   HandshakeType.certificate_11,
-    //   HandshakeType.server_key_exchange_12,
-    //   HandshakeType.certificate_request_13,
-    //   HandshakeType.server_hello_done_14,
-    //   HandshakeType.certificate_request_13,
-    //   HandshakeType.client_key_exchange_16,
-    //   HandshakeType.certificate_verify_15,
-    //   HandshakeType.finished_20,
-    // ];
-    // for (const task of order) {
-    // }
-
-    // todo fix
-    const sorted = this.handshakeCache.sort(
-      (a, b) => a.data.msg_type - b.data.msg_type
-    );
-    return sorted;
+    return Object.entries(this.handshakeCache)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([, { data }]) => data.sort((a, b) => a.message_seq - b.message_seq))
+      .flatMap((v) => v);
   }
 
   bufferHandshakeCache(
@@ -63,24 +50,20 @@ export class DtlsContext {
     isLocal: boolean,
     flight: number
   ) {
-    const exist = this.handshakeCache.find(
-      (h) =>
-        handshakes.find((t) => h.data.msg_type === t.msg_type) &&
-        h.isLocal === isLocal &&
-        h.flight === flight
+    if (!this.handshakeCache[flight]) {
+      this.handshakeCache[flight] = { data: [], isLocal, flight };
+    }
+    const exist = this.handshakeCache[flight].data.find((t) =>
+      handshakes.find((e) => e.msg_type === t.msg_type)
     );
     if (exist) {
-      log(this.session, "exist handshake", exist.data.summary, isLocal, flight);
+      log(this.session, "exist handshake", exist.summary, isLocal, flight);
       return;
     }
 
-    this.handshakeCache = [
-      ...this.handshakeCache,
-      ...handshakes.map((data) => ({
-        isLocal,
-        data,
-        flight,
-      })),
+    this.handshakeCache[flight].data = [
+      ...this.handshakeCache[flight].data,
+      ...handshakes,
     ];
   }
 }

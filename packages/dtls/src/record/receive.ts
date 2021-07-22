@@ -51,7 +51,7 @@ export const parsePlainText =
             "decrypt failed",
             error,
             dumpBuffer(raw),
-            dtls.sortedHandshakeCache.map((h) => h.data.summary)
+            dtls.sortedHandshakeCache.map((h) => h.summary)
           );
           throw error;
         }

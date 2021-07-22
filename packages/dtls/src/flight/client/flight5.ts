@@ -130,7 +130,7 @@ export class Flight5 extends Flight {
     );
 
     const handshakes = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     this.cipher.masterSecret =
       this.dtls.options.extendedMasterSecret &&
@@ -155,7 +155,7 @@ export class Flight5 extends Flight {
 
   sendCertificateVerify() {
     const cache = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     const signed = this.cipher.signatureData(cache, "sha256");
     const signatureScheme = (() => {
@@ -192,7 +192,7 @@ export class Flight5 extends Flight {
 
   sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     const localVerifyData = this.cipher.verifyData(cache);
 
@@ -203,7 +203,7 @@ export class Flight5 extends Flight {
       this.dtls.session,
       "raw finish packet",
       packet.summary,
-      this.dtls.sortedHandshakeCache.map((h) => h.data.summary)
+      this.dtls.sortedHandshakeCache.map((h) => h.summary)
     );
 
     this.dtls.recordSequenceNumber = 0;
