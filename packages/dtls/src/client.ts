@@ -63,8 +63,8 @@ export class DtlsClient extends DtlsSocket {
           break;
         case HandshakeType.server_hello_done_14:
           {
+            this.flight5.handleHandshake(handshake);
             for (let i = 0; i < 10; i++) {
-              this.flight5.handleHandshake(handshake);
               if (
                 ![11, 12].find(
                   (type) =>

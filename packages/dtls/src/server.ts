@@ -1,4 +1,5 @@
 import debug from "debug";
+import { setTimeout } from "timers/promises";
 
 import { SessionType } from "./cipher/suites/abstract";
 import { flight2 } from "./flight/server/flight2";
@@ -63,10 +64,30 @@ export class DtlsServer extends DtlsSocket {
         case HandshakeType.finished_20:
           {
             this.flight6.handleHandshake(handshake);
-            await this.flight6.exec();
 
-            this.onConnect.execute();
-            log(this.dtls.session, "dtls connected");
+            for (let i = 0; i < 10; i++) {
+              if (
+                ![16].find(
+                  (type) =>
+                    this.dtls.sortedHandshakeCache.find(
+                      (h) => h.data.msg_type === type
+                    ) == undefined
+                )
+              ) {
+                log(this.dtls.session, "ready flight5", i);
+                await this.flight6.exec();
+                this.onConnect.execute();
+                log(this.dtls.session, "dtls connected");
+                break;
+              } else {
+                log(
+                  this.dtls.session,
+                  "not arrived",
+                  this.dtls.sortedHandshakeCache.map((h) => h.data.summary)
+                );
+                await setTimeout(100 * i);
+              }
+            }
           }
           break;
       }
