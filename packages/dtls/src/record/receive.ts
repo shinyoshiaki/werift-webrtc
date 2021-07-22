@@ -45,12 +45,18 @@ export const parsePlainText =
             raw = cipher.decryptPacket(plain);
           }
         } catch (error) {
-          err("decrypt failed", error, raw);
+          err(dtls.id, "decrypt failed", error, raw);
         }
-        return {
-          type: ContentType.handshake,
-          data: FragmentedHandshake.deSerialize(raw),
-        };
+        try {
+          const data = FragmentedHandshake.deSerialize(raw);
+          return {
+            type: ContentType.handshake,
+            data,
+          };
+        } catch (error) {
+          err(dtls.id, "decSerialize failed", error, raw);
+          throw error;
+        }
       }
       case ContentType.applicationData: {
         return {

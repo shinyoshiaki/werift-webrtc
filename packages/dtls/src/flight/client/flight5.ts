@@ -79,11 +79,13 @@ export class Flight5 extends Flight {
     }
     this.dtls.flight = 5;
 
+    const needCertificate = this.dtls.requestedCertificateTypes.length > 0;
+    log(this.dtls.id, "send flight5", needCertificate);
+
     const messages = [
-      this.dtls.requestedCertificateTypes.length > 0 && this.sendCertificate(),
+      needCertificate && this.sendCertificate(),
       this.sendClientKeyExchange(),
-      this.dtls.requestedCertificateTypes.length > 0 &&
-        this.sendCertificateVerify(),
+      needCertificate && this.sendCertificateVerify(),
       this.sendChangeCipherSpec(),
       this.sendFinished(),
     ].filter((v) => v) as Buffer[];

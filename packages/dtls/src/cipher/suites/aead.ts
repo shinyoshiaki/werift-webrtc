@@ -56,7 +56,7 @@ export default class AEADCipher extends Cipher {
       this.nonceLength,
       this.hash
     );
-    keys;
+
     this.clientWriteKey = keys.clientWriteKey;
     this.serverWriteKey = keys.serverWriteKey;
     this.clientNonce = keys.clientNonce;
@@ -155,7 +155,7 @@ export default class AEADCipher extends Cipher {
         ? Buffer.concat([headPart, finalPart])
         : headPart;
     } catch (error) {
-      err("decrypt failed", error, this);
+      err("decrypt failed", error, data, this);
       throw error;
     }
   }

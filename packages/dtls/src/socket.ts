@@ -96,7 +96,7 @@ export class DtlsSocket {
             break;
         }
       } catch (error) {
-        err(this.dtls.id, "catch udpOnMessage error", error);
+        err(this.dtls.id, "catch udpOnMessage error", error, data, this);
       }
     }
   };
