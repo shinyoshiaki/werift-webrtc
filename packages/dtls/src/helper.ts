@@ -13,7 +13,7 @@ export const dumpBuffer = (data: Buffer) =>
     .toString("hex")
     .replace(/(.)(.)/g, "$1$2 ")
     .split(" ")
-    .filter((s) => s != undefined)
+    .filter((s) => s != undefined && s.length > 0)
     .join(",0x");
 
 export const getObjectSummary = (obj: any) =>

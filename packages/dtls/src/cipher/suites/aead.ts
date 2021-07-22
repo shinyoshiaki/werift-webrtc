@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import debug from "debug";
 
-import { getObjectSummary } from "../../helper";
+import { dumpBuffer, getObjectSummary } from "../../helper";
 import { prfEncryptionKeys } from "../prf";
 import Cipher, { CipherHeader, SessionType } from "./abstract";
 const {
@@ -160,7 +160,14 @@ export default class AEADCipher extends Cipher {
         ? Buffer.concat([headPart, finalPart])
         : headPart;
     } catch (error) {
-      err("decrypt failed", error, type, data, header, this.summary);
+      err(
+        "decrypt failed",
+        error,
+        type,
+        dumpBuffer(data),
+        header,
+        this.summary
+      );
       throw error;
     }
   }
