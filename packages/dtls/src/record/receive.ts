@@ -39,9 +39,17 @@ export const parsePlainText =
       }
       case ContentType.handshake: {
         let raw = plain.fragment;
-        if (plain.recordLayerHeader.epoch > 0) {
-          log(dtls.id, "decrypt handshake");
-          raw = cipher.decryptPacket(plain);
+        try {
+          if (plain.recordLayerHeader.epoch > 0) {
+            log(dtls.id, "decrypt handshake");
+            raw = cipher.decryptPacket(plain);
+          }
+        } catch (error) {
+          err(
+            "decrypt failed",
+            error,
+            FragmentedHandshake.deSerialize(raw).summary
+          );
         }
         return {
           type: ContentType.handshake,

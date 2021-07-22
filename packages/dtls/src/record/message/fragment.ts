@@ -22,6 +22,18 @@ export class FragmentedHandshake {
     public fragment: Buffer
   ) {}
 
+  get summary() {
+    const formatted = Object.entries({ ...this }).reduce(
+      (acc: {}, [key, value]) => {
+        if (typeof value === "number" || typeof value === "string")
+          acc[key] = value;
+        return acc;
+      },
+      {}
+    );
+    return formatted;
+  }
+
   static createEmpty() {
     return new FragmentedHandshake(
       undefined as any,
