@@ -7,7 +7,6 @@ on:
       - develop
       - "feature/*"
       - "maintain/*"
-      - "debug/*"
   pull_request:
     branches: [develop]
 

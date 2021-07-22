@@ -10,7 +10,7 @@ export class ClientWorker {
     pc.connectionStateChange
       .watch((s) => s === "connected")
       .then(() => console.log("connected"));
-    const ws = new WebSocket("ws://127.0.0.1:8888");
+    const ws = new WebSocket("ws://34.136.71.190:8888");
 
     ws.onmessage = async (ev) => {
       const sdp = JSON.parse(ev.data as string);

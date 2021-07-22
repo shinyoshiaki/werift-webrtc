@@ -2,7 +2,7 @@ import { Worker } from "worker_threads";
 import { ClientWorker } from "./client.worker";
 import { workerThreadsWrapper, wrap } from "airpc";
 
-const NUM = 200;
+const NUM = 10;
 
 const main = async () => {
   console.log(process.env.NODE_ENV);
