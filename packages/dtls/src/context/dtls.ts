@@ -27,6 +27,10 @@ export class DtlsContext {
 
   constructor(public options: Options, public sessionType: SessionTypes) {}
 
+  get session() {
+    return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";
+  }
+
   bufferHandshakeCache(
     handshakes: FragmentedHandshake[],
     isLocal: boolean,

@@ -42,12 +42,12 @@ export const flight2 =
         case EllipticCurves.type:
           {
             const curves = EllipticCurves.fromData(extension.data).data;
-            log(dtls.cookie, "curves", curves);
+            log(dtls.session, "curves", curves);
             const curve = curves.find((curve) =>
               Object.values(NamedCurveAlgorithm).includes(curve as any)
             ) as NamedCurveAlgorithms;
             cipher.namedCurve = curve;
-            log(dtls.cookie, "curve selected", cipher.namedCurve);
+            log(dtls.session, "curve selected", cipher.namedCurve);
           }
           break;
         case Signature.type:
@@ -56,7 +56,7 @@ export const flight2 =
               throw new Error("need to set certificate");
 
             const signatureHash = Signature.fromData(extension.data).data;
-            log(dtls.cookie, "hash,signature", signatureHash);
+            log(dtls.session, "hash,signature", signatureHash);
             const signature = signatureHash.find(
               (v) => v.signature === cipher.signatureHashAlgorithm?.signature
             )?.signature;
@@ -73,7 +73,7 @@ export const flight2 =
             if (dtls.options.srtpProfiles.length === 0) return;
 
             const useSrtp = UseSRTP.fromData(extension.data);
-            log(dtls.cookie, "srtp profiles", useSrtp.profiles);
+            log(dtls.session, "srtp profiles", useSrtp.profiles);
             const profile = SrtpContext.findMatchingSRTPProfile(
               useSrtp.profiles,
               dtls.options?.srtpProfiles
@@ -82,7 +82,7 @@ export const flight2 =
               throw new Error();
             }
             srtp.srtpProfile = profile;
-            log(dtls.cookie, "srtp profile selected", srtp.srtpProfile);
+            log(dtls.session, "srtp profile selected", srtp.srtpProfile);
           }
           break;
         case ExtendedMasterSecret.type:
@@ -92,7 +92,7 @@ export const flight2 =
           break;
         case RenegotiationIndication.type:
           {
-            log(dtls.cookie, "RenegotiationIndication", extension.data);
+            log(dtls.session, "RenegotiationIndication", extension.data);
           }
           break;
       }
@@ -102,7 +102,7 @@ export const flight2 =
     cipher.remoteRandom = DtlsRandom.from(clientHello.random);
 
     const suites = clientHello.cipherSuites;
-    log(dtls.cookie, "cipher suites", suites);
+    log(dtls.session, "cipher suites", suites);
     const suite = (() => {
       switch (cipher.signatureHashAlgorithm?.signature) {
         case SignatureAlgorithm.ecdsa:
@@ -115,7 +115,7 @@ export const flight2 =
       throw new Error("dtls cipher suite negotiation failed");
     }
     cipher.cipherSuite = suite;
-    log(dtls.cookie, "selected cipherSuite", cipher.cipherSuite);
+    log(dtls.session, "selected cipherSuite", cipher.cipherSuite);
 
     cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
 

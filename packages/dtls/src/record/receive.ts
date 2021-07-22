@@ -31,7 +31,7 @@ export const parsePlainText =
 
     switch (contentType) {
       case ContentType.changeCipherSpec: {
-        log(dtls.cookie, "change cipher spec");
+        log(dtls.session, "change cipher spec");
         return {
           type: ContentType.changeCipherSpec,
           data: undefined,
@@ -41,11 +41,11 @@ export const parsePlainText =
         let raw = plain.fragment;
         try {
           if (plain.recordLayerHeader.epoch > 0) {
-            log(dtls.cookie, "decrypt handshake");
+            log(dtls.session, "decrypt handshake");
             raw = cipher.decryptPacket(plain);
           }
         } catch (error) {
-          err(dtls.cookie, "decrypt failed", error, raw);
+          err(dtls.session, "decrypt failed", error, raw);
         }
         try {
           const data = FragmentedHandshake.deSerialize(raw);
@@ -54,7 +54,7 @@ export const parsePlainText =
             data,
           };
         } catch (error) {
-          err(dtls.cookie, "decSerialize failed", error, raw);
+          err(dtls.session, "decSerialize failed", error, raw);
           throw error;
         }
       }
@@ -67,7 +67,7 @@ export const parsePlainText =
       case ContentType.alert: {
         const alert = Alert.deSerialize(plain.fragment);
         err(
-          dtls.cookie,
+          dtls.session,
           "ContentType.alert",
           alert,
           dtls.flight,

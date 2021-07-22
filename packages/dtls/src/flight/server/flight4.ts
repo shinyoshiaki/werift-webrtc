@@ -41,7 +41,7 @@ export class Flight4 extends Flight {
     certificateRequest: boolean = false
   ) {
     if (this.dtls.flight === 4) {
-      warn(this.dtls.cookie, "flight4 twice");
+      warn(this.dtls.session, "flight4 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
@@ -130,7 +130,7 @@ export class Flight4 extends Flight {
       ],
       []
     );
-    log(this.dtls.cookie, "sendCertificateRequest", handshake);
+    log(this.dtls.session, "sendCertificateRequest", handshake);
     const packets = this.createPacket([handshake]);
     return Buffer.concat(packets.map((v) => v.serialize()));
   }
