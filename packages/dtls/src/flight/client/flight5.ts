@@ -148,6 +148,7 @@ export class Flight5 extends Flight {
       this.cipher.remoteRandom!.serialize(),
       this.cipher.localRandom!.serialize()
     );
+    log(this.dtls.session, "cipher", this.cipher.cipher.summary);
 
     return buf;
   }

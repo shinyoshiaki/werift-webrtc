@@ -141,6 +141,7 @@ handlers[HandshakeType.client_key_exchange_16] =
       cipher.localRandom.serialize(),
       cipher.remoteRandom.serialize()
     );
+    log(dtls.session, "cipher", cipher.cipher.summary);
   };
 
 handlers[HandshakeType.finished_20] =
