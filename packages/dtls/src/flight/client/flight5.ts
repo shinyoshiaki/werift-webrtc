@@ -202,10 +202,7 @@ export class Flight5 extends Flight {
       this.dtls.session,
       "raw finish packet",
       packet.summary,
-      this.dtls.sortedHandshakeCache.map((h) => [
-        h.data.msg_type,
-        h.data.message_seq,
-      ])
+      this.dtls.sortedHandshakeCache.map((h) => h.data.summary)
     );
 
     this.dtls.recordSequenceNumber = 0;
