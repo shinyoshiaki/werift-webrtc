@@ -198,7 +198,15 @@ export class Flight5 extends Flight {
     const finish = new Finished(localVerifyData);
     this.dtls.epoch = 1;
     const [packet] = this.createPacket([finish]);
-    log(this.dtls.session, "raw finish packet", packet.summary);
+    log(
+      this.dtls.session,
+      "raw finish packet",
+      packet.summary,
+      this.dtls.sortedHandshakeCache.map((h) => [
+        h.data.msg_type,
+        h.data.message_seq,
+      ])
+    );
 
     this.dtls.recordSequenceNumber = 0;
 

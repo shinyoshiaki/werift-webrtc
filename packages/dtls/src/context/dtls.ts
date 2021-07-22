@@ -1,8 +1,12 @@
+import { debug } from "debug";
+
 import { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import { SessionTypes } from "../cipher/suites/abstract";
 import { FragmentedHandshake } from "../record/message/fragment";
 import { Options } from "../socket";
 import { Handshake } from "../typings/domain";
+
+const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
 export class DtlsContext {
   version = { major: 255 - 1, minor: 255 - 2 };
@@ -55,6 +59,17 @@ export class DtlsContext {
     isLocal: boolean,
     flight: number
   ) {
+    const exist = this.handshakeCache.find(
+      (h) =>
+        handshakes.find((t) => h.data.msg_type === t.msg_type) &&
+        h.isLocal === isLocal &&
+        h.flight === flight
+    );
+    if (exist) {
+      log("exist handshake", exist.data.summary, isLocal, flight);
+      return;
+    }
+
     this.handshakeCache = [
       ...this.handshakeCache,
       ...handshakes.map((data) => ({
