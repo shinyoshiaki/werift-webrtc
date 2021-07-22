@@ -45,11 +45,7 @@ export const parsePlainText =
             raw = cipher.decryptPacket(plain);
           }
         } catch (error) {
-          err(
-            "decrypt failed",
-            error,
-            FragmentedHandshake.deSerialize(raw).summary
-          );
+          err("decrypt failed", error, raw);
         }
         return {
           type: ContentType.handshake,
