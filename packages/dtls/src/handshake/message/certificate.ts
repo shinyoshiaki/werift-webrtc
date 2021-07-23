@@ -9,7 +9,7 @@ import { HandshakeType } from "../const";
 // 7.4.6.  Client Certificate
 
 export class Certificate implements Handshake {
-  msgType = HandshakeType.certificate;
+  msgType = HandshakeType.certificate_11;
   messageSeq?: number;
   static readonly spec = {
     certificateList: types.array(ASN11Cert, types.uint24be, "bytes"),

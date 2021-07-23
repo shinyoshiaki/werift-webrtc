@@ -1,6 +1,7 @@
 import { decode, types } from "binary-data";
 import debug from "debug";
 import { Event } from "rx.mini";
+import { setTimeout } from "timers/promises";
 
 import {
   HashAlgorithm,
@@ -19,6 +20,7 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import { dumpBuffer } from "./helper";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -26,7 +28,8 @@ import { parsePacket, parsePlainText } from "./record/receive";
 import { Transport } from "./transport";
 import { Extension } from "./typings/domain";
 
-const log = debug("werift-dtls:packages/dtls/src/socket.ts");
+const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
+const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
 
 export class DtlsSocket {
   readonly onConnect = new Event();
@@ -45,6 +48,7 @@ export class DtlsSocket {
   readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
   readonly srtp: SrtpContext = new SrtpContext();
 
+  connected = false;
   extensions: Extension[] = [];
   onHandleHandshakes!: (assembled: FragmentedHandshake[]) => Promise<void>;
 
@@ -80,7 +84,7 @@ export class DtlsSocket {
                 .sort((a, b) => a.msg_type - b.msg_type);
 
               this.onHandleHandshakes(assembled).catch((error) => {
-                log("onHandleHandshakes error", error);
+                err(this.dtls.sessionId, "onHandleHandshakes error", error);
                 this.onError.execute(error);
               });
             }
@@ -95,14 +99,23 @@ export class DtlsSocket {
             break;
         }
       } catch (error) {
-        log("error", error);
+        err(
+          this.dtls.sessionId,
+          "catch udpOnMessage error",
+          error,
+          dumpBuffer(data)
+        );
       }
     }
   };
 
   private setupExtensions() {
     {
-      log("support srtpProfiles", this.options.srtpProfiles);
+      log(
+        this.dtls.sessionId,
+        "support srtpProfiles",
+        this.options.srtpProfiles
+      );
       if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
         const useSrtp = UseSRTP.create(
           this.options.srtpProfiles,
@@ -143,6 +156,21 @@ export class DtlsSocket {
     }
   }
 
+  protected waitForReady = (condition: () => boolean) =>
+    new Promise<void>(async (r, f) => {
+      {
+        for (let i = 0; i < 10; i++) {
+          if (condition()) {
+            r();
+            break;
+          } else {
+            await setTimeout(100 * i);
+          }
+        }
+        f("waitForReady timeout");
+      }
+    });
+
   handleFragmentHandshake(messages: FragmentedHandshake[]) {
     let handshakes = messages.filter((v) => {
       // find fragmented
@@ -154,7 +182,7 @@ export class DtlsSocket {
     });
 
     if (this.bufferFragmentedHandshakes.length > 1) {
-      const last = this.bufferFragmentedHandshakes.slice(-1)[0];
+      const [last] = this.bufferFragmentedHandshakes.slice(-1);
       if (last.fragment_offset + last.fragment_length === last.length) {
         handshakes = [...this.bufferFragmentedHandshakes, ...handshakes];
         this.bufferFragmentedHandshakes = [];
@@ -163,6 +191,7 @@ export class DtlsSocket {
     return handshakes; // return un fragmented handshakes
   }
 
+  /**send application data */
   send = async (buf: Buffer) => {
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],

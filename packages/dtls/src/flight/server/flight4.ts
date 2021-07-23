@@ -21,7 +21,7 @@ import { FragmentedHandshake } from "../../record/message/fragment";
 import { Extension } from "../../typings/domain";
 import { Flight } from "../flight";
 
-const log = debug("werift-dtls:packages/dtls/flight/server/flight4.ts");
+const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
 
 export class Flight4 extends Flight {
   constructor(
@@ -34,17 +34,17 @@ export class Flight4 extends Flight {
   }
 
   async exec(
-    assemble: FragmentedHandshake,
+    clientHello: FragmentedHandshake,
     certificateRequest: boolean = false
   ) {
     if (this.dtls.flight === 4) {
-      log("flight4 twice");
+      log(this.dtls.sessionId, "flight4 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
     this.dtls.flight = 4;
     this.dtls.sequenceNumber = 1;
-    this.dtls.bufferHandshakeCache([assemble], false, 4);
+    this.dtls.bufferHandshakeCache([clientHello], false, 4);
 
     const messages = [
       this.sendServerHello(),
@@ -97,13 +97,15 @@ export class Flight4 extends Flight {
 
   private sendServerKeyExchange() {
     const signature = this.cipher.generateKeySignature("sha256");
+    if (!this.cipher.signatureHashAlgorithm) throw new Error("not exist");
+
     const keyExchange = new ServerKeyExchange(
       CurveType.named_curve,
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
-      this.cipher.signatureHashAlgorithm!.hash,
-      this.cipher.signatureHashAlgorithm!.signature,
+      this.cipher.signatureHashAlgorithm.hash,
+      this.cipher.signatureHashAlgorithm.signature,
       signature.length,
       signature
     );
@@ -125,7 +127,7 @@ export class Flight4 extends Flight {
       ],
       []
     );
-    log("sendCertificateRequest", handshake);
+    log(this.dtls.sessionId, "sendCertificateRequest", handshake);
     const packets = this.createPacket([handshake]);
     return Buffer.concat(packets.map((v) => v.serialize()));
   }

@@ -163,7 +163,7 @@ export function createCipher(cipher: number) {
  * @param {string} hash
  * @returns {AEADCipher}
  */
-function createAEADCipher(
+export function createAEADCipher(
   id: number,
   name: string,
   block: string,
@@ -177,7 +177,7 @@ function createAEADCipher(
   cipher.name = name;
   cipher.blockAlgorithm = block;
   cipher.kx = kx;
-  cipher.hash = hash;
+  cipher.hashAlgorithm = hash;
 
   cipher.keyLength = constants.K_LEN;
   cipher.nonceLength = constants.N_MAX;

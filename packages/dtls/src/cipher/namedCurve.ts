@@ -3,11 +3,11 @@ import * as nacl from "tweetnacl";
 
 import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
 
-export type NamedCurveKeyPair = {
+export interface NamedCurveKeyPair {
   curve: NamedCurveAlgorithms;
   publicKey: Buffer;
   privateKey: Buffer;
-};
+}
 
 export function generateKeyPair(
   namedCurve: NamedCurveAlgorithms

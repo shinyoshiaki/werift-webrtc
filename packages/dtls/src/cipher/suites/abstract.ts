@@ -16,7 +16,7 @@ export type SessionTypes = typeof SessionType[keyof typeof SessionType];
 export default abstract class AbstractCipher {
   id = 0;
   name?: string;
-  hash?: string;
+  hashAlgorithm?: string;
   verifyDataLength = 12;
 
   blockAlgorithm?: string;

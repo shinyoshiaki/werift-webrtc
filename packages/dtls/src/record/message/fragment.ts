@@ -2,6 +2,7 @@
 import { decode, encode, types } from "binary-data";
 
 import { HandshakeType } from "../../handshake/const";
+import { getObjectSummary } from "../../helper";
 
 export class FragmentedHandshake {
   static readonly spec = {
@@ -21,6 +22,10 @@ export class FragmentedHandshake {
     public fragment_length: number,
     public fragment: Buffer
   ) {}
+
+  get summary() {
+    return getObjectSummary(this);
+  }
 
   static createEmpty() {
     return new FragmentedHandshake(

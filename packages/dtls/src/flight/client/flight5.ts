@@ -26,12 +26,15 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
+import { dumpBuffer } from "../../helper";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { Flight } from "../flight";
 
-const log = debug("werift-dtls:packages/dtls/src/flight/client/flight5.ts");
+const log = debug(
+  "werift-dtls : packages/dtls/src/flight/client/flight5.ts : log"
+);
 
 export class Flight5 extends Flight {
   constructor(
@@ -47,15 +50,15 @@ export class Flight5 extends Flight {
     this.dtls.bufferHandshakeCache([handshake], false, 4);
     const message = (() => {
       switch (handshake.msg_type) {
-        case HandshakeType.server_hello:
+        case HandshakeType.server_hello_2:
           return ServerHello.deSerialize(handshake.fragment);
-        case HandshakeType.certificate:
+        case HandshakeType.certificate_11:
           return Certificate.deSerialize(handshake.fragment);
-        case HandshakeType.server_key_exchange:
+        case HandshakeType.server_key_exchange_12:
           return ServerKeyExchange.deSerialize(handshake.fragment);
-        case HandshakeType.certificate_request:
+        case HandshakeType.certificate_request_13:
           return ServerCertificateRequest.deSerialize(handshake.fragment);
-        case HandshakeType.server_hello_done:
+        case HandshakeType.server_hello_done_14:
           return ServerHelloDone.deSerialize(handshake.fragment);
       }
     })();
@@ -71,17 +74,19 @@ export class Flight5 extends Flight {
 
   async exec() {
     if (this.dtls.flight === 5) {
-      log("flight5 twice");
+      log(this.dtls.sessionId, "flight5 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
     this.dtls.flight = 5;
 
+    const needCertificate = this.dtls.requestedCertificateTypes.length > 0;
+    log(this.dtls.sessionId, "send flight5", needCertificate);
+
     const messages = [
-      this.dtls.requestedCertificateTypes.length > 0 && this.sendCertificate(),
+      needCertificate && this.sendCertificate(),
       this.sendClientKeyExchange(),
-      this.dtls.requestedCertificateTypes.length > 0 &&
-        this.sendCertificateVerify(),
+      needCertificate && this.sendCertificateVerify(),
       this.sendChangeCipherSpec(),
       this.sendFinished(),
     ].filter((v) => v) as Buffer[];
@@ -108,23 +113,26 @@ export class Flight5 extends Flight {
     const packets = this.createPacket([clientKeyExchange]);
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
 
-    const localKeyPair = this.cipher.localKeyPair!;
-    const remoteKeyPair = this.cipher.remoteKeyPair!;
+    const localKeyPair = this.cipher.localKeyPair;
+    const remoteKeyPair = this.cipher.remoteKeyPair;
+
+    if (!remoteKeyPair.publicKey) throw new Error("not exist");
 
     const preMasterSecret = prfPreMasterSecret(
-      remoteKeyPair.publicKey!,
+      remoteKeyPair.publicKey,
       localKeyPair.privateKey,
       localKeyPair.curve
     );
 
     log(
+      this.dtls.sessionId,
       "extendedMasterSecret",
       this.dtls.options.extendedMasterSecret,
       this.dtls.remoteExtendedMasterSecret
     );
 
     const handshakes = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     this.cipher.masterSecret =
       this.dtls.options.extendedMasterSecret &&
@@ -132,23 +140,24 @@ export class Flight5 extends Flight {
         ? prfExtendedMasterSecret(preMasterSecret, handshakes)
         : prfMasterSecret(
             preMasterSecret,
-            this.cipher.localRandom!.serialize(),
-            this.cipher.remoteRandom!.serialize()
+            this.cipher.localRandom.serialize(),
+            this.cipher.remoteRandom.serialize()
           );
 
-    this.cipher.cipher = createCipher(this.cipher.cipherSuite!);
+    this.cipher.cipher = createCipher(this.cipher.cipherSuite);
     this.cipher.cipher.init(
       this.cipher.masterSecret,
-      this.cipher.remoteRandom!.serialize(),
-      this.cipher.localRandom!.serialize()
+      this.cipher.remoteRandom.serialize(),
+      this.cipher.localRandom.serialize()
     );
+    log(this.dtls.sessionId, "cipher", this.cipher.cipher.summary);
 
     return buf;
   }
 
   sendCertificateVerify() {
     const cache = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     const signed = this.cipher.signatureData(cache, "sha256");
     const signatureScheme = (() => {
@@ -161,6 +170,7 @@ export class Flight5 extends Flight {
     })();
     if (!signatureScheme) throw new Error();
     log(
+      this.dtls.sessionId,
       "signatureScheme",
       this.cipher.signatureHashAlgorithm?.signature,
       signatureScheme
@@ -184,17 +194,29 @@ export class Flight5 extends Flight {
 
   sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     const localVerifyData = this.cipher.verifyData(cache);
 
     const finish = new Finished(localVerifyData);
     this.dtls.epoch = 1;
     const [packet] = this.createPacket([finish]);
+    log(
+      this.dtls.sessionId,
+      "raw finish packet",
+      packet.summary,
+      this.dtls.sortedHandshakeCache.map((h) => h.summary)
+    );
 
     this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(packet).serialize();
+    log(
+      this.dtls.sessionId,
+      "finished",
+      dumpBuffer(buf),
+      this.cipher.cipher.summary
+    );
     return buf;
   }
 }
@@ -207,13 +229,13 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.server_hello] =
+handlers[HandshakeType.server_hello_2] =
   ({ cipher, srtp, dtls }) =>
   (message: ServerHello) => {
-    log("serverHello", message);
+    log(dtls.sessionId, "serverHello", message.cipherSuite);
     cipher.remoteRandom = DtlsRandom.from(message.random);
     cipher.cipherSuite = message.cipherSuite;
-    log("selected cipherSuite", cipher.cipherSuite);
+    log(dtls.sessionId, "selected cipherSuite", cipher.cipherSuite);
 
     if (message.extensions) {
       message.extensions.forEach((extension) => {
@@ -224,7 +246,7 @@ handlers[HandshakeType.server_hello] =
               useSrtp.profiles,
               dtls.options.srtpProfiles || []
             );
-            log("selected srtp profile", profile);
+            log(dtls.sessionId, "selected srtp profile", profile);
             if (profile == undefined) return;
             srtp.srtpProfile = profile;
             break;
@@ -232,27 +254,27 @@ handlers[HandshakeType.server_hello] =
             dtls.remoteExtendedMasterSecret = true;
             break;
           case RenegotiationIndication.type:
-            log("RenegotiationIndication", extension.data);
+            log(dtls.sessionId, "RenegotiationIndication");
             break;
         }
       });
     }
   };
 
-handlers[HandshakeType.certificate] =
-  ({ cipher }) =>
+handlers[HandshakeType.certificate_11] =
+  ({ cipher, dtls }) =>
   (message: Certificate) => {
-    log("handshake certificate", message);
+    log(dtls.sessionId, "handshake certificate", message);
     cipher.remoteCertificate = message.certificateList[0];
   };
 
-handlers[HandshakeType.server_key_exchange] =
-  ({ cipher }) =>
+handlers[HandshakeType.server_key_exchange_12] =
+  ({ cipher, dtls }) =>
   (message: ServerKeyExchange) => {
     if (!cipher.localRandom || !cipher.remoteRandom) throw new Error();
-    log("ServerKeyExchange", message);
+    log(dtls.sessionId, "ServerKeyExchange", message);
 
-    log("selected curve", message.namedCurve);
+    log(dtls.sessionId, "selected curve", message.namedCurve);
     cipher.remoteKeyPair = {
       curve: message.namedCurve,
       publicKey: message.publicKey,
@@ -260,14 +282,16 @@ handlers[HandshakeType.server_key_exchange] =
     cipher.localKeyPair = generateKeyPair(message.namedCurve);
   };
 
-handlers[HandshakeType.server_hello_done] = () => (msg) => {
-  log("server_hello_done", msg);
-};
-
-handlers[HandshakeType.certificate_request] =
+handlers[HandshakeType.certificate_request_13] =
   ({ dtls }) =>
   (message: ServerCertificateRequest) => {
-    log("certificate_request", message);
+    log(dtls.sessionId, "certificate_request", message);
     dtls.requestedCertificateTypes = message.certificateTypes;
     dtls.requestedSignatureAlgorithms = message.signatures;
+  };
+
+handlers[HandshakeType.server_hello_done_14] =
+  ({ dtls }) =>
+  (msg) => {
+    log(dtls.sessionId, "server_hello_done", msg);
   };

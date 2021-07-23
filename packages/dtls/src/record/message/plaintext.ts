@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { decode, encode, types } from "binary-data";
 
+import { dumpBuffer } from "../../helper";
 import { DtlsPlaintextHeader, MACHeader } from "./header";
 
 export class DtlsPlaintext {
@@ -15,6 +16,13 @@ export class DtlsPlaintext {
     public recordLayerHeader: typeof DtlsPlaintext.spec.recordLayerHeader,
     public fragment: Buffer
   ) {}
+
+  get summary() {
+    return {
+      header: this.recordLayerHeader,
+      fragment: dumpBuffer(this.fragment),
+    };
+  }
 
   static createEmpty() {
     return new DtlsPlaintext(undefined as any, undefined as any);

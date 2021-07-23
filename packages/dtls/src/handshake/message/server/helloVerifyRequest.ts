@@ -8,7 +8,7 @@ import { HandshakeType } from "../../const";
 // 4.2.1.  Denial-of-Service Countermeasures
 
 export class ServerHelloVerifyRequest implements Handshake {
-  msgType = HandshakeType.hello_verify_request;
+  msgType = HandshakeType.hello_verify_request_3;
   messageSeq?: number;
   static readonly spec = {
     serverVersion: ProtocolVersion,

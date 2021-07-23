@@ -1,0 +1,44 @@
+{
+  "name": "loadtest",
+  "version": "0.0.1",
+  "description": "WebRTC Implementation for TypeScript (Node.js)",
+  "keywords": [
+    "WebRTC",
+    "node.js"
+  ],
+  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "prod": "yarn build && NODE_ENV=production node ./build/loadtest/src/client.js"
+  },
+  "dependencies": {
+    "airpc": "^0.3.1",
+    "ts-worker-register": "^0.0.1",
+    "werift": "^0.12.3",
+    "ws": "^7.5.3"
+  },
+  "devDependencies": {
+    "@types/node": "^16.4.0",
+    "@types/ws": "^7.4.7",
+    "ts-node": "^10.1.0",
+    "ts-node-dev": "^1.1.8",
+    "typescript": "^4.3.5"
+  },
+  "engines": {
+    "node": ">=15"
+  },
+  "readme": "README.md"
+}

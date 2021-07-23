@@ -7,7 +7,8 @@ import { createFragments, createPlaintext } from "../record/builder";
 import { ContentType } from "../record/const";
 import { Handshake } from "../typings/domain";
 
-const log = debug("werift-dtls:packages/dtls/src/flight/flight.ts");
+const warn = debug("werift-dtls : packages/dtls/src/flight/flight.ts : warn");
+const err = debug("werift-dtls : packages/dtls/src/flight/flight.ts : err");
 
 const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 
@@ -55,13 +56,20 @@ export abstract class Flight {
         this.setState("FINISHED");
         break;
       } else {
-        log("retransmit", retransmitCount, this.dtls.flight);
+        warn(
+          this.dtls.sessionId,
+          "retransmit",
+          retransmitCount,
+          this.dtls.flight
+        );
       }
     }
 
     if (retransmitCount > Flight.RetransmitCount) {
-      log("retransmit failed", retransmitCount);
-      throw new Error("over retransmitCount");
+      err(this.dtls.sessionId, "retransmit failed", retransmitCount);
+      throw new Error(
+        `over retransmitCount : ${this.flight} ${this.nextFlight}`
+      );
     }
   }
 

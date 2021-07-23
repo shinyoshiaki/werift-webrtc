@@ -4,7 +4,6 @@ import * as x509 from "@peculiar/x509";
 import { decode, encode, types } from "binary-data";
 import { createSign } from "crypto";
 import { addYears } from "date-fns";
-import debug from "debug";
 import { randomBytes } from "tweetnacl";
 
 import {
@@ -22,8 +21,6 @@ import AEADCipher from "../cipher/suites/aead";
 import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
-
-const log = debug("werift-dtls:packages/dtls/src/context/cipher.ts");
 
 const crypto = new Crypto();
 x509.cryptoProvider.set(crypto);
@@ -103,7 +100,6 @@ export class CipherContext {
       }
     })();
 
-    log("createCertificateWithKey alg", alg);
     const keys = (await crypto.subtle.generateKey(alg, true, [
       "sign",
       "verify",

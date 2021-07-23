@@ -9,13 +9,13 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, Options } from "./socket";
 
-const log = debug("werift-dtls:packages/dtls/src/client.ts");
+const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
-    log("start client");
+    log(this.dtls.sessionId, "start client");
   }
 
   async connect() {
@@ -24,13 +24,18 @@ export class DtlsClient extends DtlsSocket {
     );
   }
 
-  private flight5!: Flight5;
+  private flight5?: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
-    log("handleHandshakes", assembled);
+    log(
+      this.dtls.sessionId,
+      "handleHandshakes",
+      assembled.map((a) => a.msg_type)
+    );
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
-        case HandshakeType.hello_verify_request:
+        // flight2
+        case HandshakeType.hello_verify_request_3:
           {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
               handshake.fragment
@@ -38,8 +43,10 @@ export class DtlsClient extends DtlsSocket {
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
           break;
-        case HandshakeType.server_hello:
+        // flight 4
+        case HandshakeType.server_hello_2:
           {
+            if (this.connected) return;
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,
@@ -49,24 +56,37 @@ export class DtlsClient extends DtlsSocket {
             this.flight5.handleHandshake(handshake);
           }
           break;
-        case HandshakeType.certificate:
-        case HandshakeType.server_key_exchange:
-        case HandshakeType.certificate_request:
+        case HandshakeType.certificate_11:
+        case HandshakeType.server_key_exchange_12:
+        case HandshakeType.certificate_request_13:
           {
-            this.flight5.handleHandshake(handshake);
+            await this.waitForReady(() => !!this.flight5);
+            this.flight5?.handleHandshake(handshake);
           }
           break;
-        case HandshakeType.server_hello_done:
+        case HandshakeType.server_hello_done_14:
           {
-            this.flight5.handleHandshake(handshake);
-            await this.flight5.exec();
+            await this.waitForReady(() => !!this.flight5);
+            this.flight5?.handleHandshake(handshake);
+
+            const targets = [
+              11,
+              12,
+              this.options.certificateRequest && 13,
+            ].filter((n): n is number => typeof n === "number");
+            await this.waitForReady(() =>
+              this.dtls.checkHandshakesExist(targets)
+            );
+            await this.flight5?.exec();
           }
           break;
-        case HandshakeType.finished:
+        // flight 6
+        case HandshakeType.finished_20:
           {
             this.dtls.flight = 7;
+            this.connected = true;
             this.onConnect.execute();
-            log("dtls connected");
+            log(this.dtls.sessionId, "dtls connected");
           }
           break;
       }

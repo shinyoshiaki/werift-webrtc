@@ -5,7 +5,7 @@ import { HandshakeType } from "../const";
 // 7.4.9.  Finished
 
 export class Finished implements Handshake {
-  msgType = HandshakeType.finished;
+  msgType = HandshakeType.finished_20;
   messageSeq?: number;
 
   constructor(public verifyData: Buffer) {}

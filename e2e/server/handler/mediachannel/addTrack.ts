@@ -66,12 +66,17 @@ export class mediachannel_addTrack_offer {
     switch (type) {
       case "init":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
-
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           });
+          accept({});
+        }
+        break;
+      case "offer":
+        {
+          const port = await randomPort();
+          this.udp.bind(port);
+
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
 

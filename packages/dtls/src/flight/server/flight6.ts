@@ -34,9 +34,9 @@ export class Flight6 extends Flight {
 
     const message = (() => {
       switch (handshake.msg_type) {
-        case HandshakeType.client_key_exchange:
+        case HandshakeType.client_key_exchange_16:
           return ClientKeyExchange.deSerialize(handshake.fragment);
-        case HandshakeType.finished:
+        case HandshakeType.finished_20:
           return Finished.deSerialize(handshake.fragment);
       }
     })();
@@ -50,7 +50,7 @@ export class Flight6 extends Flight {
 
   async exec() {
     if (this.dtls.flight === 6) {
-      log("flight6 twice");
+      log(this.dtls.sessionId, "flight6 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
@@ -73,7 +73,7 @@ export class Flight6 extends Flight {
 
   sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.handshakeCache.map((v) => v.data.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
 
     const localVerifyData = this.cipher.verifyData(cache);
@@ -95,7 +95,7 @@ const handlers: {
   }) => (message: any) => void;
 } = {};
 
-handlers[HandshakeType.client_key_exchange] =
+handlers[HandshakeType.client_key_exchange_16] =
   ({ cipher, dtls }) =>
   (message: ClientKeyExchange) => {
     cipher.remoteKeyPair = {
@@ -108,7 +108,7 @@ handlers[HandshakeType.client_key_exchange] =
       !cipher.remoteRandom ||
       !cipher.localRandom
     )
-      throw new Error();
+      throw new Error("not exist");
 
     const preMasterSecret = prfPreMasterSecret(
       cipher.remoteKeyPair.publicKey,
@@ -117,13 +117,14 @@ handlers[HandshakeType.client_key_exchange] =
     );
 
     log(
+      dtls.sessionId,
       "extendedMasterSecret",
       dtls.options.extendedMasterSecret,
       dtls.remoteExtendedMasterSecret
     );
 
     const handshakes = Buffer.concat(
-      dtls.handshakeCache.map((v) => v.data.serialize())
+      dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
     cipher.masterSecret =
       dtls.options.extendedMasterSecret && dtls.remoteExtendedMasterSecret
@@ -140,8 +141,11 @@ handlers[HandshakeType.client_key_exchange] =
       cipher.localRandom.serialize(),
       cipher.remoteRandom.serialize()
     );
+    log(dtls.sessionId, "cipher", cipher.cipher.summary);
   };
 
-handlers[HandshakeType.finished] = () => (message: Finished) => {
-  log("finished", message);
-};
+handlers[HandshakeType.finished_20] =
+  ({ dtls }) =>
+  (message: Finished) => {
+    log(dtls.sessionId, "finished", message);
+  };
