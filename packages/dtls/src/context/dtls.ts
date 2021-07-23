@@ -1,7 +1,9 @@
 import { debug } from "debug";
+import Event from "rx.mini";
 
 import { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import { SessionTypes } from "../cipher/suites/abstract";
+import { HandshakeType } from "../handshake/const";
 import { FragmentedHandshake } from "../record/message/fragment";
 import { Options } from "../socket";
 import { Handshake } from "../typings/domain";
@@ -9,7 +11,9 @@ import { Handshake } from "../typings/domain";
 const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
 export class DtlsContext {
-  version = { major: 255 - 1, minor: 255 - 2 };
+  readonly onHandshakePushed = new Event<[HandshakeType]>();
+  readonly version = { major: 255 - 1, minor: 255 - 2 };
+
   lastFlight: Handshake[] = [];
   lastMessage: Buffer[] = [];
   recordSequenceNumber = 0;
@@ -52,17 +56,23 @@ export class DtlsContext {
     if (!this.handshakeCache[flight]) {
       this.handshakeCache[flight] = { data: [], isLocal, flight };
     }
-    const exist = this.handshakeCache[flight].data.find((t) =>
-      handshakes.find((e) => e.msg_type === t.msg_type)
-    );
-    if (exist) {
-      log(this.sessionId, "exist handshake", exist.summary, isLocal, flight);
-      return;
-    }
+
+    const filtered = handshakes.filter((h) => {
+      const exist = this.handshakeCache[flight].data.find(
+        (t) => t.msg_type === h.msg_type
+      );
+      if (exist) {
+        log(this.sessionId, "exist", exist.summary, isLocal, flight);
+        return false;
+      }
+      return true;
+    });
+
+    filtered.forEach((h) => this.onHandshakePushed.execute(h.msg_type));
 
     this.handshakeCache[flight].data = [
       ...this.handshakeCache[flight].data,
-      ...handshakes,
+      ...filtered,
     ];
   }
 }
