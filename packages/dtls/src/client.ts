@@ -1,5 +1,4 @@
 import debug from "debug";
-import { setTimeout } from "timers/promises";
 
 import { SessionType } from "./cipher/suites/abstract";
 import { Flight1 } from "./flight/client/flight1";
@@ -25,7 +24,7 @@ export class DtlsClient extends DtlsSocket {
     );
   }
 
-  private flight5!: Flight5;
+  private flight5?: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log(
       this.dtls.sessionId,
@@ -35,6 +34,7 @@ export class DtlsClient extends DtlsSocket {
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
+        // flight2
         case HandshakeType.hello_verify_request_3:
           {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
@@ -43,8 +43,10 @@ export class DtlsClient extends DtlsSocket {
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
           break;
+        // flight 4
         case HandshakeType.server_hello_2:
           {
+            if (this.connected) return;
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,
@@ -58,35 +60,27 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.server_key_exchange_12:
         case HandshakeType.certificate_request_13:
           {
-            this.flight5.handleHandshake(handshake);
+            await this.waitForReady(() => !!this.flight5);
+            this.flight5?.handleHandshake(handshake);
           }
           break;
         case HandshakeType.server_hello_done_14:
           {
-            this.flight5.handleHandshake(handshake);
-            for (let i = 0; i < 10; i++) {
-              if (
-                ![11, 12].find(
-                  (type) =>
-                    this.dtls.sortedHandshakeCache.find(
-                      (h) => h.msg_type === type
-                    ) == undefined
-                )
-              ) {
-                log(this.dtls.sessionId, "ready flight5", i);
-                await this.flight5.exec();
-                break;
-              } else {
-                log(
-                  this.dtls.sessionId,
-                  "not arrived",
-                  this.dtls.sortedHandshakeCache.map((h) => h.summary)
-                );
-                await setTimeout(100 * i);
-              }
-            }
+            await this.waitForReady(() => !!this.flight5);
+            this.flight5?.handleHandshake(handshake);
+
+            const targets = [
+              11,
+              12,
+              this.options.certificateRequest && 13,
+            ].filter((n): n is number => typeof n === "number");
+            await this.waitForReady(() =>
+              this.dtls.checkHandshakesExist(targets)
+            );
+            await this.flight5?.exec();
           }
           break;
+        // flight 6
         case HandshakeType.finished_20:
           {
             this.dtls.flight = 7;

@@ -1,6 +1,7 @@
 import { decode, types } from "binary-data";
 import debug from "debug";
 import { Event } from "rx.mini";
+import { setTimeout } from "timers/promises";
 
 import {
   HashAlgorithm,
@@ -155,6 +156,21 @@ export class DtlsSocket {
     }
   }
 
+  protected waitForReady = (condition: () => boolean) =>
+    new Promise<void>(async (r, f) => {
+      {
+        for (let i = 0; i < 10; i++) {
+          if (condition()) {
+            r();
+            break;
+          } else {
+            await setTimeout(100 * i);
+          }
+        }
+        f("waitForReady timeout");
+      }
+    });
+
   handleFragmentHandshake(messages: FragmentedHandshake[]) {
     let handshakes = messages.filter((v) => {
       // find fragmented
@@ -166,7 +182,7 @@ export class DtlsSocket {
     });
 
     if (this.bufferFragmentedHandshakes.length > 1) {
-      const last = this.bufferFragmentedHandshakes.slice(-1)[0];
+      const [last] = this.bufferFragmentedHandshakes.slice(-1);
       if (last.fragment_offset + last.fragment_length === last.length) {
         handshakes = [...this.bufferFragmentedHandshakes, ...handshakes];
         this.bufferFragmentedHandshakes = [];

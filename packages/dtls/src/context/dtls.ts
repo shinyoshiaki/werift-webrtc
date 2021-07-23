@@ -1,9 +1,7 @@
 import { debug } from "debug";
-import Event from "rx.mini";
 
 import { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import { SessionTypes } from "../cipher/suites/abstract";
-import { HandshakeType } from "../handshake/const";
 import { FragmentedHandshake } from "../record/message/fragment";
 import { Options } from "../socket";
 import { Handshake } from "../typings/domain";
@@ -11,7 +9,6 @@ import { Handshake } from "../typings/domain";
 const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
 export class DtlsContext {
-  readonly onHandshakePushed = new Event<[HandshakeType]>();
   version = { major: 255 - 1, minor: 255 - 2 };
 
   lastFlight: Handshake[] = [];
@@ -48,6 +45,12 @@ export class DtlsContext {
       .flatMap((v) => v);
   }
 
+  checkHandshakesExist = (handshakes: number[]) =>
+    !handshakes.find(
+      (type) =>
+        this.sortedHandshakeCache.find((h) => h.msg_type === type) == undefined
+    );
+
   bufferHandshakeCache(
     handshakes: FragmentedHandshake[],
     isLocal: boolean,
@@ -67,8 +70,6 @@ export class DtlsContext {
       }
       return true;
     });
-
-    filtered.forEach((h) => this.onHandshakePushed.execute(h.msg_type));
 
     this.handshakeCache[flight].data = [
       ...this.handshakeCache[flight].data,

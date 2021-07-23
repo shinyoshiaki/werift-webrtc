@@ -1,5 +1,4 @@
 import debug from "debug";
-import { setTimeout } from "timers/promises";
 
 import { SessionType } from "./cipher/suites/abstract";
 import { flight2 } from "./flight/server/flight2";
@@ -19,7 +18,7 @@ export class DtlsServer extends DtlsSocket {
     log(this.dtls.sessionId, "start server");
   }
 
-  private flight6!: Flight6;
+  private flight6?: Flight6;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log(
       this.dtls.sessionId,
@@ -29,6 +28,7 @@ export class DtlsServer extends DtlsSocket {
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
+        // flight1,3
         case HandshakeType.client_hello_1:
           {
             const clientHello = ClientHello.deSerialize(handshake.fragment);
@@ -55,6 +55,7 @@ export class DtlsServer extends DtlsSocket {
             }
           }
           break;
+        // flight 5
         case HandshakeType.client_key_exchange_16:
           {
             if (this.connected) return;
@@ -64,32 +65,15 @@ export class DtlsServer extends DtlsSocket {
           break;
         case HandshakeType.finished_20:
           {
-            this.flight6.handleHandshake(handshake);
+            await this.waitForReady(() => !!this.flight6);
+            this.flight6?.handleHandshake(handshake);
 
-            for (let i = 0; i < 10; i++) {
-              if (
-                ![16].find(
-                  (type) =>
-                    this.dtls.sortedHandshakeCache.find(
-                      (h) => h.msg_type === type
-                    ) == undefined
-                )
-              ) {
-                log(this.dtls.sessionId, "ready flight5", i);
-                await this.flight6.exec();
-                this.connected = true;
-                this.onConnect.execute();
-                log(this.dtls.sessionId, "dtls connected");
-                break;
-              } else {
-                log(
-                  this.dtls.sessionId,
-                  "not arrived",
-                  this.dtls.sortedHandshakeCache.map((h) => h.summary)
-                );
-                await setTimeout(100 * i);
-              }
-            }
+            await this.waitForReady(() => this.dtls.checkHandshakesExist([16]));
+            await this.flight6?.exec();
+
+            this.connected = true;
+            this.onConnect.execute();
+            log(this.dtls.sessionId, "dtls connected");
           }
           break;
       }
