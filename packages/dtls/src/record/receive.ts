@@ -56,10 +56,9 @@ export const parsePlainText =
           throw error;
         }
         try {
-          const data = FragmentedHandshake.deSerialize(raw);
           return {
             type: ContentType.handshake,
-            data,
+            data: FragmentedHandshake.deSerialize(raw),
           };
         } catch (error) {
           err(dtls.sessionId, "decSerialize failed", error, raw);

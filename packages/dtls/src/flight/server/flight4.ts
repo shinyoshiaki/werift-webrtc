@@ -22,9 +22,6 @@ import { Extension } from "../../typings/domain";
 import { Flight } from "../flight";
 
 const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
-const warn = debug(
-  "werift-dtls : packages/dtls/flight/server/flight4.ts : warn"
-);
 
 export class Flight4 extends Flight {
   constructor(
@@ -41,7 +38,7 @@ export class Flight4 extends Flight {
     certificateRequest: boolean = false
   ) {
     if (this.dtls.flight === 4) {
-      warn(this.dtls.sessionId, "flight4 twice");
+      log(this.dtls.sessionId, "flight4 twice");
       this.send(this.dtls.lastMessage);
       return;
     }

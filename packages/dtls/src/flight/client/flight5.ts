@@ -113,11 +113,13 @@ export class Flight5 extends Flight {
     const packets = this.createPacket([clientKeyExchange]);
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
 
-    const localKeyPair = this.cipher.localKeyPair!;
-    const remoteKeyPair = this.cipher.remoteKeyPair!;
+    const localKeyPair = this.cipher.localKeyPair;
+    const remoteKeyPair = this.cipher.remoteKeyPair;
+
+    if (!remoteKeyPair.publicKey) throw new Error("not exist");
 
     const preMasterSecret = prfPreMasterSecret(
-      remoteKeyPair.publicKey!,
+      remoteKeyPair.publicKey,
       localKeyPair.privateKey,
       localKeyPair.curve
     );
@@ -138,15 +140,15 @@ export class Flight5 extends Flight {
         ? prfExtendedMasterSecret(preMasterSecret, handshakes)
         : prfMasterSecret(
             preMasterSecret,
-            this.cipher.localRandom!.serialize(),
-            this.cipher.remoteRandom!.serialize()
+            this.cipher.localRandom.serialize(),
+            this.cipher.remoteRandom.serialize()
           );
 
-    this.cipher.cipher = createCipher(this.cipher.cipherSuite!);
+    this.cipher.cipher = createCipher(this.cipher.cipherSuite);
     this.cipher.cipher.init(
       this.cipher.masterSecret,
-      this.cipher.remoteRandom!.serialize(),
-      this.cipher.localRandom!.serialize()
+      this.cipher.remoteRandom.serialize(),
+      this.cipher.localRandom.serialize()
     );
     log(this.dtls.sessionId, "cipher", this.cipher.cipher.summary);
 
