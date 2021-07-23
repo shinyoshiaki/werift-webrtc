@@ -2,11 +2,15 @@ import { waitVideoPlay, peer, sleep } from "../fixture";
 
 describe("mediachannel_addTrack", () => {
   it(
-    "answer",
+    "mediachannel_addTrack_answer",
     async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
+
+        const offer = await peer.request("mediachannel_addTrack_answer", {
+          type: "init",
+        });
 
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -26,9 +30,6 @@ describe("mediachannel_addTrack", () => {
           done();
         };
 
-        const offer = await peer.request("mediachannel_addTrack_answer", {
-          type: "init",
-        });
         await pc.setRemoteDescription(offer);
         await pc.setLocalDescription(await pc.createAnswer());
 
@@ -41,11 +42,15 @@ describe("mediachannel_addTrack", () => {
   );
 
   it(
-    "offer",
+    "mediachannel_addTrack_offer",
     async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
+
+        await peer.request("mediachannel_addTrack_offer", {
+          type: "init",
+        });
 
         const pc = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -69,7 +74,7 @@ describe("mediachannel_addTrack", () => {
 
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request("mediachannel_addTrack_offer", {
-          type: "init",
+          type: "offer",
           payload: pc.localDescription,
         });
         await pc.setRemoteDescription(answer);
