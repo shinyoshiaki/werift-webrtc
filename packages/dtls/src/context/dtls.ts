@@ -12,7 +12,7 @@ const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
 export class DtlsContext {
   readonly onHandshakePushed = new Event<[HandshakeType]>();
-  readonly version = { major: 255 - 1, minor: 255 - 2 };
+  version = { major: 255 - 1, minor: 255 - 2 };
 
   lastFlight: Handshake[] = [];
   lastMessage: Buffer[] = [];
