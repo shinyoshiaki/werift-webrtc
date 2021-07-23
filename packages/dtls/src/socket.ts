@@ -83,7 +83,7 @@ export class DtlsSocket {
                 .sort((a, b) => a.msg_type - b.msg_type);
 
               this.onHandleHandshakes(assembled).catch((error) => {
-                err(this.dtls.session, "onHandleHandshakes error", error);
+                err(this.dtls.sessionId, "onHandleHandshakes error", error);
                 this.onError.execute(error);
               });
             }
@@ -99,7 +99,7 @@ export class DtlsSocket {
         }
       } catch (error) {
         err(
-          this.dtls.session,
+          this.dtls.sessionId,
           "catch udpOnMessage error",
           error,
           dumpBuffer(data)
@@ -110,7 +110,11 @@ export class DtlsSocket {
 
   private setupExtensions() {
     {
-      log(this.dtls.session, "support srtpProfiles", this.options.srtpProfiles);
+      log(
+        this.dtls.sessionId,
+        "support srtpProfiles",
+        this.options.srtpProfiles
+      );
       if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
         const useSrtp = UseSRTP.create(
           this.options.srtpProfiles,

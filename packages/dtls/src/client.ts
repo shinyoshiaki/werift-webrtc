@@ -16,7 +16,7 @@ export class DtlsClient extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
-    log(this.dtls.session, "start client");
+    log(this.dtls.sessionId, "start client");
   }
 
   async connect() {
@@ -28,7 +28,7 @@ export class DtlsClient extends DtlsSocket {
   private flight5!: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log(
-      this.dtls.session,
+      this.dtls.sessionId,
       "handleHandshakes",
       assembled.map((a) => a.msg_type)
     );
@@ -73,12 +73,12 @@ export class DtlsClient extends DtlsSocket {
                     ) == undefined
                 )
               ) {
-                log(this.dtls.session, "ready flight5", i);
+                log(this.dtls.sessionId, "ready flight5", i);
                 await this.flight5.exec();
                 break;
               } else {
                 log(
-                  this.dtls.session,
+                  this.dtls.sessionId,
                   "not arrived",
                   this.dtls.sortedHandshakeCache.map((h) => h.summary)
                 );
@@ -92,7 +92,7 @@ export class DtlsClient extends DtlsSocket {
             this.dtls.flight = 7;
             this.connected = true;
             this.onConnect.execute();
-            log(this.dtls.session, "dtls connected");
+            log(this.dtls.sessionId, "dtls connected");
           }
           break;
       }

@@ -50,7 +50,7 @@ export class Flight6 extends Flight {
 
   async exec() {
     if (this.dtls.flight === 6) {
-      log(this.dtls.session, "flight6 twice");
+      log(this.dtls.sessionId, "flight6 twice");
       this.send(this.dtls.lastMessage);
       return;
     }
@@ -117,7 +117,7 @@ handlers[HandshakeType.client_key_exchange_16] =
     );
 
     log(
-      dtls.session,
+      dtls.sessionId,
       "extendedMasterSecret",
       dtls.options.extendedMasterSecret,
       dtls.remoteExtendedMasterSecret
@@ -141,11 +141,11 @@ handlers[HandshakeType.client_key_exchange_16] =
       cipher.localRandom.serialize(),
       cipher.remoteRandom.serialize()
     );
-    log(dtls.session, "cipher", cipher.cipher.summary);
+    log(dtls.sessionId, "cipher", cipher.cipher.summary);
   };
 
 handlers[HandshakeType.finished_20] =
   ({ dtls }) =>
   (message: Finished) => {
-    log(dtls.session, "finished", message);
+    log(dtls.sessionId, "finished", message);
   };

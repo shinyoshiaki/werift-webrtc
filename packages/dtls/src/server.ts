@@ -16,13 +16,13 @@ export class DtlsServer extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.SERVER);
     this.onHandleHandshakes = this.handleHandshakes;
-    log(this.dtls.session, "start server");
+    log(this.dtls.sessionId, "start server");
   }
 
   private flight6!: Flight6;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
     log(
-      this.dtls.session,
+      this.dtls.sessionId,
       "handleHandshakes",
       assembled.map((a) => a.msg_type)
     );
@@ -37,15 +37,15 @@ export class DtlsServer extends DtlsSocket {
               this.dtls.cookie &&
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
-              log(this.dtls.session, "send flight4");
+              log(this.dtls.sessionId, "send flight4");
               await new Flight4(
                 this.transport,
                 this.dtls,
                 this.cipher,
                 this.srtp
               ).exec(handshake, this.options.certificateRequest);
-            } else if (!this.dtls.session) {
-              log(this.dtls.session, "send flight2");
+            } else if (!this.dtls.sessionId) {
+              log(this.dtls.sessionId, "send flight2");
               flight2(
                 this.transport,
                 this.dtls,
@@ -75,15 +75,15 @@ export class DtlsServer extends DtlsSocket {
                     ) == undefined
                 )
               ) {
-                log(this.dtls.session, "ready flight5", i);
+                log(this.dtls.sessionId, "ready flight5", i);
                 await this.flight6.exec();
                 this.connected = true;
                 this.onConnect.execute();
-                log(this.dtls.session, "dtls connected");
+                log(this.dtls.sessionId, "dtls connected");
                 break;
               } else {
                 log(
-                  this.dtls.session,
+                  this.dtls.sessionId,
                   "not arrived",
                   this.dtls.sortedHandshakeCache.map((h) => h.summary)
                 );

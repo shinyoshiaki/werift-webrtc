@@ -57,7 +57,7 @@ export abstract class Flight {
         break;
       } else {
         warn(
-          this.dtls.session,
+          this.dtls.sessionId,
           "retransmit",
           retransmitCount,
           this.dtls.flight
@@ -66,7 +66,7 @@ export abstract class Flight {
     }
 
     if (retransmitCount > Flight.RetransmitCount) {
-      err(this.dtls.session, "retransmit failed", retransmitCount);
+      err(this.dtls.sessionId, "retransmit failed", retransmitCount);
       throw new Error(
         `over retransmitCount : ${this.flight} ${this.nextFlight}`
       );

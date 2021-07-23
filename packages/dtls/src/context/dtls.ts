@@ -2,7 +2,6 @@ import { debug } from "debug";
 
 import { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import { SessionTypes } from "../cipher/suites/abstract";
-import { HandshakeType } from "../handshake/const";
 import { FragmentedHandshake } from "../record/message/fragment";
 import { Options } from "../socket";
 import { Handshake } from "../typings/domain";
@@ -34,7 +33,7 @@ export class DtlsContext {
 
   constructor(public options: Options, public sessionType: SessionTypes) {}
 
-  get session() {
+  get sessionId() {
     return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";
   }
 
@@ -57,7 +56,7 @@ export class DtlsContext {
       handshakes.find((e) => e.msg_type === t.msg_type)
     );
     if (exist) {
-      log(this.session, "exist handshake", exist.summary, isLocal, flight);
+      log(this.sessionId, "exist handshake", exist.summary, isLocal, flight);
       return;
     }
 
