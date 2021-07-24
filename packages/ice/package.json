@@ -43,7 +43,7 @@
     "@types/ip": "^1.1.0",
     "@types/lodash": "^4.14.170",
     "@types/utf8": "^3.0.0",
-    "@types/ws": "^7.4.5",
+    "@types/ws": "^7.4.7",
     "ws": "^7.5.1"
   },
   "publishConfig": {

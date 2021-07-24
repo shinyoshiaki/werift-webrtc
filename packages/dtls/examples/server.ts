@@ -1,14 +1,15 @@
-import { DtlsServer } from "../src/server";
-import { createSocket } from "dgram";
-import { createUdpTransport } from "../src";
-import * as x509 from "@peculiar/x509";
 import { Crypto } from "@peculiar/webcrypto";
-import { CipherContext } from "../src/context/cipher";
+import * as x509 from "@peculiar/x509";
+import { createSocket } from "dgram";
+
+import { createUdpTransport } from "../src";
 import {
   HashAlgorithm,
   NamedCurveAlgorithm,
   SignatureAlgorithm,
 } from "../src/cipher/const";
+import { CipherContext } from "../src/context/cipher";
+import { DtlsServer } from "../src/server";
 
 const crypto = new Crypto();
 x509.cryptoProvider.set(crypto);
@@ -20,17 +21,14 @@ socket.bind(port);
 console.log("start");
 
 (async () => {
-  const {
-    certPem,
-    keyPem,
-    signatureHash,
-  } = await CipherContext.createSelfSignedCertificateWithKey(
-    {
-      signature: SignatureAlgorithm.ecdsa,
-      hash: HashAlgorithm.sha256,
-    },
-    NamedCurveAlgorithm.secp256r1
-  );
+  const { certPem, keyPem, signatureHash } =
+    await CipherContext.createSelfSignedCertificateWithKey(
+      {
+        signature: SignatureAlgorithm.ecdsa,
+        hash: HashAlgorithm.sha256,
+      },
+      NamedCurveAlgorithm.secp256r1
+    );
   const server = new DtlsServer({
     transport: createUdpTransport(socket),
     extendedMasterSecret: true,
