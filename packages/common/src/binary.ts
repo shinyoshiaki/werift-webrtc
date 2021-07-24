@@ -81,3 +81,25 @@ export function bufferReader(buf: Buffer, bytes: number[]) {
     return read as any;
   });
 }
+
+/**Return a > b */
+export function uint16Gt(a: number, b: number) {
+  const halfMod = 0x8000;
+  return (a < b && b - a > halfMod) || (a > b && a - b < halfMod);
+}
+
+/**Return a >= b */
+export function uint16Gte(a: number, b: number) {
+  return a === b || uint16Gt(a, b);
+}
+
+/**Return a > b */
+export function uint32Gt(a: number, b: number) {
+  const halfMod = 0x80000000;
+  return (a < b && b - a > halfMod) || (a > b && a - b < halfMod);
+}
+
+/**Return a >= b */
+export function uint32Gte(a: number, b: number) {
+  return a === b || uint32Gt(a, b);
+}

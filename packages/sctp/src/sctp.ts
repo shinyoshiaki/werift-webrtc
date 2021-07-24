@@ -4,7 +4,13 @@ import { jspack } from "jspack";
 import { range } from "lodash";
 import { Event } from "rx.mini";
 
-import { random32, uint16Add } from "../../common/src";
+import {
+  random32,
+  uint16Add,
+  uint16Gt,
+  uint32Gt,
+  uint32Gte,
+} from "../../common/src";
 import {
   AbortChunk,
   Chunk,
@@ -37,7 +43,6 @@ import {
   StreamParam,
 } from "./param";
 import { Transport } from "./transport";
-import { uint16Gt, uint32Gt, uint32Gte } from "./utils";
 
 const log = debug("werift/sctp/sctp");
 
