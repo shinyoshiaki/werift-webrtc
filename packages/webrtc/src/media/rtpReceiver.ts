@@ -33,8 +33,9 @@ export class RTCRtpReceiver {
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
-  readonly lsr: { [key: number]: BigInt } = {};
-  readonly lsrTime: { [key: number]: number } = {};
+  // last senderReport
+  readonly lsr: { [ssrc: number]: BigInt } = {};
+  readonly lsrTime: { [ssrc: number]: number } = {};
   readonly onPacketLost = this.nack.onPacketLost;
 
   sdesMid?: string;
@@ -119,6 +120,7 @@ export class RTCRtpReceiver {
           signal: this.rtcpCancel.signal,
         });
 
+        // todo fix , impl reports
         const reports = [];
         const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
