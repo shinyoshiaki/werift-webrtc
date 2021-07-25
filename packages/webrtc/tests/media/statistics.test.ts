@@ -1,6 +1,6 @@
 import { uint16Add } from "../../../common/src";
 import { RtpHeader, RtpPacket } from "../../src";
-import { StreamStatistics } from "../../src/media/statics";
+import { StreamStatistics } from "../../src/media/statistics";
 
 describe("packages/webrtc/src/media/statics.ts", () => {
   test("no loss", () => {

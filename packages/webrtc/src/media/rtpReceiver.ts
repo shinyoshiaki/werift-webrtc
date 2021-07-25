@@ -19,6 +19,7 @@ import { Nack } from "./nack";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { Extensions } from "./router";
+import { StreamStatistics } from "./statistics";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
@@ -50,6 +51,7 @@ export class RTCRtpReceiver {
 
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
+  private remoteStreams: { [key: number]: StreamStatistics } = {};
 
   constructor(
     public kind: Kind,
