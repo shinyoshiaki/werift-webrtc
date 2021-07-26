@@ -49,7 +49,8 @@
             };
             peer.ontrack = (e) => {
               console.log("ontrack", e);
-              remoteRef.current.srcObject = e.streams[0];
+              if (e.track.kind === "video")
+                remoteRef.current.srcObject = new MediaStream([e.track]);
             };
             setInterval(() => {
               /*peer.getSenders().forEach(async (agent) => {
@@ -63,12 +64,12 @@
 
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: true,
-              audio: false,
+              audio: true,
             });
             localRef.current.srcObject = localStream;
 
             localStream
-              .getVideoTracks()
+              .getTracks()
               .forEach((track) => peer.addTrack(track, localStream));
 
             await peer.setRemoteDescription(offer);
