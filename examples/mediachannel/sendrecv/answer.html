@@ -22,8 +22,6 @@
       <div class="section" id="app1"></div>
     </div>
     <script type="text/babel">
-      let rtc;
-
       const App = () => {
         const remoteRef = React.useRef();
         const localRef = React.useRef();
@@ -39,9 +37,9 @@
             );
             console.log("offer", offer.sdp);
 
-            const peer = (rtc = new RTCPeerConnection({
+            const peer = new RTCPeerConnection({
               iceServers: [],
-            }));
+            });
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
                 const sdp = JSON.stringify(peer.localDescription);
@@ -49,16 +47,20 @@
                 socket.send(sdp);
               }
             };
-            peer.oniceconnectionstatechange = () => {
-              console.log(
-                "oniceconnectionstatechange",
-                peer.iceConnectionState
-              );
-            };
             peer.ontrack = (e) => {
               console.log("ontrack", e);
               remoteRef.current.srcObject = e.streams[0];
             };
+            setInterval(() => {
+              /*peer.getSenders().forEach(async (agent) => {
+                const stats = await agent.getStats();
+                console.log([...stats.entries()]);
+              });*/
+              peer
+                .getStats()
+                .then((stats) => console.log([...stats.entries()]));
+            }, 1000);
+
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: true,
               audio: false,

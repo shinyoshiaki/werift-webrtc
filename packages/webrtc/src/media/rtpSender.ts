@@ -199,6 +199,9 @@ export class RTCRtpSender {
             }),
           }),
         ];
+        this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
+        this.lsrTime = Date.now() / 1000;
+
         if (this.cname) {
           packets.push(
             new RtcpSourceDescriptionPacket({
@@ -213,12 +216,11 @@ export class RTCRtpSender {
             })
           );
         }
-        this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
-        this.lsrTime = Date.now() / 1000;
 
         try {
           await this.dtlsTransport.sendRtcp(packets);
         } catch (error) {
+          log("sendRtcp failed", error);
           await setTimeout(500 + Math.random() * 1000);
         }
       }
@@ -331,7 +333,7 @@ export class RTCRtpSender {
             .forEach((report) => {
               if (this.lsr === BigInt(report.lsr) && report.dlsr) {
                 const rtt =
-                  Date.now() / 1000 - this.lsrTime! - report.dlsr / 65536;
+                  Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
                 if (this.rtt === undefined) {
                   this.rtt = rtt;
                 } else {

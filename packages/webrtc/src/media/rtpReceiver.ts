@@ -126,7 +126,7 @@ export class RTCRtpReceiver {
 
         const reports = Object.entries(this.remoteStreams).map(
           ([ssrc, stream]) => {
-            let lsr = 0,
+            let lsr = 0n,
               dlsr = 0;
             if (this.lsr[ssrc]) {
               lsr = this.lsr[ssrc];
@@ -142,7 +142,7 @@ export class RTCRtpReceiver {
               packetsLost: stream.packets_lost,
               highestSequence: stream.max_seq,
               jitter: stream.jitter,
-              lsr,
+              lsr: Number(lsr),
               dlsr,
             });
           }
@@ -153,11 +153,15 @@ export class RTCRtpReceiver {
         try {
           await this.dtlsTransport.sendRtcp([packet]);
         } catch (error) {
+          log("sendRtcp failed", error);
           await setTimeout(500 + Math.random() * 1000);
         }
       }
     } catch (error) {}
   }
+
+  /**todo impl */
+  getStats() {}
 
   async sendRtcpPLI(mediaSsrc: number) {
     const packet = new RtcpPayloadSpecificFeedback({

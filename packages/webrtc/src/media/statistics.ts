@@ -83,13 +83,7 @@ export class StreamStatistics {
   }
 
   get packets_lost() {
-    return clamp_packets_lost(this.packets_expected - this.packets_received);
+    const lost = this.packets_expected - this.packets_received;
+    return lost < 0 ? 0 : lost;
   }
-}
-
-const PACKETS_LOST_MIN = -(1 << 23);
-const PACKETS_LOST_MAX = (1 << 23) - 1;
-
-function clamp_packets_lost(count: number) {
-  return Math.max(PACKETS_LOST_MIN, Math.min(count, PACKETS_LOST_MAX));
 }
