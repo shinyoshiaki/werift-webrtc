@@ -223,7 +223,9 @@ export class RTCRtpReceiver {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
       ] as number;
-      if (transportSequenceNumber == undefined) throw new Error();
+      if (!transportSequenceNumber == undefined) {
+        throw new Error("undefined");
+      }
 
       this.receiverTWCC.handleTWCC(transportSequenceNumber);
     } else if (this.supportTWCC) {
