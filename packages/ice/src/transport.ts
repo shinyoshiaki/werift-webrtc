@@ -15,7 +15,11 @@ export class UdpTransport implements Transport {
       if (info.family === "IPv6") {
         [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0
       }
-      this.onData(data, [info.address, info.port]);
+      try {
+        this.onData(data, [info.address, info.port]);
+      } catch (error) {
+        log("onData error", error);
+      }
     });
   }
 

@@ -15,7 +15,7 @@ export class StunProtocol implements Protocol {
   get transactionsKeys() {
     return Object.keys(this.transactions);
   }
-  localCandidate!: Candidate;
+  localCandidate?: Candidate;
   sentMessage?: Message;
   localAddress?: string;
 
@@ -39,6 +39,8 @@ export class StunProtocol implements Protocol {
   };
 
   private datagramReceived(data: Buffer, addr: Address) {
+    if (!this.localCandidate) throw new Error("not exist");
+
     const message = parseMessage(data);
     if (!message) {
       this.receiver.dataReceived(data, this.localCandidate.component);
