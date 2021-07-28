@@ -172,7 +172,9 @@ export class RTCRtpReceiver {
     });
     try {
       await this.dtlsTransport.sendRtcp([packet]);
-    } catch (error) {}
+    } catch (error) {
+      log(error);
+    }
   }
 
   handleRtcpPacket(packet: RtcpPacket) {

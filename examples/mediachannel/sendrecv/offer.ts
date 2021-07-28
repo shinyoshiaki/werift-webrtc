@@ -18,6 +18,9 @@ server.on("connection", async (socket) => {
   const video = pc.addTransceiver("video");
   video.onTrack.subscribe((track) => {
     video.sender.replaceTrack(track);
+    video.sender.onPictureLossIndication.subscribe(() =>
+      video.receiver.sendRtcpPLI(track.ssrc)
+    );
   });
 
   const audio = pc.addTransceiver("audio");
