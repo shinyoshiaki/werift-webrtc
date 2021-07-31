@@ -34,7 +34,7 @@ export enum CandidatePairState {
   FAILED = 4,
 }
 
-type IceState = "disconnected" | "closed" | "completed" | "new";
+type IceState = "disconnected" | "closed" | "completed" | "new" | "connected";
 
 export interface IceOptions {
   components: number;
@@ -130,6 +130,7 @@ export class Connection {
       this._localCandidatesEnd = true;
       this.promiseGatherCandidates.execute();
     }
+    this.setState("completed");
   }
 
   private async getComponentCandidates(
@@ -290,7 +291,7 @@ export class Connection {
     // # start consent freshness tests
     this.queryConsentHandle = future(this.queryConsent());
 
-    this.setState("completed");
+    this.setState("connected");
   }
 
   private unfreezeInitial() {
@@ -390,6 +391,9 @@ export class Connection {
                 0
               );
               failures = 0;
+              if (this.state === "disconnected") {
+                this.setState("connected");
+              }
             } catch (error) {
               failures++;
               this.setState("disconnected");

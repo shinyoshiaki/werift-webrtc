@@ -18,18 +18,22 @@ describe("iceTransport", () => {
     const transport2 = new RTCIceTransport(gatherer2);
     transport2.connection.iceControlling = false;
 
+    expect(transport1.state).toBe("new");
+    expect(transport2.state).toBe("new");
+
     await Promise.all([gatherer1.gather(), gatherer2.gather()]);
+
+    expect(transport1.state).toBe("completed");
+    expect(transport2.state).toBe("completed");
 
     gatherer2.localCandidates.forEach(transport1.addRemoteCandidate);
     gatherer1.localCandidates.forEach(transport2.addRemoteCandidate);
-    expect(transport1.state).toBe("new");
-    expect(transport2.state).toBe("new");
 
     transport1.setRemoteParams(gatherer2.localParameters);
     transport2.setRemoteParams(gatherer1.localParameters);
     await Promise.all([transport1.start(), transport2.start()]);
-    expect(transport1.state).toBe("completed");
-    expect(transport2.state).toBe("completed");
+    expect(transport1.state).toBe("connected");
+    expect(transport2.state).toBe("connected");
 
     await Promise.all([transport1.stop(), transport2.stop()]);
     expect(transport1.state).toBe("closed");
