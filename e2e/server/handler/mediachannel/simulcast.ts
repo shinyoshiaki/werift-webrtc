@@ -28,7 +28,9 @@ export class mediachannel_simulcast_answer {
           };
           transceiver.onTrack.subscribe((track) => {
             const sender = multiCast[track.rid as keyof typeof multiCast];
-            sender.sender.replaceTrack(track);
+            if (sender) {
+              sender.sender.replaceTrack(track);
+            }
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -73,7 +75,9 @@ export class mediachannel_simulcast_offer {
           };
           transceiver.onTrack.subscribe((track) => {
             const sender = multiCast[track.rid as keyof typeof multiCast];
-            sender.sender.replaceTrack(track);
+            if (sender) {
+              sender.sender.replaceTrack(track);
+            }
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());

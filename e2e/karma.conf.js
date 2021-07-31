@@ -60,7 +60,7 @@ module.exports = function (config) {
         ],
       },
       firefox_with_fake_device: {
-        base: "FirefoxHeadless",
+        base: "Firefox",
         prefs: {
           "media.navigator.permission.disabled": true,
           "media.navigator.streams.fake": true,

@@ -41,7 +41,7 @@ import {
 import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
 import { MediaStreamTrack } from "./track";
 
-const log = debug("werift:webrtc:rtpSender");
+const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
@@ -242,7 +242,6 @@ export class RTCRtpSender {
 
   sendRtp(rtp: Buffer | RtpPacket) {
     if (this.dtlsTransport.state !== "connected" || !this.codec) {
-      log("not ready", this.dtlsTransport.state, this.codec);
       return;
     }
 

@@ -9,7 +9,8 @@
     "debug": "cd debug && yarn dev",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json",
     "dev:server": "DEBUG=werift* ts-node-dev ./server/main.ts",
-    "dev:test": "karma start --browsers chrome_with_fake_device",
+    "dev:chrome": "karma start --browsers chrome_with_fake_device",
+    "dev:firefox": "karma start --browsers firefox_with_fake_device",
     "prod:server": "DEBUG=werift* node lib/e2e/server/main.js",
     "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device && node stop.js"
   },
@@ -17,6 +18,7 @@
     "werift": "^0.12.1"
   },
   "devDependencies": {
+    "@types/express": "^4.17.13",
     "@types/jasmine": "^3.8.1",
     "@types/node": "^16.3.3",
     "@types/protoo-client": "^4.0.1",

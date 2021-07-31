@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { MediaStreamTrack, RTCPeerConnection } from "werift";
+import { RTCPeerConnection } from "werift";
 import { Server } from "ws";
 import { randomPort } from "werift/lib/ice/src/utils";
 import { createSocket } from "dgram";

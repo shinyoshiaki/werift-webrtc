@@ -1,4 +1,4 @@
-import { ChildProcess, exec } from "child_process";
+import { ChildProcess, spawn } from "child_process";
 import { createSocket } from "dgram";
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection, MediaStreamTrack, RtpPacket } from "../../";
@@ -6,7 +6,7 @@ import { randomPort } from "../../../../packages/ice/src";
 
 export class mediachannel_addTrack_answer {
   pc!: RTCPeerConnection;
-  child!: ChildProcess;
+  process!: ChildProcess;
   udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -28,9 +28,15 @@ export class mediachannel_addTrack_answer {
             const rtp = RtpPacket.deSerialize(data);
             track.writeRtp(rtp);
           });
-          this.child = exec(
-            `gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=${port}`
-          );
+
+          const args = [
+            `videotestsrc`,
+            "video/x-raw,width=640,height=480,format=I420",
+            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+            "rtpvp8pay",
+            `udpsink host=127.0.0.1 port=${port}`,
+          ].join(" ! ");
+          this.process = spawn("gst-launch-1.0", args.split(" "));
         }
         break;
       case "candidate":
@@ -48,8 +54,10 @@ export class mediachannel_addTrack_answer {
       case "done":
         {
           this.udp.close();
-          process.kill(this.child.pid + 1);
           this.pc.close();
+          try {
+            this.process.kill("SIGINT");
+          } catch (error) {}
           accept({});
         }
         break;
@@ -59,7 +67,7 @@ export class mediachannel_addTrack_answer {
 
 export class mediachannel_addTrack_offer {
   pc!: RTCPeerConnection;
-  child!: ChildProcess;
+  process!: ChildProcess;
   udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -88,9 +96,15 @@ export class mediachannel_addTrack_offer {
             const rtp = RtpPacket.deSerialize(data);
             track.writeRtp(rtp);
           });
-          this.child = exec(
-            `gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=${port}`
-          );
+
+          const args = [
+            `videotestsrc`,
+            "video/x-raw,width=640,height=480,format=I420",
+            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+            "rtpvp8pay",
+            `udpsink host=127.0.0.1 port=${port}`,
+          ].join(" ! ");
+          this.process = spawn("gst-launch-1.0", args.split(" "));
         }
         break;
       case "candidate":
@@ -102,10 +116,10 @@ export class mediachannel_addTrack_offer {
       case "done":
         {
           this.udp.close();
-          try {
-            process.kill(this.child.pid + 1);
-          } catch (error) {}
           this.pc.close();
+          try {
+            this.process.kill("SIGINT");
+          } catch (error) {}
           accept({});
         }
         break;
