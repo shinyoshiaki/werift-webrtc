@@ -28,16 +28,20 @@ describe("datachannel/close", () => {
         };
 
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
-        peer.request(label, {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request(label, {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -55,10 +59,12 @@ describe("datachannel/close", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
         const offer = await peer.request(label, {
@@ -82,10 +88,12 @@ describe("datachannel/close", () => {
           };
         };
 
-        peer.request(label, {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request(label, {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -102,10 +110,12 @@ describe("datachannel/close", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
         const channel = pc.createDataChannel("dc");
 
@@ -152,10 +162,12 @@ describe("datachannel/close", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
         const channel = pc.createDataChannel("dc");
         channel.onopen = () => {

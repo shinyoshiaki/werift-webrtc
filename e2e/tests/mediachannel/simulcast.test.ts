@@ -2,9 +2,10 @@ import { waitVideoPlay, peer, sleep } from "../fixture";
 
 describe("mediachannel_simulcast", () => {
   it(
-    "answer",
+    "mediachannel_simulcast_answer",
     async () =>
       new Promise<void>(async (done) => {
+        const label = "mediachannel_simulcast_answer";
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
@@ -22,6 +23,7 @@ describe("mediachannel_simulcast", () => {
         pc.ontrack = async ({ track }) => {
           await new Promise((r) => setTimeout(r, 2000));
           await waitVideoPlay(track);
+          pc.close();
 
           finish();
         };
@@ -44,7 +46,7 @@ describe("mediachannel_simulcast", () => {
           })
         ).getTracks();
 
-        const offer = await peer.request("mediachannel_simulcast_answer", {
+        const offer = await peer.request(label, {
           type: "init",
         });
         await pc.setRemoteDescription(offer);
@@ -67,24 +69,29 @@ describe("mediachannel_simulcast", () => {
         await pc.setLocalDescription(await pc.createAnswer());
 
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_simulcast_answer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
-        peer.request("mediachannel_simulcast_answer", {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request(label, {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     15_000
   );
 
   it(
-    "offer",
+    "mediachannel_simulcast_offer",
     async () =>
       new Promise<void>(async (done) => {
+        const label = "mediachannel_simulcast_offer";
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
@@ -102,6 +109,7 @@ describe("mediachannel_simulcast", () => {
         pc.ontrack = async ({ track }) => {
           await new Promise((r) => setTimeout(r, 2000));
           await waitVideoPlay(track);
+          pc.close();
 
           finish();
         };
@@ -142,14 +150,16 @@ describe("mediachannel_simulcast", () => {
         pc.addTransceiver("video", { direction: "recvonly" });
         pc.addTransceiver("video", { direction: "recvonly" });
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_simulcast_offer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
         await pc.setLocalDescription(await pc.createOffer());
-        const answer = await peer.request("mediachannel_simulcast_offer", {
+        const answer = await peer.request(label, {
           type: "init",
           payload: pc.localDescription,
         });

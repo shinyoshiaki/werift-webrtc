@@ -26,10 +26,12 @@ describe("ice/trickle", () => {
         };
         pc.onicecandidate = ({ candidate }) => {
           if (candidate) {
-            peer.request(label, {
-              type: "candidate",
-              payload: candidate,
-            });
+            peer
+              .request(label, {
+                type: "candidate",
+                payload: candidate,
+              })
+              .catch(() => {});
           }
         };
         peer.on("request", async (request, accept) => {
@@ -46,10 +48,12 @@ describe("ice/trickle", () => {
         await pc.setRemoteDescription(offer);
         await pc.setLocalDescription(await pc.createAnswer());
 
-        peer.request(label, {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request(label, {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -76,10 +80,12 @@ describe("ice/trickle", () => {
           done();
         };
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
         peer.on("request", async (request, accept) => {
           if (request.method !== label) return;

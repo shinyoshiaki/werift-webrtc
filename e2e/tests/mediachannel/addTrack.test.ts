@@ -16,10 +16,12 @@ describe("mediachannel_addTrack", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_addTrack_answer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("mediachannel_addTrack_answer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
         pc.ontrack = async ({ track }) => {
           await waitVideoPlay(track);
@@ -33,10 +35,12 @@ describe("mediachannel_addTrack", () => {
         await pc.setRemoteDescription(offer);
         await pc.setLocalDescription(await pc.createAnswer());
 
-        peer.request("mediachannel_addTrack_answer", {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request("mediachannel_addTrack_answer", {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -64,10 +68,12 @@ describe("mediachannel_addTrack", () => {
           done();
         };
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_addTrack_offer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("mediachannel_addTrack_offer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
         pc.addTransceiver("video", { direction: "recvonly" });

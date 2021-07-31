@@ -13,10 +13,12 @@ describe("mediachannel_rtx", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
         pc.ontrack = async ({ track }) => {
           await waitVideoPlay(track);
@@ -33,10 +35,12 @@ describe("mediachannel_rtx", () => {
         await pc.setRemoteDescription(offer);
         await pc.setLocalDescription(await pc.createAnswer());
 
-        peer.request(label, {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request(label, {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -62,7 +66,9 @@ describe("mediachannel_rtx", () => {
           done();
         };
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, { type: "candidate", payload: candidate });
+          peer
+            .request(label, { type: "candidate", payload: candidate })
+            .catch(() => {});
         };
 
         pc.addTransceiver("video", { direction: "recvonly" });

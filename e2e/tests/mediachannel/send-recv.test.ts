@@ -29,16 +29,20 @@ describe("mediachannel_sendrecv", () => {
         await pc.setLocalDescription(await pc.createAnswer());
 
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_send_recv_answer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("mediachannel_send_recv_answer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
-        peer.request("mediachannel_send_recv_answer", {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request("mediachannel_send_recv_answer", {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -59,10 +63,12 @@ describe("mediachannel_sendrecv", () => {
           done();
         };
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_send_recv_offer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("mediachannel_send_recv_offer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
         const [track] = (

@@ -27,16 +27,20 @@ describe("datachannel", () => {
         };
 
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("datachannel_answer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("datachannel_answer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
-        peer.request("datachannel_answer", {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request("datachannel_answer", {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -61,10 +65,12 @@ describe("datachannel", () => {
           done();
         };
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("datachannel_offer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("datachannel_offer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
         await pc.setLocalDescription(await pc.createOffer());

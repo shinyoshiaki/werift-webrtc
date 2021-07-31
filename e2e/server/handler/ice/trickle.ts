@@ -16,7 +16,7 @@ export class ice_trickle_answer {
             dc.send(msg + "pong");
           });
           this.pc.onIceCandidate.subscribe((candidate) => {
-            peer.request("ice_trickle_answer", candidate);
+            peer.request("ice_trickle_answer", candidate).catch(() => {});
           });
 
           const offer = await this.pc.createOffer();
@@ -56,7 +56,7 @@ export class ice_trickle_offer {
             });
           });
           this.pc.onIceCandidate.subscribe((candidate) => {
-            peer.request("ice_trickle_offer", candidate);
+            peer.request("ice_trickle_offer", candidate).catch(() => {});
           });
           await this.pc.setRemoteDescription(payload);
           this.pc.setLocalDescription(await this.pc.createAnswer());

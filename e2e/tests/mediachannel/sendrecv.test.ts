@@ -31,16 +31,20 @@ describe("mediachannel_sendrecv", () => {
         await pc.setLocalDescription(await pc.createAnswer());
 
         pc.onicecandidate = ({ candidate }) => {
-          peer.request(label, {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request(label, {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
-        peer.request(label, {
-          type: "answer",
-          payload: pc.localDescription,
-        });
+        peer
+          .request(label, {
+            type: "answer",
+            payload: pc.localDescription,
+          })
+          .catch(() => {});
       }),
     10 * 1000
   );
@@ -65,10 +69,12 @@ describe("mediachannel_sendrecv", () => {
         ).getTracks();
         pc.addTrack(track);
         pc.onicecandidate = ({ candidate }) => {
-          peer.request("mediachannel_sendrecv_offer", {
-            type: "candidate",
-            payload: candidate,
-          });
+          peer
+            .request("mediachannel_sendrecv_offer", {
+              type: "candidate",
+              payload: candidate,
+            })
+            .catch(() => {});
         };
 
         await pc.setLocalDescription(await pc.createOffer());
