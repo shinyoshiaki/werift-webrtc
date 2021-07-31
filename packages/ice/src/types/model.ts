@@ -5,7 +5,7 @@ export type Address = Readonly<[string, number]>;
 
 export interface Protocol {
   type: string;
-  localCandidate: Candidate;
+  localCandidate?: Candidate;
   sentMessage?: Message;
   request: (
     message: Message,

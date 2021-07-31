@@ -15,9 +15,17 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const transceiver = pc.addTransceiver("video");
-  transceiver.onTrack.subscribe((track) => {
-    transceiver.sender.replaceTrack(track);
+  const video = pc.addTransceiver("video");
+  video.onTrack.subscribe((track) => {
+    video.sender.replaceTrack(track);
+    video.sender.onPictureLossIndication.subscribe(() =>
+      video.receiver.sendRtcpPLI(track.ssrc)
+    );
+  });
+
+  const audio = pc.addTransceiver("audio");
+  audio.onTrack.subscribe((track) => {
+    audio.sender.replaceTrack(track);
   });
 
   await pc.setLocalDescription(await pc.createOffer());

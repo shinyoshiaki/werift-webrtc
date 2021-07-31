@@ -11,7 +11,7 @@ export class RtcpSrPacket {
   static type = 200;
   type = RtcpSrPacket.type;
 
-  constructor(props: Partial<RtcpSrPacket> = {}) {
+  constructor(props: Pick<RtcpSrPacket, "senderInfo"> & Partial<RtcpSrPacket>) {
     Object.assign(this, props);
   }
 

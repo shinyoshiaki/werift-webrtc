@@ -19,48 +19,13 @@ import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
 
-const log = debug("werift-ice:packages/ice/src/ice.ts");
-
-const ICE_COMPLETED = 1;
-const ICE_FAILED = 2;
-const CONSENT_FAILURES = 6;
-const CONSENT_INTERVAL = 5;
-
-export enum CandidatePairState {
-  FROZEN = 0,
-  WAITING = 1,
-  IN_PROGRESS = 2,
-  SUCCEEDED = 3,
-  FAILED = 4,
-}
-
-type IceState = "disconnected" | "closed" | "completed" | "new" | "connected";
-
-export interface IceOptions {
-  components: number;
-  stunServer?: Address;
-  turnServer?: Address;
-  turnUsername?: string;
-  turnPassword?: string;
-  turnSsl?: boolean;
-  turnTransport?: string;
-  forceTurn?: boolean;
-  useIpv4: boolean;
-  useIpv6: boolean;
-  portRange?: [number, number];
-}
-
-const defaultOptions: IceOptions = {
-  components: 1,
-  useIpv4: true,
-  useIpv6: true,
-};
+const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 export class Connection {
+  readonly localUserName = randomString(4);
+  readonly localPassword = randomString(22);
   remotePassword: string = "";
   remoteUsername: string = "";
-  localUserName = randomString(4);
-  localPassword = randomString(22);
   remoteIsLite = false;
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
@@ -194,7 +159,7 @@ export class Connection {
                 })
             )
           )
-        ).filter((v) => v) as Candidate[];
+        ).filter((v): v is Candidate => typeof v !== "undefined");
         candidates = [...candidates, ...srflxCandidates];
       } catch (error) {
         log("query STUN server", error);
@@ -932,6 +897,42 @@ export class CandidatePair {
   }
 }
 
+const ICE_COMPLETED = 1 as const;
+const ICE_FAILED = 2 as const;
+
+const CONSENT_INTERVAL = 5;
+const CONSENT_FAILURES = 6;
+
+export enum CandidatePairState {
+  FROZEN = 0,
+  WAITING = 1,
+  IN_PROGRESS = 2,
+  SUCCEEDED = 3,
+  FAILED = 4,
+}
+
+type IceState = "disconnected" | "closed" | "completed" | "new" | "connected";
+
+export interface IceOptions {
+  components: number;
+  stunServer?: Address;
+  turnServer?: Address;
+  turnUsername?: string;
+  turnPassword?: string;
+  turnSsl?: boolean;
+  turnTransport?: string;
+  forceTurn?: boolean;
+  useIpv4: boolean;
+  useIpv6: boolean;
+  portRange?: [number, number];
+}
+
+const defaultOptions: IceOptions = {
+  components: 1,
+  useIpv4: true,
+  useIpv6: true,
+};
+
 export function validateRemoteCandidate(candidate: Candidate) {
   // """
   // Check the remote candidate is supported.
@@ -990,7 +991,8 @@ export async function serverReflexiveCandidate(
     const [response] = await protocol.request(request, stunServer);
 
     const localCandidate = protocol.localCandidate;
-    if (!localCandidate) throw new Error();
+    if (!localCandidate) throw new Error("not exist");
+
     return new Candidate(
       candidateFoundation("srflx", "udp", localCandidate.host),
       localCandidate.component,

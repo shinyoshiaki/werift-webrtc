@@ -3,10 +3,12 @@ import { jspack } from "jspack";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
 
+import { int } from "../../../common/src";
 import {
   PictureLossIndication,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
+  RtcpReceiverInfo,
   RtcpRrPacket,
   RtcpSrPacket,
   RtpHeader,
@@ -19,6 +21,7 @@ import { Nack } from "./nack";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { Extensions } from "./router";
+import { StreamStatistics } from "./statistics";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
@@ -33,8 +36,9 @@ export class RTCRtpReceiver {
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
-  readonly lsr: { [key: number]: BigInt } = {};
-  readonly lsrTime: { [key: number]: number } = {};
+  // last senderReport
+  readonly lsr: { [ssrc: number]: BigInt } = {};
+  readonly lsrTime: { [ssrc: number]: number } = {};
   readonly onPacketLost = this.nack.onPacketLost;
 
   sdesMid?: string;
@@ -49,6 +53,7 @@ export class RTCRtpReceiver {
 
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
+  private remoteStreams: { [ssrc: number]: StreamStatistics } = {};
 
   constructor(
     public kind: Kind,
@@ -121,17 +126,44 @@ export class RTCRtpReceiver {
           signal: this.rtcpCancel.signal,
         });
 
-        const reports = [];
+        const reports = Object.entries(this.remoteStreams).map(
+          ([ssrc, stream]) => {
+            let lsr = 0n,
+              dlsr = 0;
+            if (this.lsr[ssrc]) {
+              lsr = this.lsr[ssrc];
+              const delay = Date.now() / 1000 - this.lsrTime[ssrc];
+              if (delay > 0 && delay < 65536) {
+                dlsr = int(delay * 65536);
+              }
+            }
+
+            return new RtcpReceiverInfo({
+              ssrc: Number(ssrc),
+              fractionLost: stream.fraction_lost,
+              packetsLost: stream.packets_lost,
+              highestSequence: stream.max_seq,
+              jitter: stream.jitter,
+              lsr: Number(lsr),
+              dlsr,
+            });
+          }
+        );
+
         const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
         try {
           await this.dtlsTransport.sendRtcp([packet]);
         } catch (error) {
+          log("sendRtcp failed", error);
           await setTimeout(500 + Math.random() * 1000);
         }
       }
     } catch (error) {}
   }
+
+  /**todo impl */
+  getStats() {}
 
   async sendRtcpPLI(mediaSsrc: number) {
     const packet = new RtcpPayloadSpecificFeedback({
@@ -142,7 +174,9 @@ export class RTCRtpReceiver {
     });
     try {
       await this.dtlsTransport.sendRtcp([packet]);
-    } catch (error) {}
+    } catch (error) {
+      log(error);
+    }
   }
 
   handleRtcpPacket(packet: RtcpPacket) {
@@ -176,21 +210,28 @@ export class RTCRtpReceiver {
   ) {
     if (this.stopped) return;
 
-    if (this.receiverTWCC) {
-      const transportSequenceNumber = extensions[
-        RTP_EXTENSION_URI.transportWideCC
-      ] as number;
-      if (!transportSequenceNumber == undefined) throw new Error();
-
-      this.receiverTWCC.handleTWCC(transportSequenceNumber);
-    } else if (this.supportTWCC) {
-      this.setupTWCC(packet.header.ssrc);
-    }
-
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
       log("unknown codec " + packet.header.payloadType);
       return;
+    }
+
+    this.remoteStreams[packet.header.ssrc] =
+      this.remoteStreams[packet.header.ssrc] ??
+      new StreamStatistics(codec.clockRate);
+    this.remoteStreams[packet.header.ssrc].add(packet);
+
+    if (this.receiverTWCC) {
+      const transportSequenceNumber = extensions[
+        RTP_EXTENSION_URI.transportWideCC
+      ] as number;
+      if (!transportSequenceNumber == undefined) {
+        throw new Error("undefined");
+      }
+
+      this.receiverTWCC.handleTWCC(transportSequenceNumber);
+    } else if (this.supportTWCC) {
+      this.setupTWCC(packet.header.ssrc);
     }
 
     if (codec.name.toLowerCase() === "rtx") {
@@ -202,7 +243,7 @@ export class RTCRtpReceiver {
       track = this.trackBySSRC[originalSsrc];
     }
 
-    // todo fix
+    // todo fix select use or not use nack
     if (track?.kind === "video") this.nack.addPacket(packet);
 
     if (track) track.onReceiveRtp.execute(packet);
