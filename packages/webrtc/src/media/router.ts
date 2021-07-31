@@ -24,7 +24,7 @@ import { RTCRtpSender } from "./rtpSender";
 import { RTCRtpTransceiver } from "./rtpTransceiver";
 import { MediaStreamTrack } from "./track";
 
-const log = debug("werift/webrtc/media/router");
+const log = debug("werift:packages/webrtc/src/media/router.ts");
 
 export type Extensions = { [uri: string]: number | string };
 
@@ -85,11 +85,6 @@ export class RtpRouter {
       })
     );
     this.ridTable[param.rid] = transceiver.receiver;
-
-    this.registerRtpReceiver(
-      transceiver.receiver,
-      jspack.Unpack("!L", randomBytes(4))[0]
-    );
   }
 
   static rtpHeaderExtensionsParser(
@@ -138,12 +133,13 @@ export class RtpRouter {
       ssrcReceiver.handleRtpBySsrc(packet, extensions);
     } else {
       // simulcast after send receiver report
-      ssrcReceiver = Object.values(this.ssrcTable)
+      ssrcReceiver = Object.values(this.ridTable)
         .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
         .find((r) => r.trackBySSRC[packet.header.ssrc]);
       if (ssrcReceiver) {
-        ssrcReceiver.handleRtpBySsrc(packet, extensions);
+        log("simulcast register receiver by ssrc", packet.header.ssrc);
         this.registerRtpReceiver(ssrcReceiver, packet.header.ssrc);
+        ssrcReceiver.handleRtpBySsrc(packet, extensions);
       }
     }
 
