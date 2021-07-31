@@ -20,6 +20,7 @@ describe("mediachannel_simulcast", () => {
           }
         };
         pc.ontrack = async ({ track }) => {
+          await new Promise((r) => setTimeout(r, 2000));
           await waitVideoPlay(track);
 
           finish();
@@ -77,7 +78,7 @@ describe("mediachannel_simulcast", () => {
           payload: pc.localDescription,
         });
       }),
-    10 * 1000
+    15_000
   );
 
   it(
@@ -99,6 +100,7 @@ describe("mediachannel_simulcast", () => {
           }
         };
         pc.ontrack = async ({ track }) => {
+          await new Promise((r) => setTimeout(r, 2000));
           await waitVideoPlay(track);
 
           finish();
@@ -153,6 +155,6 @@ describe("mediachannel_simulcast", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    15_000
   );
 });
