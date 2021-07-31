@@ -1,4 +1,6 @@
+import { randomBytes } from "crypto";
 import debug from "debug";
+import { jspack } from "jspack";
 
 import { bufferReader } from "../../../common/src";
 import {
@@ -37,6 +39,10 @@ export class RtpRouter {
     this.ssrcTable[sender.ssrc] = sender;
   }
 
+  private registerRtpReceiver(receiver: RTCRtpReceiver, ssrc: number) {
+    this.ssrcTable[ssrc] = receiver;
+  }
+
   registerRtpReceiverBySsrc(
     transceiver: RTCRtpTransceiver,
     params: RTCRtpReceiveParameters
@@ -46,7 +52,7 @@ export class RtpRouter {
     params.encodings
       .filter((e) => e.ssrc != undefined) // todo fix
       .forEach((encode) => {
-        this.ssrcTable[encode.ssrc] = transceiver.receiver;
+        this.registerRtpReceiver(transceiver.receiver, encode.ssrc);
         transceiver.addTrack(
           new MediaStreamTrack({
             ssrc: encode.ssrc,
@@ -56,7 +62,7 @@ export class RtpRouter {
           })
         );
         if (encode.rtx) {
-          this.ssrcTable[encode.rtx.ssrc] = transceiver.receiver;
+          this.registerRtpReceiver(transceiver.receiver, encode.rtx.ssrc);
         }
       });
 
@@ -79,6 +85,11 @@ export class RtpRouter {
       })
     );
     this.ridTable[param.rid] = transceiver.receiver;
+
+    this.registerRtpReceiver(
+      transceiver.receiver,
+      jspack.Unpack("!L", randomBytes(4))[0]
+    );
   }
 
   static rtpHeaderExtensionsParser(
@@ -114,17 +125,31 @@ export class RtpRouter {
       this.extIdUriMap
     );
 
-    let ssrcReceiver = this.ssrcTable[packet.header.ssrc] as RTCRtpReceiver;
+    let ssrcReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
+      packet.header.ssrc
+    ] as RTCRtpReceiver;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     if (typeof rid === "string") {
       ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
-      ssrcReceiver.rid = rid;
+      ssrcReceiver.latestRid = rid;
       ssrcReceiver.handleRtpByRid(packet, rid, extensions);
-    } else {
-      if (!ssrcReceiver) return; // simulcast + absSendTime
-
+    } else if (ssrcReceiver) {
       ssrcReceiver.handleRtpBySsrc(packet, extensions);
+    } else {
+      // simulcast after send receiver report
+      ssrcReceiver = Object.values(this.ssrcTable)
+        .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
+        .find((r) => r.trackBySSRC[packet.header.ssrc]);
+      if (ssrcReceiver) {
+        ssrcReceiver.handleRtpBySsrc(packet, extensions);
+        this.registerRtpReceiver(ssrcReceiver, packet.header.ssrc);
+      }
+    }
+
+    if (!ssrcReceiver) {
+      log("ssrcReceiver not found");
+      return;
     }
 
     const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
@@ -136,7 +161,7 @@ export class RtpRouter {
       RTP_EXTENSION_URI.repairedRtpStreamId
     ] as string;
     if (typeof repairedRid === "string") {
-      ssrcReceiver.repairedRid = repairedRid;
+      ssrcReceiver.latestRepairedRid = repairedRid;
     }
   };
 

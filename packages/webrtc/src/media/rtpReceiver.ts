@@ -42,8 +42,8 @@ export class RTCRtpReceiver {
   readonly onPacketLost = this.nack.onPacketLost;
 
   sdesMid?: string;
-  rid?: string;
-  repairedRid?: string;
+  latestRid?: string;
+  latestRepairedRid?: string;
 
   receiverTWCC?: ReceiverTWCC;
   supportTWCC = false;
@@ -199,6 +199,9 @@ export class RTCRtpReceiver {
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
+    if (!this.trackBySSRC[packet.header.ssrc]) {
+      this.trackBySSRC[packet.header.ssrc] = track;
+    }
 
     this.handleRTP(packet, extensions, track);
   };
