@@ -8,6 +8,7 @@ on:
       - "feature/*"
       - "maintain/*"
   pull_request:
+    types: [opened]
     branches: [develop]
 
 jobs:
