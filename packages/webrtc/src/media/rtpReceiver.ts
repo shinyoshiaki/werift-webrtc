@@ -249,7 +249,7 @@ export class RTCRtpReceiver {
     // todo fix select use or not use nack
     if (track?.kind === "video") this.nack.addPacket(packet);
 
-    if (track) track.onReceiveRtp.execute(packet);
+    if (track) track.onReceiveRtp.execute(packet.clone());
 
     this.runRtcp();
   }

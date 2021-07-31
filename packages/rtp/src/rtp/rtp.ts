@@ -270,6 +270,10 @@ export class RtpPacket {
     return this.header.serializeSize + this.payload.length;
   }
 
+  clone() {
+    return new RtpPacket(new RtpHeader({ ...this.header }), this.payload);
+  }
+
   serialize() {
     let buf = this.header.serialize(
       this.header.serializeSize + this.payload.length
