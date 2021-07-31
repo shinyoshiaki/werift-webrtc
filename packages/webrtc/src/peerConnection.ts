@@ -660,7 +660,6 @@ export class RTCPeerConnection extends EventTarget {
               ] || []
             ).find((v) => v.uri === extension.uri)
         );
-        transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
 
         // # configure direction
         const mediaDirection = remoteMedia.direction || "inactive";
@@ -702,6 +701,8 @@ export class RTCPeerConnection extends EventTarget {
             );
           }
         }
+
+        transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
       } else if (remoteMedia.kind === "application") {
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();

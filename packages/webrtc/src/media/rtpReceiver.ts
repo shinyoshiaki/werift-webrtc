@@ -79,6 +79,8 @@ export class RTCRtpReceiver {
     this.supportTWCC = !!Object.values(this.codecs).find((codec) =>
       codec.rtcpFeedback.find((v) => v.type === "transport-cc")
     );
+    log("twcc support", this.supportTWCC);
+
     if (this.supportTWCC && mediaSourceSsrc) {
       this.receiverTWCC = new ReceiverTWCC(
         this.dtlsTransport,
