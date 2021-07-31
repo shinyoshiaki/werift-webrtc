@@ -12,6 +12,7 @@ export class SenderBandwidthEstimator {
   congestion = false;
 
   readonly onAvailableBitrate = new Event<[number]>();
+  /**congestion occur or not */
   readonly onCongestion = new Event<[boolean]>();
   readonly onCongestionScore = new Event<[number]>();
 

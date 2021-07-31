@@ -19,7 +19,7 @@ import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
 
-const log = debug("werift-ice : packages/ice/src/ice.ts : lof");
+const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 export class Connection {
   readonly localUserName = randomString(4);
@@ -95,6 +95,7 @@ export class Connection {
       this._localCandidatesEnd = true;
       this.promiseGatherCandidates.execute();
     }
+    this.setState("completed");
   }
 
   private async getComponentCandidates(
@@ -255,7 +256,7 @@ export class Connection {
     // # start consent freshness tests
     this.queryConsentHandle = future(this.queryConsent());
 
-    this.setState("completed");
+    this.setState("connected");
   }
 
   private unfreezeInitial() {
@@ -355,6 +356,9 @@ export class Connection {
                 0
               );
               failures = 0;
+              if (this.state === "disconnected") {
+                this.setState("connected");
+              }
             } catch (error) {
               failures++;
               this.setState("disconnected");
@@ -907,7 +911,7 @@ export enum CandidatePairState {
   FAILED = 4,
 }
 
-type IceState = "disconnected" | "closed" | "completed" | "new";
+type IceState = "disconnected" | "closed" | "completed" | "new" | "connected";
 
 export interface IceOptions {
   components: number;

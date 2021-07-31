@@ -44,6 +44,7 @@
     "eslint-plugin-simple-import-sort": "^7.0.0",
     "jest": "^27.0.6",
     "lerna": "^4.0.0",
+    "node-actionlint": "^1.1.0",
     "organize-imports-cli": "^0.8.0",
     "prettier": "^2.3.2",
     "ts-jest": "^27.0.4",

@@ -1,4 +1,4 @@
-// draft-ietf-payload-vp9-16
+// RTP Payload Format for VP9 Video draft-ietf-payload-vp9-16 https://datatracker.ietf.org/doc/html/draft-ietf-payload-vp9
 
 import { getBit, paddingByte } from "../../../common/src";
 

@@ -1,4 +1,4 @@
-// RTP Payload Format For AV1
+// RTP Payload Format For AV1 https://aomediacodec.github.io/av1-rtp-spec/
 
 import { getBit } from "../../../common/src";
 
@@ -16,14 +16,14 @@ export class AV1RtpPayload {
   static deSerialize(buf: Buffer) {
     const c = new AV1RtpPayload();
 
-    let index = 0;
+    let offset = 0;
 
-    c.z = getBit(buf[index], 0);
-    c.y = getBit(buf[index], 1);
-    c.w = getBit(buf[index], 2, 2);
-    c.n = getBit(buf[index], 4);
+    c.z = getBit(buf[offset], 0);
+    c.y = getBit(buf[offset], 1);
+    c.w = getBit(buf[offset], 2, 2);
+    c.n = getBit(buf[offset], 4);
 
-    index++;
+    offset++;
 
     return c;
   }
