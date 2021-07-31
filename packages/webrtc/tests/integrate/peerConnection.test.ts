@@ -37,8 +37,9 @@ describe("peerConnection", () => {
       expect(offer.sdp.includes("a=candidate")).toBeFalsy();
       expect(offer.sdp.includes("a=end-of-candidates")).toBeFalsy();
 
-      await pc1.setLocalDescription(offer);
       expect(pc1.iceConnectionState).toBe("new");
+      await pc1.setLocalDescription(offer);
+      expect(pc1.iceConnectionState).toBe("completed");
       // expect(pc1.iceGatheringState).toBe("complete");
 
       expect(pc1.localDescription!.sdp.includes("m=application ")).toBeTruthy();
