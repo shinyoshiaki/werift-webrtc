@@ -89,9 +89,6 @@ export class mediachannel_rtx_client_offer {
     switch (type) {
       case "init":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
-
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             codecs: {
@@ -113,6 +110,14 @@ export class mediachannel_rtx_client_offer {
               ],
             },
           });
+          accept({});
+        }
+        break;
+      case "offer":
+        {
+          const port = await randomPort();
+          this.udp.bind(port);
+
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
 

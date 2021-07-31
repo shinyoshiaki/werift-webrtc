@@ -1,6 +1,4 @@
-import { randomBytes } from "crypto";
 import debug from "debug";
-import { jspack } from "jspack";
 
 import { bufferReader } from "../../../common/src";
 import {
