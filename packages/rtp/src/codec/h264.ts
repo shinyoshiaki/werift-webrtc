@@ -10,13 +10,13 @@ export class H264RtpPayload {
   static deSerialize(buf: Buffer) {
     const h264 = new H264RtpPayload();
 
-    let index = 0;
+    let offset = 0;
 
-    h264.f = getBit(buf[index], 0);
-    h264.nri = getBit(buf[index], 1, 2);
-    h264.type = getBit(buf[index], 3, 5);
+    h264.f = getBit(buf[offset], 0);
+    h264.nri = getBit(buf[offset], 1, 2);
+    h264.type = getBit(buf[offset], 3, 5);
 
-    index++;
+    offset++;
 
     return h264;
   }

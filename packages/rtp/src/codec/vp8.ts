@@ -53,43 +53,43 @@ export class Vp8RtpPayload {
   static deSerialize(buf: Buffer) {
     const c = new Vp8RtpPayload();
 
-    let index = 0;
+    let offset = 0;
 
-    c.x = getBit(buf[index], 0);
-    c.n = getBit(buf[index], 2);
-    c.s = getBit(buf[index], 3);
-    c.pid = getBit(buf[index], 5, 3);
+    c.x = getBit(buf[offset], 0);
+    c.n = getBit(buf[offset], 2);
+    c.s = getBit(buf[offset], 3);
+    c.pid = getBit(buf[offset], 5, 3);
 
-    index++;
+    offset++;
 
     if (c.x === 1) {
-      c.i = getBit(buf[index], 0);
-      c.l = getBit(buf[index], 1);
-      c.t = getBit(buf[index], 2);
-      c.k = getBit(buf[index], 3);
+      c.i = getBit(buf[offset], 0);
+      c.l = getBit(buf[offset], 1);
+      c.t = getBit(buf[offset], 2);
+      c.k = getBit(buf[offset], 3);
 
-      index++;
+      offset++;
 
       if (c.i) {
-        c.m = getBit(buf[index], 0);
+        c.m = getBit(buf[offset], 0);
 
         if (c.m === 1) {
-          const _7 = paddingByte(getBit(buf[index], 1, 7));
-          const _8 = paddingByte(buf[index + 1]);
+          const _7 = paddingByte(getBit(buf[offset], 1, 7));
+          const _8 = paddingByte(buf[offset + 1]);
           c.pictureId = parseInt(_7 + _8, 2);
-          index += 2;
+          offset += 2;
         } else {
-          c.pictureId = getBit(buf[index], 1, 7);
-          index++;
+          c.pictureId = getBit(buf[offset], 1, 7);
+          offset++;
         }
       }
     }
 
     if (c.s === 1 && c.pid === 0) {
-      c.size0 = getBit(buf[index], 0, 3);
-      c.h = getBit(buf[index], 3);
-      c.ver = getBit(buf[index], 4, 3);
-      c.p = getBit(buf[index], 7);
+      c.size0 = getBit(buf[offset], 0, 3);
+      c.h = getBit(buf[offset], 3);
+      c.ver = getBit(buf[offset], 4, 3);
+      c.p = getBit(buf[offset], 7);
     }
 
     return c;
