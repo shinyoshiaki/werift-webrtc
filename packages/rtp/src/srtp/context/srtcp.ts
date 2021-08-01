@@ -42,7 +42,7 @@ export class SrtcpContext extends Context {
   encryptRTCP(rawRtcp: Buffer): Buffer {
     let out = Buffer.from(rawRtcp);
     const ssrc = out.readUInt32BE(4);
-    const s = this.getSRTCPSSRCState(ssrc);
+    const s = this.getSrtcpSsrcState(ssrc);
     s.srtcpIndex++;
     if (s.srtcpIndex >> 0x7fffffff) {
       s.srtcpIndex = 0;

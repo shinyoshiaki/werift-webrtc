@@ -1,4 +1,4 @@
-import { Context, SrtpSSRCState } from "../../../src/srtp/context/context";
+import { Context, SrtpSsrcState } from "../../../src/srtp/context/context";
 
 describe("srtp/context", () => {
   test("TestValidSessionKeys", () => {
@@ -66,7 +66,7 @@ describe("srtp/context", () => {
     ]);
 
     const c = new Context(masterKey, masterSalt, 1);
-    const s: SrtpSSRCState = {
+    const s: SrtpSsrcState = {
       ssrc: 0,
       rolloverCounter: 0,
       lastSequenceNumber: 0,
@@ -100,7 +100,7 @@ describe("srtp/context", () => {
     ]);
 
     const c = new Context(masterKey, masterSalt, 1);
-    const s: SrtpSSRCState = {
+    const s: SrtpSsrcState = {
       ssrc: 0,
       rolloverCounter: 0,
       lastSequenceNumber: 0,

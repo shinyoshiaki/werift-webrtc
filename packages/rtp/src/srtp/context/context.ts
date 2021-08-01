@@ -3,8 +3,11 @@ import bigInt from "big-integer";
 import { createHmac } from "crypto";
 import { range } from "lodash";
 
+import { bufferWriter } from "../../../../common/src";
+import { RtpHeader } from "../../rtp/rtp";
+
 export class Context {
-  srtpSSRCStates: { [ssrc: number]: SrtpSSRCState } = {};
+  srtpSSRCStates: { [ssrc: number]: SrtpSsrcState } = {};
   srtpSessionKey = this.generateSessionKey(0);
   srtpSessionSalt = this.generateSessionSalt(2);
   srtpSessionAuthTag = this.generateSessionAuthTag(1);
@@ -96,7 +99,7 @@ export class Context {
     return Buffer.concat([firstRun, secondRun.slice(0, 4)]);
   }
 
-  getSRTPSRRCState(ssrc: number) {
+  getSrtpSsrcState(ssrc: number) {
     let s = this.srtpSSRCStates[ssrc];
     if (s) return s;
     s = {
@@ -108,7 +111,7 @@ export class Context {
     return s;
   }
 
-  getSRTCPSSRCState(ssrc: number) {
+  getSrtcpSsrcState(ssrc: number) {
     let s = this.srtcpSSRCStates[ssrc];
     if (s) return s;
     s = {
@@ -122,7 +125,7 @@ export class Context {
   // 3.3.1.  Packet Index Determination, and ROC, s_l Update
   // In particular, out-of-order RTP packets with
   // sequence numbers close to 2^16 or zero must be properly handled.
-  updateRolloverCount(sequenceNumber: number, s: SrtpSSRCState) {
+  updateRolloverCount(sequenceNumber: number, s: SrtpSsrcState) {
     if (!s.rolloverHasProcessed) {
       s.rolloverHasProcessed = true;
     } else if (sequenceNumber === 0) {
@@ -166,6 +169,17 @@ export class Context {
     return counter;
   }
 
+  rtpInitializationVector(header: RtpHeader, s: SrtpSsrcState) {
+    const iv = bufferWriter(
+      [2, 4, 4, 2],
+      [0, header.ssrc, s.rolloverCounter, header.sequenceNumber]
+    );
+    range(0, iv.length).forEach((i) => {
+      iv[i] ^= this.srtpSessionSalt[i];
+    });
+    return iv;
+  }
+
   generateSrtpAuthTag(buf: Buffer, roc: number) {
     this.srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
     const rocRaw = Buffer.alloc(4);
@@ -192,12 +206,12 @@ export class Context {
   }
 
   setIndex(ssrc: number, index: number) {
-    const s = this.getSRTCPSSRCState(ssrc);
+    const s = this.getSrtcpSsrcState(ssrc);
     s.srtcpIndex = index % 0x7fffffff;
   }
 }
 
-export interface SrtpSSRCState {
+export interface SrtpSsrcState {
   ssrc: number;
   rolloverCounter: number;
   rolloverHasProcessed?: boolean;

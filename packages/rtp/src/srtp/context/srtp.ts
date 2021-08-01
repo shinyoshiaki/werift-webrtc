@@ -9,18 +9,18 @@ export class SrtpContext extends Context {
     super(masterKey, masterSalt, profile);
   }
 
-  decryptRTP(ciphertext: Buffer, header?: RtpHeader): [Buffer, RtpHeader] {
-    header = header || RtpHeader.deSerialize(ciphertext);
+  decryptRTP(cipherText: Buffer, header?: RtpHeader): [Buffer, RtpHeader] {
+    header = header || RtpHeader.deSerialize(cipherText);
 
-    const s = this.getSRTPSRRCState(header.ssrc);
+    const s = this.getSrtpSsrcState(header.ssrc);
 
     let dst = Buffer.from([]);
-    dst = growBufferSize(dst, ciphertext.length - 10);
+    dst = growBufferSize(dst, cipherText.length - 10);
     this.updateRolloverCount(header.sequenceNumber, s);
 
-    ciphertext = ciphertext.slice(0, ciphertext.length - 10);
+    cipherText = cipherText.slice(0, cipherText.length - 10);
 
-    ciphertext.slice(0, header.payloadOffset).copy(dst);
+    cipherText.slice(0, header.payloadOffset).copy(dst);
 
     const counter = this.generateCounter(
       header.sequenceNumber,
@@ -33,7 +33,7 @@ export class SrtpContext extends Context {
       this.srtpSessionKey,
       counter
     );
-    const payload = ciphertext.slice(header.payloadOffset);
+    const payload = cipherText.slice(header.payloadOffset);
     const buf = cipher.update(payload);
     buf.copy(dst, header.payloadOffset);
 
@@ -41,11 +41,10 @@ export class SrtpContext extends Context {
   }
 
   encryptRTP(payload: Buffer, header: RtpHeader) {
-    const dst = Buffer.alloc(header.serializeSize + payload.length + 10);
-
-    const s = this.getSRTPSRRCState(header.ssrc);
+    const s = this.getSrtpSsrcState(header.ssrc);
     this.updateRolloverCount(header.sequenceNumber, s);
 
+    const dst = Buffer.alloc(header.serializeSize + payload.length + 10);
     header.serialize(dst.length).copy(dst);
     const { payloadOffset } = header;
 
