@@ -1,5 +1,5 @@
 import { AES } from "aes-js";
-import { createHmac } from "crypto";
+import { createHmac, Hmac } from "crypto";
 
 import { CipherAesBase } from "../cipher";
 import { CipherAesCtr } from "../cipher/ctr";
@@ -12,15 +12,15 @@ import {
 
 export class Context {
   srtpSSRCStates: { [ssrc: number]: SrtpSsrcState } = {};
-  srtpSessionKey = this.generateSessionKey(0);
-  srtpSessionSalt = this.generateSessionSalt(2);
-  srtpSessionAuthTag = this.generateSessionAuthTag(1);
-  srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
+  srtpSessionKey: Buffer;
+  srtpSessionSalt: Buffer;
+  srtpSessionAuthTag: Buffer;
+  srtpSessionAuth: Hmac;
   srtcpSSRCStates: { [ssrc: number]: SrtcpSSRCState } = {};
-  srtcpSessionKey = this.generateSessionKey(3);
-  srtcpSessionSalt = this.generateSessionSalt(5);
-  srtcpSessionAuthTag = this.generateSessionAuthTag(4);
-  srtcpSessionAuth = createHmac("sha1", this.srtcpSessionAuthTag);
+  srtcpSessionKey: Buffer;
+  srtcpSessionSalt: Buffer;
+  srtcpSessionAuthTag: Buffer;
+  srtcpSessionAuth: Hmac;
 
   cipher: CipherAesBase;
 
@@ -29,6 +29,23 @@ export class Context {
     public masterSalt: Buffer,
     public profile: Profile
   ) {
+    {
+      const diff = 14 - masterSalt.length;
+      if (diff > 0) {
+        this.masterSalt = Buffer.concat([masterSalt, Buffer.alloc(diff)]);
+      }
+    }
+
+    this.srtpSessionKey = this.generateSessionKey(0);
+    this.srtpSessionSalt = this.generateSessionSalt(2);
+    this.srtpSessionAuthTag = this.generateSessionAuthTag(1);
+    this.srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
+
+    this.srtcpSessionKey = this.generateSessionKey(3);
+    this.srtcpSessionSalt = this.generateSessionSalt(5);
+    this.srtcpSessionAuthTag = this.generateSessionAuthTag(4);
+    this.srtcpSessionAuth = createHmac("sha1", this.srtcpSessionAuthTag);
+
     switch (profile) {
       case ProtectionProfileAes128CmHmacSha1_80:
         this.cipher = new CipherAesCtr(

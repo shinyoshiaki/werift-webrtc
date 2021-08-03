@@ -204,10 +204,7 @@ export class DtlsSocket {
     this.transport.socket.close();
   }
 
-  extractSessionKeys() {
-    const keyLen = 16;
-    const saltLen = 14;
-
+  extractSessionKeys(keyLen: number, saltLen: number) {
     const keyingMaterial = this.exportKeyingMaterial(
       "EXTRACTOR-dtls_srtp",
       keyLen * 2 + saltLen * 2
