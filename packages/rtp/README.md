@@ -18,3 +18,7 @@ const buffer: Buffer = rtpPacket.serialize();
 # advanced usage
 
 see `./tests/**/*.test.ts`
+
+# reference
+
+https://github.com/pion/srtp
