@@ -15,11 +15,11 @@ export class SrtpSession extends Session<SrtpContext> {
   }
 
   decrypt = (buf: Buffer) => {
-    const [decrypted] = this.remoteContext.decryptRTP(buf);
+    const [decrypted] = this.remoteContext.decryptRtp(buf);
     return decrypted;
   };
 
   encrypt(payload: Buffer, header: RtpHeader) {
-    return this.localContext.encryptRTP(payload, header);
+    return this.localContext.encryptRtp(payload, header);
   }
 }
