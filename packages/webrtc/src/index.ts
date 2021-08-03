@@ -1,4 +1,3 @@
-export * from "../../dtls/src/context/srtp";
 export * from "../../ice/src";
 export * from "../../rtp/src";
 export * from "./dataChannel";

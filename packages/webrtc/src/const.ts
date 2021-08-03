@@ -54,7 +54,7 @@ export const SSRC_INFO_ATTRS = ["cname", "msid", "mslabel", "label"];
 export const SRTP_PROFILE = {
   SRTP_AES128_CM_HMAC_SHA1_80: ProtectionProfileAes128CmHmacSha1_80,
   SRTP_AEAD_AES_128_GCM: ProtectionProfileAeadAes128Gcm,
-};
+} as const;
 
 export const SenderDirections = ["sendonly", "sendrecv"];
 export const NotSenderDirections = ["inactive", "recvonly"];

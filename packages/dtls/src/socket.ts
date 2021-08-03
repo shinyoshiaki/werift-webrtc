@@ -204,19 +204,19 @@ export class DtlsSocket {
     this.transport.socket.close();
   }
 
-  extractSessionKeys(keyLen: number, saltLen: number) {
+  extractSessionKeys(keyLength: number, saltLength: number) {
     const keyingMaterial = this.exportKeyingMaterial(
       "EXTRACTOR-dtls_srtp",
-      keyLen * 2 + saltLen * 2
+      keyLength * 2 + saltLength * 2
     );
 
     const { clientKey, serverKey, clientSalt, serverSalt } = decode(
       keyingMaterial,
       {
-        clientKey: types.buffer(keyLen),
-        serverKey: types.buffer(keyLen),
-        clientSalt: types.buffer(saltLen),
-        serverSalt: types.buffer(saltLen),
+        clientKey: types.buffer(keyLength),
+        serverKey: types.buffer(keyLength),
+        clientSalt: types.buffer(saltLength),
+        serverSalt: types.buffer(saltLength),
       }
     );
 

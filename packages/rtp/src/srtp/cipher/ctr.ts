@@ -8,7 +8,7 @@ import { RtpHeader } from "../../rtp/rtp";
 import { CipherAesBase } from ".";
 
 export class CipherAesCtr extends CipherAesBase {
-  readonly authTagLen = 10;
+  readonly authTagLength = 10;
 
   constructor(
     srtpSessionKey: Buffer,
@@ -23,7 +23,7 @@ export class CipherAesCtr extends CipherAesBase {
 
   encryptRtp(header: RtpHeader, payload: Buffer, rolloverCounter: number) {
     const dst = Buffer.alloc(
-      header.serializeSize + payload.length + this.authTagLen
+      header.serializeSize + payload.length + this.authTagLength
     );
     header.serialize(dst.length).copy(dst);
 
@@ -53,9 +53,9 @@ export class CipherAesCtr extends CipherAesBase {
     const header = RtpHeader.deSerialize(cipherText);
 
     let dst = Buffer.from([]);
-    dst = growBufferSize(dst, cipherText.length - this.authTagLen);
+    dst = growBufferSize(dst, cipherText.length - this.authTagLength);
 
-    cipherText = cipherText.slice(0, cipherText.length - this.authTagLen);
+    cipherText = cipherText.slice(0, cipherText.length - this.authTagLength);
 
     cipherText.slice(0, header.payloadOffset).copy(dst);
 
@@ -103,7 +103,7 @@ export class CipherAesCtr extends CipherAesBase {
   decryptRTCP(encrypted: Buffer): [Buffer, RtcpHeader] {
     const header = RtcpHeader.deSerialize(encrypted);
 
-    const tailOffset = encrypted.length - (10 + 4);
+    const tailOffset = encrypted.length - (this.authTagLength + srtcpIndexSize);
     const out = Buffer.from(encrypted).slice(0, tailOffset);
 
     const isEncrypted = encrypted[tailOffset] >> 7;
@@ -114,6 +114,7 @@ export class CipherAesCtr extends CipherAesBase {
 
     const ssrc = encrypted.readUInt32BE(4);
 
+    // todo impl compare
     const actualTag = encrypted.slice(encrypted.length - 10);
 
     const counter = this.generateCounter(
@@ -165,3 +166,5 @@ export class CipherAesCtr extends CipherAesBase {
     return srtpSessionAuth.update(buf).update(rocRaw).digest().slice(0, 10);
   }
 }
+
+const srtcpIndexSize = 4;
