@@ -30,6 +30,8 @@ export class Context {
     public profile: Profile
   ) {
     {
+      // aes-js plaintext require 16byte
+      // so need to padding to 14 byte
       const diff = 14 - masterSalt.length;
       if (diff > 0) {
         this.masterSalt = Buffer.concat([masterSalt, Buffer.alloc(diff)]);
