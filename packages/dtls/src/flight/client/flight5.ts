@@ -10,7 +10,7 @@ import {
 } from "../../cipher/prf";
 import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
-import { SrtpContext } from "../../context/srtp";
+import { Profile, SrtpContext } from "../../context/srtp";
 import { TransportContext } from "../../context/transport";
 import { HandshakeType } from "../../handshake/const";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
@@ -243,7 +243,7 @@ handlers[HandshakeType.server_hello_2] =
           case UseSRTP.type:
             const useSrtp = UseSRTP.fromData(extension.data);
             const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles,
+              useSrtp.profiles as Profile[],
               dtls.options.srtpProfiles || []
             );
             log(dtls.sessionId, "selected srtp profile", profile);

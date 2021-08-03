@@ -13,7 +13,7 @@ import { exportKeyingMaterial } from "./cipher/prf";
 import { SessionType, SessionTypes } from "./cipher/suites/abstract";
 import { CipherContext } from "./context/cipher";
 import { DtlsContext } from "./context/dtls";
-import { SrtpContext } from "./context/srtp";
+import { Profile, SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -204,22 +204,19 @@ export class DtlsSocket {
     this.transport.socket.close();
   }
 
-  extractSessionKeys() {
-    const keyLen = 16;
-    const saltLen = 14;
-
+  extractSessionKeys(keyLength: number, saltLength: number) {
     const keyingMaterial = this.exportKeyingMaterial(
       "EXTRACTOR-dtls_srtp",
-      keyLen * 2 + saltLen * 2
+      keyLength * 2 + saltLength * 2
     );
 
     const { clientKey, serverKey, clientSalt, serverSalt } = decode(
       keyingMaterial,
       {
-        clientKey: types.buffer(keyLen),
-        serverKey: types.buffer(keyLen),
-        clientSalt: types.buffer(saltLen),
-        serverSalt: types.buffer(saltLen),
+        clientKey: types.buffer(keyLength),
+        serverKey: types.buffer(keyLength),
+        clientSalt: types.buffer(saltLength),
+        serverSalt: types.buffer(saltLength),
       }
     );
 
@@ -254,7 +251,7 @@ export class DtlsSocket {
 
 export interface Options {
   transport: Transport;
-  srtpProfiles?: number[];
+  srtpProfiles?: Profile[];
   cert?: string;
   key?: string;
   signatureHash?: SignatureHash;

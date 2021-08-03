@@ -167,7 +167,7 @@ export class RTCRtpSender {
     }
 
     this.registerTrack(track);
-    log("replaceTrack", track.ssrc, track.rid);
+    log("replaceTrack", "ssrc", track.ssrc, "rid", track.rid);
   }
 
   stop() {

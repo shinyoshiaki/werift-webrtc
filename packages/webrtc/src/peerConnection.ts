@@ -3,6 +3,7 @@ import { cloneDeep, isEqual } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
+import { Profile } from "../../dtls/src/context/srtp";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -157,6 +158,7 @@ export class RTCPeerConnection extends EventTarget {
     });
 
     const { iceTransport, dtlsTransport } = this.createTransport([
+      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
     this.iceTransport = iceTransport;
@@ -353,7 +355,7 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(srtpProfiles: number[] = []) {
+  private createTransport(srtpProfiles: Profile[] = []) {
     const iceGatherer = new RTCIceGatherer({
       ...parseIceServers(this.configuration.iceServers),
       forceTurn: this.configuration.iceTransportPolicy === "relay",

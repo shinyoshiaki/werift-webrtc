@@ -1,4 +1,6 @@
-import { Context, SrtpSSRCState } from "../../../src/srtp/context/context";
+import { CipherAesCtr } from "../../../src/srtp/cipher/ctr";
+import { ProtectionProfileAes128CmHmacSha1_80 } from "../../../src/srtp/const";
+import { Context, SrtpSsrcState } from "../../../src/srtp/context/context";
 
 describe("srtp/context", () => {
   test("TestValidSessionKeys", () => {
@@ -24,7 +26,11 @@ describe("srtp/context", () => {
       0xaf, 0x25, 0x6a, 0x15, 0x6d, 0x38, 0xba, 0xa4,
     ]);
 
-    const c = new Context(masterKey, masterSalt, 0);
+    const c = new Context(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAes128CmHmacSha1_80
+    );
 
     const sessionKey = c.generateSessionKey(0x00);
     expect(sessionKey).toEqual(expectedSessionKey);
@@ -45,13 +51,22 @@ describe("srtp/context", () => {
       0x62, 0x77, 0x60, 0x38, 0xc0, 0x6d, 0xc9, 0x41, 0x9f, 0x6d, 0xd9, 0x43,
       0x3e, 0x7c,
     ]);
-    const c = new Context(masterKey, masterSalt, 1);
+    const c = new Context(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAes128CmHmacSha1_80
+    );
     const expectedCounter = Buffer.from([
       0xcf, 0x90, 0x1e, 0xa5, 0xda, 0xd3, 0x2c, 0x15, 0x00, 0xa2, 0x24, 0xae,
       0xae, 0xaf, 0x00, 0x00,
     ]);
 
-    const counter = c.generateCounter(32846, 0, 4160032510, c.srtpSessionSalt);
+    const counter = (c.cipher as CipherAesCtr).generateCounter(
+      32846,
+      0,
+      4160032510,
+      c.srtpSessionSalt
+    );
     expect(counter).toEqual(expectedCounter);
   });
 
@@ -66,7 +81,7 @@ describe("srtp/context", () => {
     ]);
 
     const c = new Context(masterKey, masterSalt, 1);
-    const s: SrtpSSRCState = {
+    const s: SrtpSsrcState = {
       ssrc: 0,
       rolloverCounter: 0,
       lastSequenceNumber: 0,
@@ -100,7 +115,7 @@ describe("srtp/context", () => {
     ]);
 
     const c = new Context(masterKey, masterSalt, 1);
-    const s: SrtpSSRCState = {
+    const s: SrtpSsrcState = {
       ssrc: 0,
       rolloverCounter: 0,
       lastSequenceNumber: 0,

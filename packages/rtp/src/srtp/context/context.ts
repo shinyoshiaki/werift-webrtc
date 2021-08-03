@@ -1,25 +1,74 @@
 import { AES } from "aes-js";
-import bigInt from "big-integer";
-import { createHmac } from "crypto";
-import { range } from "lodash";
+import { createHmac, Hmac } from "crypto";
+
+import { CipherAesBase } from "../cipher";
+import { CipherAesCtr } from "../cipher/ctr";
+import { CipherAesGcm } from "../cipher/gcm";
+import {
+  Profile,
+  ProtectionProfileAeadAes128Gcm,
+  ProtectionProfileAes128CmHmacSha1_80,
+} from "../const";
 
 export class Context {
-  srtpSSRCStates: { [ssrc: number]: SrtpSSRCState } = {};
-  srtpSessionKey = this.generateSessionKey(0);
-  srtpSessionSalt = this.generateSessionSalt(2);
-  srtpSessionAuthTag = this.generateSessionAuthTag(1);
-  srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
+  srtpSSRCStates: { [ssrc: number]: SrtpSsrcState } = {};
+  srtpSessionKey: Buffer;
+  srtpSessionSalt: Buffer;
+  srtpSessionAuthTag: Buffer;
+  srtpSessionAuth: Hmac;
   srtcpSSRCStates: { [ssrc: number]: SrtcpSSRCState } = {};
-  srtcpSessionKey = this.generateSessionKey(3);
-  srtcpSessionSalt = this.generateSessionSalt(5);
-  srtcpSessionAuthTag = this.generateSessionAuthTag(4);
-  srtcpSessionAuth = createHmac("sha1", this.srtcpSessionAuthTag);
+  srtcpSessionKey: Buffer;
+  srtcpSessionSalt: Buffer;
+  srtcpSessionAuthTag: Buffer;
+  srtcpSessionAuth: Hmac;
+
+  cipher: CipherAesBase;
 
   constructor(
     public masterKey: Buffer,
     public masterSalt: Buffer,
-    public profile: number
-  ) {}
+    public profile: Profile
+  ) {
+    {
+      // aes-js plaintext require 16byte
+      // so need to padding to 14 byte
+      const diff = 14 - masterSalt.length;
+      if (diff > 0) {
+        this.masterSalt = Buffer.concat([masterSalt, Buffer.alloc(diff)]);
+      }
+    }
+
+    this.srtpSessionKey = this.generateSessionKey(0);
+    this.srtpSessionSalt = this.generateSessionSalt(2);
+    this.srtpSessionAuthTag = this.generateSessionAuthTag(1);
+    this.srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
+
+    this.srtcpSessionKey = this.generateSessionKey(3);
+    this.srtcpSessionSalt = this.generateSessionSalt(5);
+    this.srtcpSessionAuthTag = this.generateSessionAuthTag(4);
+    this.srtcpSessionAuth = createHmac("sha1", this.srtcpSessionAuthTag);
+
+    switch (profile) {
+      case ProtectionProfileAes128CmHmacSha1_80:
+        this.cipher = new CipherAesCtr(
+          this.srtpSessionKey,
+          this.srtpSessionSalt,
+          this.srtcpSessionKey,
+          this.srtcpSessionSalt,
+          this.srtpSessionAuthTag,
+          this.srtcpSessionAuthTag
+        );
+        break;
+      case ProtectionProfileAeadAes128Gcm:
+        this.cipher = new CipherAesGcm(
+          this.srtpSessionKey,
+          this.srtpSessionSalt,
+          this.srtcpSessionKey,
+          this.srtcpSessionSalt
+        );
+        break;
+    }
+  }
 
   generateSessionKey(label: number) {
     let sessionKey = Buffer.from(this.masterSalt);
@@ -96,7 +145,7 @@ export class Context {
     return Buffer.concat([firstRun, secondRun.slice(0, 4)]);
   }
 
-  getSRTPSRRCState(ssrc: number) {
+  getSrtpSsrcState(ssrc: number) {
     let s = this.srtpSSRCStates[ssrc];
     if (s) return s;
     s = {
@@ -108,7 +157,7 @@ export class Context {
     return s;
   }
 
-  getSRTCPSSRCState(ssrc: number) {
+  getSrtcpSsrcState(ssrc: number) {
     let s = this.srtcpSSRCStates[ssrc];
     if (s) return s;
     s = {
@@ -122,7 +171,7 @@ export class Context {
   // 3.3.1.  Packet Index Determination, and ROC, s_l Update
   // In particular, out-of-order RTP packets with
   // sequence numbers close to 2^16 or zero must be properly handled.
-  updateRolloverCount(sequenceNumber: number, s: SrtpSSRCState) {
+  updateRolloverCount(sequenceNumber: number, s: SrtpSsrcState) {
     if (!s.rolloverHasProcessed) {
       s.rolloverHasProcessed = true;
     } else if (sequenceNumber === 0) {
@@ -146,26 +195,6 @@ export class Context {
     s.lastSequenceNumber = sequenceNumber;
   }
 
-  generateCounter(
-    sequenceNumber: number,
-    rolloverCounter: number,
-    ssrc: number,
-    sessionSalt: Buffer
-  ) {
-    const counter = Buffer.alloc(16);
-    counter.writeUInt32BE(ssrc, 4);
-    counter.writeUInt32BE(rolloverCounter, 8);
-    counter.writeUInt32BE(
-      bigInt(sequenceNumber).shiftLeft(16).toJSNumber(),
-      12
-    );
-
-    range(sessionSalt.length).forEach((i) => {
-      counter[i] = counter[i] ^ sessionSalt[i];
-    });
-    return counter;
-  }
-
   generateSrtpAuthTag(buf: Buffer, roc: number) {
     this.srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
     const rocRaw = Buffer.alloc(4);
@@ -178,11 +207,6 @@ export class Context {
       .slice(0, 10);
   }
 
-  generateSrtcpAuthTag(buf: Buffer) {
-    this.srtcpSessionAuth = createHmac("sha1", this.srtcpSessionAuthTag);
-    return this.srtcpSessionAuth.update(buf).digest().slice(0, 10);
-  }
-
   index(ssrc: number) {
     const s = this.srtcpSSRCStates[ssrc];
     if (!s) {
@@ -192,12 +216,12 @@ export class Context {
   }
 
   setIndex(ssrc: number, index: number) {
-    const s = this.getSRTCPSSRCState(ssrc);
+    const s = this.getSrtcpSsrcState(ssrc);
     s.srtcpIndex = index % 0x7fffffff;
   }
 }
 
-export interface SrtpSSRCState {
+export interface SrtpSsrcState {
   ssrc: number;
   rolloverCounter: number;
   rolloverHasProcessed?: boolean;

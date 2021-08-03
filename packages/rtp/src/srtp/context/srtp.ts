@@ -1,71 +1,27 @@
-import { createCipheriv, createDecipheriv } from "crypto";
-
-import { growBufferSize } from "../../helper";
 import { RtpHeader } from "../../rtp/rtp";
+import { Profile } from "../const";
 import { Context } from "./context";
 
 export class SrtpContext extends Context {
-  constructor(masterKey: Buffer, masterSalt: Buffer, profile: number) {
+  constructor(masterKey: Buffer, masterSalt: Buffer, profile: Profile) {
     super(masterKey, masterSalt, profile);
   }
 
-  decryptRTP(ciphertext: Buffer, header?: RtpHeader): [Buffer, RtpHeader] {
-    header = header || RtpHeader.deSerialize(ciphertext);
-
-    const s = this.getSRTPSRRCState(header.ssrc);
-
-    let dst = Buffer.from([]);
-    dst = growBufferSize(dst, ciphertext.length - 10);
+  encryptRtp(payload: Buffer, header: RtpHeader) {
+    const s = this.getSrtpSsrcState(header.ssrc);
     this.updateRolloverCount(header.sequenceNumber, s);
 
-    ciphertext = ciphertext.slice(0, ciphertext.length - 10);
-
-    ciphertext.slice(0, header.payloadOffset).copy(dst);
-
-    const counter = this.generateCounter(
-      header.sequenceNumber,
-      s.rolloverCounter,
-      s.ssrc,
-      this.srtpSessionSalt
-    );
-    const cipher = createDecipheriv(
-      "aes-128-ctr",
-      this.srtpSessionKey,
-      counter
-    );
-    const payload = ciphertext.slice(header.payloadOffset);
-    const buf = cipher.update(payload);
-    buf.copy(dst, header.payloadOffset);
-
-    return [dst, header];
+    const enc = this.cipher.encryptRtp(header, payload, s.rolloverCounter);
+    return enc;
   }
 
-  encryptRTP(payload: Buffer, header: RtpHeader) {
-    const dst = Buffer.alloc(header.serializeSize + payload.length + 10);
+  decryptRtp(cipherText: Buffer): [Buffer, RtpHeader] {
+    const header = RtpHeader.deSerialize(cipherText);
 
-    const s = this.getSRTPSRRCState(header.ssrc);
+    const s = this.getSrtpSsrcState(header.ssrc);
     this.updateRolloverCount(header.sequenceNumber, s);
 
-    header.serialize(dst.length).copy(dst);
-    const { payloadOffset } = header;
-
-    const counter = this.generateCounter(
-      header.sequenceNumber,
-      s.rolloverCounter,
-      s.ssrc,
-      this.srtpSessionSalt
-    );
-
-    const cipher = createCipheriv("aes-128-ctr", this.srtpSessionKey, counter);
-    const buf = cipher.update(payload);
-    buf.copy(dst, payloadOffset);
-    const totalLength = payloadOffset + payload.length;
-
-    const authTag = this.generateSrtpAuthTag(
-      dst.slice(0, totalLength),
-      s.rolloverCounter
-    );
-    authTag.copy(dst, totalLength);
-    return dst;
+    const dec = this.cipher.decryptRtp(cipherText, s.rolloverCounter);
+    return dec;
   }
 }

@@ -16,6 +16,7 @@ import {
   SignatureHash,
 } from "../../../dtls/src/cipher/const";
 import { CipherContext } from "../../../dtls/src/context/cipher";
+import { Profile } from "../../../dtls/src/context/srtp";
 import { Connection } from "../../../ice/src";
 import {
   RtcpPacket,
@@ -25,6 +26,7 @@ import {
   SrtcpSession,
   SrtpSession,
 } from "../../../rtp/src";
+import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
 import { RtpRouter } from "../media/router";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
 import { RTCIceTransport } from "./ice";
@@ -51,7 +53,7 @@ export class RTCDtlsTransport {
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
-    private readonly srtpProfiles: number[] = []
+    private readonly srtpProfiles: Profile[] = []
   ) {}
 
   get localParameters() {
@@ -151,9 +153,15 @@ export class RTCDtlsTransport {
     if (this.srtpStarted) return;
     this.srtpStarted = true;
 
+    const profile = this.dtls.srtp.srtpProfile;
+    if (!profile) {
+      throw new Error("need srtpProfile");
+    }
+    log("selected SRTP Profile", profile);
+
     const { localKey, localSalt, remoteKey, remoteSalt } =
-      this.dtls.extractSessionKeys();
-    if (!this.dtls.srtp.srtpProfile) throw new Error("need srtpProfile");
+      this.dtls.extractSessionKeys(keyLength(profile), saltLength(profile));
+
     const config = {
       keys: {
         localMasterKey: localKey,
@@ -161,7 +169,7 @@ export class RTCDtlsTransport {
         remoteMasterKey: remoteKey,
         remoteMasterSalt: remoteSalt,
       },
-      profile: this.dtls.srtp.srtpProfile,
+      profile,
     };
     this.srtp = new SrtpSession(config);
     this.srtcp = new SrtcpSession(config);

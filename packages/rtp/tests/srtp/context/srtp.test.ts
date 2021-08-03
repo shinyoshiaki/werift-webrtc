@@ -70,13 +70,13 @@ describe("srtp/context/srtp", () => {
       );
       const encryptedRaw = encryptedPkt.serialize();
 
-      const actualEncrypted = encryptContext.encryptRTP(
+      const actualEncrypted = encryptContext.encryptRtp(
         rtpTestCaseDecrypted,
         decryptedPkt.header
       );
       expect(actualEncrypted).toEqual(encryptedRaw);
 
-      const [actualDecrypted] = decryptContext.decryptRTP(encryptedRaw);
+      const [actualDecrypted] = decryptContext.decryptRtp(encryptedRaw);
       expect(actualDecrypted).toEqual(decryptedRaw);
     });
   });
@@ -99,7 +99,7 @@ describe("srtp/context/srtp", () => {
       );
       const encryptedRaw = encryptedPkt.serialize();
 
-      const actualEncrypted = encryptContext.encryptRTP(
+      const actualEncrypted = encryptContext.encryptRtp(
         rtpTestCaseDecrypted,
         decryptPkt.header
       );
@@ -108,7 +108,7 @@ describe("srtp/context/srtp", () => {
       const decryptInput = Buffer.from(encryptedRaw);
 
       const [actualDecrypted, decryptHeader] =
-        decryptContext.decryptRTP(decryptInput);
+        decryptContext.decryptRtp(decryptInput);
       expect(decryptHeader.sequenceNumber).toBe(sequenceNumber);
       expect(actualDecrypted).toEqual(decryptedRaw);
     });
