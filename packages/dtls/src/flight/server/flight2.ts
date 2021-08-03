@@ -10,7 +10,7 @@ import {
 import { generateKeyPair } from "../../cipher/namedCurve";
 import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
-import { SrtpContext } from "../../context/srtp";
+import { Profile, SrtpContext } from "../../context/srtp";
 import { TransportContext } from "../../context/transport";
 import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
@@ -75,7 +75,7 @@ export const flight2 =
             const useSrtp = UseSRTP.fromData(extension.data);
             log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
             const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles,
+              useSrtp.profiles as Profile[],
               dtls.options?.srtpProfiles
             );
             if (!profile) {

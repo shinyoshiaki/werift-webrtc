@@ -13,7 +13,7 @@ import { exportKeyingMaterial } from "./cipher/prf";
 import { SessionType, SessionTypes } from "./cipher/suites/abstract";
 import { CipherContext } from "./context/cipher";
 import { DtlsContext } from "./context/dtls";
-import { SrtpContext } from "./context/srtp";
+import { Profile, SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
@@ -254,7 +254,7 @@ export class DtlsSocket {
 
 export interface Options {
   transport: Transport;
-  srtpProfiles?: number[];
+  srtpProfiles?: Profile[];
   cert?: string;
   key?: string;
   signatureHash?: SignatureHash;

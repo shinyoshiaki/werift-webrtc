@@ -1,9 +1,19 @@
 export class SrtpContext {
-  srtpProfile?: number;
+  srtpProfile?: Profile;
 
-  static findMatchingSRTPProfile(remote: number[], local: number[]) {
+  static findMatchingSRTPProfile(remote: Profile[], local: Profile[]) {
     for (const v of remote) {
       if (local.includes(v)) return v;
     }
   }
 }
+
+export const ProtectionProfileAes128CmHmacSha1_80 = 0x0001 as const;
+export const ProtectionProfileAeadAes128Gcm = 0x0007 as const;
+
+export const Profiles = [
+  ProtectionProfileAes128CmHmacSha1_80,
+  ProtectionProfileAeadAes128Gcm,
+] as const;
+
+export type Profile = typeof Profiles[number];

@@ -16,6 +16,7 @@ import {
   SignatureHash,
 } from "../../../dtls/src/cipher/const";
 import { CipherContext } from "../../../dtls/src/context/cipher";
+import { Profile } from "../../../dtls/src/context/srtp";
 import { Connection } from "../../../ice/src";
 import {
   RtcpPacket,
@@ -51,7 +52,7 @@ export class RTCDtlsTransport {
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
-    private readonly srtpProfiles: number[] = []
+    private readonly srtpProfiles: Profile[] = []
   ) {}
 
   get localParameters() {

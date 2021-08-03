@@ -1,3 +1,7 @@
+import {
+  ProtectionProfileAeadAes128Gcm,
+  ProtectionProfileAes128CmHmacSha1_80,
+} from "../../dtls/src/context/srtp";
 import { DtlsRole } from "./transport/dtls";
 
 // data channel export constants
@@ -47,9 +51,10 @@ export const FMTP_INT_PARAMETERS = [
 
 export const SSRC_INFO_ATTRS = ["cname", "msid", "mslabel", "label"];
 
-export enum SRTP_PROFILE {
-  SRTP_AES128_CM_HMAC_SHA1_80 = 1,
-}
+export const SRTP_PROFILE = {
+  SRTP_AES128_CM_HMAC_SHA1_80: ProtectionProfileAes128CmHmacSha1_80,
+  SRTP_AEAD_AES_128_GCM: ProtectionProfileAeadAes128Gcm,
+};
 
 export const SenderDirections = ["sendonly", "sendrecv"];
 export const NotSenderDirections = ["inactive", "recvonly"];
