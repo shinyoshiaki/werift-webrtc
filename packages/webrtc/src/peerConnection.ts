@@ -158,8 +158,8 @@ export class RTCPeerConnection extends EventTarget {
     });
 
     const { iceTransport, dtlsTransport } = this.createTransport([
+      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM,
     ]);
     this.iceTransport = iceTransport;
     this.dtlsTransport = dtlsTransport;

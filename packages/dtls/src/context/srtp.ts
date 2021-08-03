@@ -2,8 +2,8 @@ export class SrtpContext {
   srtpProfile?: Profile;
 
   static findMatchingSRTPProfile(remote: Profile[], local: Profile[]) {
-    for (const v of remote) {
-      if (local.includes(v)) return v;
+    for (const v of local) {
+      if (remote.includes(v)) return v;
     }
   }
 }

@@ -154,7 +154,11 @@ export class RTCDtlsTransport {
 
     const { localKey, localSalt, remoteKey, remoteSalt } =
       this.dtls.extractSessionKeys();
-    if (!this.dtls.srtp.srtpProfile) throw new Error("need srtpProfile");
+    if (!this.dtls.srtp.srtpProfile) {
+      throw new Error("need srtpProfile");
+    }
+    log("selected SRTP Profile", this.dtls.srtp.srtpProfile);
+
     const config = {
       keys: {
         localMasterKey: localKey,
