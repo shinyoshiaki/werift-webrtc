@@ -1,7 +1,10 @@
-import React, { FC, useEffect } from "react";
+import React, { FC, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
+import { createTestTrack } from "./util";
 
 const App: FC = () => {
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     (async () => {
       const socket = new WebSocket("ws://localhost:8888");
@@ -13,9 +16,8 @@ const App: FC = () => {
 
       const peer = new RTCPeerConnection({});
 
-      const [track] = (
-        await navigator.mediaDevices.getUserMedia({ video: true })
-      ).getTracks();
+      const track = createTestTrack(320, 320);
+      localVideoRef.current.srcObject = new MediaStream([track]);
 
       peer.addTrack(track);
 
@@ -26,7 +28,11 @@ const App: FC = () => {
     })();
   }, []);
 
-  return <div></div>;
+  return (
+    <div>
+      <video autoPlay ref={localVideoRef} />
+    </div>
+  );
 };
 
 ReactDOM.render(<App />, document.getElementById("root"));
