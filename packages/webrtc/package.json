@@ -58,12 +58,12 @@
     "@types/aes-js": "^3.1.1",
     "@types/big-integer": "^0.0.31",
     "@types/buffer-crc32": "^0.2.0",
-    "@types/debug": "^4.1.6",
+    "@types/debug": "^4.1.7",
     "@types/elliptic": "^6.4.12",
     "@types/ip": "^1.1.0",
-    "@types/lodash": "^4.14.170",
+    "@types/lodash": "^4.14.172",
     "@types/uuid": "^8.3.0",
-    "typedoc": "^0.21.4"
+    "typedoc": "^0.21.5"
   },
   "engines": {
     "node": ">=15"

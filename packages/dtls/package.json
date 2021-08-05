@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "@types/elliptic": "^6.4.12",
-    "@types/lodash": "^4.14.170"
+    "@types/lodash": "^4.14.172"
   },
   "engines": {
     "node": ">=15"

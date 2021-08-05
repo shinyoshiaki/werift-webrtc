@@ -37,8 +37,8 @@
   "devDependencies": {
     "@types/aes-js": "^3.1.1",
     "@types/big-integer": "^0.0.31",
-    "@types/debug": "^4.1.6",
-    "@types/lodash": "^4.14.170"
+    "@types/debug": "^4.1.7",
+    "@types/lodash": "^4.14.172"
   },
   "engines": {
     "node": ">=10"
