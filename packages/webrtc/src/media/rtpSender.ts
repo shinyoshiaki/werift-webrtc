@@ -54,7 +54,7 @@ export class RTCRtpSender {
       : this.trackOrKind.kind;
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
-  readonly streamId = uuid.v4();
+  streamId = uuid.v4();
   readonly trackId = uuid.v4();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -104,6 +104,9 @@ export class RTCRtpSender {
       }
     });
     if (trackOrKind instanceof MediaStreamTrack) {
+      if (trackOrKind.streamId) {
+        this.streamId = trackOrKind.streamId;
+      }
       this.registerTrack(trackOrKind);
     }
   }
@@ -188,18 +191,19 @@ export class RTCRtpSender {
           signal: this.rtcpCancel.signal,
         });
 
+        const ntpTimestamp = ntpTime();
         const packets: RtcpPacket[] = [
           new RtcpSrPacket({
             ssrc: this.ssrc,
             senderInfo: new RtcpSenderInfo({
-              ntpTimestamp: this.ntpTimestamp,
+              ntpTimestamp,
               rtpTimestamp: this.rtpTimestamp,
               packetCount: this.packetCount,
               octetCount: this.octetCount,
             }),
           }),
         ];
-        this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
+        this.lsr = (ntpTimestamp >> 16n) & 0xffffffffn;
         this.lsrTime = Date.now() / 1000;
 
         if (this.cname) {
