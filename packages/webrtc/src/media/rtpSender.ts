@@ -38,7 +38,7 @@ import {
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
 } from "./parameters";
-import { SenderBandwidthEstimator, SentInfo } from "./senderBWE/senderBWE";
+import { SenderBandwidthEstimator, SentInfo } from "./sender/senderBWE";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");

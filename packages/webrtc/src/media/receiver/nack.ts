@@ -1,13 +1,13 @@
 import { range } from "lodash";
 import Event from "rx.mini";
 
-import { uint16Add } from "../../../common/src";
+import { uint16Add } from "../../../../common/src";
 import {
   GenericNack,
   RtcpTransportLayerFeedback,
   RtpPacket,
-} from "../../../rtp/src";
-import { RTCRtpReceiver } from "./rtpReceiver";
+} from "../../../../rtp/src";
+import { RTCRtpReceiver } from "../rtpReceiver";
 
 const LOST_SIZE = 30 * 5;
 
