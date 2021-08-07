@@ -55,6 +55,11 @@
               } else {
                 videoRef.current.srcObject = new MediaStream([e.track]);
               }
+
+              peer.getReceivers().forEach((r) => {
+                r.playoutDelayHint = 1;
+                r.jitterBufferDelayHint = 1;
+              });
             };
 
             await peer.setRemoteDescription(offer);

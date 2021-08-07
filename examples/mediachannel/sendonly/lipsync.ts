@@ -5,9 +5,11 @@ import {
   randomPort,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  RTCRtpTransceiver,
   RtpPacket,
 } from "../../../packages/webrtc/src";
 import { exec } from "child_process";
+import { setTimeout } from "timers/promises";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -34,47 +36,48 @@ server.on("connection", async (socket) => {
 
   const streamId = "test_lipsync";
 
-  const audioTrack = new MediaStreamTrack({ kind: "audio", streamId });
+  const audioTrack = new MediaStreamTrack({
+    kind: "audio",
+    streamId,
+  });
   const audioTransceiver = pc.addTransceiver(audioTrack, {
     direction: "sendonly",
   });
 
-  const videoTrack = new MediaStreamTrack({ kind: "video", streamId });
+  const videoTrack = new MediaStreamTrack({
+    kind: "video",
+    streamId,
+  });
   const videoTransceiver = pc.addTransceiver(videoTrack, {
     direction: "sendonly",
   });
 
-  let audioPayloadType = 0;
-  const audio = createSocket("udp4");
-  audio.bind(audioPort);
-  audio.on("message", (buf) => {
-    const rtp = RtpPacket.deSerialize(buf);
-    if (!audioPayloadType) {
-      audioPayloadType = rtp.header.payloadType;
-    }
+  const registerRtp = (
+    port: number,
+    transceiver: RTCRtpTransceiver,
+    track: MediaStreamTrack
+  ) => {
+    let payloadType = 0;
 
-    if (audioPayloadType !== rtp.header.payloadType) {
-      audioPayloadType = rtp.header.payloadType;
-      audioTransceiver.sender.replaceRTP(rtp.header);
-    }
-    audioTrack.writeRtp(buf);
-  });
+    const socket = createSocket("udp4");
+    socket.bind(port);
+    socket.on("message", async (buf) => {
+      const rtp = RtpPacket.deSerialize(buf);
+      if (!payloadType) {
+        payloadType = rtp.header.payloadType;
+      }
 
-  let videoPayloadType = 0;
-  const video = createSocket("udp4");
-  video.bind(videoPort);
-  video.on("message", (buf) => {
-    const rtp = RtpPacket.deSerialize(buf);
-    if (!videoPayloadType) {
-      videoPayloadType = rtp.header.payloadType;
-    }
+      if (payloadType !== rtp.header.payloadType) {
+        payloadType = rtp.header.payloadType;
+        transceiver.sender.replaceRTP(rtp.header);
+      }
+      if (track.kind === "audio") await setTimeout(900);
+      track.writeRtp(buf);
+    });
+  };
 
-    if (videoPayloadType !== rtp.header.payloadType) {
-      videoPayloadType = rtp.header.payloadType;
-      videoTransceiver.sender.replaceRTP(rtp.header);
-    }
-    videoTrack.writeRtp(buf);
-  });
+  registerRtp(audioPort, audioTransceiver, audioTrack);
+  registerRtp(videoPort, videoTransceiver, videoTrack);
 
   pc.connectionStateChange
     .watch((state) => state === "connected")
@@ -85,7 +88,7 @@ server.on("connection", async (socket) => {
 
         const cmd = `gst-launch-1.0 filesrc location= ~/Downloads/test.mp4 ! qtdemux name=d ! \
         queue ! h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! udpsink host=127.0.0.1 port=${videoPort} d. ! \
-        queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! udpsink host=127.0.0.1 port=${audioPort} -v`;
+        queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! udpsink host=127.0.0.1 port=${audioPort}`;
         const process = exec(cmd);
         process.on("close", () => {
           loop();

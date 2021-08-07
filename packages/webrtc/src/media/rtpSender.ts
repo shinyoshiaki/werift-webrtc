@@ -191,19 +191,18 @@ export class RTCRtpSender {
           signal: this.rtcpCancel.signal,
         });
 
-        const ntpTimestamp = ntpTime();
         const packets: RtcpPacket[] = [
           new RtcpSrPacket({
             ssrc: this.ssrc,
             senderInfo: new RtcpSenderInfo({
-              ntpTimestamp,
+              ntpTimestamp: this.ntpTimestamp,
               rtpTimestamp: this.rtpTimestamp,
               packetCount: this.packetCount,
               octetCount: this.octetCount,
             }),
           }),
         ];
-        this.lsr = (ntpTimestamp >> 16n) & 0xffffffffn;
+        this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
         this.lsrTime = Date.now() / 1000;
 
         if (this.cname) {
