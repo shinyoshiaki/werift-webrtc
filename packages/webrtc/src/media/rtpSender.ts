@@ -231,7 +231,10 @@ export class RTCRtpSender {
     } catch (error) {}
   }
 
-  private replaceRTP({ sequenceNumber, timestamp }: RtpHeader) {
+  replaceRTP({
+    sequenceNumber,
+    timestamp,
+  }: Pick<RtpHeader, "sequenceNumber" | "timestamp">) {
     if (this.sequenceNumber != undefined) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
     }

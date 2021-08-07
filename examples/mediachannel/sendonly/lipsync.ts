@@ -5,6 +5,7 @@ import {
   randomPort,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  RtpPacket,
 } from "../../../packages/webrtc/src";
 import { exec } from "child_process";
 
@@ -34,30 +35,57 @@ server.on("connection", async (socket) => {
   const streamId = "test_lipsync";
 
   const audioTrack = new MediaStreamTrack({ kind: "audio", streamId });
-  pc.addTransceiver(audioTrack, { direction: "sendonly" });
+  const audioTransceiver = pc.addTransceiver(audioTrack, {
+    direction: "sendonly",
+  });
 
   const videoTrack = new MediaStreamTrack({ kind: "video", streamId });
-  pc.addTransceiver(videoTrack, { direction: "sendonly" });
+  const videoTransceiver = pc.addTransceiver(videoTrack, {
+    direction: "sendonly",
+  });
 
+  let audioPayloadType = 0;
   const audio = createSocket("udp4");
   audio.bind(audioPort);
   audio.on("message", (buf) => {
+    const rtp = RtpPacket.deSerialize(buf);
+    if (!audioPayloadType) {
+      audioPayloadType = rtp.header.payloadType;
+    }
+
+    if (audioPayloadType !== rtp.header.payloadType) {
+      audioPayloadType = rtp.header.payloadType;
+      audioTransceiver.sender.replaceRTP(rtp.header);
+    }
     audioTrack.writeRtp(buf);
   });
 
+  let videoPayloadType = 0;
   const video = createSocket("udp4");
   video.bind(videoPort);
   video.on("message", (buf) => {
+    const rtp = RtpPacket.deSerialize(buf);
+    if (!videoPayloadType) {
+      videoPayloadType = rtp.header.payloadType;
+    }
+
+    if (videoPayloadType !== rtp.header.payloadType) {
+      videoPayloadType = rtp.header.payloadType;
+      videoTransceiver.sender.replaceRTP(rtp.header);
+    }
     videoTrack.writeRtp(buf);
   });
 
   pc.connectionStateChange
     .watch((state) => state === "connected")
     .then(() => {
+      let payloadType = 96;
       const loop = () => {
+        if (payloadType > 100) payloadType = 96;
+
         const cmd = `gst-launch-1.0 filesrc location= ~/Downloads/test.mp4 ! qtdemux name=d ! \
-        queue ! h264parse ! rtph264pay config-interval=10 pt=96 ! udpsink host=127.0.0.1 port=${videoPort} d. ! \
-        queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=97 ! udpsink host=127.0.0.1 port=${audioPort} -v`;
+        queue ! h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! udpsink host=127.0.0.1 port=${videoPort} d. ! \
+        queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! udpsink host=127.0.0.1 port=${audioPort} -v`;
         const process = exec(cmd);
         process.on("close", () => {
           loop();
