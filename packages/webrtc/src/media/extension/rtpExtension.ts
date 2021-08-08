@@ -1,4 +1,4 @@
-import { RTCRtpHeaderExtensionParameters } from "../media/parameters";
+import { RTCRtpHeaderExtensionParameters } from "../parameters";
 
 export const RTP_EXTENSION_URI = {
   sdesMid: "urn:ietf:params:rtp-hdrext:sdes:mid",

@@ -29,10 +29,10 @@ import {
   SourceDescriptionItem,
   TransportWideCC,
 } from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
-import { milliTime, ntpTime } from "../utils";
+import { compactNtp, milliTime, ntpTime } from "../utils";
+import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -72,7 +72,7 @@ export class RTCRtpSender {
   private disposeTrack?: () => void;
 
   // # stats
-  private lsr?: bigint;
+  private lsr?: number;
   private lsrTime: number = Date.now() / 1000;
   private ntpTimestamp = 0n;
   private rtpTimestamp = 0;
@@ -202,7 +202,7 @@ export class RTCRtpSender {
             }),
           }),
         ];
-        this.lsr = (this.ntpTimestamp >> 16n) & 0xffffffffn;
+        this.lsr = compactNtp(this.ntpTimestamp);
         this.lsrTime = Date.now() / 1000;
 
         if (this.cname) {
@@ -336,7 +336,7 @@ export class RTCRtpSender {
           packet.reports
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
-              if (this.lsr === BigInt(report.lsr) && report.dlsr) {
+              if (this.lsr === report.lsr && report.dlsr) {
                 const rtt =
                   Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
                 if (this.rtt === undefined) {

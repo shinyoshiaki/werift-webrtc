@@ -14,9 +14,10 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
+import { compactNtp } from "../utils";
+import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { Nack } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
@@ -37,7 +38,7 @@ export class RTCRtpReceiver {
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
   // last senderReport
-  readonly lsr: { [ssrc: number]: BigInt } = {};
+  readonly lsr: { [ssrc: number]: number } = {};
   readonly lsrTime: { [ssrc: number]: number } = {};
   readonly onPacketLost = this.nack.onPacketLost;
 
@@ -128,7 +129,7 @@ export class RTCRtpReceiver {
 
         const reports = Object.entries(this.remoteStreams).map(
           ([ssrc, stream]) => {
-            let lsr = 0n,
+            let lsr = 0,
               dlsr = 0;
             if (this.lsr[ssrc]) {
               lsr = this.lsr[ssrc];
@@ -144,7 +145,7 @@ export class RTCRtpReceiver {
               packetsLost: stream.packets_lost,
               highestSequence: stream.max_seq,
               jitter: stream.jitter,
-              lsr: Number(lsr),
+              lsr,
               dlsr,
             });
           }
@@ -184,7 +185,7 @@ export class RTCRtpReceiver {
       case RtcpSrPacket.type:
         {
           const sr = packet as RtcpSrPacket;
-          this.lsr[sr.ssrc] = (sr.senderInfo.ntpTimestamp >> 16n) & 0xffffffffn;
+          this.lsr[sr.ssrc] = compactNtp(sr.senderInfo.ntpTimestamp);
           this.lsrTime[sr.ssrc] = Date.now() / 1000;
         }
         break;

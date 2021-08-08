@@ -1,10 +1,16 @@
 /* eslint-disable prefer-const */
-import { createHash, randomBytes } from "crypto";
+import { createHash } from "crypto";
 import debug from "debug";
-import { jspack } from "jspack";
 import { performance } from "perf_hooks";
 
-import { random16, random32, uint16Add, uint32Add } from "../../common/src";
+import {
+  bufferReader,
+  bufferWriter,
+  random16,
+  random32,
+  uint16Add,
+  uint32Add,
+} from "../../common/src";
 import { Address } from "../../ice/src";
 import { RtpHeader, RtpPacket } from "../../rtp/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
@@ -57,21 +63,23 @@ export const microTime = () => now.micro() as number;
 
 export const milliTime = () => new Date().getTime();
 
+/**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
 export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
 
-  const div = now / 1000;
+  const seconds = now / 1000;
+  const [sec, msec] = seconds.toString().split(".").map(Number);
 
-  let [sec, msec] = div.toString().slice(0, 14).split(".");
+  const buf = bufferWriter([4, 4], [sec, msec]);
 
-  if (!msec) msec = "0";
+  return buf.readBigUInt64BE();
+};
 
-  const high = BigInt(sec);
-  const v = BigInt(msec + [...Array(6 - msec.length)].fill(0).join(""));
-
-  const low = (v * (1n << 32n)) / 1000000n;
-
-  return (high << 32n) | low;
+/**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
+export const compactNtp = (ntp: bigint) => {
+  const buf = bufferWriter([8], [ntp]);
+  const [, sec, msec] = bufferReader(buf, [2, 2, 2, 2]);
+  return bufferWriter([2, 2], [sec, msec]).readUInt32BE();
 };
 
 export function parseIceServers(iceServers: RTCIceServer[]) {

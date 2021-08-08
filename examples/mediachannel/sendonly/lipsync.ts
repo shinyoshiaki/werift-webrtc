@@ -71,7 +71,7 @@ server.on("connection", async (socket) => {
         payloadType = rtp.header.payloadType;
         transceiver.sender.replaceRTP(rtp.header);
       }
-      if (track.kind === "audio") await setTimeout(900);
+      if (track.kind === "audio") await setTimeout(Math.random() * 1000);
       track.writeRtp(buf);
     });
   };
