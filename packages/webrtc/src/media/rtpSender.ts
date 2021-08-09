@@ -152,6 +152,11 @@ export class RTCRtpSender {
     if (this.codec) {
       track.codec = this.codec;
     }
+
+    // todo fix
+    track.onSourceChanged.subscribe((header) => {
+      this.replaceRTP(header);
+    });
   }
 
   async replaceTrack(track: MediaStreamTrack | null) {

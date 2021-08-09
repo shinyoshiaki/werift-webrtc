@@ -7,11 +7,11 @@ export class LipSync {
   audio = new MediaBuffer(this.audioClockRate);
   video = new MediaBuffer(this.videoClockRate);
 
-  onBuffer = new Event<
+  onBufferResolve = new Event<
     [
       {
-        audio: { packets: RtpPacket[]; startAtNtpTime: number };
-        video: { packets: RtpPacket[]; startAtNtpTime: number };
+        audio: BufferResolve;
+        video: BufferResolve;
       }
     ]
   >();
@@ -22,7 +22,7 @@ export class LipSync {
     public videoClockRate: number
   ) {
     setInterval(() => {
-      this.onBuffer.execute({
+      this.onBufferResolve.execute({
         audio: this.calcLipSync(this.audio),
         video: this.calcLipSync(this.video),
       });
@@ -95,3 +95,5 @@ export const ntpTime2Time = (ntp: bigint) => {
 
 /**4294967295 */
 export const Max32bit = Number((0x01n << 32n) - 1n);
+
+export type BufferResolve = { packets: RtpPacket[]; startAtNtpTime: number };

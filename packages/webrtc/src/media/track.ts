@@ -23,6 +23,9 @@ export class MediaStreamTrack extends EventTarget {
   enabled = true;
 
   readonly onReceiveRtp = new Event<[RtpPacket]>();
+  readonly onSourceChanged = new Event<
+    [Pick<RtpHeader, "sequenceNumber" | "timestamp">]
+  >();
 
   stopped = false;
   muted = true;

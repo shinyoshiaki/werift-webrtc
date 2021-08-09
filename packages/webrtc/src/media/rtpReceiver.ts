@@ -1,5 +1,6 @@
 import { debug } from "debug";
 import { jspack } from "jspack";
+import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
 
@@ -41,6 +42,7 @@ export class RTCRtpReceiver {
   readonly lsr: { [ssrc: number]: number } = {};
   readonly lsrTime: { [ssrc: number]: number } = {};
   readonly onPacketLost = this.nack.onPacketLost;
+  readonly onRtcp = new Event<[RtcpPacket]>();
 
   sdesMid?: string;
   latestRid?: string;
@@ -190,6 +192,7 @@ export class RTCRtpReceiver {
         }
         break;
     }
+    this.onRtcp.execute(packet);
   }
 
   handleRtpBySsrc = (packet: RtpPacket, extensions: Extensions) => {
