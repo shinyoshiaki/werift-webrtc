@@ -1,25 +1,60 @@
+import Event from "rx.mini";
+
 import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpSrPacket, RtpPacket } from "../../../rtp/src";
 
 export class LipSync {
-  audio: { [sequenceNumber: number]: RtpPacket } = {};
-  video: { [sequenceNumber: number]: RtpPacket } = {};
+  audio = new MediaBuffer(this.audioClockRate);
+  video = new MediaBuffer(this.videoClockRate);
+
+  onBuffer = new Event<
+    [
+      {
+        audio: { packets: RtpPacket[]; startAtNtpTime: number };
+        video: { packets: RtpPacket[]; startAtNtpTime: number };
+      }
+    ]
+  >();
 
   constructor(
-    public bufferTime: number,
+    public bufferTimeMs: number,
     public audioClockRate: number,
     public videoClockRate: number
-  ) {}
+  ) {
+    setInterval(() => {
+      this.onBuffer.execute({
+        audio: this.calcLipSync(this.audio),
+        video: this.calcLipSync(this.video),
+      });
+      this.audio.clearPackets();
+      this.video.clearPackets();
+    }, bufferTimeMs);
+  }
 
-  audioReceived() {}
+  calcLipSync = (media: MediaBuffer) => {
+    const packets = media.sortedPackets;
+    const startAtNtpTime = media.calcNtpTime(packets[0].header.timestamp);
+    return { packets, startAtNtpTime };
+  };
 }
 
 export class MediaBuffer {
   baseNtpTimestamp?: bigint;
   baseRtpTimestamp?: number;
-  packets: { [sequenceNumber: number]: RtpPacket } = {};
+  private packets: { [sequenceNumber: number]: RtpPacket } = {};
 
   constructor(public clockRate: number) {}
+
+  get sortedPackets() {
+    const packets = Object.keys(this.packets)
+      .sort()
+      .map((key) => this.packets[Number(key)]);
+    return packets;
+  }
+
+  clearPackets() {
+    this.packets = {};
+  }
 
   rtpReceived(rtp: RtpPacket) {
     this.packets[rtp.header.sequenceNumber] = rtp;
@@ -32,9 +67,7 @@ export class MediaBuffer {
   }
 
   calcNtpTime(rtpTimestamp: number) {
-    if (!this.baseRtpTimestamp || !this.baseNtpTimestamp) {
-      throw new Error("props not exist");
-    }
+    if (!this.baseRtpTimestamp || !this.baseNtpTimestamp) return 0;
 
     // base rtpTimestamp is rollover
     if (rtpTimestamp - this.baseRtpTimestamp > Max32bit - this.clockRate * 60) {
