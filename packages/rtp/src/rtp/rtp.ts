@@ -38,7 +38,9 @@ export class RtpHeader {
   marker: boolean = false;
   payloadOffset: number = 0;
   payloadType: number = 0;
+  /**16bit */
   sequenceNumber: number = 0;
+  /**32bit */
   timestamp: number = 0;
   ssrc: number = 0;
   csrc: number[] = [];
