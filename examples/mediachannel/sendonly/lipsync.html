@@ -28,7 +28,7 @@
 
         React.useEffect(() => {
           (async () => {
-            const socket = new WebSocket("ws://localhost:8888");
+            const socket = new WebSocket("ws://localhost:8881");
             await new Promise((r) => (socket.onopen = r));
             console.log("open websocket");
 

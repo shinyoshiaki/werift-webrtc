@@ -33,7 +33,9 @@ export class LipSync {
 
   calcLipSync = (media: MediaBuffer) => {
     const packets = media.sortedPackets;
-    const startAtNtpTime = media.calcNtpTime(packets[0].header.timestamp);
+    const startAtNtpTime = packets[0]
+      ? media.calcNtpTime(packets[0].header.timestamp)
+      : 0;
     return { packets, startAtNtpTime };
   };
 }

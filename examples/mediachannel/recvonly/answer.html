@@ -48,12 +48,7 @@
                 socket.send(sdp);
               }
             };
-            peer.oniceconnectionstatechange = () => {
-              console.log(
-                "oniceconnectionstatechange",
-                peer.iceConnectionState
-              );
-            };
+
             const localStream = await navigator.mediaDevices.getUserMedia({
               video: true,
               audio: false,

@@ -5,7 +5,7 @@ import {
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
 
-const server = new Server({ port: 8888 });
+const server = new Server({ port: 8881 });
 console.log("start");
 
 server.on("connection", async (socket) => {

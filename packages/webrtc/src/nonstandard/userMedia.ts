@@ -16,8 +16,8 @@ export const getUserMp4 = async (path: string, loop?: boolean) => {
 
 class MediaMp4 {
   private streamId = v4();
-  video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
   audio = new MediaStreamTrack({ kind: "audio", streamId: this.streamId });
+  video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
 
   constructor(
     private videoPort: number,
@@ -25,8 +25,8 @@ class MediaMp4 {
     private path: string,
     private loop?: boolean
   ) {
-    this.setupTrack(videoPort, this.video);
     this.setupTrack(audioPort, this.audio);
+    this.setupTrack(videoPort, this.video);
   }
 
   private setupTrack = (port: number, track: MediaStreamTrack) => {
