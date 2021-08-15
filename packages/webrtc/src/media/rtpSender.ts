@@ -153,7 +153,6 @@ export class RTCRtpSender {
       track.codec = this.codec;
     }
 
-    // todo fix
     track.onSourceChanged.subscribe((header) => {
       this.replaceRTP(header);
     });

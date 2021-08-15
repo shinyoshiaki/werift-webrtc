@@ -45,8 +45,8 @@ export class RtcpSrPacket {
   ssrc: number = 0;
   senderInfo!: RtcpSenderInfo;
   reports: RtcpReceiverInfo[] = [];
-  static type = 200;
-  type = RtcpSrPacket.type;
+  static readonly type = 200;
+  readonly type = RtcpSrPacket.type;
 
   constructor(props: Pick<RtcpSrPacket, "senderInfo"> & Partial<RtcpSrPacket>) {
     Object.assign(this, props);

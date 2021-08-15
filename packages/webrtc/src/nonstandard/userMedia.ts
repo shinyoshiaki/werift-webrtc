@@ -1,6 +1,6 @@
 import { exec } from "child_process";
 import { createSocket } from "dgram";
-import { setImmediate } from "timers/promises";
+import { setImmediate, setTimeout } from "timers/promises";
 import { v4 } from "uuid";
 
 import { randomPort } from "../../../ice/src";
@@ -45,6 +45,7 @@ class MediaMp4 {
         payloadType = rtp.header.payloadType;
         track.onSourceChanged.execute(rtp.header);
       }
+
       track.writeRtp(buf);
     });
   };

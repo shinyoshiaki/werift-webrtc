@@ -19,6 +19,10 @@ export async function randomPort(protocol: SocketType = "udp4") {
   return port;
 }
 
+export async function randomPorts(num: number, protocol: SocketType = "udp4") {
+  return Promise.all([...Array(num)].map(() => randomPort(protocol)));
+}
+
 export async function findPort(
   min: number,
   max: number,

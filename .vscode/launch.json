@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/lipsync/lipsync.ts"
+        "${workspaceRoot}/examples/mediachannel/lipsync/rtpbin.ts"
       ],
       "env": { "DEBUG": "werift:packages/webrtc*" },
       "console": "integratedTerminal",

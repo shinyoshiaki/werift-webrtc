@@ -1,14 +1,10 @@
 import { ntpTime } from "../../src";
-import {
-  Max32bit,
-  MediaBuffer,
-  ntpTime2Time,
-} from "../../src/nonstandard/lipsync";
+import { LipSync, Max32bit, ntpTime2Time } from "../../src/nonstandard/lipsync";
 
 describe("packages/webrtc/tests/nonstandard/lipsync.test.ts", () => {
   describe("mediaBuffer calcNtpTime", () => {
     test("calc after base rtpTimestamp", () => {
-      const mediaBuffer = new MediaBuffer(1);
+      const mediaBuffer = new LipSync(1);
 
       mediaBuffer.baseNtpTimestamp = ntpTime();
       mediaBuffer.baseRtpTimestamp = 5;
@@ -19,7 +15,7 @@ describe("packages/webrtc/tests/nonstandard/lipsync.test.ts", () => {
     });
 
     test("calc before base rtpTimestamp", () => {
-      const mediaBuffer = new MediaBuffer(1);
+      const mediaBuffer = new LipSync(1);
 
       mediaBuffer.baseNtpTimestamp = ntpTime();
       mediaBuffer.baseRtpTimestamp = 5;
@@ -30,7 +26,7 @@ describe("packages/webrtc/tests/nonstandard/lipsync.test.ts", () => {
     });
 
     test("target rtpTimestamp is rollover", () => {
-      const mediaBuffer = new MediaBuffer(1);
+      const mediaBuffer = new LipSync(1);
 
       mediaBuffer.baseNtpTimestamp = ntpTime();
       mediaBuffer.baseRtpTimestamp = Max32bit - 5;
@@ -41,7 +37,7 @@ describe("packages/webrtc/tests/nonstandard/lipsync.test.ts", () => {
     });
 
     test("base rtpTimestamp is rollover", () => {
-      const mediaBuffer = new MediaBuffer(1);
+      const mediaBuffer = new LipSync(1);
 
       mediaBuffer.baseNtpTimestamp = ntpTime();
       mediaBuffer.baseRtpTimestamp = 5;
