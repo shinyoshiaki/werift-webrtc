@@ -6,8 +6,8 @@ import { RtcpPacketConverter } from "./rtcp";
 export class RtcpRrPacket {
   ssrc: number = 0;
   reports: RtcpReceiverInfo[] = [];
-  static type = 201;
-  type = RtcpRrPacket.type;
+  static readonly type = 201;
+  readonly type = RtcpRrPacket.type;
 
   constructor(props: Partial<RtcpRrPacket> = {}) {
     Object.assign(this, props);

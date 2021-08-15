@@ -12,7 +12,7 @@ import {
   RtcpTransportLayerFeedback,
   RtpPacket,
 } from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "../extension/rtpExtension";
+import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,

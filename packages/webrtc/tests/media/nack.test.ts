@@ -2,7 +2,7 @@
 /* eslint-disable no-var */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { RtcpPacket, RtpHeader, RtpPacket } from "../../../rtp/src";
-import { Nack } from "../../src/media/nack";
+import { Nack } from "../../src/media/receiver/nack";
 
 describe("media/nack", () => {
   test("16bit rotate", () => {

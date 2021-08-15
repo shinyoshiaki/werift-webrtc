@@ -9,8 +9,8 @@ const log = debug("werift/rtp/rtcp/rtpfb/index");
 type Feedback = GenericNack | TransportWideCC;
 
 export class RtcpTransportLayerFeedback {
-  static type = 205;
-  type = RtcpTransportLayerFeedback.type;
+  static readonly type = 205;
+  readonly type = RtcpTransportLayerFeedback.type;
   feedback!: Feedback;
   header!: RtcpHeader;
 

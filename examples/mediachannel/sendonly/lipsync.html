@@ -19,17 +19,16 @@
   </head>
   <body>
     <div class="main">
-      <div class="section" id="app1"></div>
+      <div class="section" id="app"></div>
     </div>
     <script type="text/babel">
-      let rtc;
-
       const App = () => {
         const [log, setLog] = React.useState([]);
+        const videoRef = React.useRef();
 
         React.useEffect(() => {
           (async () => {
-            const socket = new WebSocket("ws://localhost:8888");
+            const socket = new WebSocket("ws://localhost:8881");
             await new Promise((r) => (socket.onopen = r));
             console.log("open websocket");
 
@@ -38,9 +37,9 @@
             );
             console.log("offer", offer.sdp);
 
-            const peer = (rtc = new RTCPeerConnection({
+            const peer = new RTCPeerConnection({
               iceServers: [],
-            }));
+            });
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
                 const sdp = JSON.stringify(peer.localDescription);
@@ -49,14 +48,19 @@
               }
             };
 
-            const localStream = await navigator.mediaDevices.getUserMedia({
-              video: true,
-              audio: false,
-            });
-            localStream
-              .getVideoTracks()
-              .forEach((track) => peer.addTrack(track, localStream));
-            console.log(localStream);
+            peer.ontrack = (e) => {
+              console.log("ontrack", e);
+              if (videoRef.current.srcObject) {
+                videoRef.current.srcObject.addTrack(e.track);
+              } else {
+                videoRef.current.srcObject = new MediaStream([e.track]);
+              }
+
+              peer.getReceivers().forEach((r) => {
+                r.playoutDelayHint = 1;
+                r.jitterBufferDelayHint = 1;
+              });
+            };
 
             await peer.setRemoteDescription(offer);
             const answer = await peer.createAnswer();
@@ -67,16 +71,12 @@
         return (
           <div>
             answer
-            <div>
-              {log.slice(-10).map((v, i) => (
-                <div key={i}>{v}</div>
-              ))}
-            </div>
+            <video ref={videoRef} autoPlay />
           </div>
         );
       };
 
-      ReactDOM.render(<App />, document.getElementById("app1"));
+      ReactDOM.render(<App />, document.getElementById("app"));
     </script>
   </body>
 </html>

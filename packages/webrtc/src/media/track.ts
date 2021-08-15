@@ -8,6 +8,8 @@ import { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack extends EventTarget {
   readonly uuid = v4();
+  /**MediaStream ID*/
+  streamId?: string;
   remote = false;
   label: string;
   kind!: Kind;
@@ -21,6 +23,9 @@ export class MediaStreamTrack extends EventTarget {
   enabled = true;
 
   readonly onReceiveRtp = new Event<[RtpPacket]>();
+  readonly onSourceChanged = new Event<
+    [Pick<RtpHeader, "sequenceNumber" | "timestamp">]
+  >();
 
   stopped = false;
   muted = true;
@@ -64,6 +69,7 @@ export class MediaStream {
   }
 
   addTrack(track: MediaStreamTrack) {
+    track.streamId = this.id;
     this.tracks.push(track);
   }
 

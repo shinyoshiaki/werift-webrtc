@@ -14,8 +14,8 @@ type Feedback =
   | ReceiverEstimatedMaxBitrate;
 
 export class RtcpPayloadSpecificFeedback {
-  static type = 206;
-  type = RtcpPayloadSpecificFeedback.type;
+  static readonly type = 206;
+  readonly type = RtcpPayloadSpecificFeedback.type;
 
   feedback!: Feedback;
 

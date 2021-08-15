@@ -3,8 +3,8 @@ import { RtcpHeader } from "./header";
 import { RtcpPacketConverter } from "./rtcp";
 
 export class RtcpSourceDescriptionPacket {
-  static type = 202;
-  type = RtcpSourceDescriptionPacket.type;
+  static readonly type = 202;
+  readonly type = RtcpSourceDescriptionPacket.type;
   chunks: SourceDescriptionChunk[] = [];
 
   constructor(props: Partial<RtcpSourceDescriptionPacket>) {

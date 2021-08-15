@@ -1,4 +1,4 @@
-import { RTCPFB } from "../media/parameters";
+import { RTCPFB } from "../parameters";
 
 export const useFIR = (): RTCPFB => ({ type: "ccm", parameter: "fir" });
 
