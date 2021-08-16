@@ -5175,6 +5175,13 @@ signal-exit@^3.0.2:
   resolved "https://registry.yarnpkg.com/signal-exit/-/signal-exit-3.0.3.tgz#a1410c2edd8f077b08b4e253c8eacfcaf057461c"
   integrity sha512-VUJ49FC8U1OxwZLxIbTTrDvLnf/6TDgxZcK8wxR8zs13xpx7xbG60ndBlhNrFi2EMuFRoeDoJO7wthSLq42EjA==
 
+simple-ebml-builder@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/simple-ebml-builder/-/simple-ebml-builder-0.2.2.tgz#f7eb4c55ddb79d6eb0b0a18bf89e63f2b22aaf36"
+  integrity sha512-+nmKqZVISTPOTtBRg9rzgc4n7t4SADQ1b8lG5Og/sVWKr9KCkUqkLEWn1fcQDkEjaBJMAK327BfJEVcFv66NYw==
+  dependencies:
+    lodash.memoize "^4.1.2"
+
 slash@^3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/slash/-/slash-3.0.0.tgz#6539be870c165adbd5240220dbe361f1bc4d4634"

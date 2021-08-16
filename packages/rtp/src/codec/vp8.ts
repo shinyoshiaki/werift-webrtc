@@ -45,10 +45,14 @@ export class Vp8RtpPayload {
   k?: number;
   m?: number;
   pictureId?: number;
+  frame?: Buffer;
   size0?: number;
   h?: number;
   ver?: number;
   p?: number;
+  size1?: number;
+  size2?: number;
+  payload?: Buffer;
 
   static deSerialize(buf: Buffer) {
     const c = new Vp8RtpPayload();
@@ -85,12 +89,21 @@ export class Vp8RtpPayload {
       }
     }
 
+    c.frame = buf.slice(offset);
+
     if (c.s === 1 && c.pid === 0) {
       c.size0 = getBit(buf[offset], 0, 3);
       c.h = getBit(buf[offset], 3);
       c.ver = getBit(buf[offset], 4, 3);
       c.p = getBit(buf[offset], 7);
+      offset++;
     }
+
+    c.size1 = buf[offset];
+    offset++;
+    c.size2 = buf[offset];
+    offset++;
+    c.payload = buf.slice(offset);
 
     return c;
   }

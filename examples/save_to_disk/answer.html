@@ -61,7 +61,7 @@
               videoRef.current.srcObject = stream;
             };
             const localStream = await navigator.mediaDevices.getUserMedia({
-              video: true,
+              video: { width: 640, height: 360 },
               audio: true,
             });
             localStream
