@@ -1,4 +1,6 @@
 import { getBit, paddingByte } from "../../../common/src";
+import { RtpHeader } from "../rtp/rtp";
+import { DePacketizerBase } from "./base";
 
 // RFC 7741 - RTP Payload Format for VP8 Video
 
@@ -34,7 +36,7 @@ import { getBit, paddingByte } from "../../../common/src";
 // :               :
 // +-+-+-+-+-+-+-+-+
 
-export class Vp8RtpPayload {
+export class Vp8RtpPayload implements DePacketizerBase {
   x!: number;
   n!: number;
   s!: number;
@@ -113,6 +115,10 @@ export class Vp8RtpPayload {
     offset++;
 
     return c;
+  }
+
+  static isDetectedFinalPacketInSequence(header: RtpHeader) {
+    return header.marker;
   }
 
   get isKeyframe() {

@@ -1,5 +1,5 @@
 import { int, uint32Add } from "../../../common/src";
-import { RtpPacket, Vp8RtpPayload } from "../../../rtp/src";
+import { DePacketizerBase, RtpPacket } from "../../../rtp/src";
 import { enumerate } from "../helper";
 import { JitterBuffer } from "./jitterBuffer";
 
@@ -7,6 +7,8 @@ export class SampleBuilder {
   readonly jitterBuffer = new JitterBuffer();
   buffer: RtpPacket[] = [];
   baseTimestamp!: number;
+
+  constructor(readonly DePacketizer: typeof DePacketizerBase) {}
 
   push(p: RtpPacket) {
     if (this.baseTimestamp == undefined) {
@@ -19,11 +21,9 @@ export class SampleBuilder {
   build() {
     let tail: number | undefined;
     for (const [i, p] of enumerate(this.buffer)) {
-      if (p.header.marker) {
+      if (this.DePacketizer.isDetectedFinalPacketInSequence(p.header)) {
         tail = i;
         break;
-      } else {
-        p.header.marker;
       }
     }
 
@@ -40,7 +40,7 @@ export class SampleBuilder {
     const duration = int((elapsed / 90000) * 1000);
 
     const frames = this.buffer.slice(0, tail + 1).map((p) => {
-      const frame = Vp8RtpPayload.deSerialize(p.payload);
+      const frame = this.DePacketizer.deSerialize(p.payload);
       if (frame.payload.length === 0) {
         p;
       }
@@ -48,10 +48,6 @@ export class SampleBuilder {
     });
     const isKeyframe = !!frames.find((f) => f.isKeyframe);
     const data = Buffer.concat(frames.map((f) => f.payload));
-
-    if (data.length === 0) {
-      data;
-    }
 
     this.buffer = this.buffer.slice(tail + 1);
 
