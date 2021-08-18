@@ -8,6 +8,7 @@ export * from "./media/parameters";
 export * from "./media/rtpTransceiver";
 export * from "./media/track";
 export * from "./nonstandard/lipsync";
+export * from "./nonstandard/sampleBuilder";
 export * from "./nonstandard/userMedia";
 export * from "./peerConnection";
 export * from "./sdp";
