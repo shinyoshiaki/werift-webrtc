@@ -8,7 +8,10 @@ export class SampleBuilder {
   buffer: RtpPacket[] = [];
   baseTimestamp!: number;
 
-  constructor(readonly DePacketizer: typeof DePacketizerBase) {}
+  constructor(
+    readonly DePacketizer: typeof DePacketizerBase,
+    public clockRate: number
+  ) {}
 
   push(p: RtpPacket) {
     if (this.baseTimestamp == undefined) {
@@ -37,7 +40,7 @@ export class SampleBuilder {
         -BigInt(this.baseTimestamp)
       )
     );
-    const duration = int((elapsed / 90000) * 1000);
+    const relativeTimestamp = int((elapsed / this.clockRate) * 1000);
 
     const frames = this.buffer.slice(0, tail + 1).map((p) => {
       const frame = this.DePacketizer.deSerialize(p.payload);
@@ -51,6 +54,6 @@ export class SampleBuilder {
 
     this.buffer = this.buffer.slice(tail + 1);
 
-    return { data, duration, isKeyframe };
+    return { data, relativeTimestamp, isKeyframe };
   }
 }

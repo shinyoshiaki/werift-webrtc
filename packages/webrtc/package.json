@@ -50,6 +50,7 @@
     "nano-time": "^1.0.0",
     "p-cancelable": "^2.1.1",
     "rx.mini": "^1.1.0",
+    "simple-ebml-builder": "^0.2.2",
     "turbo-crc32": "^1.0.1",
     "tweetnacl": "^1.0.3",
     "uuid": "^8.3.2"
