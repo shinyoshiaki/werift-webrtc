@@ -14,6 +14,7 @@ server.on("connection", async (socket) => {
 
   {
     const transceiver = pc.addTransceiver("video");
+
     transceiver.onTrack.subscribe((track) => {
       transceiver.sender.replaceTrack(track);
 
@@ -21,6 +22,10 @@ server.on("connection", async (socket) => {
       if (recorder.tracks.length === 2) {
         recorder.start();
       }
+
+      setInterval(() => {
+        transceiver.receiver.sendRtcpPLI(track.ssrc);
+      }, 10_000);
     });
   }
   {

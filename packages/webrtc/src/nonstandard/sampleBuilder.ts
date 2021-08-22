@@ -4,9 +4,10 @@ import { enumerate } from "../helper";
 import { JitterBuffer } from "./jitterBuffer";
 
 export class SampleBuilder {
-  readonly jitterBuffer = new JitterBuffer();
-  buffer: RtpPacket[] = [];
-  baseTimestamp!: number;
+  private readonly jitterBuffer = new JitterBuffer();
+  private buffer: RtpPacket[] = [];
+  private baseTimestamp?: number;
+  relativeTimestamp = 0;
 
   constructor(
     readonly DePacketizer: typeof DePacketizerBase,
@@ -21,6 +22,11 @@ export class SampleBuilder {
     this.buffer = [...this.buffer, ...buf];
   }
 
+  resetTimestamp() {
+    this.baseTimestamp = undefined;
+    this.relativeTimestamp = 0;
+  }
+
   build() {
     let tail: number | undefined;
     for (const [i, p] of enumerate(this.buffer)) {
@@ -30,7 +36,7 @@ export class SampleBuilder {
       }
     }
 
-    if (tail == undefined) {
+    if (tail == undefined || this.baseTimestamp == undefined) {
       return;
     }
 
@@ -41,6 +47,7 @@ export class SampleBuilder {
       )
     );
     const relativeTimestamp = int((elapsed / this.clockRate) * 1000);
+    this.relativeTimestamp = relativeTimestamp;
 
     const frames = this.buffer.slice(0, tail + 1).map((p) => {
       const frame = this.DePacketizer.deSerialize(p.payload);

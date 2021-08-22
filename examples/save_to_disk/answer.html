@@ -22,10 +22,44 @@
       <div class="section" id="app1"></div>
     </div>
     <script type="text/babel">
-      let rtc;
-
       const App = () => {
         const videoRef = React.useRef();
+
+        function createTestTrack(width, height) {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+
+          const drawAnimation = () => {
+            ctx.save();
+            ctx.fillStyle = "rgb(200, 200, 200)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const date = new Date();
+            ctx.font = "38px Monaco,Consolas";
+            ctx.textAlign = "center";
+            ctx.fillStyle = "red";
+
+            const hours = ("0" + date.getHours()).slice(-2);
+            const minuites = ("0" + date.getMinutes()).slice(-2);
+            const seconds = ("0" + date.getSeconds()).slice(-2);
+            const milliseconds = ("00" + date.getMilliseconds()).slice(-3);
+            ctx.fillText(
+              `${hours}:${minuites}:${seconds}.${milliseconds}`,
+              canvas.width / 2,
+              85
+            );
+            ctx.restore();
+
+            requestAnimationFrame(drawAnimation);
+          };
+
+          setTimeout(() => requestAnimationFrame(drawAnimation), 0);
+
+          const [track] = canvas.captureStream().getVideoTracks();
+          return track;
+        }
 
         React.useEffect(() => {
           (async () => {
@@ -38,9 +72,9 @@
             );
             console.log("offer", offer.sdp);
 
-            const peer = (rtc = new RTCPeerConnection({
+            const peer = new RTCPeerConnection({
               iceServers: [],
-            }));
+            });
             peer.onicecandidate = ({ candidate }) => {
               if (!candidate) {
                 const sdp = JSON.stringify(peer.localDescription);
@@ -60,13 +94,14 @@
               stream.addTrack(e.track);
               videoRef.current.srcObject = stream;
             };
-            const localStream = await navigator.mediaDevices.getUserMedia({
-              video: { width: 640, height: 360 },
-              audio: true,
-            });
-            localStream
-              .getTracks()
-              .forEach((track) => peer.addTrack(track, localStream));
+            const video = createTestTrack(640, 360);
+            const [audio] = (
+              await navigator.mediaDevices.getUserMedia({
+                audio: true,
+              })
+            ).getTracks();
+            peer.addTrack(video);
+            peer.addTrack(audio);
 
             await peer.setRemoteDescription(offer);
             const answer = await peer.createAnswer();
