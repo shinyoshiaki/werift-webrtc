@@ -1,6 +1,8 @@
 import { MediaRecorder, RTCPeerConnection } from "../../packages/webrtc/src";
 import { Server } from "ws";
 
+// open ./answer.html
+
 const server = new Server({ port: 8888 });
 console.log("start");
 
