@@ -1,6 +1,6 @@
+import * as EBML from "@shinyoshiaki/ebml-builder";
 import { debug } from "debug";
 import { appendFile, writeFile } from "fs/promises";
-import * as EBML from "simple-ebml-builder";
 
 import { BitWriter, bufferWriter } from "../../../common/src";
 import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
@@ -35,7 +35,7 @@ export class MediaRecorder {
     const entries = this.tracks.map((track, i) => {
       if (track.kind === "video") {
         return EBML.element(EBML.ID.TrackEntry, [
-          EBML.element(EBML.ID.TrackNumber, EBML.number(i)),
+          EBML.element(EBML.ID.TrackNumber, EBML.number(i + 1)),
           EBML.element(EBML.ID.TrackUID, EBML.number(12345)),
           EBML.element(EBML.ID.TrackType, EBML.number(1)),
           EBML.element(EBML.ID.CodecID, EBML.string("V_VP8")),
@@ -46,12 +46,12 @@ export class MediaRecorder {
         ]);
       } else if (track.kind === "audio") {
         return EBML.element(EBML.ID.TrackEntry, [
-          EBML.element(EBML.ID.TrackNumber, EBML.number(i)),
-          EBML.element(EBML.ID.TrackUID, EBML.number(12345)),
+          EBML.element(EBML.ID.TrackNumber, EBML.number(i + 1)),
+          EBML.element(EBML.ID.TrackUID, EBML.number(67891)),
           EBML.element(EBML.ID.CodecID, EBML.string("A_OPUS")),
           EBML.element(EBML.ID.TrackType, EBML.number(2)),
           EBML.element(EBML.ID.Audio, [
-            EBML.element(EBML.ID.SamplingFrequency, EBML.number(48000.0)),
+            EBML.element(EBML.ID.SamplingFrequency, EBML.float(48000.0)),
             EBML.element(EBML.ID.Channels, EBML.number(2)),
           ]),
         ]);
@@ -105,6 +105,8 @@ export class MediaRecorder {
     const res = contexts.map(({ track, sampleBuilder }, i) => {
       const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
         const appendCluster = () => {
+          if (sampleBuilder.relativeTimestamp === 0) return;
+
           this.relativeTimestamp += sampleBuilder.relativeTimestamp;
           log(
             "append cluster",
@@ -136,7 +138,8 @@ export class MediaRecorder {
         if (!res) return;
         const { data, relativeTimestamp, isKeyframe } = res;
 
-        await this.write(data, isKeyframe, relativeTimestamp, i);
+        const trackNumber = i + 1;
+        await this.write(data, isKeyframe, relativeTimestamp, trackNumber);
       });
       return unSubscribe;
     });
