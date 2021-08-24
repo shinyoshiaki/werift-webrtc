@@ -1,4 +1,6 @@
 import { getBit, paddingByte } from "../../../common/src";
+import { RtpHeader } from "../rtp/rtp";
+import { DePacketizerBase } from "./base";
 
 // RFC 7741 - RTP Payload Format for VP8 Video
 
@@ -34,7 +36,7 @@ import { getBit, paddingByte } from "../../../common/src";
 // :               :
 // +-+-+-+-+-+-+-+-+
 
-export class Vp8RtpPayload {
+export class Vp8RtpPayload implements DePacketizerBase {
   x!: number;
   n!: number;
   s!: number;
@@ -45,10 +47,13 @@ export class Vp8RtpPayload {
   k?: number;
   m?: number;
   pictureId?: number;
+  payload!: Buffer;
   size0?: number;
   h?: number;
   ver?: number;
   p?: number;
+  size1?: number;
+  size2?: number;
 
   static deSerialize(buf: Buffer) {
     const c = new Vp8RtpPayload();
@@ -59,7 +64,6 @@ export class Vp8RtpPayload {
     c.n = getBit(buf[offset], 2);
     c.s = getBit(buf[offset], 3);
     c.pid = getBit(buf[offset], 5, 3);
-
     offset++;
 
     if (c.x === 1) {
@@ -67,35 +71,61 @@ export class Vp8RtpPayload {
       c.l = getBit(buf[offset], 1);
       c.t = getBit(buf[offset], 2);
       c.k = getBit(buf[offset], 3);
-
       offset++;
+    }
 
-      if (c.i) {
-        c.m = getBit(buf[offset], 0);
-
-        if (c.m === 1) {
-          const _7 = paddingByte(getBit(buf[offset], 1, 7));
-          const _8 = paddingByte(buf[offset + 1]);
-          c.pictureId = parseInt(_7 + _8, 2);
-          offset += 2;
-        } else {
-          c.pictureId = getBit(buf[offset], 1, 7);
-          offset++;
-        }
+    if (c.i) {
+      c.m = getBit(buf[offset], 0);
+      if (c.m === 1) {
+        const _7 = paddingByte(getBit(buf[offset], 1, 7));
+        const _8 = paddingByte(buf[offset + 1]);
+        c.pictureId = parseInt(_7 + _8, 2);
+        offset += 2;
+      } else {
+        c.pictureId = getBit(buf[offset], 1, 7);
+        offset++;
       }
     }
+
+    if (c.l) {
+      offset++;
+    }
+
+    if (c.l || c.k) {
+      if (c.t) {
+      }
+      if (c.k) {
+      }
+      offset++;
+    }
+
+    c.payload = buf.slice(offset);
 
     if (c.s === 1 && c.pid === 0) {
       c.size0 = getBit(buf[offset], 0, 3);
       c.h = getBit(buf[offset], 3);
       c.ver = getBit(buf[offset], 4, 3);
       c.p = getBit(buf[offset], 7);
+      offset++;
     }
+
+    c.size1 = buf[offset];
+    offset++;
+    c.size2 = buf[offset];
+    offset++;
 
     return c;
   }
 
+  static isDetectedFinalPacketInSequence(header: RtpHeader) {
+    return header.marker;
+  }
+
   get isKeyframe() {
     return this.p === 0;
+  }
+
+  get isPartitionHead() {
+    return this.s === 1;
   }
 }

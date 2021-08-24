@@ -1,5 +1,7 @@
 export * from "./codec/av1";
+export * from "./codec/base";
 export * from "./codec/h264";
+export * from "./codec/opus";
 export * from "./codec/vp8";
 export * from "./codec/vp9";
 export { RtcpHeader } from "./rtcp/header";

@@ -1,11 +1,13 @@
 {
   "cSpell.words": [
+    "Packetizer",
     "TWCC",
     "ack",
     "acked",
     "cwnd",
     "dcep",
     "dtls",
+    "ebml",
     "examples",
     "extmap",
     "files",
@@ -57,6 +59,7 @@
     "wrtct"
   ],
   "liveServer.settings.port": 5501,
+  "liveServer.settings.ignoreFiles": ["**"],
   "typescript.tsdk": "node_modules/typescript/lib",
   "python.formatting.provider": "black"
 }
