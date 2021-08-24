@@ -2,7 +2,7 @@ import * as EBML from "@shinyoshiaki/ebml-builder";
 import { debug } from "debug";
 import { appendFile, writeFile } from "fs/promises";
 
-import { BitWriter, bufferWriter } from "../../../common/src";
+import { BitWriter, bufferWriter, bufferWriterLE } from "../../../common/src";
 import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
 import { MediaStreamTrack } from "../media/track";
 import { SampleBuilder } from "./sampleBuilder";
@@ -54,6 +54,16 @@ export class MediaRecorder {
             EBML.element(EBML.ID.SamplingFrequency, EBML.float(48000.0)),
             EBML.element(EBML.ID.Channels, EBML.number(2)),
           ]),
+          EBML.element(
+            EBML.ID.CodecPrivate,
+            EBML.bytes(
+              Buffer.concat([
+                Buffer.from("OpusHead"),
+                bufferWriter([1, 1], [1, 2]),
+                bufferWriterLE([2, 4, 2, 1], [312, 48000, 0, 0]),
+              ])
+            )
+          ),
         ]);
       } else {
         throw new Error();

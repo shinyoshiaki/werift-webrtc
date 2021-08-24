@@ -25,7 +25,7 @@ server.on("connection", async (socket) => {
 
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(track.ssrc);
-      }, 10_000);
+      }, 5_000);
     });
   }
   {
