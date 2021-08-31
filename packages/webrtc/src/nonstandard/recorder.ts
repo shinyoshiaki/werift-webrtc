@@ -1,6 +1,6 @@
 import * as EBML from "@shinyoshiaki/ebml-builder";
 import { debug } from "debug";
-import { appendFile, writeFile } from "fs/promises";
+import { appendFile, readFile, unlink, writeFile } from "fs/promises";
 
 import { BitWriter, bufferWriter, bufferWriterLE } from "../../../common/src";
 import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
@@ -23,15 +23,25 @@ const ebmlHeader = EBML.build(
 
 export class MediaRecorder {
   ebmlSegment!: Buffer;
+
+  private audioSampleBuilder?: SampleBuilder;
+  private videoSampleBuilder?: SampleBuilder;
+  private disposer?: () => void;
+  private relativeTimestamp = 0;
+  private position = 0;
+
+  /**video cuePoints (keyframe) */
+  private cuePoints: CuePoint[] = [];
+
   constructor(
     public tracks: MediaStreamTrack[],
     public path: string,
     public options: Partial<{ width: number; height: number }> = {}
   ) {
-    this.buildEbml();
+    this.buildEbmlSegment();
   }
 
-  private buildEbml() {
+  private buildEbmlSegment(infoElements: EBML.EBMLData[] = []) {
     const entries = this.tracks.map((track, i) => {
       if (track.kind === "video") {
         return EBML.element(EBML.ID.TrackEntry, [
@@ -72,10 +82,12 @@ export class MediaRecorder {
     this.ebmlSegment = Buffer.from(
       EBML.build(
         EBML.unknownSizeElement(EBML.ID.Segment, [
+          EBML.element(EBML.ID.SeekHead, []),
           EBML.element(EBML.ID.Info, [
             EBML.element(EBML.ID.TimecodeScale, EBML.number(millisecond)),
             EBML.element(EBML.ID.MuxingApp, EBML.string("werift.mux")),
             EBML.element(EBML.ID.WritingApp, EBML.string("werift.write")),
+            ...infoElements,
           ]),
           EBML.element(EBML.ID.Tracks, entries),
         ])
@@ -90,56 +102,75 @@ export class MediaRecorder {
       ])
     );
     await appendFile(this.path, buf);
+    await appendFile(this.path + ".tmp", buf);
+
+    let trackNumber: number | undefined;
+    this.tracks.forEach((t, i) => {
+      if (t.kind === "video") {
+        trackNumber = i + 1;
+      }
+    });
+    if (trackNumber != undefined) {
+      this.cuePoints.push(new CuePoint(trackNumber, timecode, this.position));
+    }
   }
 
   addTrack(track: MediaStreamTrack) {
     this.tracks.push(track);
-    this.buildEbml();
+    this.buildEbmlSegment();
   }
 
-  private disposer?: () => void;
-
-  private relativeTimestamp = 0;
   async start() {
-    await writeFile(this.path, Buffer.concat([ebmlHeader, this.ebmlSegment]));
-    this.appendCluster(0.0);
+    const staticPart = Buffer.concat([ebmlHeader, this.ebmlSegment]);
+    await writeFile(this.path, staticPart);
+    await writeFile(this.path + ".tmp", Buffer.from([]));
+    this.position += staticPart.length;
 
-    const contexts = this.tracks.map((track) => {
-      const sampleBuilder =
-        track.kind === "video"
-          ? new SampleBuilder(Vp8RtpPayload, 90000)
-          : new SampleBuilder(OpusRtpPayload, 48000);
-      return { track, sampleBuilder };
+    await this.appendCluster(0.0);
+
+    this.tracks.map((track) => {
+      if (track.kind === "video") {
+        this.videoSampleBuilder = new SampleBuilder(Vp8RtpPayload, 90000);
+      } else {
+        this.audioSampleBuilder = new SampleBuilder(OpusRtpPayload, 48000);
+      }
     });
 
-    const res = contexts.map(({ track, sampleBuilder }, i) => {
-      const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
-        const appendCluster = () => {
-          if (sampleBuilder.relativeTimestamp === 0) return;
+    const res = this.tracks.map((track, i) => {
+      const sampleBuilder = (() => {
+        if (track.kind === "video") {
+          this.videoSampleBuilder = new SampleBuilder(Vp8RtpPayload, 90000);
+          return this.videoSampleBuilder;
+        } else {
+          this.audioSampleBuilder = new SampleBuilder(OpusRtpPayload, 48000);
+          return this.audioSampleBuilder;
+        }
+      })();
 
-          this.relativeTimestamp += sampleBuilder.relativeTimestamp;
-          log(
-            "append cluster",
-            track.kind,
-            sampleBuilder.DePacketizer.deSerialize(rtp.payload).isKeyframe,
-            this.relativeTimestamp,
-            sampleBuilder.relativeTimestamp >= maxSingedInt
-          );
-          this.appendCluster(this.relativeTimestamp);
-          contexts.forEach(({ sampleBuilder }) =>
-            sampleBuilder.resetTimestamp()
-          );
-        };
+      const appendCluster = async () => {
+        if (sampleBuilder.relativeTimestamp === 0) return;
+
+        this.relativeTimestamp += sampleBuilder.relativeTimestamp;
+
+        log("append cluster");
+
+        await this.appendCluster(this.relativeTimestamp);
+
+        this.audioSampleBuilder?.resetTimestamp?.();
+        this.videoSampleBuilder?.resetTimestamp?.();
+      };
+
+      const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
         if (track.kind === "video") {
           if (
             sampleBuilder.DePacketizer.deSerialize(rtp.payload).isKeyframe ||
             sampleBuilder.relativeTimestamp >= maxSingedInt
           ) {
-            appendCluster();
+            await appendCluster();
           }
         } else {
           if (sampleBuilder.relativeTimestamp >= maxSingedInt) {
-            appendCluster();
+            await appendCluster();
           }
         }
 
@@ -147,6 +178,11 @@ export class MediaRecorder {
         const res = sampleBuilder.build();
         if (!res) return;
         const { data, relativeTimestamp, isKeyframe } = res;
+
+        if (track.kind === "video") {
+          const [cuePoint] = this.cuePoints.slice(-1);
+          cuePoint.blockNumber++;
+        }
 
         const trackNumber = i + 1;
         await this.write(data, isKeyframe, relativeTimestamp, trackNumber);
@@ -158,11 +194,38 @@ export class MediaRecorder {
     };
   }
 
-  stop() {
+  async stop() {
     if (!this.disposer) {
       throw new Error();
     }
     this.disposer();
+
+    const latestTimestamp = [this.audioSampleBuilder, this.videoSampleBuilder]
+      .filter((v): v is NonNullable<typeof v> => v != undefined)
+      .sort(
+        (a, b) => a.relativeTimestamp - b.relativeTimestamp
+      )[0].relativeTimestamp;
+    this.relativeTimestamp += latestTimestamp;
+
+    this.buildEbmlSegment([
+      EBML.element(EBML.ID.Duration, EBML.float(this.relativeTimestamp)),
+    ]);
+    const staticPart = Buffer.concat([ebmlHeader, this.ebmlSegment]);
+    await writeFile(this.path, staticPart);
+
+    if (this.cuePoints.length > 0) {
+      const cues = EBML.build(
+        EBML.element(
+          EBML.ID.Cues,
+          this.cuePoints.map((cue) => cue.build())
+        )
+      );
+      await appendFile(this.path, cues);
+    }
+
+    const tmp = await readFile(this.path + ".tmp");
+    await appendFile(this.path, tmp);
+    await unlink(this.path + ".tmp");
   }
 
   private async write(
@@ -191,11 +254,39 @@ export class MediaRecorder {
       bufferWriter([2, 1], [relativeTimestamp, flags.value]),
       data,
     ]);
+    this.position += simpleBlock.length;
 
     await appendFile(this.path, simpleBlock);
+    await appendFile(this.path + ".tmp", simpleBlock);
   }
 }
 
 const millisecond = 1000000;
 /**32767 */
 const maxSingedInt = (0x01 << 16) / 2 - 1;
+
+class CuePoint {
+  private readonly seekHeadPosition = 48;
+  blockNumber = 0;
+
+  constructor(
+    private trackNumber: number,
+    private relativeTimestamp: number,
+    private position: number
+  ) {}
+
+  build() {
+    const cue = EBML.element(EBML.ID.CuePoint, [
+      EBML.element(EBML.ID.CueTime, EBML.number(this.relativeTimestamp)),
+      EBML.element(EBML.ID.CueTrackPositions, [
+        EBML.element(EBML.ID.CueTrack, EBML.number(this.trackNumber)),
+        EBML.element(
+          EBML.ID.CueClusterPosition,
+          EBML.number(this.position - this.seekHeadPosition)
+        ),
+        EBML.element(EBML.ID.CueBlockNumber, EBML.number(this.blockNumber)),
+      ]),
+    ]);
+    return cue;
+  }
+}
