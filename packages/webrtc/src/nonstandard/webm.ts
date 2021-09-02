@@ -52,11 +52,13 @@ export class WebmFactory {
     const segment = EBML.build(createSegment(entries));
     const staticPart = Buffer.concat([ebmlHeader, segment]);
     this.staticPartOffset = staticPart.length;
-    this.position += staticPart.length;
 
     await writeFile(this.path, staticPart);
-    await this.appendCluster(0.0);
+    this.position += staticPart.length;
+
+    const length = await this.appendCluster(0.0);
     this.appendCuePoint(0.0);
+    this.position += length;
 
     const disposers = Object.values(this.tracks).map(
       ({ track, sampleBuilder, trackNumber }) => {
@@ -65,8 +67,9 @@ export class WebmFactory {
 
           this.relativeTimestamp += sampleBuilder.relativeTimestamp;
 
-          await this.appendCluster(this.relativeTimestamp);
+          const length = await this.appendCluster(this.relativeTimestamp);
           this.appendCuePoint(this.relativeTimestamp);
+          this.position += length;
 
           Object.values(this.tracks).forEach(({ sampleBuilder }) =>
             sampleBuilder.resetTimestamp()
@@ -129,18 +132,12 @@ export class WebmFactory {
         EBML.element(EBML.ID.Duration, EBML.float(duration)),
       ])
     );
-    const a = EBML.build(EBML.element(EBML.ID.Duration, EBML.float(duration)));
+
     const staticPart = Buffer.concat([ebmlHeader, segment]);
     const staticPartGap = staticPart.length - this.staticPartOffset;
 
-    const cuesLength = EBML.build(
-      EBML.element(
-        EBML.ID.Cues,
-        this.cuePoints.map((cue) => cue.preBuild)
-      )
-    ).length;
     this.cuePoints.forEach((cue) => {
-      cue.offset = cuesLength + staticPartGap;
+      cue.offset = staticPartGap;
     });
     const cues = EBML.build(
       EBML.element(
@@ -150,9 +147,10 @@ export class WebmFactory {
     );
 
     const clusters = (await readFile(this.path)).slice(this.staticPartOffset);
+
     await writeFile(this.path, staticPart);
-    await appendFile(this.path, cues);
     await appendFile(this.path, clusters);
+    await appendFile(this.path, cues);
   }
 
   private async write(
@@ -179,6 +177,7 @@ export class WebmFactory {
       ])
     );
     await appendFile(this.path, buf);
+    return buf.length;
   }
 
   private appendCuePoint(timecode: number) {
@@ -315,22 +314,14 @@ class CuePoint {
 
   build() {
     if (this.offset == undefined) throw new Error();
-    return this.assemble(this.offset + this.position);
-  }
 
-  get preBuild() {
-    // something dummy
-    return this.assemble(this.seekHeadPosition);
-  }
-
-  private assemble(position: number) {
     const cue = EBML.element(EBML.ID.CuePoint, [
       EBML.element(EBML.ID.CueTime, EBML.number(this.relativeTimestamp)),
       EBML.element(EBML.ID.CueTrackPositions, [
         EBML.element(EBML.ID.CueTrack, EBML.number(this.trackNumber)),
         EBML.element(
           EBML.ID.CueClusterPosition,
-          EBML.number(position - this.seekHeadPosition)
+          EBML.number(this.offset + this.position - this.seekHeadPosition)
         ),
         EBML.element(EBML.ID.CueBlockNumber, EBML.number(this.blockNumber)),
       ]),
