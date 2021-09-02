@@ -1,118 +1,16 @@
 import * as EBML from "@shinyoshiaki/ebml-builder";
-import { appendFile, readFile, unlink, writeFile } from "fs/promises";
+import { appendFile, readFile, writeFile } from "fs/promises";
 
 import { BitWriter, bufferWriter, bufferWriterLE } from "../../../common/src";
 import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
 import { MediaStreamTrack } from "../media/track";
 import { SampleBuilder } from "./sampleBuilder";
 
-export class WebmLive {
-  private audioSampleBuilder?: SampleBuilder;
-  private videoSampleBuilder?: SampleBuilder;
-  private relativeTimestamp = 0;
-  private disposer?: () => void;
-
-  constructor(
-    public tracks: MediaStreamTrack[],
-    public path: string,
-    public options: TrackOptions = {}
-  ) {}
-
-  async start() {
-    const entries = createTrackEntries(this.tracks, this.options);
-    const segment = EBML.build(createSegment(entries));
-    const staticPart = Buffer.concat([ebmlHeader, segment]);
-    await writeFile(this.path, staticPart);
-    await this.appendCluster(0.0);
-
-    const disposers = this.tracks.map((track, i) => {
-      const sampleBuilder = (() => {
-        if (track.kind === "video") {
-          this.videoSampleBuilder = new SampleBuilder(Vp8RtpPayload, 90000);
-          return this.videoSampleBuilder;
-        } else {
-          this.audioSampleBuilder = new SampleBuilder(OpusRtpPayload, 48000);
-          return this.audioSampleBuilder;
-        }
-      })();
-
-      const appendCluster = async () => {
-        if (sampleBuilder.relativeTimestamp === 0) return;
-
-        this.relativeTimestamp += sampleBuilder.relativeTimestamp;
-
-        await this.appendCluster(this.relativeTimestamp);
-
-        this.audioSampleBuilder?.resetTimestamp?.();
-        this.videoSampleBuilder?.resetTimestamp?.();
-      };
-
-      const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
-        if (track.kind === "video") {
-          if (
-            sampleBuilder.DePacketizer.deSerialize(rtp.payload).isKeyframe ||
-            sampleBuilder.relativeTimestamp >= maxSingedInt
-          ) {
-            await appendCluster();
-          }
-        } else {
-          if (sampleBuilder.relativeTimestamp >= maxSingedInt) {
-            await appendCluster();
-          }
-        }
-
-        sampleBuilder.push(rtp);
-        const res = sampleBuilder.build();
-        if (!res) return;
-        const { data, relativeTimestamp, isKeyframe } = res;
-
-        const trackNumber = i + 1;
-        await this.write(data, isKeyframe, relativeTimestamp, trackNumber);
-      });
-      return unSubscribe;
-    });
-    this.disposer = () => {
-      disposers.forEach((unSubscribe) => unSubscribe());
-    };
-  }
-
-  async stop() {
-    if (!this.disposer) {
-      throw new Error();
-    }
-    this.disposer();
-  }
-
-  private async write(
-    data: Buffer,
-    isKeyframe: boolean,
-    relativeTimestamp: number,
-    trackNumber: number
-  ) {
-    const simpleBlock = createSimpleBlock(
-      data,
-      isKeyframe,
-      relativeTimestamp,
-      trackNumber
-    );
-    await appendFile(this.path, simpleBlock);
-  }
-
-  private async appendCluster(timecode: number) {
-    const buf = EBML.build(
-      EBML.unknownSizeElement(EBML.ID.Cluster, [
-        EBML.element(EBML.ID.Timecode, EBML.number(timecode)),
-      ])
-    );
-    await appendFile(this.path, buf);
-  }
-}
-
-export class WebmSeekable {
+export class WebmFactory {
   private relativeTimestamp = 0;
   private disposer?: () => void;
   private position = 0;
-  private staticPart: Buffer;
+  private staticPartOffset = 0;
 
   /**video cuePoints (keyframe) */
   private cuePoints: CuePoint[] = [];
@@ -144,17 +42,19 @@ export class WebmSeekable {
       })();
       this.tracks[track.kind] = { track, trackNumber: i + 1, sampleBuilder };
     });
+  }
+
+  async start() {
     const entries = createTrackEntries(
       Object.values(this.tracks).map(({ track }) => track),
       this.options
     );
     const segment = EBML.build(createSegment(entries));
-    this.staticPart = Buffer.concat([ebmlHeader, segment]);
-    this.position += this.staticPart.length;
-  }
+    const staticPart = Buffer.concat([ebmlHeader, segment]);
+    this.staticPartOffset = staticPart.length;
+    this.position += staticPart.length;
 
-  async start() {
-    await writeFile(this.path + ".tmp", Buffer.from([]));
+    await writeFile(this.path, staticPart);
     await this.appendCluster(0.0);
     this.appendCuePoint(0.0);
 
@@ -229,18 +129,18 @@ export class WebmSeekable {
         EBML.element(EBML.ID.Duration, EBML.float(duration)),
       ])
     );
+    const a = EBML.build(EBML.element(EBML.ID.Duration, EBML.float(duration)));
     const staticPart = Buffer.concat([ebmlHeader, segment]);
-    await writeFile(this.path, staticPart);
-    const staticPartOffset = staticPart.length - this.staticPart.length;
+    const staticPartGap = staticPart.length - this.staticPartOffset;
 
-    const clusterPositionOffset = EBML.build(
+    const cuesLength = EBML.build(
       EBML.element(
         EBML.ID.Cues,
         this.cuePoints.map((cue) => cue.preBuild)
       )
     ).length;
     this.cuePoints.forEach((cue) => {
-      cue.offset = clusterPositionOffset + staticPartOffset;
+      cue.offset = cuesLength + staticPartGap;
     });
     const cues = EBML.build(
       EBML.element(
@@ -248,11 +148,11 @@ export class WebmSeekable {
         this.cuePoints.map((cue) => cue.build())
       )
     );
-    await appendFile(this.path, cues);
 
-    const tmp = await readFile(this.path + ".tmp");
-    await appendFile(this.path, tmp);
-    await unlink(this.path + ".tmp");
+    const clusters = (await readFile(this.path)).slice(this.staticPartOffset);
+    await writeFile(this.path, staticPart);
+    await appendFile(this.path, cues);
+    await appendFile(this.path, clusters);
   }
 
   private async write(
@@ -269,7 +169,7 @@ export class WebmSeekable {
     );
     this.position += simpleBlock.length;
 
-    await appendFile(this.path + ".tmp", simpleBlock);
+    await appendFile(this.path, simpleBlock);
   }
 
   private async appendCluster(timecode: number) {
@@ -278,7 +178,7 @@ export class WebmSeekable {
         EBML.element(EBML.ID.Timecode, EBML.number(timecode)),
       ])
     );
-    await appendFile(this.path + ".tmp", buf);
+    await appendFile(this.path, buf);
   }
 
   private appendCuePoint(timecode: number) {

@@ -1,11 +1,8 @@
-import { rename, unlink } from "fs/promises";
-
 import { MediaStreamTrack } from "../media/track";
-import { WebmLive, WebmSeekable } from "./webm";
+import { WebmFactory } from "./webm";
 
 export class MediaRecorder {
-  live?: WebmLive;
-  seekable?: WebmSeekable;
+  webm?: WebmFactory;
 
   constructor(
     public tracks: MediaStreamTrack[],
@@ -18,20 +15,12 @@ export class MediaRecorder {
   }
 
   start() {
-    this.live = new WebmLive(this.tracks, this.path, this.options);
-    this.live.start();
-    this.seekable = new WebmSeekable(
-      this.tracks,
-      this.path + ".static",
-      this.options
-    );
-    this.seekable.start();
+    this.webm = new WebmFactory(this.tracks, this.path, this.options);
+    this.webm.start();
   }
 
   async stop() {
-    if (!this.live || !this.seekable) throw new Error();
-    await Promise.all([this.live.stop(), this.seekable.stop()]);
-    await unlink(this.live.path);
-    await rename(this.seekable.path, this.live.path);
+    if (!this.webm) throw new Error();
+    await this.webm.stop();
   }
 }
