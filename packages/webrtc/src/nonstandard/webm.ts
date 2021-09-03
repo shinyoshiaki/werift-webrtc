@@ -3,6 +3,7 @@ import { appendFile, readFile, writeFile } from "fs/promises";
 
 import { BitWriter, bufferWriter, bufferWriterLE } from "../../../common/src";
 import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
+import { PromiseQueue } from "../helper";
 import { MediaStreamTrack } from "../media/track";
 import { SampleBuilder } from "./sampleBuilder";
 
@@ -11,6 +12,7 @@ export class WebmFactory {
   private disposer?: () => void;
   private position = 0;
   private staticPartOffset = 0;
+  private queue = new PromiseQueue();
 
   /**video cuePoints (keyframe) */
   private cuePoints: CuePoint[] = [];
@@ -76,31 +78,41 @@ export class WebmFactory {
           );
         };
 
-        const { unSubscribe } = track.onReceiveRtp.subscribe(async (rtp) => {
-          if (track.kind === "video") {
-            if (
-              sampleBuilder.DePacketizer.deSerialize(rtp.payload).isKeyframe ||
-              sampleBuilder.relativeTimestamp >= maxSingedInt
-            ) {
-              await appendCluster();
+        const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
+          this.queue.push(async () => {
+            {
+              if (track.kind === "video") {
+                if (
+                  sampleBuilder.DePacketizer.deSerialize(rtp.payload)
+                    .isKeyframe ||
+                  sampleBuilder.relativeTimestamp >= maxSingedInt
+                ) {
+                  await appendCluster();
+                }
+              } else {
+                if (sampleBuilder.relativeTimestamp >= maxSingedInt) {
+                  await appendCluster();
+                }
+              }
+
+              sampleBuilder.push(rtp);
+              const res = sampleBuilder.build();
+              if (!res) return;
+              const { data, relativeTimestamp, isKeyframe } = res;
+
+              if (track.kind === "video") {
+                const [cuePoint] = this.cuePoints.slice(-1);
+                cuePoint.blockNumber++;
+              }
+
+              await this.write(
+                data,
+                isKeyframe,
+                relativeTimestamp,
+                trackNumber
+              );
             }
-          } else {
-            if (sampleBuilder.relativeTimestamp >= maxSingedInt) {
-              await appendCluster();
-            }
-          }
-
-          sampleBuilder.push(rtp);
-          const res = sampleBuilder.build();
-          if (!res) return;
-          const { data, relativeTimestamp, isKeyframe } = res;
-
-          if (track.kind === "video") {
-            const [cuePoint] = this.cuePoints.slice(-1);
-            cuePoint.blockNumber++;
-          }
-
-          await this.write(data, isKeyframe, relativeTimestamp, trackNumber);
+          });
         });
         return unSubscribe;
       }
@@ -111,46 +123,48 @@ export class WebmFactory {
   }
 
   async stop() {
-    if (!this.disposer) {
-      throw new Error();
-    }
-    this.disposer();
+    await this.queue.push(async () => {
+      if (!this.disposer) {
+        throw new Error();
+      }
+      this.disposer();
 
-    const latestTimestamp = Object.values(this.tracks)
-      .map(({ sampleBuilder }) => sampleBuilder)
-      .sort(
-        (a, b) => a.relativeTimestamp - b.relativeTimestamp
-      )[0].relativeTimestamp;
-    const duration = this.relativeTimestamp + latestTimestamp;
+      const latestTimestamp = Object.values(this.tracks)
+        .map(({ sampleBuilder }) => sampleBuilder)
+        .sort(
+          (a, b) => a.relativeTimestamp - b.relativeTimestamp
+        )[0].relativeTimestamp;
+      const duration = this.relativeTimestamp + latestTimestamp;
 
-    const entries = createTrackEntries(
-      Object.values(this.tracks).map(({ track }) => track),
-      this.options
-    );
-    const segment = EBML.build(
-      createSegment(entries, [
-        EBML.element(EBML.ID.Duration, EBML.float(duration)),
-      ])
-    );
+      const entries = createTrackEntries(
+        Object.values(this.tracks).map(({ track }) => track),
+        this.options
+      );
+      const segment = EBML.build(
+        createSegment(entries, [
+          EBML.element(EBML.ID.Duration, EBML.float(duration)),
+        ])
+      );
 
-    const staticPart = Buffer.concat([ebmlHeader, segment]);
-    const staticPartGap = staticPart.length - this.staticPartOffset;
+      const staticPart = Buffer.concat([ebmlHeader, segment]);
+      const staticPartGap = staticPart.length - this.staticPartOffset;
 
-    this.cuePoints.forEach((cue) => {
-      cue.offset = staticPartGap;
+      this.cuePoints.forEach((cue) => {
+        cue.offset = staticPartGap;
+      });
+      const cues = EBML.build(
+        EBML.element(
+          EBML.ID.Cues,
+          this.cuePoints.map((cue) => cue.build())
+        )
+      );
+
+      const clusters = (await readFile(this.path)).slice(this.staticPartOffset);
+
+      await writeFile(this.path, staticPart);
+      await appendFile(this.path, clusters);
+      await appendFile(this.path, cues);
     });
-    const cues = EBML.build(
-      EBML.element(
-        EBML.ID.Cues,
-        this.cuePoints.map((cue) => cue.build())
-      )
-    );
-
-    const clusters = (await readFile(this.path)).slice(this.staticPartOffset);
-
-    await writeFile(this.path, staticPart);
-    await appendFile(this.path, clusters);
-    await appendFile(this.path, cues);
   }
 
   private async write(

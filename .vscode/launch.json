@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/save_to_disk/webm.ts"
+        "${workspaceRoot}/examples/save_to_disk/dump.ts"
       ],
       "env": { "DEBUG": "werift:packages/webrtc*" },
       "console": "integratedTerminal",

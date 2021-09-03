@@ -14,9 +14,9 @@ export class MediaRecorder {
     this.tracks.push(track);
   }
 
-  start() {
+  async start() {
     this.webm = new WebmFactory(this.tracks, this.path, this.options);
-    this.webm.start();
+    await this.webm.start();
   }
 
   async stop() {
