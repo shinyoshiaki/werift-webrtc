@@ -23,7 +23,7 @@ import {
 
   let timestampOffset = 0;
   let sequenceNumberOffset = 0;
-  for (let times = 0; times < 10000; times++) {
+  for (let times = 0; times < 100; times++) {
     const headTimestamp = packets[0].header.timestamp;
     const tailTimestamp = packets.slice(-1)[0].header.timestamp;
     const headSeq = packets[0].header.sequenceNumber;

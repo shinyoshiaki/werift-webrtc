@@ -149,21 +149,21 @@ export class WebmFactory {
       const staticPart = Buffer.concat([ebmlHeader, segment]);
       const staticPartGap = staticPart.length - this.staticPartOffset;
 
-      this.cuePoints.forEach((cue) => {
-        cue.offset = staticPartGap;
-      });
-      const cues = EBML.build(
-        EBML.element(
-          EBML.ID.Cues,
-          this.cuePoints.map((cue) => cue.build())
-        )
-      );
+      let cueSize = 0;
+      let cues = getCues(this.cuePoints);
+      while (cueSize !== cues.length) {
+        cueSize = cues.length;
+        this.cuePoints.forEach((cue) => {
+          cue.clusterOffset = staticPartGap + cueSize;
+        });
+        cues = getCues(this.cuePoints);
+      }
 
       const clusters = (await readFile(this.path)).slice(this.staticPartOffset);
 
       await writeFile(this.path, staticPart);
-      await appendFile(this.path, clusters);
       await appendFile(this.path, cues);
+      await appendFile(this.path, clusters);
     });
   }
 
@@ -301,8 +301,8 @@ function createSegment(
     EBML.element(EBML.ID.SeekHead, []),
     EBML.element(EBML.ID.Info, [
       EBML.element(EBML.ID.TimecodeScale, EBML.number(millisecond)),
-      EBML.element(EBML.ID.MuxingApp, EBML.string("werift.mux")),
-      EBML.element(EBML.ID.WritingApp, EBML.string("werift.write")),
+      EBML.element(EBML.ID.MuxingApp, EBML.string("werift")),
+      EBML.element(EBML.ID.WritingApp, EBML.string("werift")),
       ...infoElements,
     ]),
     EBML.element(EBML.ID.Tracks, entries),
@@ -317,7 +317,7 @@ type TrackOptions = Partial<{ width: number; height: number }>;
 
 class CuePoint {
   private readonly seekHeadPosition = 48;
-  offset?: number;
+  clusterOffset: number = 0;
   blockNumber = 0;
 
   constructor(
@@ -327,19 +327,28 @@ class CuePoint {
   ) {}
 
   build() {
-    if (this.offset == undefined) throw new Error();
-
     const cue = EBML.element(EBML.ID.CuePoint, [
       EBML.element(EBML.ID.CueTime, EBML.number(this.relativeTimestamp)),
       EBML.element(EBML.ID.CueTrackPositions, [
         EBML.element(EBML.ID.CueTrack, EBML.number(this.trackNumber)),
         EBML.element(
           EBML.ID.CueClusterPosition,
-          EBML.number(this.offset + this.position - this.seekHeadPosition)
+          EBML.number(
+            this.clusterOffset + this.position - this.seekHeadPosition
+          )
         ),
         EBML.element(EBML.ID.CueBlockNumber, EBML.number(this.blockNumber)),
       ]),
     ]);
     return cue;
   }
+}
+
+function getCues(cuePoints: CuePoint[]) {
+  return EBML.build(
+    EBML.element(
+      EBML.ID.Cues,
+      cuePoints.map((cue) => cue.build())
+    )
+  );
 }
