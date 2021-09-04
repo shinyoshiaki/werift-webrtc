@@ -211,7 +211,7 @@ const ebmlHeader = EBML.build(
     EBML.element(EBML.ID.EBMLMaxIDLength, EBML.number(4)),
     EBML.element(EBML.ID.EBMLMaxSizeLength, EBML.number(8)),
     EBML.element(EBML.ID.DocType, EBML.string("webm")),
-    EBML.element(EBML.ID.DocTypeVersion, EBML.number(4)),
+    EBML.element(EBML.ID.DocTypeVersion, EBML.number(2)),
     EBML.element(EBML.ID.DocTypeReadVersion, EBML.number(2)),
   ])
 );
@@ -251,14 +251,14 @@ function createTrackEntries(
 ) {
   return tracks.map((track, i) => {
     if (track.kind === "video") {
-      return createTrackEntry(i + 1, "V_VP8", "video", [
+      return createTrackEntry(i + 1, "VP8", "video", [
         EBML.element(EBML.ID.Video, [
           EBML.element(EBML.ID.PixelWidth, EBML.number(options.width)),
           EBML.element(EBML.ID.PixelHeight, EBML.number(options.height)),
         ]),
       ]);
     } else {
-      return createTrackEntry(i + 1, "A_OPUS", "audio", [
+      return createTrackEntry(i + 1, "OPUS", "audio", [
         EBML.element(EBML.ID.Audio, [
           EBML.element(EBML.ID.SamplingFrequency, EBML.float(48000.0)),
           EBML.element(EBML.ID.Channels, EBML.number(2)),
@@ -287,8 +287,12 @@ function createTrackEntry(
   return EBML.element(EBML.ID.TrackEntry, [
     EBML.element(EBML.ID.TrackNumber, EBML.number(trackNumber)),
     EBML.element(EBML.ID.TrackUID, EBML.number(trackNumber)),
-    EBML.element(EBML.ID.CodecID, EBML.string(codec)),
+    EBML.element(EBML.ID.CodecName, EBML.string(codec)),
     EBML.element(EBML.ID.TrackType, EBML.number(type === "video" ? 1 : 2)),
+    EBML.element(
+      EBML.ID.CodecID,
+      EBML.string(`${type === "video" ? "V" : "A"}_${codec}`)
+    ),
     ...elements,
   ]);
 }

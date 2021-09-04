@@ -45,7 +45,7 @@ server.on("connection", async (socket) => {
   setTimeout(() => {
     recorder.stop();
     console.log("stop");
-  }, 30_000);
+  }, 60_000);
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
