@@ -1,11 +1,19 @@
 import * as EBML from "@shinyoshiaki/ebml-builder";
+import { debug } from "debug";
 import { appendFile, readFile, writeFile } from "fs/promises";
 
-import { BitWriter, bufferWriter, bufferWriterLE } from "../../../common/src";
+import {
+  BitWriter,
+  BufferChain,
+  bufferWriter,
+  bufferWriterLE,
+} from "../../../common/src";
 import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
 import { PromiseQueue } from "../helper";
 import { MediaStreamTrack } from "../media/track";
 import { SampleBuilder } from "./sampleBuilder";
+
+const log = debug("werift:packages/webrtc/src/nonstandard/webm.ts");
 
 export class WebmFactory {
   private relativeTimestamp = 0;
@@ -81,24 +89,21 @@ export class WebmFactory {
         const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
           this.queue.push(async () => {
             {
-              if (track.kind === "video") {
-                if (
-                  sampleBuilder.DePacketizer.deSerialize(rtp.payload)
-                    .isKeyframe ||
-                  sampleBuilder.relativeTimestamp >= maxSingedInt
-                ) {
-                  await appendCluster();
-                }
-              } else {
-                if (sampleBuilder.relativeTimestamp >= maxSingedInt) {
-                  await appendCluster();
-                }
+              const frame = sampleBuilder.DePacketizer.deSerialize(rtp.payload);
+              if (track.kind === "video" && frame.isKeyframe) {
+                await appendCluster();
+              } else if (sampleBuilder.relativeTimestamp >= MaxSinged16Int) {
+                await appendCluster();
               }
 
               sampleBuilder.push(rtp);
               const res = sampleBuilder.build();
               if (!res) return;
               const { data, relativeTimestamp, isKeyframe } = res;
+              if (relativeTimestamp >= MaxSinged16Int) {
+                log("relativeTimestamp exceeded", relativeTimestamp);
+                return;
+              }
 
               if (track.kind === "video") {
                 const [cuePoint] = this.cuePoints.slice(-1);
@@ -239,7 +244,8 @@ function createSimpleBlock(
     elementId,
     contentSize,
     EBML.vintEncodedNumber(trackNumber).bytes,
-    bufferWriter([2, 1], [relativeTimestamp, flags.value]),
+    new BufferChain(2).writeInt16BE(relativeTimestamp).buffer,
+    new BufferChain(1).writeUInt8(flags.value).buffer,
     data,
   ]);
   return simpleBlock;
@@ -315,7 +321,7 @@ function createSegment(
 
 const millisecond = 1000000;
 /**32767 */
-const maxSingedInt = (0x01 << 16) / 2 - 1;
+const MaxSinged16Int = (0x01 << 16) / 2 - 1;
 
 type TrackOptions = Partial<{ width: number; height: number }>;
 

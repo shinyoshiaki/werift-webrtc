@@ -80,3 +80,19 @@ export function bufferReader(buf: Buffer, bytes: number[]) {
     return read as any;
   });
 }
+
+export class BufferChain {
+  buffer = Buffer.alloc(this.size);
+
+  constructor(private size: number) {}
+
+  writeInt16BE(value: number, offset?: number | undefined) {
+    this.buffer.writeInt16BE(value, offset);
+    return this;
+  }
+
+  writeUInt8(value: number, offset?: number | undefined) {
+    this.buffer.writeUInt8(value, offset);
+    return this;
+  }
+}

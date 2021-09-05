@@ -27,7 +27,7 @@ server.on("connection", async (socket) => {
 
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(track.ssrc);
-      }, 5_000);
+      }, 10_000);
     });
   }
   {
@@ -45,7 +45,7 @@ server.on("connection", async (socket) => {
   setTimeout(() => {
     recorder.stop();
     console.log("stop");
-  }, 60_000);
+  }, 60_000 * 60 * 3);
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);

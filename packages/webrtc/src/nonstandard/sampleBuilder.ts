@@ -1,7 +1,11 @@
-import { int, uint32Add } from "../../../common/src";
+import { debug } from "debug";
+
+import { int } from "../../../common/src";
 import { DePacketizerBase, RtpPacket } from "../../../rtp/src";
 import { enumerate } from "../helper";
 import { JitterBuffer } from "./jitterBuffer";
+
+const log = debug("werift:packages/webrtc/src/nonstandard/sampleBuilder.ts");
 
 export class SampleBuilder {
   private readonly jitterBuffer = new JitterBuffer();
@@ -15,9 +19,6 @@ export class SampleBuilder {
   ) {}
 
   push(p: RtpPacket) {
-    if (this.baseTimestamp == undefined) {
-      this.baseTimestamp = p.header.timestamp;
-    }
     const buf = this.jitterBuffer.push(p);
     this.buffer = [...this.buffer, ...buf];
   }
@@ -36,24 +37,24 @@ export class SampleBuilder {
       }
     }
 
-    if (tail == undefined || this.baseTimestamp == undefined) {
-      return;
+    if (tail == undefined) return;
+    if (this.baseTimestamp == undefined) {
+      this.baseTimestamp = this.buffer[tail].header.timestamp;
     }
 
-    const elapsed = Number(
-      uint32Add(
-        BigInt(this.buffer[tail].header.timestamp),
-        -BigInt(this.baseTimestamp)
-      )
-    );
+    const tailTimestamp = this.buffer[tail].header.timestamp;
+    const rotate = Math.abs(tailTimestamp - this.baseTimestamp) > Max32Uint / 4;
+    if (rotate) log({ rotate });
+
+    const elapsed = rotate
+      ? tailTimestamp + Max32Uint - this.baseTimestamp
+      : tailTimestamp - this.baseTimestamp;
+
     const relativeTimestamp = int((elapsed / this.clockRate) * 1000);
     this.relativeTimestamp = relativeTimestamp;
 
     const frames = this.buffer.slice(0, tail + 1).map((p) => {
       const frame = this.DePacketizer.deSerialize(p.payload);
-      if (frame.payload.length === 0) {
-        p;
-      }
       return frame;
     });
     const isKeyframe = !!frames.find((f) => f.isKeyframe);
@@ -64,3 +65,6 @@ export class SampleBuilder {
     return { data, relativeTimestamp, isKeyframe };
   }
 }
+
+/**4294967295 */
+const Max32Uint = Number(0x01n << 32n) - 1;
