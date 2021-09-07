@@ -49,9 +49,16 @@ export class H264RtpPayload implements DePacketizerBase {
     h264.nalUnitPayloadType = getBit(buf[offset], 3, 5);
     offset++;
 
+    // デフォルトでは packetization-mode=0
+    // packetization-mode=0だとSingle NAL Unit Packetしか来ない
+    // https://datatracker.ietf.org/doc/html/rfc6184#section-6.2
+
+    // Single NAL Unit Packet
     if (0 < h264.nalUnitType && h264.nalUnitType < 24) {
       h264.payload = this.packaging(buf);
-    } else if (h264.nalUnitType === NalUnitType.stap_a) {
+    }
+    // Single-time aggregation packet
+    else if (h264.nalUnitType === NalUnitType.stap_a) {
       let offset = stap_aHeaderSize;
       let result: Buffer = Buffer.alloc(0);
       while (offset < buf.length) {
@@ -65,19 +72,6 @@ export class H264RtpPayload implements DePacketizerBase {
         offset += naluSize;
       }
       h264.payload = result;
-    } else if (h264.nalUnitType === NalUnitType.fu_a) {
-      let result: Buffer = Buffer.alloc(0);
-
-      if (h264.e === 1) {
-        result = Buffer.concat([
-          result,
-          Buffer.from([h264.nri | h264.nalUnitPayloadType]),
-        ]);
-        result = Buffer.concat([result, buf.slice(fu_aHeaderSize)]);
-        h264.payload = this.packaging(result);
-      } else {
-        h264.payload = result;
-      }
     }
 
     return h264;
