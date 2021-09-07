@@ -43,8 +43,9 @@ export class SampleBuilder {
     }
 
     const tailTimestamp = this.buffer[tail].header.timestamp;
-    const rotate = Math.abs(tailTimestamp - this.baseTimestamp) > Max32Uint / 4;
-    if (rotate) log({ rotate });
+    const rotate =
+      Math.abs(tailTimestamp - this.baseTimestamp) > (Max32Uint / 4) * 3;
+    if (rotate) log({ rotate }, tailTimestamp, this.baseTimestamp);
 
     const elapsed = rotate
       ? tailTimestamp + Max32Uint - this.baseTimestamp
