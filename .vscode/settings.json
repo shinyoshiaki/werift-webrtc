@@ -1,8 +1,5 @@
 {
   "cSpell.words": [
-    "Packetizer",
-    "TWCC",
-    "Webm",
     "ack",
     "acked",
     "cwnd",
@@ -27,6 +24,8 @@
     "nodertc",
     "offer",
     "out",
+    "Packetized",
+    "Packetizer",
     "parse",
     "pranswer",
     "prflx",
@@ -52,9 +51,12 @@
     "transport",
     "ts",
     "ts node files examples mediachannel sendrecv offer",
+    "TWCC",
     "ufrag",
     "uint",
+    "Unmarshaled",
     "userdata",
+    "Webm",
     "webrtc",
     "werift",
     "wrtct"

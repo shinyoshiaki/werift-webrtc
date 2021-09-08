@@ -1,4 +1,8 @@
-import { MediaRecorder, RTCPeerConnection } from "../../packages/webrtc/src";
+import {
+  MediaRecorder,
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+} from "../../packages/webrtc/src";
 import { Server } from "ws";
 
 // open ./answer.html
@@ -12,7 +16,21 @@ server.on("connection", async (socket) => {
     height: 360,
   });
 
-  const pc = new RTCPeerConnection();
+  const pc = new RTCPeerConnection({
+    codecs: {
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/H264",
+          clockRate: 90000,
+          rtcpFeedback: [
+            { type: "nack" },
+            { type: "nack", parameter: "pli" },
+            { type: "goog-remb" },
+          ],
+        }),
+      ],
+    },
+  });
 
   {
     const transceiver = pc.addTransceiver("video");
@@ -27,7 +45,7 @@ server.on("connection", async (socket) => {
 
       setInterval(() => {
         transceiver.receiver.sendRtcpPLI(track.ssrc);
-      }, 10_000);
+      }, 2_000);
     });
   }
   {
@@ -45,7 +63,7 @@ server.on("connection", async (socket) => {
   setTimeout(() => {
     recorder.stop();
     console.log("stop");
-  }, 60_000 * 60 * 3);
+  }, 60_000 * 60);
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);

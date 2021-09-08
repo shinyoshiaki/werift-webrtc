@@ -8,7 +8,11 @@ import {
   bufferWriter,
   bufferWriterLE,
 } from "../../../common/src";
-import { OpusRtpPayload, Vp8RtpPayload } from "../../../rtp/src";
+import {
+  H264RtpPayload,
+  OpusRtpPayload,
+  Vp8RtpPayload,
+} from "../../../rtp/src";
 import { PromiseQueue } from "../helper";
 import { MediaStreamTrack } from "../media/track";
 import { SampleBuilder } from "./sampleBuilder";
@@ -45,7 +49,12 @@ export class WebmFactory {
     tracks.forEach((track, i) => {
       const sampleBuilder = (() => {
         if (track.kind === "video") {
-          return new SampleBuilder(Vp8RtpPayload, 90000);
+          switch (track.codec?.name.toLocaleLowerCase()) {
+            case "vp8":
+              return new SampleBuilder(Vp8RtpPayload, 90000);
+            case "h264":
+              return new SampleBuilder(H264RtpPayload, 90000);
+          }
         } else {
           return new SampleBuilder(OpusRtpPayload, 48000);
         }
@@ -257,7 +266,17 @@ function createTrackEntries(
 ) {
   return tracks.map((track, i) => {
     if (track.kind === "video") {
-      return createTrackEntry(i + 1, "VP8", "video", [
+      const codecName = (() => {
+        switch (track.codec?.name.toLocaleLowerCase()) {
+          case "vp8":
+            return "VP8";
+          case "h264":
+            return "MPEG4/ISO/AVC";
+          default:
+            throw new Error();
+        }
+      })();
+      return createTrackEntry(i + 1, codecName, "video", [
         EBML.element(EBML.ID.Video, [
           EBML.element(EBML.ID.PixelWidth, EBML.number(options.width)),
           EBML.element(EBML.ID.PixelHeight, EBML.number(options.height)),
