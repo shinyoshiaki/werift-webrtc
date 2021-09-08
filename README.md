@@ -105,6 +105,11 @@ see console & chrome://webrtc-internals/
   - [x] sipsorcery
 - [ ] Unit Tests
   - [ ] follow [Web Platform Tests](https://github.com/web-platform-tests/wpt)
+- [ ] MediaRecorder
+  - [x] OPUS
+  - [x] VP8
+  - [x] H264
+  - [ ] VP9
 
 ## Road Map Towards 2.0
 
@@ -117,7 +122,6 @@ see console & chrome://webrtc-internals/
   - [ ] send
 - [ ] support more cipher suites
 - [ ] getStats
-- [ ] Media Engine
 - [ ] TURN
   - [ ] TCP
 
