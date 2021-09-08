@@ -78,7 +78,7 @@ export class H264RtpPayload implements DePacketizerBase {
   }
 
   private static packaging(buf: Buffer) {
-    return Buffer.concat([annexbNALUStartCode, buf]);
+    return Buffer.concat([annex_bNALUStartCode, buf]);
   }
 
   static isDetectedFinalPacketInSequence(header: RtpHeader) {
@@ -111,8 +111,7 @@ export const NalUnitType = {
   fu_b: 29,
 } as const;
 
-const annexbNALUStartCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+const annex_bNALUStartCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
 
 const stap_aHeaderSize = 1;
 const stap_aNALULengthSize = 2;
-const fu_aHeaderSize = 2;
