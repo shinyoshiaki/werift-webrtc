@@ -1,6 +1,8 @@
 // RTP Payload Format for VP9 Video draft-ietf-payload-vp9-16 https://datatracker.ietf.org/doc/html/draft-ietf-payload-vp9
 
 import { getBit, paddingByte } from "../../../common/src";
+import { RtpHeader } from "../rtp/rtp";
+import { DePacketizerBase } from "./base";
 
 //          0 1 2 3 4 5 6 7
 //         +-+-+-+-+-+-+-+-+
@@ -34,13 +36,18 @@ import { getBit, paddingByte } from "../../../common/src";
 //         | ..            |
 //         +-+-+-+-+-+-+-+-+
 
-export class Vp9RtpPayload {
+export class Vp9RtpPayload implements DePacketizerBase {
   i!: number;
+  /**Inter-picture predicted frame */
   p!: number;
+  /**Layer indices present */
   l!: number;
+  /**Flexible mode */
   f!: number;
+  /**Start of a frame */
   b!: number;
   e!: number;
+  /**Scalability structure */
   v!: number;
   z!: number;
   m?: number;
@@ -49,46 +56,76 @@ export class Vp9RtpPayload {
   u?: number;
   sid?: number;
   d?: number;
+  tl0PicIdx?: number;
+  pDiff: number[] = [];
+  payload!: Buffer;
 
   static deSerialize(buf: Buffer) {
-    const c = new Vp9RtpPayload();
+    const p = new Vp9RtpPayload();
 
-    let index = 0;
+    let offset = 0;
 
-    c.i = getBit(buf[index], 0);
-    c.p = getBit(buf[index], 1);
-    c.l = getBit(buf[index], 2);
-    c.f = getBit(buf[index], 3);
-    c.b = getBit(buf[index], 4);
-    c.e = getBit(buf[index], 5);
-    c.v = getBit(buf[index], 6);
-    c.z = getBit(buf[index], 7);
+    p.i = getBit(buf[offset], 0);
+    p.p = getBit(buf[offset], 1);
+    p.l = getBit(buf[offset], 2);
+    p.f = getBit(buf[offset], 3);
+    p.b = getBit(buf[offset], 4);
+    p.e = getBit(buf[offset], 5);
+    p.v = getBit(buf[offset], 6);
+    p.z = getBit(buf[offset], 7);
 
-    index++;
+    offset++;
 
-    if (c.i === 1) {
-      c.m = getBit(buf[index], 0);
+    if (p.i === 1) {
+      p.m = getBit(buf[offset], 0);
 
-      if (c.m === 1) {
-        const _7 = paddingByte(getBit(buf[index], 1, 7));
-        const _8 = paddingByte(buf[index + 1]);
-        c.pictureId = parseInt(_7 + _8, 2);
-        index += 2;
+      if (p.m === 1) {
+        const _7 = paddingByte(getBit(buf[offset], 1, 7));
+        const _8 = paddingByte(buf[offset + 1]);
+        p.pictureId = parseInt(_7 + _8, 2);
+        offset += 2;
       } else {
-        c.pictureId = getBit(buf[index], 1, 7);
-        index++;
+        p.pictureId = getBit(buf[offset], 1, 7);
+        offset++;
       }
     }
 
-    c.tid = getBit(buf[index], 0, 3);
-    c.u = getBit(buf[index], 3);
-    c.sid = getBit(buf[index], 4, 3);
-    c.d = getBit(buf[index], 7);
+    if (p.l) {
+      p.tid = getBit(buf[offset], 0, 3);
+      p.u = getBit(buf[offset], 3);
+      p.sid = getBit(buf[offset], 4, 3);
+      p.d = getBit(buf[offset], 7);
+      offset++;
+      if (p.f === 0) {
+        p.tl0PicIdx = buf[offset];
+        offset++;
+      }
+    }
 
-    return c;
+    if (p.f && p.p) {
+      for (;;) {
+        p.pDiff = [...p.pDiff, getBit(buf[offset], 0, 7)];
+        const n = getBit(buf[offset], 7);
+        offset++;
+        if (n === 0) break;
+      }
+    }
+
+    if (p.v) {
+    }
+
+    return p;
+  }
+
+  static isDetectedFinalPacketInSequence(header: RtpHeader) {
+    return header.marker;
   }
 
   get isKeyframe() {
-    return !this.p && this.b && (!this.sid || !this.l);
+    return !!(!this.p && this.b && (!this.sid || !this.l));
+  }
+
+  get isPartitionHead() {
+    return this.b === 1;
   }
 }
