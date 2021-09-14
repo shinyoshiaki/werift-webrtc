@@ -37,84 +37,84 @@ import { DePacketizerBase } from "./base";
 // +-+-+-+-+-+-+-+-+
 
 export class Vp8RtpPayload implements DePacketizerBase {
-  x!: number;
-  n!: number;
-  s!: number;
+  xBit!: number;
+  nBit!: number;
+  sBit!: number;
   pid!: number;
-  i?: number;
-  l?: number;
-  t?: number;
-  k?: number;
-  m?: number;
+  iBit?: number;
+  lBit?: number;
+  tBit?: number;
+  kBit?: number;
+  mBit?: number;
   pictureId?: number;
   payload!: Buffer;
   size0?: number;
-  h?: number;
+  hBit?: number;
   ver?: number;
-  p?: number;
+  pBit?: number;
   size1?: number;
   size2?: number;
 
   static deSerialize(buf: Buffer) {
-    const c = new Vp8RtpPayload();
+    const p = new Vp8RtpPayload();
 
     let offset = 0;
 
-    c.x = getBit(buf[offset], 0);
-    c.n = getBit(buf[offset], 2);
-    c.s = getBit(buf[offset], 3);
-    c.pid = getBit(buf[offset], 5, 3);
+    p.xBit = getBit(buf[offset], 0);
+    p.nBit = getBit(buf[offset], 2);
+    p.sBit = getBit(buf[offset], 3);
+    p.pid = getBit(buf[offset], 5, 3);
     offset++;
 
-    if (c.x === 1) {
-      c.i = getBit(buf[offset], 0);
-      c.l = getBit(buf[offset], 1);
-      c.t = getBit(buf[offset], 2);
-      c.k = getBit(buf[offset], 3);
+    if (p.xBit) {
+      p.iBit = getBit(buf[offset], 0);
+      p.lBit = getBit(buf[offset], 1);
+      p.tBit = getBit(buf[offset], 2);
+      p.kBit = getBit(buf[offset], 3);
       offset++;
     }
 
-    if (c.i) {
-      c.m = getBit(buf[offset], 0);
-      if (c.m === 1) {
+    if (p.iBit) {
+      p.mBit = getBit(buf[offset], 0);
+      if (p.mBit) {
         const _7 = paddingByte(getBit(buf[offset], 1, 7));
         const _8 = paddingByte(buf[offset + 1]);
-        c.pictureId = parseInt(_7 + _8, 2);
+        p.pictureId = parseInt(_7 + _8, 2);
         offset += 2;
       } else {
-        c.pictureId = getBit(buf[offset], 1, 7);
+        p.pictureId = getBit(buf[offset], 1, 7);
         offset++;
       }
     }
 
-    if (c.l) {
+    if (p.lBit) {
       offset++;
     }
 
-    if (c.l || c.k) {
-      if (c.t) {
+    if (p.lBit || p.kBit) {
+      if (p.tBit) {
       }
-      if (c.k) {
+      if (p.kBit) {
       }
       offset++;
     }
 
-    c.payload = buf.slice(offset);
+    p.payload = buf.slice(offset);
 
-    if (c.s === 1 && c.pid === 0) {
-      c.size0 = getBit(buf[offset], 0, 3);
-      c.h = getBit(buf[offset], 3);
-      c.ver = getBit(buf[offset], 4, 3);
-      c.p = getBit(buf[offset], 7);
+    if (p.sBit === 1 && p.pid === 0) {
+      p.size0 = getBit(buf[offset], 0, 3);
+      p.hBit = getBit(buf[offset], 3);
+      p.ver = getBit(buf[offset], 4, 3);
+      p.pBit = getBit(buf[offset], 7);
       offset++;
     }
 
-    c.size1 = buf[offset];
+    p.size1 = buf[offset];
     offset++;
-    c.size2 = buf[offset];
+    p.size2 = buf[offset];
     offset++;
 
-    return c;
+    return p;
   }
 
   static isDetectedFinalPacketInSequence(header: RtpHeader) {
@@ -122,10 +122,10 @@ export class Vp8RtpPayload implements DePacketizerBase {
   }
 
   get isKeyframe() {
-    return this.p === 0;
+    return this.pBit === 0;
   }
 
   get isPartitionHead() {
-    return this.s === 1;
+    return this.sBit === 1;
   }
 }

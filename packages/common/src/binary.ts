@@ -20,6 +20,13 @@ export class BitWriter {
 
     return this;
   }
+
+  get buffer() {
+    const length = Math.ceil(this.bitLength / 8);
+    const buf = Buffer.alloc(length);
+    buf.writeUIntBE(this.value, 0, length);
+    return buf;
+  }
 }
 
 export function getBit(bits: number, startIndex: number, length: number = 1) {
