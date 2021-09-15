@@ -23,7 +23,7 @@
     "@types/node": "^16.3.3",
     "@types/protoo-client": "^4.0.1",
     "@types/protoo-server": "^4.0.2",
-    "axios": "^0.21.1",
+    "axios": "^0.21.2",
     "express": "^4.17.1",
     "jasmine-core": "^3.8.0",
     "karma": "^6.3.4",
