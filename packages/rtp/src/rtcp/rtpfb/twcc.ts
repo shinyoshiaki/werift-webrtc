@@ -201,8 +201,8 @@ export class TransportWideCC {
         .map((delta) => {
           try {
             return delta.serialize();
-          } catch (error) {
-            log(error.message);
+          } catch (error: any) {
+            log(error?.message);
             return undefined;
           }
         })

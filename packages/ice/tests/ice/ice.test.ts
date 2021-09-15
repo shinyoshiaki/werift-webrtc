@@ -333,7 +333,7 @@ describe("ice", () => {
 
       try {
         await Promise.all([a.connect(), b.connect()]);
-      } catch (error) {
+      } catch (error: any) {
         expect(error.message).toBe("Remote username or password is missing");
         await a.close();
         await b.close();
@@ -358,7 +358,7 @@ describe("ice", () => {
 
       try {
         await Promise.all([a.connect(), b.connect()]);
-      } catch (error) {
+      } catch (error: any) {
         expect(error.message).toBe("Remote username or password is missing");
         await a.close();
         await b.close();
@@ -382,7 +382,7 @@ describe("ice", () => {
       conn.remotePassword = "bar";
       try {
         await conn.connect();
-      } catch (error) {
+      } catch (error: any) {
         expect(error.message).toBe(
           "Local candidates gathering was not performed"
         );
@@ -405,7 +405,7 @@ describe("ice", () => {
       conn.remotePassword = "bar";
       try {
         await conn.connect();
-      } catch (error) {
+      } catch (error: any) {
         expect(error.message).toBe("ICE negotiation failed");
         await conn.close();
         done();
@@ -422,7 +422,7 @@ describe("ice", () => {
       conn.remotePassword = "bar";
       try {
         await conn.connect();
-      } catch (error) {
+      } catch (error: any) {
         expect(error.message).toBe("ICE negotiation failed");
         await conn.close();
         done();
@@ -441,7 +441,7 @@ describe("ice", () => {
       ];
       try {
         await conn.connect();
-      } catch (error) {
+      } catch (error: any) {
         expect(error.message).toBe("Remote username or password is missing");
         await conn.close();
         done();

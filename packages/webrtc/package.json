@@ -62,9 +62,20 @@
     "@types/debug": "^4.1.7",
     "@types/elliptic": "^6.4.12",
     "@types/ip": "^1.1.0",
+    "@types/jest": "^27.0.1",
     "@types/lodash": "^4.14.172",
+    "@types/node": "^16.9.1",
     "@types/uuid": "^8.3.0",
-    "typedoc": "^0.21.5"
+    "@typescript-eslint/eslint-plugin": "^4.31.1",
+    "@typescript-eslint/parser": "^4.31.1",
+    "eslint-plugin-prettier": "^4.0.0",
+    "jest": "^27.2.0",
+    "node-actionlint": "^1.2.0",
+    "prettier": "^2.4.0",
+    "ts-jest": "^27.0.5",
+    "ts-node": "^10.2.1",
+    "typedoc": "^0.22.3",
+    "typescript": "^4.4.3"
   },
   "engines": {
     "node": ">=15"

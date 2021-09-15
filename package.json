@@ -34,23 +34,23 @@
     "type:example": "tsc --noEmit -p ./tsconfig.json"
   },
   "devDependencies": {
-    "@types/jest": "^26.0.23",
-    "@types/node": "^16.4.12",
-    "@typescript-eslint/eslint-plugin": "^4.29.0",
-    "@typescript-eslint/parser": "^4.29.0",
+    "@types/jest": "^27.0.1",
+    "@types/node": "^16.9.1",
+    "@typescript-eslint/eslint-plugin": "^4.31.1",
+    "@typescript-eslint/parser": "^4.31.1",
     "eslint": "^7.32.0",
     "eslint-config-prettier": "^8.3.0",
-    "eslint-plugin-prettier": "^3.4.0",
+    "eslint-plugin-prettier": "^4.0.0",
     "eslint-plugin-simple-import-sort": "^7.0.0",
-    "jest": "^27.0.6",
+    "jest": "^27.2.0",
     "lerna": "^4.0.0",
-    "node-actionlint": "^1.1.0",
+    "node-actionlint": "^1.2.0",
     "organize-imports-cli": "^0.8.0",
-    "prettier": "^2.3.2",
-    "ts-jest": "^27.0.4",
-    "ts-node": "^10.0.0",
+    "prettier": "^2.4.0",
+    "ts-jest": "^27.0.5",
+    "ts-node": "^10.2.1",
     "ts-node-dev": "^1.1.7",
-    "typescript": "^4.3.5"
+    "typescript": "^4.4.3"
   },
   "engines": {
     "node": ">=15"

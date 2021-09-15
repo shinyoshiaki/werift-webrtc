@@ -21,9 +21,8 @@ import { load } from "./utils";
 
 describe("SctpPacketTest", () => {
   const roundtripPacket = (data: Buffer) => {
-    const [sourcePort, destinationPort, verificationTag, chunks] = parsePacket(
-      data
-    );
+    const [sourcePort, destinationPort, verificationTag, chunks] =
+      parsePacket(data);
     expect(sourcePort).toBe(5000);
     expect(destinationPort).toBe(5000);
     expect(chunks.length).toBe(1);
@@ -56,7 +55,7 @@ describe("SctpPacketTest", () => {
     ]);
     try {
       roundtripPacket(data);
-    } catch (error) {
+    } catch (error: any) {
       expect(error.message).toBe("SCTP packet has invalid checksum");
     }
   });
@@ -65,7 +64,7 @@ describe("SctpPacketTest", () => {
     const data = load("sctp_init.bin").slice(0, 10);
     try {
       roundtripPacket(data);
-    } catch (error) {
+    } catch (error: any) {
       expect(error.message).toBe("SCTP packet length is less than 12 bytes");
     }
   });

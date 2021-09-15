@@ -1,7 +1,7 @@
-import { readMessage } from "../utils";
-import { Transaction } from "../../src/stun/transaction";
-import { Message, parseMessage } from "../../src/stun/message";
 import { classes, methods } from "../../src/stun/const";
+import { Message, parseMessage } from "../../src/stun/message";
+import { Transaction } from "../../src/stun/transaction";
+import { readMessage } from "../utils";
 
 describe("stun", () => {
   test("test_binding_request", () => {
@@ -132,7 +132,7 @@ describe("stun", () => {
 
       try {
         await transaction.run();
-      } catch (error) {
+      } catch (error: any) {
         expect(error.str).toBe("STUN transaction timed out");
       }
 

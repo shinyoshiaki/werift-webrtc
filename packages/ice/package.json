@@ -44,7 +44,7 @@
     "@types/lodash": "^4.14.172",
     "@types/utf8": "^3.0.0",
     "@types/ws": "^7.4.7",
-    "ws": "^8.0.0"
+    "ws": "^8.2.2"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

@@ -71,7 +71,7 @@ export class RTCIceTransport {
       await this.connection.connect();
     } catch (error) {
       this.setState("failed");
-      throw new Error(error);
+      throw error;
     }
 
     this.waitStart.complete();

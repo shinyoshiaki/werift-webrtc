@@ -705,7 +705,7 @@ export class Connection {
         log("response", response, addr);
         result.response = response;
         result.addr = addr;
-      } catch (error) {
+      } catch (error: any) {
         const exc: TransactionError = error;
         // 7.1.3.1.  Failure Cases
         log("failure case", exc.response);

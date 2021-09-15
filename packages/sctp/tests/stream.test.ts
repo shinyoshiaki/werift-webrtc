@@ -23,7 +23,7 @@ describe("SctpStreamTest", () => {
 
     try {
       stream.addChunk(chunks[0]);
-    } catch (error) {
+    } catch (error: any) {
       expect(error.message).toBe("duplicate chunk in reassembly");
       done();
     }
