@@ -21,7 +21,7 @@
     "type": "tsc --noEmit"
   },
   "dependencies": {
-    "axios": "^0.21.1",
+    "axios": "^0.21.2",
     "protoo-client": "^4.0.5",
     "react": "^17.0.1",
     "react-dom": "^17.0.1"
