@@ -12,6 +12,7 @@ import {
   H264RtpPayload,
   OpusRtpPayload,
   Vp8RtpPayload,
+  Vp9RtpPayload,
 } from "../../../rtp/src";
 import { PromiseQueue } from "../helper";
 import { MediaStreamTrack } from "../media/track";
@@ -49,11 +50,15 @@ export class WebmFactory {
     tracks.forEach((track, i) => {
       const sampleBuilder = (() => {
         if (track.kind === "video") {
-          switch (track.codec?.name.toLocaleLowerCase()) {
+          switch (
+            track.codec?.name.toLocaleLowerCase() as SupportedVideoCodec
+          ) {
             case "vp8":
               return new SampleBuilder(Vp8RtpPayload, 90000);
             case "h264":
               return new SampleBuilder(H264RtpPayload, 90000);
+            case "vp9":
+              return new SampleBuilder(Vp9RtpPayload, 90000);
           }
         } else {
           return new SampleBuilder(OpusRtpPayload, 48000);
@@ -266,22 +271,52 @@ function createTrackEntries(
 ) {
   return tracks.map((track, i) => {
     if (track.kind === "video") {
+      const codec =
+        track.codec?.name.toLocaleLowerCase() as SupportedVideoCodec;
       const codecName = (() => {
-        switch (track.codec?.name.toLocaleLowerCase()) {
+        switch (codec) {
           case "vp8":
             return "VP8";
           case "h264":
             return "MPEG4/ISO/AVC";
+          case "vp9":
+            return "VP9";
           default:
             throw new Error();
         }
       })();
-      return createTrackEntry(i + 1, codecName, "video", [
+      const trackElements = [
         EBML.element(EBML.ID.Video, [
           EBML.element(EBML.ID.PixelWidth, EBML.number(options.width)),
           EBML.element(EBML.ID.PixelHeight, EBML.number(options.height)),
         ]),
-      ]);
+      ];
+      if (codec === "vp9") {
+        const profile = Buffer.concat([
+          new BitWriter(8).set(1, 0, 0).set(7, 1, 1).buffer,
+          bufferWriter([1, 1], [1, 0]),
+        ]);
+        // const level = Buffer.concat([
+        //   new BitWriter(8).set(1, 0, 0).set(7, 1, 2).buffer,
+        //   bufferWriter([1, 1], [1, 10]),
+        // ]);
+        // const bitDepth = Buffer.concat([
+        //   new BitWriter(8).set(1, 0, 0).set(7, 1, 3).buffer,
+        //   bufferWriter([1, 1], [1, 8]),
+        // ]);
+        // const chroma = Buffer.concat([
+        //   new BitWriter(8).set(1, 0, 0).set(7, 1, 4).buffer,
+        //   bufferWriter([1, 1], [1, 0]),
+        // ]);
+
+        // trackElements.push(
+        //   EBML.element(
+        //     EBML.ID.CodecPrivate,
+        //     EBML.bytes(Buffer.concat([profile]))
+        //   )
+        // );
+      }
+      return createTrackEntry(i + 1, codecName, "video", trackElements);
     } else {
       return createTrackEntry(i + 1, "OPUS", "audio", [
         EBML.element(EBML.ID.Audio, [
@@ -330,19 +365,13 @@ function createSegment(
     EBML.element(EBML.ID.SeekHead, []),
     EBML.element(EBML.ID.Info, [
       EBML.element(EBML.ID.TimecodeScale, EBML.number(millisecond)),
-      EBML.element(EBML.ID.MuxingApp, EBML.string("werift")),
-      EBML.element(EBML.ID.WritingApp, EBML.string("werift")),
+      EBML.element(EBML.ID.MuxingApp, EBML.string("webrtc")),
+      EBML.element(EBML.ID.WritingApp, EBML.string("webrtc")),
       ...infoElements,
     ]),
     EBML.element(EBML.ID.Tracks, entries),
   ]);
 }
-
-const millisecond = 1000000;
-/**32767 */
-const MaxSinged16Int = (0x01 << 16) / 2 - 1;
-
-type TrackOptions = Partial<{ width: number; height: number }>;
 
 class CuePoint {
   private readonly seekHeadPosition = 48;
@@ -381,3 +410,12 @@ function getCues(cuePoints: CuePoint[]) {
     )
   );
 }
+
+const millisecond = 1000000;
+/**32767 */
+const MaxSinged16Int = (0x01 << 16) / 2 - 1;
+
+type TrackOptions = Partial<{ width: number; height: number }>;
+
+const supportedVideoCodecs = ["h264", "vp8", "vp9"] as const;
+type SupportedVideoCodec = typeof supportedVideoCodecs[number];
