@@ -23,7 +23,7 @@ import { DtlsRandom } from "../handshake/random";
 import { DtlsPlaintext } from "../record/message/plaintext";
 
 const crypto = new Crypto();
-x509.cryptoProvider.set(crypto);
+x509.cryptoProvider.set(crypto as any);
 
 export class CipherContext {
   localRandom!: DtlsRandom;
