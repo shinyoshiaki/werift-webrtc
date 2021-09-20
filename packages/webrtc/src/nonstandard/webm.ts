@@ -4,11 +4,13 @@ import { appendFile, readFile, writeFile } from "fs/promises";
 
 import {
   BitWriter,
+  BitWriter2,
   BufferChain,
   bufferWriter,
   bufferWriterLE,
 } from "../../../common/src";
 import {
+  AV1RtpPayload,
   H264RtpPayload,
   OpusRtpPayload,
   Vp8RtpPayload,
@@ -59,6 +61,8 @@ export class WebmFactory {
               return new SampleBuilder(H264RtpPayload, 90000);
             case "vp9":
               return new SampleBuilder(Vp9RtpPayload, 90000);
+            case "av1x":
+              return new SampleBuilder(AV1RtpPayload, 90000);
           }
         } else {
           return new SampleBuilder(OpusRtpPayload, 48000);
@@ -281,6 +285,8 @@ function createTrackEntries(
             return "MPEG4/ISO/AVC";
           case "vp9":
             return "VP9";
+          case "av1x":
+            return "AV1";
           default:
             throw new Error();
         }
@@ -291,31 +297,48 @@ function createTrackEntries(
           EBML.element(EBML.ID.PixelHeight, EBML.number(options.height)),
         ]),
       ];
-      if (codec === "vp9") {
-        const profile = Buffer.concat([
-          new BitWriter(8).set(1, 0, 0).set(7, 1, 1).buffer,
-          bufferWriter([1, 1], [1, 0]),
-        ]);
-        // const level = Buffer.concat([
-        //   new BitWriter(8).set(1, 0, 0).set(7, 1, 2).buffer,
-        //   bufferWriter([1, 1], [1, 10]),
-        // ]);
-        // const bitDepth = Buffer.concat([
-        //   new BitWriter(8).set(1, 0, 0).set(7, 1, 3).buffer,
-        //   bufferWriter([1, 1], [1, 8]),
-        // ]);
-        // const chroma = Buffer.concat([
-        //   new BitWriter(8).set(1, 0, 0).set(7, 1, 4).buffer,
-        //   bufferWriter([1, 1], [1, 0]),
-        // ]);
+      switch (codec) {
+        case "vp9":
+          {
+            const profile = Buffer.concat([
+              new BitWriter(8).set(1, 0, 0).set(7, 1, 1).buffer,
+              bufferWriter([1, 1], [1, 0]),
+            ]);
+            // const level = Buffer.concat([
+            //   new BitWriter(8).set(1, 0, 0).set(7, 1, 2).buffer,
+            //   bufferWriter([1, 1], [1, 10]),
+            // ]);
+            // const bitDepth = Buffer.concat([
+            //   new BitWriter(8).set(1, 0, 0).set(7, 1, 3).buffer,
+            //   bufferWriter([1, 1], [1, 8]),
+            // ]);
+            // const chroma = Buffer.concat([
+            //   new BitWriter(8).set(1, 0, 0).set(7, 1, 4).buffer,
+            //   bufferWriter([1, 1], [1, 0]),
+            // ]);
 
-        // trackElements.push(
-        //   EBML.element(
-        //     EBML.ID.CodecPrivate,
-        //     EBML.bytes(Buffer.concat([profile]))
-        //   )
-        // );
+            // trackElements.push(
+            //   EBML.element(
+            //     EBML.ID.CodecPrivate,
+            //     EBML.bytes(Buffer.concat([profile]))
+            //   )
+            // );
+          }
+          break;
+        case "av1x":
+          {
+            const _1 = new BitWriter2(8).set(1).set(1, 7).value;
+
+            trackElements.push(
+              EBML.element(
+                EBML.ID.CodecPrivate,
+                EBML.bytes(Buffer.from([_1, 0x04, 0x0c, 0x00]))
+              )
+            );
+          }
+          break;
       }
+
       return createTrackEntry(i + 1, codecName, "video", trackElements);
     } else {
       return createTrackEntry(i + 1, "OPUS", "audio", [
@@ -417,5 +440,5 @@ const MaxSinged16Int = (0x01 << 16) / 2 - 1;
 
 type TrackOptions = Partial<{ width: number; height: number }>;
 
-const supportedVideoCodecs = ["h264", "vp8", "vp9"] as const;
+const supportedVideoCodecs = ["h264", "vp8", "vp9", "av1x"] as const;
 type SupportedVideoCodec = typeof supportedVideoCodecs[number];

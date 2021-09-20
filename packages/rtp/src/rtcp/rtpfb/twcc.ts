@@ -3,6 +3,7 @@ import { range } from "lodash";
 
 import {
   BitWriter,
+  BitWriter2,
   bufferReader,
   bufferWriter,
   getBit,
@@ -274,12 +275,12 @@ export class RunLengthChunk {
   serialize() {
     const buf = Buffer.alloc(2);
 
-    const writer = new BitWriter(16);
-    writer.set(1, 0, 0);
-    writer.set(2, 1, this.packetStatus);
-    writer.set(13, 3, this.runLength);
+    const value = new BitWriter2(16)
+      .set(0)
+      .set(this.packetStatus, 2)
+      .set(this.runLength, 13).value;
 
-    buf.writeUInt16BE(writer.value);
+    buf.writeUInt16BE(value);
     return buf;
   }
 
