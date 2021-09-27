@@ -2,7 +2,7 @@ import debug from "debug";
 import { range } from "lodash";
 
 import {
-  BitWriter,
+  BitWriter2,
   bufferReader,
   bufferWriter,
   getBit,
@@ -274,12 +274,12 @@ export class RunLengthChunk {
   serialize() {
     const buf = Buffer.alloc(2);
 
-    const writer = new BitWriter(16);
-    writer.set(1, 0, 0);
-    writer.set(2, 1, this.packetStatus);
-    writer.set(13, 3, this.runLength);
+    const value = new BitWriter2(16)
+      .set(0)
+      .set(this.packetStatus, 2)
+      .set(this.runLength, 13).value;
 
-    buf.writeUInt16BE(writer.value);
+    buf.writeUInt16BE(value);
     return buf;
   }
 
@@ -335,15 +335,11 @@ export class StatusVectorChunk {
   serialize() {
     const buf = Buffer.alloc(2);
 
-    const writer = new BitWriter(16);
-    writer.set(1, 0, 1);
-    writer.set(1, 1, this.symbolSize);
-
+    const writer = new BitWriter2(16).set(1).set(this.symbolSize);
     const bits = this.symbolSize === 0 ? 1 : 2;
 
-    this.symbolList.forEach((v, i) => {
-      const index = bits * i + 2;
-      writer.set(bits, index, v);
+    this.symbolList.forEach((v) => {
+      writer.set(v, bits);
     });
     buf.writeUInt16BE(writer.value);
     return buf;

@@ -29,6 +29,27 @@ export class BitWriter {
   }
 }
 
+export class BitWriter2 {
+  value = 0;
+  offset = 0;
+
+  constructor(private bitLength: number) {}
+
+  set(value: number, size: number = 1) {
+    value &= (1 << size) - 1;
+    this.value |= value << (this.bitLength - size - this.offset);
+    this.offset += size;
+    return this;
+  }
+
+  get buffer() {
+    const length = Math.ceil(this.bitLength / 8);
+    const buf = Buffer.alloc(length);
+    buf.writeUIntBE(this.value, 0, length);
+    return buf;
+  }
+}
+
 export function getBit(bits: number, startIndex: number, length: number = 1) {
   let bin = bits.toString(2).split("");
   bin = [...Array(8 - bin.length).fill("0"), ...bin];
