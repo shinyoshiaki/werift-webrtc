@@ -2,7 +2,6 @@ import debug from "debug";
 import { range } from "lodash";
 
 import {
-  BitWriter,
   BitWriter2,
   bufferReader,
   bufferWriter,
@@ -336,15 +335,11 @@ export class StatusVectorChunk {
   serialize() {
     const buf = Buffer.alloc(2);
 
-    const writer = new BitWriter(16);
-    writer.set(1, 0, 1);
-    writer.set(1, 1, this.symbolSize);
-
+    const writer = new BitWriter2(16).set(1).set(this.symbolSize);
     const bits = this.symbolSize === 0 ? 1 : 2;
 
-    this.symbolList.forEach((v, i) => {
-      const index = bits * i + 2;
-      writer.set(bits, index, v);
+    this.symbolList.forEach((v) => {
+      writer.set(v, bits);
     });
     buf.writeUInt16BE(writer.value);
     return buf;
