@@ -1,12 +1,12 @@
 export const SignatureAlgorithm = {
-  rsa: 1,
-  ecdsa: 3,
+  rsa_1: 1,
+  ecdsa_3: 3,
 } as const;
 export type SignatureAlgorithms =
   typeof SignatureAlgorithm[keyof typeof SignatureAlgorithm];
 
 export const HashAlgorithm = {
-  sha256: 4,
+  sha256_4: 4,
 } as const;
 export type HashAlgorithms = typeof HashAlgorithm[keyof typeof HashAlgorithm];
 
@@ -22,13 +22,14 @@ export const CipherSuite = {
 export type CipherSuites = typeof CipherSuite[keyof typeof CipherSuite];
 
 export const NamedCurveAlgorithm = {
-  x25519: 29,
-  secp256r1: 23,
+  x25519_29: 29,
+  secp256r1_23: 23,
 } as const;
 export type NamedCurveAlgorithms =
   typeof NamedCurveAlgorithm[keyof typeof NamedCurveAlgorithm];
+export const NamedCurveAlgorithmList: NamedCurveAlgorithms[] = [29, 23];
 
-export const CurveType = { named_curve: 3 } as const;
+export const CurveType = { named_curve_3: 3 } as const;
 export type CurveTypes = typeof CurveType[keyof typeof CurveType];
 
 export const SignatureScheme = {

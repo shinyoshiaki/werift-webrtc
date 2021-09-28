@@ -13,7 +13,7 @@ export function generateKeyPair(
   namedCurve: NamedCurveAlgorithms
 ): NamedCurveKeyPair {
   switch (namedCurve) {
-    case NamedCurveAlgorithm.secp256r1: {
+    case NamedCurveAlgorithm.secp256r1_23: {
       const elliptic = new ec("p256");
       const key = elliptic.genKeyPair();
       const privateKey = key.getPrivate().toBuffer("be");
@@ -25,7 +25,7 @@ export function generateKeyPair(
         publicKey,
       };
     }
-    case NamedCurveAlgorithm.x25519: {
+    case NamedCurveAlgorithm.x25519_29: {
       const keys = nacl.box.keyPair();
 
       return {

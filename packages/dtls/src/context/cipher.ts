@@ -62,23 +62,23 @@ export class CipherContext {
   ) {
     const name = (() => {
       switch (signatureHash.signature) {
-        case SignatureAlgorithm.rsa:
+        case SignatureAlgorithm.rsa_1:
           return "RSASSA-PKCS1-v1_5";
-        case SignatureAlgorithm.ecdsa:
+        case SignatureAlgorithm.ecdsa_3:
           return "ECDSA";
       }
     })();
     const hash = (() => {
       switch (signatureHash.hash) {
-        case HashAlgorithm.sha256:
+        case HashAlgorithm.sha256_4:
           return "SHA-256";
       }
     })();
     const namedCurve = (() => {
       switch (namedCurveAlgorithm) {
-        case NamedCurveAlgorithm.secp256r1:
+        case NamedCurveAlgorithm.secp256r1_23:
           return "P-256";
-        case NamedCurveAlgorithm.x25519:
+        case NamedCurveAlgorithm.x25519_29:
           // todo fix (X25519 not supported with ECDSA)
           if (name === "ECDSA") return "P-256";
           return "X25519";

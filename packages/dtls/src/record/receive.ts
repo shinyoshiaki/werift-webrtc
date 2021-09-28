@@ -3,8 +3,7 @@ import debug from "debug";
 import { CipherContext } from "../context/cipher";
 import { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
-import { dumpBuffer } from "../helper";
-import { ContentType } from "./const";
+import { AlertDesc, ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
 
@@ -46,13 +45,7 @@ export const parsePlainText =
             raw = cipher.decryptPacket(plain);
           }
         } catch (error) {
-          err(
-            dtls.sessionId,
-            "decrypt failed",
-            error,
-            dumpBuffer(raw),
-            dtls.sortedHandshakeCache.map((h) => h.summary)
-          );
+          err(dtls.sessionId, "decrypt failed", error);
           throw error;
         }
         try {
@@ -72,15 +65,24 @@ export const parsePlainText =
         };
       }
       case ContentType.alert: {
-        const alert = Alert.deSerialize(plain.fragment);
+        let alert = Alert.deSerialize(plain.fragment);
+        if (AlertDesc[alert.description] == undefined) {
+          const dec = cipher.decryptPacket(plain);
+          alert = Alert.deSerialize(dec);
+        }
         err(
           dtls.sessionId,
           "ContentType.alert",
           alert,
+          AlertDesc[alert.description],
+          "flight",
           dtls.flight,
+          "lastFlight",
           dtls.lastFlight
         );
-        if (alert.level > 1) throw new Error("alert fatal error");
+        if (alert.level > 1) {
+          throw new Error("alert fatal error");
+        }
       }
       // eslint-disable-next-line no-fallthrough
       default: {

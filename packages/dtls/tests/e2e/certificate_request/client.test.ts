@@ -31,8 +31,8 @@ describe("e2e/certificate_request/client", () => {
         cert: certPem,
         key: keyPem,
         signatureHash: {
-          hash: HashAlgorithm.sha256,
-          signature: SignatureAlgorithm.rsa,
+          hash: HashAlgorithm.sha256_4,
+          signature: SignatureAlgorithm.rsa_1,
         },
       });
       client.onConnect.subscribe(() => {

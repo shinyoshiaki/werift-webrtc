@@ -3,7 +3,7 @@ import debug from "debug";
 
 import {
   CipherSuite,
-  NamedCurveAlgorithm,
+  NamedCurveAlgorithmList,
   NamedCurveAlgorithms,
   SignatureAlgorithm,
 } from "../../cipher/const";
@@ -44,7 +44,7 @@ export const flight2 =
             const curves = EllipticCurves.fromData(extension.data).data;
             log(dtls.sessionId, "curves", curves);
             const curve = curves.find((curve) =>
-              Object.values(NamedCurveAlgorithm).includes(curve as any)
+              NamedCurveAlgorithmList.includes(curve as any)
             ) as NamedCurveAlgorithms;
             cipher.namedCurve = curve;
             log(dtls.sessionId, "curve selected", cipher.namedCurve);
@@ -105,9 +105,9 @@ export const flight2 =
     log(dtls.sessionId, "cipher suites", suites);
     const suite = (() => {
       switch (cipher.signatureHashAlgorithm?.signature) {
-        case SignatureAlgorithm.ecdsa:
+        case SignatureAlgorithm.ecdsa_3:
           return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
-        case SignatureAlgorithm.rsa:
+        case SignatureAlgorithm.rsa_1:
           return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
       }
     })();

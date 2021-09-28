@@ -25,7 +25,11 @@ describe("cipher/prf", () => {
       0x77, 0xc8, 0xa0, 0xa0, 0x88, 0x44, 0x76, 0x24,
     ]);
 
-    const expected = prfPreMasterSecret(pub, priv, NamedCurveAlgorithm.x25519);
+    const expected = prfPreMasterSecret(
+      pub,
+      priv,
+      NamedCurveAlgorithm.x25519_29
+    );
     expect(expected).toEqual(sec);
   });
 
@@ -49,7 +53,7 @@ describe("cipher/prf", () => {
     const expected = prfPreMasterSecret(
       pub,
       priv,
-      NamedCurveAlgorithm.secp256r1
+      NamedCurveAlgorithm.secp256r1_23
     );
     expect(expected).toEqual(sec);
   });

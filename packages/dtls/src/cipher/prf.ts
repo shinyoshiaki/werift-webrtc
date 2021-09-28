@@ -11,14 +11,14 @@ export function prfPreMasterSecret(
   curve: NamedCurveAlgorithms
 ) {
   switch (curve) {
-    case NamedCurveAlgorithm.secp256r1:
+    case NamedCurveAlgorithm.secp256r1_23:
       const elliptic = new ec("p256"); // aka secp256r1
       const pub = elliptic.keyFromPublic(publicKey).getPublic();
       const priv = elliptic.keyFromPrivate(privateKey).getPrivate();
       const res = pub.mul(priv);
       const secret = Buffer.from(res.encode("array", false)).slice(1, 33);
       return secret;
-    case NamedCurveAlgorithm.x25519:
+    case NamedCurveAlgorithm.x25519_29:
       return Buffer.from(nacl.scalarMult(privateKey, publicKey));
     default:
       throw new Error();

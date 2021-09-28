@@ -162,9 +162,9 @@ export class Flight5 extends Flight {
     const signed = this.cipher.signatureData(cache, "sha256");
     const signatureScheme = (() => {
       switch (this.cipher.signatureHashAlgorithm?.signature) {
-        case SignatureAlgorithm.ecdsa:
+        case SignatureAlgorithm.ecdsa_3:
           return SignatureScheme.ecdsa_secp256r1_sha256;
-        case SignatureAlgorithm.rsa:
+        case SignatureAlgorithm.rsa_1:
           return SignatureScheme.rsa_pkcs1_sha256;
       }
     })();

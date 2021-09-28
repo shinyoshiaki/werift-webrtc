@@ -5,7 +5,7 @@ import { setTimeout } from "timers/promises";
 
 import {
   HashAlgorithm,
-  NamedCurveAlgorithm,
+  NamedCurveAlgorithmList,
   SignatureAlgorithm,
   SignatureHash,
 } from "./cipher/const";
@@ -20,7 +20,6 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
-import { dumpBuffer } from "./helper";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -99,12 +98,7 @@ export class DtlsSocket {
             break;
         }
       } catch (error) {
-        err(
-          this.dtls.sessionId,
-          "catch udpOnMessage error",
-          error,
-          dumpBuffer(data)
-        );
+        err(this.dtls.sessionId, "catch udpOnMessage error", error);
       }
     }
   };
@@ -127,7 +121,7 @@ export class DtlsSocket {
 
     {
       const curve = EllipticCurves.createEmpty();
-      curve.data = Object.values(NamedCurveAlgorithm);
+      curve.data = NamedCurveAlgorithmList;
       this.extensions.push(curve.extension);
     }
 
@@ -135,8 +129,8 @@ export class DtlsSocket {
       const signature = Signature.createEmpty();
       // libwebrtc/OpenSSL require 4=1 , 4=3 signatureHash
       signature.data = [
-        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
+        { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
+        { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.ecdsa_3 },
       ];
       this.extensions.push(signature.extension);
     }
