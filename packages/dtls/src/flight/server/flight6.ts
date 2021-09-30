@@ -10,7 +10,9 @@ import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
 import { TransportContext } from "../../context/transport";
 import { HandshakeType } from "../../handshake/const";
+import { Certificate } from "../../handshake/message/certificate";
 import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
+import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
 import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { Finished } from "../../handshake/message/finished";
 import { createPlaintext } from "../../record/builder";
@@ -18,7 +20,7 @@ import { ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { Flight } from "../flight";
 
-const log = debug("werift-dtls:packages/dtls/flight/server/flight6.ts");
+const log = debug("werift-dtls : packages/dtls/flight/server/flight6.ts");
 
 export class Flight6 extends Flight {
   constructor(
@@ -34,6 +36,10 @@ export class Flight6 extends Flight {
 
     const message = (() => {
       switch (handshake.msg_type) {
+        case HandshakeType.certificate_11:
+          return Certificate.deSerialize(handshake.fragment);
+        case HandshakeType.certificate_verify_15:
+          return CertificateVerify.deSerialize(handshake.fragment);
         case HandshakeType.client_key_exchange_16:
           return ClientKeyExchange.deSerialize(handshake.fragment);
         case HandshakeType.finished_20:
@@ -42,9 +48,13 @@ export class Flight6 extends Flight {
     })();
 
     if (message) {
-      handlers[message.msgType]({ dtls: this.dtls, cipher: this.cipher })(
-        message
-      );
+      const handler = handlers[message.msgType];
+      if (!handler) {
+        // todo handle certificate_11
+        // todo handle certificate_verify_15
+        return;
+      }
+      handler({ dtls: this.dtls, cipher: this.cipher })(message);
     }
   }
 
@@ -61,7 +71,7 @@ export class Flight6 extends Flight {
     await this.transmit(messages);
   }
 
-  sendChangeCipherSpec() {
+  private sendChangeCipherSpec() {
     const changeCipherSpec = ChangeCipherSpec.createEmpty().serialize();
     const packets = createPlaintext(this.dtls)(
       [{ type: ContentType.changeCipherSpec, fragment: changeCipherSpec }],
@@ -71,7 +81,7 @@ export class Flight6 extends Flight {
     return buf;
   }
 
-  sendFinished() {
+  private sendFinished() {
     const cache = Buffer.concat(
       this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
@@ -141,7 +151,7 @@ handlers[HandshakeType.client_key_exchange_16] =
       cipher.localRandom.serialize(),
       cipher.remoteRandom.serialize()
     );
-    log(dtls.sessionId, "cipher", cipher.cipher.summary);
+    log(dtls.sessionId, "setup cipher", cipher.cipher.summary);
   };
 
 handlers[HandshakeType.finished_20] =

@@ -1,4 +1,4 @@
-import { CipherSuite } from "../../cipher/const";
+import { CipherSuiteList } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
 import { TransportContext } from "../../context/transport";
@@ -25,7 +25,7 @@ export class Flight1 extends Flight {
       new DtlsRandom(),
       Buffer.from([]),
       Buffer.from([]),
-      Object.values(CipherSuite),
+      CipherSuiteList,
       [0], // don't compress
       extensions
     );

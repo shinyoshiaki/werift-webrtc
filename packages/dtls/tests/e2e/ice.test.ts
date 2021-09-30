@@ -35,8 +35,8 @@ test(
           cert: certPem,
           key: keyPem,
           signatureHash: {
-            hash: HashAlgorithm.sha256,
-            signature: SignatureAlgorithm.rsa,
+            hash: HashAlgorithm.sha256_4,
+            signature: SignatureAlgorithm.rsa_1,
           },
         });
         dtlsServer.onConnect.subscribe(() => {
@@ -47,8 +47,8 @@ test(
           key: keyPem,
           cert: certPem,
           signatureHash: {
-            hash: HashAlgorithm.sha256,
-            signature: SignatureAlgorithm.rsa,
+            hash: HashAlgorithm.sha256_4,
+            signature: SignatureAlgorithm.rsa_1,
           },
         });
         dtlsClient.onData.subscribe((buf) => {

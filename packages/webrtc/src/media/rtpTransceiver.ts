@@ -64,6 +64,12 @@ export class RTCRtpTransceiver {
 
     this.stopping = true;
   }
+
+  getPayloadType(mimeType: string) {
+    return this.codecs.find((codec) =>
+      codec.mimeType.toLowerCase().includes(mimeType.toLowerCase())
+    )?.payloadType;
+  }
 }
 
 export const Directions = [

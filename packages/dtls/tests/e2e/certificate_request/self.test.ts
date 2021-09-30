@@ -17,8 +17,8 @@ test(
         cert: certPem,
         key: keyPem,
         signatureHash: {
-          hash: HashAlgorithm.sha256,
-          signature: SignatureAlgorithm.rsa,
+          hash: HashAlgorithm.sha256_4,
+          signature: SignatureAlgorithm.rsa_1,
         },
         transport: createUdpTransport(socket),
         certificateRequest: true,
@@ -35,8 +35,8 @@ test(
         cert: certPem,
         key: keyPem,
         signatureHash: {
-          hash: HashAlgorithm.sha256,
-          signature: SignatureAlgorithm.rsa,
+          hash: HashAlgorithm.sha256_4,
+          signature: SignatureAlgorithm.rsa_1,
         },
       });
       client.onConnect.subscribe(() => {

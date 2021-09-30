@@ -100,7 +100,7 @@ export class Flight4 extends Flight {
     if (!this.cipher.signatureHashAlgorithm) throw new Error("not exist");
 
     const keyExchange = new ServerKeyExchange(
-      CurveType.named_curve,
+      CurveType.named_curve_3,
       this.cipher.namedCurve,
       this.cipher.localKeyPair.publicKey.length,
       this.cipher.localKeyPair.publicKey,
@@ -122,8 +122,8 @@ export class Flight4 extends Flight {
         64, // clientCertificateTypeECDSASign
       ],
       [
-        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.rsa },
-        { hash: HashAlgorithm.sha256, signature: SignatureAlgorithm.ecdsa },
+        { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
+        { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.ecdsa_3 },
       ],
       []
     );

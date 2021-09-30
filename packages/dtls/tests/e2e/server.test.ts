@@ -16,8 +16,8 @@ describe("e2e/server", () => {
       cert: certPem,
       key: keyPem,
       signatureHash: {
-        hash: HashAlgorithm.sha256,
-        signature: SignatureAlgorithm.rsa,
+        hash: HashAlgorithm.sha256_4,
+        signature: SignatureAlgorithm.rsa_1,
       },
       transport: createUdpTransport(socket),
     });
@@ -58,8 +58,8 @@ describe("e2e/server", () => {
         });
         const { certPem, keyPem, signatureHash } =
           await CipherContext.createSelfSignedCertificateWithKey({
-            hash: HashAlgorithm.sha256,
-            signature: SignatureAlgorithm.rsa,
+            hash: HashAlgorithm.sha256_4,
+            signature: SignatureAlgorithm.rsa_1,
           });
         server.cipher.parseX509(certPem, keyPem, signatureHash);
 

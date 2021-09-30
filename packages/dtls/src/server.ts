@@ -56,6 +56,8 @@ export class DtlsServer extends DtlsSocket {
           }
           break;
         // flight 5
+        case HandshakeType.certificate_11:
+        case HandshakeType.certificate_verify_15:
         case HandshakeType.client_key_exchange_16:
           {
             if (this.connected) return;

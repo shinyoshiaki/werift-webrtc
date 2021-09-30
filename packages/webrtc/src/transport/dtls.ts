@@ -68,10 +68,10 @@ export class RTCDtlsTransport {
       const { certPem, keyPem, signatureHash } =
         await CipherContext.createSelfSignedCertificateWithKey(
           {
-            signature: SignatureAlgorithm.ecdsa,
-            hash: HashAlgorithm.sha256,
+            signature: SignatureAlgorithm.ecdsa_3,
+            hash: HashAlgorithm.sha256_4,
           },
-          NamedCurveAlgorithm.secp256r1
+          NamedCurveAlgorithm.secp256r1_23
         );
       this.localCertificate = new RTCCertificate(
         keyPem,
@@ -108,6 +108,7 @@ export class RTCDtlsTransport {
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
+          // certificateRequest: true,
         });
       } else {
         this.dtls = new DtlsClient({
