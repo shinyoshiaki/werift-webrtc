@@ -66,6 +66,8 @@ export const parsePlainText =
       }
       case ContentType.alert: {
         let alert = Alert.deSerialize(plain.fragment);
+
+        // TODO impl more better about handle encrypted alert
         if (AlertDesc[alert.description] == undefined) {
           const dec = cipher.decryptPacket(plain);
           alert = Alert.deSerialize(dec);

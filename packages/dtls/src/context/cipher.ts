@@ -21,7 +21,6 @@ import { SessionType, SessionTypes } from "../cipher/suites/abstract";
 import AEADCipher from "../cipher/suites/aead";
 import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
-import { dumpBuffer } from "../helper";
 import { DtlsPlaintext } from "../record/message/plaintext";
 
 const crypto = new Crypto();
