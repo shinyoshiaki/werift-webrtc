@@ -111,9 +111,7 @@ export class CipherContext {
     ])) as any;
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      // serialNumberは20byte以下でなければならない
-      // toString("hex")はバイト数にして2倍になるのでrandomBytesは9がMax
-      serialNumber: Buffer.from(randomBytes(9)).toString("hex"),
+      serialNumber: "01",
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
       notAfter: addYears(Date.now(), 10),
