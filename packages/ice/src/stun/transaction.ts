@@ -48,7 +48,7 @@ export class Transaction {
 
   private retry = () => {
     if (this.tries >= this.triesMax) {
-      log("retry failed", this.tries);
+      log(`retry failed times:${this.tries} maxLimit:${this.triesMax}`);
       this.onResponse.error(new TransactionTimeout());
       return;
     }

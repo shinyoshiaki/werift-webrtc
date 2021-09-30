@@ -2,11 +2,13 @@ import {
   MediaStreamTrack,
   RTCPeerConnection,
   RtpPacket,
+  randomPort,
 } from "../../packages/webrtc/src";
 import got from "got";
 import * as yargs from "yargs";
-import { createSocket } from "dgram";
+import { setTimeout } from "timers/promises";
 import { exec } from "child_process";
+import { createSocket } from "dgram";
 
 const TestType = { PeerConnection: 0, DataChannelEcho: 1 };
 
@@ -25,13 +27,12 @@ const url = args["s"];
 const testType = args["t"];
 console.log(args, { url, testType });
 
-const udp = createSocket("udp4");
-udp.bind(5000);
-
 new Promise<void>(async (done, failed) => {
-  setTimeout(() => {
-    failed();
-  }, 60_000);
+  setTimeout(60_000).then(failed);
+
+  const port = await randomPort("udp4");
+  const udp = createSocket("udp4");
+  udp.bind(port);
 
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -86,7 +87,6 @@ new Promise<void>(async (done, failed) => {
     }
 
     const payloadType = transceiver.getPayloadType("vp8");
-
     udp.on("message", (data) => {
       const rtp = RtpPacket.deSerialize(data);
       rtp.header.payloadType = payloadType;
@@ -94,15 +94,15 @@ new Promise<void>(async (done, failed) => {
     });
 
     exec(
-      "gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=5000"
+      `gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=${port}`
     );
   }
 })
   .then(() => {
-    console.log("done");
+    console.log("interop done");
     process.exit(0);
   })
   .catch((e) => {
-    console.log("failed", e);
+    console.log("interop failed", e);
     process.exit(1);
   });
