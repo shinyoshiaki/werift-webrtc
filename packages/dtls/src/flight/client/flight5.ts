@@ -95,7 +95,7 @@ export class Flight5 extends Flight {
     await this.transmit(messages);
   }
 
-  sendCertificate() {
+  private sendCertificate() {
     const certificate = new Certificate([Buffer.from(this.cipher.localCert)]);
 
     const packets = this.createPacket([certificate]);
@@ -104,7 +104,7 @@ export class Flight5 extends Flight {
     return buf;
   }
 
-  sendClientKeyExchange() {
+  private sendClientKeyExchange() {
     if (!this.cipher.localKeyPair) throw new Error();
 
     const clientKeyExchange = new ClientKeyExchange(
@@ -155,7 +155,7 @@ export class Flight5 extends Flight {
     return buf;
   }
 
-  sendCertificateVerify() {
+  private sendCertificateVerify() {
     const cache = Buffer.concat(
       this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
@@ -182,7 +182,7 @@ export class Flight5 extends Flight {
     return buf;
   }
 
-  sendChangeCipherSpec() {
+  private sendChangeCipherSpec() {
     const changeCipherSpec = ChangeCipherSpec.createEmpty().serialize();
     const packets = createPlaintext(this.dtls)(
       [{ type: ContentType.changeCipherSpec, fragment: changeCipherSpec }],
@@ -192,7 +192,7 @@ export class Flight5 extends Flight {
     return buf;
   }
 
-  sendFinished() {
+  private sendFinished() {
     const cache = Buffer.concat(
       this.dtls.sortedHandshakeCache.map((v) => v.serialize())
     );
@@ -211,12 +211,7 @@ export class Flight5 extends Flight {
     this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(packet).serialize();
-    log(
-      this.dtls.sessionId,
-      "finished",
-      dumpBuffer(buf),
-      this.cipher.cipher.summary
-    );
+    log(this.dtls.sessionId, "finished", this.cipher.cipher.summary);
     return buf;
   }
 }

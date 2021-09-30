@@ -12,9 +12,9 @@ import { CipherContext } from "../src/context/cipher";
 import { DtlsServer } from "../src/server";
 
 const crypto = new Crypto();
-x509.cryptoProvider.set(crypto);
+x509.cryptoProvider.set(crypto as any);
 
-const port = 6666;
+const port = 4444;
 const socket = createSocket("udp4");
 socket.bind(port);
 
@@ -24,10 +24,10 @@ console.log("start");
   const { certPem, keyPem, signatureHash } =
     await CipherContext.createSelfSignedCertificateWithKey(
       {
-        signature: SignatureAlgorithm.ecdsa,
-        hash: HashAlgorithm.sha256,
+        signature: SignatureAlgorithm.ecdsa_3,
+        hash: HashAlgorithm.sha256_4,
       },
-      NamedCurveAlgorithm.secp256r1
+      NamedCurveAlgorithm.secp256r1_23
     );
   const server = new DtlsServer({
     transport: createUdpTransport(socket),
@@ -38,7 +38,7 @@ console.log("start");
   });
 
   server.onData.subscribe((data) => console.log(data.toString()));
-  server.onConnect.once(() => server.send(Buffer.from("hello")));
+  server.onConnect.once(() =>
+    setTimeout(() => server.send(Buffer.from("hello from server")), 1000)
+  );
 })();
-
-// openssl s_client -dtls1_2 -connect 127.0.0.1:6666 -state

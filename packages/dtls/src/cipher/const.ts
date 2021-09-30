@@ -16,9 +16,13 @@ export type SignatureHash = {
 };
 
 export const CipherSuite = {
-  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b, //49195,
-  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: 0xc02f, //49199
+  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195: 0xc02b, //49195,
+  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f, //49199
 } as const;
+export const CipherSuiteList = [
+  CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
+  CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+];
 export type CipherSuites = typeof CipherSuite[keyof typeof CipherSuite];
 
 export const NamedCurveAlgorithm = {
@@ -27,7 +31,10 @@ export const NamedCurveAlgorithm = {
 } as const;
 export type NamedCurveAlgorithms =
   typeof NamedCurveAlgorithm[keyof typeof NamedCurveAlgorithm];
-export const NamedCurveAlgorithmList: NamedCurveAlgorithms[] = [29, 23];
+export const NamedCurveAlgorithmList: NamedCurveAlgorithms[] = [
+  NamedCurveAlgorithm.x25519_29,
+  NamedCurveAlgorithm.secp256r1_23,
+];
 
 export const CurveType = { named_curve_3: 3 } as const;
 export type CurveTypes = typeof CurveType[keyof typeof CurveType];

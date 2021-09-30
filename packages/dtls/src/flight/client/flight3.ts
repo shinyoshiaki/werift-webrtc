@@ -15,7 +15,7 @@ export class Flight3 extends Flight {
 
     this.dtls.handshakeCache = [];
 
-    const clientHello = this.dtls.lastFlight[0] as ClientHello;
+    const [clientHello] = this.dtls.lastFlight as [ClientHello];
     clientHello.cookie = verifyReq.cookie;
     this.dtls.cookie = verifyReq.cookie;
 

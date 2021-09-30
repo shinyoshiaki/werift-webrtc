@@ -63,8 +63,9 @@ export const flight2 =
             const hash = signatureHash.find(
               (v) => v.hash === cipher.signatureHashAlgorithm?.hash
             )?.hash;
-            if (signature == undefined || hash == undefined)
+            if (signature == undefined || hash == undefined) {
               throw new Error("invalid signatureHash");
+            }
           }
           break;
         case UseSRTP.type:
@@ -106,9 +107,9 @@ export const flight2 =
     const suite = (() => {
       switch (cipher.signatureHashAlgorithm?.signature) {
         case SignatureAlgorithm.ecdsa_3:
-          return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
+          return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195;
         case SignatureAlgorithm.rsa_1:
-          return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
+          return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199;
       }
     })();
     if (suite === undefined || !suites.includes(suite)) {

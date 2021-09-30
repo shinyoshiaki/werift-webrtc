@@ -42,7 +42,9 @@ export abstract class Flight {
     let retransmitCount = 0;
     for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
       this.setState("SENDING");
-      this.send(buffers);
+      this.send(buffers).catch((e) => {
+        err("fail to send", err);
+      });
       this.setState("WAITING");
 
       if (this.nextFlight === undefined) {

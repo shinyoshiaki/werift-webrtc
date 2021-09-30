@@ -8,6 +8,7 @@ import { randomBytes } from "tweetnacl";
 
 import {
   CipherSuites,
+  CurveType,
   HashAlgorithm,
   NamedCurveAlgorithm,
   NamedCurveAlgorithms,
@@ -20,6 +21,7 @@ import { SessionType, SessionTypes } from "../cipher/suites/abstract";
 import AEADCipher from "../cipher/suites/aead";
 import { ProtocolVersion } from "../handshake/binary";
 import { DtlsRandom } from "../handshake/random";
+import { dumpBuffer } from "../helper";
 import { DtlsPlaintext } from "../record/message/plaintext";
 
 const crypto = new Crypto();
@@ -60,7 +62,7 @@ export class CipherContext {
     signatureHash: SignatureHash,
     namedCurveAlgorithm?: NamedCurveAlgorithms
   ) {
-    const name = (() => {
+    const signatureAlgorithmName = (() => {
       switch (signatureHash.signature) {
         case SignatureAlgorithm.rsa_1:
           return "RSASSA-PKCS1-v1_5";
@@ -80,19 +82,23 @@ export class CipherContext {
           return "P-256";
         case NamedCurveAlgorithm.x25519_29:
           // todo fix (X25519 not supported with ECDSA)
-          if (name === "ECDSA") return "P-256";
+          if (signatureAlgorithmName === "ECDSA") {
+            return "P-256";
+          }
           return "X25519";
-        default:
-          if (name === "ECDSA") return "P-256";
+        default: {
+          if (signatureAlgorithmName === "ECDSA") return "P-256";
+          if (signatureAlgorithmName === "RSASSA-PKCS1-v1_5") return "X25519";
+        }
       }
     })();
     const alg = (() => {
-      switch (name) {
+      switch (signatureAlgorithmName) {
         case "ECDSA":
-          return { name, hash, namedCurve };
+          return { name: signatureAlgorithmName, hash, namedCurve };
         case "RSASSA-PKCS1-v1_5":
           return {
-            name,
+            name: signatureAlgorithmName,
             hash,
             publicExponent: new Uint8Array([1, 0, 1]),
             modulusLength: 2048,
@@ -106,7 +112,9 @@ export class CipherContext {
     ])) as any;
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      serialNumber: Buffer.from(randomBytes(10)).toString("hex"),
+      // serialNumberは20byte以下でなければならない
+      // toString("hex")はバイト数にして2倍になるのでrandomBytesは9がMax
+      serialNumber: Buffer.from(randomBytes(9)).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
       notAfter: addYears(Date.now(), 10),
@@ -203,7 +211,11 @@ export class CipherContext {
   ) {
     const serverParams = Buffer.from(
       encode(
-        { type: 3, curve: namedCurve, len: publicKey.length },
+        {
+          type: CurveType.named_curve_3,
+          curve: namedCurve,
+          len: publicKey.length,
+        },
         { type: types.uint8, curve: types.uint16be, len: types.uint8 }
       ).slice()
     );

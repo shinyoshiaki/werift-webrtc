@@ -85,9 +85,7 @@ new Promise<void>(async (done, failed) => {
       return;
     }
 
-    const payloadType = transceiver.codecs.find((codec) =>
-      codec.mimeType.toLowerCase().includes("vp8")
-    )!.payloadType;
+    const payloadType = transceiver.getPayloadType("vp8");
 
     udp.on("message", (data) => {
       const rtp = RtpPacket.deSerialize(data);
