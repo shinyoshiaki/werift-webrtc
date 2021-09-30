@@ -41,9 +41,9 @@
     "@types/buffer-crc32": "^0.2.0",
     "@types/debug": "^4.1.7",
     "@types/ip": "^1.1.0",
-    "@types/lodash": "^4.14.172",
+    "@types/lodash": "^4.14.175",
     "@types/utf8": "^3.0.0",
-    "@types/ws": "^7.4.7",
+    "@types/ws": "^8.2.0",
     "ws": "^8.2.2"
   },
   "publishConfig": {
