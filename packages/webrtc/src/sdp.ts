@@ -615,6 +615,10 @@ export class RTCSessionDescription {
   get object() {
     return SessionDescription.parse(this.sdp);
   }
+
+  static isThis(o: any) {
+    if (typeof o?.sdp === "string") return true;
+  }
 }
 
 export function addSDPHeader(

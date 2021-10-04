@@ -1,4 +1,8 @@
-import { RTCPeerConnection } from "../../../packages/webrtc/src";
+import {
+  RTCPeerConnection,
+  RTCIceCandidate,
+  RTCSessionDescription,
+} from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
@@ -31,13 +35,12 @@ server.on("connection", async (socket) => {
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
 
-  socket.on("message", (data: any) => {
+  socket.on("message", async (data: any) => {
     const msg = JSON.parse(data);
-    if (msg.candidate) {
-      console.log("on candidate");
-      pc.addIceCandidate(msg);
-    } else {
-      pc.setRemoteDescription(msg);
+    if (RTCIceCandidate.isThis(msg)) {
+      await pc.addIceCandidate(msg);
+    } else if (RTCSessionDescription.isThis(msg)) {
+      await pc.setRemoteDescription(msg);
     }
   });
 });

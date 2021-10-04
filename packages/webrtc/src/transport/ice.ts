@@ -170,11 +170,19 @@ export function candidateToIce(x: IceCandidate) {
   );
 }
 
-export type RTCIceCandidate = {
-  candidate: string;
-  sdpMid: string;
-  sdpMLineIndex: number;
-};
+export class RTCIceCandidate {
+  candidate!: string;
+  sdpMid?: string;
+  sdpMLineIndex?: number;
+
+  constructor(props: Partial<RTCIceCandidate>) {
+    Object.assign(this, props);
+  }
+
+  static isThis(o: any) {
+    if (typeof o?.candidate === "string") return true;
+  }
+}
 
 export class IceCandidate {
   // """
@@ -199,11 +207,11 @@ export class IceCandidate {
   ) {}
 
   toJSON(): RTCIceCandidate {
-    return {
+    return new RTCIceCandidate({
       candidate: candidateToSdp(this),
-      sdpMLineIndex: this.sdpMLineIndex!,
-      sdpMid: this.sdpMid!,
-    };
+      sdpMLineIndex: this.sdpMLineIndex,
+      sdpMid: this.sdpMid,
+    });
   }
 
   static fromJSON(data: RTCIceCandidate) {
