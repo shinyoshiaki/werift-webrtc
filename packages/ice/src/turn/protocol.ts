@@ -161,6 +161,9 @@ class TurnClient implements Protocol {
     } catch (error) {
       log("error", error);
       response = (error as TransactionFailed).response;
+      if (!response) {
+        throw error;
+      }
       if (response.attributes["ERROR-CODE"][0] === 401) {
         this.nonce = response.attributes.NONCE;
         this.realm = response.attributes.REALM;
@@ -295,7 +298,9 @@ export async function createTurnEndpoint(
     portRange?: [number, number];
   }
 ) {
-  if (lifetime == undefined) lifetime = 600;
+  if (lifetime == undefined) {
+    lifetime = 600;
+  }
 
   const transport = await UdpTransport.init("udp4", portRange);
 

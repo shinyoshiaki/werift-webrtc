@@ -124,3 +124,12 @@ export class BufferChain {
     return this;
   }
 }
+
+export const dumpBuffer = (data: Buffer) =>
+  "0x" +
+  data
+    .toString("hex")
+    .replace(/(.)(.)/g, "$1$2 ")
+    .split(" ")
+    .filter((s) => s != undefined && s.length > 0)
+    .join(",0x");
