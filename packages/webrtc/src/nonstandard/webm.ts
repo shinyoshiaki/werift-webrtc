@@ -61,8 +61,8 @@ export class WebmFactory {
               return new SampleBuilder(H264RtpPayload, 90000);
             case "vp9":
               return new SampleBuilder(Vp9RtpPayload, 90000);
-            case "av1x":
-              return new SampleBuilder(AV1RtpPayload, 90000);
+            // case "av1x":
+            //   return new SampleBuilder(AV1RtpPayload, 90000);
           }
         } else {
           return new SampleBuilder(OpusRtpPayload, 48000);
@@ -328,14 +328,20 @@ function createTrackEntries(
         case "av1x":
           // WIP
           {
-            const _1 = new BitWriter2(8).set(1).set(1, 7).value;
-
-            trackElements.push(
-              EBML.element(
-                EBML.ID.CodecPrivate,
-                EBML.bytes(Buffer.from([_1, 0x04, 0x0c, 0x00]))
-              )
-            );
+            // const _1 = new BitWriter2(8)
+            //   .set(
+            //     1 // marker
+            //   )
+            //   .set(
+            //     1, // version
+            //     7
+            //   ).value;
+            // trackElements.push(
+            //   EBML.element(
+            //     EBML.ID.CodecPrivate,
+            //     EBML.bytes(Buffer.from([_1, 0x04, 0x0c, 0x00]))
+            //   )
+            // );
           }
           break;
       }
@@ -349,13 +355,7 @@ function createTrackEntries(
         ]),
         EBML.element(
           EBML.ID.CodecPrivate,
-          EBML.bytes(
-            Buffer.concat([
-              Buffer.from("OpusHead"),
-              bufferWriter([1, 1], [1, 2]),
-              bufferWriterLE([2, 4, 2, 1], [312, 48000, 0, 0]),
-            ])
-          )
+          EBML.bytes(OpusRtpPayload.createCodecPrivate())
         ),
       ]);
     }

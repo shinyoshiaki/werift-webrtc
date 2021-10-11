@@ -3,7 +3,8 @@ import { readFileSync } from "fs";
 import { Transport } from "../src/transport";
 
 export function load(name: string) {
-  const data = readFileSync("./tests/data/" + name);
+  const base = __dirname;
+  const data = readFileSync(`${base}/data/` + name);
   return data;
 }
 

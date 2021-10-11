@@ -1,8 +1,9 @@
 import { MediaStreamTrack } from "../media/track";
+import { WebmFactoryAV1 } from "./av1";
 import { WebmFactory } from "./webm";
 
 export class MediaRecorder {
-  webm?: WebmFactory;
+  webm?: WebmFactoryAV1;
 
   constructor(
     public tracks: MediaStreamTrack[],
@@ -15,7 +16,7 @@ export class MediaRecorder {
   }
 
   async start() {
-    this.webm = new WebmFactory(this.tracks, this.path, this.options);
+    this.webm = new WebmFactoryAV1(this.tracks, this.path, this.options);
     await this.webm.start();
   }
 

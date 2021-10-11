@@ -13,10 +13,11 @@ import { AV1RtpPayload, OpusRtpPayload } from "../../../rtp/src";
 import { PromiseQueue } from "../helper";
 import { MediaStreamTrack } from "../media/track";
 import { SampleBuilder } from "./sampleBuilder";
+import { SampleBuilderAV1 } from "./sampleBuilder_av1";
 
 const log = debug("werift:packages/webrtc/src/nonstandard/av1.ts");
 
-export class WebmFactory {
+export class WebmFactoryAV1 {
   private relativeTimestamp = 0;
   private disposer?: () => void;
   private position = 0;
@@ -34,7 +35,7 @@ export class WebmFactory {
     video?: {
       trackNumber: number;
       track: MediaStreamTrack;
-      sampleBuilder: SampleBuilder;
+      sampleBuilder: SampleBuilderAV1;
     };
   } = {};
 
@@ -50,7 +51,7 @@ export class WebmFactory {
             track.codec?.name.toLocaleLowerCase() as SupportedVideoCodec
           ) {
             case "av1x":
-              return new SampleBuilder(AV1RtpPayload, 90000);
+              return new SampleBuilderAV1(90000);
           }
         } else {
           return new SampleBuilder(OpusRtpPayload, 48000);
@@ -60,7 +61,7 @@ export class WebmFactory {
     });
   }
 
-  async start(todo: object) {
+  async start() {
     const entries = createTrackEntries(
       Object.values(this.tracks).map(({ track }) => track),
       this.options
@@ -95,7 +96,11 @@ export class WebmFactory {
         const { unSubscribe } = track.onReceiveRtp.subscribe((rtp) => {
           this.queue.push(async () => {
             {
-              const frame = sampleBuilder.DePacketizer.deSerialize(rtp.payload);
+              const frame =
+                track.kind === "audio"
+                  ? OpusRtpPayload.deSerialize(rtp.payload)
+                  : AV1RtpPayload.deSerialize(rtp.payload);
+
               if (track.kind === "video" && frame.isKeyframe) {
                 await appendCluster();
               } else if (sampleBuilder.relativeTimestamp >= MaxSinged16Int) {

@@ -1242,6 +1242,11 @@
     npmlog "^4.1.2"
     write-file-atomic "^3.0.3"
 
+"@minhducsun2002/leb128@^0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@minhducsun2002/leb128/-/leb128-0.2.0.tgz#8301db597736f865154b783680845d35b25ba361"
+  integrity sha512-XckPQO6CDP0LAg3ZHIBZcjIWXgdM5vGhwhixZU78UEwaXwc33LXPl1KfvV8jCyrdU2YzplCvaNK3Mm0MDh6t1Q==
+
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
   resolved "https://registry.yarnpkg.com/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz#7619c2eb21b25483f6d167548b4cfd5a7488c3d5"
