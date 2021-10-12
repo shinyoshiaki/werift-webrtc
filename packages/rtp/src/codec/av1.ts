@@ -1,9 +1,12 @@
 // RTP Payload Format For AV1 https://aomediacodec.github.io/av1-rtp-spec/
 
 import { LEB128 } from "@minhducsun2002/leb128";
+import { debug } from "debug";
 
 import { BitWriter2, getBit } from "../../../common/src";
 import { RtpHeader } from "..";
+
+const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
 
 // 4.4 AV1 Aggregation Header
 //  0 1 2 3 4 5 6 7
@@ -150,10 +153,8 @@ export class AV1RtpPayload {
       const exist = objects[i];
       if (!exist) continue;
       const { data, isFragment } = exist;
-      if (!isFragment) {
-        frames.push(data);
-      } else {
-        const fragments: Buffer[] = [];
+      if (isFragment) {
+        let fragments: Buffer[] = [];
         for (let head = i; head < length; head++) {
           const target = objects[head];
           if (target.isFragment) {
@@ -163,7 +164,13 @@ export class AV1RtpPayload {
             break;
           }
         }
+        if (fragments.length <= 1) {
+          log("fragment lost, maybe packet lost");
+          fragments = [];
+        }
         frames.push(Buffer.concat(fragments));
+      } else {
+        frames.push(data);
       }
     }
     const obus = frames.map((f) => AV1Obu.deSerialize(f));
