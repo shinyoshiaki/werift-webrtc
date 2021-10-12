@@ -1,5 +1,5 @@
 import { bufferReader, bufferWriter } from "../../../common/src";
-import { RtcpSrPacket, RtpPacket } from "../../../rtp/src";
+import { RtcpSrPacket, RtpPacket } from "..";
 import { RtcpPacket } from "../rtcp/rtcp";
 import { Pipeline } from "./domain";
 
