@@ -1,18 +1,35 @@
+import Event from "rx.mini";
+
 import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpSrPacket, RtpPacket } from "..";
 import { RtcpPacket } from "../rtcp/rtcp";
-import { Pipeline } from "./domain";
+import { Output, Pipeline } from "./model";
 
 export class LipSync implements Pipeline {
   baseNtpTimestamp?: bigint;
   baseRtpTimestamp?: number;
   private rtpPackets: { [pt: number]: RtpPacket[] } = {};
-  private children?: Pipeline;
+  private children?: Pipeline | Output;
 
-  constructor(public clockRate: number, public mismatch: number) {}
+  constructor(
+    public clockRate: number,
+    public mismatch: number,
+    streams?: {
+      rtpStream?: Event<[RtpPacket]>;
+      rtcpStream?: Event<[RtcpPacket]>;
+    }
+  ) {
+    streams?.rtpStream?.subscribe?.((packet) => {
+      this.pushRtpPackets([packet]);
+    });
+    streams?.rtcpStream?.subscribe?.((packet) => {
+      this.pushRtcpPackets([packet]);
+    });
+  }
 
-  pipe(children: Pipeline) {
+  pipe(children: Pipeline | Output) {
     this.children = children;
+    return this;
   }
 
   pushRtcpPackets(packets: RtcpPacket[]) {

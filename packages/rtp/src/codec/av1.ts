@@ -80,7 +80,7 @@ export class AV1RtpPayload {
   nBit_RtpStartsNewCodedVideoSequence!: number;
   obu_or_fragment: { data: Buffer; isFragment: boolean }[] = [];
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize = (buf: Buffer) => {
     const p = new AV1RtpPayload();
 
     let offset = 0;
@@ -122,7 +122,7 @@ export class AV1RtpPayload {
     });
 
     return p;
-  }
+  };
 
   static isDetectedFinalPacketInSequence(header: RtpHeader) {
     return header.marker;

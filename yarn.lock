@@ -6347,7 +6347,7 @@ run-parallel@^1.1.9:
 
 rx.mini@^1.1.0:
   version "1.1.0"
-  resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-1.1.0.tgz"
+  resolved "https://registry.yarnpkg.com/rx.mini/-/rx.mini-1.1.0.tgz#0f53f02764812dbbb5e2e97938b31cefc3e86147"
   integrity sha512-SgejtK4cAYpORQeIfwY8DWkanwhi8DAmlJKaUjmcPjNlq6OLBix0qVTYtj2aXxh7tsvO34hd4PQpP263ZrcwYg==
 
 rxjs@^6.6.0:
