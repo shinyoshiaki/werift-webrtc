@@ -1,37 +1,18 @@
 import { debug } from "debug";
-import Event from "rx.mini";
 
 import { uint16Add } from "../../../common/src";
 import { RtpPacket } from "..";
 import { RtcpPacket } from "../rtcp/rtcp";
-import { Output, Pipeline } from "./model";
+import { Pipeline } from "./base";
 
 const log = debug("werift:packages/webrtc/src/nonstandard/jitterBuffer.ts");
 
-export class JitterBuffer implements Pipeline {
+export class JitterBuffer extends Pipeline {
   private retry = 0;
   private head?: number;
   private buffer: { [sequenceNumber: number]: RtpPacket } = {};
-  private children?: Pipeline | Output;
 
   maxRetry = 100;
-
-  constructor(streams?: {
-    rtpStream?: Event<[RtpPacket]>;
-    rtcpStream?: Event<[RtcpPacket]>;
-  }) {
-    streams?.rtpStream?.subscribe?.((packet) => {
-      this.pushRtpPackets([packet]);
-    });
-    streams?.rtcpStream?.subscribe?.((packet) => {
-      this.pushRtcpPackets([packet]);
-    });
-  }
-
-  pipe(children: Pipeline | Output) {
-    this.children = children;
-    return this;
-  }
 
   pushRtpPackets(packets: RtpPacket[]) {
     packets.forEach(this.onRtp);

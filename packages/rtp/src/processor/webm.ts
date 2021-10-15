@@ -12,7 +12,7 @@ import {
   Vp9RtpPayload,
 } from "..";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
-import { Output } from "./model";
+import { Output } from "./base";
 
 export class WebmOutput implements Output {
   private builder: WEBMBuilder;

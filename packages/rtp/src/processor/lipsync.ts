@@ -3,13 +3,14 @@ import Event from "rx.mini";
 import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpSrPacket, RtpPacket } from "..";
 import { RtcpPacket } from "../rtcp/rtcp";
-import { Output, Pipeline } from "./model";
+import { Pipeline } from "./base";
 
-export class LipSync implements Pipeline {
+// WIP
+// todo impl
+export class LipSync extends Pipeline {
   baseNtpTimestamp?: bigint;
   baseRtpTimestamp?: number;
   private rtpPackets: { [pt: number]: RtpPacket[] } = {};
-  private children?: Pipeline | Output;
 
   constructor(
     public clockRate: number,
@@ -19,17 +20,7 @@ export class LipSync implements Pipeline {
       rtcpStream?: Event<[RtcpPacket]>;
     }
   ) {
-    streams?.rtpStream?.subscribe?.((packet) => {
-      this.pushRtpPackets([packet]);
-    });
-    streams?.rtcpStream?.subscribe?.((packet) => {
-      this.pushRtcpPackets([packet]);
-    });
-  }
-
-  pipe(children: Pipeline | Output) {
-    this.children = children;
-    return this;
+    super(streams);
   }
 
   pushRtcpPackets(packets: RtcpPacket[]) {

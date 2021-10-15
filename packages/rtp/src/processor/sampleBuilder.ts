@@ -2,11 +2,10 @@ import Event from "rx.mini";
 
 import { RtcpPacket, RtpHeader, RtpPacket } from "..";
 import { enumerate } from "../helper";
-import { Output, Pipeline } from "./model";
+import { Pipeline } from "./base";
 
-export class SampleBuilder implements Pipeline {
+export class SampleBuilder extends Pipeline {
   private buffering: RtpPacket[] = [];
-  private children?: Pipeline | Output;
 
   constructor(
     private isFinalPacketInSequence: (header: RtpHeader) => boolean,
@@ -15,17 +14,7 @@ export class SampleBuilder implements Pipeline {
       rtcpStream?: Event<[RtcpPacket]>;
     }
   ) {
-    streams?.rtpStream?.subscribe?.((packet) => {
-      this.pushRtpPackets([packet]);
-    });
-    streams?.rtcpStream?.subscribe?.((packet) => {
-      this.pushRtcpPackets([packet]);
-    });
-  }
-
-  pipe(children: Pipeline | Output) {
-    this.children = children;
-    return this;
+    super(streams);
   }
 
   pushRtpPackets(incoming: RtpPacket[]) {
