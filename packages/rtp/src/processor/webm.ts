@@ -1,4 +1,4 @@
-import { appendFile, writeFile } from "fs/promises";
+import { appendFile, readFile, writeFile } from "fs/promises";
 import Event from "rx.mini";
 
 import { int, PromiseQueue } from "../../../common/src";
@@ -19,6 +19,8 @@ export class WebmOutput implements Output {
   private queue = new PromiseQueue();
   private relativeTimestamp = 0;
   timestamps: { [pt: number]: TimestampManager } = {};
+  disposer: () => void;
+  stopped = false;
 
   constructor(
     public path: string,
@@ -43,21 +45,52 @@ export class WebmOutput implements Output {
 
     this.queue.push(() => this.init());
 
-    streams?.rtpStream?.subscribe?.((packet) => {
-      this.pushRtpPackets([packet]);
-    });
+    if (streams?.rtpStream) {
+      const { unSubscribe } = streams.rtpStream.subscribe((packet) => {
+        this.pushRtpPackets([packet]);
+      });
+      this.disposer = unSubscribe;
+    }
   }
 
   private async init() {
-    await writeFile(
-      this.path,
-      Buffer.concat([this.builder.ebmlHeader, this.builder.createSegment()])
-    );
+    const staticPart = Buffer.concat([
+      this.builder.ebmlHeader,
+      this.builder.createSegment(),
+    ]);
+    await writeFile(this.path, staticPart);
     const cluster = this.builder.createCluster(0.0);
     await appendFile(this.path, cluster);
   }
 
+  async stop() {
+    this.stopped = true;
+    if (this.disposer) {
+      this.disposer();
+    }
+
+    const staticPartLength = Buffer.concat([
+      this.builder.ebmlHeader,
+      this.builder.createSegment(),
+    ]).length;
+    const file = await readFile(this.path);
+    const clusters = file.slice(staticPartLength);
+
+    const latestTimestamp = Object.values(this.timestamps).sort(
+      (a, b) => a.relativeTimestamp - b.relativeTimestamp
+    )[0].relativeTimestamp;
+    const duration = this.relativeTimestamp + latestTimestamp;
+
+    const staticPart = Buffer.concat([
+      this.builder.ebmlHeader,
+      this.builder.createSegment(duration),
+    ]);
+    await writeFile(this.path, staticPart);
+    await appendFile(this.path, clusters);
+  }
+
   pushRtpPackets(packets: RtpPacket[]) {
+    if (this.stopped) return;
     this.queue.push(() => this.onRtpPackets(packets));
   }
 

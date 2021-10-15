@@ -34,7 +34,7 @@ server.on("connection", async (socket) => {
   const start = async () => {
     const { video, audio } = tracks;
 
-    const output = new WebmOutput("./test.webm", [
+    const webm = new WebmOutput("./test.webm", [
       {
         width: 640,
         height: 360,
@@ -52,14 +52,20 @@ server.on("connection", async (socket) => {
         trackNumber: 2,
       },
     ]);
+
+    setTimeout(() => {
+      console.log("stop");
+      webm.stop();
+    }, 10_000);
+
     new JitterBuffer({
       rtpStream: video.onReceiveRtp,
       rtcpStream: video.onReceiveRtcp,
-    }).pipe(new SampleBuilder((h) => !!h.marker).pipe(output));
+    }).pipe(new SampleBuilder((h) => !!h.marker).pipe(webm));
     new JitterBuffer({
       rtpStream: audio.onReceiveRtp,
       rtcpStream: audio.onReceiveRtcp,
-    }).pipe(new SampleBuilder(() => true).pipe(output));
+    }).pipe(new SampleBuilder(() => true).pipe(webm));
   };
   {
     const transceiver = pc.addTransceiver("video");
