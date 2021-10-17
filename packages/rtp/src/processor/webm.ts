@@ -1,4 +1,4 @@
-import { appendFile, readFile, writeFile } from "fs/promises";
+import * as fs from "fs/promises";
 import Event from "rx.mini";
 
 import { int, PromiseQueue } from "../../../common/src";
@@ -18,8 +18,10 @@ export class WebmOutput implements Output {
   private builder: WEBMBuilder;
   private queue = new PromiseQueue();
   private relativeTimestamp = 0;
-  timestamps: { [pt: number]: TimestampManager } = {};
-  disposer: () => void;
+  private timestamps: { [pt: number]: TimestampManager } = {};
+  private disposer: () => void;
+  private cuePoints: CuePoint[] = [];
+  private position = 0;
   stopped = false;
 
   constructor(
@@ -58,9 +60,19 @@ export class WebmOutput implements Output {
       this.builder.ebmlHeader,
       this.builder.createSegment(),
     ]);
-    await writeFile(this.path, staticPart);
+    await fs.writeFile(this.path, staticPart);
+    this.position += staticPart.length;
+
+    const video = this.tracks.find((t) => t.kind === "video");
+    if (video) {
+      this.cuePoints.push(
+        new CuePoint(this.builder, video.trackNumber, 0.0, this.position)
+      );
+    }
+
     const cluster = this.builder.createCluster(0.0);
-    await appendFile(this.path, cluster);
+    await fs.appendFile(this.path, cluster);
+    this.position += cluster.length;
   }
 
   async stop() {
@@ -69,24 +81,42 @@ export class WebmOutput implements Output {
       this.disposer();
     }
 
-    const staticPartLength = Buffer.concat([
+    const originStaticPartOffset = Buffer.concat([
       this.builder.ebmlHeader,
       this.builder.createSegment(),
     ]).length;
-    const file = await readFile(this.path);
-    const clusters = file.slice(staticPartLength);
+    const clusters = (await fs.readFile(this.path)).slice(
+      originStaticPartOffset
+    );
 
     const latestTimestamp = Object.values(this.timestamps).sort(
       (a, b) => a.relativeTimestamp - b.relativeTimestamp
     )[0].relativeTimestamp;
     const duration = this.relativeTimestamp + latestTimestamp;
-
     const staticPart = Buffer.concat([
       this.builder.ebmlHeader,
       this.builder.createSegment(duration),
     ]);
-    await writeFile(this.path, staticPart);
-    await appendFile(this.path, clusters);
+    // durationを挿入したことによるギャップの解消
+    const staticPartGap = staticPart.length - originStaticPartOffset;
+    this.cuePoints.forEach((c) => {
+      c.position += staticPartGap;
+    });
+
+    let cuesSize = 0;
+    let cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
+    // cuesの最終的なサイズを再帰的に求める
+    while (cuesSize !== cues.length) {
+      cuesSize = cues.length;
+      this.cuePoints.forEach((cue) => {
+        cue.cuesLength += cuesSize;
+      });
+      cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
+    }
+
+    await fs.writeFile(this.path, staticPart);
+    await fs.appendFile(this.path, cues);
+    await fs.appendFile(this.path, clusters);
   }
 
   pushRtpPackets(packets: RtpPacket[]) {
@@ -119,19 +149,34 @@ export class WebmOutput implements Output {
       timestampManager.relativeTimestamp > MaxSinged16Int
     ) {
       this.relativeTimestamp += timestampManager.relativeTimestamp;
+
       const cluster = this.builder.createCluster(this.relativeTimestamp);
-      await appendFile(this.path, cluster);
+      await fs.appendFile(this.path, cluster);
+      this.cuePoints.push(
+        new CuePoint(
+          this.builder,
+          track.trackNumber,
+          this.relativeTimestamp,
+          this.position
+        )
+      );
+      this.position += cluster.length;
 
       Object.values(this.timestamps).forEach((t) => t.reset());
     }
 
-    const simpleBlock = this.builder.createSimpleBlock(
+    if (track.kind === "video") {
+      const [cuePoint] = this.cuePoints.slice(-1);
+      cuePoint.blockNumber++;
+    }
+    const block = this.builder.createSimpleBlock(
       data,
       isKeyframe,
       track.trackNumber,
       timestampManager.relativeTimestamp
     );
-    await appendFile(this.path, simpleBlock);
+    await fs.appendFile(this.path, block);
+    this.position += block.length;
   }
 
   private dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
@@ -189,6 +234,31 @@ class TimestampManager {
 
     const relativeTimestamp = int((elapsed / this.clockRate) * 1000);
     this.relativeTimestamp = relativeTimestamp;
+  }
+}
+
+class CuePoint {
+  /**
+   * cuesの後のclusterのあるべき位置
+   * cuesはclusterの前に挿入される
+   */
+  cuesLength = 0;
+  blockNumber = 0;
+
+  constructor(
+    private readonly builder: WEBMBuilder,
+    private readonly trackNumber: number,
+    private readonly relativeTimestamp: number,
+    public position: number
+  ) {}
+
+  build() {
+    return this.builder.createCuePoint(
+      this.relativeTimestamp,
+      this.trackNumber,
+      this.position - 48 + this.cuesLength,
+      this.blockNumber
+    );
   }
 }
 

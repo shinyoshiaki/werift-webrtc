@@ -56,7 +56,7 @@ server.on("connection", async (socket) => {
     setTimeout(() => {
       console.log("stop");
       webm.stop();
-    }, 10_000);
+    }, 5_000);
 
     new JitterBuffer({
       rtpStream: video.onReceiveRtp,

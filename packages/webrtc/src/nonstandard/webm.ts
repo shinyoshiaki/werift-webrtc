@@ -183,7 +183,6 @@ export class WebmFactory {
       }
 
       const clusters = (await readFile(this.path)).slice(this.staticPartOffset);
-
       await writeFile(this.path, staticPart);
       await appendFile(this.path, cues);
       await appendFile(this.path, clusters);
