@@ -19,7 +19,7 @@ export class WebmOutput implements Output {
   private queue = new PromiseQueue();
   private relativeTimestamp = 0;
   private timestamps: { [pt: number]: TimestampManager } = {};
-  private disposer: () => void;
+  private disposer?: () => void;
   private cuePoints: CuePoint[] = [];
   private position = 0;
   stopped = false;
