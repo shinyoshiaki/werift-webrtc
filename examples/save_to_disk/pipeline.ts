@@ -18,7 +18,7 @@ server.on("connection", async (socket) => {
     codecs: {
       video: [
         new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
+          mimeType: "video/AV1X",
           clockRate: 90000,
           rtcpFeedback: [
             { type: "nack" },
@@ -39,7 +39,7 @@ server.on("connection", async (socket) => {
         width: 640,
         height: 360,
         kind: "video",
-        codec: "VP8",
+        codec: "AV1",
         clockRate: 90000,
         payloadType: video.codec.payloadType,
         trackNumber: 1,

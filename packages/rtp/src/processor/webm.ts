@@ -161,14 +161,9 @@ export class WebmOutput implements Output {
         )
       );
       this.position += cluster.length;
-
       Object.values(this.timestamps).forEach((t) => t.reset());
     }
 
-    if (track.kind === "video") {
-      const [cuePoint] = this.cuePoints.slice(-1);
-      cuePoint.blockNumber++;
-    }
     const block = this.builder.createSimpleBlock(
       data,
       isKeyframe,
@@ -177,6 +172,10 @@ export class WebmOutput implements Output {
     );
     await fs.appendFile(this.path, block);
     this.position += block.length;
+    const [cuePoint] = this.cuePoints.slice(-1);
+    if (cuePoint) {
+      cuePoint.blockNumber++;
+    }
   }
 
   private dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
