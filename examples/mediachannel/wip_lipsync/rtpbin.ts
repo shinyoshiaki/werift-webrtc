@@ -4,7 +4,7 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   RtcpSrPacket,
-} from "werift/src";
+} from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { exec } from "child_process";
 import { createSocket } from "dgram";

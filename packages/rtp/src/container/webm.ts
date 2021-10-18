@@ -57,6 +57,7 @@ export class WEBMBuilder {
           EBML.element(EBML.ID.Channels, EBML.number(2)),
         ])
       );
+      // only support OPUS
       trackElements.push(
         EBML.element(
           EBML.ID.CodecPrivate,

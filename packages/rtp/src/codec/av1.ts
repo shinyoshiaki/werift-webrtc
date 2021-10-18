@@ -185,20 +185,6 @@ export class AV1RtpPayload {
   }
 }
 
-export function leb128decode(buf: Buffer) {
-  let value = 0;
-  let leb128bytes = 0;
-  for (let i = 0; i < 8; i++) {
-    const leb128byte = buf.readUInt8(i);
-    value |= (leb128byte & 0x7f) << (i * 7);
-    leb128bytes++;
-    if (!(leb128byte & 0x80)) {
-      break;
-    }
-  }
-  return [value, leb128bytes];
-}
-
 export class AV1Obu {
   obu_forbidden_bit!: number;
   obu_type!: OBU_TYPE;
@@ -236,6 +222,20 @@ export class AV1Obu {
     }
     return Buffer.concat([header, obuSize, this.payload]);
   }
+}
+
+export function leb128decode(buf: Buffer) {
+  let value = 0;
+  let leb128bytes = 0;
+  for (let i = 0; i < 8; i++) {
+    const leb128byte = buf.readUInt8(i);
+    value |= (leb128byte & 0x7f) << (i * 7);
+    leb128bytes++;
+    if (!(leb128byte & 0x80)) {
+      break;
+    }
+  }
+  return [value, leb128bytes];
 }
 
 const OBU_TYPES = {
