@@ -53,11 +53,6 @@ server.on("connection", async (socket) => {
       },
     ]);
 
-    setTimeout(() => {
-      console.log("stop");
-      webm.stop();
-    }, 5_000);
-
     new JitterBuffer({
       rtpStream: video.onReceiveRtp,
       rtcpStream: video.onReceiveRtcp,
@@ -66,6 +61,11 @@ server.on("connection", async (socket) => {
       rtpStream: audio.onReceiveRtp,
       rtcpStream: audio.onReceiveRtcp,
     }).pipe(new SampleBuilder(() => true).pipe(webm));
+
+    setTimeout(() => {
+      console.log("stop");
+      webm.stop();
+    }, 5_000);
   };
   {
     const transceiver = pc.addTransceiver("video");
