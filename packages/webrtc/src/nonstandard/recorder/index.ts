@@ -9,13 +9,13 @@ export class MediaRecorder {
   constructor(
     public tracks: MediaStreamTrack[],
     public path: string,
-    public options: Partial<{ width: number; height: number }> = {}
+    public options: Partial<MediaRecorderOptions> = {}
   ) {
     this.ext = path.split(".").slice(-1)[0];
     this.writer = (() => {
       switch (this.ext) {
         case "webm":
-          return new WebmFactory(path);
+          return new WebmFactory(path, options);
         default:
           throw new Error();
       }
@@ -33,4 +33,9 @@ export class MediaRecorder {
   async stop() {
     await this.writer.stop();
   }
+}
+
+export interface MediaRecorderOptions {
+  width: number;
+  height: number;
 }

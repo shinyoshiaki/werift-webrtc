@@ -13,7 +13,10 @@ export class WebmFactory extends MediaWriter {
   start(tracks: MediaStreamTrack[]) {
     this.webm = new WebmOutput(
       "./test.webm",
-      tracks.map((track) => {
+      tracks.map((track, i) => {
+        const trackNumber = i + 1;
+        const payloadType = track.codec!.payloadType;
+
         if (track.kind === "video") {
           const codec = ((): SupportedCodec => {
             switch (track.codec?.name.toLowerCase() as SupportedVideoCodec) {
@@ -30,21 +33,21 @@ export class WebmFactory extends MediaWriter {
             }
           })();
           return {
-            width: 640,
-            height: 360,
             kind: "video",
-            codec,
             clockRate: 90000,
-            payloadType: track.codec!.payloadType,
-            trackNumber: 1,
+            payloadType,
+            trackNumber,
+            codec,
+            width: this.options.width,
+            height: this.options.height,
           };
         } else {
           return {
             kind: "audio",
-            codec: "OPUS",
             clockRate: 48000,
-            payloadType: track.codec!.payloadType,
-            trackNumber: 2,
+            payloadType,
+            trackNumber,
+            codec: "OPUS",
           };
         }
       })
