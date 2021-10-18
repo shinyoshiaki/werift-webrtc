@@ -96,7 +96,7 @@ export class AV1RtpPayload {
     }
 
     [...Array(p.w_RtpNumObus - 1).keys()].forEach((i) => {
-      const [elementSize, bytes] = leb128(buf.slice(offset));
+      const [elementSize, bytes] = leb128decode(buf.slice(offset));
 
       const start = offset + bytes;
       const end = start + elementSize;
@@ -185,7 +185,7 @@ export class AV1RtpPayload {
   }
 }
 
-export function leb128(buf: Buffer) {
+export function leb128decode(buf: Buffer) {
   let value = 0;
   let leb128bytes = 0;
   for (let i = 0; i < 8; i++) {

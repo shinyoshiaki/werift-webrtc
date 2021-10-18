@@ -51,14 +51,13 @@ export class RtpRouter {
       .filter((e) => e.ssrc != undefined) // todo fix
       .forEach((encode, i) => {
         this.registerRtpReceiver(transceiver.receiver, encode.ssrc);
-
         transceiver.addTrack(
           new MediaStreamTrack({
             ssrc: encode.ssrc,
-            codec: params.codecs[i],
             kind: transceiver.kind,
             id: transceiver.sender.trackId,
             remote: true,
+            codec: params.codecs[i],
           })
         );
         if (encode.rtx) {
