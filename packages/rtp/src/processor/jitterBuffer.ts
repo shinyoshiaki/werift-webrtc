@@ -1,19 +1,28 @@
 import { debug } from "debug";
 
 import { uint16Add } from "../../../common/src";
-import { RtpPacket } from "../../../rtp/src";
+import { RtpPacket } from "..";
+import { RtcpPacket } from "../rtcp/rtcp";
+import { Pipeline } from "./base";
 
 const log = debug("werift:packages/webrtc/src/nonstandard/jitterBuffer.ts");
 
-export class JitterBuffer {
-  static MaxRetry = 100;
-  retry = 0;
-  head?: number;
-  buffer: { [sequenceNumber: number]: RtpPacket } = {};
+export class JitterBuffer extends Pipeline {
+  private retry = 0;
+  private head?: number;
+  private buffer: { [sequenceNumber: number]: RtpPacket } = {};
 
-  constructor(public maxRetry = JitterBuffer.MaxRetry) {}
+  maxRetry = 100;
 
-  push(p: RtpPacket) {
+  pushRtpPackets(packets: RtpPacket[]) {
+    packets.forEach(this.onRtp);
+  }
+
+  pushRtcpPackets(packets: RtcpPacket[]) {
+    this.children?.pushRtcpPackets?.(packets);
+  }
+
+  private onRtp = (p: RtpPacket) => {
     this.buffer[p.header.sequenceNumber] = p;
 
     if (this.head == undefined) {
@@ -42,6 +51,6 @@ export class JitterBuffer {
     }
     this.head = uint16Add(tail, -1);
 
-    return packets;
-  }
+    this.children?.pushRtpPackets?.(packets);
+  };
 }

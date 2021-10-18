@@ -2,10 +2,9 @@ import {
   MediaRecorder,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "werift/src";
+} from "../../packages/webrtc/src";
 import { Server } from "ws";
 
-// not working for now
 // open ./answer.html
 
 const server = new Server({ port: 8878 });

@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/ice/turn/trickle_offer.ts"
+        "${workspaceRoot}/examples/save_to_disk/av1x.ts"
       ],
       "env": { "DEBUG": "werift:packages/webrtc*" },
       "console": "integratedTerminal",

@@ -189,6 +189,11 @@ export class RTCRtpReceiver {
           const sr = packet as RtcpSrPacket;
           this.lsr[sr.ssrc] = compactNtp(sr.senderInfo.ntpTimestamp);
           this.lsrTime[sr.ssrc] = Date.now() / 1000;
+
+          const track = this.trackBySSRC[packet.ssrc];
+          if (track) {
+            track.onReceiveRtcp.execute(packet);
+          }
         }
         break;
     }
@@ -253,7 +258,9 @@ export class RTCRtpReceiver {
     // todo fix select use or not use nack
     if (track?.kind === "video") this.nack.addPacket(packet);
 
-    if (track) track.onReceiveRtp.execute(packet.clone());
+    if (track) {
+      track.onReceiveRtp.execute(packet.clone());
+    }
 
     this.runRtcp();
   }

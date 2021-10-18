@@ -676,12 +676,17 @@ export class RTCPeerConnection extends EventTarget {
         transceiver.sender.prepareSend(localParams);
 
         if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+          const remotePrams = this.remoteRtp(remoteSdp, transceiver);
+
           // register simulcast receiver
           remoteMedia.simulcastParameters.forEach((param) => {
-            this.router.registerRtpReceiverByRid(transceiver, param);
+            this.router.registerRtpReceiverByRid(
+              transceiver,
+              param,
+              remotePrams
+            );
           });
 
-          const remotePrams = this.remoteRtp(remoteSdp, transceiver);
           transceiver.receiver.prepareReceive(remotePrams);
           // register ssrc receiver
           this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);

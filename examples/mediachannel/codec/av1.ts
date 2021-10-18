@@ -2,6 +2,7 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   AV1RtpPayload,
+  dumpBuffer,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
@@ -34,6 +35,7 @@ console.log("start");
       }, 3000);
 
       track.onReceiveRtp.subscribe(async (rtp) => {
+        console.log(dumpBuffer(rtp.payload));
         const codec = AV1RtpPayload.deSerialize(rtp.payload);
         if (codec.isKeyframe) {
           console.log("on keyframe", codec);

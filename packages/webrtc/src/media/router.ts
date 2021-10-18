@@ -49,7 +49,7 @@ export class RtpRouter {
 
     params.encodings
       .filter((e) => e.ssrc != undefined) // todo fix
-      .forEach((encode) => {
+      .forEach((encode, i) => {
         this.registerRtpReceiver(transceiver.receiver, encode.ssrc);
         transceiver.addTrack(
           new MediaStreamTrack({
@@ -57,6 +57,7 @@ export class RtpRouter {
             kind: transceiver.kind,
             id: transceiver.sender.trackId,
             remote: true,
+            codec: params.codecs[i],
           })
         );
         if (encode.rtx) {
@@ -71,8 +72,12 @@ export class RtpRouter {
 
   registerRtpReceiverByRid(
     transceiver: RTCRtpTransceiver,
-    param: RTCRtpSimulcastParameters
+    param: RTCRtpSimulcastParameters,
+    params: RTCRtpReceiveParameters
   ) {
+    // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
+    const [codec] = params.codecs;
+
     log("registerRtpReceiverByRid", param);
     transceiver.addTrack(
       new MediaStreamTrack({
@@ -80,6 +85,7 @@ export class RtpRouter {
         kind: transceiver.kind,
         id: transceiver.sender.trackId,
         remote: true,
+        codec,
       })
     );
     this.ridTable[param.rid] = transceiver.receiver;
