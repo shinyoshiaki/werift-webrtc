@@ -7,6 +7,7 @@ import { v4 as uuid } from "uuid";
 import { int } from "../../../common/src";
 import {
   PictureLossIndication,
+  Red,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
@@ -255,11 +256,21 @@ export class RTCRtpReceiver {
       track = this.trackBySSRC[originalSsrc];
     }
 
+    let red: Red | undefined;
+    if (codec.name.toLowerCase() === "red") {
+      red = Red.deSerialize(packet.payload);
+    }
+
     // todo fix select use or not use nack
-    if (track?.kind === "video") this.nack.addPacket(packet);
+    if (track?.kind === "video") {
+      this.nack.addPacket(packet);
+    }
 
     if (track) {
-      track.onReceiveRtp.execute(packet.clone());
+      if (red) {
+      } else {
+        track.onReceiveRtp.execute(packet.clone());
+      }
     }
 
     this.runRtcp();

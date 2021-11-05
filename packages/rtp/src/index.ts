@@ -20,6 +20,7 @@ export { GenericNack } from "./rtcp/rtpfb/nack";
 export * from "./rtcp/rtpfb/twcc";
 export * from "./rtcp/sdes";
 export * from "./rtcp/sr";
+export * from "./rtp/red";
 export * from "./rtp/rtp";
 export { SrtcpSession } from "./srtp/srtcp";
 export { SrtpSession } from "./srtp/srtp";
