@@ -258,7 +258,7 @@ export class RTCRtpReceiver {
 
     let red: Red | undefined;
     if (codec.name.toLowerCase() === "red") {
-      red = Red.deSerialize(packet.payload);
+      red = Red.deSerialize(packet);
     }
 
     // todo fix select use or not use nack
@@ -268,6 +268,9 @@ export class RTCRtpReceiver {
 
     if (track) {
       if (red) {
+        red.payloads.forEach((packet) => {
+          track!.onReceiveRtp.execute(packet.clone());
+        });
       } else {
         track.onReceiveRtp.execute(packet.clone());
       }

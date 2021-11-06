@@ -1,24 +1,59 @@
 // rfc2198
 
-import { getBit, paddingByte } from "../../../common/src";
+import { getBit, paddingByte, uint16Add, uint32Add } from "../../../common/src";
+import { RtpHeader, RtpPacket } from "..";
 
 export class Red {
   header!: RedHeader;
-  payloads: Buffer[] = [];
+  payloads: RtpPacket[] = [];
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize(rtp: RtpPacket) {
+    const buf = rtp.payload;
+
     const red = new Red();
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
 
-    red.header.payloads.forEach(({ blockLength }) => {
-      if (blockLength) {
-        red.payloads.push(buf.slice(offset, offset + blockLength));
-        offset += blockLength;
-      } else {
-        red.payloads.push(buf.slice(offset));
+    red.header.payloads.forEach(
+      ({ blockLength, timestampOffset, blockPT }, i) => {
+        if (blockLength && timestampOffset) {
+          const payload = buf.slice(offset, offset + blockLength);
+          const redundantPacket = new RtpPacket(
+            new RtpHeader({
+              timestamp: Number(
+                uint32Add(
+                  BigInt(rtp.header.timestamp),
+                  -BigInt(timestampOffset)
+                )
+              ),
+              payloadType: blockPT,
+              ssrc: rtp.header.ssrc,
+              sequenceNumber: uint16Add(
+                rtp.header.sequenceNumber,
+                -(red.header.payloads.length - (i + 1))
+              ),
+              marker: true,
+            }),
+            payload
+          );
+          red.payloads.push(redundantPacket);
+          offset += blockLength;
+        } else {
+          const payload = buf.slice(offset);
+          const newPacket = new RtpPacket(
+            new RtpHeader({
+              timestamp: rtp.header.timestamp,
+              payloadType: blockPT,
+              ssrc: rtp.header.ssrc,
+              sequenceNumber: rtp.header.sequenceNumber,
+              marker: true,
+            }),
+            payload
+          );
+          red.payloads.push(newPacket);
+        }
       }
-    });
+    );
 
     return red;
   }
