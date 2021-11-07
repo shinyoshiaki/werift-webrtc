@@ -23,6 +23,7 @@ import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { Nack } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
+import { RedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -33,6 +34,7 @@ export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new Nack(this);
+  private readonly redHandler = new RedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
@@ -268,9 +270,12 @@ export class RTCRtpReceiver {
 
     if (track) {
       if (red) {
-        red.payloads.forEach((packet) => {
-          track!.onReceiveRtp.execute(packet.clone());
-        });
+        const payloads = red.payloads
+          .map((p) => this.redHandler.push(p))
+          .filter((p): p is RtpPacket => typeof p !== "undefined");
+        for (const packet of payloads) {
+          track.onReceiveRtp.execute(packet.clone());
+        }
       } else {
         track.onReceiveRtp.execute(packet.clone());
       }
