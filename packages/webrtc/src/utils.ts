@@ -114,7 +114,7 @@ export class RtpBuilder {
 
   create(payload: Buffer) {
     this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
-    this.timestamp = uint32Add(this.timestamp, BigInt(960));
+    this.timestamp = uint32Add(this.timestamp, 960);
 
     const header = new RtpHeader({
       sequenceNumber: this.sequenceNumber,

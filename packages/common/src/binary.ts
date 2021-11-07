@@ -6,7 +6,7 @@ export function random16() {
 }
 
 export function random32() {
-  return BigInt(jspack.Unpack("!L", randomBytes(4))[0]);
+  return jspack.Unpack("!L", randomBytes(4))[0];
 }
 
 export class BitWriter {

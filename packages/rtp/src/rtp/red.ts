@@ -20,12 +20,7 @@ export class Red {
           const payload = buf.slice(offset, offset + blockLength);
           const redundantPacket = new RtpPacket(
             new RtpHeader({
-              timestamp: Number(
-                uint32Add(
-                  BigInt(rtp.header.timestamp),
-                  -BigInt(timestampOffset)
-                )
-              ),
+              timestamp: uint32Add(rtp.header.timestamp, -timestampOffset),
               payloadType: blockPT,
               ssrc: rtp.header.ssrc,
               sequenceNumber: uint16Add(
@@ -61,7 +56,6 @@ export class Red {
 
 export class RedHeader {
   payloads: RedHeaderPayload[] = [];
-  offset = 0;
 
   static deSerialize(buf: Buffer) {
     let offset = 0;
@@ -90,10 +84,10 @@ export class RedHeader {
       payload.blockLength = parseInt(blockLength_a + blockLength_b, 2);
     }
 
-    header.offset = offset;
-
     return [header, offset] as const;
   }
+
+  serialize() {}
 }
 
 type RedHeaderPayload = {

@@ -31,9 +31,7 @@ import {
 
     packets.forEach((p) => {
       const packet = p.clone();
-      packet.header.timestamp = Number(
-        uint32Add(BigInt(p.header.timestamp), BigInt(timestampOffset))
-      );
+      packet.header.timestamp = uint32Add(p.header.timestamp, timestampOffset);
       packet.header.sequenceNumber = uint16Add(
         packet.header.sequenceNumber,
         sequenceNumberOffset
@@ -41,9 +39,7 @@ import {
       track.onReceiveRtp.execute(packet);
     });
 
-    timestampOffset += Number(
-      uint32Add(BigInt(tailTimestamp), BigInt(-headTimestamp))
-    );
+    timestampOffset += uint32Add(tailTimestamp, -headTimestamp);
     sequenceNumberOffset += uint16Add(uint16Add(tailSeq, -headSeq), 1);
   }
 

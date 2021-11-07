@@ -51,7 +51,6 @@
     "test",
     "transport",
     "ts",
-    "ts node files examples mediachannel sendrecv offer",
     "TWCC",
     "ufrag",
     "uint",
@@ -60,7 +59,7 @@
     "Webm",
     "webrtc",
     "werift",
-    "wrtct"
+    "xffffffffn"
   ],
   "liveServer.settings.port": 5501,
   "liveServer.settings.ignoreFiles": ["**"],

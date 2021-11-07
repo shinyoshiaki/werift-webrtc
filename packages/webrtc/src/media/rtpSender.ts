@@ -242,9 +242,7 @@ export class RTCRtpSender {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
     }
     if (this.timestamp != undefined) {
-      this.timestampOffset = Number(
-        uint32Add(BigInt(this.timestamp), BigInt(-timestamp))
-      );
+      this.timestampOffset = uint32Add(this.timestamp, -timestamp);
     }
     this.rtpCache = [];
     log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
@@ -260,9 +258,7 @@ export class RTCRtpSender {
     const header = rtp.header;
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
-    header.timestamp = Number(
-      uint32Add(BigInt(header.timestamp), BigInt(this.timestampOffset))
-    );
+    header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
@@ -312,7 +308,7 @@ export class RTCRtpSender {
     this.ntpTimestamp = ntpTime();
     this.rtpTimestamp = rtp.header.timestamp;
     this.octetCount += rtp.payload.length;
-    this.packetCount = Number(uint32Add(BigInt(this.packetCount), 1n));
+    this.packetCount = uint32Add(this.packetCount, 1);
 
     rtp.header = header;
 
