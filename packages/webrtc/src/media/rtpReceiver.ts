@@ -260,7 +260,7 @@ export class RTCRtpReceiver {
 
     let red: Red | undefined;
     if (codec.name.toLowerCase() === "red") {
-      red = Red.deSerialize(packet);
+      red = Red.deSerialize(packet.payload);
     }
 
     // todo fix select use or not use nack
@@ -270,9 +270,7 @@ export class RTCRtpReceiver {
 
     if (track) {
       if (red) {
-        const payloads = red.payloads
-          .map((p) => this.redHandler.push(p))
-          .filter((p): p is RtpPacket => typeof p !== "undefined");
+        const payloads = this.redHandler.push(red, packet);
         for (const packet of payloads) {
           track.onReceiveRtp.execute(packet.clone());
         }

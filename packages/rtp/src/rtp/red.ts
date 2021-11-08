@@ -1,56 +1,63 @@
 // rfc2198
 
-import { getBit, paddingByte, uint16Add, uint32Add } from "../../../common/src";
-import { RtpHeader, RtpPacket } from "..";
+import { BitWriter2, getBit, paddingByte } from "../../../common/src";
+
+// 0                   1                    2                   3
+// 0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |F|   block PT  |  timestamp offset         |   block length    |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+// 0 1 2 3 4 5 6 7
+// +-+-+-+-+-+-+-+-+
+// |0|   Block PT  |
+// +-+-+-+-+-+-+-+-+
 
 export class Red {
   header!: RedHeader;
-  payloads: RtpPacket[] = [];
+  payloads: { bin: Buffer; blockPT: number; timestampOffset?: number }[] = [];
 
-  static deSerialize(rtp: RtpPacket) {
-    const buf = rtp.payload;
-
+  static deSerialize(buf: Buffer) {
     const red = new Red();
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
 
-    red.header.payloads.forEach(
-      ({ blockLength, timestampOffset, blockPT }, i) => {
-        if (blockLength && timestampOffset) {
-          const payload = buf.slice(offset, offset + blockLength);
-          const redundantPacket = new RtpPacket(
-            new RtpHeader({
-              timestamp: uint32Add(rtp.header.timestamp, -timestampOffset),
-              payloadType: blockPT,
-              ssrc: rtp.header.ssrc,
-              sequenceNumber: uint16Add(
-                rtp.header.sequenceNumber,
-                -(red.header.payloads.length - (i + 1))
-              ),
-              marker: true,
-            }),
-            payload
-          );
-          red.payloads.push(redundantPacket);
-          offset += blockLength;
-        } else {
-          const payload = buf.slice(offset);
-          const newPacket = new RtpPacket(
-            new RtpHeader({
-              timestamp: rtp.header.timestamp,
-              payloadType: blockPT,
-              ssrc: rtp.header.ssrc,
-              sequenceNumber: rtp.header.sequenceNumber,
-              marker: true,
-            }),
-            payload
-          );
-          red.payloads.push(newPacket);
-        }
+    red.header.payloads.forEach(({ blockLength, timestampOffset, blockPT }) => {
+      if (blockLength && timestampOffset) {
+        const payload = buf.slice(offset, offset + blockLength);
+        red.payloads.push({ bin: payload, blockPT, timestampOffset });
+        offset += blockLength;
+      } else {
+        const payload = buf.slice(offset);
+        red.payloads.push({ bin: payload, blockPT });
       }
-    );
+    });
 
     return red;
+  }
+
+  serialize() {
+    this.header = new RedHeader();
+
+    for (const { timestampOffset, blockPT, bin } of this.payloads) {
+      if (timestampOffset) {
+        this.header.payloads.push({
+          fBit: 1,
+          blockPT,
+          blockLength: bin.length,
+          timestampOffset,
+        });
+      } else {
+        this.header.payloads.push({ fBit: 0, blockPT });
+      }
+    }
+
+    let buf = this.header.serialize();
+    for (const { bin } of this.payloads) {
+      buf = Buffer.concat([buf, bin]);
+    }
+
+    return buf;
   }
 }
 
@@ -87,12 +94,32 @@ export class RedHeader {
     return [header, offset] as const;
   }
 
-  serialize() {}
+  serialize() {
+    let buf = Buffer.alloc(0);
+    for (const payload of this.payloads) {
+      if (payload.timestampOffset && payload.blockLength) {
+        const a = new BitWriter2(8)
+          .set(payload.fBit)
+          .set(payload.blockPT, 7).buffer;
+        const b = Buffer.alloc(3);
+        b.writeUInt16BE(payload.timestampOffset | (payload.blockLength >> 8));
+        b.writeUInt8(payload.blockLength & 0xff, 2);
+
+        buf = Buffer.concat([buf, a, b]);
+      } else {
+        const chunk = new BitWriter2(8).set(0).set(payload.blockPT, 7).buffer;
+        buf = Buffer.concat([buf, chunk]);
+      }
+    }
+    return buf;
+  }
 }
 
-type RedHeaderPayload = {
+interface RedHeaderPayload {
   fBit: number;
   blockPT: number;
+  /**14bit */
   timestampOffset?: number;
+  /**10bit */
   blockLength?: number;
-};
+}
