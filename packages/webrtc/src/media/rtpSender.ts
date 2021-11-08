@@ -16,6 +16,7 @@ import {
   GenericNack,
   PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
+  Red,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -68,6 +69,7 @@ export class RTCRtpSender {
   private repairedRtpStreamId?: string;
   private rtxPayloadType?: number;
   private rtxSequenceNumber = random16();
+  private redRedundantPayloadType?: number;
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
 
@@ -118,20 +120,22 @@ export class RTCRtpSender {
     this.rtpStreamId = params.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
-    for (const codec of params.codecs) {
-      if (
-        codec.name.toLowerCase() === "rtx" &&
-        codec.parameters["apt"] === params.codecs[0].payloadType
-      ) {
-        this.rtxPayloadType = codec.payloadType;
-        break;
-      }
-    }
-
     this.codec = params.codecs[0];
     if (this.track) {
       this.track.codec = this.codec;
     }
+
+    params.codecs.forEach((codec, i) => {
+      if (
+        codec.name.toLowerCase() === "rtx" &&
+        codec.parameters["apt"] === this.codec!.payloadType
+      ) {
+        this.rtxPayloadType = codec.payloadType;
+      }
+      if (codec.name.toLowerCase() === "red") {
+        this.redRedundantPayloadType = params.codecs[i + 1].payloadType;
+      }
+    });
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -315,7 +319,32 @@ export class RTCRtpSender {
     this.rtpCache.push(rtp);
     this.rtpCache = this.rtpCache.slice(-RTP_HISTORY_SIZE);
 
-    const size = this.dtlsTransport.sendRtp(rtp.payload, header);
+    let rtpPayload = rtp.payload;
+    if (this.redRedundantPayloadType) {
+      const redundant = this.rtpCache.find(
+        (c) => c.header.sequenceNumber === header.sequenceNumber - 1
+      );
+      if (redundant) {
+        const red = new Red();
+        red.payloads = [
+          {
+            bin: redundant.payload,
+            blockPT: this.redRedundantPayloadType,
+            timestampOffset: uint32Add(
+              header.timestamp,
+              -redundant.header.timestamp
+            ),
+          },
+          {
+            bin: rtp.payload,
+            blockPT: this.redRedundantPayloadType,
+          },
+        ];
+        rtpPayload = red.serialize();
+      }
+    }
+
+    const size = this.dtlsTransport.sendRtp(rtpPayload, header);
 
     this.runRtcp();
     const sentInfo: SentInfo = {

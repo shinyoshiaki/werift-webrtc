@@ -15,7 +15,12 @@ import { BitWriter2, getBit, paddingByte } from "../../../common/src";
 
 export class Red {
   header!: RedHeader;
-  payloads: { bin: Buffer; blockPT: number; timestampOffset?: number }[] = [];
+  payloads: {
+    bin: Buffer;
+    blockPT: number;
+    /**14bit */
+    timestampOffset?: number;
+  }[] = [];
 
   static deSerialize(buf: Buffer) {
     const red = new Red();

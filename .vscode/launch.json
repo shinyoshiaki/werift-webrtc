@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/red/offer.ts"
+        "${workspaceRoot}/examples/mediachannel/red/sendrecv.ts"
       ],
       "env": { "DEBUG": "werift:packages/webrtc*" },
       "console": "integratedTerminal",
