@@ -70,6 +70,7 @@ export class RTCRtpSender {
   private rtxPayloadType?: number;
   private rtxSequenceNumber = random16();
   private redRedundantPayloadType?: number;
+  private redDistance = 2;
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
 
@@ -320,28 +321,23 @@ export class RTCRtpSender {
     this.rtpCache = this.rtpCache.slice(-RTP_HISTORY_SIZE);
 
     let rtpPayload = rtp.payload;
+
     if (this.redRedundantPayloadType) {
-      const redundant = this.rtpCache.find(
-        (c) => c.header.sequenceNumber === header.sequenceNumber - 1
+      const redundantPackets = [...Array(this.redDistance).keys()]
+        .map((i) => {
+          return this.rtpCache.find(
+            (c) =>
+              c.header.sequenceNumber ===
+              header.sequenceNumber - (this.redDistance - i)
+          );
+        })
+        .filter((p): p is NonNullable<typeof p> => typeof p !== "undefined");
+      const red = buildRedPacket(
+        redundantPackets,
+        this.redRedundantPayloadType,
+        rtp
       );
-      if (redundant) {
-        const red = new Red();
-        red.payloads = [
-          {
-            bin: redundant.payload,
-            blockPT: this.redRedundantPayloadType,
-            timestampOffset: uint32Add(
-              header.timestamp,
-              -redundant.header.timestamp
-            ),
-          },
-          {
-            bin: rtp.payload,
-            blockPT: this.redRedundantPayloadType,
-          },
-        ];
-        rtpPayload = red.serialize();
-      }
+      rtpPayload = red.serialize();
     }
 
     const size = this.dtlsTransport.sendRtp(rtpPayload, header);
@@ -461,4 +457,27 @@ export function wrapRtx(
     ])
   );
   return rtx;
+}
+
+export function buildRedPacket(
+  redundantPackets: RtpPacket[],
+  blockPT: number,
+  presentPacket: RtpPacket
+) {
+  const red = new Red();
+  for (const redundant of redundantPackets) {
+    red.payloads.push({
+      bin: redundant.payload,
+      blockPT,
+      timestampOffset: uint32Add(
+        presentPacket.header.timestamp,
+        -redundant.header.timestamp
+      ),
+    });
+  }
+  red.payloads.push({
+    bin: presentPacket.payload,
+    blockPT,
+  });
+  return red;
 }

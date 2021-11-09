@@ -108,7 +108,7 @@ export class RedHeader {
           .set(payload.blockPT, 7).buffer;
         const b = Buffer.alloc(3);
         b.writeUInt16BE(payload.timestampOffset | (payload.blockLength >> 8));
-        b.writeUInt8(payload.blockLength & 0xff, 2);
+        b.writeUInt8(payload.blockLength & 0b11111111, 2);
 
         buf = Buffer.concat([buf, a, b]);
       } else {
