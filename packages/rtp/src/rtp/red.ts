@@ -84,16 +84,11 @@ export class RedHeader {
         break;
       }
 
-      const timestamp_a = paddingByte(getBit(buf[offset], 0, 8));
+      payload.timestampOffset =
+        (buf[offset] << 6) + ((buf[offset + 1] & 0b11111100) >> 2);
       offset++;
-      const timestamp_b = paddingByte(getBit(buf[offset], 0, 6));
-      payload.timestampOffset = parseInt(timestamp_a + timestamp_b, 2);
-
-      const blockLength_a = paddingByte(getBit(buf[offset], 6, 2));
-      offset++;
-      const blockLength_b = paddingByte(getBit(buf[offset], 0, 8));
-      offset++;
-      payload.blockLength = parseInt(blockLength_a + blockLength_b, 2);
+      payload.blockLength = ((buf[offset] & 0b11) << 8) + buf[offset + 1];
+      offset += 2;
     }
 
     return [header, offset] as const;
@@ -107,7 +102,9 @@ export class RedHeader {
           .set(payload.fBit)
           .set(payload.blockPT, 7).buffer;
         const b = Buffer.alloc(3);
-        b.writeUInt16BE(payload.timestampOffset | (payload.blockLength >> 8));
+        b.writeUInt16BE(
+          (payload.timestampOffset << 2) | (payload.blockLength >> 8)
+        );
         b.writeUInt8(payload.blockLength & 0b11111111, 2);
 
         buf = Buffer.concat([buf, a, b]);

@@ -20,6 +20,7 @@ server.on("connection", async (socket) => {
           mimeType: "audio/OPUS",
           clockRate: 48000,
           channels: 2,
+          // parameters: {},
         }),
       ],
     },

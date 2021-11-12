@@ -33,7 +33,7 @@
         "${workspaceRoot}/tsconfig.json",
         "${workspaceRoot}/examples/mediachannel/red/sendrecv.ts"
       ],
-      "env": { "DEBUG": "werift:packages/webrtc*" },
+      "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     },

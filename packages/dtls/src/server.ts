@@ -33,7 +33,15 @@ export class DtlsServer extends DtlsSocket {
           {
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 
-            if (
+            if (clientHello.cookie.length === 0) {
+              log(this.dtls.sessionId, "send flight2");
+              flight2(
+                this.transport,
+                this.dtls,
+                this.cipher,
+                this.srtp
+              )(clientHello);
+            } else if (
               this.dtls.cookie &&
               clientHello.cookie.equals(this.dtls.cookie)
             ) {
@@ -44,14 +52,6 @@ export class DtlsServer extends DtlsSocket {
                 this.cipher,
                 this.srtp
               ).exec(handshake, this.options.certificateRequest);
-            } else if (!this.dtls.sessionId) {
-              log(this.dtls.sessionId, "send flight2");
-              flight2(
-                this.transport,
-                this.dtls,
-                this.cipher,
-                this.srtp
-              )(clientHello);
             }
           }
           break;

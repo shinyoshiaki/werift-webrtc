@@ -70,7 +70,7 @@ export class RTCRtpSender {
   private rtxPayloadType?: number;
   private rtxSequenceNumber = random16();
   private redRedundantPayloadType?: number;
-  private redDistance = 2;
+  redDistance = 2;
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
 
@@ -465,7 +465,7 @@ export function buildRedPacket(
   presentPacket: RtpPacket
 ) {
   const red = new Red();
-  for (const redundant of redundantPackets) {
+  redundantPackets.forEach((redundant) => {
     red.payloads.push({
       bin: redundant.payload,
       blockPT,
@@ -474,7 +474,8 @@ export function buildRedPacket(
         -redundant.header.timestamp
       ),
     });
-  }
+  });
+
   red.payloads.push({
     bin: presentPacket.payload,
     blockPT,
