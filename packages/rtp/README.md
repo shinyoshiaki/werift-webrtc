@@ -15,6 +15,17 @@ const rtpPacket: RtpPacket = RtpPacket.deSerialize(buffer);
 const buffer: Buffer = rtpPacket.serialize();
 ```
 
+# When using in browser
+
+```sh
+npm i buffer
+```
+
+```ts
+import "buffer";
+import {} from "werift-rtp";
+```
+
 # advanced usage
 
 see `./tests/**/*.test.ts`

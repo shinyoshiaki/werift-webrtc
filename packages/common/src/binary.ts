@@ -6,7 +6,7 @@ export function random16() {
 }
 
 export function random32() {
-  return BigInt(jspack.Unpack("!L", randomBytes(4))[0]);
+  return jspack.Unpack("!L", randomBytes(4))[0];
 }
 
 export class BitWriter {
@@ -30,16 +30,29 @@ export class BitWriter {
 }
 
 export class BitWriter2 {
-  value = 0;
-  offset = 0;
+  private _value = 0n;
+  offset = 0n;
 
-  constructor(private bitLength: number) {}
+  /**
+   * 各valueがオクテットを跨いではならない
+   */
+  constructor(
+    /**Max 32bit */
+    private bitLength: number
+  ) {}
 
   set(value: number, size: number = 1) {
-    value &= (1 << size) - 1;
-    this.value |= value << (this.bitLength - size - this.offset);
-    this.offset += size;
+    let value_b = BigInt(value);
+    const size_b = BigInt(size);
+
+    value_b &= (1n << size_b) - 1n;
+    this._value |= value_b << (BigInt(this.bitLength) - size_b - this.offset);
+    this.offset += size_b;
     return this;
+  }
+
+  get value() {
+    return Number(this._value);
   }
 
   get buffer() {
@@ -61,6 +74,13 @@ export function getBit(bits: number, startIndex: number, length: number = 1) {
 export function paddingByte(bits: number) {
   const dec = bits.toString(2).split("");
   return [...[...Array(8 - dec.length)].map(() => "0"), ...dec].join("");
+}
+
+export function paddingBits(bits: number, expectLength: number) {
+  const dec = bits.toString(2);
+  return [...[...Array(expectLength - dec.length)].map(() => "0"), ...dec].join(
+    ""
+  );
 }
 
 export function bufferWriter(bytes: number[], values: (number | bigint)[]) {

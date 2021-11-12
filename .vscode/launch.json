@@ -31,9 +31,9 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/save_to_disk/av1x.ts"
+        "${workspaceRoot}/examples/mediachannel/red/sendrecv.ts"
       ],
-      "env": { "DEBUG": "werift:packages/webrtc*" },
+      "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"
     },

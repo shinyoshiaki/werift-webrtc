@@ -100,7 +100,7 @@ export class SCTP {
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
   private localPort = this.port;
-  private localVerificationTag = Number(random32());
+  private localVerificationTag = random32();
 
   remoteExtensions: number[] = [];
   remotePartialReliability = true;

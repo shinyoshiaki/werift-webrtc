@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app"></div>
+    </div>
+    <script type="text/babel">
+      async function getAudioStream(ab, gain) {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        const audioBuffer = await ctx.decodeAudioData(ab);
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.loop = true;
+        source.start();
+        const destination = ctx.createMediaStreamDestination();
+        const gainNode = ctx.createGain();
+        source.connect(gainNode);
+        gainNode.connect(destination);
+        gainNode.gain.value = gain;
+
+        return { stream: destination.stream, gainNode, ctx };
+      }
+
+      const App = () => {
+        const remoteRef = React.useRef();
+
+        const onFile = async (file) => {
+          console.log(file);
+
+          const socket = new WebSocket("ws://192.168.0.101:8888");
+          await new Promise((r) => (socket.onopen = r));
+          console.log("open websocket");
+
+          const offer = await new Promise(
+            (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+          );
+          console.log("offer", offer.sdp);
+
+          const peer = new RTCPeerConnection({
+            iceServers: [],
+          });
+          peer.onicecandidate = ({ candidate }) => {
+            if (!candidate) {
+              const sdp = JSON.stringify(peer.localDescription);
+              console.log(peer.localDescription.sdp);
+              socket.send(sdp);
+            }
+          };
+          peer.ontrack = (e) => {
+            remoteRef.current.srcObject = e.streams[0];
+            console.log(peer.getReceivers());
+            peer.getReceivers()[0].playoutDelayHint = 1.0;
+            peer.getReceivers()[0].jitterBufferDelayHint = 1.0;
+          };
+          const { stream, gainNode, ctx } = await getAudioStream(
+            await file.arrayBuffer(),
+            1
+          );
+
+          stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+
+          await peer.setRemoteDescription(offer);
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+        };
+
+        return (
+          <div>
+            <div style={{ display: "flex" }}>
+              <input type="file" onChange={(e) => onFile(e.target.files[0])} />
+              <div>
+                <audio ref={remoteRef} autoPlay />
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app"));
+    </script>
+  </body>
+</html>

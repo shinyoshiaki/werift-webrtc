@@ -6,8 +6,8 @@ export function uint16Add(a: number, b: number) {
   return (a + b) & 0xffff;
 }
 
-export function uint32Add(a: bigint, b: bigint) {
-  return (a + b) & 0xffffffffn;
+export function uint32Add(a: number, b: number) {
+  return Number((BigInt(a) + BigInt(b)) & 0xffffffffn);
 }
 
 export function uint24(v: number) {

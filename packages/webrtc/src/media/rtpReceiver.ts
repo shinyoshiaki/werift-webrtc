@@ -7,6 +7,7 @@ import { v4 as uuid } from "uuid";
 import { int } from "../../../common/src";
 import {
   PictureLossIndication,
+  Red,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
@@ -22,6 +23,7 @@ import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { Nack } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
+import { RedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -32,6 +34,7 @@ export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new Nack(this);
+  private readonly redHandler = new RedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
@@ -255,11 +258,25 @@ export class RTCRtpReceiver {
       track = this.trackBySSRC[originalSsrc];
     }
 
+    let red: Red | undefined;
+    if (codec.name.toLowerCase() === "red") {
+      red = Red.deSerialize(packet.payload);
+    }
+
     // todo fix select use or not use nack
-    if (track?.kind === "video") this.nack.addPacket(packet);
+    if (track?.kind === "video") {
+      this.nack.addPacket(packet);
+    }
 
     if (track) {
-      track.onReceiveRtp.execute(packet.clone());
+      if (red) {
+        const payloads = this.redHandler.push(red, packet);
+        for (const packet of payloads) {
+          track.onReceiveRtp.execute(packet.clone());
+        }
+      } else {
+        track.onReceiveRtp.execute(packet.clone());
+      }
     }
 
     this.runRtcp();

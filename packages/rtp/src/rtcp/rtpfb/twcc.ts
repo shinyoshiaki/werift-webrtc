@@ -272,14 +272,11 @@ export class RunLengthChunk {
   }
 
   serialize() {
-    const buf = Buffer.alloc(2);
-
-    const value = new BitWriter2(16)
+    const buf = new BitWriter2(16)
       .set(0)
       .set(this.packetStatus, 2)
-      .set(this.runLength, 13).value;
+      .set(this.runLength, 13).buffer;
 
-    buf.writeUInt16BE(value);
     return buf;
   }
 

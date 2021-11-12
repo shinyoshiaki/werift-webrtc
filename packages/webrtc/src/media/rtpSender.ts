@@ -16,6 +16,7 @@ import {
   GenericNack,
   PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
+  Red,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -68,6 +69,8 @@ export class RTCRtpSender {
   private repairedRtpStreamId?: string;
   private rtxPayloadType?: number;
   private rtxSequenceNumber = random16();
+  private redRedundantPayloadType?: number;
+  redDistance = 2;
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
 
@@ -118,20 +121,22 @@ export class RTCRtpSender {
     this.rtpStreamId = params.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
-    for (const codec of params.codecs) {
-      if (
-        codec.name.toLowerCase() === "rtx" &&
-        codec.parameters["apt"] === params.codecs[0].payloadType
-      ) {
-        this.rtxPayloadType = codec.payloadType;
-        break;
-      }
-    }
-
     this.codec = params.codecs[0];
     if (this.track) {
       this.track.codec = this.codec;
     }
+
+    params.codecs.forEach((codec, i) => {
+      if (
+        codec.name.toLowerCase() === "rtx" &&
+        codec.parameters["apt"] === this.codec!.payloadType
+      ) {
+        this.rtxPayloadType = codec.payloadType;
+      }
+      if (codec.name.toLowerCase() === "red") {
+        this.redRedundantPayloadType = params.codecs[i + 1].payloadType;
+      }
+    });
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -242,9 +247,7 @@ export class RTCRtpSender {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
     }
     if (this.timestamp != undefined) {
-      this.timestampOffset = Number(
-        uint32Add(BigInt(this.timestamp), BigInt(-timestamp))
-      );
+      this.timestampOffset = uint32Add(this.timestamp, -timestamp);
     }
     this.rtpCache = [];
     log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
@@ -260,9 +263,7 @@ export class RTCRtpSender {
     const header = rtp.header;
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
-    header.timestamp = Number(
-      uint32Add(BigInt(header.timestamp), BigInt(this.timestampOffset))
-    );
+    header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
@@ -312,14 +313,34 @@ export class RTCRtpSender {
     this.ntpTimestamp = ntpTime();
     this.rtpTimestamp = rtp.header.timestamp;
     this.octetCount += rtp.payload.length;
-    this.packetCount = Number(uint32Add(BigInt(this.packetCount), 1n));
+    this.packetCount = uint32Add(this.packetCount, 1);
 
     rtp.header = header;
 
     this.rtpCache.push(rtp);
     this.rtpCache = this.rtpCache.slice(-RTP_HISTORY_SIZE);
 
-    const size = this.dtlsTransport.sendRtp(rtp.payload, header);
+    let rtpPayload = rtp.payload;
+
+    if (this.redRedundantPayloadType) {
+      const redundantPackets = [...Array(this.redDistance).keys()]
+        .map((i) => {
+          return this.rtpCache.find(
+            (c) =>
+              c.header.sequenceNumber ===
+              header.sequenceNumber - (this.redDistance - i)
+          );
+        })
+        .filter((p): p is NonNullable<typeof p> => typeof p !== "undefined");
+      const red = buildRedPacket(
+        redundantPackets,
+        this.redRedundantPayloadType,
+        rtp
+      );
+      rtpPayload = red.serialize();
+    }
+
+    const size = this.dtlsTransport.sendRtp(rtpPayload, header);
 
     this.runRtcp();
     const sentInfo: SentInfo = {
@@ -436,4 +457,28 @@ export function wrapRtx(
     ])
   );
   return rtx;
+}
+
+export function buildRedPacket(
+  redundantPackets: RtpPacket[],
+  blockPT: number,
+  presentPacket: RtpPacket
+) {
+  const red = new Red();
+  redundantPackets.forEach((redundant) => {
+    red.payloads.push({
+      bin: redundant.payload,
+      blockPT,
+      timestampOffset: uint32Add(
+        presentPacket.header.timestamp,
+        -redundant.header.timestamp
+      ),
+    });
+  });
+
+  red.payloads.push({
+    bin: presentPacket.payload,
+    blockPT,
+  });
+  return red;
 }
