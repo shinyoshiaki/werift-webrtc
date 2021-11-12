@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
+    "@minhducsun2002/leb128": "^0.2.0",
     "@peculiar/webcrypto": "^1.1.6",
     "@peculiar/x509": "^1.2.2",
     "@shinyoshiaki/ebml-builder": "^0.0.1",
