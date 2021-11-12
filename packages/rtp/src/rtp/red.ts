@@ -1,6 +1,6 @@
 // rfc2198
 
-import { BitWriter2, getBit, paddingByte } from "../../../common/src";
+import { BitWriter2, getBit } from "../../../common/src";
 
 // 0                   1                    2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
