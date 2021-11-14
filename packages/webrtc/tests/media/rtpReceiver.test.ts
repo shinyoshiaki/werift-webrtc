@@ -49,7 +49,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
           mimeType: "video/rtx",
           clockRate: 90000,
           payloadType: 97,
-          parameters: { apt: 96 },
+          parameters: `apt=96`,
         }),
       ],
       encodings: [
