@@ -29,7 +29,7 @@ export class RTCRtpCodecParameters {
   clockRate!: number;
   channels?: number;
   rtcpFeedback: RTCPFB[] = [];
-  parameters = {};
+  parameters?: string;
 
   constructor(
     props: Pick<RTCRtpCodecParameters, "mimeType" | "clockRate"> &

@@ -30,6 +30,7 @@ import {
   SourceDescriptionItem,
   TransportWideCC,
 } from "../../../rtp/src";
+import { codecParametersFromString } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime } from "../utils";
@@ -126,15 +127,18 @@ export class RTCRtpSender {
       this.track.codec = this.codec;
     }
 
-    params.codecs.forEach((codec, i) => {
+    params.codecs.forEach((codec) => {
+      const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
         codec.name.toLowerCase() === "rtx" &&
-        codec.parameters["apt"] === this.codec!.payloadType
+        codecParams["apt"] === this.codec?.payloadType
       ) {
         this.rtxPayloadType = codec.payloadType;
       }
       if (codec.name.toLowerCase() === "red") {
-        this.redRedundantPayloadType = params.codecs[i + 1].payloadType;
+        this.redRedundantPayloadType = Number(
+          (codec.parameters ?? "").split("/")[0]
+        );
       }
     });
   }

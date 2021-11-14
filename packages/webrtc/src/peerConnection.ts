@@ -4,6 +4,7 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
+import { codecParametersFromString } from ".";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -126,15 +127,27 @@ export class RTCPeerConnection extends EventTarget {
     if (codecs?.audio) this.configuration.codecs.audio = codecs.audio;
     if (codecs?.video) this.configuration.codecs.video = codecs.video;
 
-    [
+    for (const [i, codecParams] of enumerate([
       ...(this.configuration.codecs.audio || []),
       ...(this.configuration.codecs.video || []),
-    ].forEach((v, i) => {
-      v.payloadType = 96 + i;
-      if (v.name.toLowerCase() === "rtx") {
-        v.parameters = { apt: v.payloadType - 1 };
+    ])) {
+      codecParams.payloadType = 96 + i;
+      switch (codecParams.name.toLowerCase()) {
+        case "rtx":
+          {
+            codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
+          }
+          break;
+        case "red":
+          {
+            const redundant = codecParams.payloadType + 1;
+            codecParams.parameters = `${redundant}/${redundant}`;
+            codecParams.payloadType = 63;
+          }
+          break;
       }
-    });
+    }
+
     if (headerExtensions?.audio)
       this.configuration.headerExtensions.audio = headerExtensions.audio;
     if (headerExtensions?.video)
@@ -576,7 +589,8 @@ export class RTCPeerConnection extends EventTarget {
         transceiver.codecs.reduce(
           (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
             if (codec.name.toLowerCase() === "rtx") {
-              const apt = acc[codec.parameters["apt"]];
+              const params = codecParametersFromString(codec.parameters ?? "");
+              const apt = acc[params["apt"]];
               if (apt && media.ssrc.length === 2) {
                 apt.rtx = new RTCRtpRtxParameters({ ssrc: media.ssrc[1].ssrc });
               }
@@ -639,7 +653,10 @@ export class RTCPeerConnection extends EventTarget {
           if (!existCodec) return false;
 
           if (existCodec?.name.toLowerCase() === "rtx") {
-            const pt = existCodec.parameters["apt"];
+            const params = codecParametersFromString(
+              existCodec.parameters ?? ""
+            );
+            const pt = params["apt"];
             const origin = remoteMedia.rtp.codecs.find(
               (c) => c.payloadType === pt
             );

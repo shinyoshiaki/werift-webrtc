@@ -12,12 +12,12 @@ server.on("connection", async (socket) => {
     codecs: {
       audio: [
         new RTCRtpCodecParameters({
-          mimeType: "audio/RED",
+          mimeType: "audio/red",
           clockRate: 48000,
           channels: 2,
         }),
         new RTCRtpCodecParameters({
-          mimeType: "audio/OPUS",
+          mimeType: "audio/opus",
           clockRate: 48000,
           channels: 2,
           // parameters: {},
