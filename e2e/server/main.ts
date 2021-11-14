@@ -32,6 +32,7 @@ import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
+import { mediachannel_red_client_answer } from "./handler/mediachannel/red";
 
 const app = express();
 app.use(express.json() as never);
@@ -77,6 +78,7 @@ server.on("connectionrequest", async (_, accept) => {
     ice_trickle_offer: new ice_trickle_offer(),
     mediachannel_rtx_client_answer: new mediachannel_rtx_client_answer(),
     mediachannel_rtx_client_offer: new mediachannel_rtx_client_offer(),
+    mediachannel_red_client_answer: new mediachannel_red_client_answer(),
   };
 
   const transport = accept();

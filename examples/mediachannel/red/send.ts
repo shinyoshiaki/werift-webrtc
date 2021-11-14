@@ -1,13 +1,13 @@
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  MediaStreamTrack,
+  randomPort,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { OpusEncoder } from "@discordjs/opus";
-import Speaker from "speaker";
+import { createSocket } from "dgram";
+import { spawn } from "child_process";
 
-const encoder = new OpusEncoder(48000, 2);
-const speaker = new Speaker({ channels: 2, sampleRate: 48000 });
 const server = new Server({ port: 8888 });
 console.log("start");
 
@@ -24,20 +24,27 @@ server.on("connection", async (socket) => {
           mimeType: "audio/OPUS",
           clockRate: 48000,
           channels: 2,
-          // parameters: { usedtx: 1 },
         }),
       ],
     },
   });
 
-  pc.addTransceiver("audio", { direction: "recvonly" }).onTrack.subscribe(
-    (track) => {
-      track.onReceiveRtp.subscribe((rtp) => {
-        const decoded = encoder.decode(rtp.payload);
-        speaker.write(decoded);
-      });
-    }
-  );
+  const track = new MediaStreamTrack({ kind: "audio" });
+  randomPort().then((port) => {
+    const udp = createSocket("udp4");
+    udp.bind(port);
+
+    const args = [
+      `audiotestsrc wave=ticks ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay`,
+      `udpsink host=127.0.0.1 port=${port}`,
+    ].join(" ! ");
+    console.log(args);
+    spawn("gst-launch-1.0", args.split(" "));
+    udp.on("message", (data) => {
+      track.writeRtp(data);
+    });
+  });
+  pc.addTransceiver(track, { direction: "sendonly" });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
