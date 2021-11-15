@@ -38,8 +38,6 @@ jobs:
           cd e2e
           yarn
           cd ../
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
       - name: test
         env:
           CI: true
@@ -49,4 +47,4 @@ jobs:
         env:
           CI: false
         run: |
-          CHROME_CANARY_BIN=${which chrome} yarn e2e
+          yarn e2e
