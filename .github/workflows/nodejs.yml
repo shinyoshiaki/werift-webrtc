@@ -26,9 +26,9 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - uses: browser-actions/setup-chrome@latest
-      - run: chrome --version
+        run: chrome --version
         with:
-          chrome-version: dev
+          chrome-version: canary
       - name: prepare
         run: |
           sudo apt-get update
