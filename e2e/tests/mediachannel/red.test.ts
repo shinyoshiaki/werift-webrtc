@@ -3,7 +3,7 @@ import "buffer";
 import { Red } from "werift-rtp";
 import { peer, sleep } from "../fixture";
 
-fdescribe("mediachannel_rtx", () => {
+describe("mediachannel_rtx", () => {
   const label = "mediachannel_red_client_answer";
   it(
     label,
@@ -14,14 +14,22 @@ fdescribe("mediachannel_rtx", () => {
           const receiverStreams = (receiver as any).createEncodedStreams();
           const readableStream = receiverStreams.readable;
           const writableStream = receiverStreams.writable;
+          let count = 1;
           const transformStream = new TransformStream({
             transform: (encodedFrame, controller) => {
               const data = encodedFrame.data;
               const red = Red.deSerialize(Buffer.from(data));
-              console.log(red);
-              expect(red.payloads.length).toBe(2);
+              expect(red.payloads.length).toBe(count);
+              if (count < 3) {
+                count++;
+              }
+              for (const payload of red.payloads) {
+                expect(payload.blockPT).toBe(97);
+              }
+              if (count === 3) {
+                done();
+              }
               controller.enqueue(encodedFrame);
-              done();
             },
           });
           readableStream.pipeThrough(transformStream).pipeTo(writableStream);

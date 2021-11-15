@@ -53,7 +53,7 @@ module.exports = function (config) {
         ],
       },
       chrome_with_fake_device: {
-        base: "Chrome",
+        base: "ChromeCanary",
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
@@ -82,7 +82,20 @@ module.exports = function (config) {
         acornOptions: {
           ecmaVersion: 2020,
         },
-        transforms: [require("karma-typescript-es6-transform")()],
+        transforms: [
+          require("karma-typescript-es6-transform")({
+            presets: [
+              [
+                "@babel/preset-env",
+                {
+                  targets: {
+                    browsers: ["last 1 Chrome versions"],
+                  },
+                },
+              ],
+            ],
+          }),
+        ],
       },
       compilerOptions: tsconfig.compilerOptions,
       include: ["tests"],

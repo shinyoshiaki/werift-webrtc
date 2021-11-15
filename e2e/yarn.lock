@@ -4747,10 +4747,10 @@ websocket@^1.0.33:
     utf-8-validate "^5.0.2"
     yaeti "^0.0.6"
 
-werift-rtp@^0.1.1:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/werift-rtp/-/werift-rtp-0.1.1.tgz#fbc49841f6e0c59f5ae0c73c665f7b21acc7167d"
-  integrity sha512-giiDYjnjf+VHqcTrLBrOrJMxF8YBoihjgifL9z3uQg9yMZZGdnj4gNk32vBN7vSyBHjBjzy5ReupBnKWoUt5TA==
+werift-rtp@^0.2.0:
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/werift-rtp/-/werift-rtp-0.2.0.tgz#9e7b03cad57c6ef816a10126f49f636ce0f2bd88"
+  integrity sha512-VbGBWVrzwzkTHJRKTap0KJxIHp171X85woFbY3W0ymjdSwPvicRsNPlsvsR0mIB4Ex0EOkn0jJLpfpnKR6FQww==
   dependencies:
     "@minhducsun2002/leb128" "^0.2.0"
     "@shinyoshiaki/ebml-builder" "^0.0.1"
