@@ -650,6 +650,19 @@ export function codecParametersFromString(str: string) {
   return parameters;
 }
 
+export function codecParametersToString(parameters: {
+  [key: string]: string | number;
+}) {
+  const params = Object.entries(parameters).map(([k, v]) => {
+    if (v) return `${k}=${v}`;
+    else return k;
+  });
+  if (params.length > 0) {
+    return params.join(";");
+  }
+  return undefined;
+}
+
 export class SsrcDescription {
   ssrc!: number;
   cname?: string;

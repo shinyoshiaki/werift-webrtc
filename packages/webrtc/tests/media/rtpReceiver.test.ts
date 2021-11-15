@@ -1,6 +1,7 @@
 import { setTimeout } from "timers/promises";
 
 import {
+  codecParametersToString,
   MediaStreamTrack,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -49,7 +50,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
           mimeType: "video/rtx",
           clockRate: 90000,
           payloadType: 97,
-          parameters: `apt=96`,
+          parameters: codecParametersToString({ apt: 96 }),
         }),
       ],
       encodings: [
