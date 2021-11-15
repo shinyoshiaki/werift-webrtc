@@ -28,8 +28,7 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+
       - name: prepare
         run: |
           sudo apt-get update
@@ -39,6 +38,8 @@ jobs:
           cd e2e
           yarn
           cd ../
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
       - name: test
         env:
           CI: true
