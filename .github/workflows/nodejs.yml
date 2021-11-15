@@ -21,14 +21,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v1
+      - uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: canary
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v1
         with:
           node-version: ${{ matrix.node-version }}
-      - uses: browser-actions/setup-chrome@latest
-        run: chrome --version
-        with:
-          chrome-version: canary
+
       - name: prepare
         run: |
           sudo apt-get update
