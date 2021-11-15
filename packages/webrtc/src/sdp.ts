@@ -274,7 +274,7 @@ export class SessionDescription {
           if (attr === "fmtp") {
             const [formatId, formatDesc] = divide(value, " ");
             const codec = findCodec(Number(formatId))!;
-            codec.parameters = parametersFromSdp(formatDesc);
+            codec.parameters = formatDesc;
           } else if (attr === "rtcp-fb") {
             const [payloadType, feedbackType, feedbackParam] = value.split(" ");
             currentMedia.rtp.codecs.forEach((codec) => {
@@ -453,9 +453,8 @@ export class MediaDescription {
         lines.push(`a=rtcp-fb:${codec.payloadType} ${value}`);
       });
 
-      const params = parametersToSDP(codec.parameters);
-      if (params) {
-        lines.push(`a=fmtp:${codec.payloadType} ${params}`);
+      if (codec.parameters) {
+        lines.push(`a=fmtp:${codec.payloadType} ${codec.parameters}`);
       }
     });
 
@@ -634,9 +633,9 @@ export function addSDPHeader(
   description.type = type;
 }
 
-function parametersFromSdp(sdp: string) {
+export function codecParametersFromString(str: string) {
   const parameters = {};
-  sdp.split(";").forEach((param) => {
+  str.split(";").forEach((param) => {
     if (param.includes("=")) {
       const [k, v] = divide(param, "=");
       if (FMTP_INT_PARAMETERS.includes(k)) {
@@ -651,7 +650,9 @@ function parametersFromSdp(sdp: string) {
   return parameters;
 }
 
-function parametersToSDP(parameters: { [key: string]: string }) {
+export function codecParametersToString(parameters: {
+  [key: string]: string | number;
+}) {
   const params = Object.entries(parameters).map(([k, v]) => {
     if (v) return `${k}=${v}`;
     else return k;

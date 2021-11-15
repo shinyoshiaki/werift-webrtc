@@ -1,5 +1,7 @@
-// Karma configuration
-// Generated on Fri Jan 01 2021 14:33:51 GMT+0900 (日本標準時)
+const { readFileSync } = require("fs");
+const { parse } = require("jsonc-parser");
+
+const tsconfig = parse(readFileSync("./tsconfig.json").toString());
 
 module.exports = function (config) {
   config.set({
@@ -42,7 +44,7 @@ module.exports = function (config) {
     // available browser launchers: https://npmjs.org/browse/keyword/karma-launcher
     customLaunchers: {
       chrome_headless_with_fake_device: {
-        base: "ChromeHeadless",
+        base: "ChromeCanaryHeadless",
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
@@ -51,7 +53,7 @@ module.exports = function (config) {
         ],
       },
       chrome_with_fake_device: {
-        base: "Chrome",
+        base: "ChromeCanary",
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
@@ -76,24 +78,26 @@ module.exports = function (config) {
     // how many browser should be started simultaneous
     concurrency: Infinity,
     karmaTypescriptConfig: {
-      compilerOptions: {
-        target: "ES2020",
-        module: "commonjs",
-        lib: ["esnext", "ES2020", "DOM"],
-        declaration: true,
-        outDir: "lib",
-        strict: true,
-        allowSyntheticDefaultImports: true,
-        esModuleInterop: true,
-        importHelpers: true,
-        pretty: true,
-        sourceMap: true,
-        inlineSources: true,
-        noUnusedLocals: false,
-        skipLibCheck: true,
-        strictNullChecks: false,
-        noImplicitAny: false,
+      bundlerOptions: {
+        acornOptions: {
+          ecmaVersion: 2020,
+        },
+        transforms: [
+          require("karma-typescript-es6-transform")({
+            presets: [
+              [
+                "@babel/preset-env",
+                {
+                  targets: {
+                    browsers: ["last 1 Chrome versions"],
+                  },
+                },
+              ],
+            ],
+          }),
+        ],
       },
+      compilerOptions: tsconfig.compilerOptions,
       include: ["tests"],
     },
   });

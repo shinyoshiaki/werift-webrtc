@@ -1,3 +1,5 @@
+import * as fs from "fs/promises";
+
 import { SupportedCodec } from "../../../../../rtp/src/container/webm";
 import {
   JitterBuffer,
@@ -12,6 +14,7 @@ export class WebmFactory extends MediaWriter {
 
   start(tracks: MediaStreamTrack[]) {
     this.webm = new WebmOutput(
+      fs,
       "./test.webm",
       tracks.map((track, i) => {
         const trackNumber = i + 1;

@@ -16,6 +16,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
+import { codecParametersFromString } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { compactNtp } from "../utils";
@@ -251,7 +252,8 @@ export class RTCRtpReceiver {
 
     if (codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
-      const rtxCodec = this.codecs[codec.parameters["apt"]];
+      const codecParams = codecParametersFromString(codec.parameters ?? "");
+      const rtxCodec = this.codecs[codecParams["apt"]];
       if (packet.payload.length < 2) return;
 
       packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
