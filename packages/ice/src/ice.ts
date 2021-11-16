@@ -435,10 +435,15 @@ export class Connection {
 
       const res = await util
         .promisify(dns.lookup)(remoteCandidate.host)
-        .catch(() => {});
-      if (!res) return;
-
-      remoteCandidate.host = res.address;
+        .catch((err) => {
+          log(err, remoteCandidate);
+        });
+      if (res) {
+        remoteCandidate.host = res.address;
+      } else {
+        // todo fix
+        remoteCandidate.host = "127.0.0.1";
+      }
     }
 
     try {

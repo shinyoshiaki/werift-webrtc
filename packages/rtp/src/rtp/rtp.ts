@@ -40,7 +40,7 @@ export class RtpHeader {
   payloadType: number = 0;
   /**16bit */
   sequenceNumber: number = 0;
-  /**32bit */
+  /**32bit milliseconds/1000 */
   timestamp: number = 0;
   ssrc: number = 0;
   csrc: number[] = [];
