@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/red/sendrecv.ts"
+        "${workspaceRoot}/examples/mediachannel/red/adaptive/server.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

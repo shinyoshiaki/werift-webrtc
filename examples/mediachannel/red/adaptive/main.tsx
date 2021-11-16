@@ -3,6 +3,13 @@ import React, { FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
 import { Red } from "werift-rtp";
+import { getAudioStream, uint32Add } from "./util";
+
+const peer = new RTCPeerConnection({
+  //@ts-ignore
+  encodedInsertableStreams: true,
+  iceServers: [],
+});
 
 const App: FC = () => {
   const remoteRef = useRef<HTMLAudioElement>();
@@ -17,11 +24,6 @@ const App: FC = () => {
     );
     console.log("offer", offer.sdp);
 
-    const peer = new RTCPeerConnection({
-      //@ts-ignore
-      encodedInsertableStreams: true,
-      iceServers: [],
-    });
     peer.onicecandidate = ({ candidate }) => {
       if (!candidate) {
         const sdp = JSON.stringify(peer.localDescription);
@@ -33,6 +35,21 @@ const App: FC = () => {
       remoteRef.current.srcObject = e.streams[0];
       receiverTransform(e.receiver);
     };
+
+    setInterval(async () => {
+      const stats = await peer.getStats();
+      const arr = [...(stats as any).values()];
+      const remoteInbound = arr.find((a) =>
+        a.id.includes("RTCRemoteInboundRtpAudioStream")
+      );
+      if (remoteInbound) {
+        const { fractionLost } = remoteInbound;
+        console.log(fractionLost);
+        redSender.distance = Math.floor(fractionLost * 10);
+        console.log(redSender.distance);
+      }
+    }, 1000);
+
     const { stream } = await getAudioStream(await file.arrayBuffer(), 1);
     const [track] = stream.getTracks();
     const sender = peer.addTrack(track);
@@ -60,7 +77,7 @@ ReactDOM.render(<App />, document.getElementById("root"));
 class RedSender {
   cache: { buffer: Buffer; timestamp: number }[] = [];
   cacheSize = 10;
-  distance = 5;
+  distance = 1;
 
   push(payload: { buffer: Buffer; timestamp: number }) {
     this.cache.push(payload);
@@ -121,31 +138,9 @@ const receiverTransform = (receiver: RTCRtpReceiver) => {
     transform: (encodedFrame, controller) => {
       const data = encodedFrame.data;
       const red = Red.deSerialize(Buffer.from(data));
-      console.log("receive", red);
+      // console.log("receive", red);
       controller.enqueue(encodedFrame);
     },
   });
   readableStream.pipeThrough(transformStream).pipeTo(writableStream);
 };
-
-async function getAudioStream(ab, gain) {
-  const ctx: AudioContext = new (window.AudioContext ||
-    (window as any).webkitAudioContext)();
-
-  const audioBuffer = await ctx.decodeAudioData(ab);
-  const source = ctx.createBufferSource();
-  source.buffer = audioBuffer;
-  source.loop = true;
-  source.start();
-  const destination = ctx.createMediaStreamDestination();
-  const gainNode = ctx.createGain();
-  source.connect(gainNode);
-  gainNode.connect(destination);
-  gainNode.gain.value = gain;
-
-  return { stream: destination.stream, gainNode, ctx };
-}
-
-export function uint32Add(a: number, b: number) {
-  return Number((BigInt(a) + BigInt(b)) & 0xffffffffn);
-}
