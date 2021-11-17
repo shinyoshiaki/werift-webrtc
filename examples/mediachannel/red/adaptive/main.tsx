@@ -10,6 +10,7 @@ const peer = new RTCPeerConnection({
   encodedInsertableStreams: true,
   iceServers: [],
 });
+let interval: any;
 
 const App: FC = () => {
   const remoteRef = useRef<HTMLAudioElement>();
@@ -36,20 +37,6 @@ const App: FC = () => {
       receiverTransform(e.receiver);
     };
 
-    setInterval(async () => {
-      const stats = await peer.getStats();
-      const arr = [...(stats as any).values()];
-      const remoteInbound = arr.find((a) =>
-        a.id.includes("RTCRemoteInboundRtpAudioStream")
-      );
-      if (remoteInbound) {
-        const { fractionLost } = remoteInbound;
-        console.log(fractionLost);
-        redSender.distance = Math.floor(fractionLost * 10);
-        console.log(redSender.distance);
-      }
-    }, 1000);
-
     const { stream } = await getAudioStream(await file.arrayBuffer(), 1);
     const [track] = stream.getTracks();
     const sender = peer.addTrack(track);
@@ -60,13 +47,36 @@ const App: FC = () => {
     await peer.setLocalDescription(answer);
   };
 
+  const enable = () => {
+    interval = setInterval(async () => {
+      const stats = await peer.getStats();
+      const arr = [...(stats as any).values()];
+      const remoteInbound = arr.find((a) =>
+        a.id.includes("RTCRemoteInboundRtpAudioStream")
+      );
+      if (remoteInbound) {
+        const { fractionLost } = remoteInbound;
+        console.log(fractionLost);
+        redSender.distance = Math.round(fractionLost * 10);
+        console.log(redSender.distance);
+      }
+    }, 1000);
+  };
+
+  const disable = () => {
+    clearInterval(interval);
+    redSender.distance = 0;
+  };
+
   return (
     <div>
-      <div style={{ display: "flex" }}>
-        <input type="file" onChange={(e) => onFile(e.target.files[0])} />
-        <div>
-          <audio controls ref={remoteRef} autoPlay />
-        </div>
+      <input type="file" onChange={(e) => onFile(e.target.files[0])} />
+      <div>
+        <audio controls ref={remoteRef} autoPlay />
+      </div>
+      <div>
+        <button onClick={enable}>enable</button>
+        <button onClick={disable}>disable</button>
       </div>
     </div>
   );
@@ -77,7 +87,7 @@ ReactDOM.render(<App />, document.getElementById("root"));
 class RedSender {
   cache: { buffer: Buffer; timestamp: number }[] = [];
   cacheSize = 10;
-  distance = 1;
+  distance = 0;
 
   push(payload: { buffer: Buffer; timestamp: number }) {
     this.cache.push(payload);
