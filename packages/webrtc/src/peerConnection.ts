@@ -3,6 +3,7 @@ import { cloneDeep, isEqual } from "lodash";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
+import { SignatureHash } from "../../dtls/src/cipher/const";
 import { Profile } from "../../dtls/src/context/srtp";
 import { codecParametersFromString } from ".";
 import {
@@ -112,6 +113,7 @@ export class RTCPeerConnection extends EventTarget {
     iceServers,
     iceTransportPolicy,
     icePortRange,
+    dtls,
   }: Partial<PeerConfig> = {}) {
     super();
 
@@ -158,6 +160,15 @@ export class RTCPeerConnection extends EventTarget {
     ].forEach((v, i) => {
       v.id = 1 + i;
     });
+
+    if (dtls) {
+      const { keys } = dtls;
+      if (keys) {
+        this.certificates.push(
+          new RTCCertificate(keys.keyPem, keys.certPem, keys.signatureHash)
+        );
+      }
+    }
 
     this.iceConnectionStateChange.subscribe((state) => {
       switch (state) {
@@ -896,7 +907,7 @@ export class RTCPeerConnection extends EventTarget {
     return this.transceivers;
   }
 
-  getSenders() {
+  getSenders(): RTCRtpSender[] {
     return this.getTransceivers().map((t) => t.sender);
   }
 
@@ -905,7 +916,11 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   // todo fix
-  addTrack(track: MediaStreamTrack, ms?: MediaStream) {
+  addTrack(
+    track: MediaStreamTrack,
+    /**todo impl */
+    ms?: MediaStream
+  ) {
     if (this.isClosed) throw new Error("is closed");
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw new Error("track exist");
@@ -1202,6 +1217,9 @@ export interface PeerConfig {
   iceServers: RTCIceServer[];
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
+  dtls: Partial<{
+    keys: { certPem: string; keyPem: string; signatureHash: SignatureHash };
+  }>;
 }
 
 export const findCodecByMimeType = (
@@ -1252,6 +1270,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceTransportPolicy: "all",
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
+  dtls: {},
 };
 
 export interface RTCTrackEvent {

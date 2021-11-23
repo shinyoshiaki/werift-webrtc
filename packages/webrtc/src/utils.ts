@@ -11,6 +11,7 @@ import {
   uint16Add,
   uint32Add,
 } from "../../common/src";
+import { CipherContext } from "../../dtls/src/context/cipher";
 import { Address } from "../../ice/src";
 import { RtpHeader, RtpPacket } from "../../rtp/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
@@ -128,3 +129,11 @@ export class RtpBuilder {
     return rtp;
   }
 }
+
+/**
+ *
+ * @param signatureHash
+ * @param namedCurveAlgorithm necessary when use ecdsa
+ */
+export const createSelfSignedCertificate =
+  CipherContext.createSelfSignedCertificateWithKey;

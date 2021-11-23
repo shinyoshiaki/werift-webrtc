@@ -1,4 +1,8 @@
 import {
+  HashAlgorithms,
+  SignatureAlgorithm,
+} from "../../dtls/src/cipher/const";
+import {
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
 } from "../../dtls/src/context/srtp";
@@ -58,3 +62,5 @@ export const SRTP_PROFILE = {
 
 export const SenderDirections = ["sendonly", "sendrecv"];
 export const NotSenderDirections = ["inactive", "recvonly"];
+
+export { HashAlgorithms, SignatureAlgorithm };

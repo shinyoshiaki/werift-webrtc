@@ -1,6 +1,12 @@
 import { inRange } from "lodash";
 
-import { RTCDataChannel, RTCPeerConnection } from "../../src";
+import { HashAlgorithm } from "../../../dtls/src/cipher/const";
+import {
+  createSelfSignedCertificate,
+  RTCDataChannel,
+  RTCPeerConnection,
+} from "../../src";
+import { SignatureAlgorithm } from "../../src/const";
 
 jest.setTimeout(10_000);
 
@@ -158,6 +164,109 @@ describe("peerConnection", () => {
 
     a.close();
     b.close();
+  });
+});
+
+describe("initial config", () => {
+  describe("dtls", () => {
+    it("both peer use keys with rsa", () =>
+      new Promise<void>(async (done) => {
+        const { keyPem, certPem, signatureHash } =
+          await createSelfSignedCertificate({
+            signature: SignatureAlgorithm.rsa_1,
+            hash: HashAlgorithm.sha256_4,
+          });
+        const caller = new RTCPeerConnection({
+          dtls: { keys: { keyPem, certPem, signatureHash } },
+        });
+        const callee = new RTCPeerConnection({
+          dtls: { keys: { keyPem, certPem, signatureHash } },
+        });
+
+        const channel = caller.createDataChannel("label");
+        channel.onopen = () => {
+          channel.send("hi");
+        };
+
+        callee.onDataChannel.subscribe((channel) => {
+          channel.message.once(() => {
+            caller.close();
+            callee.close();
+            done();
+          });
+        });
+
+        await caller.setLocalDescription(await caller.createOffer());
+        await callee.setRemoteDescription(caller.localDescription!);
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+      }));
+
+    it("caller use keys with rsa", () =>
+      new Promise<void>(async (done) => {
+        const { keyPem, certPem, signatureHash } =
+          await createSelfSignedCertificate({
+            signature: SignatureAlgorithm.rsa_1,
+            hash: HashAlgorithm.sha256_4,
+          });
+        const caller = new RTCPeerConnection({
+          dtls: { keys: { keyPem, certPem, signatureHash } },
+        });
+        const callee = new RTCPeerConnection({
+          // dtls: { keys: { keyPem, certPem, signatureHash } },
+        });
+
+        const channel = caller.createDataChannel("label");
+        channel.onopen = () => {
+          channel.send("hi");
+        };
+
+        callee.onDataChannel.subscribe((channel) => {
+          channel.message.once(() => {
+            caller.close();
+            callee.close();
+            done();
+          });
+        });
+
+        await caller.setLocalDescription(await caller.createOffer());
+        await callee.setRemoteDescription(caller.localDescription!);
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+      }));
+
+    it("callee use keys with rsa", () =>
+      new Promise<void>(async (done) => {
+        const { keyPem, certPem, signatureHash } =
+          await createSelfSignedCertificate({
+            signature: SignatureAlgorithm.rsa_1,
+            hash: HashAlgorithm.sha256_4,
+          });
+        const caller = new RTCPeerConnection({
+          // dtls: { keys: { keyPem, certPem, signatureHash } },
+        });
+        const callee = new RTCPeerConnection({
+          dtls: { keys: { keyPem, certPem, signatureHash } },
+        });
+
+        const channel = caller.createDataChannel("label");
+        channel.onopen = () => {
+          channel.send("hi");
+        };
+
+        callee.onDataChannel.subscribe((channel) => {
+          channel.message.once(() => {
+            caller.close();
+            callee.close();
+            done();
+          });
+        });
+
+        await caller.setLocalDescription(await caller.createOffer());
+        await callee.setRemoteDescription(caller.localDescription!);
+        await callee.setLocalDescription(await callee.createAnswer());
+        await caller.setRemoteDescription(callee.localDescription!);
+      }));
   });
 });
 
