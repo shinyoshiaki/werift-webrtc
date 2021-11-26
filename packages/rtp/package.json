@@ -1,6 +1,6 @@
 {
   "name": "werift-rtp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-rtp",
   "repository": {
@@ -32,6 +32,7 @@
     "aes-js": "^3.1.2",
     "big-integer": "^1.6.49",
     "binary-data": "^0.6.0",
+    "buffer": "^6.0.3",
     "debug": "^4.3.1",
     "jspack": "^0.0.4",
     "lodash": "^4.17.20",
