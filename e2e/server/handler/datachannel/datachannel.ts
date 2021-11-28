@@ -1,5 +1,6 @@
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../..";
+import { DtlsKeysContext } from "../../fixture";
 
 export class datachannel_answer {
   pc!: RTCPeerConnection;
@@ -10,6 +11,7 @@ export class datachannel_answer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe((msg) => {
@@ -44,6 +46,7 @@ export class datachannel_offer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());

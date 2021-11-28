@@ -5,7 +5,7 @@ import * as uuid from "uuid";
 
 import { SignatureHash } from "../../dtls/src/cipher/const";
 import { Profile } from "../../dtls/src/context/srtp";
-import { codecParametersFromString } from ".";
+import { codecParametersFromString, DtlsKeys } from ".";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -1218,7 +1218,7 @@ export interface PeerConfig {
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
   dtls: Partial<{
-    keys: { certPem: string; keyPem: string; signatureHash: SignatureHash };
+    keys: DtlsKeys;
   }>;
 }
 

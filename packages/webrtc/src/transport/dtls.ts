@@ -261,6 +261,12 @@ export class RTCCertificate {
   }
 }
 
+export type DtlsKeys = {
+  certPem: string;
+  keyPem: string;
+  signatureHash: SignatureHash;
+};
+
 export class RTCDtlsFingerprint {
   constructor(public algorithm: string, public value: string) {}
 }
