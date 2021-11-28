@@ -1,6 +1,6 @@
 // rfc2198
 
-import { BitWriter2, getBit } from "../../../common/src";
+import { BitWriter2, getBit } from "../../../../common/src";
 
 // 0                   1                    2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -22,7 +22,12 @@ export class Red {
     timestampOffset?: number;
   }[] = [];
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize(bufferOrArrayBuffer: Buffer | ArrayBuffer) {
+    const buf =
+      bufferOrArrayBuffer instanceof ArrayBuffer
+        ? Buffer.from(bufferOrArrayBuffer)
+        : bufferOrArrayBuffer;
+
     const red = new Red();
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);

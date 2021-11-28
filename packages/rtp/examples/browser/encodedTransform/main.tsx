@@ -20,7 +20,7 @@ import { Red } from "werift-rtp";
   const { codecs } = RTCRtpSender.getCapabilities("audio");
   transceiver.setCodecPreferences([
     codecs.find((c) => c.mimeType.includes("red")),
-    ...codecs.filter((c) => !c.mimeType.includes("red")),
+    ...codecs,
   ]);
 
   await sender.setLocalDescription(await sender.createOffer());
