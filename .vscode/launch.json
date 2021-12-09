@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/red/send.ts"
+        "${workspaceRoot}/examples/mediachannel/red/record/gst.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

@@ -1,6 +1,10 @@
 // rfc2198
 
-import { BitWriter2, getBit } from "../../../common/src";
+import { debug } from "debug";
+
+import { BitWriter2, getBit } from "../../../../common/src";
+
+const log = debug("packages/rtp/src/rtp/red/packet.ts");
 
 // 0                   1                    2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -22,7 +26,12 @@ export class Red {
     timestampOffset?: number;
   }[] = [];
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize(bufferOrArrayBuffer: Buffer | ArrayBuffer) {
+    const buf =
+      bufferOrArrayBuffer instanceof ArrayBuffer
+        ? Buffer.from(bufferOrArrayBuffer)
+        : bufferOrArrayBuffer;
+
     const red = new Red();
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
@@ -97,20 +106,25 @@ export class RedHeader {
   serialize() {
     let buf = Buffer.alloc(0);
     for (const payload of this.payloads) {
-      if (payload.timestampOffset && payload.blockLength) {
-        const a = new BitWriter2(8)
-          .set(payload.fBit)
-          .set(payload.blockPT, 7).buffer;
-        const b = Buffer.alloc(3);
-        b.writeUInt16BE(
-          (payload.timestampOffset << 2) | (payload.blockLength >> 8)
-        );
-        b.writeUInt8(payload.blockLength & 0b11111111, 2);
+      try {
+        if (payload.timestampOffset && payload.blockLength) {
+          const a = new BitWriter2(8)
+            .set(payload.fBit)
+            .set(payload.blockPT, 7).buffer;
+          const b = Buffer.alloc(3);
+          b.writeUInt16BE(
+            (payload.timestampOffset << 2) | (payload.blockLength >> 8)
+          );
+          b.writeUInt8(payload.blockLength & 0b11111111, 2);
 
-        buf = Buffer.concat([buf, a, b]);
-      } else {
-        const chunk = new BitWriter2(8).set(0).set(payload.blockPT, 7).buffer;
-        buf = Buffer.concat([buf, chunk]);
+          buf = Buffer.concat([buf, a, b]);
+        } else {
+          const chunk = new BitWriter2(8).set(0).set(payload.blockPT, 7).buffer;
+          buf = Buffer.concat([buf, chunk]);
+        }
+      } catch (error: any) {
+        log(error?.message);
+        continue;
       }
     }
     return buf;

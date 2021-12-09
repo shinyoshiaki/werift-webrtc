@@ -153,3 +153,7 @@ export const dumpBuffer = (data: Buffer) =>
     .split(" ")
     .filter((s) => s != undefined && s.length > 0)
     .join(",0x");
+
+export function buffer2ArrayBuffer(buf: Buffer) {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}

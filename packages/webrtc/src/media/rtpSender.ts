@@ -70,7 +70,7 @@ export class RTCRtpSender {
   private repairedRtpStreamId?: string;
   private rtxPayloadType?: number;
   private rtxSequenceNumber = random16();
-  private redRedundantPayloadType?: number;
+  redRedundantPayloadType?: number;
   redDistance = 2;
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
@@ -91,7 +91,7 @@ export class RTCRtpSender {
   private timestampOffset = 0;
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
-  private codec?: RTCRtpCodecParameters;
+  codec?: RTCRtpCodecParameters;
 
   track?: MediaStreamTrack;
   stopped = false;

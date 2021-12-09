@@ -54,12 +54,11 @@ export class CipherContext {
    *
    * @param signatureHash
    * @param namedCurveAlgorithm necessary when use ecdsa
-   * @returns
    */
-  static async createSelfSignedCertificateWithKey(
+  static createSelfSignedCertificateWithKey = async (
     signatureHash: SignatureHash,
     namedCurveAlgorithm?: NamedCurveAlgorithms
-  ) {
+  ) => {
     const signatureAlgorithmName = (() => {
       switch (signatureHash.signature) {
         case SignatureAlgorithm.rsa_1:
@@ -125,7 +124,7 @@ export class CipherContext {
     );
 
     return { certPem, keyPem, signatureHash };
-  }
+  };
 
   encryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;

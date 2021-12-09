@@ -8,6 +8,10 @@ export class RedHandler {
     const packets: RtpPacket[] = [];
 
     red.payloads.forEach(({ blockPT, timestampOffset, bin }, i) => {
+      const sequenceNumber = uint16Add(
+        rtp.header.sequenceNumber,
+        -(red.payloads.length - (i + 1))
+      );
       if (timestampOffset) {
         packets.push(
           new RtpPacket(
@@ -15,10 +19,7 @@ export class RedHandler {
               timestamp: uint32Add(rtp.header.timestamp, -timestampOffset),
               payloadType: blockPT,
               ssrc: rtp.header.ssrc,
-              sequenceNumber: uint16Add(
-                rtp.header.sequenceNumber,
-                -(red.payloads.length - (i + 1))
-              ),
+              sequenceNumber,
               marker: true,
             }),
             bin
@@ -31,10 +32,7 @@ export class RedHandler {
               timestamp: rtp.header.timestamp,
               payloadType: blockPT,
               ssrc: rtp.header.ssrc,
-              sequenceNumber: uint16Add(
-                rtp.header.sequenceNumber,
-                -(red.payloads.length - (i + 1))
-              ),
+              sequenceNumber,
               marker: true,
             }),
             bin
@@ -43,7 +41,7 @@ export class RedHandler {
       }
     });
 
-    return packets.filter((p) => {
+    const filtered = packets.filter((p) => {
       if (this.sequenceNumbers.includes(p.header.sequenceNumber)) {
         return false;
       } else {
@@ -54,5 +52,6 @@ export class RedHandler {
         return true;
       }
     });
+    return filtered;
   }
 }
