@@ -45,7 +45,7 @@
         const onFile = async (file) => {
           console.log(file);
 
-          const socket = new WebSocket("ws://192.168.0.101:8888");
+          const socket = new WebSocket("ws://127.0.0.1:8888");
           await new Promise((r) => (socket.onopen = r));
           console.log("open websocket");
 

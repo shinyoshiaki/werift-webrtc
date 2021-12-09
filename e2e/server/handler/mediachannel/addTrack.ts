@@ -3,6 +3,7 @@ import { createSocket } from "dgram";
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection, MediaStreamTrack, RtpPacket } from "../../";
 import { randomPort } from "../../../../packages/ice/src";
+import { DtlsKeysContext } from "../../fixture";
 
 export class mediachannel_addTrack_answer {
   pc!: RTCPeerConnection;
@@ -18,6 +19,7 @@ export class mediachannel_addTrack_answer {
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
@@ -76,6 +78,7 @@ export class mediachannel_addTrack_offer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           accept({});
         }

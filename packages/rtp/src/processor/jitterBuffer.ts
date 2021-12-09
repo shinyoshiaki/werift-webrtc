@@ -31,8 +31,11 @@ export class JitterBuffer extends Pipeline {
       if (this.retry++ >= this.maxRetry) {
         log("give up packet lost");
         this.head = uint16Add(this.head, 2);
+
+        // todo push dummy
+        this.children?.pushRtpPackets?.([]);
       } else {
-        return [];
+        return;
       }
     } else {
       this.head = uint16Add(this.head, 1);

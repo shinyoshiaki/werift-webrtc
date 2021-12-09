@@ -1,5 +1,6 @@
 import { AcceptFn } from "protoo-server";
 import { useSdesRTPStreamId, RTCPeerConnection } from "../../";
+import { DtlsKeysContext } from "../../fixture";
 
 export class mediachannel_simulcast_answer {
   pc!: RTCPeerConnection;
@@ -10,6 +11,7 @@ export class mediachannel_simulcast_answer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
             headerExtensions: {
               video: [useSdesRTPStreamId()],
               audio: [],
@@ -61,6 +63,7 @@ export class mediachannel_simulcast_offer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
             headerExtensions: {
               video: [useSdesRTPStreamId()],
               audio: [],

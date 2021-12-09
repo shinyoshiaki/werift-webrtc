@@ -1,5 +1,6 @@
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../../";
+import { DtlsKeysContext } from "../../fixture";
 
 export class mediachannel_send_recv_answer {
   pc!: RTCPeerConnection;
@@ -10,6 +11,7 @@ export class mediachannel_send_recv_answer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           const receiver = this.pc.addTransceiver("video", {
             direction: "recvonly",
@@ -49,6 +51,7 @@ export class mediachannel_send_recv_offer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           const receiver = this.pc.addTransceiver("video", {
             direction: "recvonly",

@@ -1,5 +1,6 @@
 import { AcceptFn } from "protoo-server";
 import { RTCDataChannel, RTCPeerConnection } from "../../";
+import { DtlsKeysContext } from "../../fixture";
 
 export class datachannel_close_server_create_close {
   pc!: RTCPeerConnection;
@@ -10,6 +11,7 @@ export class datachannel_close_server_create_close {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe(() => {
@@ -46,6 +48,7 @@ export class datachannel_close_server_create_client_close {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           this.dc = this.pc.createDataChannel("dc");
           this.dc.stateChanged
@@ -89,6 +92,7 @@ export class datachannel_close_client_create_close {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
@@ -126,6 +130,7 @@ export class datachannel_close_client_create_server_close {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
