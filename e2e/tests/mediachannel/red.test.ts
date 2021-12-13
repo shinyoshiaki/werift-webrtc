@@ -3,7 +3,7 @@ import "buffer";
 import { Red } from "werift-rtp";
 import { peer, sleep } from "../fixture";
 
-describe("mediachannel_rtx", () => {
+describe("mediachannel_red", () => {
   const receiverTransform = (
     receiver: RTCRtpReceiver,
     expectPT: number,
