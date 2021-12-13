@@ -7,7 +7,7 @@ export class RedHandler {
   push(red: Red, rtp: RtpPacket) {
     const packets: RtpPacket[] = [];
 
-    red.blocks.forEach(({ blockPT, timestampOffset, block: bin }, i) => {
+    red.blocks.forEach(({ blockPT, timestampOffset, block }, i) => {
       const sequenceNumber = uint16Add(
         rtp.header.sequenceNumber,
         -(red.blocks.length - (i + 1))
@@ -22,7 +22,7 @@ export class RedHandler {
               sequenceNumber,
               marker: true,
             }),
-            bin
+            block
           )
         );
       } else {
@@ -35,7 +35,7 @@ export class RedHandler {
               sequenceNumber,
               marker: true,
             }),
-            bin
+            block
           )
         );
       }
