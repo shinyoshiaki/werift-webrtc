@@ -19,8 +19,8 @@ const log = debug("packages/rtp/src/rtp/red/packet.ts");
 
 export class Red {
   header!: RedHeader;
-  payloads: {
-    bin: Buffer;
+  blocks: {
+    block: Buffer;
     blockPT: number;
     /**14bit */
     timestampOffset?: number;
@@ -38,12 +38,12 @@ export class Red {
 
     red.header.fields.forEach(({ blockLength, timestampOffset, blockPT }) => {
       if (blockLength && timestampOffset) {
-        const payload = buf.slice(offset, offset + blockLength);
-        red.payloads.push({ bin: payload, blockPT, timestampOffset });
+        const block = buf.slice(offset, offset + blockLength);
+        red.blocks.push({ block, blockPT, timestampOffset });
         offset += blockLength;
       } else {
-        const payload = buf.slice(offset);
-        red.payloads.push({ bin: payload, blockPT });
+        const block = buf.slice(offset);
+        red.blocks.push({ block, blockPT });
       }
     });
 
@@ -53,12 +53,12 @@ export class Red {
   serialize() {
     this.header = new RedHeader();
 
-    for (const { timestampOffset, blockPT, bin } of this.payloads) {
+    for (const { timestampOffset, blockPT, block } of this.blocks) {
       if (timestampOffset) {
         this.header.fields.push({
           fBit: 1,
           blockPT,
-          blockLength: bin.length,
+          blockLength: block.length,
           timestampOffset,
         });
       } else {
@@ -67,8 +67,8 @@ export class Red {
     }
 
     let buf = this.header.serialize();
-    for (const { bin } of this.payloads) {
-      buf = Buffer.concat([buf, bin]);
+    for (const { block } of this.blocks) {
+      buf = Buffer.concat([buf, block]);
     }
 
     return buf;
