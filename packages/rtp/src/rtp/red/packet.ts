@@ -2,7 +2,7 @@
 
 import { debug } from "debug";
 
-import { BitWriter2, getBit } from "../../../../common/src";
+import { BitStream } from "../../../../common/src";
 
 const log = debug("packages/rtp/src/rtp/red/packet.ts");
 
@@ -36,7 +36,7 @@ export class Red {
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
 
-    red.header.payloads.forEach(({ blockLength, timestampOffset, blockPT }) => {
+    red.header.fields.forEach(({ blockLength, timestampOffset, blockPT }) => {
       if (blockLength && timestampOffset) {
         const payload = buf.slice(offset, offset + blockLength);
         red.payloads.push({ bin: payload, blockPT, timestampOffset });
@@ -55,14 +55,14 @@ export class Red {
 
     for (const { timestampOffset, blockPT, bin } of this.payloads) {
       if (timestampOffset) {
-        this.header.payloads.push({
+        this.header.fields.push({
           fBit: 1,
           blockPT,
           blockLength: bin.length,
           timestampOffset,
         });
       } else {
-        this.header.payloads.push({ fBit: 0, blockPT });
+        this.header.fields.push({ fBit: 0, blockPT });
       }
     }
 
@@ -76,28 +76,30 @@ export class Red {
 }
 
 export class RedHeader {
-  payloads: RedHeaderPayload[] = [];
+  fields: RedHeaderField[] = [];
 
   static deSerialize(buf: Buffer) {
     let offset = 0;
     const header = new RedHeader();
 
     for (;;) {
-      const payload: RedHeaderPayload = {} as any;
-      header.payloads.push(payload);
-      payload.fBit = getBit(buf[offset], 0);
-      payload.blockPT = getBit(buf[offset], 1, 7);
+      const field: RedHeaderField = {} as any;
+      header.fields.push(field);
+
+      const bitStream = new BitStream(buf.slice(offset));
+      field.fBit = bitStream.readBits(1);
+      field.blockPT = bitStream.readBits(7);
+
       offset++;
 
-      if (payload.fBit === 0) {
+      if (field.fBit === 0) {
         break;
       }
 
-      payload.timestampOffset =
-        (buf[offset] << 6) + ((buf[offset + 1] & 0b11111100) >> 2);
-      offset++;
-      payload.blockLength = ((buf[offset] & 0b11) << 8) + buf[offset + 1];
-      offset += 2;
+      field.timestampOffset = bitStream.readBits(14);
+      field.blockLength = bitStream.readBits(10);
+
+      offset += 3;
     }
 
     return [header, offset] as const;
@@ -105,22 +107,20 @@ export class RedHeader {
 
   serialize() {
     let buf = Buffer.alloc(0);
-    for (const payload of this.payloads) {
+    for (const field of this.fields) {
       try {
-        if (payload.timestampOffset && payload.blockLength) {
-          const a = new BitWriter2(8)
-            .set(payload.fBit)
-            .set(payload.blockPT, 7).buffer;
-          const b = Buffer.alloc(3);
-          b.writeUInt16BE(
-            (payload.timestampOffset << 2) | (payload.blockLength >> 8)
-          );
-          b.writeUInt8(payload.blockLength & 0b11111111, 2);
-
-          buf = Buffer.concat([buf, a, b]);
+        if (field.timestampOffset && field.blockLength) {
+          const bitStream = new BitStream(Buffer.alloc(4))
+            .writeBits(1, field.fBit)
+            .writeBits(7, field.blockPT)
+            .writeBits(14, field.timestampOffset)
+            .writeBits(10, field.blockLength);
+          buf = Buffer.concat([buf, bitStream.uint8Array]);
         } else {
-          const chunk = new BitWriter2(8).set(0).set(payload.blockPT, 7).buffer;
-          buf = Buffer.concat([buf, chunk]);
+          const bitStream = new BitStream(Buffer.alloc(1))
+            .writeBits(1, 0)
+            .writeBits(7, field.blockPT);
+          buf = Buffer.concat([buf, bitStream.uint8Array]);
         }
       } catch (error: any) {
         log(error?.message);
@@ -131,7 +131,7 @@ export class RedHeader {
   }
 }
 
-interface RedHeaderPayload {
+interface RedHeaderField {
   fBit: number;
   blockPT: number;
   /**14bit */

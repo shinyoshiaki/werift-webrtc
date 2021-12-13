@@ -1,7 +1,7 @@
 import { uint32Add } from "../../../../common/src";
 import { Red } from "./packet";
 
-export class RedSender {
+export class RedEncoder {
   cache: { buffer: Buffer; timestamp: number }[] = [];
   cacheSize = 10;
 
