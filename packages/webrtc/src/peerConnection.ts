@@ -97,7 +97,7 @@ export class RTCPeerConnection extends EventTarget {
 
   private readonly router = new RtpRouter();
   private readonly certificates: RTCCertificate[] = [];
-  private sctpRemotePort?: number;
+  sctpRemotePort?: number;
   private seenMid = new Set<string>();
   private currentLocalDescription?: SessionDescription;
   private currentRemoteDescription?: SessionDescription;
