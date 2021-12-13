@@ -32,7 +32,7 @@ export class JitterBuffer extends Pipeline {
         log("give up packet lost");
         this.head = uint16Add(this.head, 2);
       } else {
-        return [];
+        return;
       }
     } else {
       this.head = uint16Add(this.head, 1);

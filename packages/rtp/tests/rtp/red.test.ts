@@ -14,6 +14,18 @@ const bin = Buffer.from([
 describe("Red", () => {
   it("serialize/deserialize", () => {
     const dec = Red.deSerialize(bin);
+    expect(dec.header.fields).toEqual([
+      {
+        fBit: 1,
+        blockPT: 97,
+        timestampOffset: 960,
+        blockLength: 63,
+      },
+      {
+        fBit: 0,
+        blockPT: 97,
+      },
+    ]);
     const enc = dec.serialize();
     expect(enc).toEqual(bin);
   });

@@ -1,7 +1,8 @@
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../../packages/webrtc/src";
+  MediaRecorder,
+} from "../../../../packages/webrtc/src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
@@ -28,6 +29,12 @@ server.on("connection", async (socket) => {
   const audio = pc.addTransceiver("audio");
   audio.onTrack.subscribe((track) => {
     audio.sender.replaceTrack(track);
+    const recorder = new MediaRecorder([track], "./audio.webm");
+    recorder.start();
+    setTimeout(() => {
+      recorder.stop();
+      console.log("stop");
+    }, 7_000);
   });
 
   await pc.setLocalDescription(await pc.createOffer());

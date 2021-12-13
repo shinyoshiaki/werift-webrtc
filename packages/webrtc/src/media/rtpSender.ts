@@ -470,8 +470,8 @@ export function buildRedPacket(
 ) {
   const red = new Red();
   redundantPackets.forEach((redundant) => {
-    red.payloads.push({
-      bin: redundant.payload,
+    red.blocks.push({
+      block: redundant.payload,
       blockPT,
       timestampOffset: uint32Add(
         presentPacket.header.timestamp,
@@ -480,8 +480,8 @@ export function buildRedPacket(
     });
   });
 
-  red.payloads.push({
-    bin: presentPacket.payload,
+  red.blocks.push({
+    block: presentPacket.payload,
     blockPT,
   });
   return red;

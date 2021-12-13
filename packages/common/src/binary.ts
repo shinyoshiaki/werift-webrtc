@@ -157,3 +157,81 @@ export const dumpBuffer = (data: Buffer) =>
 export function buffer2ArrayBuffer(buf: Buffer) {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
+
+export class BitStream {
+  private position = 0;
+  private bitsPending = 0;
+
+  constructor(public uint8Array: Buffer) {}
+
+  writeBits(bits: number, value: number): BitStream {
+    if (bits == 0) {
+      return this;
+    }
+    value &= 0xffffffff >>> (32 - bits);
+    let bitsConsumed;
+    if (this.bitsPending > 0) {
+      if (this.bitsPending > bits) {
+        this.uint8Array[this.position - 1] |=
+          value << (this.bitsPending - bits);
+        bitsConsumed = bits;
+        this.bitsPending -= bits;
+      } else if (this.bitsPending == bits) {
+        this.uint8Array[this.position - 1] |= value;
+        bitsConsumed = bits;
+        this.bitsPending = 0;
+      } else {
+        this.uint8Array[this.position - 1] |=
+          value >> (bits - this.bitsPending);
+        // ???
+        bitsConsumed = this.bitsPending;
+        this.bitsPending = 0;
+      }
+    } else {
+      bitsConsumed = Math.min(8, bits);
+      this.bitsPending = 8 - bitsConsumed;
+      this.uint8Array[this.position++] =
+        (value >> (bits - bitsConsumed)) << this.bitsPending;
+    }
+    bits -= bitsConsumed;
+    if (bits > 0) {
+      this.writeBits(bits, value);
+    }
+
+    return this;
+  }
+
+  readBits(bits: number, bitBuffer?: number): any {
+    if (typeof bitBuffer == "undefined") {
+      bitBuffer = 0;
+    }
+    if (bits == 0) {
+      return bitBuffer;
+    }
+    let partial: number;
+    let bitsConsumed: number;
+    if (this.bitsPending > 0) {
+      const byte =
+        this.uint8Array[this.position - 1] & (0xff >> (8 - this.bitsPending));
+      bitsConsumed = Math.min(this.bitsPending, bits);
+      this.bitsPending -= bitsConsumed;
+      partial = byte >> this.bitsPending;
+    } else {
+      bitsConsumed = Math.min(8, bits);
+      this.bitsPending = 8 - bitsConsumed;
+      partial = this.uint8Array[this.position++] >> this.bitsPending;
+    }
+    bits -= bitsConsumed;
+    bitBuffer = (bitBuffer << bitsConsumed) | partial;
+    return bits > 0 ? this.readBits(bits, bitBuffer) : bitBuffer;
+  }
+
+  seekTo(bitPos: number) {
+    this.position = (bitPos / 8) | 0;
+    this.bitsPending = bitPos % 8;
+    if (this.bitsPending > 0) {
+      this.bitsPending = 8 - this.bitsPending;
+      this.position++;
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../../packages/webrtc/src";
+} from "../../../../packages/webrtc/src";
 import { Server } from "ws";
 
 const server = new Server({ port: 8888 });

@@ -8,6 +8,7 @@ import {
   RTCRtpCodecParameters,
   randomPort,
 } from "../../";
+import { DtlsKeysContext } from "../../fixture";
 
 export class mediachannel_rtx_client_answer {
   pc!: RTCPeerConnection;
@@ -23,6 +24,7 @@ export class mediachannel_rtx_client_answer {
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
             codecs: {
               video: [
                 new RTCRtpCodecParameters({
@@ -99,6 +101,7 @@ export class mediachannel_rtx_client_offer {
         {
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            dtls: { keys: await DtlsKeysContext.get() },
             codecs: {
               video: [
                 new RTCRtpCodecParameters({
