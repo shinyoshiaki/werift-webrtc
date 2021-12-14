@@ -224,6 +224,7 @@ export class SessionDescription {
               if (!value) throw new Error();
               const [formatId, formatDesc] = divide(value, " ");
               currentMedia.sctpMap[parseInt(formatId)] = formatDesc;
+              currentMedia.sctpPort = parseInt(formatId);
               break;
             case "sctp-port":
               if (!value) throw new Error();
