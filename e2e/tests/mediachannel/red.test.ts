@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import "buffer";
 import { Red } from "werift-rtp";
-import { peer, sleep } from "../fixture";
+import { Counter, peer, sleep } from "../fixture";
 
 describe("mediachannel_red", () => {
   const receiverTransform = (
@@ -12,6 +12,7 @@ describe("mediachannel_red", () => {
     const receiverStreams = (receiver as any).createEncodedStreams();
     const readableStream = receiverStreams.readable;
     const writableStream = receiverStreams.writable;
+    const counter = new Counter(2, done);
     let count = 1;
     const transformStream = new TransformStream({
       transform: (encodedFrame, controller) => {
@@ -25,7 +26,7 @@ describe("mediachannel_red", () => {
           expect(payload.blockPT).toBe(expectPT);
         }
         if (count === 3) {
-          done();
+          counter.done();
         }
         controller.enqueue(encodedFrame);
       },

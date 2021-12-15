@@ -16,7 +16,7 @@ import {
   GenericNack,
   PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
-  Red,
+  RedEncoder,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -71,7 +71,8 @@ export class RTCRtpSender {
   private rtxPayloadType?: number;
   private rtxSequenceNumber = random16();
   redRedundantPayloadType?: number;
-  redDistance = 2;
+  private _redDistance = 2;
+  redEncoder = new RedEncoder(this._redDistance);
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
 
@@ -113,6 +114,14 @@ export class RTCRtpSender {
       }
       this.registerTrack(trackOrKind);
     }
+  }
+
+  get redDistance() {
+    return this._redDistance;
+  }
+  set redDistance(n: number) {
+    this._redDistance = n;
+    this.redEncoder.distance = n;
   }
 
   prepareSend(params: RTCRtpSendParameters) {
@@ -327,20 +336,12 @@ export class RTCRtpSender {
     let rtpPayload = rtp.payload;
 
     if (this.redRedundantPayloadType) {
-      const redundantPackets = [...Array(this.redDistance).keys()]
-        .map((i) => {
-          return this.rtpCache.find(
-            (c) =>
-              c.header.sequenceNumber ===
-              header.sequenceNumber - (this.redDistance - i)
-          );
-        })
-        .filter((p): p is NonNullable<typeof p> => typeof p !== "undefined");
-      const red = buildRedPacket(
-        redundantPackets,
-        this.redRedundantPayloadType,
-        rtp
-      );
+      this.redEncoder.push({
+        block: rtpPayload,
+        timestamp: header.timestamp,
+        blockPT: this.redRedundantPayloadType,
+      });
+      const red = this.redEncoder.build();
       rtpPayload = red.serialize();
     }
 
@@ -461,28 +462,4 @@ export function wrapRtx(
     ])
   );
   return rtx;
-}
-
-export function buildRedPacket(
-  redundantPackets: RtpPacket[],
-  blockPT: number,
-  presentPacket: RtpPacket
-) {
-  const red = new Red();
-  redundantPackets.forEach((redundant) => {
-    red.blocks.push({
-      block: redundant.payload,
-      blockPT,
-      timestampOffset: uint32Add(
-        presentPacket.header.timestamp,
-        -redundant.header.timestamp
-      ),
-    });
-  });
-
-  red.blocks.push({
-    block: presentPacket.payload,
-    blockPT,
-  });
-  return red;
 }

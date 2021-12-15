@@ -2,7 +2,7 @@ import { uint32Add } from "../../../../common/src";
 import { Red } from "./packet";
 
 export class RedEncoder {
-  cache: { block: Buffer; timestamp: number; blockPT: number }[] = [];
+  private cache: { block: Buffer; timestamp: number; blockPT: number }[] = [];
   cacheSize = 10;
 
   constructor(public distance = 1) {}

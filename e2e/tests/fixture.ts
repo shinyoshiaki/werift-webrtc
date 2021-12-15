@@ -43,3 +43,14 @@ async function digestMessage(data: Uint8ClampedArray) {
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export class Counter {
+  private now = 0;
+  constructor(private times: number, private finished: () => void) {}
+
+  done() {
+    if (++this.now === this.times) {
+      this.finished();
+    }
+  }
+}
