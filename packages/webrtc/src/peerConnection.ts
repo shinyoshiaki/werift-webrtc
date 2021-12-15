@@ -560,8 +560,8 @@ export class RTCPeerConnection extends EventTarget {
     });
     log("dtls connected");
 
-    if (this.sctpTransport) {
-      await this.sctpTransport.start();
+    if (this.sctpTransport && this.sctpRemotePort) {
+      await this.sctpTransport.start(this.sctpRemotePort);
       await this.sctpTransport.sctp.stateChanged.connected.asPromise();
     }
 
