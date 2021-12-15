@@ -3,6 +3,7 @@ import { setTimeout } from "timers/promises";
 import {
   codecParametersToString,
   MediaStreamTrack,
+  RedEncoder,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RtpHeader,
@@ -10,7 +11,7 @@ import {
 } from "../../src";
 import { RedHandler } from "../../src/media/receiver/red";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
-import { buildRedPacket, wrapRtx } from "../../src/media/rtpSender";
+import { wrapRtx } from "../../src/media/rtpSender";
 import { createDtlsTransport } from "../fixture";
 
 describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
@@ -160,7 +161,20 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
         0, 250, 4, 185, 2, 141, 255, 52, 11, 51, 142, 68, 124,
       ])
     );
-    const red = buildRedPacket(redundantPackets, 96, present);
+    const redEncoder = new RedEncoder(3);
+    redundantPackets.forEach((p) =>
+      redEncoder.push({
+        block: p.payload,
+        timestamp: p.header.timestamp,
+        blockPT: p.header.payloadType,
+      })
+    );
+    redEncoder.push({
+      block: present.payload,
+      timestamp: present.header.timestamp,
+      blockPT: present.header.payloadType,
+    });
+    const red = redEncoder.build();
 
     const packet = present.clone();
     packet.payload = red.serialize();
