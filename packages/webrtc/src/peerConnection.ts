@@ -560,8 +560,8 @@ export class RTCPeerConnection extends EventTarget {
     });
     log("dtls connected");
 
-    if (this.sctpTransport && this.sctpRemotePort) {
-      await this.sctpTransport.start(this.sctpRemotePort);
+    if (this.sctpTransport) {
+      await this.sctpTransport.start();
       await this.sctpTransport.sctp.stateChanged.connected.asPromise();
     }
 
@@ -738,16 +738,18 @@ export class RTCPeerConnection extends EventTarget {
 
         transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
       } else if (remoteMedia.kind === "application") {
+        // # configure sctp
+        this.sctpRemotePort = remoteMedia.sctpPort;
         if (!this.sctpTransport) {
+          if (!this.sctpRemotePort) {
+            throw new Error("sctpRemotePort not exist");
+          }
           this.sctpTransport = this.createSctpTransport();
+          this.sctpTransport.setRemotePort(this.sctpRemotePort);
         }
-
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
-
-        // # configure sctp
-        this.sctpRemotePort = remoteMedia.sctpPort;
       }
 
       if (remoteMedia.iceParams && remoteMedia.dtlsParams) {

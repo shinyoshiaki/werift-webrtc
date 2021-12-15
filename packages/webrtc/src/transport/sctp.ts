@@ -301,7 +301,11 @@ export class RTCSctpTransport {
     return new RTCSctpCapabilities(65536);
   }
 
-  async start(remotePort: number) {
+  setRemotePort(port: number) {
+    this.sctp.setRemotePort(port);
+  }
+
+  async start() {
     if (this.isServer) {
       this.dataChannelId = 0;
     } else {
@@ -309,7 +313,7 @@ export class RTCSctpTransport {
     }
     this.sctp.isServer = this.isServer;
 
-    await this.sctp.start(remotePort);
+    await this.sctp.start();
   }
 
   async stop() {

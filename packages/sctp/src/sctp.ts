@@ -1068,11 +1068,14 @@ export class SCTP {
     return new RTCSctpCapabilities(65536);
   }
 
-  async start(remotePort: number) {
+  setRemotePort(port: number) {
+    this.remotePort = port;
+  }
+
+  async start() {
     if (!this.started) {
       this.started = true;
       this.setConnectionState("connecting");
-      this.remotePort = remotePort;
 
       if (!this.isServer) {
         await this.init();

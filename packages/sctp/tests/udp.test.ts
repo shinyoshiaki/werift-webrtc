@@ -1,7 +1,7 @@
 import { createSocket } from "dgram";
+
 import { SCTP, WEBRTC_PPID } from "../src";
 import { createUdpTransport } from "../src/transport";
-
 
 test("udp", async () =>
   new Promise<void>(async (done) => {
@@ -28,7 +28,9 @@ test("udp", async () =>
         done();
       });
 
-      await Promise.all([client.start(5000), server.start(5000)]);
+      client.setRemotePort(5000);
+      server.setRemotePort(5000);
+      await Promise.all([client.start(), server.start()]);
       await Promise.all([
         client.stateChanged.connected.asPromise(),
         server.stateChanged.connected.asPromise(),

@@ -1,9 +1,9 @@
 import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
+
 import { SCTP, SCTP_STATE } from "../src";
 import { StreamAddOutgoingParam } from "../src/param";
 import { createUdpTransport } from "../src/transport";
-
 
 describe("sctp", () => {
   test("test_connect_client_limits_streams", async () => {
@@ -23,7 +23,9 @@ describe("sctp", () => {
     client._inboundStreamsMax = 2048;
     client._outboundStreamsCount = 256;
 
-    await Promise.all([client.start(5000), server.start(5000)]);
+    client.setRemotePort(5000);
+    server.setRemotePort(5000);
+    await Promise.all([client.start(), server.start()]);
     await Promise.all([
       client.stateChanged.connected.asPromise(),
       server.stateChanged.connected.asPromise(),
