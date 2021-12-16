@@ -24,13 +24,17 @@ export class RedEncoder {
     }
 
     redundantPayloads.forEach((redundant) => {
+      const timestampOffset = uint32Add(
+        presentPayload.timestamp,
+        -redundant.timestamp
+      );
+      if (timestampOffset > Max14Uint) {
+        return;
+      }
       red.blocks.push({
         block: redundant.block,
         blockPT: redundant.blockPT,
-        timestampOffset: uint32Add(
-          presentPayload.timestamp,
-          -redundant.timestamp
-        ),
+        timestampOffset,
       });
     });
     red.blocks.push({
@@ -40,3 +44,5 @@ export class RedEncoder {
     return red;
   }
 }
+
+const Max14Uint = (0x01 << 14) - 1;
