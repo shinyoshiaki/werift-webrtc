@@ -45,4 +45,4 @@ export class RedEncoder {
   }
 }
 
-const Max14Uint = 0x01 << (14 - 1);
+const Max14Uint = (0x01 << 14) - 1;

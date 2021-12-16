@@ -84,7 +84,7 @@ describe("RedEncoder", () => {
           marker: true,
           payloadType: 96,
           sequenceNumber: 30420,
-          timestamp: 3086389114 - 19200,
+          timestamp: 3086390074 - 16384,
           ssrc: 4096661943,
           csrc: [],
           extensionProfile: 48862,
