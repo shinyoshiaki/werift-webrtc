@@ -30,19 +30,17 @@
     "@minhducsun2002/leb128": "^0.2.0",
     "@shinyoshiaki/ebml-builder": "^0.0.1",
     "aes-js": "^3.1.2",
-    "big-integer": "^1.6.49",
     "binary-data": "^0.6.0",
     "buffer": "^6.0.3",
-    "debug": "^4.3.1",
+    "debug": "^4.3.3",
     "jspack": "^0.0.4",
     "lodash": "^4.17.20",
     "rx.mini": "^1.1.0"
   },
   "devDependencies": {
     "@types/aes-js": "^3.1.1",
-    "@types/big-integer": "^0.0.31",
     "@types/debug": "^4.1.7",
-    "@types/lodash": "^4.14.175"
+    "@types/lodash": "^4.14.178"
   },
   "engines": {
     "node": ">=10"
