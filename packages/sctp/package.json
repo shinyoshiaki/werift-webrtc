@@ -17,7 +17,7 @@
     "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "ci": "yarn type && yarn lint && yarn test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
-    "format": "arn lint && prettier --write src/**/*.ts",
+    "format": "yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
     "test": "yarn type && jest --forceExit",
