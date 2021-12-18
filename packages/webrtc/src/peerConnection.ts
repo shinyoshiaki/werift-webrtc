@@ -740,13 +740,13 @@ export class RTCPeerConnection extends EventTarget {
       } else if (remoteMedia.kind === "application") {
         // # configure sctp
         this.sctpRemotePort = remoteMedia.sctpPort;
-        if (!this.sctpTransport) {
-          if (!this.sctpRemotePort) {
-            throw new Error("sctpRemotePort not exist");
-          }
-          this.sctpTransport = this.createSctpTransport();
-          this.sctpTransport.setRemotePort(this.sctpRemotePort);
+        if (!this.sctpRemotePort) {
+          throw new Error("sctpRemotePort not exist");
         }
+        if (!this.sctpTransport) {
+          this.sctpTransport = this.createSctpTransport();
+        }
+        this.sctpTransport.setRemotePort(this.sctpRemotePort);
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
