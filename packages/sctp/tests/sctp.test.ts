@@ -23,9 +23,7 @@ describe("sctp", () => {
     client._inboundStreamsMax = 2048;
     client._outboundStreamsCount = 256;
 
-    client.setRemotePort(5000);
-    server.setRemotePort(5000);
-    await Promise.all([client.start(), server.start()]);
+    await Promise.all([client.start(5000), server.start(5000)]);
     await Promise.all([
       client.stateChanged.connected.asPromise(),
       server.stateChanged.connected.asPromise(),

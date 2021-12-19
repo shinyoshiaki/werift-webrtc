@@ -1072,10 +1072,14 @@ export class SCTP {
     this.remotePort = port;
   }
 
-  async start() {
+  async start(remotePort?: number) {
     if (!this.started) {
       this.started = true;
       this.setConnectionState("connecting");
+
+      if (remotePort) {
+        this.setRemotePort(remotePort);
+      }
 
       if (!this.isServer) {
         await this.init();

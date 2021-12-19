@@ -313,8 +313,7 @@ export class RTCSctpTransport {
     }
     this.sctp.isServer = this.isServer;
 
-    this.setRemotePort(remotePort);
-    await this.sctp.start();
+    await this.sctp.start(remotePort);
   }
 
   async stop() {
