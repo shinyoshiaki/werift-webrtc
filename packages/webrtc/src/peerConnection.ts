@@ -514,6 +514,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // connect transports
     if (description.type === "answer") {
+      log("callee start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
         this.setConnectionState("failed");
@@ -738,16 +739,18 @@ export class RTCPeerConnection extends EventTarget {
 
         transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
       } else if (remoteMedia.kind === "application") {
+        // # configure sctp
+        this.sctpRemotePort = remoteMedia.sctpPort;
+        if (!this.sctpRemotePort) {
+          throw new Error("sctpRemotePort not exist");
+        }
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
         }
-
+        this.sctpTransport.setRemotePort(this.sctpRemotePort);
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
-
-        // # configure sctp
-        this.sctpRemotePort = remoteMedia.sctpPort;
       }
 
       if (remoteMedia.iceParams && remoteMedia.dtlsParams) {
@@ -779,6 +782,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // connect transports
     if (remoteSdp.type === "answer") {
+      log("caller start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
         this.setConnectionState("failed");

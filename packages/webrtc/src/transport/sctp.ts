@@ -301,6 +301,10 @@ export class RTCSctpTransport {
     return new RTCSctpCapabilities(65536);
   }
 
+  setRemotePort(port: number) {
+    this.sctp.setRemotePort(port);
+  }
+
   async start(remotePort: number) {
     if (this.isServer) {
       this.dataChannelId = 0;
