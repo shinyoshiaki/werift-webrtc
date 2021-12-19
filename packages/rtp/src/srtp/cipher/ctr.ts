@@ -1,4 +1,3 @@
-import bigInt from "big-integer";
 import { createCipheriv, createDecipheriv, createHmac } from "crypto";
 import { range } from "lodash";
 
@@ -147,10 +146,7 @@ export class CipherAesCtr extends CipherAesBase {
     const counter = Buffer.alloc(16);
     counter.writeUInt32BE(ssrc, 4);
     counter.writeUInt32BE(rolloverCounter, 8);
-    counter.writeUInt32BE(
-      bigInt(sequenceNumber).shiftLeft(16).toJSNumber(),
-      12
-    );
+    counter.writeUInt32BE(Number(BigInt(sequenceNumber) << 16n), 12);
 
     range(sessionSalt.length).forEach((i) => {
       counter[i] = counter[i] ^ sessionSalt[i];

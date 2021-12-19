@@ -1,4 +1,4 @@
-import { Red } from "../../src";
+import { Red } from "../../../src";
 
 const bin = Buffer.from([
   225, 15, 0, 63, 97, 104, 29, 208, 3, 229, 100, 178, 181, 120, 210, 6, 26, 63,

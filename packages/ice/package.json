@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "buffer-crc32": "^0.2.13",
-    "debug": "^4.3.1",
+    "debug": "^4.3.3",
     "dgram": "^1.0.1",
     "int64-buffer": "^1.0.1",
     "ip": "^1.1.5",
@@ -41,10 +41,10 @@
     "@types/buffer-crc32": "^0.2.0",
     "@types/debug": "^4.1.7",
     "@types/ip": "^1.1.0",
-    "@types/lodash": "^4.14.175",
+    "@types/lodash": "^4.14.178",
     "@types/utf8": "^3.0.0",
-    "@types/ws": "^8.2.0",
-    "ws": "^8.2.2"
+    "@types/ws": "^8.2.2",
+    "ws": "^8.3.0"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

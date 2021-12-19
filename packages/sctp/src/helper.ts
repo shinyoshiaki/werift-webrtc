@@ -6,7 +6,7 @@ export function enumerate<T>(arr: T[]): [number, T][] {
 
 export type Unpacked<T> = T extends { [K in keyof T]: infer U } ? U : never;
 
-export function createEventsFromList<T extends any>(list: readonly T[]) {
+export function createEventsFromList<T>(list: readonly T[]) {
   return list.reduce((acc: any, cur: T) => {
     acc[cur] = new Event();
     return acc;
