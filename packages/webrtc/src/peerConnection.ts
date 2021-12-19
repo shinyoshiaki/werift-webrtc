@@ -514,6 +514,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // connect transports
     if (description.type === "answer") {
+      log("callee start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
         this.setConnectionState("failed");
@@ -781,6 +782,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // connect transports
     if (remoteSdp.type === "answer") {
+      log("caller start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
         this.setConnectionState("failed");
