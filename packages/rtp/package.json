@@ -1,6 +1,6 @@
 {
   "name": "werift-rtp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-rtp",
   "repository": {
@@ -20,6 +20,7 @@
   "scripts": {
     "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "ci": "yarn type && yarn lint && yarn test",
+    "deploy": "yarn build && yarn publish",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix && eslint ./tests --fix",
     "test": "yarn type && jest --forceExit",
