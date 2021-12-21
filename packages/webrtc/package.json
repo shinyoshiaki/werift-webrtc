@@ -24,11 +24,11 @@
   "scripts": {
     "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
+    "deploy": "yarn build && yarn publish",
     "doc": "rm -rf doc && typedoc --out doc ./src/index.ts",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "publish:tag": "yarn publish --tag maintain-dtls",
-    "deploy": "yarn build && yarn publish",
     "test": "npm run type && jest --runInBand --forceExit --coverage",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
