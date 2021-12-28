@@ -234,7 +234,9 @@ export class SCTP {
     sack.duplicates = [...this.sackDuplicates];
     sack.gaps = gaps;
 
-    await this.sendChunk(sack);
+    await this.sendChunk(sack).catch((err: Error) => {
+      log("send sack failed", err.message);
+    });
 
     this.sackDuplicates = [];
     this.sackNeeded = false;
@@ -243,11 +245,15 @@ export class SCTP {
   private async receiveChunk(chunk: Chunk) {
     switch (chunk.type) {
       case DataChunk.type:
-        this.receiveDataChunk(chunk as DataChunk);
+        {
+          this.receiveDataChunk(chunk as DataChunk);
+        }
         break;
       case InitChunk.type:
-        const init = chunk as InitChunk;
-        if (this.isServer) {
+        {
+          if (!this.isServer) return;
+          const init = chunk as InitChunk;
+
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
@@ -280,11 +286,15 @@ export class SCTP {
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
           log("send initAck", ack);
-          await this.sendChunk(ack);
+          await this.sendChunk(ack).catch((err: Error) => {
+            log("send initAck failed", err.message);
+          });
         }
         break;
       case InitAckChunk.type:
-        if (this.associationState === SCTP_STATE.COOKIE_WAIT) {
+        {
+          if (this.associationState != SCTP_STATE.COOKIE_WAIT) return;
+
           const initAck = chunk as InitAckChunk;
           this.timer1Cancel();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
@@ -309,43 +319,58 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo);
+          await this.sendChunk(echo).catch((err: Error) => {
+            log("send echo failed", err.message);
+          });
 
           this.timer1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
         }
         break;
       case SackChunk.type:
-        await this.receiveSackChunk(chunk as SackChunk);
+        {
+          await this.receiveSackChunk(chunk as SackChunk);
+        }
         break;
       case HeartbeatChunk.type:
-        const ack = new HeartbeatAckChunk();
-        ack.params = (chunk as HeartbeatChunk).params;
-        await this.sendChunk(ack);
+        {
+          const ack = new HeartbeatAckChunk();
+          ack.params = (chunk as HeartbeatChunk).params;
+          await this.sendChunk(ack).catch((err: Error) => {
+            log("send heartbeat ack failed", err.message);
+          });
+        }
         break;
       case AbortChunk.type:
-        this.setState(SCTP_STATE.CLOSED);
+        {
+          this.setState(SCTP_STATE.CLOSED);
+        }
         break;
       case ShutdownChunk.type:
         {
           this.timer2Cancel();
           this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
           const ack = new ShutdownAckChunk();
-          await this.sendChunk(ack);
+          await this.sendChunk(ack).catch((err: Error) => {
+            log("send shutdown ack failed", err.message);
+          });
           this.t2Start(ack);
           this.setState(SCTP_STATE.SHUTDOWN_SENT);
         }
         break;
       case ErrorChunk.type:
-        // 3.3.10.  Operation Error (ERROR) (9)
-        // An Operation Error is not considered fatal in and of itself, but may be
-        // used with an ABORT chunk to report a fatal condition.  It has the
-        // following parameters:
-        log("ErrorChunk", (chunk as ErrorChunk).descriptions);
+        {
+          // 3.3.10.  Operation Error (ERROR) (9)
+          // An Operation Error is not considered fatal in and of itself, but may be
+          // used with an ABORT chunk to report a fatal condition.  It has the
+          // following parameters:
+          log("ErrorChunk", (chunk as ErrorChunk).descriptions);
+        }
         break;
       case CookieEchoChunk.type:
-        const data = chunk as CookieEchoChunk;
-        if (this.isServer) {
+        {
+          if (!this.isServer) return;
+          const data = chunk as CookieEchoChunk;
           const cookie = data.body!;
           const digest = createHmac("sha1", this.hmacKey)
             .update(cookie.slice(0, 4))
@@ -365,29 +390,36 @@ export class SCTP {
               ErrorChunk.CODE.StaleCookieError,
               Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
             ]);
-            await this.sendChunk(error);
+            await this.sendChunk(error).catch((err: Error) => {
+              log("send errorChunk failed", err.message);
+            });
             return;
           }
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack);
+          await this.sendChunk(ack).catch((err: Error) => {
+            log("send cookieAck failed", err.message);
+          });
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
       case CookieAckChunk.type:
-        if (this.associationState === SCTP_STATE.COOKIE_ECHOED) {
+        {
+          if (this.associationState != SCTP_STATE.COOKIE_ECHOED) return;
           this.timer1Cancel();
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
       case ShutdownCompleteChunk.type:
-        if (this.associationState === SCTP_STATE.SHUTDOWN_ACK_SENT) {
+        {
+          if (this.associationState != SCTP_STATE.SHUTDOWN_ACK_SENT) return;
           this.timer2Cancel();
           this.setState(SCTP_STATE.CLOSED);
         }
         break;
       // extensions
       case ReconfigChunk.type:
-        if (this.associationState === SCTP_STATE.ESTABLISHED) {
+        {
+          if (this.associationState != SCTP_STATE.ESTABLISHED) return;
           const reconfig = chunk as ReConfigChunk;
           for (const [type, body] of reconfig.params) {
             const target = RECONFIG_PARAM_BY_TYPES[type];
@@ -398,7 +430,9 @@ export class SCTP {
         }
         break;
       case ForwardTsnChunk.type:
-        this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
+        {
+          this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
+        }
         break;
     }
   }
@@ -764,7 +798,9 @@ export class SCTP {
 
     // # send FORWARD TSN
     if (this.forwardTsnChunk) {
-      await this.sendChunk(this.forwardTsnChunk);
+      await this.sendChunk(this.forwardTsnChunk).catch((err: Error) => {
+        log("send forwardTsn failed", err.message);
+      });
       this.forwardTsnChunk = undefined;
 
       if (!this.timer3Handle) {
@@ -792,7 +828,9 @@ export class SCTP {
         dataChunk.misses = 0;
         dataChunk.retransmit = false;
         dataChunk.sentCount++;
-        await this.sendChunk(dataChunk);
+        await this.sendChunk(dataChunk).catch((err: Error) => {
+          log("send data failed", err.message);
+        });
 
         if (retransmitEarliest) {
           this.timer3Restart();
@@ -813,7 +851,9 @@ export class SCTP {
       chunk.sentCount++;
       chunk.sentTime = Date.now() / 1000;
 
-      await this.sendChunk(chunk);
+      await this.sendChunk(chunk).catch((err: Error) => {
+        log("send data outboundQueue failed", err.message);
+      });
       if (!this.timer3Handle) {
         this.timer3Start();
       }
@@ -847,7 +887,9 @@ export class SCTP {
     log("sendReconfigParam", param);
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
-    await this.sendChunk(chunk);
+    await this.sendChunk(chunk).catch((err: Error) => {
+      log("send reconfig failed", err.message);
+    });
   }
 
   // https://github.com/pion/sctp/pull/44/files
@@ -885,7 +927,11 @@ export class SCTP {
     if (this.timer1Failures > SCTP_MAX_INIT_RETRANS) {
       this.setState(SCTP_STATE.CLOSED);
     } else {
-      setImmediate(() => this.sendChunk(this.timer1Chunk!));
+      setImmediate(() => {
+        this.sendChunk(this.timer1Chunk!).catch((err: Error) => {
+          log("send timer1 chunk failed", err.message);
+        });
+      });
       this.timer1Handle = setTimeout(this.timer1Expired, this.rto * 1000);
     }
   };
@@ -912,7 +958,11 @@ export class SCTP {
     if (this.timer2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
       this.setState(SCTP_STATE.CLOSED);
     } else {
-      setImmediate(() => this.sendChunk(this.timer2Chunk!));
+      setImmediate(() => {
+        this.sendChunk(this.timer2Chunk!).catch((err: Error) => {
+          log("send timer2Chunk failed", err.message);
+        });
+      });
       this.timer2Handle = setTimeout(this.timer2Expired, this.rto * 1000);
     }
   };
@@ -1096,11 +1146,16 @@ export class SCTP {
     init.initialTsn = this.localTsn;
     this.setExtensions(init.params);
     log("send init", init);
-    await this.sendChunk(init);
 
-    // # start T1 timer and enter COOKIE-WAIT state
-    this.timer1Start(init);
-    this.setState(SCTP_STATE.COOKIE_WAIT);
+    try {
+      await this.sendChunk(init);
+
+      // # start T1 timer and enter COOKIE-WAIT state
+      this.timer1Start(init);
+      this.setState(SCTP_STATE.COOKIE_WAIT);
+    } catch (error: any) {
+      log("send init failed", error.message);
+    }
   }
 
   private setExtensions(params: [number, Buffer][]) {
@@ -1115,8 +1170,10 @@ export class SCTP {
   }
 
   async sendChunk(chunk: Chunk) {
-    if (this.remotePort === undefined) throw new Error("invalid remote port");
     if (this.state === "closed") return;
+    if (this.remotePort === undefined) {
+      throw new Error("invalid remote port");
+    }
 
     const packet = serializePacket(
       this.localPort,
@@ -1144,6 +1201,7 @@ export class SCTP {
 
   setConnectionState(state: SCTPConnectionState) {
     this.state = state;
+    log("setConnectionState", state);
     this.stateChanged[state].execute();
   }
 
@@ -1159,7 +1217,9 @@ export class SCTP {
 
   async abort() {
     const abort = new AbortChunk();
-    await this.sendChunk(abort);
+    await this.sendChunk(abort).catch((err: Error) => {
+      log("send abort failed", err.message);
+    });
   }
 
   private removeAllListeners() {

@@ -16,9 +16,15 @@ export class UdpTransport implements Transport {
   onData?: (buf: Buffer) => void;
 
   send = (buf: Buffer) =>
-    new Promise<void>((r) =>
-      this.upd.send(buf, this.rinfo.port, this.rinfo.address, () => r())
-    );
+    new Promise<void>((r, f) => {
+      this.upd.send(buf, this.rinfo.port, this.rinfo.address, (err) => {
+        if (err) {
+          f(err);
+        } else {
+          r();
+        }
+      });
+    });
 
   close() {
     try {

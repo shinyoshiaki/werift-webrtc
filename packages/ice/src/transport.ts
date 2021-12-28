@@ -44,18 +44,15 @@ export class UdpTransport implements Transport {
   }
 
   send = (data: Buffer, addr: Address) =>
-    new Promise<void>((r) => {
-      try {
-        this.socket.send(data, addr[1], addr[0], (error) => {
-          if (error) {
-            log("send error", addr, data);
-          }
+    new Promise<void>((r, f) => {
+      this.socket.send(data, addr[1], addr[0], (error) => {
+        if (error) {
+          log("send error", addr, data);
+          f(error);
+        } else {
           r();
-        });
-      } catch (error) {
-        log("send error", addr, data);
-        r();
-      }
+        }
+      });
     });
 
   address() {

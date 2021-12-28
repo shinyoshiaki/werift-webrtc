@@ -565,6 +565,7 @@ export class RTCPeerConnection extends EventTarget {
       await this.sctpTransport.start(this.sctpRemotePort);
       await this.sctpTransport.sctp.stateChanged.connected.asPromise();
     }
+    log("sctp connected");
 
     this.masterTransportEstablished = true;
     this.setConnectionState("connected");

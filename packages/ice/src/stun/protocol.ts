@@ -1,3 +1,4 @@
+import debug from "debug";
 import { Event } from "rx.mini";
 
 import { Candidate } from "../candidate";
@@ -7,6 +8,8 @@ import { Address, Protocol } from "../types/model";
 import { classes } from "./const";
 import { Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
+
+const log = debug("packages/ice/src/stun/protocol.ts");
 
 export class StunProtocol implements Protocol {
   readonly type = "stun";
@@ -66,7 +69,9 @@ export class StunProtocol implements Protocol {
 
   async sendStun(message: Message, addr: Address) {
     const data = message.bytes;
-    await this.transport.send(data, addr);
+    await this.transport.send(data, addr).catch(() => {
+      log("sendStun failed", addr, message);
+    });
   }
 
   async sendData(data: Buffer, addr: Address) {
