@@ -741,9 +741,15 @@ export class SCTP {
     streamId: number,
     ppId: number,
     userData: Buffer,
-    expiry: number | undefined = undefined,
-    maxRetransmits: number | undefined = undefined,
-    ordered = true
+    {
+      expiry,
+      maxRetransmits,
+      ordered,
+    }: {
+      expiry?: number | undefined;
+      maxRetransmits?: number | undefined;
+      ordered?: boolean;
+    } = { expiry: undefined, maxRetransmits: undefined, ordered: true }
   ) => {
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
@@ -1085,7 +1091,7 @@ export class SCTP {
     }
   }
 
-  private maybeAbandon(chunk: DataChunk) {
+  private maybeAbandon(chunk: DataChunk): boolean {
     if (chunk.abandoned) return true;
     const abandon =
       (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||

@@ -156,7 +156,7 @@ export class RTCSctpTransport {
           log("DATA_CHANNEL_ACK", streamId, ppId);
           const channel = this.dataChannels[streamId];
           if (!channel) {
-            throw new Error();
+            throw new Error("channel not found");
           }
           channel.setReadyState("open");
           break;
@@ -271,20 +271,19 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData);
+        await this.sctp.send(streamId, protocol, userData, {
+          ordered: true,
+        });
       } else {
         const expiry = channel.maxPacketLifeTime
           ? Date.now() + channel.maxPacketLifeTime / 1000
           : undefined;
 
-        await this.sctp.send(
-          streamId,
-          protocol,
-          userData,
+        await this.sctp.send(streamId, protocol, userData, {
           expiry,
-          channel.maxRetransmits,
-          channel.ordered
-        );
+          maxRetransmits: channel.maxRetransmits,
+          ordered: channel.ordered,
+        });
         channel.addBufferedAmount(-userData.length);
       }
     }
