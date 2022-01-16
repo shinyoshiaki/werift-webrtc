@@ -89,10 +89,12 @@ export class RTCSctpTransport {
       switch (data[0]) {
         case DATA_CHANNEL_OPEN:
           {
-            if (data.length >= 12) {
-              if (Object.keys(this.dataChannels).includes(streamId.toString()))
-                throw new Error();
+            if (data.length < 12) {
+              log("DATA_CHANNEL_OPEN data.length not enough");
+              return;
+            }
 
+            if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
               const [
                 ,
                 channelType,
@@ -135,23 +137,27 @@ export class RTCSctpTransport {
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
-              this.dataChannelQueue.push([
-                channel,
-                WEBRTC_DCEP,
-                Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
-              ]);
-
               this.onDataChannel.execute(channel);
               channel.setReadyState("open");
-
-              await this.dataChannelFlush();
+            } else {
+              log("datachannel already opened", "retransmit ack");
             }
+
+            const channel = this.dataChannels[streamId];
+            this.dataChannelQueue.push([
+              channel,
+              WEBRTC_DCEP,
+              Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
+            ]);
+            await this.dataChannelFlush();
           }
           break;
         case DATA_CHANNEL_ACK:
-          log("DATA_CHANNEL_ACK");
+          log("DATA_CHANNEL_ACK", streamId, ppId);
           const channel = this.dataChannels[streamId];
-          if (!channel) throw new Error();
+          if (!channel) {
+            throw new Error("channel not found");
+          }
           channel.setReadyState("open");
           break;
       }
@@ -172,9 +178,12 @@ export class RTCSctpTransport {
               throw new Error();
           }
         })();
+
         channel.message.execute(msg);
         channel.emit("message", { data: msg });
-        if (channel.onmessage) channel.onmessage({ data: msg });
+        if (channel.onmessage) {
+          channel.onmessage({ data: msg });
+        }
       }
     }
   };
@@ -262,20 +271,19 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData);
+        await this.sctp.send(streamId, protocol, userData, {
+          ordered: true,
+        });
       } else {
         const expiry = channel.maxPacketLifeTime
           ? Date.now() + channel.maxPacketLifeTime / 1000
           : undefined;
 
-        await this.sctp.send(
-          streamId,
-          protocol,
-          userData,
+        await this.sctp.send(streamId, protocol, userData, {
           expiry,
-          channel.maxRetransmits,
-          channel.ordered
-        );
+          maxRetransmits: channel.maxRetransmits,
+          ordered: channel.ordered,
+        });
         channel.addBufferedAmount(-userData.length);
       }
     }

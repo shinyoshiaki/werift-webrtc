@@ -194,20 +194,20 @@ export class RTCDtlsTransport {
     await this.dtls.send(data);
   };
 
-  sendRtp(payload: Buffer, header: RtpHeader) {
+  async sendRtp(payload: Buffer, header: RtpHeader) {
     const enc = this.srtp.encrypt(payload, header);
-    this.iceTransport.connection.send(enc);
+    await this.iceTransport.connection.send(enc).catch((err: Error) => {
+      log("sendRtp failed", err.message);
+    });
     return enc.length;
   }
 
   async sendRtcp(packets: RtcpPacket[]) {
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
-    try {
-      await this.iceTransport.connection.send(enc);
-    } catch (error) {
-      throw new Error("ice");
-    }
+    await this.iceTransport.connection.send(enc).catch((err: Error) => {
+      log("sendRtcp failed", err.message);
+    });
   }
 
   private setState(state: DtlsState) {

@@ -481,7 +481,7 @@ export class Connection {
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
     } else {
-      log("Cannot send data, not connected");
+      throw new Error("Cannot send data, ice not connected");
     }
   }
 
