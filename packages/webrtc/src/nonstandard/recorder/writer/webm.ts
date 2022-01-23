@@ -15,7 +15,7 @@ export class WebmFactory extends MediaWriter {
   start(tracks: MediaStreamTrack[]) {
     this.webm = new WebmOutput(
       fs,
-      "./test.webm",
+      this.path,
       tracks.map((track, i) => {
         const trackNumber = i + 1;
         const payloadType = track.codec!.payloadType;
