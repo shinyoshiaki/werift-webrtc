@@ -523,9 +523,14 @@ export class RTCPeerConnection extends EventTarget {
         addTransportDescription(media, this.sctpTransport!.dtlsTransport);
       });
     }
-    description.media.map((media, i) => {
+    let i = 0;
+    for (const media of description.media) {
+      if (media.kind !== "audio" && media.kind !== "video") {
+        continue;
+      }
       addTransportDescription(media, this.transceivers[i].dtlsTransport);
-    });
+      i++;
+    }
 
     this.setLocal(description);
 
