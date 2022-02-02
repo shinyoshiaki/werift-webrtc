@@ -665,7 +665,7 @@ export class RTCPeerConnection extends EventTarget {
     this.validateDescription(remoteSdp, false);
 
     const bundle = remoteSdp.group.find((g) => g.semantic === "BUNDLE");
-    let bundleSrtcp: SrtcpSession | undefined;
+    let bundleTransceiver: RTCRtpTransceiver | undefined;
 
     // # apply description
     for (const [i, remoteMedia] of enumerate(remoteSdp.media)) {
@@ -691,10 +691,11 @@ export class RTCPeerConnection extends EventTarget {
           })();
 
         if (bundle) {
-          if (!bundleSrtcp) {
-            bundleSrtcp = transceiver.dtlsTransport.srtcp;
+          if (!bundleTransceiver) {
+            bundleTransceiver = transceiver;
           } else {
-            transceiver.dtlsTransport.srtcp = bundleSrtcp;
+            transceiver.receiver = bundleTransceiver.receiver;
+            transceiver.sender = bundleTransceiver.sender;
           }
         }
 
