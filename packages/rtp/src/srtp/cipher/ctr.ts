@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHmac } from "crypto";
-import { range } from "lodash";
+import range from "lodash/range";
 
 import { growBufferSize } from "../../helper";
 import { RtcpHeader } from "../../rtcp/header";

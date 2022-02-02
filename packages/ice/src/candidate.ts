@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { range } from "lodash";
+import range from "lodash/range";
 import { isIPv4 } from "net";
 
 export class Candidate {

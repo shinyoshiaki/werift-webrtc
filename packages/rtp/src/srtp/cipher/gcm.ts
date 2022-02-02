@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv } from "crypto";
-import { range } from "lodash";
+import range from "lodash/range";
 
 import { bufferWriter } from "../../../../common/src";
 import { growBufferSize } from "../../helper";
