@@ -1,7 +1,7 @@
 import { Int64BE } from "int64-buffer";
 import * as nodeIp from "ip";
 import { jspack } from "jspack";
-import { range } from "lodash";
+import range from "lodash/range";
 
 import { COOKIE, IPV4_PROTOCOL, IPV6_PROTOCOL } from "./const";
 

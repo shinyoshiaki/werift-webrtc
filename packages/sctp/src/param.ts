@@ -1,5 +1,5 @@
 import { jspack } from "jspack";
-import { range } from "lodash";
+import range from "lodash/range";
 
 // This parameter is used by the sender to request the reset of some or
 // all outgoing streams.

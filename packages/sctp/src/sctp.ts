@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "crypto";
 import debug from "debug";
 import { jspack } from "jspack";
-import { range } from "lodash";
+import range from "lodash/range";
 import { Event } from "rx.mini";
 
 import {

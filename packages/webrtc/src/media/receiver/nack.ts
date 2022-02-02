@@ -1,4 +1,4 @@
-import { range } from "lodash";
+import range from "lodash/range";
 import Event from "rx.mini";
 
 import { uint16Add } from "../../../../common/src";

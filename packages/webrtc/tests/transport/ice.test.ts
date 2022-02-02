@@ -1,4 +1,4 @@
-import { inRange } from "lodash";
+import inRange from "lodash/inRange";
 
 import { RTCIceGatherer, RTCIceTransport } from "../../src";
 

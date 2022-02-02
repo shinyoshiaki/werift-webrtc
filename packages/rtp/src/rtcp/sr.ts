@@ -1,4 +1,4 @@
-import { range } from "lodash";
+import range from "lodash/range";
 
 import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpReceiverInfo } from "./rr";

@@ -1,5 +1,5 @@
 import debug from "debug";
-import { range } from "lodash";
+import range from "lodash/range";
 
 import {
   BitWriter2,
