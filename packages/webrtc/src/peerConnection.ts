@@ -5,7 +5,7 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { codecParametersFromString, DtlsKeys } from ".";
+import { codecParametersFromString, DtlsKeys, SrtcpSession } from ".";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -664,6 +664,9 @@ export class RTCPeerConnection extends EventTarget {
     remoteSdp.type = sessionDescription.type;
     this.validateDescription(remoteSdp, false);
 
+    const bundle = remoteSdp.group.find((g) => g.semantic === "BUNDLE");
+    let bundleSrtcp: SrtcpSession | undefined;
+
     // # apply description
     for (const [i, remoteMedia] of enumerate(remoteSdp.media)) {
       let dtlsTransport: RTCDtlsTransport | undefined;
@@ -686,6 +689,14 @@ export class RTCPeerConnection extends EventTarget {
 
             return transceiver;
           })();
+
+        if (bundle) {
+          if (!bundleSrtcp) {
+            bundleSrtcp = transceiver.dtlsTransport.srtcp;
+          } else {
+            transceiver.dtlsTransport.srtcp = bundleSrtcp;
+          }
+        }
 
         dtlsTransport = transceiver.dtlsTransport;
 
