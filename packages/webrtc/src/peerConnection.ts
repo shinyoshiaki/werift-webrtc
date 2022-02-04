@@ -1053,8 +1053,7 @@ export class RTCPeerConnection extends EventTarget {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(
         this.signalingState
-      ) ||
-      !this.transceivers.length
+      )
     )
       throw new Error("createAnswer failed");
 
