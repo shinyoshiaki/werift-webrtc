@@ -45,6 +45,6 @@ jobs:
           yarn test
       - name: e2e
         env:
-          CI: false
+          CI: true
         run: |
           yarn e2e

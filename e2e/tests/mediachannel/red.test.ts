@@ -18,11 +18,11 @@ describe("mediachannel_red", () => {
       transform: (encodedFrame, controller) => {
         const data = encodedFrame.data;
         const red = Red.deSerialize(Buffer.from(data));
-        expect(red.payloads.length).toBe(count);
+        expect(red.blocks.length).toBe(count);
         if (count < 3) {
           count++;
         }
-        for (const payload of red.payloads) {
+        for (const payload of red.blocks) {
           expect(payload.blockPT).toBe(expectPT);
         }
         if (count === 3) {

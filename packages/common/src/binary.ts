@@ -130,9 +130,11 @@ export function bufferReader(buf: Buffer, bytes: number[]) {
 }
 
 export class BufferChain {
-  buffer = Buffer.alloc(this.size);
+  buffer: Buffer;
 
-  constructor(private size: number) {}
+  constructor(size: number) {
+    this.buffer = Buffer.alloc(size);
+  }
 
   writeInt16BE(value: number, offset?: number | undefined) {
     this.buffer.writeInt16BE(value, offset);
