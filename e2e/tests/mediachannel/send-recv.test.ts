@@ -1,6 +1,6 @@
 import { waitVideoPlay, peer, sleep } from "../fixture";
 
-describe("mediachannel_sendrecv", () => {
+describe("mediachannel_send-recv", () => {
   it(
     "answer",
     async () =>
