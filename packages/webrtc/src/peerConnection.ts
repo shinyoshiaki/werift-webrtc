@@ -586,7 +586,9 @@ export class RTCPeerConnection extends EventTarget {
       });
     };
 
-    const starts = this.transceivers.map((t) => start(t.dtlsTransport));
+    const starts = [
+      ...new Set(this.transceivers.map((t) => t.dtlsTransport)),
+    ].map((dtlsTransport) => start(dtlsTransport));
 
     if (this.sctpTransport) {
       starts.push(start(this.sctpTransport.dtlsTransport));
@@ -694,10 +696,13 @@ export class RTCPeerConnection extends EventTarget {
           if (!bundleTransceiver) {
             bundleTransceiver = transceiver;
           } else {
-            transceiver.receiver = bundleTransceiver.receiver;
-            transceiver.sender = bundleTransceiver.sender;
+            transceiver.receiver.dtlsTransport =
+              bundleTransceiver.receiver.dtlsTransport;
+            transceiver.sender.dtlsTransport =
+              bundleTransceiver.sender.dtlsTransport;
           }
         }
+        transceiver.sender.setDtlsTransport(transceiver.receiver.dtlsTransport);
 
         dtlsTransport = transceiver.dtlsTransport;
 
@@ -944,14 +949,13 @@ export class RTCPeerConnection extends EventTarget {
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
 
-    const sender = new RTCRtpSender(trackOrKind, dtlsTransport);
+    const sender = new RTCRtpSender(trackOrKind);
     const receiver = new RTCRtpReceiver(kind, dtlsTransport, sender.ssrc);
     const transceiver = new RTCRtpTransceiver(
       kind,
       receiver,
       sender,
-      direction,
-      dtlsTransport
+      direction
     );
     transceiver.options = options;
     this.router.registerRtpSender(transceiver.sender);

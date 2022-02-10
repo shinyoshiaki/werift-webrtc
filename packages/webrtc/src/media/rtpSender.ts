@@ -93,6 +93,7 @@ export class RTCRtpSender {
   private seqOffset = 0;
   private rtpCache: RtpPacket[] = [];
   codec?: RTCRtpCodecParameters;
+  public dtlsTransport!: RTCDtlsTransport;
 
   track?: MediaStreamTrack;
   stopped = false;
@@ -101,19 +102,26 @@ export class RTCRtpSender {
 
   constructor(
     public trackOrKind: Kind | MediaStreamTrack,
-    public dtlsTransport: RTCDtlsTransport
+    dtlsTransport?: RTCDtlsTransport
   ) {
-    dtlsTransport.onStateChange.subscribe((state) => {
-      if (state === "connected") {
-        this.onReady.execute();
-      }
-    });
+    if (dtlsTransport) {
+      this.setDtlsTransport(dtlsTransport);
+    }
     if (trackOrKind instanceof MediaStreamTrack) {
       if (trackOrKind.streamId) {
         this.streamId = trackOrKind.streamId;
       }
       this.registerTrack(trackOrKind);
     }
+  }
+
+  setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
+    this.dtlsTransport = dtlsTransport;
+    this.dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "connected") {
+        this.onReady.execute();
+      }
+    });
   }
 
   get redDistance() {
