@@ -1142,19 +1142,18 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) throw new Error("RTCPeerConnection is closed");
   }
 
-  allIceTransports() {
-    return this.iceTransports;
+  validIceTransports() {
     const iceTransports = this.transceivers.map(
       ({ dtlsTransport }) => dtlsTransport.iceTransport
     );
     if (this.sctpTransport) {
       iceTransports.push(this.sctpTransport!.dtlsTransport.iceTransport);
     }
-    return iceTransports;
+    return [...new Set(iceTransports)];
   }
 
   private updateIceGatheringState() {
-    const all = this.allIceTransports();
+    const all = this.validIceTransports();
 
     let newState: IceGathererState = "new";
     if (
@@ -1188,7 +1187,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private updateIceConnectionState() {
-    const all = this.allIceTransports();
+    const all = this.validIceTransports();
     let newState: RTCIceConnectionState = "new";
 
     if (all.find((iceTransport) => iceTransport.state === "failed")) {
