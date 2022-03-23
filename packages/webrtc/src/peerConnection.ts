@@ -1152,27 +1152,28 @@ export class RTCPeerConnection extends EventTarget {
     return [...new Set(iceTransports)];
   }
 
+  // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
   private updateIceGatheringState() {
     const all = this.validIceTransports();
 
-    let newState: IceGathererState = "new";
-    if (
-      all.find(
-        (iceTransport) => iceTransport.iceGather.gatheringState === "new"
-      )
-    ) {
+    function allMatch(...state: IceGathererState[]) {
+      return all.filter((check) =>
+        state.includes(check.iceGather.gatheringState)
+      );
+    }
+
+    let newState: IceGathererState;
+
+    if (allMatch("new", "complete")) {
       newState = "new";
+    } else if (all.length && allMatch("complete")) {
+      newState = "complete";
     } else if (
-      all.find(
-        (iceTransport) => iceTransport.iceGather.gatheringState === "gathering"
-      )
+      all.map((check) => check.iceGather.gatheringState).includes("gathering")
     ) {
       newState = "gathering";
-    } else if (
-      all.filter(
-        (iceTransport) => iceTransport.iceGather.gatheringState === "complete"
-      ).length === all.length
-    ) {
+    } else {
+      // unreachable?
       newState = "complete";
     }
 
@@ -1186,29 +1187,32 @@ export class RTCPeerConnection extends EventTarget {
     this.emit("icegatheringstatechange", newState);
   }
 
+  // https://w3c.github.io/webrtc-pc/#dom-rtciceconnectionstate
   private updateIceConnectionState() {
     const all = this.validIceTransports();
-    let newState: RTCIceConnectionState = "new";
+    let newState: RTCIceConnectionState;
 
-    if (all.find((iceTransport) => iceTransport.state === "failed")) {
-      newState = "failed";
-    } else if (
-      all.find((iceTransport) => iceTransport.state === "disconnected")
-    ) {
-      newState = "disconnected";
-    } else if (all.find((iceTransport) => iceTransport.state === "closed")) {
+    function allMatch(...state: RTCIceConnectionState[]) {
+      return all.filter((check) => state.includes(check.state));
+    }
+
+    if (this.connectionState === "closed") {
       newState = "closed";
-    } else if (all.find((iceTransport) => iceTransport.state === "new")) {
+    } else if (allMatch("failed")) {
+      newState = "failed";
+    } else if (allMatch("disconnected")) {
+      newState = "disconnected";
+    } else if (allMatch("new", "closed")) {
       newState = "new";
-    } else if (all.find((iceTransport) => iceTransport.state === "checking")) {
+    } else if (allMatch("new", "checking")) {
       newState = "checking";
-    } else if (all.find((iceTransport) => iceTransport.state === "connected")) {
-      newState = "connected";
-    } else if (
-      all.filter((iceTransport) => iceTransport.state === "completed")
-        .length === all.length
-    ) {
+    } else if (allMatch("completed", "closed")) {
       newState = "completed";
+    } else if (allMatch("connected", "completed", "closed")) {
+      newState = "connected";
+    } else {
+      // unreachable?
+      newState = "connected";
     }
 
     if (this.iceConnectionState === newState) {
