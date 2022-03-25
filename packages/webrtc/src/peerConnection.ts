@@ -315,6 +315,7 @@ export class RTCPeerConnection extends EventTarget {
 
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
+      this.updateIceConnectionState();
       this.needNegotiation();
     }
 
@@ -390,7 +391,6 @@ export class RTCPeerConnection extends EventTarget {
     iceTransport.onStateChange.subscribe((state) => {
       this.updateIceConnectionState();
     });
-    this.updateIceConnectionState();
 
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
@@ -801,6 +801,7 @@ export class RTCPeerConnection extends EventTarget {
         }
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
+          this.updateIceConnectionState();
         }
         this.sctpTransport.setRemotePort(this.sctpRemotePort);
         if (!this.sctpTransport.mid) {
@@ -963,6 +964,7 @@ export class RTCPeerConnection extends EventTarget {
     this.transceivers.push(transceiver);
     this.onTransceiverAdded.execute(transceiver);
 
+    this.updateIceConnectionState();
     this.needNegotiation();
 
     return transceiver;
@@ -1157,24 +1159,24 @@ export class RTCPeerConnection extends EventTarget {
     const all = this.validIceTransports();
 
     function allMatch(...state: IceGathererState[]) {
-      return all.filter((check) =>
-        state.includes(check.iceGather.gatheringState)
+      return (
+        all.filter((check) => state.includes(check.iceGather.gatheringState))
+          .length === all.length
       );
     }
 
     let newState: IceGathererState;
 
-    if (allMatch("new", "complete")) {
-      newState = "new";
-    } else if (all.length && allMatch("complete")) {
+    if (all.length && allMatch("complete")) {
       newState = "complete";
+    } else if (!all.length || allMatch("new", "complete")) {
+      newState = "new";
     } else if (
       all.map((check) => check.iceGather.gatheringState).includes("gathering")
     ) {
       newState = "gathering";
     } else {
-      // unreachable?
-      newState = "complete";
+      newState = "new";
     }
 
     if (this.iceGatheringState === newState) {
@@ -1193,7 +1195,9 @@ export class RTCPeerConnection extends EventTarget {
     let newState: RTCIceConnectionState;
 
     function allMatch(...state: RTCIceConnectionState[]) {
-      return all.filter((check) => state.includes(check.state));
+      return (
+        all.filter((check) => state.includes(check.state)).length === all.length
+      );
     }
 
     if (this.connectionState === "closed") {
@@ -1212,7 +1216,7 @@ export class RTCPeerConnection extends EventTarget {
       newState = "connected";
     } else {
       // unreachable?
-      newState = "connected";
+      newState = "new";
     }
 
     if (this.iceConnectionState === newState) {
