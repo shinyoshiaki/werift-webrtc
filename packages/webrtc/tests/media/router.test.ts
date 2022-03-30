@@ -22,7 +22,6 @@ describe("media/router", () => {
       new RTCRtpReceiver("audio", dtls, 0),
       new RTCRtpSender("audio", dtls),
       "recvonly",
-      dtls
     );
     const ssrc = 123;
     const track = new MediaStreamTrack({ kind: "audio", ssrc });

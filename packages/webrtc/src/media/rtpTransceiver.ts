@@ -2,7 +2,6 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { SenderDirections } from "../const";
-import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import {
   RTCRtpCodecParameters,
@@ -39,12 +38,15 @@ export class RTCRtpTransceiver {
 
   constructor(
     public readonly kind: Kind,
-    public readonly receiver: RTCRtpReceiver,
-    public readonly sender: RTCRtpSender,
+    public receiver: RTCRtpReceiver,
+    public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
-    public direction: Direction,
-    public dtlsTransport: RTCDtlsTransport
+    public direction: Direction
   ) {}
+
+  get dtlsTransport() {
+    return this.receiver.dtlsTransport;
+  }
 
   get msid() {
     return `${this.sender.streamId} ${this.sender.trackId}`;

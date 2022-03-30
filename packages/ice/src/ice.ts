@@ -23,8 +23,8 @@ import { Address, Protocol } from "./types/model";
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 export class Connection {
-  readonly localUserName = randomString(4);
-  readonly localPassword = randomString(22);
+  localUserName = randomString(4);
+  localPassword = randomString(22);
   remotePassword: string = "";
   remoteUsername: string = "";
   remoteIsLite = false;

@@ -141,7 +141,7 @@ describe("peerConnection", () => {
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
 
-    const candidates = peer.iceTransport.iceGather.localCandidates;
+    const candidates = peer.iceTransports[0].iceGather.localCandidates;
     for (const candidate of candidates) {
       expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
     }
@@ -157,10 +157,10 @@ describe("peerConnection", () => {
     offer.media.forEach((m) => (m.iceParams!.iceLite = true));
 
     await b.setRemoteDescription(offer.toJSON());
-    expect(b.iceTransport.connection.remoteIsLite).toBeTruthy();
+    expect(b.iceTransports[0].connection.remoteIsLite).toBeTruthy();
 
     await b.setLocalDescription(await b.createAnswer());
-    expect(b.iceTransport.connection.iceControlling).toBeTruthy();
+    expect(b.iceTransports[0].connection.iceControlling).toBeTruthy();
 
     a.close();
     b.close();

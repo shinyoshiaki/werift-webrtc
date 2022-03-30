@@ -46,7 +46,7 @@ export class RTCDtlsTransport {
 
   readonly onStateChange = new Event<[DtlsState]>();
 
-  private localCertificate?: RTCCertificate = this.certificates[0];
+  localCertificate?: RTCCertificate = this.certificates[0];
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
