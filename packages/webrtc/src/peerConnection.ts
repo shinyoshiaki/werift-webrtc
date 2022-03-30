@@ -349,7 +349,8 @@ export class RTCPeerConnection extends EventTarget {
       protocol: settings.protocol,
     });
 
-    return new RTCDataChannel(this.sctpTransport, parameters);
+    const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    return channel;
   }
 
   removeTrack(sender: RTCRtpSender) {
@@ -445,7 +446,8 @@ export class RTCPeerConnection extends EventTarget {
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
-    const sctp = new RTCSctpTransport(dtlsTransport);
+    const sctp = new RTCSctpTransport();
+    sctp.setDtlsTransport(dtlsTransport);
     sctp.mid = undefined;
 
     sctp.onDataChannel.subscribe((channel) => {
@@ -668,7 +670,7 @@ export class RTCPeerConnection extends EventTarget {
     this.validateDescription(remoteSdp, false);
 
     const bundle = remoteSdp.group.find((g) => g.semantic === "BUNDLE");
-    let bundleTransceiver: RTCRtpTransceiver | undefined;
+    let bundleTransport: RTCDtlsTransport | undefined;
 
     // # apply description
     for (const [i, remoteMedia] of enumerate(remoteSdp.media)) {
@@ -694,10 +696,10 @@ export class RTCPeerConnection extends EventTarget {
           })();
 
         if (bundle) {
-          if (!bundleTransceiver) {
-            bundleTransceiver = transceiver;
+          if (!bundleTransport) {
+            bundleTransport = transceiver.dtlsTransport;
           } else {
-            transceiver.setDtlsTransport(bundleTransceiver.dtlsTransport);
+            transceiver.setDtlsTransport(bundleTransport);
           }
         }
 
@@ -800,6 +802,13 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport = this.createSctpTransport();
           this.updateIceConnectionState();
         }
+
+        if (!bundleTransport) {
+          bundleTransport = this.sctpTransport.dtlsTransport;
+        } else {
+          this.sctpTransport.setDtlsTransport(bundleTransport);
+        }
+
         dtlsTransport = this.sctpTransport.dtlsTransport;
 
         this.sctpTransport.setRemotePort(this.sctpRemotePort);

@@ -24,51 +24,71 @@ import { RTCDtlsTransport } from "./dtls";
 const log = debug("werift/webrtc/transport/sctp");
 
 export class RTCSctpTransport {
+  dtlsTransport!: RTCDtlsTransport;
+  sctp!: SCTP;
+
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly uuid = uuid.v4();
-  readonly sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
+
   mid?: string;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
+  private eventDisposer: (() => void)[] = [];
 
-  constructor(public dtlsTransport: RTCDtlsTransport, public port = 5000) {
-    this.sctp.onReceive.subscribe(this.datachannelReceive);
-    this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
-      ids.forEach((id) => {
-        const dc = this.dataChannels[id];
-        if (!dc) return;
-        // todo fix
-        dc.setReadyState("closing");
-        dc.setReadyState("closed");
-        delete this.dataChannels[id];
-      });
-    });
-    this.sctp.stateChanged.connected.subscribe(() => {
-      Object.values(this.dataChannels).forEach((channel) => {
-        if (channel.negotiated && channel.readyState !== "open") {
-          channel.setReadyState("open");
-        }
-      });
-      this.dataChannelFlush();
-    });
-    this.sctp.stateChanged.closed.subscribe(() => {
-      Object.values(this.dataChannels).forEach((dc) => {
-        dc.setReadyState("closed");
-      });
-      this.dataChannels = {};
-    });
+  constructor(public port = 5000) {}
+
+  setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
+    if (this.dtlsTransport && this.dtlsTransport.id === dtlsTransport.id) {
+      return;
+    }
+
+    this.eventDisposer.forEach((dispose) => dispose());
+
+    this.dtlsTransport = dtlsTransport;
+    this.sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
+
+    this.eventDisposer = [
+      ...[
+        this.sctp.onReceive.subscribe(this.datachannelReceive),
+        this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
+          ids.forEach((id) => {
+            const dc = this.dataChannels[id];
+            if (!dc) return;
+            // todo fix
+            dc.setReadyState("closing");
+            dc.setReadyState("closed");
+            delete this.dataChannels[id];
+          });
+        }),
+        this.sctp.stateChanged.connected.subscribe(() => {
+          Object.values(this.dataChannels).forEach((channel) => {
+            if (channel.negotiated && channel.readyState !== "open") {
+              channel.setReadyState("open");
+            }
+          });
+          this.dataChannelFlush();
+        }),
+        this.sctp.stateChanged.closed.subscribe(() => {
+          Object.values(this.dataChannels).forEach((dc) => {
+            dc.setReadyState("closed");
+          });
+          this.dataChannels = {};
+        }),
+        this.dtlsTransport.onStateChange.subscribe((state) => {
+          if (state === "closed") {
+            this.sctp.setState(SCTP_STATE.CLOSED);
+          }
+        }),
+      ].map((e) => e.unSubscribe),
+      () => (this.sctp.onSackReceived = async () => {}),
+    ];
+
     this.sctp.onSackReceived = async () => {
       await this.dataChannelFlush();
     };
-
-    this.dtlsTransport.onStateChange.subscribe((state) => {
-      if (state === "closed") {
-        this.sctp.setState(SCTP_STATE.CLOSED);
-      }
-    });
   }
 
   private get isServer() {
