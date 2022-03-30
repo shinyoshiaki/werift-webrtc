@@ -21,8 +21,8 @@ import {
   mediachannel_rtx_client_offer,
 } from "./handler/mediachannel/rtx";
 import {
-  mediachannel_send_recv_answer,
-  mediachannel_send_recv_offer,
+  mediachannel_oneway_answer,
+  mediachannel_oneway_offer,
 } from "./handler/mediachannel/send-recv";
 import {
   mediachannel_sendrecv_answer,
@@ -65,8 +65,8 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer(),
     mediachannel_simulcast_answer: new mediachannel_simulcast_answer(),
     mediachannel_simulcast_offer: new mediachannel_simulcast_offer(),
-    mediachannel_send_recv_answer: new mediachannel_send_recv_answer(),
-    mediachannel_send_recv_offer: new mediachannel_send_recv_offer(),
+    mediachannel_oneway_answer: new mediachannel_oneway_answer(),
+    mediachannel_oneway_offer: new mediachannel_oneway_offer(),
     mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
     mediachannel_addTrack_offer: new mediachannel_addTrack_offer(),
     datachannel_close_server_create_close:

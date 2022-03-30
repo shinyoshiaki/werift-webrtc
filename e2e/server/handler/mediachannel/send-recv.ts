@@ -2,7 +2,7 @@ import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../../";
 import { DtlsKeysContext } from "../../fixture";
 
-export class mediachannel_send_recv_answer {
+export class mediachannel_oneway_answer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -42,7 +42,7 @@ export class mediachannel_send_recv_answer {
   }
 }
 
-export class mediachannel_send_recv_offer {
+export class mediachannel_oneway_offer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
