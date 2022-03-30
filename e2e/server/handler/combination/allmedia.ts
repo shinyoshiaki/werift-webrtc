@@ -1,8 +1,8 @@
 import { AcceptFn } from "protoo-server";
-import { RTCPeerConnection } from "../../";
+import { RTCPeerConnection } from "../..";
 import { DtlsKeysContext } from "../../fixture";
 
-export class mediachannel_oneway_answer {
+export class combination_all_media_answer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -13,14 +13,15 @@ export class mediachannel_oneway_answer {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             dtls: { keys: await DtlsKeysContext.get() },
           });
-          const receiver = this.pc.addTransceiver("video", {
-            direction: "recvonly",
-          });
-          const sender = this.pc.addTransceiver("video", {
-            direction: "sendonly",
-          });
-          receiver.onTrack.subscribe((track) => {
-            sender.sender.replaceTrack(track);
+          const dc = this.pc.createDataChannel("dc");
+          dc.onmessage = (e) => {
+            if (e.data === "ping") {
+              dc.send("pong");
+            }
+          };
+          const transceiver = this.pc.addTransceiver("video");
+          transceiver.onTrack.subscribe((track) => {
+            transceiver.sender.replaceTrack(track);
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -29,7 +30,9 @@ export class mediachannel_oneway_answer {
       case "candidate":
         {
           await this.pc.addIceCandidate(payload);
-          accept({});
+          try {
+            accept({});
+          } catch (error) {}
         }
         break;
       case "answer":
@@ -42,7 +45,7 @@ export class mediachannel_oneway_answer {
   }
 }
 
-export class mediachannel_oneway_offer {
+export class combination_all_media_offer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -53,14 +56,17 @@ export class mediachannel_oneway_offer {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             dtls: { keys: await DtlsKeysContext.get() },
           });
-          const receiver = this.pc.addTransceiver("video", {
-            direction: "recvonly",
-          });
-          const sender = this.pc.addTransceiver("video", {
-            direction: "sendonly",
-          });
-          receiver.onTrack.subscribe((track) => {
-            sender.sender.replaceTrack(track);
+          this.pc.ondatachannel = ({ channel }) => {
+            channel.onmessage = (e) => {
+              if (e.data === "ping") {
+                channel.send("pong");
+              }
+            };
+          };
+
+          const transceiver = this.pc.addTransceiver("video");
+          transceiver.onTrack.subscribe((track) => {
+            transceiver.sender.replaceTrack(track);
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());

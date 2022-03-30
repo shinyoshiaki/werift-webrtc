@@ -23,7 +23,7 @@ import {
 import {
   mediachannel_oneway_answer,
   mediachannel_oneway_offer,
-} from "./handler/mediachannel/send-recv";
+} from "./handler/mediachannel/oneway";
 import {
   mediachannel_sendrecv_answer,
   mediachannel_sendrecv_offer,
@@ -36,6 +36,10 @@ import {
   mediachannel_red_client_answer,
   mediachannel_red_client_offer,
 } from "./handler/mediachannel/red";
+import {
+  combination_all_media_answer,
+  combination_all_media_offer,
+} from "./handler/combination/allmedia";
 
 const app = express();
 app.use(express.json() as never);
@@ -83,6 +87,8 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_rtx_client_offer: new mediachannel_rtx_client_offer(),
     mediachannel_red_client_answer: new mediachannel_red_client_answer(),
     mediachannel_red_client_offer: new mediachannel_red_client_offer(),
+    combination_all_media_answer: new combination_all_media_answer(),
+    combination_all_media_offer: new combination_all_media_offer(),
   };
 
   const transport = accept();
