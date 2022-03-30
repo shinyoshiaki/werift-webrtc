@@ -18,7 +18,9 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
   test("abort runRtcp", async () =>
     new Promise<void>(async (done) => {
       const dtls = createDtlsTransport();
-      const receiver = new RTCRtpReceiver("audio", dtls, 1234);
+      const receiver = new RTCRtpReceiver("audio", 1234);
+      receiver.setDtlsTransport(dtls);
+
       jest.spyOn(dtls, "sendRtcp");
 
       Promise.any([
@@ -35,7 +37,9 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
   test("handleRTP with RTX packet", async () => {
     const dtls = createDtlsTransport();
-    const receiver = new RTCRtpReceiver("video", dtls, 1234);
+    const receiver = new RTCRtpReceiver("video", 1234);
+    receiver.setDtlsTransport(dtls);
+
     const track = new MediaStreamTrack({ kind: "video" });
     track.ssrc = 777;
 

@@ -8,7 +8,8 @@ describe("media/rtpSender", () => {
   test("stop track", () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track, dtls);
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
 
     const spy = jest.spyOn(sender, "sendRtp");
 
@@ -28,7 +29,8 @@ describe("media/rtpSender", () => {
   test("replaceTrack", async () => {
     const track1 = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track1, dtls);
+    const sender = new RTCRtpSender(track1);
+    sender.setDtlsTransport(dtls);
     const spy = jest.spyOn(sender, "sendRtp");
 
     const rtp = createRtpPacket();
@@ -50,18 +52,20 @@ describe("media/rtpSender", () => {
   test("abort runRtcp", async () =>
     new Promise<void>(async (done) => {
       const dtls = createDtlsTransport();
-      const receiver = new RTCRtpSender("audio", dtls);
+      const sender = new RTCRtpSender("audio");
+      sender.setDtlsTransport(dtls);
+
       jest.spyOn(dtls, "sendRtcp");
 
       Promise.any([
         setTimeout(200).then(() => false),
-        receiver.runRtcp().then(() => true),
+        sender.runRtcp().then(() => true),
       ]).then((res) => {
         expect(res).toBeTruthy();
         done();
       });
 
       await setTimeout(10);
-      receiver.stop();
+      sender.stop();
     }));
 });
