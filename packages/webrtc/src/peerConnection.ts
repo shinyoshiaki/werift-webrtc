@@ -5,7 +5,7 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { codecParametersFromString, DtlsKeys, SrtcpSession } from ".";
+import { codecParametersFromString, DtlsKeys } from ".";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -62,7 +62,6 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
-  iceTransports: RTCIceTransport[] = [];
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
   configuration: Required<PeerConfig> =
@@ -73,6 +72,7 @@ export class RTCPeerConnection extends EventTarget {
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   readonly transceivers: RTCRtpTransceiver[] = [];
+
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
   readonly signalingStateChange = new Event<[RTCSignalingState]>();
@@ -106,6 +106,22 @@ export class RTCPeerConnection extends EventTarget {
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
+  get dtlsTransports() {
+    const transports = this.transceivers.map((t) => t.dtlsTransport);
+    if (this.sctpTransport) {
+      transports.push(this.sctpTransport.dtlsTransport);
+    }
+    return transports.reduce((acc: RTCDtlsTransport[], cur) => {
+      if (!acc.map((d) => d.id).includes(cur.id)) {
+        acc.push(cur);
+      }
+      return acc;
+    }, []);
+  }
+  get iceTransports() {
+    return this.dtlsTransports.map((d) => d.iceTransport);
+  }
+
   constructor({
     codecs,
     headerExtensions,
@@ -113,6 +129,7 @@ export class RTCPeerConnection extends EventTarget {
     iceTransportPolicy,
     icePortRange,
     dtls,
+    bundlePolicy,
   }: Partial<PeerConfig> = {}) {
     super();
 
@@ -179,6 +196,9 @@ export class RTCPeerConnection extends EventTarget {
           break;
       }
     });
+    if (bundlePolicy) {
+      this.configuration.bundlePolicy = bundlePolicy;
+    }
   }
 
   get localDescription() {
@@ -377,18 +397,17 @@ export class RTCPeerConnection extends EventTarget {
       forceTurn: this.configuration.iceTransportPolicy === "relay",
       portRange: this.configuration.icePortRange,
     });
-    const existing = this.iceTransports[0];
+    const [existing] = this.iceTransports;
     if (existing) {
       iceGatherer.connection.localUserName = existing.connection.localUserName;
       iceGatherer.connection.localPassword = existing.connection.localPassword;
     }
-    iceGatherer.onGatheringStateChange.subscribe((state) => {
+    iceGatherer.onGatheringStateChange.subscribe(() => {
       this.updateIceGatheringState();
     });
-    const iceTransport = new RTCIceTransport(iceGatherer);
-    this.iceTransports.push(iceTransport);
     this.updateIceGatheringState();
-    iceTransport.onStateChange.subscribe((state) => {
+    const iceTransport = new RTCIceTransport(iceGatherer);
+    iceTransport.onStateChange.subscribe(() => {
       this.updateIceConnectionState();
     });
 
@@ -418,11 +437,11 @@ export class RTCPeerConnection extends EventTarget {
       srtpProfiles
     );
 
-    return { dtlsTransport, iceTransport };
+    return dtlsTransport;
   }
 
   private createSctpTransport() {
-    const { dtlsTransport } = this.createTransport([
+    const dtlsTransport = this.createTransport([
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
@@ -498,38 +517,31 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
     };
-
-    if (this.sctpTransport) setupRole(this.sctpTransport.dtlsTransport);
+    this.dtlsTransports.forEach((d) => setupRole(d));
 
     // # configure direction
-    for (const t of this.transceivers) {
+    this.transceivers.forEach((t) => {
       if (["answer", "pranswer"].includes(description.type)) {
         const direction = andDirection(t.direction, t.offerDirection);
         t.currentDirection = direction;
       }
-      setupRole(t.dtlsTransport);
-    }
+    });
 
     // for trickle ice
     this.setLocal(description);
 
     // # gather candidates
-    await this.sctpTransport?.dtlsTransport.iceTransport.iceGather.gather();
-    for (const { dtlsTransport } of this.transceivers) {
-      await dtlsTransport.iceTransport.iceGather.gather();
+    for (const iceTransport of this.iceTransports) {
+      await iceTransport.iceGather.gather();
     }
-    if (this.sctpTransport) {
-      description.media.map((media) => {
-        addTransportDescription(media, this.sctpTransport!.dtlsTransport);
+    description.media
+      .filter((m) => ["audio", "video"].includes(m.kind))
+      .forEach((m, i) => {
+        addTransportDescription(m, this.transceivers[i].dtlsTransport);
       });
-    }
-    let i = 0;
-    for (const media of description.media) {
-      if (media.kind !== "audio" && media.kind !== "video") {
-        continue;
-      }
-      addTransportDescription(media, this.transceivers[i].dtlsTransport);
-      i++;
+    const sctpMedia = description.media.find((m) => m.kind === "application");
+    if (this.sctpTransport && sctpMedia) {
+      addTransportDescription(sctpMedia, this.sctpTransport.dtlsTransport);
     }
 
     this.setLocal(description);
@@ -561,11 +573,8 @@ export class RTCPeerConnection extends EventTarget {
 
   async addIceCandidate(candidateMessage: RTCIceCandidate) {
     const candidate = IceCandidate.fromJSON(candidateMessage);
-    await this.sctpTransport?.dtlsTransport.iceTransport.addRemoteCandidate(
-      candidate
-    );
-    for (const { dtlsTransport } of this.transceivers) {
-      await dtlsTransport.iceTransport.addRemoteCandidate(candidate);
+    for (const iceTransport of this.iceTransports) {
+      await iceTransport.addRemoteCandidate(candidate);
     }
   }
 
@@ -574,7 +583,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.setConnectionState("connecting");
 
-    const start = async (dtlsTransport: RTCDtlsTransport) => {
+    const startTransport = async (dtlsTransport: RTCDtlsTransport) => {
       const { iceTransport } = dtlsTransport;
       await iceTransport.start().catch((err) => {
         log("iceTransport.start failed", err);
@@ -586,21 +595,13 @@ export class RTCPeerConnection extends EventTarget {
       });
     };
 
-    const starts = [
-      ...new Set(this.transceivers.map((t) => t.dtlsTransport)),
-    ].map((dtlsTransport) => start(dtlsTransport));
-
-    if (this.sctpTransport) {
-      starts.push(start(this.sctpTransport.dtlsTransport));
-    }
-
-    await Promise.all(starts);
+    await Promise.all(this.dtlsTransports.map((d) => startTransport(d)));
 
     if (this.sctpTransport && this.sctpRemotePort) {
       await this.sctpTransport.start(this.sctpRemotePort);
       await this.sctpTransport.sctp.stateChanged.connected.asPromise();
+      log("sctp connected");
     }
-    log("sctp connected");
 
     this.masterTransportEstablished = true;
     this.setConnectionState("connected");
@@ -696,13 +697,9 @@ export class RTCPeerConnection extends EventTarget {
           if (!bundleTransceiver) {
             bundleTransceiver = transceiver;
           } else {
-            transceiver.receiver.dtlsTransport =
-              bundleTransceiver.receiver.dtlsTransport;
-            transceiver.sender.dtlsTransport =
-              bundleTransceiver.sender.dtlsTransport;
+            transceiver.setDtlsTransport(bundleTransceiver.dtlsTransport);
           }
         }
-        transceiver.sender.setDtlsTransport(transceiver.receiver.dtlsTransport);
 
         dtlsTransport = transceiver.dtlsTransport;
 
@@ -803,13 +800,16 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport = this.createSctpTransport();
           this.updateIceConnectionState();
         }
+        dtlsTransport = this.sctpTransport.dtlsTransport;
+
         this.sctpTransport.setRemotePort(this.sctpRemotePort);
         if (!this.sctpTransport.mid) {
           this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
+      } else {
+        throw new Error("invalid media kind");
       }
 
-      dtlsTransport = dtlsTransport || this.sctpTransport!.dtlsTransport;
       const iceTransport = dtlsTransport.iceTransport;
 
       if (remoteMedia.iceParams && remoteMedia.dtlsParams) {
@@ -945,15 +945,16 @@ export class RTCPeerConnection extends EventTarget {
 
     const direction = options.direction || "sendrecv";
 
-    const { iceTransport, dtlsTransport } = this.createTransport([
+    const dtlsTransport = this.createTransport([
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
 
     const sender = new RTCRtpSender(trackOrKind);
-    const receiver = new RTCRtpReceiver(kind, dtlsTransport, sender.ssrc);
+    const receiver = new RTCRtpReceiver(kind, sender.ssrc);
     const transceiver = new RTCRtpTransceiver(
       kind,
+      dtlsTransport,
       receiver,
       sender,
       direction
@@ -1033,28 +1034,22 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  async ensureCerts() {
+  private async ensureCerts() {
     const ensureCert = async (dtlsTransport: RTCDtlsTransport) => {
       if (this.certificates.length === 0) {
-        await dtlsTransport.setupCertificate();
-        this.certificates.push(dtlsTransport.localCertificate!);
+        const localCertificate = await dtlsTransport.setupCertificate();
+        this.certificates.push(localCertificate);
       } else {
         dtlsTransport.localCertificate = this.certificates[0];
       }
     };
 
-    for (const { dtlsTransport } of this.transceivers) {
+    for (const dtlsTransport of this.dtlsTransports) {
       await ensureCert(dtlsTransport);
-    }
-
-    if (this.sctpTransport) {
-      await ensureCert(this.sctpTransport.dtlsTransport);
     }
   }
 
   async createAnswer() {
-    await this.ensureCerts();
-
     this.assertNotClosed();
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(
@@ -1062,6 +1057,8 @@ export class RTCPeerConnection extends EventTarget {
       )
     )
       throw new Error("createAnswer failed");
+
+    await this.ensureCerts();
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
@@ -1127,13 +1124,10 @@ export class RTCPeerConnection extends EventTarget {
 
     if (this.sctpTransport) {
       await this.sctpTransport.stop();
-      await this.sctpTransport.dtlsTransport.stop();
-      await this.sctpTransport.dtlsTransport.iceTransport.stop();
     }
-    for (const { dtlsTransport } of this.transceivers) {
-      const { iceTransport } = dtlsTransport;
+    for (const dtlsTransport of this.dtlsTransports) {
       await dtlsTransport.stop();
-      await iceTransport.stop();
+      await dtlsTransport.iceTransport.stop();
     }
 
     this.dispose();
@@ -1144,19 +1138,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) throw new Error("RTCPeerConnection is closed");
   }
 
-  validIceTransports() {
-    const iceTransports = this.transceivers.map(
-      ({ dtlsTransport }) => dtlsTransport.iceTransport
-    );
-    if (this.sctpTransport) {
-      iceTransports.push(this.sctpTransport!.dtlsTransport.iceTransport);
-    }
-    return [...new Set(iceTransports)];
-  }
-
   // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
   private updateIceGatheringState() {
-    const all = this.validIceTransports();
+    const all = this.iceTransports;
 
     function allMatch(...state: IceGathererState[]) {
       return (
@@ -1191,7 +1175,7 @@ export class RTCPeerConnection extends EventTarget {
 
   // https://w3c.github.io/webrtc-pc/#dom-rtciceconnectionstate
   private updateIceConnectionState() {
-    const all = this.validIceTransports();
+    const all = this.iceTransports;
     let newState: RTCIceConnectionState;
 
     function allMatch(...state: RTCIceConnectionState[]) {
@@ -1363,6 +1347,9 @@ export function allocateMid(mids: Set<string>) {
   return mid;
 }
 
+export type BundlePolicy = "max-compat";
+// | "max-bundle" todo
+
 export interface PeerConfig {
   codecs: Partial<{
     audio: RTCRtpCodecParameters[];
@@ -1379,6 +1366,7 @@ export interface PeerConfig {
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
+  bundlePolicy: BundlePolicy;
 }
 
 export const findCodecByMimeType = (
@@ -1430,6 +1418,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
   dtls: {},
+  bundlePolicy: "max-compat",
 };
 
 export interface RTCTrackEvent {

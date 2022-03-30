@@ -2,6 +2,7 @@ import { Certificate, PrivateKey } from "@fidm/x509";
 import debug from "debug";
 import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
+import { v4 } from "uuid";
 
 import {
   DtlsClient,
@@ -34,6 +35,7 @@ import { RTCIceTransport } from "./ice";
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
 export class RTCDtlsTransport {
+  id = v4();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
   srtpStarted = false;
@@ -79,6 +81,7 @@ export class RTCDtlsTransport {
         signatureHash
       );
     }
+    return this.localCertificate;
   }
 
   setRemoteParams(remoteParameters: RTCDtlsParameters) {

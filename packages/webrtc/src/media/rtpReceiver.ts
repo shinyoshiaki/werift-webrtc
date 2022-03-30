@@ -48,6 +48,7 @@ export class RTCRtpReceiver {
   readonly onPacketLost = this.nack.onPacketLost;
   readonly onRtcp = new Event<[RtcpPacket]>();
 
+  dtlsTransport!: RTCDtlsTransport;
   sdesMid?: string;
   latestRid?: string;
   latestRepairedRid?: string;
@@ -62,11 +63,11 @@ export class RTCRtpReceiver {
   private rtcpCancel = new AbortController();
   private remoteStreams: { [ssrc: number]: StreamStatistics } = {};
 
-  constructor(
-    public kind: Kind,
-    public dtlsTransport: RTCDtlsTransport,
-    public rtcpSsrc: number
-  ) {}
+  constructor(public kind: Kind, public rtcpSsrc: number) {}
+
+  setDtlsTransport(dtls: RTCDtlsTransport) {
+    this.dtlsTransport = dtls;
+  }
 
   // todo fix
   get track() {

@@ -19,9 +19,10 @@ describe("media/router", () => {
     const dtls = createDtlsTransport();
     const transceiver = new RTCRtpTransceiver(
       "audio",
-      new RTCRtpReceiver("audio", dtls, 0),
-      new RTCRtpSender("audio", dtls),
-      "recvonly",
+      dtls,
+      new RTCRtpReceiver("audio", 0),
+      new RTCRtpSender("audio"),
+      "recvonly"
     );
     const ssrc = 123;
     const track = new MediaStreamTrack({ kind: "audio", ssrc });
