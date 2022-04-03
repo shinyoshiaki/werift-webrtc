@@ -79,11 +79,6 @@ export class RTCPeerConnection extends EventTarget {
   readonly connectionStateChange = new Event<[ConnectionState]>();
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
-  /**
-   * should use onRemoteTransceiverAdded
-   * @deprecated
-   */
-  readonly onTransceiver = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onNegotiationneeded = new Event<[]>();
@@ -458,6 +453,8 @@ export class RTCPeerConnection extends EventTarget {
       this.emit("datachannel", event);
     });
 
+    this.updateIceConnectionState();
+
     return sctp;
   }
 
@@ -479,10 +476,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // # assign MID
     description.media.forEach((media, i) => {
-      const mid = media.rtp.muxId;
-      if (!mid) {
-        throw new Error("mid not exist");
-      }
+      const mid = media.rtp.muxId!;
       this.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
         const transceiver = this.getTransceiverByMLineIndex(i);
@@ -585,19 +579,19 @@ export class RTCPeerConnection extends EventTarget {
 
     this.setConnectionState("connecting");
 
-    const startTransport = async (dtlsTransport: RTCDtlsTransport) => {
-      const { iceTransport } = dtlsTransport;
-      await iceTransport.start().catch((err) => {
-        log("iceTransport.start failed", err);
-        throw err;
-      });
-      await dtlsTransport.start().catch((err) => {
-        log("dtlsTransport.start failed", err);
-        throw err;
-      });
-    };
-
-    await Promise.all(this.dtlsTransports.map((d) => startTransport(d)));
+    await Promise.all(
+      this.dtlsTransports.map(async (dtlsTransport) => {
+        const { iceTransport } = dtlsTransport;
+        await iceTransport.start().catch((err) => {
+          log("iceTransport.start failed", err);
+          throw err;
+        });
+        await dtlsTransport.start().catch((err) => {
+          log("dtlsTransport.start failed", err);
+          throw err;
+        });
+      })
+    );
 
     if (this.sctpTransport && this.sctpRemotePort) {
       await this.sctpTransport.start(this.sctpRemotePort);
@@ -609,7 +603,7 @@ export class RTCPeerConnection extends EventTarget {
     this.setConnectionState("connected");
   }
 
-  private localRtp(transceiver: RTCRtpTransceiver): RTCRtpParameters {
+  private getLocalRtpParams(transceiver: RTCRtpTransceiver): RTCRtpParameters {
     if (transceiver.mid == undefined) throw new Error("mid not assigned");
 
     const rtp: RTCRtpParameters = {
@@ -621,15 +615,10 @@ export class RTCPeerConnection extends EventTarget {
     return rtp;
   }
 
-  private remoteRtp(
-    remoteDescription: SessionDescription,
+  private getRemoteRtpParams(
+    media: MediaDescription,
     transceiver: RTCRtpTransceiver
   ): RTCRtpReceiveParameters {
-    if (transceiver.mLineIndex == undefined)
-      throw new Error("mLineIndex not assigned");
-    const media = remoteDescription.media[transceiver.mLineIndex];
-    if (!media) throw new Error("media line not exist");
-
     const receiveParameters: RTCRtpReceiveParameters = {
       muxId: media.rtp.muxId,
       rtcp: media.rtp.rtcp,
@@ -677,23 +666,18 @@ export class RTCPeerConnection extends EventTarget {
       let dtlsTransport: RTCDtlsTransport | undefined;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
-        const transceiver =
-          this.transceivers.find(
-            (t) =>
-              t.kind === remoteMedia.kind &&
-              [undefined, remoteMedia.rtp.muxId].includes(t.mid)
-          ) ||
-          (() => {
-            // create remote transceiver
-            const transceiver = this.addTransceiver(remoteMedia.kind, {
-              direction: "recvonly",
-            });
-
-            this.onRemoteTransceiverAdded.execute(transceiver);
-            this.onTransceiver.execute(transceiver);
-
-            return transceiver;
-          })();
+        let transceiver = this.transceivers.find(
+          (t) =>
+            t.kind === remoteMedia.kind &&
+            [undefined, remoteMedia.rtp.muxId].includes(t.mid)
+        );
+        if (!transceiver) {
+          // create remote transceiver
+          transceiver = this.addTransceiver(remoteMedia.kind, {
+            direction: "recvonly",
+          });
+          this.onRemoteTransceiverAdded.execute(transceiver);
+        }
 
         if (bundle) {
           if (!bundleTransport) {
@@ -705,116 +689,23 @@ export class RTCPeerConnection extends EventTarget {
 
         dtlsTransport = transceiver.dtlsTransport;
 
-        if (!transceiver.mid) {
-          transceiver.mid = remoteMedia.rtp.muxId;
-          transceiver.mLineIndex = i;
-        }
-
-        // # negotiate codecs
-        transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
-          const localCodecs = this.configuration.codecs[remoteMedia.kind] || [];
-
-          const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
-          if (!existCodec) return false;
-
-          if (existCodec?.name.toLowerCase() === "rtx") {
-            const params = codecParametersFromString(
-              existCodec.parameters ?? ""
-            );
-            const pt = params["apt"];
-            const origin = remoteMedia.rtp.codecs.find(
-              (c) => c.payloadType === pt
-            );
-            if (!origin) return false;
-            return !!findCodecByMimeType(localCodecs, origin);
-          }
-
-          return true;
-        });
-
-        log("negotiated codecs", transceiver.codecs);
-        if (transceiver.codecs.length === 0) {
-          throw new Error("negotiate codecs failed.");
-        }
-        transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
-          (extension) =>
-            (
-              this.configuration.headerExtensions[
-                remoteMedia.kind as "video" | "audio"
-              ] || []
-            ).find((v) => v.uri === extension.uri)
-        );
-
-        // # configure direction
-        const mediaDirection = remoteMedia.direction || "inactive";
-        const direction = reverseDirection(mediaDirection);
-        if (["answer", "pranswer"].includes(remoteSdp.type)) {
-          transceiver.currentDirection = direction;
-        } else {
-          transceiver.offerDirection = direction;
-        }
-
-        const localParams = this.localRtp(transceiver);
-        transceiver.sender.prepareSend(localParams);
-
-        if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-          const remotePrams = this.remoteRtp(remoteSdp, transceiver);
-
-          // register simulcast receiver
-          remoteMedia.simulcastParameters.forEach((param) => {
-            this.router.registerRtpReceiverByRid(
-              transceiver,
-              param,
-              remotePrams
-            );
-          });
-
-          transceiver.receiver.prepareReceive(remotePrams);
-          // register ssrc receiver
-          this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
-        }
-        if (["sendonly", "sendrecv"].includes(mediaDirection)) {
-          // assign msid
-          if (remoteMedia.msid != undefined) {
-            const [streamId, trackId] = remoteMedia.msid.split(" ");
-            transceiver.receiver.remoteStreamId = streamId;
-            transceiver.receiver.remoteTrackId = trackId;
-
-            this.fireOnTrack(
-              transceiver.receiver.track,
-              transceiver,
-              new MediaStream({
-                id: streamId,
-                tracks: [transceiver.receiver.track],
-              })
-            );
-          }
-        }
-
-        transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
+        this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
       } else if (remoteMedia.kind === "application") {
-        // # configure sctp
-        this.sctpRemotePort = remoteMedia.sctpPort;
-        if (!this.sctpRemotePort) {
-          throw new Error("sctpRemotePort not exist");
-        }
         if (!this.sctpTransport) {
           this.sctpTransport = this.createSctpTransport();
-          this.updateIceConnectionState();
         }
 
-        if (!bundleTransport) {
-          bundleTransport = this.sctpTransport.dtlsTransport;
-        } else {
-          this.sctpTransport.setDtlsTransport(bundleTransport);
+        if (bundle) {
+          if (!bundleTransport) {
+            bundleTransport = this.sctpTransport.dtlsTransport;
+          } else {
+            this.sctpTransport.setDtlsTransport(bundleTransport);
+          }
         }
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
 
-        this.sctpTransport.setRemotePort(this.sctpRemotePort);
-        if (!this.sctpTransport.mid) {
-          this.sctpTransport.mid = remoteMedia.rtp.muxId;
-        }
+        this.setRemoteSCTP(remoteMedia, this.sctpTransport);
       } else {
         throw new Error("invalid media kind");
       }
@@ -873,6 +764,109 @@ export class RTCPeerConnection extends EventTarget {
     this.negotiationneeded = false;
     if (this.shouldNegotiationneeded) {
       this.needNegotiation();
+    }
+  }
+
+  private setRemoteRTP(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+    type: "offer" | "answer",
+    mLineIndex: number
+  ) {
+    if (!transceiver.mid) {
+      transceiver.mid = remoteMedia.rtp.muxId;
+      transceiver.mLineIndex = mLineIndex;
+    }
+
+    // # negotiate codecs
+    transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
+      const localCodecs = this.configuration.codecs[remoteMedia.kind] || [];
+
+      const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
+      if (!existCodec) return false;
+
+      if (existCodec?.name.toLowerCase() === "rtx") {
+        const params = codecParametersFromString(existCodec.parameters ?? "");
+        const pt = params["apt"];
+        const origin = remoteMedia.rtp.codecs.find((c) => c.payloadType === pt);
+        if (!origin) return false;
+        return !!findCodecByMimeType(localCodecs, origin);
+      }
+
+      return true;
+    });
+
+    log("negotiated codecs", transceiver.codecs);
+    if (transceiver.codecs.length === 0) {
+      throw new Error("negotiate codecs failed.");
+    }
+    transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
+      (extension) =>
+        (
+          this.configuration.headerExtensions[
+            remoteMedia.kind as "video" | "audio"
+          ] || []
+        ).find((v) => v.uri === extension.uri)
+    );
+
+    // # configure direction
+    const mediaDirection = remoteMedia.direction || "inactive";
+    const direction = reverseDirection(mediaDirection);
+    if (["answer", "pranswer"].includes(type)) {
+      transceiver.currentDirection = direction;
+    } else {
+      transceiver.offerDirection = direction;
+    }
+
+    const localParams = this.getLocalRtpParams(transceiver);
+    transceiver.sender.prepareSend(localParams);
+
+    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+      const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
+
+      // register simulcast receiver
+      remoteMedia.simulcastParameters.forEach((param) => {
+        this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
+      });
+
+      transceiver.receiver.prepareReceive(remotePrams);
+      // register ssrc receiver
+      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
+    }
+    if (["sendonly", "sendrecv"].includes(mediaDirection)) {
+      // assign msid
+      if (remoteMedia.msid != undefined) {
+        const [streamId, trackId] = remoteMedia.msid.split(" ");
+        transceiver.receiver.remoteStreamId = streamId;
+        transceiver.receiver.remoteTrackId = trackId;
+
+        this.fireOnTrack(
+          transceiver.receiver.track,
+          transceiver,
+          new MediaStream({
+            id: streamId,
+            tracks: [transceiver.receiver.track],
+          })
+        );
+      }
+    }
+
+    transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
+  }
+
+  private setRemoteSCTP(
+    remoteMedia: MediaDescription,
+    sctpTransport: RTCSctpTransport
+  ) {
+    // # configure sctp
+    this.sctpRemotePort = remoteMedia.sctpPort;
+    if (!this.sctpRemotePort) {
+      throw new Error("sctpRemotePort not exist");
+    }
+
+    sctpTransport.setRemotePort(this.sctpRemotePort);
+    if (!sctpTransport.mid) {
+      sctpTransport.mid = remoteMedia.rtp.muxId;
     }
   }
 
