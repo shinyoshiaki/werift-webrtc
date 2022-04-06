@@ -330,7 +330,6 @@ export class RTCPeerConnection extends EventTarget {
 
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
-      this.updateIceConnectionState();
       this.needNegotiation();
     }
 
@@ -388,12 +387,19 @@ export class RTCPeerConnection extends EventTarget {
   };
 
   private createTransport(srtpProfiles: Profile[] = []) {
+    const [existing] = this.iceTransports;
+
+    if (this.configuration.bundlePolicy === "max-bundle") {
+      if (existing) {
+        return this.dtlsTransports[0];
+      }
+    }
+
     const iceGatherer = new RTCIceGatherer({
       ...parseIceServers(this.configuration.iceServers),
       forceTurn: this.configuration.iceTransportPolicy === "relay",
       portRange: this.configuration.icePortRange,
     });
-    const [existing] = this.iceTransports;
     if (existing) {
       iceGatherer.connection.localUserName = existing.connection.localUserName;
       iceGatherer.connection.localPassword = existing.connection.localPassword;
@@ -417,7 +423,6 @@ export class RTCPeerConnection extends EventTarget {
       }
       candidate.sdpMLineIndex = 0;
       candidate.sdpMid = media.rtp.muxId;
-      // for chrome & firefox & maybe others
       candidate.foundation = "candidate:" + candidate.foundation;
 
       this.onIceCandidate.execute(candidate.toJSON());
@@ -1058,49 +1063,60 @@ export class RTCPeerConnection extends EventTarget {
       !["have-remote-offer", "have-local-pranswer"].includes(
         this.signalingState
       )
-    )
+    ) {
       throw new Error("createAnswer failed");
+    }
+    if (!this._remoteDescription) {
+      throw new Error("wrong state");
+    }
 
     await this.ensureCerts();
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    this._remoteDescription?.media.forEach((remoteM) => {
+    this._remoteDescription.media.forEach((remoteMedia) => {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
-      if (["audio", "video"].includes(remoteM.kind)) {
-        const transceiver = this.getTransceiverByMid(remoteM.rtp.muxId!)!;
+      if (["audio", "video"].includes(remoteMedia.kind)) {
+        const transceiver = this.getTransceiverByMid(remoteMedia.rtp.muxId!)!;
         media = createMediaDescriptionForTransceiver(
           transceiver,
           this.cname,
           andDirection(transceiver.direction, transceiver.offerDirection),
           transceiver.mid!
         );
-        if (!transceiver.dtlsTransport) throw new Error();
         dtlsTransport = transceiver.dtlsTransport;
-      } else if (remoteM.kind === "application") {
-        if (!this.sctpTransport || !this.sctpTransport.mid) throw new Error();
+      } else if (remoteMedia.kind === "application") {
+        if (!this.sctpTransport || !this.sctpTransport.mid) {
+          throw new Error("sctpTransport not found");
+        }
         media = createMediaDescriptionForSctp(
           this.sctpTransport,
           this.sctpTransport.mid
         );
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
-      } else throw new Error();
+      } else {
+        throw new Error("invalid kind");
+      }
 
       // # determine DTLS role, or preserve the currently configured role
-      if (!media.dtlsParams) throw new Error();
+      if (!media.dtlsParams) {
+        throw new Error("dtlsParams missing");
+      }
       if (dtlsTransport.role === "auto") {
         media.dtlsParams.role = "client";
       } else {
         media.dtlsParams.role = dtlsTransport.role;
       }
-      media.simulcastParameters = remoteM.simulcastParameters.map((v) => ({
+
+      media.simulcastParameters = remoteMedia.simulcastParameters.map((v) => ({
         ...v,
         direction: reverseSimulcastDirection(v.direction),
       }));
+
       description.media.push(media);
     });
 
@@ -1138,7 +1154,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private assertNotClosed() {
-    if (this.isClosed) throw new Error("RTCPeerConnection is closed");
+    if (this.isClosed) {
+      throw new Error("RTCPeerConnection is closed");
+    }
   }
 
   // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
@@ -1350,8 +1368,7 @@ export function allocateMid(mids: Set<string>) {
   return mid;
 }
 
-export type BundlePolicy = "max-compat";
-// | "max-bundle" todo
+export type BundlePolicy = "max-compat" | "max-bundle";
 
 export interface PeerConfig {
   codecs: Partial<{
