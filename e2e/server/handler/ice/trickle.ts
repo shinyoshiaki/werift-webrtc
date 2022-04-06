@@ -1,6 +1,6 @@
 import { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
-import { DtlsKeysContext } from "../../fixture";
+import { peerConfig } from "../../fixture";
 
 export class ice_trickle_answer {
   pc!: RTCPeerConnection;
@@ -9,10 +9,7 @@ export class ice_trickle_answer {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe((msg) => {
             dc.send(msg + "pong");
@@ -49,10 +46,7 @@ export class ice_trickle_offer {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           this.pc.onDataChannel.subscribe((dc) => {
             dc.message.subscribe((msg) => {
               dc.send(msg + "pong");
