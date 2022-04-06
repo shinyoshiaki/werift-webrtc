@@ -458,6 +458,7 @@ export class RTCPeerConnection extends EventTarget {
       this.emit("datachannel", event);
     });
 
+    this.sctpTransport = sctp;
     this.updateIceConnectionState();
 
     return sctp;
