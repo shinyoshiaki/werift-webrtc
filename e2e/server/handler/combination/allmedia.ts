@@ -19,10 +19,18 @@ export class combination_all_media_answer {
               dc.send("pong");
             }
           };
-          const transceiver = this.pc.addTransceiver("video");
-          transceiver.onTrack.subscribe((track) => {
-            transceiver.sender.replaceTrack(track);
-          });
+          {
+            const transceiver = this.pc.addTransceiver("video");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
+          }
+          {
+            const transceiver = this.pc.addTransceiver("video");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
+          }
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
         }

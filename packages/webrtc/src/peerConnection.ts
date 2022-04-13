@@ -590,14 +590,17 @@ export class RTCPeerConnection extends EventTarget {
           log("dtlsTransport.start failed", err);
           throw err;
         });
+        if (
+          this.sctpTransport &&
+          this.sctpRemotePort &&
+          this.sctpTransport.dtlsTransport.id === dtlsTransport.id
+        ) {
+          await this.sctpTransport.start(this.sctpRemotePort);
+          await this.sctpTransport.sctp.stateChanged.connected.asPromise();
+          log("sctp connected");
+        }
       })
     );
-
-    if (this.sctpTransport && this.sctpRemotePort) {
-      await this.sctpTransport.start(this.sctpRemotePort);
-      await this.sctpTransport.sctp.stateChanged.connected.asPromise();
-      log("sctp connected");
-    }
 
     this.masterTransportEstablished = true;
     this.setConnectionState("connected");
