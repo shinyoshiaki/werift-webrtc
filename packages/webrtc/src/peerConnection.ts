@@ -297,11 +297,13 @@ export class RTCPeerConnection extends EventTarget {
       );
     }
 
-    const mids = description.media
-      .map((m) => m.rtp.muxId)
-      .filter((v) => v) as string[];
-    const bundle = new GroupDescription("BUNDLE", mids);
-    description.group.push(bundle);
+    if (this.configuration.bundlePolicy !== "disable") {
+      const mids = description.media
+        .map((m) => m.rtp.muxId)
+        .filter((v) => v) as string[];
+      const bundle = new GroupDescription("BUNDLE", mids);
+      description.group.push(bundle);
+    }
 
     return description.toJSON();
   }
@@ -667,7 +669,10 @@ export class RTCPeerConnection extends EventTarget {
     remoteSdp.type = sessionDescription.type;
     this.validateDescription(remoteSdp, false);
 
-    const bundle = remoteSdp.group.find((g) => g.semantic === "BUNDLE");
+    const bundle = remoteSdp.group.find(
+      (g) =>
+        g.semantic === "BUNDLE" && this.configuration.bundlePolicy !== "disable"
+    );
     let bundleTransport: RTCDtlsTransport | undefined;
 
     // # apply description
@@ -1124,11 +1129,13 @@ export class RTCPeerConnection extends EventTarget {
       description.media.push(media);
     });
 
-    const bundle = new GroupDescription("BUNDLE", []);
-    description.media.forEach((media) => {
-      bundle.items.push(media.rtp.muxId!);
-    });
-    description.group.push(bundle);
+    if (this.configuration.bundlePolicy !== "disable") {
+      const bundle = new GroupDescription("BUNDLE", []);
+      description.media.forEach((media) => {
+        bundle.items.push(media.rtp.muxId!);
+      });
+      description.group.push(bundle);
+    }
 
     return description.toJSON();
   }
@@ -1372,7 +1379,7 @@ export function allocateMid(mids: Set<string>) {
   return mid;
 }
 
-export type BundlePolicy = "max-compat" | "max-bundle";
+export type BundlePolicy = "max-compat" | "max-bundle" | "disable";
 
 export interface PeerConfig {
   codecs: Partial<{
