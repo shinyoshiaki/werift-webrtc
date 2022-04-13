@@ -7,7 +7,7 @@ describe("combination_all_media", () => {
       new Promise<void>(async (done) => {
         const label = "combination_all_media_answer";
 
-        const counter = new Counter(2, () => {
+        const counter = new Counter(3, () => {
           pc.close();
           done();
         });
@@ -33,10 +33,18 @@ describe("combination_all_media", () => {
           };
         };
 
-        const [track] = (
-          await navigator.mediaDevices.getUserMedia({ video: true })
-        ).getTracks();
-        pc.addTrack(track);
+        {
+          const [track] = (
+            await navigator.mediaDevices.getUserMedia({ video: true })
+          ).getTracks();
+          pc.addTrack(track);
+        }
+        {
+          const [track] = (
+            await navigator.mediaDevices.getUserMedia({ video: true })
+          ).getTracks();
+          pc.addTrack(track);
+        }
 
         const offer = await peer.request(label, {
           type: "init",
