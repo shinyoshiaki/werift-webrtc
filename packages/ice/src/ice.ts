@@ -244,8 +244,12 @@ export class Connection {
     }
 
     // # wait for completion
-    const res: number =
-      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
+    let res: number;
+    if (this.checkList.length > 0) {
+      res = await this.checkListState.get();
+    } else {
+      res = ICE_FAILED;
+    }
 
     // # cancel remaining checks
     this.checkList.forEach((check) => check.handle?.cancel());
@@ -395,7 +399,11 @@ export class Connection {
 
     // # stop check list
     if (this.checkList && !this.checkListDone) {
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+      this.checkListState.put(
+        new Promise((r) => {
+          r(ICE_FAILED);
+        })
+      );
     }
 
     this.nominated = {};
@@ -680,7 +688,11 @@ export class Connection {
 
     if (!this.checkListDone) {
       log("ICE failed");
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+      this.checkListState.put(
+        new Promise((r) => {
+          r(ICE_FAILED);
+        })
+      );
       this.checkListDone = true;
     }
   }
