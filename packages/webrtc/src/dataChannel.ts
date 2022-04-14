@@ -25,6 +25,7 @@ export class RTCDataChannel extends EventTarget {
 
   bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
+
   constructor(
     private readonly transport: RTCSctpTransport,
     private readonly parameters: RTCDataChannelParameters,
@@ -76,11 +77,12 @@ export class RTCDataChannel extends EventTarget {
   }
 
   set bufferedAmountLowThreshold(value: number) {
-    if (value < 0 || value > 4294967295)
+    if (value < 0 || value > 4294967295) {
       throw new Error(
         "bufferedAmountLowThreshold must be in range 0 - 4294967295"
       );
-    this.bufferedAmountLowThreshold = value;
+    }
+    this._bufferedAmountLowThreshold = value;
   }
 
   setId(id: number) {
