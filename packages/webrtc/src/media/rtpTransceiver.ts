@@ -39,13 +39,17 @@ export class RTCRtpTransceiver {
 
   constructor(
     public readonly kind: Kind,
-    public dtlsTransport: RTCDtlsTransport,
+    dtlsTransport: RTCDtlsTransport,
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
     public direction: Direction
   ) {
     this.setDtlsTransport(dtlsTransport);
+  }
+
+  get dtlsTransport() {
+    return this.receiver.dtlsTransport;
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
