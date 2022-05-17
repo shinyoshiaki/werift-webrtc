@@ -391,6 +391,8 @@ export class RTCPeerConnection extends EventTarget {
   private createTransport(srtpProfiles: Profile[] = []) {
     const [existing] = this.iceTransports;
 
+    // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
+    // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
     if (this.configuration.bundlePolicy === "max-bundle") {
       if (existing) {
         return this.dtlsTransports[0];
