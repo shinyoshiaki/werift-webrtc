@@ -3,6 +3,7 @@ import {
   DtlsKeys,
   HashAlgorithm,
   SignatureAlgorithm,
+  PeerConfig,
 } from ".";
 
 export class DtlsKeysContext {
@@ -17,3 +18,9 @@ export class DtlsKeysContext {
     });
   }
 }
+
+export const peerConfig: Promise<Partial<PeerConfig>> = (async () => ({
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  dtls: { keys: await DtlsKeysContext.get() },
+  bundlePolicy: "max-bundle",
+}))();

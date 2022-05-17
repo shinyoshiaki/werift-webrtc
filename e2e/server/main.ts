@@ -40,6 +40,14 @@ import {
   combination_all_media_answer,
   combination_all_media_offer,
 } from "./handler/combination/allmedia";
+import {
+  bundle_max_compat_answer,
+  bundle_max_compat_offer,
+} from "./handler/bundle/max-compat";
+import {
+  bundle_disable_answer,
+  bundle_disable_offer,
+} from "./handler/bundle/disable";
 
 const app = express();
 app.use(express.json() as never);
@@ -89,6 +97,10 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_red_client_offer: new mediachannel_red_client_offer(),
     combination_all_media_answer: new combination_all_media_answer(),
     combination_all_media_offer: new combination_all_media_offer(),
+    bundle_max_compat_answer: new bundle_max_compat_answer(),
+    bundle_max_compat_offer: new bundle_max_compat_offer(),
+    bundle_disable_answer: new bundle_disable_answer(),
+    bundle_disable_offer: new bundle_disable_offer(),
   };
 
   const transport = accept();

@@ -1,6 +1,6 @@
 import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../../";
-import { DtlsKeysContext } from "../../fixture";
+import { peerConfig } from "../../fixture";
 
 export class mediachannel_sendrecv_answer {
   pc!: RTCPeerConnection;
@@ -9,10 +9,7 @@ export class mediachannel_sendrecv_answer {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           const transceiver = this.pc.addTransceiver("video");
           transceiver.onTrack.subscribe((track) => {
             transceiver.sender.replaceTrack(track);
@@ -46,10 +43,7 @@ export class mediachannel_sendrecv_offer {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           const transceiver = this.pc.addTransceiver("video");
           transceiver.onTrack.subscribe((track) => {
             transceiver.sender.replaceTrack(track);

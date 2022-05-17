@@ -2,14 +2,17 @@ import { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 
-export class combination_all_media_answer {
+export class bundle_disable_answer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc = new RTCPeerConnection({
+            ...(await peerConfig),
+            bundlePolicy: "disable",
+          });
           const dc = this.pc.createDataChannel("dc");
           dc.onmessage = (e) => {
             if (e.data === "ping") {
@@ -50,14 +53,17 @@ export class combination_all_media_answer {
   }
 }
 
-export class combination_all_media_offer {
+export class bundle_disable_offer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc = new RTCPeerConnection({
+            ...(await peerConfig),
+            bundlePolicy: "disable",
+          });
           this.pc.ondatachannel = ({ channel }) => {
             channel.onmessage = (e) => {
               if (e.data === "ping") {
@@ -66,10 +72,18 @@ export class combination_all_media_offer {
             };
           };
 
-          const transceiver = this.pc.addTransceiver("video");
-          transceiver.onTrack.subscribe((track) => {
-            transceiver.sender.replaceTrack(track);
-          });
+          {
+            const transceiver = this.pc.addTransceiver("video");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
+          }
+          {
+            const transceiver = this.pc.addTransceiver("video");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
+          }
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
           accept(this.pc.localDescription);

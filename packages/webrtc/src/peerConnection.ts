@@ -297,11 +297,13 @@ export class RTCPeerConnection extends EventTarget {
       );
     }
 
-    const mids = description.media
-      .map((m) => m.rtp.muxId)
-      .filter((v) => v) as string[];
-    const bundle = new GroupDescription("BUNDLE", mids);
-    description.group.push(bundle);
+    if (this.configuration.bundlePolicy !== "disable") {
+      const mids = description.media
+        .map((m) => m.rtp.muxId)
+        .filter((v) => v) as string[];
+      const bundle = new GroupDescription("BUNDLE", mids);
+      description.group.push(bundle);
+    }
 
     return description.toJSON();
   }
@@ -330,7 +332,6 @@ export class RTCPeerConnection extends EventTarget {
 
     if (!this.sctpTransport) {
       this.sctpTransport = this.createSctpTransport();
-      this.updateIceConnectionState();
       this.needNegotiation();
     }
 
@@ -388,12 +389,21 @@ export class RTCPeerConnection extends EventTarget {
   };
 
   private createTransport(srtpProfiles: Profile[] = []) {
+    const [existing] = this.iceTransports;
+
+    // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
+    // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
+    if (this.configuration.bundlePolicy === "max-bundle") {
+      if (existing) {
+        return this.dtlsTransports[0];
+      }
+    }
+
     const iceGatherer = new RTCIceGatherer({
       ...parseIceServers(this.configuration.iceServers),
       forceTurn: this.configuration.iceTransportPolicy === "relay",
       portRange: this.configuration.icePortRange,
     });
-    const [existing] = this.iceTransports;
     if (existing) {
       iceGatherer.connection.localUserName = existing.connection.localUserName;
       iceGatherer.connection.localPassword = existing.connection.localPassword;
@@ -417,7 +427,6 @@ export class RTCPeerConnection extends EventTarget {
       }
       candidate.sdpMLineIndex = 0;
       candidate.sdpMid = media.rtp.muxId;
-      // for chrome & firefox & maybe others
       candidate.foundation = "candidate:" + candidate.foundation;
 
       this.onIceCandidate.execute(candidate.toJSON());
@@ -453,6 +462,7 @@ export class RTCPeerConnection extends EventTarget {
       this.emit("datachannel", event);
     });
 
+    this.sctpTransport = sctp;
     this.updateIceConnectionState();
 
     return sctp;
@@ -661,86 +671,98 @@ export class RTCPeerConnection extends EventTarget {
     remoteSdp.type = sessionDescription.type;
     this.validateDescription(remoteSdp, false);
 
-    const bundle = remoteSdp.group.find((g) => g.semantic === "BUNDLE");
+    if (remoteSdp.type === "answer") {
+      this.currentRemoteDescription = remoteSdp;
+      this.pendingRemoteDescription = undefined;
+    } else {
+      this.pendingRemoteDescription = remoteSdp;
+    }
+
+    const bundle = remoteSdp.group.find(
+      (g) =>
+        g.semantic === "BUNDLE" && this.configuration.bundlePolicy !== "disable"
+    );
     let bundleTransport: RTCDtlsTransport | undefined;
 
     // # apply description
-    for (const [i, remoteMedia] of enumerate(remoteSdp.media)) {
-      let dtlsTransport: RTCDtlsTransport | undefined;
+    await Promise.all(
+      enumerate(remoteSdp.media).map(async ([i, remoteMedia]) => {
+        let dtlsTransport: RTCDtlsTransport | undefined;
 
-      if (["audio", "video"].includes(remoteMedia.kind)) {
-        let transceiver = this.transceivers.find(
-          (t) =>
-            t.kind === remoteMedia.kind &&
-            [undefined, remoteMedia.rtp.muxId].includes(t.mid)
-        );
-        if (!transceiver) {
-          // create remote transceiver
-          transceiver = this.addTransceiver(remoteMedia.kind, {
-            direction: "recvonly",
-          });
-          this.onRemoteTransceiverAdded.execute(transceiver);
+        if (["audio", "video"].includes(remoteMedia.kind)) {
+          let transceiver = this.transceivers.find(
+            (t) =>
+              t.kind === remoteMedia.kind &&
+              [undefined, remoteMedia.rtp.muxId].includes(t.mid)
+          );
+          if (!transceiver) {
+            // create remote transceiver
+            transceiver = this.addTransceiver(remoteMedia.kind, {
+              direction: "recvonly",
+            });
+            this.onRemoteTransceiverAdded.execute(transceiver);
+          }
+
+          if (bundle) {
+            if (!bundleTransport) {
+              bundleTransport = transceiver.dtlsTransport;
+            } else {
+              transceiver.setDtlsTransport(bundleTransport);
+            }
+          }
+
+          dtlsTransport = transceiver.dtlsTransport;
+
+          this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
+        } else if (remoteMedia.kind === "application") {
+          if (!this.sctpTransport) {
+            this.sctpTransport = this.createSctpTransport();
+          }
+
+          if (bundle) {
+            if (!bundleTransport) {
+              bundleTransport = this.sctpTransport.dtlsTransport;
+            } else {
+              this.sctpTransport.setDtlsTransport(bundleTransport);
+            }
+          }
+
+          dtlsTransport = this.sctpTransport.dtlsTransport;
+
+          this.setRemoteSCTP(remoteMedia, this.sctpTransport);
+        } else {
+          throw new Error("invalid media kind");
         }
 
-        if (bundle) {
-          if (!bundleTransport) {
-            bundleTransport = transceiver.dtlsTransport;
-          } else {
-            transceiver.setDtlsTransport(bundleTransport);
+        const iceTransport = dtlsTransport.iceTransport;
+
+        if (remoteMedia.iceParams && remoteMedia.dtlsParams) {
+          iceTransport.setRemoteParams(remoteMedia.iceParams);
+          dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
+
+          // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
+          // RFC 8445 S6.1.1
+          if (remoteMedia.iceParams?.iceLite) {
+            iceTransport.connection.iceControlling = true;
           }
         }
 
-        dtlsTransport = transceiver.dtlsTransport;
+        // # add ICE candidates
+        remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
 
-        this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
-      } else if (remoteMedia.kind === "application") {
-        if (!this.sctpTransport) {
-          this.sctpTransport = this.createSctpTransport();
+        await iceTransport.iceGather.gather();
+
+        if (remoteMedia.iceCandidatesComplete) {
+          await iceTransport.addRemoteCandidate(undefined);
         }
 
-        if (bundle) {
-          if (!bundleTransport) {
-            bundleTransport = this.sctpTransport.dtlsTransport;
-          } else {
-            this.sctpTransport.setDtlsTransport(bundleTransport);
-          }
+        // # set DTLS role
+        if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
+          dtlsTransport.role =
+            remoteMedia.dtlsParams.role === "client" ? "server" : "client";
         }
-
-        dtlsTransport = this.sctpTransport.dtlsTransport;
-
-        this.setRemoteSCTP(remoteMedia, this.sctpTransport);
-      } else {
-        throw new Error("invalid media kind");
-      }
-
-      const iceTransport = dtlsTransport.iceTransport;
-
-      if (remoteMedia.iceParams && remoteMedia.dtlsParams) {
-        iceTransport.setRemoteParams(remoteMedia.iceParams);
-        dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
-
-        // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-        // RFC 8445 S6.1.1
-        if (remoteMedia.iceParams?.iceLite) {
-          iceTransport.connection.iceControlling = true;
-        }
-      }
-
-      // # add ICE candidates
-      remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-
-      await iceTransport.iceGather.gather();
-
-      if (remoteMedia.iceCandidatesComplete) {
-        await iceTransport.addRemoteCandidate(undefined);
-      }
-
-      // # set DTLS role
-      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
-        dtlsTransport.role =
-          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-      }
-    }
+      })
+    );
 
     // connect transports
     if (remoteSdp.type === "answer") {
@@ -755,13 +777,6 @@ export class RTCPeerConnection extends EventTarget {
       this.setSignalingState("have-remote-offer");
     } else if (remoteSdp.type === "answer") {
       this.setSignalingState("stable");
-    }
-
-    if (remoteSdp.type === "answer") {
-      this.currentRemoteDescription = remoteSdp;
-      this.pendingRemoteDescription = undefined;
-    } else {
-      this.pendingRemoteDescription = remoteSdp;
     }
 
     this.negotiationneeded = false;
@@ -1061,57 +1076,70 @@ export class RTCPeerConnection extends EventTarget {
       !["have-remote-offer", "have-local-pranswer"].includes(
         this.signalingState
       )
-    )
+    ) {
       throw new Error("createAnswer failed");
+    }
+    if (!this._remoteDescription) {
+      throw new Error("wrong state");
+    }
 
     await this.ensureCerts();
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    this._remoteDescription?.media.forEach((remoteM) => {
+    this._remoteDescription.media.forEach((remoteMedia) => {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
-      if (["audio", "video"].includes(remoteM.kind)) {
-        const transceiver = this.getTransceiverByMid(remoteM.rtp.muxId!)!;
+      if (["audio", "video"].includes(remoteMedia.kind)) {
+        const transceiver = this.getTransceiverByMid(remoteMedia.rtp.muxId!)!;
         media = createMediaDescriptionForTransceiver(
           transceiver,
           this.cname,
           andDirection(transceiver.direction, transceiver.offerDirection),
           transceiver.mid!
         );
-        if (!transceiver.dtlsTransport) throw new Error();
         dtlsTransport = transceiver.dtlsTransport;
-      } else if (remoteM.kind === "application") {
-        if (!this.sctpTransport || !this.sctpTransport.mid) throw new Error();
+      } else if (remoteMedia.kind === "application") {
+        if (!this.sctpTransport || !this.sctpTransport.mid) {
+          throw new Error("sctpTransport not found");
+        }
         media = createMediaDescriptionForSctp(
           this.sctpTransport,
           this.sctpTransport.mid
         );
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
-      } else throw new Error();
+      } else {
+        throw new Error("invalid kind");
+      }
 
       // # determine DTLS role, or preserve the currently configured role
-      if (!media.dtlsParams) throw new Error();
+      if (!media.dtlsParams) {
+        throw new Error("dtlsParams missing");
+      }
       if (dtlsTransport.role === "auto") {
         media.dtlsParams.role = "client";
       } else {
         media.dtlsParams.role = dtlsTransport.role;
       }
-      media.simulcastParameters = remoteM.simulcastParameters.map((v) => ({
+
+      media.simulcastParameters = remoteMedia.simulcastParameters.map((v) => ({
         ...v,
         direction: reverseSimulcastDirection(v.direction),
       }));
+
       description.media.push(media);
     });
 
-    const bundle = new GroupDescription("BUNDLE", []);
-    description.media.forEach((media) => {
-      bundle.items.push(media.rtp.muxId!);
-    });
-    description.group.push(bundle);
+    if (this.configuration.bundlePolicy !== "disable") {
+      const bundle = new GroupDescription("BUNDLE", []);
+      description.media.forEach((media) => {
+        bundle.items.push(media.rtp.muxId!);
+      });
+      description.group.push(bundle);
+    }
 
     return description.toJSON();
   }
@@ -1141,7 +1169,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private assertNotClosed() {
-    if (this.isClosed) throw new Error("RTCPeerConnection is closed");
+    if (this.isClosed) {
+      throw new Error("RTCPeerConnection is closed");
+    }
   }
 
   // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
@@ -1353,8 +1383,7 @@ export function allocateMid(mids: Set<string>) {
   return mid;
 }
 
-export type BundlePolicy = "max-compat";
-// | "max-bundle" todo
+export type BundlePolicy = "max-compat" | "max-bundle" | "disable";
 
 export interface PeerConfig {
   codecs: Partial<{
