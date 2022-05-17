@@ -1,8 +1,8 @@
 import { AcceptFn } from "protoo-server";
-import { RTCPeerConnection } from "../../";
+import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 
-export class mediachannel_sendrecv_answer {
+export class combination_all_media_answer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -10,10 +10,24 @@ export class mediachannel_sendrecv_answer {
       case "init":
         {
           this.pc = new RTCPeerConnection(await peerConfig);
-          const transceiver = this.pc.addTransceiver("video");
-          transceiver.onTrack.subscribe((track) => {
-            transceiver.sender.replaceTrack(track);
-          });
+          const dc = this.pc.createDataChannel("dc");
+          dc.onmessage = (e) => {
+            if (e.data === "ping") {
+              dc.send("pong");
+            }
+          };
+          {
+            const transceiver = this.pc.addTransceiver("video");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
+          }
+          {
+            const transceiver = this.pc.addTransceiver("video");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
+          }
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
         }
@@ -36,7 +50,7 @@ export class mediachannel_sendrecv_answer {
   }
 }
 
-export class mediachannel_sendrecv_offer {
+export class combination_all_media_offer {
   pc!: RTCPeerConnection;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -44,6 +58,14 @@ export class mediachannel_sendrecv_offer {
       case "init":
         {
           this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc.ondatachannel = ({ channel }) => {
+            channel.onmessage = (e) => {
+              if (e.data === "ping") {
+                channel.send("pong");
+              }
+            };
+          };
+
           const transceiver = this.pc.addTransceiver("video");
           transceiver.onTrack.subscribe((track) => {
             transceiver.sender.replaceTrack(track);

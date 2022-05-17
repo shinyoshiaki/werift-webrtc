@@ -29,8 +29,10 @@ describe("RTCSctpTransportTest", () => {
     new Promise<void>(async (done) => {
       const [clientTransport, serverTransport] = await dtlsTransportPair();
 
-      const client = new RTCSctpTransport(clientTransport);
-      const server = new RTCSctpTransport(serverTransport);
+      const client = new RTCSctpTransport();
+      client.setDtlsTransport(clientTransport);
+      const server = new RTCSctpTransport();
+      server.setDtlsTransport(serverTransport);
 
       await Promise.all([server.start(client.port), client.start(server.port)]);
 

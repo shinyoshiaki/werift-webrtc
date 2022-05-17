@@ -5,3 +5,5 @@ build
 coverage
 .parcel-cache
 dist
+*.webm
+*.log

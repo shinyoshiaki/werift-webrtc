@@ -1,6 +1,6 @@
 import { AcceptFn } from "protoo-server";
 import { RTCDataChannel, RTCPeerConnection } from "../../";
-import { DtlsKeysContext } from "../../fixture";
+import { peerConfig } from "../../fixture";
 
 export class datachannel_close_server_create_close {
   pc!: RTCPeerConnection;
@@ -9,10 +9,7 @@ export class datachannel_close_server_create_close {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe(() => {
             dc.close();
@@ -46,10 +43,7 @@ export class datachannel_close_server_create_client_close {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           this.dc = this.pc.createDataChannel("dc");
           this.dc.stateChanged
             .watch((state) => state === "open")
@@ -90,10 +84,7 @@ export class datachannel_close_client_create_close {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
 
@@ -128,10 +119,7 @@ export class datachannel_close_client_create_server_close {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-            dtls: { keys: await DtlsKeysContext.get() },
-          });
+          this.pc = new RTCPeerConnection(await peerConfig);
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
 

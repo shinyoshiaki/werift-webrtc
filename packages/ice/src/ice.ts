@@ -3,8 +3,8 @@ import debug from "debug";
 import dns from "dns";
 import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
-import range from "lodash/range";
 import isEqual from "lodash/isEqual";
+import range from "lodash/range";
 import { isIPv4 } from "net";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
@@ -23,8 +23,8 @@ import { Address, Protocol } from "./types/model";
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 export class Connection {
-  readonly localUserName = randomString(4);
-  readonly localPassword = randomString(22);
+  localUserName = randomString(4);
+  localPassword = randomString(22);
   remotePassword: string = "";
   remoteUsername: string = "";
   remoteIsLite = false;
@@ -244,8 +244,12 @@ export class Connection {
     }
 
     // # wait for completion
-    const res: number =
-      this.checkList.length > 0 ? await this.checkListState.get() : ICE_FAILED;
+    let res: number;
+    if (this.checkList.length > 0) {
+      res = await this.checkListState.get();
+    } else {
+      res = ICE_FAILED;
+    }
 
     // # cancel remaining checks
     this.checkList.forEach((check) => check.handle?.cancel());
@@ -395,7 +399,11 @@ export class Connection {
 
     // # stop check list
     if (this.checkList && !this.checkListDone) {
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+      this.checkListState.put(
+        new Promise((r) => {
+          r(ICE_FAILED);
+        })
+      );
     }
 
     this.nominated = {};
@@ -680,7 +688,11 @@ export class Connection {
 
     if (!this.checkListDone) {
       log("ICE failed");
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+      this.checkListState.put(
+        new Promise((r) => {
+          r(ICE_FAILED);
+        })
+      );
       this.checkListDone = true;
     }
   }

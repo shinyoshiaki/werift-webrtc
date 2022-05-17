@@ -1,6 +1,6 @@
 import { waitVideoPlay, peer, sleep } from "../fixture";
 
-describe("mediachannel_send-recv", () => {
+describe("mediachannel_oneway", () => {
   it(
     "answer",
     async () =>
@@ -22,7 +22,7 @@ describe("mediachannel_send-recv", () => {
         ).getTracks();
         pc.addTrack(track);
 
-        const offer = await peer.request("mediachannel_send_recv_answer", {
+        const offer = await peer.request("mediachannel_oneway_answer", {
           type: "init",
         });
         await pc.setRemoteDescription(offer);
@@ -30,7 +30,7 @@ describe("mediachannel_send-recv", () => {
 
         pc.onicecandidate = ({ candidate }) => {
           peer
-            .request("mediachannel_send_recv_answer", {
+            .request("mediachannel_oneway_answer", {
               type: "candidate",
               payload: candidate,
             })
@@ -38,7 +38,7 @@ describe("mediachannel_send-recv", () => {
         };
 
         peer
-          .request("mediachannel_send_recv_answer", {
+          .request("mediachannel_oneway_answer", {
             type: "answer",
             payload: pc.localDescription,
           })
@@ -64,7 +64,7 @@ describe("mediachannel_send-recv", () => {
         };
         pc.onicecandidate = ({ candidate }) => {
           peer
-            .request("mediachannel_send_recv_offer", {
+            .request("mediachannel_oneway_offer", {
               type: "candidate",
               payload: candidate,
             })
@@ -78,7 +78,7 @@ describe("mediachannel_send-recv", () => {
         pc.addTransceiver("video", { direction: "recvonly" });
 
         await pc.setLocalDescription(await pc.createOffer());
-        const answer = await peer.request("mediachannel_send_recv_offer", {
+        const answer = await peer.request("mediachannel_oneway_offer", {
           type: "init",
           payload: pc.localDescription,
         });
