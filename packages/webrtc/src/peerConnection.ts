@@ -144,6 +144,10 @@ export class RTCPeerConnection extends EventTarget {
       ...(this.configuration.codecs.audio || []),
       ...(this.configuration.codecs.video || []),
     ])) {
+      if (codecParams.payloadType != undefined) {
+        continue;
+      }
+
       codecParams.payloadType = 96 + i;
       switch (codecParams.name.toLowerCase()) {
         case "rtx":
@@ -1387,6 +1391,10 @@ export type BundlePolicy = "max-compat" | "max-bundle" | "disable";
 
 export interface PeerConfig {
   codecs: Partial<{
+    /**
+     * When specifying a codec with a fixed payloadType such as PCMU,
+     * it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
+     */
     audio: RTCRtpCodecParameters[];
     video: RTCRtpCodecParameters[];
   }>;
@@ -1433,6 +1441,7 @@ export const defaultPeerConfig: PeerConfig = {
         mimeType: "audio/PCMU",
         clockRate: 8000,
         channels: 1,
+        payloadType: 0,
       }),
     ],
     video: [

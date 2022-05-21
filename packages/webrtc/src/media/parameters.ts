@@ -24,6 +24,10 @@ export class RTCRtpCodecCapability {
 export type RTCPFB = { type: string; parameter?: string };
 
 export class RTCRtpCodecParameters {
+  /**
+   * When specifying a codec with a fixed payloadType such as PCMU,
+   * it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
+   */
   payloadType!: number;
   mimeType!: string;
   clockRate!: number;
