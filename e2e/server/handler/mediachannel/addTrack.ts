@@ -1,8 +1,12 @@
 import { ChildProcess, spawn } from "child_process";
 import { createSocket } from "dgram";
 import { AcceptFn } from "protoo-server";
-import { RTCPeerConnection, MediaStreamTrack, RtpPacket } from "../../";
-import { randomPort } from "../../../../packages/ice/src";
+import {
+  RTCPeerConnection,
+  MediaStreamTrack,
+  RtpPacket,
+  randomPort,
+} from "../../";
 import { peerConfig } from "../../fixture";
 
 export class mediachannel_addTrack_answer {

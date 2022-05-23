@@ -1,8 +1,8 @@
 import debug from "debug";
 import { createSocket, SocketType } from "dgram";
 
+import { findPort } from "../../common/src";
 import { Address } from "./types/model";
-import { findPort } from "./utils";
 
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 

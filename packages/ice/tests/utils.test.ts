@@ -1,7 +1,8 @@
 import { createSocket } from "dgram";
 
+import { findPort } from "../../common/src";
 import { randomString } from "../src/helper";
-import { findPort, getGlobalIp } from "../src/utils";
+import { getGlobalIp } from "../src/utils";
 
 describe("utils", () => {
   test("randomString", () => {
