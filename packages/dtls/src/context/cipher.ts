@@ -103,10 +103,7 @@ export class CipherContext {
       }
     })();
 
-    const keys = (await crypto.subtle.generateKey(alg, true, [
-      "sign",
-      "verify",
-    ])) as any;
+    const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
       serialNumber: "01",
