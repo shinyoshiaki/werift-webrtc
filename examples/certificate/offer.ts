@@ -15,7 +15,7 @@ server.on("connection", async (socket) => {
     },
     dtls: {
       keys: {
-        keyPem: `    -----BEGIN PRIVATE KEY-----
+        keyPem: `-----BEGIN PRIVATE KEY-----
     MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDCKvMLwIPKkl+a
     XiOvUi0omy1IkfdJWquUbddm9crY5s1svS+ImW/zfLCWFyGXhtgkK5vOg3cFuKb3
     8vBtp+WrJCZZHfmZtwd+5I/GPRgkHff9cJar7phLSBMzG/+TzHPEc7KnZnBJjGFf
