@@ -13,8 +13,9 @@ export class TransactionFailed extends TransactionError {
 
   get str() {
     let out = "STUN transaction failed";
-    if (this.response.attributesKeys.includes("ERROR-CODE")) {
-      const [code, msg] = this.response.getAttributeValue("ERROR-CODE")!;
+    const attribute = this.response.getAttributeValue("ERROR-CODE");
+    if (attribute) {
+      const [code, msg] = attribute;
       out += ` (${code} - ${msg})`;
     }
     return out;
