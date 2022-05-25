@@ -215,7 +215,7 @@ export class Connection {
     // This coroutine returns if a candidate pair was successfully nominated
     // and raises an exception otherwise.
     // """
-    log("start connect ice");
+    log("start connect ice", this.localCandidates);
     if (!this._localCandidatesEnd) {
       if (!this.localCandidatesStart)
         throw new Error("Local candidates gathering was not performed");
@@ -365,6 +365,7 @@ export class Connection {
                 this.setState("connected");
               }
             } catch (error) {
+              log("no stun response");
               failures++;
               this.setState("disconnected");
             }
@@ -460,6 +461,7 @@ export class Connection {
     } catch (error) {
       return;
     }
+    log("addRemoteCandidate", remoteCandidate);
     this.remoteCandidates.push(remoteCandidate);
 
     this.pairRemoteCandidate(remoteCandidate);
@@ -520,7 +522,7 @@ export class Connection {
       parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
       if (!this.remoteUsername) {
         const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
-        if (message.attributes["USERNAME"] != rxUsername)
+        if (message.getAttributeValue("USERNAME") != rxUsername)
           throw new Error("Wrong username");
       }
     } catch (error) {
@@ -532,7 +534,7 @@ export class Connection {
 
     // 7.2.1.1.  Detecting and Repairing Role Conflicts
     if (iceControlling && message.attributesKeys.includes("ICE-CONTROLLING")) {
-      if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
+      if (this._tieBreaker >= message.getAttributeValue("ICE-CONTROLLING")) {
         this.respondError(message, addr, protocol, [487, "Role Conflict"]);
         return;
       } else {
@@ -542,7 +544,7 @@ export class Connection {
       !iceControlling &&
       message.attributesKeys.includes("ICE-CONTROLLED")
     ) {
-      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
+      if (this._tieBreaker < message.getAttributeValue("ICE-CONTROLLED")) {
         this.respondError(message, addr, protocol, [487, "Role Conflict"]);
       } else {
         this.switchRole(true);
@@ -556,9 +558,10 @@ export class Connection {
       classes.RESPONSE,
       message.transactionId
     );
-    response.attributes["XOR-MAPPED-ADDRESS"] = addr;
-    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
-    response.addFingerprint();
+    response
+      .setAttribute("XOR-MAPPED-ADDRESS", addr)
+      .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
+      .addFingerprint();
     protocol.sendStun(response, addr);
 
     // todo fix
@@ -727,7 +730,7 @@ export class Connection {
         const exc: TransactionError = error;
         // 7.1.3.1.  Failure Cases
         log("failure case", exc.response);
-        if (exc.response?.attributes["ERROR-CODE"][0] === 487) {
+        if (exc.response?.getAttributeValue("ERROR-CODE")[0] === 487) {
           if (request.attributesKeys.includes("ICE-CONTROLLED")) {
             this.switchRole(true);
           } else if (request.attributesKeys.includes("ICE-CONTROLLING")) {
@@ -806,7 +809,7 @@ export class Connection {
         randomString(10),
         component,
         "udp",
-        message.attributes["PRIORITY"],
+        message.getAttributeValue("PRIORITY"),
         host,
         port,
         "prflx"
@@ -860,15 +863,16 @@ export class Connection {
   private buildRequest(pair: CandidatePair, nominate: boolean) {
     const txUsername = `${this.remoteUsername}:${this.localUserName}`;
     const request = new Message(methods.BINDING, classes.REQUEST);
-    request.attributes["USERNAME"] = txUsername;
-    request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
+    request
+      .setAttribute("USERNAME", txUsername)
+      .setAttribute("PRIORITY", candidatePriority(pair.component, "prflx"));
     if (this.iceControlling) {
-      request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
+      request.setAttribute("ICE-CONTROLLING", this._tieBreaker);
       if (nominate) {
-        request.attributes["USE-CANDIDATE"] = null;
+        request.setAttribute("USE-CANDIDATE", null);
       }
     } else {
-      request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
+      request.setAttribute("ICE-CONTROLLED", this._tieBreaker);
     }
     return request;
   }
@@ -884,9 +888,10 @@ export class Connection {
       classes.ERROR,
       request.transactionId
     );
-    response.attributes["ERROR-CODE"] = errorCode;
-    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
-    response.addFingerprint();
+    response
+      .setAttribute("ERROR-CODE", errorCode)
+      .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
+      .addFingerprint();
     protocol.sendStun(response, addr);
   }
 }
@@ -1016,8 +1021,8 @@ export async function serverReflexiveCandidate(
       localCandidate.component,
       localCandidate.transport,
       candidatePriority(localCandidate.component, "srflx"),
-      response.attributes["XOR-MAPPED-ADDRESS"][0],
-      response.attributes["XOR-MAPPED-ADDRESS"][1],
+      response.getAttributeValue("XOR-MAPPED-ADDRESS")[0],
+      response.getAttributeValue("XOR-MAPPED-ADDRESS")[1],
       "srflx",
       localCandidate.host,
       localCandidate.port

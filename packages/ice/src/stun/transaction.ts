@@ -9,7 +9,6 @@ import { Message } from "./message";
 const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
 
 export class Transaction {
-  integrityKey?: Buffer;
   private timeoutDelay = RETRY_RTO;
   private timeoutHandle?: any;
   private tries = 0;
@@ -30,7 +29,7 @@ export class Transaction {
         this.onResponse.execute(message, addr);
         this.onResponse.complete();
       } else {
-        this.onResponse.error(new TransactionFailed(message));
+        this.onResponse.error(new TransactionFailed(message, addr));
       }
     }
   };

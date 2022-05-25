@@ -101,7 +101,6 @@ export class StunProtocol implements Protocol {
       this,
       retransmissions
     );
-    transaction.integrityKey = integrityKey;
     this.transactions[request.transactionIdHex] = transaction;
 
     try {
