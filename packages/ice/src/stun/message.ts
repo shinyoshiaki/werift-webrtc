@@ -4,13 +4,15 @@ import { jspack } from "jspack";
 
 import { bufferXor, randomTransactionId } from "../helper";
 import {
+  AttributeKey,
+  AttributePair,
+  AttributeRepository,
   ATTRIBUTES_BY_NAME,
   ATTRIBUTES_BY_TYPE,
   packXorAddress,
   unpackXorAddress,
 } from "./attributes";
 import {
-  ATTRIBUTES,
   classes,
   COOKIE,
   FINGERPRINT_LENGTH,
@@ -40,30 +42,39 @@ export function parseMessage(
     return undefined;
   }
 
-  const attributes: { [key: string]: any } = {};
+  const attributeRepository = new AttributeRepository();
 
   for (let pos = HEADER_LENGTH; pos <= data.length - 4; ) {
     const [attrType, attrLen] = jspack.Unpack("!HH", data.slice(pos, pos + 4));
-    const v = data.slice(pos + 4, pos + 4 + attrLen);
+    const payload = data.slice(pos + 4, pos + 4 + attrLen);
     const padLen = 4 * Math.floor((attrLen + 3) / 4) - attrLen;
     const attributesTypes = Object.keys(ATTRIBUTES_BY_TYPE);
     if (attributesTypes.includes(attrType.toString())) {
       const [, attrName, , attrUnpack] = ATTRIBUTES_BY_TYPE[attrType];
       if (attrUnpack.name === unpackXorAddress.name) {
-        attributes[attrName] = attrUnpack(v, transactionId);
+        attributeRepository.setAttribute(
+          attrName as AttributeKey,
+          attrUnpack(payload, transactionId)
+        );
       } else {
-        attributes[attrName] = attrUnpack(v);
+        attributeRepository.setAttribute(
+          attrName as AttributeKey,
+          attrUnpack(payload)
+        );
       }
 
       if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
-        if (attributes[attrName] !== fingerprint) {
+        const expect = attributeRepository.getAttributeValue("FINGERPRINT");
+        if (expect !== fingerprint) {
           return undefined;
         }
       } else if (attrName === "MESSAGE-INTEGRITY") {
         if (integrityKey) {
           const integrity = messageIntegrity(data.slice(0, pos), integrityKey);
-          if (!integrity.equals(attributes[attrName])) {
+          const expect =
+            attributeRepository.getAttributeValue("MESSAGE-INTEGRITY");
+          if (!integrity.equals(expect)) {
             return undefined;
           }
         }
@@ -71,6 +82,9 @@ export function parseMessage(
     }
     pos += 4 + attrLen + padLen;
   }
+
+  const attributes = attributeRepository.getAttributes();
+  attributeRepository.clear();
 
   return new Message(
     messageType & 0x3eef,
@@ -80,16 +94,14 @@ export function parseMessage(
   );
 }
 
-export class Message {
+export class Message extends AttributeRepository {
   constructor(
     public messageMethod: methods,
     public messageClass: classes,
     public transactionId: Buffer = randomTransactionId(),
-    public attributes: { [key in typeof ATTRIBUTES[number]]?: any } = {}
-  ) {}
-
-  get attributesKeys(): typeof ATTRIBUTES[number][] {
-    return Object.keys(this.attributes) as any;
+    attributes: AttributePair[] = []
+  ) {
+    super(attributes);
   }
 
   get transactionIdHex() {
@@ -99,7 +111,7 @@ export class Message {
   get bytes() {
     let data = Buffer.from([]);
     for (const attrName of this.attributesKeys) {
-      const attrValue = (this.attributes as any)[attrName];
+      const attrValue = this.getAttributeValue(attrName);
       const [attrType, , attrPack] = ATTRIBUTES_BY_NAME[attrName];
       const v =
         attrPack.name === packXorAddress.name
@@ -125,12 +137,24 @@ export class Message {
     return Buffer.concat([buf, this.transactionId, data]);
   }
 
-  addFingerprint() {
-    this.attributes["FINGERPRINT"] = messageFingerprint(this.bytes);
+  addMessageIntegrity(key: Buffer) {
+    this.setAttribute("MESSAGE-INTEGRITY", this.messageIntegrity(key));
+    return this;
   }
 
-  addMessageIntegrity(key: Buffer) {
-    this.attributes["MESSAGE-INTEGRITY"] = messageIntegrity(this.bytes, key);
+  messageIntegrity(key: Buffer) {
+    const checkData = setBodyLength(
+      this.bytes,
+      this.bytes.length - HEADER_LENGTH + INTEGRITY_LENGTH
+    );
+    return Buffer.from(
+      createHmac("sha1", key).update(checkData).digest("hex"),
+      "hex"
+    );
+  }
+
+  addFingerprint() {
+    this.setAttribute("FINGERPRINT", messageFingerprint(this.bytes));
   }
 }
 

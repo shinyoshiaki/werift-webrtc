@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/packages/rtp/examples/node/gst.ts"
+        "${workspaceRoot}/examples/ice/turn/trickle_offer.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

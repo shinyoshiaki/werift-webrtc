@@ -4,7 +4,14 @@ import { readFileSync } from "fs";
 import { Connection } from "../src/ice";
 
 export function readMessage(name: string) {
-  const data = readFileSync("./tests/data/" + name);
+  let data!: Buffer;
+
+  try {
+    data = readFileSync("./tests/data/" + name);
+  } catch (error) {
+    data = readFileSync("./packages/ice/tests/data/" + name);
+  }
+
   return data;
 }
 

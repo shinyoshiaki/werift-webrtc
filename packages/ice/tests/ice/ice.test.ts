@@ -39,7 +39,7 @@ describe("ice", () => {
     const protocol = new ProtocolMock() as any;
 
     const request = new Message(methods.BINDING, classes.REQUEST);
-    request.attributes["PRIORITY"] = 456789;
+    request.setAttribute("PRIORITY", 456789);
 
     connection.checkIncoming(request, ["2.3.4.5", 2345], protocol);
     expect(protocol.sentMessage).not.toBeNull();
@@ -69,7 +69,7 @@ describe("ice", () => {
 
   test("test_request_with_invalid_method", () => {
     const connection = new Connection(true);
-    const protocol: any = new ProtocolMock();
+    const protocol = new ProtocolMock();
 
     const request = new Message(methods.ALLOCATE, classes.REQUEST);
     connection.requestReceived(
@@ -81,7 +81,7 @@ describe("ice", () => {
     expect(protocol.sentMessage).not.toBeNull();
     expect(protocol.sentMessage?.messageMethod).toBe(methods.ALLOCATE);
     expect(protocol.sentMessage?.messageClass).toBe(classes.ERROR);
-    expect(protocol.sentMessage?.attributes["ERROR-CODE"]).toEqual([
+    expect(protocol.sentMessage?.getAttributeValue("ERROR-CODE")).toEqual([
       400,
       "Bad Request",
     ]);

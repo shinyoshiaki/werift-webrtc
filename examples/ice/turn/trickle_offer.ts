@@ -5,7 +5,7 @@ import {
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 
-const server = new Server({ port: 8888 });
+const server = new Server({ port: 8889 });
 console.log("start");
 
 server.on("connection", async (socket) => {
