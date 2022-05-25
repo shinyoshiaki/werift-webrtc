@@ -722,7 +722,8 @@ export class Connection {
         const [response, addr] = await pair.protocol.request(
           request,
           pair.remoteAddr,
-          Buffer.from(this.remotePassword, "utf8")
+          Buffer.from(this.remotePassword, "utf8"),
+          4
         );
         log("response", response, addr);
         result.response = response;
