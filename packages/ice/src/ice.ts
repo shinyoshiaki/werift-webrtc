@@ -6,11 +6,11 @@ import * as nodeIp from "ip";
 import isEqual from "lodash/isEqual";
 import range from "lodash/range";
 import { isIPv4 } from "net";
+import os from "os";
 import PCancelable, { all } from "p-cancelable";
 import { Event } from "rx.mini";
 import timers from "timers/promises";
 import util from "util";
-import os from "os";
 
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { TransactionError } from "./exceptions";
@@ -997,31 +997,39 @@ export function candidatePairPriority(
 
 function nodeIpAddress(family: string): string[] {
   // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
-  const costlyNetworks = ['ipsec', 'tun', 'utun', 'tap'];
+  const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
 
   const interfaces = os.networkInterfaces();
 
-  const all = Object.keys(interfaces).map(nic => {
-    for (const costly of costlyNetworks) {
-      if (nic.startsWith(costly)) {
-        return {
-          nic,
-          addresses: [],
+  const all = Object.keys(interfaces)
+    .map((nic) => {
+      for (const costly of costlyNetworks) {
+        if (nic.startsWith(costly)) {
+          return {
+            nic,
+            addresses: [],
+          };
         }
       }
-    }
-    const addresses = interfaces[nic]!.filter(details => details.family.toLowerCase() === family && !nodeIp.isLoopback(details.address));
-    return {
-      nic,
-      addresses: addresses.map(address => address.address),
-    }
-  }).filter(address => !!address);
+      const addresses = interfaces[nic]!.filter(
+        (details) =>
+          details.family.toLowerCase() === family &&
+          !nodeIp.isLoopback(details.address)
+      );
+      return {
+        nic,
+        addresses: addresses.map((address) => address.address),
+      };
+    })
+    .filter((address) => !!address);
 
   // os.networkInterfaces doesn't actually return addresses in a good order.
   // have seen instances where en0 (ethernet) is after en1 (wlan), etc.
   // eth0 > eth1
   all.sort((a, b) => a.nic.localeCompare(b.nic));
-  return Object.values(all).map(entry => entry.addresses).flat();
+  return Object.values(all)
+    .map((entry) => entry.addresses)
+    .flat();
 }
 
 export function getHostAddresses(useIpv4: boolean, useIpv6: boolean) {
