@@ -998,13 +998,14 @@ export function candidatePairPriority(
 function nodeIpAddress(family: string): string[] {
   // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
   const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
+  const banNetworks = ["vmnet", "veth"];
 
   const interfaces = os.networkInterfaces();
 
   const all = Object.keys(interfaces)
     .map((nic) => {
-      for (const costly of costlyNetworks) {
-        if (nic.startsWith(costly)) {
+      for (const word of [...costlyNetworks, ...banNetworks]) {
+        if (nic.startsWith(word)) {
           return {
             nic,
             addresses: [],
