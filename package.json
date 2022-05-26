@@ -19,18 +19,17 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "lerna run build",
-    "ci": "yarn build && yarn test && yarn e2e",
+    "build": "npm run build --workspaces",
+    "ci": "npm run build && npm run test && npm run e2e",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
-    "doc": "rm -rf doc && cd packages/webrtc && yarn doc && mv doc ../..",
-    "e2e": "cd e2e && yarn ci",
-    "e2e:dev": "cd e2e && yarn dev:server",
-    "format": "lerna run format",
+    "doc": "rm -rf doc && cd packages/webrtc && npm run doc && mv doc ../..",
+    "e2e": "cd e2e && npm run ci",
+    "e2e:dev": "cd e2e && npm run dev:server",
+    "format": "npm run format --workspaces",
     "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
-    "test": "lerna run test",
-    "test:serial": "lerna run test --concurrency 1",
-    "type": "lerna run type",
-    "type:all": "yarn type:example && lerna run type",
+    "test": "npm run test --workspaces",
+    "type": "npm run type --workspaces",
+    "type:all": "npm run type:example && npm run type",
     "type:example": "tsc --noEmit -p ./tsconfig.json"
   },
   "devDependencies": {
@@ -43,17 +42,17 @@
     "eslint-plugin-prettier": "^4.0.0",
     "eslint-plugin-simple-import-sort": "^7.0.0",
     "jest": "^28.1.0",
-    "lerna": "^5.0.0",
     "node-actionlint": "^1.2.1",
     "organize-imports-cli": "^0.9.0",
     "prettier": "^2.5.1",
     "ts-jest": "^28.0.3",
-    "ts-node": "^10.4.0",
-    "ts-node-dev": "^1.1.7",
-    "typescript": "^4.7.2"
+    "ts-node": "^10.8.0",
+    "ts-node-dev": "^1.1.8",
+    "typedoc": "^0.22.10",
+    "typescript": "^4.5.4"
   },
   "engines": {
-    "node": ">=15"
+    "node": ">=16"
   },
   "readme": "README.md"
 }

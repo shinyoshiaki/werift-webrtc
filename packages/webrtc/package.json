@@ -65,17 +65,7 @@
     "@types/jest": "^27.0.3",
     "@types/lodash": "^4.14.178",
     "@types/node": "^17.0.0",
-    "@types/uuid": "^8.3.3",
-    "@typescript-eslint/eslint-plugin": "^5.7.0",
-    "@typescript-eslint/parser": "^5.7.0",
-    "eslint-plugin-prettier": "^4.0.0",
-    "jest": "^28.1.0",
-    "node-actionlint": "^1.2.1",
-    "prettier": "^2.5.1",
-    "ts-jest": "^28.0.3",
-    "ts-node": "^10.4.0",
-    "typedoc": "^0.22.10",
-    "typescript": "^4.7.2"
+    "@types/uuid": "^8.3.3"
   },
   "engines": {
     "node": ">=15"
