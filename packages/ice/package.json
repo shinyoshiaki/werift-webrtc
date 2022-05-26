@@ -29,10 +29,10 @@
   },
   "dependencies": {
     "buffer-crc32": "^0.2.13",
-    "debug": "^4.3.3",
+    "debug": "^4.3.4",
     "dgram": "^1.0.1",
     "int64-buffer": "^1.0.1",
-    "ip": "^1.1.5",
+    "ip": "^1.1.8",
     "jspack": "^0.0.4",
     "lodash": "^4.17.20",
     "p-cancelable": "^2.1.1",
