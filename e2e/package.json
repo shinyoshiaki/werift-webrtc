@@ -15,6 +15,7 @@
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "werift": "^0.15.2",
     "werift-rtp": "^0.3.1"
   },
   "devDependencies": {
