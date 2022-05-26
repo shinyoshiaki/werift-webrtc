@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -22,12 +22,12 @@
     "src"
   ],
   "scripts": {
-    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
+    "build": "npm i && rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
-    "deploy": "yarn build && yarn publish",
-    "deploy:alpha": "yarn build && yarn publish --tag alpha",
+    "deploy": "npm run build && npm publish",
+    "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --out doc ./src/index.ts",
-    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "test": "npm run type && jest --runInBand --forceExit --coverage",
     "type": "tsc --noEmit --project ./tsconfig.json",
