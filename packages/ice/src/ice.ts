@@ -245,11 +245,9 @@ export class Connection {
     }
 
     // # wait for completion
-    let res: number;
-    if (this.checkList.length > 0) {
+    let res: number = ICE_FAILED;
+    while (this.checkList.length > 0 && res === ICE_FAILED) {
       res = await this.checkListState.get();
-    } else {
-      res = ICE_FAILED;
     }
 
     // # cancel remaining checks
@@ -697,7 +695,6 @@ export class Connection {
           r(ICE_FAILED);
         })
       );
-      this.checkListDone = true;
     }
   }
 

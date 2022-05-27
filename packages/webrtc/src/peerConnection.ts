@@ -604,7 +604,7 @@ export class RTCPeerConnection extends EventTarget {
     this.setConnectionState("connecting");
 
     await Promise.all(
-      this.dtlsTransports.map(async (dtlsTransport, index) => {
+      this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
         await iceTransport.start().catch((err) => {
           log("iceTransport.start failed", err);
