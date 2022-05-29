@@ -25,8 +25,9 @@
     "@discordjs/opus": "^0.6.0",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
+    "ring-client-api": "^11.0.3",
+    "rxjs": "^7.5.5",
     "sdp-transform": "^2.14.1",
-    "speaker": "^0.5.3",
     "uuid": "^8.3.2"
   },
   "devDependencies": {
