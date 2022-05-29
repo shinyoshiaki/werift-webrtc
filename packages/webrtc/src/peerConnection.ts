@@ -392,7 +392,7 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(srtpProfiles: Profile[] = []) {
+  private createTransport(srtpProfiles: Profile[] = [], mLineIndex = 0) {
     const [existing] = this.iceTransports;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
@@ -424,12 +424,12 @@ export class RTCPeerConnection extends EventTarget {
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
       const sdp = SessionDescription.parse(this.localDescription.sdp);
-      const media = sdp.media[0];
+      const media = sdp.media[mLineIndex];
       if (!media) {
         log("media not exist");
         return;
       }
-      candidate.sdpMLineIndex = 0;
+      candidate.sdpMLineIndex = mLineIndex;
       candidate.sdpMid = media.rtp.muxId;
       candidate.foundation = "candidate:" + candidate.foundation;
 
@@ -583,8 +583,18 @@ export class RTCPeerConnection extends EventTarget {
 
   async addIceCandidate(candidateMessage: RTCIceCandidate) {
     const candidate = IceCandidate.fromJSON(candidateMessage);
-    for (const iceTransport of this.iceTransports) {
+    let iceTransport: RTCIceTransport;
+    if (typeof candidateMessage.sdpMLineIndex === "number") {
+      iceTransport =
+        this.transceivers[candidateMessage.sdpMLineIndex]?.dtlsTransport
+          ?.iceTransport;
+    } else {
+      iceTransport = this.iceTransports[0];
+    }
+    if (iceTransport) {
       await iceTransport.addRemoteCandidate(candidate);
+    } else {
+      log("iceTransport not found for sdpMLineIndex", candidate);
     }
   }
 
@@ -970,10 +980,13 @@ export class RTCPeerConnection extends EventTarget {
 
     const direction = options.direction || "sendrecv";
 
-    const dtlsTransport = this.createTransport([
-      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
+    const dtlsTransport = this.createTransport(
+      [
+        SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+        SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+      ],
+      this.transceivers.length
+    );
 
     const sender = new RTCRtpSender(trackOrKind);
     const receiver = new RTCRtpReceiver(kind, sender.ssrc);
