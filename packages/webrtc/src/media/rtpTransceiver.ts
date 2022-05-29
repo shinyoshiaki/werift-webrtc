@@ -31,7 +31,13 @@ export class RTCRtpTransceiver {
   }
 
   offerDirection!: Direction;
-  codecs: RTCRtpCodecParameters[] = [];
+  _codecs: RTCRtpCodecParameters[] = [];
+  set codecs(codecs: RTCRtpCodecParameters[]) {
+    this._codecs = codecs;
+  }
+  get codecs() {
+    return this._codecs;
+  }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
   stopping = false;

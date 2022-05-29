@@ -106,10 +106,10 @@ server.on("connectionrequest", async (_, accept) => {
   const transport = accept();
   const peer = await room.createPeer(Math.random().toString(), transport);
 
-  peer.on("request", (request, accept) => {
+  peer.on("request", async (request, accept) => {
     const { type, payload } = request.data;
     try {
-      tests[request.method].exec(type, payload, accept, peer);
+      await tests[request.method].exec(type, payload, accept, peer);
     } catch (error) {
       console.log(error);
     }

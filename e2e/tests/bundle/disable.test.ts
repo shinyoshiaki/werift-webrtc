@@ -19,6 +19,12 @@ describe("bundle_disable", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           bundlePolicy: "max-compat",
         });
+        peer.on("notification", (e) => {
+          if (e.method === "candidate") {
+            if (pc.signalingState === "closed") return;
+            pc.addIceCandidate(e.data!);
+          }
+        });
         pc.ontrack = async ({ track }) => {
           await waitVideoPlay(track);
           counter.done();
@@ -94,6 +100,12 @@ describe("bundle_disable", () => {
           await waitVideoPlay(track);
           counter.done();
         };
+        peer.on("notification", (e) => {
+          if (e.method === "candidate") {
+            if (pc.signalingState === "closed") return;
+            pc.addIceCandidate(e.data!);
+          }
+        });
 
         const channel = pc.createDataChannel("dc");
         channel.onopen = () => {

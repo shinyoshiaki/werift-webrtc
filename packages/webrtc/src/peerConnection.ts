@@ -230,11 +230,19 @@ export class RTCPeerConnection extends EventTarget {
 
   async createOffer() {
     await this.ensureCerts();
+    const description = this.buildOfferSdp();
+    return description.toJSON();
+  }
 
+  buildOfferSdp() {
     this.transceivers.forEach((transceiver) => {
-      transceiver.codecs = this.configuration.codecs[transceiver.kind];
-      transceiver.headerExtensions =
-        this.configuration.headerExtensions[transceiver.kind];
+      if (transceiver.codecs.length === 0) {
+        transceiver.codecs = this.configuration.codecs[transceiver.kind];
+      }
+      if (transceiver.headerExtensions.length === 0) {
+        transceiver.headerExtensions =
+          this.configuration.headerExtensions[transceiver.kind];
+      }
     });
 
     const description = new SessionDescription();
@@ -253,22 +261,24 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
       if (m.kind === "application") {
+        if (!this.sctpTransport) {
+          throw new Error("sctpTransport not found");
+        }
+        this.sctpTransport.mLineIndex = i;
         description.media.push(
-          createMediaDescriptionForSctp(this.sctpTransport!, mid)
+          createMediaDescriptionForSctp(this.sctpTransport)
         );
       } else {
         const transceiver = this.getTransceiverByMid(mid);
         if (!transceiver) {
-          log("transceiver by mid not found", mid);
-          return;
+          throw new Error("transceiver not found");
         }
         transceiver.mLineIndex = i;
         description.media.push(
           createMediaDescriptionForTransceiver(
             transceiver,
             this.cname,
-            transceiver.direction,
-            mid
+            transceiver.direction
           )
         );
       }
@@ -279,26 +289,27 @@ export class RTCPeerConnection extends EventTarget {
       .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
         transceiver.mLineIndex = description.media.length;
+        if (transceiver.mid == undefined) {
+          transceiver.mid = allocateMid(this.seenMid) + "_srtp";
+        }
         description.media.push(
           createMediaDescriptionForTransceiver(
             transceiver,
             this.cname,
-            transceiver.direction,
-            allocateMid(this.seenMid)
+            transceiver.direction
           )
         );
       });
 
     if (
       this.sctpTransport &&
-      !description.media.find((m) => this.sctpTransport!.mid === m.rtp.muxId)
+      !description.media.find((m) => m.kind === "application")
     ) {
-      description.media.push(
-        createMediaDescriptionForSctp(
-          this.sctpTransport,
-          allocateMid(this.seenMid)
-        )
-      );
+      this.sctpTransport.mLineIndex = description.media.length;
+      if (this.sctpTransport.mid == undefined) {
+        this.sctpTransport.mid = allocateMid(this.seenMid) + "_sctp";
+      }
+      description.media.push(createMediaDescriptionForSctp(this.sctpTransport));
     }
 
     if (this.configuration.bundlePolicy !== "disable") {
@@ -309,7 +320,7 @@ export class RTCPeerConnection extends EventTarget {
       description.group.push(bundle);
     }
 
-    return description.toJSON();
+    return description;
   }
 
   createDataChannel(
@@ -392,7 +403,7 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(srtpProfiles: Profile[] = [], mLineIndex = 0) {
+  private createTransport(srtpProfiles: Profile[] = []) {
     const [existing] = this.iceTransports;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
@@ -423,14 +434,19 @@ export class RTCPeerConnection extends EventTarget {
 
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
-      const sdp = SessionDescription.parse(this.localDescription.sdp);
-      const media = sdp.media[mLineIndex];
-      if (!media) {
-        log("media not exist");
-        return;
+      const transceiver = this.transceivers.find(
+        (t) => t.dtlsTransport.iceTransport.id === iceTransport.id
+      );
+      if (transceiver) {
+        candidate.sdpMLineIndex = transceiver.mLineIndex;
+        candidate.sdpMid = transceiver.mid;
       }
-      candidate.sdpMLineIndex = mLineIndex;
-      candidate.sdpMid = media.rtp.muxId;
+      if (
+        this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
+      ) {
+        candidate.sdpMLineIndex = this.sctpTransport.mLineIndex;
+        candidate.sdpMid = this.sctpTransport.mid;
+      }
       candidate.foundation = "candidate:" + candidate.foundation;
 
       this.onIceCandidate.execute(candidate.toJSON());
@@ -541,9 +557,10 @@ export class RTCPeerConnection extends EventTarget {
     this.setLocal(description);
 
     // # gather candidates
-    for (const iceTransport of this.iceTransports) {
-      await iceTransport.iceGather.gather();
-    }
+    await Promise.all(
+      this.iceTransports.map((iceTransport) => iceTransport.iceGather.gather())
+    );
+
     description.media
       .filter((m) => ["audio", "video"].includes(m.kind))
       .forEach((m, i) => {
@@ -581,20 +598,54 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
+  private getTransportByMid(mid: string) {
+    let iceTransport: RTCIceTransport | undefined;
+
+    const transceiver = this.transceivers.find((t) => t.mid === mid);
+    if (transceiver) {
+      iceTransport = transceiver.dtlsTransport.iceTransport;
+    } else if (!iceTransport && this.sctpTransport?.mid === mid) {
+      iceTransport = this.sctpTransport?.dtlsTransport.iceTransport;
+    }
+
+    return iceTransport;
+  }
+
+  private getTransportByMLineIndex(index: number) {
+    const sdp = this.buildOfferSdp();
+    const media = sdp.media[index];
+    if (!media) {
+      return;
+    }
+    const transport = this.getTransportByMid(media.rtp.muxId!);
+
+    return transport;
+  }
+
   async addIceCandidate(candidateMessage: RTCIceCandidate) {
     const candidate = IceCandidate.fromJSON(candidateMessage);
-    let iceTransport: RTCIceTransport;
-    if (typeof candidateMessage.sdpMLineIndex === "number") {
-      iceTransport =
-        this.transceivers[candidateMessage.sdpMLineIndex]?.dtlsTransport
-          ?.iceTransport;
-    } else {
+    if (!candidate) {
+      return;
+    }
+
+    let iceTransport: RTCIceTransport | undefined;
+
+    if (typeof candidate.sdpMid === "number") {
+      iceTransport = this.getTransportByMid(candidate.sdpMid);
+    }
+
+    if (!iceTransport && typeof candidate.sdpMLineIndex === "number") {
+      iceTransport = this.getTransportByMLineIndex(candidate.sdpMLineIndex);
+    }
+
+    if (!iceTransport) {
       iceTransport = this.iceTransports[0];
     }
+
     if (iceTransport) {
       await iceTransport.addRemoteCandidate(candidate);
     } else {
-      log("iceTransport not found for sdpMLineIndex", candidate);
+      log("iceTransport not found", candidate);
     }
   }
 
@@ -714,6 +765,7 @@ export class RTCPeerConnection extends EventTarget {
             transceiver = this.addTransceiver(remoteMedia.kind, {
               direction: "recvonly",
             });
+            transceiver.mid = remoteMedia.rtp.muxId;
             this.onRemoteTransceiverAdded.execute(transceiver);
           }
 
@@ -731,6 +783,7 @@ export class RTCPeerConnection extends EventTarget {
         } else if (remoteMedia.kind === "application") {
           if (!this.sctpTransport) {
             this.sctpTransport = this.createSctpTransport();
+            this.sctpTransport.mid = remoteMedia.rtp.muxId;
           }
 
           if (bundle) {
@@ -743,7 +796,7 @@ export class RTCPeerConnection extends EventTarget {
 
           dtlsTransport = this.sctpTransport.dtlsTransport;
 
-          this.setRemoteSCTP(remoteMedia, this.sctpTransport);
+          this.setRemoteSCTP(remoteMedia, this.sctpTransport, i);
         } else {
           throw new Error("invalid media kind");
         }
@@ -888,7 +941,8 @@ export class RTCPeerConnection extends EventTarget {
 
   private setRemoteSCTP(
     remoteMedia: MediaDescription,
-    sctpTransport: RTCSctpTransport
+    sctpTransport: RTCSctpTransport,
+    mLineIndex: number
   ) {
     // # configure sctp
     this.sctpRemotePort = remoteMedia.sctpPort;
@@ -897,6 +951,7 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     sctpTransport.setRemotePort(this.sctpRemotePort);
+    sctpTransport.mLineIndex = mLineIndex;
     if (!sctpTransport.mid) {
       sctpTransport.mid = remoteMedia.rtp.muxId;
     }
@@ -980,13 +1035,10 @@ export class RTCPeerConnection extends EventTarget {
 
     const direction = options.direction || "sendrecv";
 
-    const dtlsTransport = this.createTransport(
-      [
-        SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-        SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-      ],
-      this.transceivers.length
-    );
+    const dtlsTransport = this.createTransport([
+      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+    ]);
 
     const sender = new RTCRtpSender(trackOrKind);
     const receiver = new RTCRtpReceiver(kind, sender.ssrc);
@@ -1114,18 +1166,14 @@ export class RTCPeerConnection extends EventTarget {
         media = createMediaDescriptionForTransceiver(
           transceiver,
           this.cname,
-          andDirection(transceiver.direction, transceiver.offerDirection),
-          transceiver.mid!
+          andDirection(transceiver.direction, transceiver.offerDirection)
         );
         dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteMedia.kind === "application") {
         if (!this.sctpTransport || !this.sctpTransport.mid) {
           throw new Error("sctpTransport not found");
         }
-        media = createMediaDescriptionForSctp(
-          this.sctpTransport,
-          this.sctpTransport.mid
-        );
+        media = createMediaDescriptionForSctp(this.sctpTransport);
 
         dtlsTransport = this.sctpTransport.dtlsTransport;
       } else {
@@ -1295,8 +1343,7 @@ export class RTCPeerConnection extends EventTarget {
 export function createMediaDescriptionForTransceiver(
   transceiver: RTCRtpTransceiver,
   cname: string,
-  direction: Direction,
-  mid: string
+  direction: Direction
 ) {
   const media = new MediaDescription(
     transceiver.kind,
@@ -1309,7 +1356,7 @@ export function createMediaDescriptionForTransceiver(
   media.rtp = {
     codecs: transceiver.codecs,
     headerExtensions: transceiver.headerExtensions,
-    muxId: mid,
+    muxId: transceiver.mid,
   };
   media.rtcpHost = "0.0.0.0";
   media.rtcpPort = 9;
@@ -1338,10 +1385,7 @@ export function createMediaDescriptionForTransceiver(
   return media;
 }
 
-export function createMediaDescriptionForSctp(
-  sctp: RTCSctpTransport,
-  mid: string
-) {
+export function createMediaDescriptionForSctp(sctp: RTCSctpTransport) {
   const media = new MediaDescription(
     "application",
     DISCARD_PORT,
@@ -1349,7 +1393,7 @@ export function createMediaDescriptionForSctp(
     ["webrtc-datachannel"]
   );
   media.sctpPort = sctp.port;
-  media.rtp.muxId = mid;
+  media.rtp.muxId = sctp.mid;
   media.sctpCapabilities = RTCSctpTransport.getCapabilities();
 
   addTransportDescription(media, sctp.dtlsTransport);

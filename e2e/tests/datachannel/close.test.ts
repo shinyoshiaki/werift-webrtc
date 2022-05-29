@@ -79,7 +79,6 @@ describe("datachannel/close", () => {
               peer.request(label, { type: "done" }),
               new Promise<void>((r) => {
                 channel.onclose = () => {
-                  console.log("onclose");
                   r();
                 };
                 setTimeout(() => channel.close(), 500);
@@ -128,7 +127,6 @@ describe("datachannel/close", () => {
 
         await new Promise<void>((r) => {
           channel.onmessage = () => {
-            console.warn("onmessage");
             r();
           };
         });
@@ -136,14 +134,12 @@ describe("datachannel/close", () => {
         Promise.all([
           new Promise<void>((r) => {
             channel.onclose = () => {
-              console.warn("onclose");
               r();
             };
             channel.close();
           }),
           peer.request(label, { type: "done" }),
         ]).then(() => {
-          console.log("done");
           done();
         });
       }),
@@ -174,7 +170,6 @@ describe("datachannel/close", () => {
           channel.send("hello");
         };
         channel.onclose = () => {
-          console.warn("onclose");
           done();
         };
 

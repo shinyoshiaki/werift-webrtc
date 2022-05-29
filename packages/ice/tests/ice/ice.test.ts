@@ -137,32 +137,6 @@ describe("ice", () => {
     await b.close();
   });
 
-  test(
-    "test_connect_close",
-    async () =>
-      new Promise<void>(async (done) => {
-        const a = new Connection(true, {});
-        const b = new Connection(false, {});
-        await inviteAccept(a, b);
-
-        await b.close();
-
-        try {
-          await Promise.all([
-            a.connect(),
-            async () => {
-              await setTimeout(1000);
-              await a.close();
-            },
-          ]);
-        } catch (error) {
-          expect(true).toBe(true);
-          done();
-        }
-      }),
-    1000 * 10
-  );
-
   // test("test_connect_two_components", async () => {
   //   const a = new Connection(true, { components: 2 });
   //   const b = new Connection(false, { components: 2 });
