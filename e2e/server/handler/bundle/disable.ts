@@ -1,11 +1,11 @@
-import { AcceptFn } from "protoo-server";
+import { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 
 export class bundle_disable_answer {
   pc!: RTCPeerConnection;
 
-  async exec(type: string, payload: any, accept: AcceptFn) {
+  async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
       case "init":
         {
@@ -19,6 +19,10 @@ export class bundle_disable_answer {
               dc.send("pong");
             }
           };
+          this.pc.onicecandidate = (e) => {
+            peer.notify("candidate", e.candidate);
+          };
+
           {
             const transceiver = this.pc.addTransceiver("video");
             transceiver.onTrack.subscribe((track) => {
@@ -31,7 +35,7 @@ export class bundle_disable_answer {
               transceiver.sender.replaceTrack(track);
             });
           }
-          await this.pc.setLocalDescription(await this.pc.createOffer());
+          this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
         }
         break;
@@ -56,7 +60,7 @@ export class bundle_disable_answer {
 export class bundle_disable_offer {
   pc!: RTCPeerConnection;
 
-  async exec(type: string, payload: any, accept: AcceptFn) {
+  async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
       case "init":
         {
@@ -84,8 +88,13 @@ export class bundle_disable_offer {
               transceiver.sender.replaceTrack(track);
             });
           }
+
+          this.pc.onicecandidate = (e) => {
+            peer.notify("candidate", e.candidate);
+          };
+
           await this.pc.setRemoteDescription(payload);
-          await this.pc.setLocalDescription(await this.pc.createAnswer());
+          this.pc.setLocalDescription(await this.pc.createAnswer());
           accept(this.pc.localDescription);
         }
         break;
