@@ -20,7 +20,7 @@ a=ice-ufrag:KFPTBCP4YKPZTY1Q
 a=ice-pwd:VA0L9MQMWS8IYO9NJF+ITE++
 a=fingerprint:sha-256 92:D6:06:D6:CB:64:B4:EF:47:76:00:F7:48:E0:ED:DD:9F:3E:DA:16:41:49:47:43:E0:77:DD:C6:D7:83:7E:19
 a=setup:passive
-a=mid:0
+a=mid:0_srtp
 a=sendrecv
 a=msid:virtual-6666 virtual-6666
 a=rtcp-mux
@@ -34,7 +34,7 @@ a=ice-ufrag:KFPTBCP4YKPZTY1Q
 a=ice-pwd:VA0L9MQMWS8IYO9NJF+ITE++
 a=fingerprint:sha-256 92:D6:06:D6:CB:64:B4:EF:47:76:00:F7:48:E0:ED:DD:9F:3E:DA:16:41:49:47:43:E0:77:DD:C6:D7:83:7E:19
 a=setup:passive
-a=mid:1
+a=mid:1_srtp
 a=sendrecv
 a=msid:13945094204333313074/3212739396 13945094204333313074/3212739396
 a=rtcp-mux
@@ -50,7 +50,7 @@ a=ice-ufrag:KFPTBCP4YKPZTY1Q
 a=ice-pwd:VA0L9MQMWS8IYO9NJF+ITE++
 a=fingerprint:sha-256 92:D6:06:D6:CB:64:B4:EF:47:76:00:F7:48:E0:ED:DD:9F:3E:DA:16:41:49:47:43:E0:77:DD:C6:D7:83:7E:19
 a=setup:passive
-a=mid:2
+a=mid:2_sctp
 a=sctpmap:5000 webrtc-datachannel 1024
 `;
 

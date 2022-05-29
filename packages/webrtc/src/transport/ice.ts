@@ -1,9 +1,11 @@
 import Event from "rx.mini";
+import { v4 } from "uuid";
 
 import { Candidate, Connection, IceOptions } from "../../../ice/src";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 export class RTCIceTransport {
+  readonly id = v4();
   connection = this.gather.connection;
   state: RTCIceConnectionState = "new";
 
@@ -181,6 +183,14 @@ export class RTCIceCandidate {
 
   static isThis(o: any) {
     if (typeof o?.candidate === "string") return true;
+  }
+
+  toJSON() {
+    return {
+      candidate: this.candidate,
+      sdpMid: this.sdpMid,
+      sdpMLineIndex: this.sdpMLineIndex,
+    };
   }
 }
 

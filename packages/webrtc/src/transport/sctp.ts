@@ -28,9 +28,10 @@ export class RTCSctpTransport {
   sctp!: SCTP;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly uuid = uuid.v4();
+  readonly id = uuid.v4();
 
   mid?: string;
+  mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
 
