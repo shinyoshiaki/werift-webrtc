@@ -229,7 +229,7 @@ export class RTCRtpReceiver {
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
-      log("unknown codec " + packet.header.payloadType);
+      // log("unknown codec " + packet.header.payloadType);
       return;
     }
 
