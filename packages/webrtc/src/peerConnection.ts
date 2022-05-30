@@ -434,24 +434,32 @@ export class RTCPeerConnection extends EventTarget {
 
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
-      const transceiver = this.transceivers.find(
-        (t) => t.dtlsTransport.iceTransport.id === iceTransport.id
-      );
-      if (transceiver) {
-        candidate.sdpMLineIndex = transceiver.mLineIndex;
-        candidate.sdpMid = transceiver.mid;
+
+      if (this.configuration.bundlePolicy === "max-bundle") {
+        candidate.sdpMLineIndex = 0;
+        candidate.sdpMid = this._localDescription?.media[0].rtp.muxId;
+      } else {
+        const transceiver = this.transceivers.find(
+          (t) => t.dtlsTransport.iceTransport.id === iceTransport.id
+        );
+        if (transceiver) {
+          candidate.sdpMLineIndex = transceiver.mLineIndex;
+          candidate.sdpMid = transceiver.mid;
+        }
+        if (
+          this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
+        ) {
+          candidate.sdpMLineIndex = this.sctpTransport.mLineIndex;
+          candidate.sdpMid = this.sctpTransport.mid;
+        }
       }
-      if (
-        this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
-      ) {
-        candidate.sdpMLineIndex = this.sctpTransport.mLineIndex;
-        candidate.sdpMid = this.sctpTransport.mid;
-      }
+
       candidate.foundation = "candidate:" + candidate.foundation;
 
       this.onIceCandidate.execute(candidate.toJSON());
-      if (this.onicecandidate)
+      if (this.onicecandidate) {
         this.onicecandidate({ candidate: candidate.toJSON() });
+      }
       this.emit("icecandidate", { candidate });
     };
 

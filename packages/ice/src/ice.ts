@@ -129,7 +129,9 @@ export class Connection {
       );
 
       candidates.push(protocol.localCandidate);
-      if (cb) cb(protocol.localCandidate);
+      if (cb) {
+        cb(protocol.localCandidate);
+      }
     }
 
     // # query STUN server for server-reflexive candidates (IPv4 only)
