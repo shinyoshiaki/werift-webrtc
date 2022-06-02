@@ -8,7 +8,7 @@ werift is a WebRTC Implementation for TypeScript (Node.js), includes ICE/DTLS/SC
 
 `npm install werift`
 
-requires at least Node.js 15
+requires at least Node.js 16
 
 # Documentation (WIP)
 
@@ -101,14 +101,14 @@ see console & chrome://webrtc-internals/
   - [x] Pion
   - [x] aiortc
   - [x] sipsorcery
-  - [x] webrtc-rs 
+  - [x] webrtc-rs
 - [x] Interop E2E test
   - [x] Chrome
   - ↓↓↓ https://github.com/sipsorcery/webrtc-echoes
   - [x] Pion
   - [x] aiortc
   - [x] sipsorcery
-  - [x] webrtc-rs 
+  - [x] webrtc-rs
 - [ ] Unit Tests
   - [ ] follow [Web Platform Tests](https://github.com/web-platform-tests/wpt)
 - [x] MediaRecorder
