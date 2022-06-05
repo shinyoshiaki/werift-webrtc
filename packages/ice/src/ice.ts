@@ -1012,11 +1012,10 @@ function nodeIpAddress(family: string): string[] {
           };
         }
       }
-      const addresses = interfaces[nic]!.filter((details) =>
-        typeof details.family === "string"
-          ? details.family.toLowerCase()
-          : "ipv" + details.family === family &&
-            !nodeIp.isLoopback(details.address)
+      const addresses = interfaces[nic]!.filter(
+        (details) =>
+          details.family.toLowerCase() === family &&
+          !nodeIp.isLoopback(details.address)
       );
       return {
         nic,
