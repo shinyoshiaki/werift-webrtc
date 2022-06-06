@@ -19,16 +19,16 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "ci": "npm run build && npm run test && npm run e2e",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "doc": "rm -rf doc && cd packages/webrtc && npm run doc && mv doc ../..",
     "e2e": "cd e2e && npm run ci",
     "e2e:dev": "cd e2e && npm run dev:server",
-    "format": "npm run format --workspaces",
+    "format": "npm run format --workspaces --if-present",
     "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
-    "test": "npm run test --workspaces",
-    "type": "npm run type --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "type": "npm run type --workspaces --if-present",
     "type:all": "npm run type:example && npm run type",
     "type:example": "tsc --noEmit -p ./tsconfig.json"
   },
