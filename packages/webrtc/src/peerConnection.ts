@@ -825,10 +825,10 @@ export class RTCPeerConnection extends EventTarget {
         // # add ICE candidates
         remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
 
-        await iceTransport.iceGather.gather();
+        iceTransport.iceGather.gather();
 
         if (remoteMedia.iceCandidatesComplete) {
-          await iceTransport.addRemoteCandidate(undefined);
+          iceTransport.addRemoteCandidate(undefined);
         }
 
         // # set DTLS role
@@ -1148,6 +1148,12 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async createAnswer() {
+    await this.ensureCerts();
+    const description = this.buildAnswer();
+    return description.toJSON();
+  }
+
+  private buildAnswer() {
     this.assertNotClosed();
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(
@@ -1159,8 +1165,6 @@ export class RTCPeerConnection extends EventTarget {
     if (!this._remoteDescription) {
       throw new Error("wrong state");
     }
-
-    await this.ensureCerts();
 
     const description = new SessionDescription();
     addSDPHeader("answer", description);
@@ -1214,7 +1218,7 @@ export class RTCPeerConnection extends EventTarget {
       description.group.push(bundle);
     }
 
-    return description.toJSON();
+    return description;
   }
 
   async close() {

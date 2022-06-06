@@ -43,12 +43,12 @@ export class RTCIceTransport {
     }
   }
 
-  addRemoteCandidate = async (candidate?: IceCandidate) => {
+  addRemoteCandidate = (candidate?: IceCandidate) => {
     if (!this.connection.remoteCandidatesEnd) {
       if (!candidate) {
-        await this.connection.addRemoteCandidate(undefined);
+        return this.connection.addRemoteCandidate(undefined);
       } else {
-        await this.connection.addRemoteCandidate(candidateToIce(candidate));
+        return this.connection.addRemoteCandidate(candidateToIce(candidate));
       }
     }
   };
