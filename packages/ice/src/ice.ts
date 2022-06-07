@@ -242,6 +242,7 @@ export class Connection {
     // # perform checks
     // 5.8.  Scheduling Checks
     for (;;) {
+      if (this.state === 'closed') break;
       if (!this.schedulingChecks()) break;
       await timers.setTimeout(20);
     }
