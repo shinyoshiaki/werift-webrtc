@@ -11,7 +11,7 @@ import { Event } from "rx.mini";
 import timers from "timers/promises";
 
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
-import { dnsLookup } from "./dns/lookup";
+import { DnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
 import { difference, Future, future, PQueue, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
@@ -40,6 +40,7 @@ export class Connection {
   _localCandidatesEnd = false;
   _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
   state: IceState = "new";
+  dnsLookup?: DnsLookup;
 
   readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -417,6 +418,8 @@ export class Connection {
 
     this.protocols = [];
     this.localCandidates = [];
+
+    await this.dnsLookup?.close();
   }
 
   private setState(state: IceState) {
@@ -442,8 +445,18 @@ export class Connection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      const host = await dnsLookup.lookup(remoteCandidate.host);
-      remoteCandidate.host = host;
+      try {
+        if (this.state === 'closed')
+          return;
+        if (!this.dnsLookup) {
+          this.dnsLookup = new DnsLookup();
+        }
+        const host = await this.dnsLookup.lookup(remoteCandidate.host);
+        remoteCandidate.host = host;
+      }
+      catch (error) {
+        return;
+      }
     }
 
     try {
