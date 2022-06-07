@@ -25,9 +25,11 @@ class DnsLookup {
 
       this.requesting = true;
       const promise = util.promisify(dns.lookup)(host);
-      promise.then(() => {
-        this.requesting = false;
-      });
+      promise
+        .then(() => {
+          this.requesting = false;
+        })
+        .catch(() => {});
 
       const res = await Promise.race([promise, setTimeout(200)]);
       if (!res) {
