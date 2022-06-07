@@ -1,18 +1,17 @@
 import { randomBytes } from "crypto";
 import debug from "debug";
-import dns from "dns";
 import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
 import isEqual from "lodash/isEqual";
 import range from "lodash/range";
 import { isIPv4 } from "net";
 import os from "os";
-import PCancelable, { all } from "p-cancelable";
+import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import timers from "timers/promises";
-import util from "util";
 
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
+import { dnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
 import { difference, Future, future, PQueue, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
@@ -442,19 +441,8 @@ export class Connection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      await timers.setTimeout(10);
-
-      const res = await util
-        .promisify(dns.lookup)(remoteCandidate.host)
-        .catch((err) => {
-          log(err, remoteCandidate);
-        });
-      if (res) {
-        remoteCandidate.host = res.address;
-      } else {
-        // todo fix
-        remoteCandidate.host = "127.0.0.1";
-      }
+      const host = await dnsLookup.lookup(remoteCandidate.host);
+      remoteCandidate.host = host;
     }
 
     try {
