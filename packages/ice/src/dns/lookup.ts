@@ -5,7 +5,8 @@ import util from "util";
 import { PromiseQueue } from "../../../common/src";
 
 class DnsLookup {
-  queue = new PromiseQueue();
+  private queue = new PromiseQueue();
+  private requesting = false;
 
   async lookup(host: string) {
     return this.queue.push(() => this.task(host));
@@ -13,10 +14,17 @@ class DnsLookup {
 
   private async task(host: string) {
     try {
-      const res = await Promise.race([
-        util.promisify(dns.lookup)(host),
-        setTimeout(200),
-      ]);
+      if (this.requesting) {
+        throw undefined;
+      }
+
+      this.requesting = true;
+      const promise = util.promisify(dns.lookup)(host);
+      promise.then(() => {
+        this.requesting = false;
+      });
+
+      const res = await Promise.race([promise, setTimeout(200)]);
       if (!res) {
         throw undefined;
       }
