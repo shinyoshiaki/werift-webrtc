@@ -7,12 +7,17 @@ import { PromiseQueue } from "../../../common/src";
 class DnsLookup {
   private queue = new PromiseQueue();
   private requesting = false;
+  private cache: { [local: string]: string } = {};
 
   async lookup(host: string) {
     return this.queue.push(() => this.task(host));
   }
 
   private async task(host: string) {
+    if (this.cache[host]) {
+      return this.cache[host];
+    }
+
     try {
       if (this.requesting) {
         throw undefined;
@@ -28,6 +33,7 @@ class DnsLookup {
       if (!res) {
         throw undefined;
       }
+      this.cache[host] = res.address;
       return res.address;
     } catch (error) {
       return "127.0.0.1";
