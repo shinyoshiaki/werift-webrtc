@@ -440,7 +440,10 @@ export class RTCPeerConnection extends EventTarget {
         this.remoteIsBundled
       ) {
         candidate.sdpMLineIndex = 0;
-        candidate.sdpMid = this._localDescription?.media[0].rtp.muxId;
+        const media = this._localDescription?.media[0];
+        if (media) {
+          candidate.sdpMid = media.rtp.muxId;
+        }
       } else {
         const transceiver = this.transceivers.find(
           (t) => t.dtlsTransport.iceTransport.id === iceTransport.id
