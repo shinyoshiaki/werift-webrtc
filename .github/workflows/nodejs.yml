@@ -7,7 +7,6 @@ on:
       - develop
       - "feature/*"
       - "maintain/*"
-      - "pr/*"
   pull_request:
     types: [opened]
     branches: [develop]
