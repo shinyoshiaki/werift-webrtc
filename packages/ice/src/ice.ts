@@ -242,7 +242,7 @@ export class Connection {
     // # perform checks
     // 5.8.  Scheduling Checks
     for (;;) {
-      if (this.state === 'closed') break;
+      if (this.state === "closed") break;
       if (!this.schedulingChecks()) break;
       await timers.setTimeout(20);
     }
@@ -446,15 +446,13 @@ export class Connection {
 
     if (remoteCandidate.host.includes(".local")) {
       try {
-        if (this.state === 'closed')
-          return;
+        if (this.state === "closed") return;
         if (!this.dnsLookup) {
           this.dnsLookup = new DnsLookup();
         }
         const host = await this.dnsLookup.lookup(remoteCandidate.host);
         remoteCandidate.host = host;
-      }
-      catch (error) {
+      } catch (error) {
         return;
       }
     }

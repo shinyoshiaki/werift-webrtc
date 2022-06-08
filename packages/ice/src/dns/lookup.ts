@@ -17,18 +17,19 @@ export class DnsLookup {
   constructor() {
     const lookupWorkerFunction = () => {
       const worker_thread = global.require("worker_threads");
-      const { lookup } = global.require('dns');
+      const { lookup } = global.require("dns");
 
-      const dnsLookup = (host: string) => lookup(host, (err: Error, address: string, family: number) => {
-        worker_thread.parentPort!.postMessage({
-          err: err?.message,
-          address,
-          family,
-        } as DnsLookupResult);
-        process.exit();
-      });
+      const dnsLookup = (host: string) =>
+        lookup(host, (err: Error, address: string, family: number) => {
+          worker_thread.parentPort!.postMessage({
+            err: err?.message,
+            address,
+            family,
+          } as DnsLookupResult);
+          process.exit();
+        });
 
-      worker_thread.parentPort!.on('message', (message: DnsLookupRequest) => {
+      worker_thread.parentPort!.on("message", (message: DnsLookupRequest) => {
         const { host } = message;
         dnsLookup(host);
       });
@@ -49,23 +50,24 @@ export class DnsLookup {
       return cached;
     }
     cached = new Promise((r, f) => {
-      const exitListener = (exitCode: number) => f(new Error(`dns.lookup thread exited unexpectedly: ${exitCode}`));
+      const exitListener = (exitCode: number) =>
+        f(new Error(`dns.lookup thread exited unexpectedly: ${exitCode}`));
 
       const threadMessageListener = (result: DnsLookupResult) => {
         if (result.host !== host) {
           return;
         }
 
-        this.thread.removeListener('message', threadMessageListener);
-        this.thread.removeListener('exit', exitListener);
+        this.thread.removeListener("message", threadMessageListener);
+        this.thread.removeListener("exit", exitListener);
 
         if (!result.address)
-          return f(new Error(result.err || 'dns.lookup thread unknown error'));
+          return f(new Error(result.err || "dns.lookup thread unknown error"));
         r(result.address);
       };
 
-      this.thread.on('message', threadMessageListener);
-      this.thread.on('exit', exitListener);
+      this.thread.on("message", threadMessageListener);
+      this.thread.on("exit", exitListener);
 
       this.thread.postMessage({
         host,
