@@ -25,6 +25,7 @@ export class DnsLookup {
             err: err?.message,
             address,
             family,
+            host,
           } as DnsLookupResult);
           process.exit();
         });
