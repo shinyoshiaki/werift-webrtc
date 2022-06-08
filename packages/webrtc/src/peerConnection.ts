@@ -435,9 +435,15 @@ export class RTCPeerConnection extends EventTarget {
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
 
-      if (this.configuration.bundlePolicy === "max-bundle") {
+      if (
+        this.configuration.bundlePolicy === "max-bundle" ||
+        this.remoteIsBundled
+      ) {
         candidate.sdpMLineIndex = 0;
-        candidate.sdpMid = this._localDescription?.media[0].rtp.muxId;
+        const media = this._localDescription?.media[0];
+        if (media) {
+          candidate.sdpMid = media.rtp.muxId;
+        }
       } else {
         const transceiver = this.transceivers.find(
           (t) => t.dtlsTransport.iceTransport.id === iceTransport.id
@@ -735,6 +741,16 @@ export class RTCPeerConnection extends EventTarget {
     return receiveParameters;
   }
 
+  get remoteIsBundled() {
+    const remoteSdp = this._remoteDescription;
+    if (!remoteSdp) return;
+    const bundle = remoteSdp.group.find(
+      (g) =>
+        g.semantic === "BUNDLE" && this.configuration.bundlePolicy !== "disable"
+    );
+    return bundle;
+  }
+
   async setRemoteDescription(sessionDescription: {
     type: "offer" | "answer";
     sdp: string;
@@ -751,10 +767,6 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingRemoteDescription = remoteSdp;
     }
 
-    const bundle = remoteSdp.group.find(
-      (g) =>
-        g.semantic === "BUNDLE" && this.configuration.bundlePolicy !== "disable"
-    );
     let bundleTransport: RTCDtlsTransport | undefined;
 
     // # apply description
@@ -777,7 +789,7 @@ export class RTCPeerConnection extends EventTarget {
           this.onRemoteTransceiverAdded.execute(transceiver);
         }
 
-        if (bundle) {
+        if (this.remoteIsBundled) {
           if (!bundleTransport) {
             bundleTransport = transceiver.dtlsTransport;
           } else {
@@ -794,7 +806,7 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
-        if (bundle) {
+        if (this.remoteIsBundled) {
           if (!bundleTransport) {
             bundleTransport = this.sctpTransport.dtlsTransport;
           } else {
