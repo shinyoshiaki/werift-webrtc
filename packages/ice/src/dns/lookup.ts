@@ -21,16 +21,17 @@ export class DnsLookup {
 
       const dnsLookup = (host: string) =>
         lookup(host, (err: Error, address: string, family: number) => {
-          worker_thread.parentPort!.postMessage({
+          const res: DnsLookupResult = {
             err: err?.message,
             address,
             family,
             host,
-          } as DnsLookupResult);
+          };
+          worker_thread.parentPort?.postMessage(res);
           process.exit();
         });
 
-      worker_thread.parentPort!.on("message", (message: DnsLookupRequest) => {
+      worker_thread.parentPort?.on("message", (message: DnsLookupRequest) => {
         const { host } = message;
         dnsLookup(host);
       });
