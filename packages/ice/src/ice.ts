@@ -995,7 +995,13 @@ export function candidatePairPriority(
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
 }
 
-function nodeIpAddress(family: string): string[] {
+function normalizeFamilyNodeV18(family: string | number) {
+  if (family === "IPv4") return 4;
+  if (family === "IPv6") return 6;
+  return family;
+}
+
+function nodeIpAddress(family: number): string[] {
   // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
   const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
   const banNetworks = ["vmnet", "veth"];
@@ -1014,7 +1020,7 @@ function nodeIpAddress(family: string): string[] {
       }
       const addresses = interfaces[nic]!.filter(
         (details) =>
-          details.family.toLowerCase() === family &&
+          normalizeFamilyNodeV18(details.family) === family &&
           !nodeIp.isLoopback(details.address)
       );
       return {
@@ -1035,8 +1041,8 @@ function nodeIpAddress(family: string): string[] {
 
 export function getHostAddresses(useIpv4: boolean, useIpv6: boolean) {
   const address: string[] = [];
-  if (useIpv4) address.push(...nodeIpAddress("ipv4"));
-  if (useIpv6) address.push(...nodeIpAddress("ipv6"));
+  if (useIpv4) address.push(...nodeIpAddress(4));
+  if (useIpv6) address.push(...nodeIpAddress(6));
   return address;
 }
 
