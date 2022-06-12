@@ -1,6 +1,6 @@
 {
   "name": "werift-ice",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "> TODO: description",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc/tree/master/packages/ice#readme",
   "bugs": {
@@ -18,8 +18,9 @@
     "lib"
   ],
   "scripts": {
-    "build": "yarn format && tsc -p ./tsconfig.production.json",
-    "deploy": "yarn build && yarn publish --no-git-tag-version",
+    "build": "npm run format && tsc -p ./tsconfig.production.json",
+    "deploy": "npm run build && npm publish",
+    "deploy:alpha": "npm run build && npm publish --tag alpha",
     "format": "yarn unused && yarn lint && prettier --write {src,tests}/**/*.{ts,test.ts}",
     "lint": "eslint ./src --fix",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
