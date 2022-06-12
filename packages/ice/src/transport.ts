@@ -3,6 +3,7 @@ import { createSocket, SocketType } from "dgram";
 
 import { findPort } from "../../common/src";
 import { Address } from "./types/model";
+import { normalizeFamilyNodeV18 } from "./utils";
 
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
@@ -12,7 +13,7 @@ export class UdpTransport implements Transport {
 
   constructor(private type: SocketType, private portRange?: [number, number]) {
     this.socket.on("message", (data, info) => {
-      if (info.family === "IPv6") {
+      if (normalizeFamilyNodeV18(info.family) === 6) {
         [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0
       }
       try {

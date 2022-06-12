@@ -19,6 +19,7 @@ import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
+import { normalizeFamilyNodeV18 } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
@@ -993,12 +994,6 @@ export function candidatePairPriority(
   const G = (iceControlling && local.priority) || remote.priority;
   const D = (iceControlling && remote.priority) || local.priority;
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
-}
-
-function normalizeFamilyNodeV18(family: string | number) {
-  if (family === "IPv4") return 4;
-  if (family === "IPv6") return 6;
-  return family;
 }
 
 function nodeIpAddress(family: number): string[] {
