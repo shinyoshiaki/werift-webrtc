@@ -2,7 +2,7 @@ import { Certificate, PrivateKey } from "@fidm/x509";
 import { Crypto } from "@peculiar/webcrypto";
 import * as x509 from "@peculiar/x509";
 import { decode, encode, types } from "binary-data";
-import { createSign } from "crypto";
+import nodeCrypto, { createSign } from "crypto";
 import addYears from "date-fns/addYears";
 
 import {
@@ -106,7 +106,7 @@ export class CipherContext {
     const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      serialNumber: "01",
+      serialNumber: nodeCrypto.randomBytes(8).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
       notAfter: addYears(Date.now(), 10),
