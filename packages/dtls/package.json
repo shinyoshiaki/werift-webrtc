@@ -1,6 +1,6 @@
 {
   "name": "werift-dtls",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "DTLS protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-dtls",
   "repository": {
@@ -18,6 +18,7 @@
     "ci": "yarn type && yarn test",
     "client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
     "dep": "depcheck",
+    "deploy": "npm run build && npm publish",
     "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
