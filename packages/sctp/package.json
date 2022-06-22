@@ -14,13 +14,13 @@
   "main": "./lib/sctp/src/index.js",
   "types": "lib/sctp/src/index.d.ts",
   "scripts": {
-    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
-    "ci": "yarn type && yarn lint && yarn test",
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "ci": "npm run type && npm run lint && npm run test",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
-    "format": "yarn lint && prettier --write src/**/*.ts",
+    "format": "npm run lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
-    "test": "yarn type && jest --forceExit",
+    "test": "npm run type && jest --forceExit",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli **/*.ts"
   },

@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "build": "tsc -p ./tsconfig.json",
-    "prod": "yarn build && NODE_ENV=production node ./build/loadtest/src/client.js"
+    "prod": "npm run build && NODE_ENV=production node ./build/loadtest/src/client.js"
   },
   "dependencies": {
     "airpc": "^0.3.1",

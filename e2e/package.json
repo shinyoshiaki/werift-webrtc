@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
-    "ci": "yarn build && run-p prod:server prod:test",
-    "debug": "cd debug && yarn dev",
+    "ci": "npm run build && run-p prod:server prod:test",
+    "debug": "cd debug && npm run dev",
     "dev:chrome": "karma start --browsers chrome_with_fake_device",
     "dev:firefox": "karma start --browsers firefox_with_fake_device",
     "dev:server": "DEBUG=werift* ts-node-dev --project tsconfig.server.json ./server/main.ts",
