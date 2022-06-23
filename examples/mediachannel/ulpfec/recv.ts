@@ -1,7 +1,7 @@
 import {
+  MediaRecorder,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-  Red,
   Vp8RtpPayload,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
@@ -10,6 +10,11 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
+  const recorder = new MediaRecorder([], "./ulpfec.webm", {
+    width: 640,
+    height: 360,
+  });
+
   const pc = new RTCPeerConnection({
     codecs: {
       video: [
@@ -38,16 +43,19 @@ server.on("connection", async (socket) => {
 
   const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
   transceiver.onTrack.subscribe((track) => {
+    recorder.addTrack(track);
+    recorder.start();
+
     track.onReceiveRtp.once((rtp) => {
       setInterval(() => {
+        console.log(rtp.header.ssrc);
         transceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
       }, 2000);
     });
-    track.onReceiveRtp.subscribe((packet) => {
-      const red = Red.deSerialize(packet.payload);
-      const vp81 = Vp8RtpPayload.deSerialize(red.blocks[0].block);
-      const vp82 = Vp8RtpPayload.deSerialize(packet.payload);
-      console.log(red);
+    track.onReceiveRtp.subscribe((packet, { isRed }) => {
+      const vp8 = Vp8RtpPayload.deSerialize(packet.payload);
+      vp8;
+      // console.log({ isRed, keyframe: vp8.isKeyframe });
     });
   });
 

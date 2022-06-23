@@ -1,6 +1,17 @@
 import { Red, RtpHeader, RtpPacket, uint16Add, uint32Add } from "../..";
 
-export class RedHandler {
+// 0                   1                    2                   3
+// 0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |F|   block PT  |  timestamp offset         |   block length    |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+// 0 1 2 3 4 5 6 7
+// +-+-+-+-+-+-+-+-+
+// |0|   Block PT  |
+// +-+-+-+-+-+-+-+-+
+
+export class AudioRedHandler {
   private readonly size = 150;
   private sequenceNumbers: number[] = [];
 
@@ -42,9 +53,11 @@ export class RedHandler {
     });
 
     const filtered = packets.filter((p) => {
+      // duplicate
       if (this.sequenceNumbers.includes(p.header.sequenceNumber)) {
         return false;
       } else {
+        // buffer overflow
         if (this.sequenceNumbers.length > this.size) {
           this.sequenceNumbers.shift();
         }

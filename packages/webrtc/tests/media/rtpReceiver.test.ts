@@ -9,7 +9,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../src";
-import { RedHandler } from "../../src/media/receiver/red";
+import { AudioRedHandler } from "../../src/media/receiver/red";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { wrapRtx } from "../../src/media/rtpSender";
 import { createDtlsTransport } from "../fixture";
@@ -183,7 +183,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     const packet = present.clone();
     packet.payload = red.serialize();
 
-    const redHandler = new RedHandler();
+    const redHandler = new AudioRedHandler();
     const res = redHandler.push(red, packet);
     expect(res.length).toBe(3);
     expect(res).toEqual([...redundantPackets, present]);

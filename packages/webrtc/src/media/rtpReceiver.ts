@@ -15,6 +15,7 @@ import {
   RtcpSrPacket,
   RtpHeader,
   RtpPacket,
+  UlpFec,
 } from "../../../rtp/src";
 import { codecParametersFromString } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
@@ -24,7 +25,7 @@ import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { Nack } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
-import { RedHandler } from "./receiver/red";
+import { AudioRedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -35,7 +36,7 @@ export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new Nack(this);
-  private readonly redHandler = new RedHandler();
+  private readonly redHandler = new AudioRedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
@@ -228,6 +229,7 @@ export class RTCRtpReceiver {
     if (this.stopped) return;
 
     const codec = this.codecs[packet.header.payloadType];
+    // console.log(codec);
     if (!codec) {
       // log("unknown codec " + packet.header.payloadType);
       return;
@@ -264,6 +266,13 @@ export class RTCRtpReceiver {
     let red: Red | undefined;
     if (codec.name.toLowerCase() === "red") {
       red = Red.deSerialize(packet.payload);
+      if (
+        !Object.keys(this.codecs).includes(
+          red.header.fields[0].blockPT.toString()
+        )
+      ) {
+        return;
+      }
     }
 
     // todo fix select use or not use nack
@@ -273,12 +282,31 @@ export class RTCRtpReceiver {
 
     if (track) {
       if (red) {
-        const payloads = this.redHandler.push(red, packet);
-        for (const packet of payloads) {
-          track.onReceiveRtp.execute(packet.clone());
+        if (track.kind === "audio") {
+          const payloads = this.redHandler.push(red, packet);
+          for (const packet of payloads) {
+            track.onReceiveRtp.execute(packet.clone(), { isRed: true });
+          }
+        } else {
+          if (red.blocks.length === 1) {
+            const [block] = red.blocks;
+            const mediaPacket = new RtpPacket(
+              new RtpHeader({
+                timestamp: packet.header.timestamp,
+                payloadType: block.blockPT,
+                ssrc: packet.header.ssrc,
+                sequenceNumber: packet.header.sequenceNumber,
+                marker: packet.header.marker,
+              }),
+              block.block
+            );
+            track.onReceiveRtp.execute(mediaPacket, { isRed: true });
+          } else if (red.blocks.length > 1) {
+            console.log("!!!!!");
+          }
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone());
+        track.onReceiveRtp.execute(packet.clone(), {});
       }
     }
 

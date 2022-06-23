@@ -22,6 +22,7 @@ export * from "./rtcp/rtpfb/nack";
 export * from "./rtcp/rtpfb/twcc";
 export * from "./rtcp/sdes";
 export * from "./rtcp/sr";
+export * from "./rtp/fec/ulpfec";
 export * from "./rtp/red/encoder";
 export * from "./rtp/red/packet";
 export * from "./rtp/rtp";
