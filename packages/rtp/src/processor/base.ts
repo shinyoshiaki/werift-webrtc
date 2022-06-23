@@ -5,7 +5,7 @@ import { RtcpPacket, RtpPacket } from "..";
 export abstract class Pipeline {
   protected children?: Pipeline | Output;
   constructor(streams?: {
-    rtpStream?: Event<[RtpPacket, any]>;
+    rtpStream?: Event<[RtpPacket]>;
     rtcpStream?: Event<[RtcpPacket]>;
   }) {
     streams?.rtpStream?.subscribe?.((packet) => {

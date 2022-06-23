@@ -1,7 +1,6 @@
 // rfc5109
 
 import { BitStream, bufferReader } from "../../../../common/src";
-import { RtpHeader, RtpPacket } from "../rtp";
 
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 // |                RTP Header (12 octets or more)                 |
@@ -23,7 +22,7 @@ import { RtpHeader, RtpPacket } from "../rtp";
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 export class UlpFec {
-  fecHeader: UlpFecHeader;
+  fecHeader!: UlpFecHeader;
   level: FecLevel[] = [];
 
   static deSerialize(buf: Buffer) {
@@ -58,25 +57,25 @@ export class UlpFec {
 
 export class UlpFecHeader {
   /**この仕様に対する将来の拡張を示すために予約されている拡張フラグです. これは0に設定する必要があり、受信者は無視する必要があります.  */
-  eBit: number;
+  eBit!: number;
   /**ロングマスクが使用されているかどうかを示します. Lビットが設定されていない場合、マスクは16ビット長になります. Lビットが設定されると、マスクの長さは48ビットになります.  */
-  lBit: number;
+  lBit!: number;
   /**FECパケットに関連付けられたメディアパケットのRTPヘッダーから対応するP、X、CC、M、PT値に適用される保護演算を介して取得されます。 */
-  pBit: number;
+  pBit!: number;
   /**FECパケットに関連付けられたメディアパケットのRTPヘッダーから対応するP、X、CC、M、PT値に適用される保護演算を介して取得されます。 */
-  xBit: number;
+  xBit!: number;
   /**FECパケットに関連付けられたメディアパケットのRTPヘッダーから対応するP、X、CC、M、PT値に適用される保護演算を介して取得されます。 */
-  cc: number;
+  cc!: number;
   /**FECパケットに関連付けられたメディアパケットのRTPヘッダーから対応するP、X、CC、M、PT値に適用される保護演算を介して取得されます。 */
-  mBit: number;
+  mBit!: number;
   /**FECパケットに関連付けられたメディアパケットのRTPヘッダーから対応するP、X、CC、M、PT値に適用される保護演算を介して取得されます。 */
-  pt: number;
+  pt!: number;
   /**すべてのレベルで）FECによって保護されているメディアパケットの中で、ラップアラウンドを考慮して、最小のシーケンス番号に設定する必要があります. これにより、FEC操作は、Lフィールドが0に設定されている場合は最大16パケット、Lフィールドが1に設定されている場合は48パケットの任意の文字列に拡張できます.  */
-  sn: number;
+  sn!: number;
   /**このFECパケットに関連付けられたメディアパケットのタイムスタンプに適用される保護操作を介して計算されます. これにより、タイムスタンプを完全に回復できます.  */
-  ts: number;
+  ts!: number;
   /**回復されたパケットの長さを決定するために使用されます. これは、メディアペイロードの長さ（バイト単位）、CSRCリスト、このFECパケットに関連付けられた各メディアパケットの拡張とパディングの合計の符号なしネットワーク順序16ビット表現に適用される保護操作を介して計算されます.  （言い換えると、CSRCリスト、RTP拡張、およびメディアペイロードパケットのパディング（存在する場合）は、ペイロードの一部として「カウント」されます）. これにより、保護されたメディアパケットの長さが同じでない場合でも、FEC手順を適用できます. たとえば、FECパケットが2つのメディアパケットを一緒に排他的論理和することによって生成されていると仮定します. 2つのメディアパケットのペイロードの長さは、それぞれ3（0b011）バイトと5（0b101）バイトです. */
-  length: number;
+  length!: number;
 
   static deSerialize(buf: Buffer) {
     const header = new UlpFecHeader();
@@ -105,10 +104,10 @@ export class UlpFecHeader {
 }
 
 export class FecLevel {
-  protectionLength: number;
-  mask: number;
-  payload: Buffer;
-  offset: number;
+  protectionLength!: number;
+  mask!: number;
+  payload!: Buffer;
+  offset!: number;
 
   static deSerialize(buf: Buffer, lBit: number) {
     let offset = 0;

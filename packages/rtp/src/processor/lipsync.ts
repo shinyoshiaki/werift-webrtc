@@ -16,7 +16,7 @@ export class LipSync extends Pipeline {
     public clockRate: number,
     public mismatch: number,
     streams?: {
-      rtpStream?: Event<[RtpPacket, any]>;
+      rtpStream?: Event<[RtpPacket]>;
       rtcpStream?: Event<[RtcpPacket]>;
     }
   ) {
