@@ -157,9 +157,11 @@ export class RTCPeerConnection extends EventTarget {
           break;
         case "red":
           {
-            const redundant = codecParams.payloadType + 1;
-            codecParams.parameters = `${redundant}/${redundant}`;
-            codecParams.payloadType = 63;
+            if (codecParams.contentType === "audio") {
+              const redundant = codecParams.payloadType + 1;
+              codecParams.parameters = `${redundant}/${redundant}`;
+              codecParams.payloadType = 63;
+            }
           }
           break;
       }
