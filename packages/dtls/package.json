@@ -1,6 +1,6 @@
 {
   "name": "werift-dtls",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "DTLS protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-dtls",
   "repository": {
