@@ -5,7 +5,14 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { codecParametersFromString, DtlsKeys } from ".";
+import {
+  codecParametersFromString,
+  DtlsKeys,
+  useAbsSendTime,
+  useNACK,
+  usePLI,
+  useREMB,
+} from ".";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -14,6 +21,8 @@ import {
 } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { enumerate, EventTarget } from "./helper";
+import { useFIR } from "./media/extension/rtcpFeedback";
+import { useSdesMid, useTransportWideCC } from "./media/extension/rtpExtension";
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -1533,16 +1542,14 @@ export const defaultPeerConfig: PeerConfig = {
       new RTCRtpCodecParameters({
         mimeType: "video/VP8",
         clockRate: 90000,
-        rtcpFeedback: [
-          { type: "ccm", parameter: "fir" },
-          { type: "nack" },
-          { type: "nack", parameter: "pli" },
-          { type: "goog-remb" },
-        ],
+        rtcpFeedback: [useFIR(), useNACK(), usePLI(), useREMB()],
       }),
     ],
   },
-  headerExtensions: { audio: [], video: [] },
+  headerExtensions: {
+    audio: [useSdesMid(), useTransportWideCC(), useAbsSendTime()],
+    video: [useSdesMid(), useTransportWideCC(), useAbsSendTime()],
+  },
   iceTransportPolicy: "all",
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
