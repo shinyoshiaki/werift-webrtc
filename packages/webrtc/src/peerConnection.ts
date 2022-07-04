@@ -299,9 +299,7 @@ export class RTCPeerConnection extends EventTarget {
       .forEach((transceiver) => {
         transceiver.mLineIndex = description.media.length;
         if (transceiver.mid == undefined) {
-          // rfc9143.html#name-security-considerations
-          // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
-          transceiver.mid = allocateMid(this.seenMid) + "av";
+          transceiver.mid = allocateMid(this.seenMid, "av");
         }
         description.media.push(
           createMediaDescriptionForTransceiver(
@@ -318,9 +316,7 @@ export class RTCPeerConnection extends EventTarget {
     ) {
       this.sctpTransport.mLineIndex = description.media.length;
       if (this.sctpTransport.mid == undefined) {
-        // rfc9143.html#name-security-considerations
-        // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
-        this.sctpTransport.mid = allocateMid(this.seenMid) + "dc";
+        this.sctpTransport.mid = allocateMid(this.seenMid, "dc");
       }
       description.media.push(createMediaDescriptionForSctp(this.sctpTransport));
     }
@@ -1476,10 +1472,12 @@ export function addTransportDescription(
   }
 }
 
-export function allocateMid(mids: Set<string>) {
+export function allocateMid(mids: Set<string>, type: "dc" | "av") {
   let mid = "";
   for (let i = 0; ; ) {
-    mid = (i++).toString();
+    // rfc9143.html#name-security-considerations
+    // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
+    mid = (i++).toString() + type;
     if (!mids.has(mid)) break;
   }
   mids.add(mid);
