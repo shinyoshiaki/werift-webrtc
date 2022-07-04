@@ -299,7 +299,7 @@ export class RTCPeerConnection extends EventTarget {
       .forEach((transceiver) => {
         transceiver.mLineIndex = description.media.length;
         if (transceiver.mid == undefined) {
-          transceiver.mid = allocateMid(this.seenMid) + "_srtp";
+          transceiver.mid = allocateMid(this.seenMid, "av");
         }
         description.media.push(
           createMediaDescriptionForTransceiver(
@@ -316,7 +316,7 @@ export class RTCPeerConnection extends EventTarget {
     ) {
       this.sctpTransport.mLineIndex = description.media.length;
       if (this.sctpTransport.mid == undefined) {
-        this.sctpTransport.mid = allocateMid(this.seenMid) + "_sctp";
+        this.sctpTransport.mid = allocateMid(this.seenMid, "dc");
       }
       description.media.push(createMediaDescriptionForSctp(this.sctpTransport));
     }
@@ -1037,10 +1037,11 @@ export class RTCPeerConnection extends EventTarget {
       const offer = isLocal ? this._remoteDescription : this._localDescription;
       if (!offer) throw new Error();
 
-      const offerMedia = offer.media.map((v) => [v.kind, v.rtp.muxId]);
-      const answerMedia = description.media.map((v) => [v.kind, v.rtp.muxId]);
-      if (!isEqual(offerMedia, answerMedia))
+      const answerMedia = description.media.map((v, i) => [v.kind, i]);
+      const offerMedia = offer.media.map((v, i) => [v.kind, i]);
+      if (!isEqual(offerMedia, answerMedia)) {
         throw new Error("Media sections in answer do not match offer");
+      }
     }
   }
 
@@ -1471,10 +1472,12 @@ export function addTransportDescription(
   }
 }
 
-export function allocateMid(mids: Set<string>) {
+export function allocateMid(mids: Set<string>, type: "dc" | "av") {
   let mid = "";
   for (let i = 0; ; ) {
-    mid = (i++).toString();
+    // rfc9143.html#name-security-considerations
+    // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
+    mid = (i++).toString() + type;
     if (!mids.has(mid)) break;
   }
   mids.add(mid);
