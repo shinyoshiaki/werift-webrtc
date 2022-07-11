@@ -1,6 +1,7 @@
 import debug from "debug";
 import cloneDeep from "lodash/cloneDeep";
 import isEqual from "lodash/isEqual";
+import merge from "lodash/merge";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
@@ -73,8 +74,7 @@ export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
   sctpTransport?: RTCSctpTransport;
   masterTransportEstablished = false;
-  configuration: Required<PeerConfig> =
-    cloneDeep<PeerConfig>(defaultPeerConfig);
+  config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
@@ -126,32 +126,20 @@ export class RTCPeerConnection extends EventTarget {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
 
-  constructor({
-    codecs,
-    headerExtensions,
-    iceServers,
-    iceTransportPolicy,
-    icePortRange,
-    dtls,
-    bundlePolicy,
-  }: Partial<PeerConfig> = {}) {
+  constructor(config: Partial<PeerConfig> = {}) {
     super();
 
-    if (iceServers) this.configuration.iceServers = iceServers;
-    if (iceTransportPolicy)
-      this.configuration.iceTransportPolicy = iceTransportPolicy;
-    if (icePortRange) {
-      const [min, max] = icePortRange;
+    merge(this.config, config);
+
+    if (this.config.icePortRange) {
+      const [min, max] = this.config.icePortRange;
       if (min === max) throw new Error("should not be same value");
       if (min >= max) throw new Error("The min must be less than max");
-      this.configuration.icePortRange = icePortRange;
     }
-    if (codecs?.audio) this.configuration.codecs.audio = codecs.audio;
-    if (codecs?.video) this.configuration.codecs.video = codecs.video;
 
     for (const [i, codecParams] of enumerate([
-      ...(this.configuration.codecs.audio || []),
-      ...(this.configuration.codecs.video || []),
+      ...(this.config.codecs.audio || []),
+      ...(this.config.codecs.video || []),
     ])) {
       if (codecParams.payloadType != undefined) {
         continue;
@@ -174,19 +162,15 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    if (headerExtensions?.audio)
-      this.configuration.headerExtensions.audio = headerExtensions.audio;
-    if (headerExtensions?.video)
-      this.configuration.headerExtensions.video = headerExtensions.video;
     [
-      ...(this.configuration.headerExtensions.audio || []),
-      ...(this.configuration.headerExtensions.video || []),
+      ...(this.config.headerExtensions.audio || []),
+      ...(this.config.headerExtensions.video || []),
     ].forEach((v, i) => {
       v.id = 1 + i;
     });
 
-    if (dtls) {
-      const { keys } = dtls;
+    if (this.config.dtls) {
+      const { keys } = this.config.dtls;
       if (keys) {
         this.certificates.push(
           new RTCCertificate(keys.keyPem, keys.certPem, keys.signatureHash)
@@ -204,9 +188,6 @@ export class RTCPeerConnection extends EventTarget {
           break;
       }
     });
-    if (bundlePolicy) {
-      this.configuration.bundlePolicy = bundlePolicy;
-    }
   }
 
   get localDescription() {
@@ -246,11 +227,11 @@ export class RTCPeerConnection extends EventTarget {
   buildOfferSdp() {
     this.transceivers.forEach((transceiver) => {
       if (transceiver.codecs.length === 0) {
-        transceiver.codecs = this.configuration.codecs[transceiver.kind];
+        transceiver.codecs = this.config.codecs[transceiver.kind];
       }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
-          this.configuration.headerExtensions[transceiver.kind];
+          this.config.headerExtensions[transceiver.kind];
       }
     });
 
@@ -321,7 +302,7 @@ export class RTCPeerConnection extends EventTarget {
       description.media.push(createMediaDescriptionForSctp(this.sctpTransport));
     }
 
-    if (this.configuration.bundlePolicy !== "disable") {
+    if (this.config.bundlePolicy !== "disable") {
       const mids = description.media
         .map((m) => m.rtp.muxId)
         .filter((v) => v) as string[];
@@ -417,16 +398,16 @@ export class RTCPeerConnection extends EventTarget {
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
-    if (this.configuration.bundlePolicy === "max-bundle") {
+    if (this.config.bundlePolicy === "max-bundle") {
       if (existing) {
         return this.dtlsTransports[0];
       }
     }
 
     const iceGatherer = new RTCIceGatherer({
-      ...parseIceServers(this.configuration.iceServers),
-      forceTurn: this.configuration.iceTransportPolicy === "relay",
-      portRange: this.configuration.icePortRange,
+      ...parseIceServers(this.config.iceServers),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      portRange: this.config.icePortRange,
     });
     if (existing) {
       iceGatherer.connection.localUserName = existing.connection.localUserName;
@@ -444,10 +425,7 @@ export class RTCPeerConnection extends EventTarget {
     iceTransport.iceGather.onIceCandidate = (candidate) => {
       if (!this.localDescription) return;
 
-      if (
-        this.configuration.bundlePolicy === "max-bundle" ||
-        this.remoteIsBundled
-      ) {
+      if (this.config.bundlePolicy === "max-bundle" || this.remoteIsBundled) {
         candidate.sdpMLineIndex = 0;
         const media = this._localDescription?.media[0];
         if (media) {
@@ -479,6 +457,7 @@ export class RTCPeerConnection extends EventTarget {
     };
 
     const dtlsTransport = new RTCDtlsTransport(
+      this.config,
       iceTransport,
       this.router,
       this.certificates,
@@ -754,8 +733,7 @@ export class RTCPeerConnection extends EventTarget {
     const remoteSdp = this._remoteDescription;
     if (!remoteSdp) return;
     const bundle = remoteSdp.group.find(
-      (g) =>
-        g.semantic === "BUNDLE" && this.configuration.bundlePolicy !== "disable"
+      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable"
     );
     return bundle;
   }
@@ -898,7 +876,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // # negotiate codecs
     transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
-      const localCodecs = this.configuration.codecs[remoteMedia.kind] || [];
+      const localCodecs = this.config.codecs[remoteMedia.kind] || [];
 
       const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
       if (!existCodec) return false;
@@ -920,11 +898,9 @@ export class RTCPeerConnection extends EventTarget {
     }
     transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
       (extension) =>
-        (
-          this.configuration.headerExtensions[
-            remoteMedia.kind as "video" | "audio"
-          ] || []
-        ).find((v) => v.uri === extension.uri)
+        (this.config.headerExtensions[remoteMedia.kind as Media] || []).find(
+          (v) => v.uri === extension.uri
+        )
     );
 
     // # configure direction
@@ -1236,7 +1212,7 @@ export class RTCPeerConnection extends EventTarget {
       description.media.push(media);
     });
 
-    if (this.configuration.bundlePolicy !== "disable") {
+    if (this.config.bundlePolicy !== "disable") {
       const bundle = new GroupDescription("BUNDLE", []);
       description.media.forEach((media) => {
         bundle.items.push(media.rtp.muxId!);
@@ -1507,6 +1483,12 @@ export interface PeerConfig {
     keys: DtlsKeys;
   }>;
   bundlePolicy: BundlePolicy;
+  debug: {
+    /**% */
+    inboundPacketLoss: number;
+    /**% */
+    outboundPacketLoss: number;
+  };
 }
 
 export const findCodecByMimeType = (
@@ -1558,6 +1540,7 @@ export const defaultPeerConfig: PeerConfig = {
   icePortRange: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
+  debug: { inboundPacketLoss: 0, outboundPacketLoss: 0 },
 };
 
 export interface RTCTrackEvent {
@@ -1574,3 +1557,5 @@ export interface RTCDataChannelEvent {
 export interface RTCPeerConnectionIceEvent {
   candidate: RTCIceCandidate;
 }
+
+type Media = "audio" | "video";

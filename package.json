@@ -28,6 +28,7 @@
     "format": "npm run format --workspaces --if-present",
     "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
     "test": "npm run test --workspaces --if-present",
+    "test:all": "npm run test && npm run e2e",
     "type": "npm run type --workspaces --if-present",
     "type:all": "npm run type:example && npm run type",
     "type:example": "tsc --noEmit -p ./tsconfig.json",

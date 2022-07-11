@@ -1,6 +1,7 @@
 import { setTimeout } from "timers/promises";
 
 import {
+  defaultPeerConfig,
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
@@ -27,6 +28,7 @@ export const createRtpPacket = () => {
 
 export const createDtlsTransport = () => {
   const dtls = new RTCDtlsTransport(
+    defaultPeerConfig,
     new RTCIceTransport(new RTCIceGatherer()),
     new RtpRouter(),
     []
@@ -55,10 +57,20 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
-  const session1 = new RTCDtlsTransport(transport1, new RtpRouter(), []);
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    new RtpRouter(),
+    []
+  );
   await session1.setupCertificate();
 
-  const session2 = new RTCDtlsTransport(transport2, new RtpRouter(), []);
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    new RtpRouter(),
+    []
+  );
   await session2.setupCertificate();
 
   session1.setRemoteParams(session2.localParameters);

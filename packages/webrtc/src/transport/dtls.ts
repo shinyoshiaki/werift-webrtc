@@ -29,6 +29,7 @@ import {
 } from "../../../rtp/src";
 import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
 import { RtpRouter } from "../media/router";
+import { PeerConfig } from "../peerConnection";
 import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
 import { RTCIceTransport } from "./ice";
 
@@ -52,6 +53,7 @@ export class RTCDtlsTransport {
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
+    readonly config: PeerConfig,
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
@@ -124,6 +126,12 @@ export class RTCDtlsTransport {
         });
       }
       this.dtls.onData.subscribe((buf) => {
+        if (
+          this.config.debug.inboundPacketLoss &&
+          this.config.debug.inboundPacketLoss / 100 < Math.random()
+        ) {
+          return;
+        }
         this.dataReceiver(buf);
       });
       this.dtls.onClose.once(() => {
@@ -179,6 +187,13 @@ export class RTCDtlsTransport {
     this.srtcp = new SrtcpSession(config);
 
     this.iceTransport.connection.onData.subscribe((data) => {
+      if (
+        this.config.debug.inboundPacketLoss &&
+        this.config.debug.inboundPacketLoss / 100 < Math.random()
+      ) {
+        return;
+      }
+
       if (!isMedia(data)) return;
       if (isRtcp(data)) {
         const dec = this.srtcp.decrypt(data);
@@ -193,20 +208,45 @@ export class RTCDtlsTransport {
   }
 
   readonly sendData = async (data: Buffer) => {
-    if (!this.dtls) throw new Error("dtls not established");
+    if (
+      this.config.debug.outboundPacketLoss &&
+      this.config.debug.outboundPacketLoss / 100 < Math.random()
+    ) {
+      return;
+    }
+
+    if (!this.dtls) {
+      throw new Error("dtls not established");
+    }
     await this.dtls.send(data);
   };
 
-  async sendRtp(payload: Buffer, header: RtpHeader) {
+  async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
     const enc = this.srtp.encrypt(payload, header);
-    await this.iceTransport.connection.send(enc).catch((err: Error) => {});
+
+    if (
+      this.config.debug.outboundPacketLoss &&
+      this.config.debug.outboundPacketLoss / 100 < Math.random()
+    ) {
+      return enc.length;
+    }
+
+    await this.iceTransport.connection.send(enc).catch(() => {});
     return enc.length;
   }
 
   async sendRtcp(packets: RtcpPacket[]) {
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
-    await this.iceTransport.connection.send(enc).catch((err: Error) => {});
+
+    if (
+      this.config.debug.outboundPacketLoss &&
+      this.config.debug.outboundPacketLoss / 100 < Math.random()
+    ) {
+      return enc.length;
+    }
+
+    await this.iceTransport.connection.send(enc).catch(() => {});
   }
 
   private setState(state: DtlsState) {
