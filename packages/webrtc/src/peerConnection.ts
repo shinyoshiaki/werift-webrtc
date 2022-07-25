@@ -1531,13 +1531,13 @@ export const defaultPeerConfig: PeerConfig = {
       new RTCRtpCodecParameters({
         mimeType: "video/VP8",
         clockRate: 90000,
-        rtcpFeedback: [useFIR(), useNACK(), usePLI(), useREMB()],
+        rtcpFeedback: [useNACK(), usePLI(), useREMB()],
       }),
     ],
   },
   headerExtensions: {
-    audio: [useSdesMid(), useTransportWideCC(), useAbsSendTime()],
-    video: [useSdesMid(), useTransportWideCC(), useAbsSendTime()],
+    audio: [],
+    video: [],
   },
   iceTransportPolicy: "all",
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
