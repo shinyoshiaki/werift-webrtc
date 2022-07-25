@@ -1,11 +1,11 @@
 import debug from "debug";
 import cloneDeep from "lodash/cloneDeep";
 import isEqual from "lodash/isEqual";
-import merge from "lodash/merge";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
+import { deepMerge } from ".";
 import {
   codecParametersFromString,
   DtlsKeys,
@@ -129,7 +129,7 @@ export class RTCPeerConnection extends EventTarget {
   constructor(config: Partial<PeerConfig> = {}) {
     super();
 
-    merge(this.config, config);
+    deepMerge(this.config, config);
 
     if (this.config.icePortRange) {
       const [min, max] = this.config.icePortRange;
@@ -154,9 +154,11 @@ export class RTCPeerConnection extends EventTarget {
           break;
         case "red":
           {
-            const redundant = codecParams.payloadType + 1;
-            codecParams.parameters = `${redundant}/${redundant}`;
-            codecParams.payloadType = 63;
+            if (codecParams.contentType === "audio") {
+              const redundant = codecParams.payloadType + 1;
+              codecParams.parameters = `${redundant}/${redundant}`;
+              codecParams.payloadType = 63;
+            }
           }
           break;
       }
@@ -1483,12 +1485,14 @@ export interface PeerConfig {
     keys: DtlsKeys;
   }>;
   bundlePolicy: BundlePolicy;
-  debug: {
+  debug: Partial<{
     /**% */
     inboundPacketLoss: number;
     /**% */
     outboundPacketLoss: number;
-  };
+    /**ms */
+    receiverReportDelay: number;
+  }>;
 }
 
 export const findCodecByMimeType = (
@@ -1540,7 +1544,7 @@ export const defaultPeerConfig: PeerConfig = {
   icePortRange: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
-  debug: { inboundPacketLoss: 0, outboundPacketLoss: 0 },
+  debug: {},
 };
 
 export interface RTCTrackEvent {
