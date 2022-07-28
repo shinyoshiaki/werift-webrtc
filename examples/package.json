@@ -27,7 +27,8 @@
     "react-dom": "^17.0.2",
     "sdp-transform": "^2.14.1",
     "speaker": "^0.5.3",
-    "uuid": "^8.3.2"
+    "uuid": "^8.3.2",
+    "werift-rtp": "^0.3.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.10",
