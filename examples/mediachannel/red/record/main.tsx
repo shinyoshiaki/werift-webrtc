@@ -82,7 +82,7 @@ class RedSender {
     const presentPayload = redundantPayloads.pop();
     const red = new Red();
     redundantPayloads.forEach((redundant) => {
-      red.payloads.push({
+      (red as any).payloads.push({
         bin: redundant.buffer,
         blockPT: 97,
         timestampOffset: uint32Add(
@@ -91,7 +91,7 @@ class RedSender {
         ),
       });
     });
-    red.payloads.push({ bin: presentPayload.buffer, blockPT: 97 });
+    (red as any).payloads.push({ bin: presentPayload.buffer, blockPT: 97 });
     return red;
   }
 }
@@ -104,7 +104,7 @@ const senderTransform = (sender: RTCRtpSender) => {
   const transformStream = new TransformStream({
     transform: (encodedFrame, controller) => {
       const packet = Red.deSerialize(encodedFrame.data);
-      const newPayload = packet.payloads.at(-1);
+      const newPayload = (packet as any).payloads.at(-1);
       redSender.push({
         buffer: newPayload.bin,
         timestamp: encodedFrame.timestamp,
