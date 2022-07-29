@@ -1,8 +1,8 @@
 import {
-  BitWriter,
-  bufferReader,
-  bufferWriter,
-  getBit,
+    BitWriter,
+    bufferReader,
+    bufferWriter,
+    getBit
 } from "../../../common/src";
 
 export const HEADER_SIZE = 4;

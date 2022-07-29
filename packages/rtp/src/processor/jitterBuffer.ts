@@ -1,7 +1,7 @@
 import { debug } from "debug";
 
-import { uint16Add } from "../../../common/src";
 import { RtpPacket } from "..";
+import { uint16Add } from "../../../common/src";
 import { RtcpPacket } from "../rtcp/rtcp";
 import { Pipeline } from "./base";
 

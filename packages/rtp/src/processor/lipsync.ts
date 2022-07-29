@@ -1,7 +1,7 @@
 import Event from "rx.mini";
 
-import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpSrPacket, RtpPacket } from "..";
+import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpPacket } from "../rtcp/rtcp";
 import { Pipeline } from "./base";
 

@@ -4,22 +4,22 @@ import { jspack } from "jspack";
 
 import { bufferXor, randomTransactionId } from "../helper";
 import {
-  AttributeKey,
-  AttributePair,
-  AttributeRepository,
-  ATTRIBUTES_BY_NAME,
-  ATTRIBUTES_BY_TYPE,
-  packXorAddress,
-  unpackXorAddress,
+    AttributeKey,
+    AttributePair,
+    AttributeRepository,
+    ATTRIBUTES_BY_NAME,
+    ATTRIBUTES_BY_TYPE,
+    packXorAddress,
+    unpackXorAddress
 } from "./attributes";
 import {
-  classes,
-  COOKIE,
-  FINGERPRINT_LENGTH,
-  FINGERPRINT_XOR,
-  HEADER_LENGTH,
-  INTEGRITY_LENGTH,
-  methods,
+    classes,
+    COOKIE,
+    FINGERPRINT_LENGTH,
+    FINGERPRINT_XOR,
+    HEADER_LENGTH,
+    INTEGRITY_LENGTH,
+    methods
 } from "./const";
 
 export function parseMessage(

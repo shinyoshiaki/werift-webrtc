@@ -5,19 +5,19 @@ import * as uuid from "uuid";
 
 import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
 import {
-  DATA_CHANNEL_ACK,
-  DATA_CHANNEL_OPEN,
-  DATA_CHANNEL_RELIABLE,
-  WEBRTC_BINARY,
-  WEBRTC_BINARY_EMPTY,
-  WEBRTC_DCEP,
-  WEBRTC_STRING,
-  WEBRTC_STRING_EMPTY,
+    DATA_CHANNEL_ACK,
+    DATA_CHANNEL_OPEN,
+    DATA_CHANNEL_RELIABLE,
+    WEBRTC_BINARY,
+    WEBRTC_BINARY_EMPTY,
+    WEBRTC_DCEP,
+    WEBRTC_STRING,
+    WEBRTC_STRING_EMPTY
 } from "../const";
 import {
-  DCState,
-  RTCDataChannel,
-  RTCDataChannelParameters,
+    DCState,
+    RTCDataChannel,
+    RTCDataChannelParameters
 } from "../dataChannel";
 import { RTCDtlsTransport } from "./dtls";
 

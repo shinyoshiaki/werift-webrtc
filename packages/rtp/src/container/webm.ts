@@ -1,7 +1,7 @@
 import * as EBML from "@shinyoshiaki/ebml-builder";
 
-import { BitWriter2, BufferChain } from "../../../common/src";
 import { OpusRtpPayload } from "..";
+import { BitWriter2, BufferChain } from "../../../common/src";
 
 export class WEBMBuilder {
   readonly ebmlHeader = EBML.build(
