@@ -6,6 +6,7 @@
     "plugin:prettier/recommended",
     "prettier"
   ],
+  "root": true,
   "env": {
     "jest": true,
     "es6": true,

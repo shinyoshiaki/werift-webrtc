@@ -1,12 +1,9 @@
-import {
-  HashAlgorithms,
-  SignatureAlgorithm,
-} from "../../dtls/src/cipher/const";
+import { HashAlgorithms, SignatureAlgorithm } from '../../dtls/src/cipher/const';
 import {
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
-} from "../../dtls/src/context/srtp";
-import { DtlsRole } from "./transport/dtls";
+} from '../../dtls/src/context/srtp';
+import { DtlsRole } from './transport/dtls';
 
 // data channel export constants
 export const DATA_CHANNEL_ACK = 2;
@@ -26,41 +23,42 @@ export const WEBRTC_BINARY = 53;
 export const WEBRTC_STRING_EMPTY = 56;
 export const WEBRTC_BINARY_EMPTY = 57;
 
-export const DISCARD_HOST = "0.0.0.0";
+export const DISCARD_HOST = '0.0.0.0';
 export const DISCARD_PORT = 9;
-export const MEDIA_KINDS = ["audio", "video"];
+export const MEDIA_KINDS = ['audio', 'video'];
 
-export const DIRECTIONS = ["inactive", "sendonly", "recvonly", "sendrecv"];
+export const DIRECTIONS = ['inactive', 'sendonly', 'recvonly', 'sendrecv'];
 export const DTLS_ROLE_SETUP = {
-  auto: "actpass",
-  client: "active",
-  server: "passive",
+  auto: 'actpass',
+  client: 'active',
+  server: 'passive',
 };
-export const DTLS_SETUP_ROLE: { [key: string]: DtlsRole } = Object.keys(
-  DTLS_ROLE_SETUP
-).reduce((acc, cur) => {
-  const key = (DTLS_ROLE_SETUP as any)[cur];
-  acc[key] = cur;
-  return acc;
-}, {} as any);
+export const DTLS_SETUP_ROLE: { [key: string]: DtlsRole } = Object.keys(DTLS_ROLE_SETUP).reduce(
+  (acc, cur) => {
+    const key = (DTLS_ROLE_SETUP as any)[cur];
+    acc[key] = cur;
+    return acc;
+  },
+  {} as any
+);
 export const FMTP_INT_PARAMETERS = [
-  "apt",
-  "max-fr",
-  "max-fs",
-  "maxplaybackrate",
-  "minptime",
-  "stereo",
-  "useinbandfec",
+  'apt',
+  'max-fr',
+  'max-fs',
+  'maxplaybackrate',
+  'minptime',
+  'stereo',
+  'useinbandfec',
 ];
 
-export const SSRC_INFO_ATTRS = ["cname", "msid", "mslabel", "label"];
+export const SSRC_INFO_ATTRS = ['cname', 'msid', 'mslabel', 'label'];
 
 export const SRTP_PROFILE = {
   SRTP_AES128_CM_HMAC_SHA1_80: ProtectionProfileAes128CmHmacSha1_80,
   SRTP_AEAD_AES_128_GCM: ProtectionProfileAeadAes128Gcm,
 } as const;
 
-export const SenderDirections = ["sendonly", "sendrecv"];
-export const NotSenderDirections = ["inactive", "recvonly"];
+export const SenderDirections = ['sendonly', 'sendrecv'];
+export const NotSenderDirections = ['inactive', 'recvonly'];
 
 export { HashAlgorithms, SignatureAlgorithm };

@@ -1,6 +1,6 @@
-import { MediaStreamTrack } from "../../media/track";
-import { MediaWriter } from "./writer";
-import { WebmFactory } from "./writer/webm";
+import { MediaStreamTrack } from '../../media/track';
+import { MediaWriter } from './writer';
+import { WebmFactory } from './writer/webm';
 
 export class MediaRecorder {
   writer: MediaWriter;
@@ -11,10 +11,10 @@ export class MediaRecorder {
     public path: string,
     public options: Partial<MediaRecorderOptions> = {}
   ) {
-    this.ext = path.split(".").slice(-1)[0];
+    this.ext = path.split('.').slice(-1)[0];
     this.writer = (() => {
       switch (this.ext) {
-        case "webm":
+        case 'webm':
           return new WebmFactory(path, options);
         default:
           throw new Error();

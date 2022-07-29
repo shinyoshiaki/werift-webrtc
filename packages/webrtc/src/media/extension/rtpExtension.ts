@@ -1,12 +1,11 @@
-import { RTCRtpHeaderExtensionParameters } from "../parameters";
+import { RTCRtpHeaderExtensionParameters } from '../parameters';
 
 export const RTP_EXTENSION_URI = {
-  sdesMid: "urn:ietf:params:rtp-hdrext:sdes:mid",
-  sdesRTPStreamID: "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id",
-  repairedRtpStreamId: "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id",
-  transportWideCC:
-    "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
-  absSendTime: "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+  sdesMid: 'urn:ietf:params:rtp-hdrext:sdes:mid',
+  sdesRTPStreamID: 'urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id',
+  repairedRtpStreamId: 'urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id',
+  transportWideCC: 'http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01',
+  absSendTime: 'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time',
 } as const;
 
 export function useSdesMid() {

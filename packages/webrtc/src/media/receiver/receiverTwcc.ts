@@ -1,7 +1,7 @@
-import debug from "debug";
-import { setTimeout } from "timers/promises";
+import debug from 'debug';
+import { setTimeout } from 'timers/promises';
 
-import { uint8Add, uint16Add, uint24 } from "../../../../common/src";
+import { uint8Add, uint16Add, uint24 } from '../../../../common/src';
 import {
   PacketStatus,
   RecvDelta,
@@ -9,11 +9,11 @@ import {
   RunLengthChunk,
   StatusVectorChunk,
   TransportWideCC,
-} from "../../../../rtp/src";
-import { RTCDtlsTransport } from "../../transport/dtls";
-import { microTime } from "../../utils";
+} from '../../../../rtp/src';
+import { RTCDtlsTransport } from '../../transport/dtls';
+import { microTime } from '../../utils';
 
-const log = debug("werift/webrtc/media/receiver/receiverTwcc");
+const log = debug('werift/webrtc/media/receiver/receiverTwcc');
 
 type ExtensionInfo = { tsn: number; timestamp: number };
 
@@ -54,9 +54,7 @@ export class ReceiverTWCC {
 
   private sendTWCC() {
     if (Object.keys(this.extensionInfo).length === 0) return;
-    const extensionsArr = Object.values(this.extensionInfo).sort(
-      (a, b) => a.tsn - b.tsn
-    );
+    const extensionsArr = Object.values(this.extensionInfo).sort((a, b) => a.tsn - b.tsn);
 
     const minTSN = extensionsArr[0].tsn;
     const maxTSN = extensionsArr.slice(-1)[0].tsn;
@@ -91,10 +89,7 @@ export class ReceiverTWCC {
         recvDeltas.push(recvDelta);
 
         // when status changed
-        if (
-          lastPacketStatus != undefined &&
-          lastPacketStatus.status !== recvDelta.type
-        ) {
+        if (lastPacketStatus != undefined && lastPacketStatus.status !== recvDelta.type) {
           packetChunks.push(
             new RunLengthChunk({
               packetStatus: lastPacketStatus.status,

@@ -1,5 +1,5 @@
-import { int, uint16Gt } from "../../../../common/src";
-import { RtpPacket } from "../../../../rtp/src";
+import { int, uint16Gt } from '../../../../common/src';
+import { RtpPacket } from '../../../../rtp/src';
 
 // from aiortc
 
@@ -25,8 +25,7 @@ export class StreamStatistics {
 
   add(packet: RtpPacket, now: number = Date.now() / 1000) {
     const inOrder =
-      this.max_seq == undefined ||
-      uint16Gt(packet.header.sequenceNumber, this.max_seq);
+      this.max_seq == undefined || uint16Gt(packet.header.sequenceNumber, this.max_seq);
     this.packets_received++;
 
     if (this.base_seq == undefined) {
@@ -36,18 +35,12 @@ export class StreamStatistics {
     if (inOrder) {
       const arrival = int(now * this.clockRate);
 
-      if (
-        this.max_seq != undefined &&
-        packet.header.sequenceNumber < this.max_seq
-      ) {
+      if (this.max_seq != undefined && packet.header.sequenceNumber < this.max_seq) {
         this.cycles += 1 << 16;
       }
       this.max_seq = packet.header.sequenceNumber;
 
-      if (
-        packet.header.timestamp !== this.last_timestamp &&
-        this.packets_received > 1
-      ) {
+      if (packet.header.timestamp !== this.last_timestamp && this.packets_received > 1) {
         const diff = Math.abs(
           arrival -
             (this.last_arrival ?? 0) -

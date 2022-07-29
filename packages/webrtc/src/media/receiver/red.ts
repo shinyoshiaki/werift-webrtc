@@ -1,4 +1,4 @@
-import { Red, RtpHeader, RtpPacket, uint16Add, uint32Add } from "../..";
+import { Red, RtpHeader, RtpPacket, uint16Add, uint32Add } from '../..';
 
 export class RedHandler {
   private readonly size = 150;
@@ -8,10 +8,7 @@ export class RedHandler {
     const packets: RtpPacket[] = [];
 
     red.blocks.forEach(({ blockPT, timestampOffset, block }, i) => {
-      const sequenceNumber = uint16Add(
-        rtp.header.sequenceNumber,
-        -(red.blocks.length - (i + 1))
-      );
+      const sequenceNumber = uint16Add(rtp.header.sequenceNumber, -(red.blocks.length - (i + 1)));
       if (timestampOffset) {
         packets.push(
           new RtpPacket(

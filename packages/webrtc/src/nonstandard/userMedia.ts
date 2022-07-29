@@ -1,11 +1,11 @@
-import { exec } from "child_process";
-import { createSocket } from "dgram";
-import { setImmediate } from "timers/promises";
-import { v4 } from "uuid";
+import { exec } from 'child_process';
+import { createSocket } from 'dgram';
+import { setImmediate } from 'timers/promises';
+import { v4 } from 'uuid';
 
-import { randomPort } from "../../../common/src";
-import { RtpPacket } from "../../../rtp/src";
-import { MediaStreamTrack } from "../media/track";
+import { randomPort } from '../../../common/src';
+import { RtpPacket } from '../../../rtp/src';
+import { MediaStreamTrack } from '../media/track';
 
 export const getUserMp4 = async (path: string, loop?: boolean) => {
   const audioPort = await randomPort();
@@ -16,8 +16,8 @@ export const getUserMp4 = async (path: string, loop?: boolean) => {
 
 class MediaMp4 {
   private streamId = v4();
-  audio = new MediaStreamTrack({ kind: "audio", streamId: this.streamId });
-  video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
+  audio = new MediaStreamTrack({ kind: 'audio', streamId: this.streamId });
+  video = new MediaStreamTrack({ kind: 'video', streamId: this.streamId });
 
   constructor(
     private videoPort: number,
@@ -32,9 +32,9 @@ class MediaMp4 {
   private setupTrack = (port: number, track: MediaStreamTrack) => {
     let payloadType = 0;
 
-    const socket = createSocket("udp4");
+    const socket = createSocket('udp4');
     socket.bind(port);
-    socket.on("message", async (buf) => {
+    socket.on('message', async (buf) => {
       const rtp = RtpPacket.deSerialize(buf);
       if (!payloadType) {
         payloadType = rtp.header.payloadType;
@@ -64,7 +64,7 @@ udpsink host=127.0.0.1 port=${this.audioPort}`;
       const process = exec(cmd);
 
       if (this.loop) {
-        await new Promise((r) => process.on("close", r));
+        await new Promise((r) => process.on('close', r));
         run();
       }
     };

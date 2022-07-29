@@ -1,9 +1,9 @@
-import Event from "rx.mini";
+import Event from 'rx.mini';
 
-import { TransportWideCC } from "../../../../rtp/src";
-import { Int } from "../../../../rtp/src/helper";
-import { milliTime } from "../../utils";
-import { CumulativeResult } from "./cumulativeResult";
+import { TransportWideCC } from '../../../../rtp/src';
+import { Int } from '../../../../rtp/src/helper';
+import { milliTime } from '../../utils';
+import { CumulativeResult } from './cumulativeResult';
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;
@@ -67,11 +67,7 @@ export class SenderBandwidthEstimator {
       if (!info) continue;
       if (!result.receivedAtMs) continue;
 
-      this.cumulativeResult.addPacket(
-        info.size,
-        info.sendingAtMs,
-        result.receivedAtMs
-      );
+      this.cumulativeResult.addPacket(info.size, info.sendingAtMs, result.receivedAtMs);
     }
 
     if (elapsedMs >= 100 && this.cumulativeResult.numPackets >= 20) {
@@ -84,8 +80,7 @@ export class SenderBandwidthEstimator {
       if (this.congestionCounter > -COUNTER_MAX) {
         const maxBonus = Int(COUNTER_MAX / 2) + 1;
         const minBonus = Int(COUNTER_MAX / 4) + 1;
-        const bonus =
-          maxBonus - ((maxBonus - minBonus) / 10) * this.congestionScore;
+        const bonus = maxBonus - ((maxBonus - minBonus) / 10) * this.congestionScore;
 
         this.congestionCounter = this.congestionCounter - bonus;
       }

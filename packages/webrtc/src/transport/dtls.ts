@@ -1,44 +1,39 @@
-import { Certificate, PrivateKey } from "@fidm/x509";
-import debug from "debug";
-import Event from "rx.mini";
-import { setTimeout } from "timers/promises";
-import { v4 } from "uuid";
+import { Certificate, PrivateKey } from '@fidm/x509';
+import debug from 'debug';
+import Event from 'rx.mini';
+import { setTimeout } from 'timers/promises';
+import { v4 } from 'uuid';
 
+import { DtlsClient, DtlsServer, DtlsSocket, Transport } from '../../../dtls/src';
 import {
-    DtlsClient,
-    DtlsServer,
-    DtlsSocket,
-    Transport
-} from "../../../dtls/src";
+  HashAlgorithm,
+  NamedCurveAlgorithm,
+  SignatureAlgorithm,
+  SignatureHash,
+} from '../../../dtls/src/cipher/const';
+import { CipherContext } from '../../../dtls/src/context/cipher';
+import { Profile } from '../../../dtls/src/context/srtp';
+import { Connection } from '../../../ice/src';
 import {
-    HashAlgorithm,
-    NamedCurveAlgorithm,
-    SignatureAlgorithm,
-    SignatureHash
-} from "../../../dtls/src/cipher/const";
-import { CipherContext } from "../../../dtls/src/context/cipher";
-import { Profile } from "../../../dtls/src/context/srtp";
-import { Connection } from "../../../ice/src";
-import {
-    RtcpPacket,
-    RtcpPacketConverter,
-    RtpHeader,
-    RtpPacket,
-    SrtcpSession,
-    SrtpSession
-} from "../../../rtp/src";
-import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
-import { RtpRouter } from "../media/router";
-import { PeerConfig } from "../peerConnection";
-import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
-import { RTCIceTransport } from "./ice";
+  RtcpPacket,
+  RtcpPacketConverter,
+  RtpHeader,
+  RtpPacket,
+  SrtcpSession,
+  SrtpSession,
+} from '../../../rtp/src';
+import { keyLength, saltLength } from '../../../rtp/src/srtp/const';
+import { RtpRouter } from '../media/router';
+import { PeerConfig } from '../peerConnection';
+import { fingerprint, isDtls, isMedia, isRtcp } from '../utils';
+import { RTCIceTransport } from './ice';
 
-const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
+const log = debug('werift:packages/webrtc/src/transport/dtls.ts');
 
 export class RTCDtlsTransport {
   id = v4();
-  state: DtlsState = "new";
-  role: DtlsRole = "auto";
+  state: DtlsState = 'new';
+  role: DtlsRole = 'auto';
   srtpStarted = false;
   transportSequenceNumber = 0;
 
@@ -77,11 +72,7 @@ export class RTCDtlsTransport {
           },
           NamedCurveAlgorithm.secp256r1_23
         );
-      this.localCertificate = new RTCCertificate(
-        keyPem,
-        certPem,
-        signatureHash
-      );
+      this.localCertificate = new RTCCertificate(keyPem, certPem, signatureHash);
     }
     return this.localCertificate;
   }
@@ -91,21 +82,21 @@ export class RTCDtlsTransport {
   }
 
   async start() {
-    if (this.state !== "new") throw new Error();
+    if (this.state !== 'new') throw new Error();
     if (this.remoteParameters?.fingerprints.length === 0) throw new Error();
 
-    if (this.role === "auto") {
-      if (this.iceTransport.role === "controlling") {
-        this.role = "server";
+    if (this.role === 'auto') {
+      if (this.iceTransport.role === 'controlling') {
+        this.role = 'server';
       } else {
-        this.role = "client";
+        this.role = 'client';
       }
     }
 
-    this.setState("connecting");
+    this.setState('connecting');
 
     await new Promise<void>(async (r) => {
-      if (this.role === "server") {
+      if (this.role === 'server') {
         this.dtls = new DtlsServer({
           cert: this.localCertificate?.certPem,
           key: this.localCertificate?.privateKey,
@@ -135,19 +126,19 @@ export class RTCDtlsTransport {
         this.dataReceiver(buf);
       });
       this.dtls.onClose.once(() => {
-        this.setState("closed");
+        this.setState('closed');
       });
       this.dtls.onConnect.once(r);
       this.dtls.onError.once((error) => {
-        this.setState("failed");
-        log("dtls failed", error);
+        this.setState('failed');
+        log('dtls failed', error);
       });
 
       if (this.dtls instanceof DtlsClient) {
         await setTimeout(100);
         this.dtls.connect().catch((error) => {
-          this.setState("failed");
-          log("dtls connect failed", error);
+          this.setState('failed');
+          log('dtls connect failed', error);
         });
       }
     });
@@ -155,8 +146,8 @@ export class RTCDtlsTransport {
     if (this.srtpProfiles.length > 0) {
       this.startSrtp();
     }
-    this.setState("connected");
-    log("dtls connected");
+    this.setState('connected');
+    log('dtls connected');
   }
 
   startSrtp() {
@@ -167,12 +158,14 @@ export class RTCDtlsTransport {
 
     const profile = this.dtls.srtp.srtpProfile;
     if (!profile) {
-      throw new Error("need srtpProfile");
+      throw new Error('need srtpProfile');
     }
-    log("selected SRTP Profile", profile);
+    log('selected SRTP Profile', profile);
 
-    const { localKey, localSalt, remoteKey, remoteSalt } =
-      this.dtls.extractSessionKeys(keyLength(profile), saltLength(profile));
+    const { localKey, localSalt, remoteKey, remoteSalt } = this.dtls.extractSessionKeys(
+      keyLength(profile),
+      saltLength(profile)
+    );
 
     const config = {
       keys: {
@@ -216,7 +209,7 @@ export class RTCDtlsTransport {
     }
 
     if (!this.dtls) {
-      throw new Error("dtls not established");
+      throw new Error('dtls not established');
     }
     await this.dtls.send(data);
   };
@@ -257,31 +250,21 @@ export class RTCDtlsTransport {
   }
 
   async stop() {
-    this.setState("closed");
+    this.setState('closed');
     // todo impl send alert
   }
 }
 
-export const DtlsStates = [
-  "new",
-  "connecting",
-  "connected",
-  "closed",
-  "failed",
-] as const;
+export const DtlsStates = ['new', 'connecting', 'connected', 'closed', 'failed'] as const;
 export type DtlsState = typeof DtlsStates[number];
 
-export type DtlsRole = "auto" | "server" | "client";
+export type DtlsRole = 'auto' | 'server' | 'client';
 
 export class RTCCertificate {
   publicKey: string;
   privateKey: string;
 
-  constructor(
-    privateKeyPem: string,
-    public certPem: string,
-    public signatureHash: SignatureHash
-  ) {
+  constructor(privateKeyPem: string, public certPem: string, public signatureHash: SignatureHash) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     this.publicKey = cert.publicKey.toPEM();
     this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
@@ -290,11 +273,8 @@ export class RTCCertificate {
   getFingerprints(): RTCDtlsFingerprint[] {
     return [
       new RTCDtlsFingerprint(
-        "sha-256",
-        fingerprint(
-          Certificate.fromPEM(Buffer.from(this.certPem)).raw,
-          "sha256"
-        )
+        'sha-256',
+        fingerprint(Certificate.fromPEM(Buffer.from(this.certPem)).raw, 'sha256')
       ),
     ];
   }
@@ -313,7 +293,7 @@ export class RTCDtlsFingerprint {
 export class RTCDtlsParameters {
   constructor(
     public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | "server"
+    public role: 'auto' | 'client' | 'server'
   ) {}
 }
 

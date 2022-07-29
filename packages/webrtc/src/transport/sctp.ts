@@ -1,27 +1,23 @@
-import debug from "debug";
-import { jspack } from "jspack";
-import { Event } from "rx.mini";
-import * as uuid from "uuid";
+import debug from 'debug';
+import { jspack } from 'jspack';
+import { Event } from 'rx.mini';
+import * as uuid from 'uuid';
 
-import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
+import { SCTP, SCTP_STATE, Transport } from '../../../sctp/src';
 import {
-    DATA_CHANNEL_ACK,
-    DATA_CHANNEL_OPEN,
-    DATA_CHANNEL_RELIABLE,
-    WEBRTC_BINARY,
-    WEBRTC_BINARY_EMPTY,
-    WEBRTC_DCEP,
-    WEBRTC_STRING,
-    WEBRTC_STRING_EMPTY
-} from "../const";
-import {
-    DCState,
-    RTCDataChannel,
-    RTCDataChannelParameters
-} from "../dataChannel";
-import { RTCDtlsTransport } from "./dtls";
+  DATA_CHANNEL_ACK,
+  DATA_CHANNEL_OPEN,
+  DATA_CHANNEL_RELIABLE,
+  WEBRTC_BINARY,
+  WEBRTC_BINARY_EMPTY,
+  WEBRTC_DCEP,
+  WEBRTC_STRING,
+  WEBRTC_STRING_EMPTY,
+} from '../const';
+import { DCState, RTCDataChannel, RTCDataChannelParameters } from '../dataChannel';
+import { RTCDtlsTransport } from './dtls';
 
-const log = debug("werift/webrtc/transport/sctp");
+const log = debug('werift/webrtc/transport/sctp');
 
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;
@@ -59,27 +55,27 @@ export class RTCSctpTransport {
             const dc = this.dataChannels[id];
             if (!dc) return;
             // todo fix
-            dc.setReadyState("closing");
-            dc.setReadyState("closed");
+            dc.setReadyState('closing');
+            dc.setReadyState('closed');
             delete this.dataChannels[id];
           });
         }),
         this.sctp.stateChanged.connected.subscribe(() => {
           Object.values(this.dataChannels).forEach((channel) => {
-            if (channel.negotiated && channel.readyState !== "open") {
-              channel.setReadyState("open");
+            if (channel.negotiated && channel.readyState !== 'open') {
+              channel.setReadyState('open');
             }
           });
           this.dataChannelFlush();
         }),
         this.sctp.stateChanged.closed.subscribe(() => {
           Object.values(this.dataChannels).forEach((dc) => {
-            dc.setReadyState("closed");
+            dc.setReadyState('closed');
           });
           this.dataChannels = {};
         }),
         this.dtlsTransport.onStateChange.subscribe((state) => {
-          if (state === "closed") {
+          if (state === 'closed') {
             this.sctp.setState(SCTP_STATE.CLOSED);
           }
         }),
@@ -93,46 +89,36 @@ export class RTCSctpTransport {
   }
 
   private get isServer() {
-    return this.dtlsTransport.iceTransport.role !== "controlling";
+    return this.dtlsTransport.iceTransport.role !== 'controlling';
   }
 
   channelByLabel(label: string) {
     return Object.values(this.dataChannels).find((d) => d.label === label);
   }
 
-  private datachannelReceive = async (
-    streamId: number,
-    ppId: number,
-    data: Buffer
-  ) => {
+  private datachannelReceive = async (streamId: number, ppId: number, data: Buffer) => {
     if (ppId === WEBRTC_DCEP && data.length > 0) {
-      log("DCEP", streamId, ppId, data);
+      log('DCEP', streamId, ppId, data);
       switch (data[0]) {
         case DATA_CHANNEL_OPEN:
           {
             if (data.length < 12) {
-              log("DATA_CHANNEL_OPEN data.length not enough");
+              log('DATA_CHANNEL_OPEN data.length not enough');
               return;
             }
 
             if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
-              const [
-                ,
-                channelType,
-                ,
-                reliability,
-                labelLength,
-                protocolLength,
-              ] = jspack.Unpack("!BBHLHH", data);
+              const [, channelType, , reliability, labelLength, protocolLength] = jspack.Unpack(
+                '!BBHLHH',
+                data
+              );
 
               let pos = 12;
-              const label = data.slice(pos, pos + labelLength).toString("utf8");
+              const label = data.slice(pos, pos + labelLength).toString('utf8');
               pos += labelLength;
-              const protocol = data
-                .slice(pos, pos + protocolLength)
-                .toString("utf8");
+              const protocol = data.slice(pos, pos + protocolLength).toString('utf8');
 
-              log("DATA_CHANNEL_OPEN", {
+              log('DATA_CHANNEL_OPEN', {
                 channelType,
                 reliability,
                 streamId,
@@ -140,10 +126,8 @@ export class RTCSctpTransport {
                 protocol,
               });
 
-              const maxRetransmits =
-                (channelType & 0x03) === 1 ? reliability : undefined;
-              const maxPacketLifeTime =
-                (channelType & 0x03) === 2 ? reliability : undefined;
+              const maxRetransmits = (channelType & 0x03) === 1 ? reliability : undefined;
+              const maxPacketLifeTime = (channelType & 0x03) === 2 ? reliability : undefined;
 
               // # register channel
               const parameters = new RTCDataChannelParameters({
@@ -159,27 +143,27 @@ export class RTCSctpTransport {
               this.dataChannels[streamId] = channel;
 
               this.onDataChannel.execute(channel);
-              channel.setReadyState("open");
+              channel.setReadyState('open');
             } else {
-              log("datachannel already opened", "retransmit ack");
+              log('datachannel already opened', 'retransmit ack');
             }
 
             const channel = this.dataChannels[streamId];
             this.dataChannelQueue.push([
               channel,
               WEBRTC_DCEP,
-              Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
+              Buffer.from(jspack.Pack('!B', [DATA_CHANNEL_ACK])),
             ]);
             await this.dataChannelFlush();
           }
           break;
         case DATA_CHANNEL_ACK:
-          log("DATA_CHANNEL_ACK", streamId, ppId);
+          log('DATA_CHANNEL_ACK', streamId, ppId);
           const channel = this.dataChannels[streamId];
           if (!channel) {
-            throw new Error("channel not found");
+            throw new Error('channel not found');
           }
-          channel.setReadyState("open");
+          channel.setReadyState('open');
           break;
       }
     } else {
@@ -188,9 +172,9 @@ export class RTCSctpTransport {
         const msg = (() => {
           switch (ppId) {
             case WEBRTC_STRING:
-              return data.toString("utf8");
+              return data.toString('utf8');
             case WEBRTC_STRING_EMPTY:
-              return "";
+              return '';
             case WEBRTC_BINARY:
               return data;
             case WEBRTC_BINARY_EMPTY:
@@ -201,7 +185,7 @@ export class RTCSctpTransport {
         })();
 
         channel.message.execute(msg);
-        channel.emit("message", { data: msg });
+        channel.emit('message', { data: msg });
         if (channel.onmessage) {
           channel.onmessage({ data: msg });
         }
@@ -220,16 +204,14 @@ export class RTCSctpTransport {
     this.dataChannels[channel.id] = channel;
 
     if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
-      channel.setReadyState("open");
+      channel.setReadyState('open');
     }
   }
 
   dataChannelOpen(channel: RTCDataChannel) {
     if (channel.id) {
       if (this.dataChannels[channel.id])
-        throw new Error(
-          `Data channel with ID ${channel.id} already registered`
-        );
+        throw new Error(`Data channel with ID ${channel.id} already registered`);
       this.dataChannels[channel.id] = channel;
     }
 
@@ -249,7 +231,7 @@ export class RTCSctpTransport {
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
-    const data = jspack.Pack("!BBHLHH", [
+    const data = jspack.Pack('!BBHLHH', [
       DATA_CHANNEL_OPEN,
       channelType,
       priority,
@@ -259,8 +241,8 @@ export class RTCSctpTransport {
     ]);
     const send = Buffer.concat([
       Buffer.from(data),
-      Buffer.from(channel.label, "utf8"),
-      Buffer.from(channel.protocol, "utf8"),
+      Buffer.from(channel.label, 'utf8'),
+      Buffer.from(channel.protocol, 'utf8'),
     ]);
     this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
     this.dataChannelFlush();
@@ -314,13 +296,13 @@ export class RTCSctpTransport {
     channel.addBufferedAmount(data.length);
 
     this.dataChannelQueue.push(
-      typeof data === "string"
+      typeof data === 'string'
         ? [channel, WEBRTC_STRING, Buffer.from(data)]
         : [channel, WEBRTC_BINARY, data]
     );
 
     if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
-      log("sctp not established", this.sctp.associationState);
+      log('sctp not established', this.sctp.associationState);
     }
 
     this.dataChannelFlush();
@@ -351,8 +333,8 @@ export class RTCSctpTransport {
   }
 
   dataChannelClose(channel: RTCDataChannel) {
-    if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {
-      channel.setReadyState("closing");
+    if (!(['closing', 'closed'] as DCState[]).includes(channel.readyState)) {
+      channel.setReadyState('closing');
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
         this.sctp.reconfigQueue.push(channel.id);
@@ -366,7 +348,7 @@ export class RTCSctpTransport {
         if (channel.id) {
           delete this.dataChannels[channel.id];
         }
-        channel.setReadyState("closed");
+        channel.setReadyState('closed');
       }
     }
   }

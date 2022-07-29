@@ -1,61 +1,53 @@
-import { randomBytes } from "crypto";
-import debug from "debug";
-import { jspack } from "jspack";
-import Event from "rx.mini";
-import { setTimeout } from "timers/promises";
-import * as uuid from "uuid";
+import { randomBytes } from 'crypto';
+import debug from 'debug';
+import { jspack } from 'jspack';
+import Event from 'rx.mini';
+import { setTimeout } from 'timers/promises';
+import * as uuid from 'uuid';
 
-import { codecParametersFromString } from "..";
+import { bufferWriter, random16, uint16Add, uint32Add } from '../../../common/src';
 import {
-    bufferWriter,
-    random16,
-    uint16Add,
-    uint32Add
-} from "../../../common/src";
+  Extension,
+  GenericNack,
+  PictureLossIndication,
+  ReceiverEstimatedMaxBitrate,
+  RedEncoder,
+  RtcpPacket,
+  RtcpPayloadSpecificFeedback,
+  RtcpRrPacket,
+  RtcpSenderInfo,
+  RtcpSourceDescriptionPacket,
+  RtcpSrPacket,
+  RtcpTransportLayerFeedback,
+  RtpHeader,
+  RtpPacket,
+  SourceDescriptionChunk,
+  SourceDescriptionItem,
+  TransportWideCC,
+} from '../../../rtp/src';
+import { codecParametersFromString } from '..';
+import { RTCDtlsTransport } from '../transport/dtls';
+import { Kind } from '../types/domain';
+import { compactNtp, milliTime, ntpTime } from '../utils';
+import { RTP_EXTENSION_URI } from './extension/rtpExtension';
 import {
-    Extension,
-    GenericNack,
-    PictureLossIndication,
-    ReceiverEstimatedMaxBitrate,
-    RedEncoder,
-    RtcpPacket,
-    RtcpPayloadSpecificFeedback,
-    RtcpRrPacket,
-    RtcpSenderInfo,
-    RtcpSourceDescriptionPacket,
-    RtcpSrPacket,
-    RtcpTransportLayerFeedback,
-    RtpHeader,
-    RtpPacket,
-    SourceDescriptionChunk,
-    SourceDescriptionItem,
-    TransportWideCC
-} from "../../../rtp/src";
-import { RTCDtlsTransport } from "../transport/dtls";
-import { Kind } from "../types/domain";
-import { compactNtp, milliTime, ntpTime } from "../utils";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
-import {
-    RTCRtpCodecParameters,
-    RTCRtpHeaderExtensionParameters,
-    RTCRtpSendParameters
-} from "./parameters";
-import { SenderBandwidthEstimator, SentInfo } from "./sender/senderBWE";
-import { MediaStreamTrack } from "./track";
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+  RTCRtpSendParameters,
+} from './parameters';
+import { SenderBandwidthEstimator, SentInfo } from './sender/senderBWE';
+import { MediaStreamTrack } from './track';
 
-const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
+const log = debug('werift:packages/webrtc/src/media/rtpSender.ts');
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
-  readonly type = "sender";
-  readonly kind =
-    typeof this.trackOrKind === "string"
-      ? this.trackOrKind
-      : this.trackOrKind.kind;
-  readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
-  readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
+  readonly type = 'sender';
+  readonly kind = typeof this.trackOrKind === 'string' ? this.trackOrKind : this.trackOrKind.kind;
+  readonly ssrc = jspack.Unpack('!L', randomBytes(4))[0];
+  readonly rtxSsrc = jspack.Unpack('!L', randomBytes(4))[0];
   streamId = uuid.v4();
   readonly trackId = uuid.v4();
   readonly onReady = new Event();
@@ -118,7 +110,7 @@ export class RTCRtpSender {
     this.dtlsTransport = dtlsTransport;
     this.dtlsDisposer = [
       this.dtlsTransport.onStateChange.subscribe((state) => {
-        if (state === "connected") {
+        if (state === 'connected') {
           this.onReady.execute();
         }
       }).unSubscribe,
@@ -146,23 +138,18 @@ export class RTCRtpSender {
     }
 
     params.codecs.forEach((codec) => {
-      const codecParams = codecParametersFromString(codec.parameters ?? "");
-      if (
-        codec.name.toLowerCase() === "rtx" &&
-        codecParams["apt"] === this.codec?.payloadType
-      ) {
+      const codecParams = codecParametersFromString(codec.parameters ?? '');
+      if (codec.name.toLowerCase() === 'rtx' && codecParams['apt'] === this.codec?.payloadType) {
         this.rtxPayloadType = codec.payloadType;
       }
-      if (codec.name.toLowerCase() === "red") {
-        this.redRedundantPayloadType = Number(
-          (codec.parameters ?? "").split("/")[0]
-        );
+      if (codec.name.toLowerCase() === 'red') {
+        this.redRedundantPayloadType = Number((codec.parameters ?? '').split('/')[0]);
       }
     });
   }
 
   registerTrack(track: MediaStreamTrack) {
-    if (track.stopped) throw new Error("track is ended");
+    if (track.stopped) throw new Error('track is ended');
 
     if (this.disposeTrack) {
       this.disposeTrack();
@@ -191,17 +178,16 @@ export class RTCRtpSender {
       return;
     }
 
-    if (track.stopped) throw new Error("track is ended");
+    if (track.stopped) throw new Error('track is ended');
 
     if (this.sequenceNumber != undefined) {
-      const header =
-        track.header || (await track.onReceiveRtp.asPromise())[0].header;
+      const header = track.header || (await track.onReceiveRtp.asPromise())[0].header;
 
       this.replaceRTP(header);
     }
 
     this.registerTrack(track);
-    log("replaceTrack", "ssrc", track.ssrc, "rid", track.rid);
+    log('replaceTrack', 'ssrc', track.ssrc, 'rid', track.rid);
   }
 
   stop() {
@@ -242,9 +228,7 @@ export class RTCRtpSender {
               chunks: [
                 new SourceDescriptionChunk({
                   source: this.ssrc,
-                  items: [
-                    new SourceDescriptionItem({ type: 1, text: this.cname }),
-                  ],
+                  items: [new SourceDescriptionItem({ type: 1, text: this.cname })],
                 }),
               ],
             })
@@ -254,17 +238,14 @@ export class RTCRtpSender {
         try {
           await this.dtlsTransport.sendRtcp(packets);
         } catch (error) {
-          log("sendRtcp failed", error);
+          log('sendRtcp failed', error);
           await setTimeout(500 + Math.random() * 1000);
         }
       }
     } catch (error) {}
   }
 
-  replaceRTP({
-    sequenceNumber,
-    timestamp,
-  }: Pick<RtpHeader, "sequenceNumber" | "timestamp">) {
+  replaceRTP({ sequenceNumber, timestamp }: Pick<RtpHeader, 'sequenceNumber' | 'timestamp'>) {
     if (this.sequenceNumber != undefined) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
     }
@@ -272,11 +253,11 @@ export class RTCRtpSender {
       this.timestampOffset = uint32Add(this.timestamp, -timestamp);
     }
     this.rtpCache = [];
-    log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
+    log('replaceRTP', this.sequenceNumber, sequenceNumber, this.seqOffset);
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+    if (this.dtlsTransport.state !== 'connected' || !this.codec) {
       return;
     }
 
@@ -316,10 +297,7 @@ export class RTCRtpSender {
                 this.dtlsTransport.transportSequenceNumber,
                 1
               );
-              return bufferWriter(
-                [2],
-                [this.dtlsTransport.transportSequenceNumber]
-              );
+              return bufferWriter([2], [this.dtlsTransport.transportSequenceNumber]);
             case RTP_EXTENSION_URI.absSendTime:
               const buf = Buffer.alloc(3);
               const time = (ntpTime() >> 14n) & 0x00ffffffn;
@@ -376,8 +354,7 @@ export class RTCRtpSender {
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
               if (this.lsr === report.lsr && report.dlsr) {
-                const rtt =
-                  Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
+                const rtt = Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
                 if (this.rtt === undefined) {
                   this.rtt = rtt;
                 } else {
@@ -401,9 +378,7 @@ export class RTCRtpSender {
               {
                 const feedback = packet.feedback as GenericNack;
                 feedback.lost.forEach(async (seqNum) => {
-                  let packet = this.rtpCache.find(
-                    (rtp) => rtp.header.sequenceNumber === seqNum
-                  );
+                  let packet = this.rtpCache.find((rtp) => rtp.header.sequenceNumber === seqNum);
                   if (packet) {
                     if (this.rtxPayloadType != undefined) {
                       packet = wrapRtx(
@@ -412,15 +387,9 @@ export class RTCRtpSender {
                         this.rtxSequenceNumber,
                         this.rtxSsrc
                       );
-                      this.rtxSequenceNumber = uint16Add(
-                        this.rtxSequenceNumber,
-                        1
-                      );
+                      this.rtxSequenceNumber = uint16Add(this.rtxSequenceNumber, 1);
                     }
-                    await this.dtlsTransport.sendRtp(
-                      packet.payload,
-                      packet.header
-                    );
+                    await this.dtlsTransport.sendRtp(packet.payload, packet.header);
                   }
                 });
                 this.onGenericNack.execute(feedback);
@@ -468,10 +437,7 @@ export function wrapRtx(
       csrc: packet.header.csrc,
       extensions: packet.header.extensions,
     }),
-    Buffer.concat([
-      Buffer.from(jspack.Pack("!H", [packet.header.sequenceNumber])),
-      packet.payload,
-    ])
+    Buffer.concat([Buffer.from(jspack.Pack('!H', [packet.header.sequenceNumber])), packet.payload])
   );
   return rtx;
 }

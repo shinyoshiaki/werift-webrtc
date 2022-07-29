@@ -1,16 +1,13 @@
-import Event from "rx.mini";
-import * as uuid from "uuid";
+import Event from 'rx.mini';
+import * as uuid from 'uuid';
 
-import { RTCDtlsTransport } from "..";
-import { SenderDirections } from "../const";
-import { Kind } from "../types/domain";
-import {
-    RTCRtpCodecParameters,
-    RTCRtpHeaderExtensionParameters
-} from "./parameters";
-import { RTCRtpReceiver } from "./rtpReceiver";
-import { RTCRtpSender } from "./rtpSender";
-import { MediaStreamTrack } from "./track";
+import { RTCDtlsTransport } from '..';
+import { SenderDirections } from '../const';
+import { Kind } from '../types/domain';
+import { RTCRtpCodecParameters, RTCRtpHeaderExtensionParameters } from './parameters';
+import { RTCRtpReceiver } from './rtpReceiver';
+import { RTCRtpSender } from './rtpSender';
+import { MediaStreamTrack } from './track';
 
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
@@ -18,15 +15,15 @@ export class RTCRtpTransceiver {
   mid?: string;
   mLineIndex?: number;
   usedForSender = false;
-  private _currentDirection?: Direction | "stopped";
-  set currentDirection(direction: Direction | "stopped" | undefined) {
+  private _currentDirection?: Direction | 'stopped';
+  set currentDirection(direction: Direction | 'stopped' | undefined) {
     this._currentDirection = direction;
-    if (SenderDirections.includes(this._currentDirection || "")) {
+    if (SenderDirections.includes(this._currentDirection || '')) {
       this.usedForSender = true;
     }
   }
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): Direction | "stopped" | undefined {
+  get currentDirection(): Direction | 'stopped' | undefined {
     return this._currentDirection;
   }
 
@@ -89,16 +86,11 @@ export class RTCRtpTransceiver {
   }
 }
 
-export const Directions = [
-  "inactive",
-  "sendonly",
-  "recvonly",
-  "sendrecv",
-] as const;
+export const Directions = ['inactive', 'sendonly', 'recvonly', 'sendrecv'] as const;
 
 export type Direction = typeof Directions[number];
 
-type SimulcastDirection = "send" | "recv";
+type SimulcastDirection = 'send' | 'recv';
 
 export interface TransceiverOptions {
   direction: Direction;

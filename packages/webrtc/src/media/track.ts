@@ -1,10 +1,10 @@
-import Event from "rx.mini";
-import { v4 } from "uuid";
+import Event from 'rx.mini';
+import { v4 } from 'uuid';
 
-import { RtcpPacket, RtpHeader, RtpPacket } from "../../../rtp/src";
-import { EventTarget } from "../helper";
-import { Kind } from "../types/domain";
-import { RTCRtpCodecParameters } from "./parameters";
+import { RtcpPacket, RtpHeader, RtpPacket } from '../../../rtp/src';
+import { EventTarget } from '../helper';
+import { Kind } from '../types/domain';
+import { RTCRtpCodecParameters } from './parameters';
 
 export class MediaStreamTrack extends EventTarget {
   readonly uuid = v4();
@@ -24,16 +24,12 @@ export class MediaStreamTrack extends EventTarget {
 
   readonly onReceiveRtp = new Event<[RtpPacket]>();
   readonly onReceiveRtcp = new Event<[RtcpPacket]>();
-  readonly onSourceChanged = new Event<
-    [Pick<RtpHeader, "sequenceNumber" | "timestamp">]
-  >();
+  readonly onSourceChanged = new Event<[Pick<RtpHeader, 'sequenceNumber' | 'timestamp'>]>();
 
   stopped = false;
   muted = true;
 
-  constructor(
-    props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">
-  ) {
+  constructor(props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, 'kind'>) {
     super();
     Object.assign(this, props);
 
@@ -42,7 +38,7 @@ export class MediaStreamTrack extends EventTarget {
       this.header = rtp.header;
     });
 
-    this.label = `${this.remote ? "remote" : "local"} ${this.kind}`;
+    this.label = `${this.remote ? 'remote' : 'local'} ${this.kind}`;
   }
 
   stop = () => {
@@ -52,7 +48,7 @@ export class MediaStreamTrack extends EventTarget {
   };
 
   writeRtp = (rtp: RtpPacket | Buffer) => {
-    if (this.remote) throw new Error("this is remoteTrack");
+    if (this.remote) throw new Error('this is remoteTrack');
     if (!this.codec || this.stopped) return;
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
@@ -65,7 +61,7 @@ export class MediaStream {
   id!: string;
   tracks: MediaStreamTrack[] = [];
 
-  constructor(props: Partial<MediaStream> & Pick<MediaStream, "id">) {
+  constructor(props: Partial<MediaStream> & Pick<MediaStream, 'id'>) {
     Object.assign(this, props);
   }
 

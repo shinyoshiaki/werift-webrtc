@@ -1,13 +1,8 @@
-import * as fs from "fs/promises";
+import * as fs from 'fs/promises';
 
-import { SupportedCodec } from "../../../../../rtp/src/container/webm";
-import {
-  JitterBuffer,
-  MediaStreamTrack,
-  SampleBuilder,
-  WebmOutput,
-} from "../../..";
-import { MediaWriter } from ".";
+import { SupportedCodec } from '../../../../../rtp/src/container/webm';
+import { JitterBuffer, MediaStreamTrack, SampleBuilder, WebmOutput } from '../../..';
+import { MediaWriter } from '.';
 
 export class WebmFactory extends MediaWriter {
   webm?: WebmOutput;
@@ -20,23 +15,23 @@ export class WebmFactory extends MediaWriter {
         const trackNumber = i + 1;
         const payloadType = track.codec!.payloadType;
 
-        if (track.kind === "video") {
+        if (track.kind === 'video') {
           const codec = ((): SupportedCodec => {
             switch (track.codec?.name.toLowerCase() as SupportedVideoCodec) {
-              case "vp8":
-                return "VP8";
-              case "vp9":
-                return "VP9";
-              case "h264":
-                return "MPEG4/ISO/AVC";
-              case "av1x":
-                return "AV1";
+              case 'vp8':
+                return 'VP8';
+              case 'vp9':
+                return 'VP9';
+              case 'h264':
+                return 'MPEG4/ISO/AVC';
+              case 'av1x':
+                return 'AV1';
               default:
                 throw new Error();
             }
           })();
           return {
-            kind: "video",
+            kind: 'video',
             clockRate: 90000,
             payloadType,
             trackNumber,
@@ -46,11 +41,11 @@ export class WebmFactory extends MediaWriter {
           };
         } else {
           return {
-            kind: "audio",
+            kind: 'audio',
             clockRate: 48000,
             payloadType,
             trackNumber,
-            codec: "OPUS",
+            codec: 'OPUS',
           };
         }
       })
@@ -58,7 +53,7 @@ export class WebmFactory extends MediaWriter {
 
     tracks.forEach((track) => {
       const sampleBuilder =
-        track.kind === "video"
+        track.kind === 'video'
           ? new SampleBuilder((h) => !!h.marker).pipe(this.webm!)
           : new SampleBuilder(() => true).pipe(this.webm!);
       new JitterBuffer({
@@ -73,5 +68,5 @@ export class WebmFactory extends MediaWriter {
   }
 }
 
-const supportedVideoCodecs = ["h264", "vp8", "vp9", "av1x"] as const;
+const supportedVideoCodecs = ['h264', 'vp8', 'vp9', 'av1x'] as const;
 type SupportedVideoCodec = typeof supportedVideoCodecs[number];

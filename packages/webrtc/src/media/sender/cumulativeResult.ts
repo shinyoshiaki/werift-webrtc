@@ -1,4 +1,4 @@
-import { Int } from "../../../../rtp/src/helper";
+import { Int } from '../../../../rtp/src/helper';
 
 // refer by mediasoup
 export class CumulativeResult {
@@ -23,14 +23,10 @@ export class CumulativeResult {
       this.lastPacketSentAtMs = sentAtMs;
       this.lastPacketReceivedAtMs = receivedAtMs;
     } else {
-      if (sentAtMs < this.firstPacketSentAtMs)
-        this.firstPacketSentAtMs = sentAtMs;
-      if (receivedAtMs < this.firstPacketReceivedAtMs)
-        this.firstPacketReceivedAtMs = receivedAtMs;
-      if (sentAtMs > this.lastPacketSentAtMs)
-        this.lastPacketSentAtMs = sentAtMs;
-      if (receivedAtMs > this.lastPacketReceivedAtMs)
-        this.lastPacketReceivedAtMs = receivedAtMs;
+      if (sentAtMs < this.firstPacketSentAtMs) this.firstPacketSentAtMs = sentAtMs;
+      if (receivedAtMs < this.firstPacketReceivedAtMs) this.firstPacketReceivedAtMs = receivedAtMs;
+      if (sentAtMs > this.lastPacketSentAtMs) this.lastPacketSentAtMs = sentAtMs;
+      if (receivedAtMs > this.lastPacketReceivedAtMs) this.lastPacketReceivedAtMs = receivedAtMs;
     }
 
     this.numPackets++;
@@ -47,8 +43,7 @@ export class CumulativeResult {
   }
 
   get receiveBitrate() {
-    const recvIntervalMs =
-      this.lastPacketReceivedAtMs - this.firstPacketReceivedAtMs;
+    const recvIntervalMs = this.lastPacketReceivedAtMs - this.firstPacketReceivedAtMs;
     const bitrate = (this.totalSize / recvIntervalMs) * 8 * 1000;
     return Int(bitrate);
   }

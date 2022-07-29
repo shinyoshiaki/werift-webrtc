@@ -1,7 +1,7 @@
 /* eslint-disable prefer-const */
-import { createHash } from "crypto";
-import debug from "debug";
-import { performance } from "perf_hooks";
+import { createHash } from 'crypto';
+import debug from 'debug';
+import { performance } from 'perf_hooks';
 
 import {
   bufferReader,
@@ -10,21 +10,21 @@ import {
   random32,
   uint16Add,
   uint32Add,
-} from "../../common/src";
-import { CipherContext } from "../../dtls/src/context/cipher";
-import { Address } from "../../ice/src";
-import { RtpHeader, RtpPacket } from "../../rtp/src";
-import { Direction, Directions } from "./media/rtpTransceiver";
-import { RTCIceServer } from "./peerConnection";
-const now = require("nano-time");
+} from '../../common/src';
+import { CipherContext } from '../../dtls/src/context/cipher';
+import { Address } from '../../ice/src';
+import { RtpHeader, RtpPacket } from '../../rtp/src';
+import { Direction, Directions } from './media/rtpTransceiver';
+import { RTCIceServer } from './peerConnection';
+const now = require('nano-time');
 
-const log = debug("werift/webrtc/utils");
+const log = debug('werift/webrtc/utils');
 
 export function fingerprint(file: Buffer, hashName: string) {
   const upper = (s: string) => s.toUpperCase();
-  const colon = (s: any) => s.match(/(.{2})/g).join(":");
+  const colon = (s: any) => s.match(/(.{2})/g).join(':');
 
-  const hash = createHash(hashName).update(file).digest("hex");
+  const hash = createHash(hashName).update(file).digest('hex');
 
   return colon(upper(hash));
 }
@@ -43,9 +43,9 @@ export function isRtcp(buf: Buffer) {
   return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
 }
 
-export function reverseSimulcastDirection(dir: "recv" | "send") {
-  if (dir === "recv") return "send";
-  return "recv";
+export function reverseSimulcastDirection(dir: 'recv' | 'send') {
+  if (dir === 'recv') return 'send';
+  return 'recv';
 }
 
 export const andDirection = (a: Direction, b: Direction) =>
@@ -55,8 +55,8 @@ export const orDirection = (a: Direction, b: Direction) =>
   Directions[Directions.indexOf(a) & Directions.indexOf(b)];
 
 export function reverseDirection(dir: Direction): Direction {
-  if (dir === "sendonly") return "recvonly";
-  if (dir === "recvonly") return "sendonly";
+  if (dir === 'sendonly') return 'recvonly';
+  if (dir === 'recvonly') return 'sendonly';
   return dir;
 }
 
@@ -69,7 +69,7 @@ export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
 
   const seconds = now / 1000;
-  const [sec, msec] = seconds.toString().split(".").map(Number);
+  const [sec, msec] = seconds.toString().split('.').map(Number);
 
   const buf = bufferWriter([4, 4], [sec, msec]);
 
@@ -86,18 +86,17 @@ export const compactNtp = (ntp: bigint) => {
 export function parseIceServers(iceServers: RTCIceServer[]) {
   const url2Address = (url?: string) => {
     if (!url) return;
-    const [address, port] = url.split(":");
+    const [address, port] = url.split(':');
     return [address, parseInt(port)] as Address;
   };
 
   const stunServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5)
+    iceServers.find(({ urls }) => urls.includes('stun:'))?.urls.slice(5)
   );
   const turnServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5)
+    iceServers.find(({ urls }) => urls.includes('turn:'))?.urls.slice(5)
   );
-  const { credential, username } =
-    iceServers.find(({ urls }) => urls.includes("turn:")) || {};
+  const { credential, username } = iceServers.find(({ urls }) => urls.includes('turn:')) || {};
 
   const options = {
     stunServer,
@@ -105,7 +104,7 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
     turnUsername: username,
     turnPassword: credential,
   };
-  log("iceOptions", options);
+  log('iceOptions', options);
   return options;
 }
 
@@ -135,5 +134,4 @@ export class RtpBuilder {
  * @param signatureHash
  * @param namedCurveAlgorithm necessary when use ecdsa
  */
-export const createSelfSignedCertificate =
-  CipherContext.createSelfSignedCertificateWithKey;
+export const createSelfSignedCertificate = CipherContext.createSelfSignedCertificateWithKey;

@@ -22,23 +22,22 @@ export class RTCRtpCodecParameters {
   parameters?: string;
 
   constructor(
-    props: Pick<RTCRtpCodecParameters, "mimeType" | "clockRate"> &
-      Partial<RTCRtpCodecParameters>
+    props: Pick<RTCRtpCodecParameters, 'mimeType' | 'clockRate'> & Partial<RTCRtpCodecParameters>
   ) {
     Object.assign(this, props);
   }
 
   get name() {
-    return this.mimeType.split("/")[1];
+    return this.mimeType.split('/')[1];
   }
 
   get contentType() {
-    return this.mimeType.split("/")[0];
+    return this.mimeType.split('/')[0];
   }
 
   get str() {
     let s = `${this.name}/${this.clockRate}`;
-    if (this.channels === 2) s += "/2";
+    if (this.channels === 2) s += '/2';
     return s;
   }
 }
@@ -48,8 +47,7 @@ export class RTCRtpHeaderExtensionParameters {
   uri!: string;
 
   constructor(
-    props: Partial<RTCRtpHeaderExtensionParameters> &
-      Pick<RTCRtpHeaderExtensionParameters, "uri">
+    props: Partial<RTCRtpHeaderExtensionParameters> & Pick<RTCRtpHeaderExtensionParameters, 'uri'>
   ) {
     Object.assign(this, props);
   }
@@ -87,8 +85,7 @@ export class RTCRtpCodingParameters {
   rtx?: RTCRtpRtxParameters;
 
   constructor(
-    props: Partial<RTCRtpCodingParameters> &
-      Pick<RTCRtpCodingParameters, "ssrc" | "payloadType">
+    props: Partial<RTCRtpCodingParameters> & Pick<RTCRtpCodingParameters, 'ssrc' | 'payloadType'>
   ) {
     Object.assign(this, props);
   }
@@ -102,7 +99,7 @@ export interface RTCRtpSendParameters extends RTCRtpParameters {}
 
 export class RTCRtpSimulcastParameters {
   rid!: string;
-  direction!: "send" | "recv";
+  direction!: 'send' | 'recv';
   constructor(props: RTCRtpSimulcastParameters) {
     Object.assign(this, props);
   }

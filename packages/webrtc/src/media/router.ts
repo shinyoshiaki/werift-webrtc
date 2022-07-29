@@ -1,28 +1,25 @@
-import debug from "debug";
+import debug from 'debug';
 
-import { bufferReader } from "../../../common/src";
+import { bufferReader } from '../../../common/src';
 import {
-    Extension,
-    ReceiverEstimatedMaxBitrate,
-    RtcpPacket,
-    RtcpPayloadSpecificFeedback,
-    RtcpRrPacket,
-    RtcpSourceDescriptionPacket,
-    RtcpSrPacket,
-    RtcpTransportLayerFeedback,
-    RtpPacket
-} from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
-import {
-    RTCRtpReceiveParameters,
-    RTCRtpSimulcastParameters
-} from "./parameters";
-import { RTCRtpReceiver } from "./rtpReceiver";
-import { RTCRtpSender } from "./rtpSender";
-import { RTCRtpTransceiver } from "./rtpTransceiver";
-import { MediaStreamTrack } from "./track";
+  Extension,
+  ReceiverEstimatedMaxBitrate,
+  RtcpPacket,
+  RtcpPayloadSpecificFeedback,
+  RtcpRrPacket,
+  RtcpSourceDescriptionPacket,
+  RtcpSrPacket,
+  RtcpTransportLayerFeedback,
+  RtpPacket,
+} from '../../../rtp/src';
+import { RTP_EXTENSION_URI } from './extension/rtpExtension';
+import { RTCRtpReceiveParameters, RTCRtpSimulcastParameters } from './parameters';
+import { RTCRtpReceiver } from './rtpReceiver';
+import { RTCRtpSender } from './rtpSender';
+import { RTCRtpTransceiver } from './rtpTransceiver';
+import { MediaStreamTrack } from './track';
 
-const log = debug("werift:packages/webrtc/src/media/router.ts");
+const log = debug('werift:packages/webrtc/src/media/router.ts');
 
 export type Extensions = { [uri: string]: number | string };
 
@@ -41,11 +38,8 @@ export class RtpRouter {
     this.ssrcTable[ssrc] = receiver;
   }
 
-  registerRtpReceiverBySsrc(
-    transceiver: RTCRtpTransceiver,
-    params: RTCRtpReceiveParameters
-  ) {
-    log("registerRtpReceiverBySsrc", params);
+  registerRtpReceiverBySsrc(transceiver: RTCRtpTransceiver, params: RTCRtpReceiveParameters) {
+    log('registerRtpReceiverBySsrc', params);
 
     params.encodings
       .filter((e) => e.ssrc != undefined) // todo fix
@@ -78,7 +72,7 @@ export class RtpRouter {
     // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
     const [codec] = params.codecs;
 
-    log("registerRtpReceiverByRid", param);
+    log('registerRtpReceiverByRid', param);
     transceiver.addTrack(
       new MediaStreamTrack({
         rid: param.rid,
@@ -129,7 +123,7 @@ export class RtpRouter {
     ] as RTCRtpReceiver;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
-    if (typeof rid === "string") {
+    if (typeof rid === 'string') {
       ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
       ssrcReceiver.latestRid = rid;
       ssrcReceiver.handleRtpByRid(packet, rid, extensions);
@@ -141,26 +135,24 @@ export class RtpRouter {
         .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
         .find((r) => r.trackBySSRC[packet.header.ssrc]);
       if (ssrcReceiver) {
-        log("simulcast register receiver by ssrc", packet.header.ssrc);
+        log('simulcast register receiver by ssrc', packet.header.ssrc);
         this.registerRtpReceiver(ssrcReceiver, packet.header.ssrc);
         ssrcReceiver.handleRtpBySsrc(packet, extensions);
       }
     }
 
     if (!ssrcReceiver) {
-      log("ssrcReceiver not found");
+      log('ssrcReceiver not found');
       return;
     }
 
     const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
-    if (typeof sdesMid === "string") {
+    if (typeof sdesMid === 'string') {
       ssrcReceiver.sdesMid = sdesMid;
     }
 
-    const repairedRid = extensions[
-      RTP_EXTENSION_URI.repairedRtpStreamId
-    ] as string;
-    if (typeof repairedRid === "string") {
+    const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId] as string;
+    if (typeof repairedRid === 'string') {
       ssrcReceiver.latestRepairedRid = repairedRid;
     }
   };
