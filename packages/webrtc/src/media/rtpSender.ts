@@ -45,7 +45,7 @@ const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
   readonly type = 'sender';
-  readonly kind = typeof this.trackOrKind === 'string' ? this.trackOrKind : this.trackOrKind.kind;
+  readonly kind: any = {};
   readonly ssrc = jspack.Unpack('!L', randomBytes(4))[0];
   readonly rtxSsrc = jspack.Unpack('!L', randomBytes(4))[0];
   streamId = uuid.v4();
@@ -100,6 +100,7 @@ export class RTCRtpSender {
       }
       this.registerTrack(trackOrKind);
     }
+    this.kind = typeof this.trackOrKind === 'string' ? this.trackOrKind : this.trackOrKind.kind;
   }
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {

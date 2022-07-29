@@ -99,6 +99,7 @@ export class SCTP {
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
+  public port: any = 5000;
   private localPort = this.port;
   private localVerificationTag = random32();
 
@@ -164,8 +165,9 @@ export class SCTP {
 
   // etc
   private ssthresh?: number; // slow start threshold
-
-  constructor(public transport: Transport, public port = 5000) {
+  constructor(public transport: Transport, _port = 5000) {
+    this.port = _port;
+    this.localPort = _port;
     this.transport.onData = (buf) => {
       this.handleData(buf);
     };

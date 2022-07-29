@@ -35,9 +35,9 @@ export class DtlsSocket {
   readonly onData = new Event<[Buffer]>();
   readonly onError = new Event<[Error]>();
   readonly onClose = new Event();
-  readonly transport: TransportContext = new TransportContext(
-    this.options.transport
-  );
+  public options: any = {};
+  public sessionType: any = {};
+  readonly transport: any = {};
   readonly cipher: CipherContext = new CipherContext(
     this.sessionType,
     this.options.cert,
@@ -53,7 +53,12 @@ export class DtlsSocket {
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
-  constructor(public options: Options, public sessionType: SessionTypes) {
+  constructor(_options: Options, _sessionType: SessionTypes) {
+    this.sessionType = _sessionType;
+    this.options = _options;
+    this.transport = new TransportContext(
+      this.options.transport
+    )
     this.setupExtensions();
     this.transport.socket.onData = this.udpOnMessage;
   }

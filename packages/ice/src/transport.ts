@@ -8,10 +8,12 @@ import { normalizeFamilyNodeV18 } from "./utils";
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
 export class UdpTransport implements Transport {
-  private socket = createSocket(this.type);
+  private socket: any = {};
   onData: (data: Buffer, addr: Address) => void = () => {};
-
-  constructor(private type: SocketType, private portRange?: [number, number]) {
+  private type: any = {};
+  constructor(_type: SocketType, private portRange?: [number, number]) {
+    this.type = _type;
+    this.socket = createSocket(this.type);
     this.socket.on("message", (data, info) => {
       if (normalizeFamilyNodeV18(info.family) === 6) {
         [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0

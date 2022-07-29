@@ -43,7 +43,7 @@ export class RTCDtlsTransport {
   srtcp!: SrtcpSession;
 
   readonly onStateChange = new Event<[DtlsState]>();
-
+  readonly certificates: any = {};
   localCertificate?: RTCCertificate = this.certificates[0];
   private remoteParameters?: RTCDtlsParameters;
 
@@ -51,9 +51,11 @@ export class RTCDtlsTransport {
     readonly config: PeerConfig,
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
-    readonly certificates: RTCCertificate[],
+    _certificates: RTCCertificate[],
     private readonly srtpProfiles: Profile[] = []
-  ) {}
+  ) {
+    this.certificates = _certificates;
+  }
 
   get localParameters() {
     return new RTCDtlsParameters(
@@ -298,16 +300,21 @@ export class RTCDtlsParameters {
 }
 
 class IceTransport implements Transport {
-  constructor(private ice: Connection) {
-    ice.onData.subscribe((buf) => {
+
+  private ice: any = {};
+
+  readonly send: any = {};
+
+  constructor(_ice: Connection) {
+    this.ice = _ice;
+    this.send = this.ice.send;
+    _ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) this.onData(buf);
       }
     });
   }
   onData?: (buf: Buffer) => void;
-
-  readonly send = this.ice.send;
 
   close() {
     this.ice.close();

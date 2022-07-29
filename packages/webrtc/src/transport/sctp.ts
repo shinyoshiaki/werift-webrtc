@@ -359,10 +359,15 @@ export class RTCSctpCapabilities {
 }
 
 class BridgeDtls implements Transport {
-  constructor(private dtls: RTCDtlsTransport) {}
+  private dtls: any = {};
+  readonly send: any = {};
+  constructor(_dtls: RTCDtlsTransport) {
+    this.dtls = _dtls;
+    this.send = this.dtls.sendData
+  }
   set onData(onData: (buf: Buffer) => void) {
     this.dtls.dataReceiver = onData;
   }
-  readonly send = this.dtls.sendData;
+  
   close() {}
 }

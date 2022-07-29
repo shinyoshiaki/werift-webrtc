@@ -13,6 +13,7 @@ export class RTCDataChannel extends EventTarget {
   // todo impl
   readonly error = new Event<[Error]>();
   readonly bufferedAmountLow = new Event();
+  private readonly parameters: any = {};
   onopen?: Callback;
   onclose?: Callback;
   onclosing?: Callback;
@@ -28,12 +29,12 @@ export class RTCDataChannel extends EventTarget {
 
   constructor(
     private readonly transport: RTCSctpTransport,
-    private readonly parameters: RTCDataChannelParameters,
+    _parameters: RTCDataChannelParameters,
     public readonly sendOpen = true
   ) {
     super();
-
-    if (parameters.negotiated) {
+    this.parameters = _parameters;
+    if (_parameters.negotiated) {
       if (this.id == undefined || this.id < 0 || this.id > 65534) {
         throw new Error('ID must be in range 0-65534 if data channel is negotiated out-of-band');
       }

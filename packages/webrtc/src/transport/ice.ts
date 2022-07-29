@@ -6,14 +6,17 @@ import { candidateFromSdp, candidateToSdp } from '../sdp';
 
 export class RTCIceTransport {
   readonly id = v4();
-  connection = this.gather.connection;
+  private gather: any = {};
+  connection: any = {};
   state: RTCIceConnectionState = 'new';
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
 
   private waitStart?: Event<[]>;
 
-  constructor(private gather: RTCIceGatherer) {
+  constructor(_gather: RTCIceGatherer) {
+    this.gather = _gather;
+    this.connection = this.gather.connection;
     this.connection.stateChanged.subscribe((state) => {
       this.setState(state);
     });
@@ -106,9 +109,13 @@ export class RTCIceGatherer {
   gatheringState: IceGathererState = 'new';
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
-  readonly connection = new Connection(false, this.options);
-
-  constructor(private options: Partial<IceOptions> = {}) {}
+  private options: any = {};
+  readonly connection: any = {};
+  
+  constructor(_options: Partial<IceOptions> = {}) {
+    this.options = _options;
+    this.connection = new Connection(false, this.options);
+  }
 
   async gather() {
     if (this.gatheringState === 'new') {

@@ -14,7 +14,7 @@ const WEBSOCKET_URI = "ws://127.0.0.1:8765";
   await new Promise((r) => ws.once("open", r));
 
   const message: string = await new Promise((r) =>
-    ws.once("message", (data) => r(data))
+    ws.once("message", (data) => r(data as any))
   );
   console.log("received offer", message);
   const { candidates, username, password } = JSON.parse(message);
