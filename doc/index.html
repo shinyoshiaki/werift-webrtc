@@ -1,633 +1,158 @@
-<!doctype html>
-<html class="default no-js">
-<head>
-	<meta charset="utf-8">
-	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<title>werift</title>
-	<meta name="description" content="Documentation for werift">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<link rel="stylesheet" href="assets/css/main.css">
-	<script async src="assets/js/search.js" id="search-script"></script>
-</head>
-<body>
-<header>
-	<div class="tsd-page-toolbar">
-		<div class="container">
-			<div class="table-wrap">
-				<div class="table-cell" id="tsd-search" data-index="assets/js/search.json" data-base=".">
-					<div class="field">
-						<label for="tsd-search-field" class="tsd-widget search no-caption">Search</label>
-						<input id="tsd-search-field" type="text" />
-					</div>
-					<ul class="results">
-						<li class="state loading">Preparing search index...</li>
-						<li class="state failure">The search index is not available</li>
-					</ul>
-					<a href="index.html" class="title">werift</a>
-				</div>
-				<div class="table-cell" id="tsd-widgets">
-					<div id="tsd-filter">
-						<a href="#" class="tsd-widget options no-caption" data-toggle="options">Options</a>
-						<div class="tsd-filter-group">
-							<div class="tsd-select" id="tsd-filter-visibility">
-								<span class="tsd-select-label">All</span>
-								<ul class="tsd-select-list">
-									<li data-value="public">Public</li>
-									<li data-value="protected">Public/Protected</li>
-									<li data-value="private" class="selected">All</li>
-								</ul>
-							</div>
-							<input type="checkbox" id="tsd-filter-inherited" checked />
-							<label class="tsd-widget" for="tsd-filter-inherited">Inherited</label>
-							<input type="checkbox" id="tsd-filter-externals" checked />
-							<label class="tsd-widget" for="tsd-filter-externals">Externals</label>
-						</div>
-					</div>
-					<a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a>
-				</div>
-			</div>
-		</div>
-	</div>
-	<div class="tsd-page-title">
-		<div class="container">
-			<h1>werift</h1>
-		</div>
-	</div>
-</header>
-<div class="container container-main">
-	<div class="row">
-		<div class="col-8 col-content">
-			<div class="tsd-panel tsd-typography">
-				<a href="#werift" id="werift" style="color: inherit; text-decoration: none;">
-					<h1>werift</h1>
-				</a>
-				<p>werift (<strong>We</strong>b<strong>r</strong>tc <strong>I</strong>mplementation <strong>f</strong>or <strong>T</strong>ypeScript)</p>
-				<p>werift is a WebRTC Implementation for TypeScript (Node.js)</p>
-				<a href="#install" id="install" style="color: inherit; text-decoration: none;">
-					<h1>install</h1>
-				</a>
-				<p><code>npm install werift</code></p>
-				<a href="#documentation-wip" id="documentation-wip" style="color: inherit; text-decoration: none;">
-					<h1>Documentation (WIP)</h1>
-				</a>
-				<ul>
-					<li><a href="https://shinyoshiaki.github.io/werift-webrtc/website/build/">Website</a></li>
-					<li><a href="https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api">API Reference</a></li>
-				</ul>
-				<a href="#examples" id="examples" style="color: inherit; text-decoration: none;">
-					<h1>examples</h1>
-				</a>
-				<p><a href="https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples">https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples</a></p>
-				<a href="#sfu" id="sfu" style="color: inherit; text-decoration: none;">
-					<h3>SFU</h3>
-				</a>
-				<p><a href="https://github.com/shinyoshiaki/node-sfu">https://github.com/shinyoshiaki/node-sfu</a></p>
-				<a href="#demo" id="demo" style="color: inherit; text-decoration: none;">
-					<h1>demo</h1>
-				</a>
-				<a href="#mediachannel" id="mediachannel" style="color: inherit; text-decoration: none;">
-					<h2>MediaChannel</h2>
-				</a>
-				<pre><code class="language-sh"><span style="color: #000000">yarn media</span>
+<!DOCTYPE html><html class="default"><head><meta charSet="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>werift</title><meta name="description" content="Documentation for werift"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script async src="assets/search.js" id="search-script"></script></head><body><script>document.body.classList.add(localStorage.getItem("tsd-theme") || "os")</script><header><div class="tsd-page-toolbar"><div class="container"><div class="table-wrap"><div class="table-cell" id="tsd-search" data-base="."><div class="field"><label for="tsd-search-field" class="tsd-widget search no-caption">Search</label><input type="text" id="tsd-search-field"/></div><ul class="results"><li class="state loading">Preparing search index...</li><li class="state failure">The search index is not available</li></ul><a href="index.html" class="title">werift</a></div><div class="table-cell" id="tsd-widgets"><div id="tsd-filter"><a href="#" class="tsd-widget options no-caption" data-toggle="options">Options</a><div class="tsd-filter-group"><div class="tsd-select" id="tsd-filter-visibility"><span class="tsd-select-label">All</span><ul class="tsd-select-list"><li data-value="public">Public</li><li data-value="protected">Public/Protected</li><li data-value="private" class="selected">All</li></ul></div> <input type="checkbox" id="tsd-filter-inherited" checked/><label class="tsd-widget" for="tsd-filter-inherited">Inherited</label><input type="checkbox" id="tsd-filter-externals" checked/><label class="tsd-widget" for="tsd-filter-externals">Externals</label></div></div><a href="#" class="tsd-widget menu no-caption" data-toggle="menu">Menu</a></div></div></div></div><div class="tsd-page-title"><div class="container"><h1>werift </h1></div></div></header><div class="container container-main"><div class="row"><div class="col-8 col-content"><div class="tsd-panel tsd-typography">
+<a href="#werift" id="werift" style="color: inherit; text-decoration: none;">
+  <h1>werift</h1>
+</a>
+<p>werift (<strong>We</strong>b<strong>r</strong>tc <strong>I</strong>mplementation <strong>f</strong>or <strong>T</strong>ypeScript)</p>
+<p>werift is a WebRTC Implementation for TypeScript (Node.js)</p>
+
+<a href="#install" id="install" style="color: inherit; text-decoration: none;">
+  <h1>install</h1>
+</a>
+<p><code>npm install werift</code></p>
+
+<a href="#documentation-wip" id="documentation-wip" style="color: inherit; text-decoration: none;">
+  <h1>Documentation (WIP)</h1>
+</a>
+<ul>
+<li><a href="https://shinyoshiaki.github.io/werift-webrtc/website/build/">Website</a></li>
+<li><a href="https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api">API Reference</a></li>
+</ul>
+
+<a href="#examples" id="examples" style="color: inherit; text-decoration: none;">
+  <h1>examples</h1>
+</a>
+<p><a href="https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples">https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples</a></p>
+
+<a href="#sfu" id="sfu" style="color: inherit; text-decoration: none;">
+  <h3>SFU</h3>
+</a>
+<p><a href="https://github.com/shinyoshiaki/node-sfu">https://github.com/shinyoshiaki/node-sfu</a></p>
+
+<a href="#demo" id="demo" style="color: inherit; text-decoration: none;">
+  <h1>demo</h1>
+</a>
+
+<a href="#mediachannel" id="mediachannel" style="color: inherit; text-decoration: none;">
+  <h2>MediaChannel</h2>
+</a>
+<pre><code class="language-sh"><span class="hl-0">yarn media</span>
 </code></pre>
-				<p>open
-				<a href="https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/pubsub/answer">https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/pubsub/answer</a></p>
-				<p>see console &amp; chrome://webrtc-internals/</p>
-				<a href="#datachannel" id="datachannel" style="color: inherit; text-decoration: none;">
-					<h2>DataChannel</h2>
-				</a>
-				<p>run</p>
-				<pre><code class="language-sh"><span style="color: #000000">yarn datachannel</span>
+<p>open
+<a href="https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/pubsub/answer">https://shinyoshiaki.github.io/werift-webrtc/examples/mediachannel/pubsub/answer</a></p>
+<p>see console &amp; chrome://webrtc-internals/</p>
+
+<a href="#datachannel" id="datachannel" style="color: inherit; text-decoration: none;">
+  <h2>DataChannel</h2>
+</a>
+<p>run</p>
+<pre><code class="language-sh"><span class="hl-0">yarn datachannel</span>
 </code></pre>
-				<p>open
-				<a href="https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer">https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer</a></p>
-				<p>see console &amp; chrome://webrtc-internals/</p>
-				<a href="#roadmap" id="roadmap" style="color: inherit; text-decoration: none;">
-					<h1>RoadMap</h1>
-				</a>
-				<a href="#work-in-progress-towards-10" id="work-in-progress-towards-10" style="color: inherit; text-decoration: none;">
-					<h2>Work in Progress Towards 1.0</h2>
-				</a>
-				<ul>
-					<li><input checked="" disabled="" type="checkbox"> STUN</li>
-					<li><input checked="" disabled="" type="checkbox"> TURN<ul>
-							<li><input checked="" disabled="" type="checkbox"> UDP</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> ICE<ul>
-							<li><input checked="" disabled="" type="checkbox"> Vanilla ICE</li>
-							<li><input checked="" disabled="" type="checkbox"> Trickle ICE</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> DTLS<ul>
-							<li><input checked="" disabled="" type="checkbox"> DTLS-SRTP</li>
-							<li><input checked="" disabled="" type="checkbox"> Curve25519</li>
-							<li><input checked="" disabled="" type="checkbox"> P-256</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> DataChannel</li>
-					<li><input checked="" disabled="" type="checkbox"> MediaChannel<ul>
-							<li><input checked="" disabled="" type="checkbox"> sendonly</li>
-							<li><input checked="" disabled="" type="checkbox"> recvonly</li>
-							<li><input checked="" disabled="" type="checkbox"> sendrecv</li>
-							<li><input checked="" disabled="" type="checkbox"> multi track</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> RTP</li>
-					<li><input checked="" disabled="" type="checkbox"> RTCP<ul>
-							<li><input checked="" disabled="" type="checkbox"> SR/RR</li>
-							<li><input checked="" disabled="" type="checkbox"> Picture Loss Indication</li>
-							<li><input checked="" disabled="" type="checkbox"> ReceiverEstimatedMaxBitrate</li>
-							<li><input checked="" disabled="" type="checkbox"> GenericNack</li>
-							<li><input checked="" disabled="" type="checkbox"> TransportWideCC</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> SRTP</li>
-					<li><input checked="" disabled="" type="checkbox"> SRTCP</li>
-					<li><input checked="" disabled="" type="checkbox"> SDP</li>
-					<li><input checked="" disabled="" type="checkbox"> PeerConnection</li>
-					<li><input checked="" disabled="" type="checkbox"> Simulcast<ul>
-							<li><input checked="" disabled="" type="checkbox"> recv</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> BWE<ul>
-							<li><input checked="" disabled="" type="checkbox"> sender side BWE</li>
-						</ul>
-					</li>
-					<li><input disabled="" type="checkbox"> Documentation</li>
-					<li><input checked="" disabled="" type="checkbox"> Compatibility<ul>
-							<li><input checked="" disabled="" type="checkbox"> Chrome</li>
-							<li><input checked="" disabled="" type="checkbox"> FireFox</li>
-							<li><input checked="" disabled="" type="checkbox"> Pion</li>
-							<li><input checked="" disabled="" type="checkbox"> aiortc</li>
-							<li><input checked="" disabled="" type="checkbox"> sipsorcery</li>
-						</ul>
-					</li>
-					<li><input checked="" disabled="" type="checkbox"> Interop E2E test<ul>
-							<li><input checked="" disabled="" type="checkbox"> Chrome</li>
-							<li>↓↓↓ <a href="https://github.com/sipsorcery/webrtc-echoes">https://github.com/sipsorcery/webrtc-echoes</a></li>
-							<li><input checked="" disabled="" type="checkbox"> Pion</li>
-							<li><input checked="" disabled="" type="checkbox"> aiortc</li>
-							<li><input checked="" disabled="" type="checkbox"> sipsorcery</li>
-						</ul>
-					</li>
-					<li><input disabled="" type="checkbox"> Unit Tests<ul>
-							<li><input disabled="" type="checkbox"> follow <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a></li>
-						</ul>
-					</li>
-				</ul>
-				<a href="#road-map-towards-20" id="road-map-towards-20" style="color: inherit; text-decoration: none;">
-					<h2>Road Map Towards 2.0</h2>
-				</a>
-				<ul>
-					<li><input disabled="" type="checkbox"> API compatible with browser RTCPeerConnection</li>
-					<li><input disabled="" type="checkbox"> ICE<ul>
-							<li><input disabled="" type="checkbox"> ICE restart</li>
-						</ul>
-					</li>
-					<li><input disabled="" type="checkbox"> SDP<ul>
-							<li><input disabled="" type="checkbox"> reuse inactive m-line</li>
-						</ul>
-					</li>
-					<li><input disabled="" type="checkbox"> Simulcast<ul>
-							<li><input disabled="" type="checkbox"> send</li>
-						</ul>
-					</li>
-					<li><input disabled="" type="checkbox"> support more cipher suites</li>
-				</ul>
-				<a href="#reference" id="reference" style="color: inherit; text-decoration: none;">
-					<h1>reference</h1>
-				</a>
-				<ul>
-					<li>aiortc <a href="https://github.com/aiortc/aiortc">https://github.com/aiortc/aiortc</a></li>
-					<li>pion/webrtc <a href="https://github.com/pion/webrtc">https://github.com/pion/webrtc</a></li>
-					<li>etc ....</li>
-				</ul>
-			</div>
-		</div>
-		<div class="col-4 col-menu menu-sticky-wrap menu-highlight">
-			<nav class="tsd-navigation primary">
-				<ul>
-					<li class=" ">
-						<a href="modules.html">Exports</a>
-					</li>
-				</ul>
-			</nav>
-			<nav class="tsd-navigation secondary menu-sticky">
-				<ul class="before-current">
-					<li class=" tsd-kind-enum">
-						<a href="enums/packetchunk.html" class="tsd-kind-icon">Packet<wbr>Chunk</a>
-					</li>
-					<li class=" tsd-kind-enum">
-						<a href="enums/packetstatus.html" class="tsd-kind-icon">Packet<wbr>Status</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/eventtarget.html" class="tsd-kind-icon">Event<wbr>Target</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/genericnack.html" class="tsd-kind-icon">Generic<wbr>Nack</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/groupdescription.html" class="tsd-kind-icon">Group<wbr>Description</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/icecandidate.html" class="tsd-kind-icon">Ice<wbr>Candidate</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/mediadescription.html" class="tsd-kind-icon">Media<wbr>Description</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/mediastream.html" class="tsd-kind-icon">Media<wbr>Stream</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/mediastreamtrack.html" class="tsd-kind-icon">Media<wbr>Stream<wbr>Track</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/picturelossindication.html" class="tsd-kind-icon">Picture<wbr>Loss<wbr>Indication</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/promisequeue.html" class="tsd-kind-icon">Promise<wbr>Queue</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtccertificate.html" class="tsd-kind-icon">RTCCertificate</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcdatachannel.html" class="tsd-kind-icon">RTCData<wbr>Channel</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcdatachannelparameters.html" class="tsd-kind-icon">RTCData<wbr>Channel<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcdtlsfingerprint.html" class="tsd-kind-icon">RTCDtls<wbr>Fingerprint</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcdtlsparameters.html" class="tsd-kind-icon">RTCDtls<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcdtlstransport.html" class="tsd-kind-icon">RTCDtls<wbr>Transport</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcicegatherer.html" class="tsd-kind-icon">RTCIce<wbr>Gatherer</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtciceparameters.html" class="tsd-kind-icon">RTCIce<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcicetransport.html" class="tsd-kind-icon">RTCIce<wbr>Transport</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcpeerconnection.html" class="tsd-kind-icon">RTCPeer<wbr>Connection</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtcpfeedback.html" class="tsd-kind-icon">RTCRtcp<wbr>Feedback</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtcpparameters.html" class="tsd-kind-icon">RTCRtcp<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtpcodeccapability.html" class="tsd-kind-icon">RTCRtp<wbr>Codec<wbr>Capability</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtpcodecparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Codec<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtpcodingparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Coding<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtpheaderextensionparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Header<wbr>Extension<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtprtxparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Rtx<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtpsimulcastparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Simulcast<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcrtptransceiver.html" class="tsd-kind-icon">RTCRtp<wbr>Transceiver</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcsctpcapabilities.html" class="tsd-kind-icon">RTCSctp<wbr>Capabilities</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcsctptransport.html" class="tsd-kind-icon">RTCSctp<wbr>Transport</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcsessiondescription.html" class="tsd-kind-icon">RTCSession<wbr>Description</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/receiverestimatedmaxbitrate.html" class="tsd-kind-icon">Receiver<wbr>Estimated<wbr>Max<wbr>Bitrate</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/recvdelta.html" class="tsd-kind-icon">Recv<wbr>Delta</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcpheader.html" class="tsd-kind-icon">Rtcp<wbr>Header</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcppacketconverter.html" class="tsd-kind-icon">Rtcp<wbr>Packet<wbr>Converter</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcppayloadspecificfeedback.html" class="tsd-kind-icon">Rtcp<wbr>Payload<wbr>Specific<wbr>Feedback</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcpreceiverinfo.html" class="tsd-kind-icon">Rtcp<wbr>Receiver<wbr>Info</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcprrpacket.html" class="tsd-kind-icon">Rtcp<wbr>RrPacket</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcpsenderinfo.html" class="tsd-kind-icon">Rtcp<wbr>Sender<wbr>Info</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcpsourcedescriptionpacket.html" class="tsd-kind-icon">Rtcp<wbr>Source<wbr>Description<wbr>Packet</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcpsrpacket.html" class="tsd-kind-icon">Rtcp<wbr>SrPacket</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtcptransportlayerfeedback.html" class="tsd-kind-icon">Rtcp<wbr>Transport<wbr>Layer<wbr>Feedback</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtpbuilder.html" class="tsd-kind-icon">Rtp<wbr>Builder</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtpheader.html" class="tsd-kind-icon">Rtp<wbr>Header</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/rtppacket.html" class="tsd-kind-icon">Rtp<wbr>Packet</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/runlengthchunk.html" class="tsd-kind-icon">Run<wbr>Length<wbr>Chunk</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/sessiondescription.html" class="tsd-kind-icon">Session<wbr>Description</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/sourcedescriptionchunk.html" class="tsd-kind-icon">Source<wbr>Description<wbr>Chunk</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/sourcedescriptionitem.html" class="tsd-kind-icon">Source<wbr>Description<wbr>Item</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/srtcpsession.html" class="tsd-kind-icon">Srtcp<wbr>Session</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/srtpsession.html" class="tsd-kind-icon">Srtp<wbr>Session</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/ssrcdescription.html" class="tsd-kind-icon">Ssrc<wbr>Description</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/statusvectorchunk.html" class="tsd-kind-icon">Status<wbr>Vector<wbr>Chunk</a>
-					</li>
-					<li class=" tsd-kind-class">
-						<a href="classes/transportwidecc.html" class="tsd-kind-icon">Transport<wbr>WideCC</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/messageevent.html" class="tsd-kind-icon">Message<wbr>Event</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/peerconfig.html" class="tsd-kind-icon">Peer<wbr>Config</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/rtcdatachannelevent.html" class="tsd-kind-icon">RTCData<wbr>Channel<wbr>Event</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/rtcerrorevent.html" class="tsd-kind-icon">RTCError<wbr>Event</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/rtcpeerconnectioniceevent.html" class="tsd-kind-icon">RTCPeer<wbr>Connection<wbr>Ice<wbr>Event</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/rtcrtpparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/rtcrtpreceiveparameters.html" class="tsd-kind-icon">RTCRtp<wbr>Receive<wbr>Parameters</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/rtctrackevent.html" class="tsd-kind-icon">RTCTrack<wbr>Event</a>
-					</li>
-					<li class=" tsd-kind-interface">
-						<a href="interfaces/transceiveroptions.html" class="tsd-kind-icon">Transceiver<wbr>Options</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#connectionstate" class="tsd-kind-icon">Connection<wbr>State</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#dcstate" class="tsd-kind-icon">DCState</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#direction" class="tsd-kind-icon">Direction</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#dtlsrole" class="tsd-kind-icon">Dtls<wbr>Role</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#dtlsstate" class="tsd-kind-icon">Dtls<wbr>State</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#extension" class="tsd-kind-icon">Extension</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#icegathererstate" class="tsd-kind-icon">Ice<wbr>Gatherer<wbr>State</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#kind" class="tsd-kind-icon">Kind</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#rtcicecandidate" class="tsd-kind-icon">RTCIce<wbr>Candidate</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#rtciceconnectionstate" class="tsd-kind-icon">RTCIce<wbr>Connection<wbr>State</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#rtciceserver" class="tsd-kind-icon">RTCIce<wbr>Server</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#rtcpfb" class="tsd-kind-icon">RTCPFB</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#rtcsignalingstate" class="tsd-kind-icon">RTCSignaling<wbr>State</a>
-					</li>
-					<li class=" tsd-kind-type-alias">
-						<a href="modules.html#rtcppacket" class="tsd-kind-icon">Rtcp<wbr>Packet</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#connectionstates" class="tsd-kind-icon">Connection<wbr>States</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#directions" class="tsd-kind-icon">Directions</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#dtlsstates" class="tsd-kind-icon">Dtls<wbr>States</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#icegathererstates" class="tsd-kind-icon">Ice<wbr>Gatherer<wbr>States</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#icetransportstates" class="tsd-kind-icon">Ice<wbr>Transport<wbr>States</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#rtp_extension_uri" class="tsd-kind-icon">RTP_<wbr>EXTENSION_<wbr>URI</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#signalingstates" class="tsd-kind-icon">Signaling<wbr>States</a>
-					</li>
-					<li class=" tsd-kind-variable">
-						<a href="modules.html#defaultpeerconfig" class="tsd-kind-icon">default<wbr>Peer<wbr>Config</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#addsdpheader" class="tsd-kind-icon">addSDPHeader</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#addtransportdescription" class="tsd-kind-icon">add<wbr>Transport<wbr>Description</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#allocatemid" class="tsd-kind-icon">allocate<wbr>Mid</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#anddirection" class="tsd-kind-icon">and<wbr>Direction</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#candidatefromice" class="tsd-kind-icon">candidate<wbr>From<wbr>Ice</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#candidatefromsdp" class="tsd-kind-icon">candidate<wbr>From<wbr>Sdp</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#candidatetoice" class="tsd-kind-icon">candidate<wbr>ToIce</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#candidatetosdp" class="tsd-kind-icon">candidate<wbr>ToSdp</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#createmediadescriptionforsctp" class="tsd-kind-icon">create<wbr>Media<wbr>Description<wbr>For<wbr>Sctp</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#createmediadescriptionfortransceiver" class="tsd-kind-icon">create<wbr>Media<wbr>Description<wbr>For<wbr>Transceiver</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#divide" class="tsd-kind-icon">divide</a>
-					</li>
-					<li class=" tsd-kind-function tsd-has-type-parameter">
-						<a href="modules.html#enumerate" class="tsd-kind-icon">enumerate</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#fingerprint" class="tsd-kind-icon">fingerprint</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#isdtls" class="tsd-kind-icon">is<wbr>Dtls</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#ismedia" class="tsd-kind-icon">is<wbr>Media</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#isrtcp" class="tsd-kind-icon">is<wbr>Rtcp</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#microtime" class="tsd-kind-icon">micro<wbr>Time</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#millitime" class="tsd-kind-icon">milli<wbr>Time</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#ntptime" class="tsd-kind-icon">ntp<wbr>Time</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#ordirection" class="tsd-kind-icon">or<wbr>Direction</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#parseiceservers" class="tsd-kind-icon">parse<wbr>Ice<wbr>Servers</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#random16" class="tsd-kind-icon">random16</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#random32" class="tsd-kind-icon">random32</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#reversedirection" class="tsd-kind-icon">reverse<wbr>Direction</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#reversesimulcastdirection" class="tsd-kind-icon">reverse<wbr>Simulcast<wbr>Direction</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#uint16add" class="tsd-kind-icon">uint16<wbr>Add</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#uint24" class="tsd-kind-icon">uint24</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#uint32add" class="tsd-kind-icon">uint32<wbr>Add</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#uint8add" class="tsd-kind-icon">uint8<wbr>Add</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#useabssendtime" class="tsd-kind-icon">use<wbr>Abs<wbr>Send<wbr>Time</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usefir" class="tsd-kind-icon">useFIR</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usenack" class="tsd-kind-icon">useNACK</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usepli" class="tsd-kind-icon">usePLI</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#useremb" class="tsd-kind-icon">useREMB</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usesdesmid" class="tsd-kind-icon">use<wbr>Sdes<wbr>Mid</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usesdesrtpstreamid" class="tsd-kind-icon">use<wbr>SdesRTPStreamID</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usetwcc" class="tsd-kind-icon">useTWCC</a>
-					</li>
-					<li class=" tsd-kind-function">
-						<a href="modules.html#usetransportwidecc" class="tsd-kind-icon">use<wbr>Transport<wbr>WideCC</a>
-					</li>
-				</ul>
-			</nav>
-		</div>
-	</div>
-</div>
-<footer class="with-border-bottom">
-	<div class="container">
-		<h2>Legend</h2>
-		<div class="tsd-legend-group">
-			<ul class="tsd-legend">
-				<li class="tsd-kind-constructor tsd-parent-kind-class"><span class="tsd-kind-icon">Constructor</span></li>
-				<li class="tsd-kind-property tsd-parent-kind-class"><span class="tsd-kind-icon">Property</span></li>
-				<li class="tsd-kind-method tsd-parent-kind-class"><span class="tsd-kind-icon">Method</span></li>
-				<li class="tsd-kind-accessor tsd-parent-kind-class"><span class="tsd-kind-icon">Accessor</span></li>
-			</ul>
-			<ul class="tsd-legend">
-				<li class="tsd-kind-constructor tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited constructor</span></li>
-				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited property</span></li>
-				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited method</span></li>
-			</ul>
-			<ul class="tsd-legend">
-				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private property</span></li>
-				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private method</span></li>
-			</ul>
-			<ul class="tsd-legend">
-				<li class="tsd-kind-property tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static property</span></li>
-				<li class="tsd-kind-method tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static method</span></li>
-			</ul>
-			<ul class="tsd-legend">
-				<li class="tsd-kind-property tsd-parent-kind-interface"><span class="tsd-kind-icon">Property</span></li>
-			</ul>
-		</div>
-	</div>
-</footer>
-<div class="container tsd-generator">
-	<p>Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p>
-</div>
-<div class="overlay"></div>
-<script src="assets/js/main.js"></script>
-</body>
-</html>
+<p>open
+<a href="https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer">https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer</a></p>
+<p>see console &amp; chrome://webrtc-internals/</p>
+
+<a href="#roadmap" id="roadmap" style="color: inherit; text-decoration: none;">
+  <h1>RoadMap</h1>
+</a>
+
+<a href="#work-in-progress-towards-10" id="work-in-progress-towards-10" style="color: inherit; text-decoration: none;">
+  <h2>Work in Progress Towards 1.0</h2>
+</a>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> STUN</li>
+<li><input checked="" disabled="" type="checkbox"> TURN<ul>
+<li><input checked="" disabled="" type="checkbox"> UDP</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> ICE<ul>
+<li><input checked="" disabled="" type="checkbox"> Vanilla ICE</li>
+<li><input checked="" disabled="" type="checkbox"> Trickle ICE</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> DTLS<ul>
+<li><input checked="" disabled="" type="checkbox"> DTLS-SRTP</li>
+<li><input checked="" disabled="" type="checkbox"> Curve25519</li>
+<li><input checked="" disabled="" type="checkbox"> P-256</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> DataChannel</li>
+<li><input checked="" disabled="" type="checkbox"> MediaChannel<ul>
+<li><input checked="" disabled="" type="checkbox"> sendonly</li>
+<li><input checked="" disabled="" type="checkbox"> recvonly</li>
+<li><input checked="" disabled="" type="checkbox"> sendrecv</li>
+<li><input checked="" disabled="" type="checkbox"> multi track</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> RTP</li>
+<li><input checked="" disabled="" type="checkbox"> RTCP<ul>
+<li><input checked="" disabled="" type="checkbox"> SR/RR</li>
+<li><input checked="" disabled="" type="checkbox"> Picture Loss Indication</li>
+<li><input checked="" disabled="" type="checkbox"> ReceiverEstimatedMaxBitrate</li>
+<li><input checked="" disabled="" type="checkbox"> GenericNack</li>
+<li><input checked="" disabled="" type="checkbox"> TransportWideCC</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> SRTP</li>
+<li><input checked="" disabled="" type="checkbox"> SRTCP</li>
+<li><input checked="" disabled="" type="checkbox"> SDP</li>
+<li><input checked="" disabled="" type="checkbox"> PeerConnection</li>
+<li><input checked="" disabled="" type="checkbox"> Simulcast<ul>
+<li><input checked="" disabled="" type="checkbox"> recv</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> BWE<ul>
+<li><input checked="" disabled="" type="checkbox"> sender side BWE</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> Documentation</li>
+<li><input checked="" disabled="" type="checkbox"> Compatibility<ul>
+<li><input checked="" disabled="" type="checkbox"> Chrome</li>
+<li><input checked="" disabled="" type="checkbox"> FireFox</li>
+<li><input checked="" disabled="" type="checkbox"> Pion</li>
+<li><input checked="" disabled="" type="checkbox"> aiortc</li>
+<li><input checked="" disabled="" type="checkbox"> sipsorcery</li>
+</ul>
+</li>
+<li><input checked="" disabled="" type="checkbox"> Interop E2E test<ul>
+<li><input checked="" disabled="" type="checkbox"> Chrome</li>
+<li>↓↓↓ <a href="https://github.com/sipsorcery/webrtc-echoes">https://github.com/sipsorcery/webrtc-echoes</a></li>
+<li><input checked="" disabled="" type="checkbox"> Pion</li>
+<li><input checked="" disabled="" type="checkbox"> aiortc</li>
+<li><input checked="" disabled="" type="checkbox"> sipsorcery</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> Unit Tests<ul>
+<li><input disabled="" type="checkbox"> follow <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a></li>
+</ul>
+</li>
+</ul>
+
+<a href="#road-map-towards-20" id="road-map-towards-20" style="color: inherit; text-decoration: none;">
+  <h2>Road Map Towards 2.0</h2>
+</a>
+<ul>
+<li><input disabled="" type="checkbox"> API compatible with browser RTCPeerConnection</li>
+<li><input disabled="" type="checkbox"> ICE<ul>
+<li><input disabled="" type="checkbox"> ICE restart</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> SDP<ul>
+<li><input disabled="" type="checkbox"> reuse inactive m-line</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> Simulcast<ul>
+<li><input disabled="" type="checkbox"> send</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> support more cipher suites</li>
+</ul>
+
+<a href="#reference" id="reference" style="color: inherit; text-decoration: none;">
+  <h1>reference</h1>
+</a>
+<ul>
+<li>aiortc <a href="https://github.com/aiortc/aiortc">https://github.com/aiortc/aiortc</a></li>
+<li>pion/webrtc <a href="https://github.com/pion/webrtc">https://github.com/pion/webrtc</a></li>
+<li>etc ....</li>
+</ul>
+</div></div><div class="col-4 col-menu menu-sticky-wrap menu-highlight"><nav class="tsd-navigation primary"><ul><li class="current"><a href="modules.html">Exports</a></li></ul></nav><nav class="tsd-navigation secondary menu-sticky"><ul><li class="tsd-kind-enum"><a href="enums/PacketChunk.html" class="tsd-kind-icon">Packet<wbr/>Chunk</a></li><li class="tsd-kind-enum"><a href="enums/PacketStatus.html" class="tsd-kind-icon">Packet<wbr/>Status</a></li><li class="tsd-kind-class"><a href="classes/AV1Obu.html" class="tsd-kind-icon">AV1<wbr/>Obu</a></li><li class="tsd-kind-class"><a href="classes/AV1RtpPayload.html" class="tsd-kind-icon">AV1<wbr/>Rtp<wbr/>Payload</a></li><li class="tsd-kind-class"><a href="classes/BitStream.html" class="tsd-kind-icon">Bit<wbr/>Stream</a></li><li class="tsd-kind-class"><a href="classes/BitWriter.html" class="tsd-kind-icon">Bit<wbr/>Writer</a></li><li class="tsd-kind-class"><a href="classes/BitWriter2.html" class="tsd-kind-icon">Bit<wbr/>Writer2</a></li><li class="tsd-kind-class"><a href="classes/BufferChain.html" class="tsd-kind-icon">Buffer<wbr/>Chain</a></li><li class="tsd-kind-class"><a href="classes/Candidate.html" class="tsd-kind-icon">Candidate</a></li><li class="tsd-kind-class"><a href="classes/Connection.html" class="tsd-kind-icon">Connection</a></li><li class="tsd-kind-class"><a href="classes/DePacketizerBase.html" class="tsd-kind-icon">De<wbr/>Packetizer<wbr/>Base</a></li><li class="tsd-kind-class"><a href="classes/GenericNack.html" class="tsd-kind-icon">Generic<wbr/>Nack</a></li><li class="tsd-kind-class"><a href="classes/GroupDescription.html" class="tsd-kind-icon">Group<wbr/>Description</a></li><li class="tsd-kind-class"><a href="classes/H264RtpPayload.html" class="tsd-kind-icon">H264<wbr/>Rtp<wbr/>Payload</a></li><li class="tsd-kind-class"><a href="classes/IceCandidate.html" class="tsd-kind-icon">Ice<wbr/>Candidate</a></li><li class="tsd-kind-class"><a href="classes/JitterBuffer.html" class="tsd-kind-icon">Jitter<wbr/>Buffer</a></li><li class="tsd-kind-class"><a href="classes/LipSync.html" class="tsd-kind-icon">Lip<wbr/>Sync</a></li><li class="tsd-kind-class"><a href="classes/MediaDescription.html" class="tsd-kind-icon">Media<wbr/>Description</a></li><li class="tsd-kind-class"><a href="classes/MediaRecorder.html" class="tsd-kind-icon">Media<wbr/>Recorder</a></li><li class="tsd-kind-class"><a href="classes/MediaStream.html" class="tsd-kind-icon">Media<wbr/>Stream</a></li><li class="tsd-kind-class"><a href="classes/MediaStreamTrack.html" class="tsd-kind-icon">Media<wbr/>Stream<wbr/>Track</a></li><li class="tsd-kind-class"><a href="classes/OpusRtpPayload.html" class="tsd-kind-icon">Opus<wbr/>Rtp<wbr/>Payload</a></li><li class="tsd-kind-class"><a href="classes/Output.html" class="tsd-kind-icon">Output</a></li><li class="tsd-kind-class"><a href="classes/PacketResult.html" class="tsd-kind-icon">Packet<wbr/>Result</a></li><li class="tsd-kind-class"><a href="classes/PictureLossIndication.html" class="tsd-kind-icon">Picture<wbr/>Loss<wbr/>Indication</a></li><li class="tsd-kind-class"><a href="classes/Pipeline.html" class="tsd-kind-icon">Pipeline</a></li><li class="tsd-kind-class"><a href="classes/PromiseQueue.html" class="tsd-kind-icon">Promise<wbr/>Queue</a></li><li class="tsd-kind-class"><a href="classes/RTCCertificate.html" class="tsd-kind-icon">RTCCertificate</a></li><li class="tsd-kind-class"><a href="classes/RTCDataChannel.html" class="tsd-kind-icon">RTCData<wbr/>Channel</a></li><li class="tsd-kind-class"><a href="classes/RTCDataChannelParameters.html" class="tsd-kind-icon">RTCData<wbr/>Channel<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCDtlsFingerprint.html" class="tsd-kind-icon">RTCDtls<wbr/>Fingerprint</a></li><li class="tsd-kind-class"><a href="classes/RTCDtlsParameters.html" class="tsd-kind-icon">RTCDtls<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCDtlsTransport.html" class="tsd-kind-icon">RTCDtls<wbr/>Transport</a></li><li class="tsd-kind-class"><a href="classes/RTCIceCandidate.html" class="tsd-kind-icon">RTCIce<wbr/>Candidate</a></li><li class="tsd-kind-class"><a href="classes/RTCIceGatherer.html" class="tsd-kind-icon">RTCIce<wbr/>Gatherer</a></li><li class="tsd-kind-class"><a href="classes/RTCIceParameters.html" class="tsd-kind-icon">RTCIce<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCIceTransport.html" class="tsd-kind-icon">RTCIce<wbr/>Transport</a></li><li class="tsd-kind-class"><a href="classes/RTCPeerConnection.html" class="tsd-kind-icon">RTCPeer<wbr/>Connection</a></li><li class="tsd-kind-class"><a href="classes/RTCRtcpFeedback.html" class="tsd-kind-icon">RTCRtcp<wbr/>Feedback</a></li><li class="tsd-kind-class"><a href="classes/RTCRtcpParameters.html" class="tsd-kind-icon">RTCRtcp<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCRtpCodecParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Codec<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCRtpCodingParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Coding<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCRtpHeaderExtensionParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Header<wbr/>Extension<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCRtpRtxParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Rtx<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCRtpSimulcastParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Simulcast<wbr/>Parameters</a></li><li class="tsd-kind-class"><a href="classes/RTCRtpTransceiver.html" class="tsd-kind-icon">RTCRtp<wbr/>Transceiver</a></li><li class="tsd-kind-class"><a href="classes/RTCSctpCapabilities.html" class="tsd-kind-icon">RTCSctp<wbr/>Capabilities</a></li><li class="tsd-kind-class"><a href="classes/RTCSctpTransport.html" class="tsd-kind-icon">RTCSctp<wbr/>Transport</a></li><li class="tsd-kind-class"><a href="classes/RTCSessionDescription.html" class="tsd-kind-icon">RTCSession<wbr/>Description</a></li><li class="tsd-kind-class"><a href="classes/ReceiverEstimatedMaxBitrate.html" class="tsd-kind-icon">Receiver<wbr/>Estimated<wbr/>Max<wbr/>Bitrate</a></li><li class="tsd-kind-class"><a href="classes/RecvDelta.html" class="tsd-kind-icon">Recv<wbr/>Delta</a></li><li class="tsd-kind-class"><a href="classes/Red.html" class="tsd-kind-icon">Red</a></li><li class="tsd-kind-class"><a href="classes/RedEncoder.html" class="tsd-kind-icon">Red<wbr/>Encoder</a></li><li class="tsd-kind-class"><a href="classes/RedHeader.html" class="tsd-kind-icon">Red<wbr/>Header</a></li><li class="tsd-kind-class"><a href="classes/RtcpHeader.html" class="tsd-kind-icon">Rtcp<wbr/>Header</a></li><li class="tsd-kind-class"><a href="classes/RtcpPacketConverter.html" class="tsd-kind-icon">Rtcp<wbr/>Packet<wbr/>Converter</a></li><li class="tsd-kind-class"><a href="classes/RtcpPayloadSpecificFeedback.html" class="tsd-kind-icon">Rtcp<wbr/>Payload<wbr/>Specific<wbr/>Feedback</a></li><li class="tsd-kind-class"><a href="classes/RtcpReceiverInfo.html" class="tsd-kind-icon">Rtcp<wbr/>Receiver<wbr/>Info</a></li><li class="tsd-kind-class"><a href="classes/RtcpRrPacket.html" class="tsd-kind-icon">Rtcp<wbr/>Rr<wbr/>Packet</a></li><li class="tsd-kind-class"><a href="classes/RtcpSenderInfo.html" class="tsd-kind-icon">Rtcp<wbr/>Sender<wbr/>Info</a></li><li class="tsd-kind-class"><a href="classes/RtcpSourceDescriptionPacket.html" class="tsd-kind-icon">Rtcp<wbr/>Source<wbr/>Description<wbr/>Packet</a></li><li class="tsd-kind-class"><a href="classes/RtcpSrPacket.html" class="tsd-kind-icon">Rtcp<wbr/>Sr<wbr/>Packet</a></li><li class="tsd-kind-class"><a href="classes/RtcpTransportLayerFeedback.html" class="tsd-kind-icon">Rtcp<wbr/>Transport<wbr/>Layer<wbr/>Feedback</a></li><li class="tsd-kind-class"><a href="classes/RtpBuilder.html" class="tsd-kind-icon">Rtp<wbr/>Builder</a></li><li class="tsd-kind-class"><a href="classes/RtpHeader.html" class="tsd-kind-icon">Rtp<wbr/>Header</a></li><li class="tsd-kind-class"><a href="classes/RtpPacket.html" class="tsd-kind-icon">Rtp<wbr/>Packet</a></li><li class="tsd-kind-class"><a href="classes/RunLengthChunk.html" class="tsd-kind-icon">Run<wbr/>Length<wbr/>Chunk</a></li><li class="tsd-kind-class"><a href="classes/SampleBuilder.html" class="tsd-kind-icon">Sample<wbr/>Builder</a></li><li class="tsd-kind-class"><a href="classes/SessionDescription.html" class="tsd-kind-icon">Session<wbr/>Description</a></li><li class="tsd-kind-class"><a href="classes/SourceDescriptionChunk.html" class="tsd-kind-icon">Source<wbr/>Description<wbr/>Chunk</a></li><li class="tsd-kind-class"><a href="classes/SourceDescriptionItem.html" class="tsd-kind-icon">Source<wbr/>Description<wbr/>Item</a></li><li class="tsd-kind-class"><a href="classes/SrtcpSession.html" class="tsd-kind-icon">Srtcp<wbr/>Session</a></li><li class="tsd-kind-class"><a href="classes/SrtpSession.html" class="tsd-kind-icon">Srtp<wbr/>Session</a></li><li class="tsd-kind-class"><a href="classes/SsrcDescription.html" class="tsd-kind-icon">Ssrc<wbr/>Description</a></li><li class="tsd-kind-class"><a href="classes/StatusVectorChunk.html" class="tsd-kind-icon">Status<wbr/>Vector<wbr/>Chunk</a></li><li class="tsd-kind-class"><a href="classes/TransportWideCC.html" class="tsd-kind-icon">Transport<wbr/>WideCC</a></li><li class="tsd-kind-class"><a href="classes/Vp8RtpPayload.html" class="tsd-kind-icon">Vp8<wbr/>Rtp<wbr/>Payload</a></li><li class="tsd-kind-class"><a href="classes/Vp9RtpPayload.html" class="tsd-kind-icon">Vp9<wbr/>Rtp<wbr/>Payload</a></li><li class="tsd-kind-class"><a href="classes/WebmOutput.html" class="tsd-kind-icon">Webm<wbr/>Output</a></li><li class="tsd-kind-interface"><a href="interfaces/BufferResolve.html" class="tsd-kind-icon">Buffer<wbr/>Resolve</a></li><li class="tsd-kind-interface"><a href="interfaces/IceOptions.html" class="tsd-kind-icon">Ice<wbr/>Options</a></li><li class="tsd-kind-interface"><a href="interfaces/MediaRecorderOptions.html" class="tsd-kind-icon">Media<wbr/>Recorder<wbr/>Options</a></li><li class="tsd-kind-interface"><a href="interfaces/MessageEvent.html" class="tsd-kind-icon">Message<wbr/>Event</a></li><li class="tsd-kind-interface"><a href="interfaces/PeerConfig.html" class="tsd-kind-icon">Peer<wbr/>Config</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCDataChannelEvent.html" class="tsd-kind-icon">RTCData<wbr/>Channel<wbr/>Event</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCErrorEvent.html" class="tsd-kind-icon">RTCError<wbr/>Event</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCPeerConnectionIceEvent.html" class="tsd-kind-icon">RTCPeer<wbr/>Connection<wbr/>Ice<wbr/>Event</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCRtpParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Parameters</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCRtpReceiveParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Receive<wbr/>Parameters</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCRtpSendParameters.html" class="tsd-kind-icon">RTCRtp<wbr/>Send<wbr/>Parameters</a></li><li class="tsd-kind-interface"><a href="interfaces/RTCTrackEvent.html" class="tsd-kind-icon">RTCTrack<wbr/>Event</a></li><li class="tsd-kind-interface"><a href="interfaces/TransceiverOptions.html" class="tsd-kind-icon">Transceiver<wbr/>Options</a></li><li class="tsd-kind-type-alias"><a href="modules.html#Address" class="tsd-kind-icon">Address</a></li><li class="tsd-kind-type-alias"><a href="modules.html#BundlePolicy" class="tsd-kind-icon">Bundle<wbr/>Policy</a></li><li class="tsd-kind-type-alias"><a href="modules.html#CipherSuites" class="tsd-kind-icon">Cipher<wbr/>Suites</a></li><li class="tsd-kind-type-alias"><a href="modules.html#ConnectionState" class="tsd-kind-icon">Connection<wbr/>State</a></li><li class="tsd-kind-type-alias"><a href="modules.html#CurveTypes" class="tsd-kind-icon">Curve<wbr/>Types</a></li><li class="tsd-kind-type-alias"><a href="modules.html#DCState" class="tsd-kind-icon">DCState</a></li><li class="tsd-kind-type-alias"><a href="modules.html#Direction" class="tsd-kind-icon">Direction</a></li><li class="tsd-kind-type-alias"><a href="modules.html#DtlsKeys" class="tsd-kind-icon">Dtls<wbr/>Keys</a></li><li class="tsd-kind-type-alias"><a href="modules.html#DtlsRole" class="tsd-kind-icon">Dtls<wbr/>Role</a></li><li class="tsd-kind-type-alias"><a href="modules.html#DtlsState" class="tsd-kind-icon">Dtls<wbr/>State</a></li><li class="tsd-kind-type-alias"><a href="modules.html#Extension" class="tsd-kind-icon">Extension</a></li><li class="tsd-kind-type-alias"><a href="modules.html#HashAlgorithms" class="tsd-kind-icon">Hash<wbr/>Algorithms</a></li><li class="tsd-kind-type-alias"><a href="modules.html#IceGathererState" class="tsd-kind-icon">Ice<wbr/>Gatherer<wbr/>State</a></li><li class="tsd-kind-type-alias"><a href="modules.html#Kind" class="tsd-kind-icon">Kind</a></li><li class="tsd-kind-type-alias"><a href="modules.html#NamedCurveAlgorithms" class="tsd-kind-icon">Named<wbr/>Curve<wbr/>Algorithms</a></li><li class="tsd-kind-type-alias"><a href="modules.html#RTCIceConnectionState" class="tsd-kind-icon">RTCIce<wbr/>Connection<wbr/>State</a></li><li class="tsd-kind-type-alias"><a href="modules.html#RTCIceServer" class="tsd-kind-icon">RTCIce<wbr/>Server</a></li><li class="tsd-kind-type-alias"><a href="modules.html#RTCPFB" class="tsd-kind-icon">RTCPFB</a></li><li class="tsd-kind-type-alias"><a href="modules.html#RTCSignalingState" class="tsd-kind-icon">RTCSignaling<wbr/>State</a></li><li class="tsd-kind-type-alias"><a href="modules.html#RtcpPacket" class="tsd-kind-icon">Rtcp<wbr/>Packet</a></li><li class="tsd-kind-type-alias"><a href="modules.html#SignatureAlgorithms" class="tsd-kind-icon">Signature<wbr/>Algorithms</a></li><li class="tsd-kind-type-alias"><a href="modules.html#SignatureHash" class="tsd-kind-icon">Signature<wbr/>Hash</a></li><li class="tsd-kind-type-alias"><a href="modules.html#SignatureSchemes" class="tsd-kind-icon">Signature<wbr/>Schemes</a></li><li class="tsd-kind-variable"><a href="modules.html#CipherSuite" class="tsd-kind-icon">Cipher<wbr/>Suite</a></li><li class="tsd-kind-variable"><a href="modules.html#CipherSuiteList" class="tsd-kind-icon">Cipher<wbr/>Suite<wbr/>List</a></li><li class="tsd-kind-variable"><a href="modules.html#ConnectionStates" class="tsd-kind-icon">Connection<wbr/>States</a></li><li class="tsd-kind-variable"><a href="modules.html#CurveType" class="tsd-kind-icon">Curve<wbr/>Type</a></li><li class="tsd-kind-variable"><a href="modules.html#Directions" class="tsd-kind-icon">Directions</a></li><li class="tsd-kind-variable"><a href="modules.html#DtlsStates" class="tsd-kind-icon">Dtls<wbr/>States</a></li><li class="tsd-kind-variable"><a href="modules.html#ExtensionProfiles" class="tsd-kind-icon">Extension<wbr/>Profiles</a></li><li class="tsd-kind-variable"><a href="modules.html#HEADER_SIZE" class="tsd-kind-icon">HEADER_<wbr/>SIZE</a></li><li class="tsd-kind-variable"><a href="modules.html#HashAlgorithm" class="tsd-kind-icon">Hash<wbr/>Algorithm</a></li><li class="tsd-kind-variable"><a href="modules.html#IceGathererStates" class="tsd-kind-icon">Ice<wbr/>Gatherer<wbr/>States</a></li><li class="tsd-kind-variable"><a href="modules.html#IceTransportStates" class="tsd-kind-icon">Ice<wbr/>Transport<wbr/>States</a></li><li class="tsd-kind-variable"><a href="modules.html#Max32bit" class="tsd-kind-icon">Max32bit</a></li><li class="tsd-kind-variable"><a href="modules.html#NalUnitType" class="tsd-kind-icon">Nal<wbr/>Unit<wbr/>Type</a></li><li class="tsd-kind-variable"><a href="modules.html#NamedCurveAlgorithm" class="tsd-kind-icon">Named<wbr/>Curve<wbr/>Algorithm</a></li><li class="tsd-kind-variable"><a href="modules.html#NamedCurveAlgorithmList" class="tsd-kind-icon">Named<wbr/>Curve<wbr/>Algorithm<wbr/>List</a></li><li class="tsd-kind-variable"><a href="modules.html#RTP_EXTENSION_URI" class="tsd-kind-icon">RTP_<wbr/>EXTENSION_<wbr/>URI</a></li><li class="tsd-kind-variable"><a href="modules.html#SignalingStates" class="tsd-kind-icon">Signaling<wbr/>States</a></li><li class="tsd-kind-variable"><a href="modules.html#SignatureAlgorithm" class="tsd-kind-icon">Signature<wbr/>Algorithm</a></li><li class="tsd-kind-variable"><a href="modules.html#SignatureScheme" class="tsd-kind-icon">Signature<wbr/>Scheme</a></li><li class="tsd-kind-variable"><a href="modules.html#defaultPeerConfig" class="tsd-kind-icon">default<wbr/>Peer<wbr/>Config</a></li><li class="tsd-kind-function"><a href="modules.html#addSDPHeader" class="tsd-kind-icon">addSDPHeader</a></li><li class="tsd-kind-function"><a href="modules.html#addTransportDescription" class="tsd-kind-icon">add<wbr/>Transport<wbr/>Description</a></li><li class="tsd-kind-function"><a href="modules.html#allocateMid" class="tsd-kind-icon">allocate<wbr/>Mid</a></li><li class="tsd-kind-function"><a href="modules.html#andDirection" class="tsd-kind-icon">and<wbr/>Direction</a></li><li class="tsd-kind-function"><a href="modules.html#buffer2ArrayBuffer" class="tsd-kind-icon">buffer2<wbr/>Array<wbr/>Buffer</a></li><li class="tsd-kind-function"><a href="modules.html#bufferArrayXor" class="tsd-kind-icon">buffer<wbr/>Array<wbr/>Xor</a></li><li class="tsd-kind-function"><a href="modules.html#bufferReader" class="tsd-kind-icon">buffer<wbr/>Reader</a></li><li class="tsd-kind-function"><a href="modules.html#bufferWriter" class="tsd-kind-icon">buffer<wbr/>Writer</a></li><li class="tsd-kind-function"><a href="modules.html#bufferWriterLE" class="tsd-kind-icon">buffer<wbr/>WriterLE</a></li><li class="tsd-kind-function"><a href="modules.html#bufferXor" class="tsd-kind-icon">buffer<wbr/>Xor</a></li><li class="tsd-kind-function"><a href="modules.html#candidateFromIce" class="tsd-kind-icon">candidate<wbr/>From<wbr/>Ice</a></li><li class="tsd-kind-function"><a href="modules.html#candidateFromSdp" class="tsd-kind-icon">candidate<wbr/>From<wbr/>Sdp</a></li><li class="tsd-kind-function"><a href="modules.html#candidateToIce" class="tsd-kind-icon">candidate<wbr/>To<wbr/>Ice</a></li><li class="tsd-kind-function"><a href="modules.html#candidateToSdp" class="tsd-kind-icon">candidate<wbr/>To<wbr/>Sdp</a></li><li class="tsd-kind-function"><a href="modules.html#codecParametersFromString" class="tsd-kind-icon">codec<wbr/>Parameters<wbr/>From<wbr/>String</a></li><li class="tsd-kind-function"><a href="modules.html#codecParametersToString" class="tsd-kind-icon">codec<wbr/>Parameters<wbr/>To<wbr/>String</a></li><li class="tsd-kind-function"><a href="modules.html#compactNtp" class="tsd-kind-icon">compact<wbr/>Ntp</a></li><li class="tsd-kind-function"><a href="modules.html#createMediaDescriptionForSctp" class="tsd-kind-icon">create<wbr/>Media<wbr/>Description<wbr/>For<wbr/>Sctp</a></li><li class="tsd-kind-function"><a href="modules.html#createMediaDescriptionForTransceiver" class="tsd-kind-icon">create<wbr/>Media<wbr/>Description<wbr/>For<wbr/>Transceiver</a></li><li class="tsd-kind-function"><a href="modules.html#createSelfSignedCertificate" class="tsd-kind-icon">create<wbr/>Self<wbr/>Signed<wbr/>Certificate</a></li><li class="tsd-kind-function tsd-has-type-parameter"><a href="modules.html#deepMerge" class="tsd-kind-icon">deep<wbr/>Merge</a></li><li class="tsd-kind-function"><a href="modules.html#dumpBuffer" class="tsd-kind-icon">dump<wbr/>Buffer</a></li><li class="tsd-kind-function"><a href="modules.html#findCodecByMimeType" class="tsd-kind-icon">find<wbr/>Codec<wbr/>By<wbr/>Mime<wbr/>Type</a></li><li class="tsd-kind-function"><a href="modules.html#findPort" class="tsd-kind-icon">find<wbr/>Port</a></li><li class="tsd-kind-function"><a href="modules.html#fingerprint" class="tsd-kind-icon">fingerprint</a></li><li class="tsd-kind-function"><a href="modules.html#getBit" class="tsd-kind-icon">get<wbr/>Bit</a></li><li class="tsd-kind-function"><a href="modules.html#getGlobalIp" class="tsd-kind-icon">get<wbr/>Global<wbr/>Ip</a></li><li class="tsd-kind-function"><a href="modules.html#getUserMp4" class="tsd-kind-icon">get<wbr/>User<wbr/>Mp4</a></li><li class="tsd-kind-function"><a href="modules.html#int" class="tsd-kind-icon">int</a></li><li class="tsd-kind-function"><a href="modules.html#isDtls" class="tsd-kind-icon">is<wbr/>Dtls</a></li><li class="tsd-kind-function"><a href="modules.html#isMedia" class="tsd-kind-icon">is<wbr/>Media</a></li><li class="tsd-kind-function"><a href="modules.html#isRtcp" class="tsd-kind-icon">is<wbr/>Rtcp</a></li><li class="tsd-kind-function"><a href="modules.html#leb128decode" class="tsd-kind-icon">leb128decode</a></li><li class="tsd-kind-function"><a href="modules.html#microTime" class="tsd-kind-icon">micro<wbr/>Time</a></li><li class="tsd-kind-function"><a href="modules.html#milliTime" class="tsd-kind-icon">milli<wbr/>Time</a></li><li class="tsd-kind-function"><a href="modules.html#normalizeFamilyNodeV18" class="tsd-kind-icon">normalize<wbr/>Family<wbr/>Node<wbr/>V18</a></li><li class="tsd-kind-function"><a href="modules.html#ntpTime" class="tsd-kind-icon">ntp<wbr/>Time</a></li><li class="tsd-kind-function"><a href="modules.html#ntpTime2Time" class="tsd-kind-icon">ntp<wbr/>Time2<wbr/>Time</a></li><li class="tsd-kind-function"><a href="modules.html#orDirection" class="tsd-kind-icon">or<wbr/>Direction</a></li><li class="tsd-kind-function"><a href="modules.html#paddingBits" class="tsd-kind-icon">padding<wbr/>Bits</a></li><li class="tsd-kind-function"><a href="modules.html#paddingByte" class="tsd-kind-icon">padding<wbr/>Byte</a></li><li class="tsd-kind-function"><a href="modules.html#parseGroup" class="tsd-kind-icon">parse<wbr/>Group</a></li><li class="tsd-kind-function"><a href="modules.html#parseIceServers" class="tsd-kind-icon">parse<wbr/>Ice<wbr/>Servers</a></li><li class="tsd-kind-function"><a href="modules.html#random16" class="tsd-kind-icon">random16</a></li><li class="tsd-kind-function"><a href="modules.html#random32" class="tsd-kind-icon">random32</a></li><li class="tsd-kind-function"><a href="modules.html#randomPort" class="tsd-kind-icon">random<wbr/>Port</a></li><li class="tsd-kind-function"><a href="modules.html#randomPorts" class="tsd-kind-icon">random<wbr/>Ports</a></li><li class="tsd-kind-function"><a href="modules.html#reverseDirection" class="tsd-kind-icon">reverse<wbr/>Direction</a></li><li class="tsd-kind-function"><a href="modules.html#reverseSimulcastDirection" class="tsd-kind-icon">reverse<wbr/>Simulcast<wbr/>Direction</a></li><li class="tsd-kind-function"><a href="modules.html#uint16Add" class="tsd-kind-icon">uint16<wbr/>Add</a></li><li class="tsd-kind-function"><a href="modules.html#uint16Gt" class="tsd-kind-icon">uint16<wbr/>Gt</a></li><li class="tsd-kind-function"><a href="modules.html#uint16Gte" class="tsd-kind-icon">uint16<wbr/>Gte</a></li><li class="tsd-kind-function"><a href="modules.html#uint24" class="tsd-kind-icon">uint24</a></li><li class="tsd-kind-function"><a href="modules.html#uint32Add" class="tsd-kind-icon">uint32<wbr/>Add</a></li><li class="tsd-kind-function"><a href="modules.html#uint32Gt" class="tsd-kind-icon">uint32<wbr/>Gt</a></li><li class="tsd-kind-function"><a href="modules.html#uint32Gte" class="tsd-kind-icon">uint32<wbr/>Gte</a></li><li class="tsd-kind-function"><a href="modules.html#uint8Add" class="tsd-kind-icon">uint8<wbr/>Add</a></li><li class="tsd-kind-function"><a href="modules.html#useAbsSendTime" class="tsd-kind-icon">use<wbr/>Abs<wbr/>Send<wbr/>Time</a></li><li class="tsd-kind-function"><a href="modules.html#useFIR" class="tsd-kind-icon">useFIR</a></li><li class="tsd-kind-function"><a href="modules.html#useNACK" class="tsd-kind-icon">useNACK</a></li><li class="tsd-kind-function"><a href="modules.html#usePLI" class="tsd-kind-icon">usePLI</a></li><li class="tsd-kind-function"><a href="modules.html#useREMB" class="tsd-kind-icon">useREMB</a></li><li class="tsd-kind-function"><a href="modules.html#useRepairedRtpStreamId" class="tsd-kind-icon">use<wbr/>Repaired<wbr/>Rtp<wbr/>Stream<wbr/>Id</a></li><li class="tsd-kind-function"><a href="modules.html#useSdesMid" class="tsd-kind-icon">use<wbr/>Sdes<wbr/>Mid</a></li><li class="tsd-kind-function"><a href="modules.html#useSdesRTPStreamId" class="tsd-kind-icon">use<wbr/>SdesRTPStream<wbr/>Id</a></li><li class="tsd-kind-function"><a href="modules.html#useTWCC" class="tsd-kind-icon">useTWCC</a></li><li class="tsd-kind-function"><a href="modules.html#useTransportWideCC" class="tsd-kind-icon">use<wbr/>Transport<wbr/>WideCC</a></li></ul></nav></div></div></div><footer class="with-border-bottom"><div class="container"><h2>Legend</h2><div class="tsd-legend-group"><ul class="tsd-legend"><li class="tsd-kind-constructor tsd-parent-kind-class"><span class="tsd-kind-icon">Constructor</span></li><li class="tsd-kind-property tsd-parent-kind-class"><span class="tsd-kind-icon">Property</span></li><li class="tsd-kind-method tsd-parent-kind-class"><span class="tsd-kind-icon">Method</span></li><li class="tsd-kind-accessor tsd-parent-kind-class"><span class="tsd-kind-icon">Accessor</span></li></ul><ul class="tsd-legend"><li class="tsd-kind-constructor tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited constructor</span></li><li class="tsd-kind-property tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited property</span></li><li class="tsd-kind-method tsd-parent-kind-class tsd-is-inherited"><span class="tsd-kind-icon">Inherited method</span></li></ul><ul class="tsd-legend"><li class="tsd-kind-property tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private property</span></li><li class="tsd-kind-method tsd-parent-kind-class tsd-is-private"><span class="tsd-kind-icon">Private method</span></li></ul><ul class="tsd-legend"><li class="tsd-kind-property tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static property</span></li><li class="tsd-kind-method tsd-parent-kind-class tsd-is-static"><span class="tsd-kind-icon">Static method</span></li></ul><ul class="tsd-legend"><li class="tsd-kind-property tsd-parent-kind-interface"><span class="tsd-kind-icon">Property</span></li></ul><ul class="tsd-legend"><li class="tsd-kind-property tsd-parent-kind-class tsd-is-protected"><span class="tsd-kind-icon">Protected property</span></li></ul></div><h2>Settings</h2><p>Theme <select id="theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></p></div></footer><div class="container tsd-generator"><p>Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></div><div class="overlay"></div><script src="assets/main.js"></script></body></html>
