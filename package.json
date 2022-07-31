@@ -20,7 +20,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "ci": "npm run build && npm run test && npm run e2e && npm run doc",
+    "ci": "npm run type:all && npm run build && npm run test && npm run e2e && npm run doc",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "doc": "rm -rf doc && cd packages/webrtc && npm run doc && mv doc ../..",
     "e2e": "cd e2e && npm run ci",

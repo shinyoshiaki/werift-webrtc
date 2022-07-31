@@ -611,6 +611,9 @@ export function candidateFromSdp(sdp: string) {
 
 export class RTCSessionDescription {
   constructor(public sdp: string, public type: "offer" | "answer") {}
+  static isThis(o: any) {
+    if (typeof o?.sdp === "string") return true;
+  }
 }
 
 export function addSDPHeader(
