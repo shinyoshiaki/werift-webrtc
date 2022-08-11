@@ -2,7 +2,7 @@
 import React, { FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
-import { Red } from "werift-rtp";
+import { Red } from "../../../../packages/rtp";
 import { getAudioStream, uint32Add } from "./util";
 
 const peer = new RTCPeerConnection({
@@ -101,8 +101,8 @@ class RedSender {
     const presentPayload = redundantPayloads.pop();
     const red = new Red();
     redundantPayloads.forEach((redundant) => {
-      red.payloads.push({
-        bin: redundant.buffer,
+      red.blocks.push({
+        block: redundant.buffer,
         blockPT: 97,
         timestampOffset: uint32Add(
           presentPayload.timestamp,
@@ -110,7 +110,7 @@ class RedSender {
         ),
       });
     });
-    red.payloads.push({ bin: presentPayload.buffer, blockPT: 97 });
+    red.blocks.push({ block: presentPayload.buffer, blockPT: 97 });
     return red;
   }
 }
@@ -123,9 +123,9 @@ const senderTransform = (sender: RTCRtpSender) => {
   const transformStream = new TransformStream({
     transform: (encodedFrame, controller) => {
       const packet = Red.deSerialize(Buffer.from(encodedFrame.data));
-      const newPayload = packet.payloads.at(-1);
+      const newPayload = packet.blocks.at(-1);
       redSender.push({
-        buffer: newPayload.bin,
+        buffer: newPayload.block,
         timestamp: encodedFrame.timestamp,
       });
       const red = redSender.build().serialize();

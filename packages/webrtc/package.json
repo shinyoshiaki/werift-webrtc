@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.15.9",
+  "version": "0.15.10",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -26,7 +26,7 @@
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
     "deploy": "npm run build && npm publish",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
-    "doc": "rm -rf doc && typedoc --out doc ./src/index.ts",
+    "doc": "rm -rf doc && typedoc --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "test": "npm run type && jest --runInBand --forceExit --coverage",

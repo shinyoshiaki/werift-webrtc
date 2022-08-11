@@ -1,7 +1,6 @@
 import { spawn } from "child_process";
-import { RTCPeerConnection } from "werift";
+import { RTCPeerConnection, randomPort } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { randomPort } from "werift/lib/ice/src/utils";
 import { createSocket } from "dgram";
 
 const server = new Server({ port: 8888 });

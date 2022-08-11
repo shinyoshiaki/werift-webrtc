@@ -9,6 +9,39 @@ export function random32() {
   return jspack.Unpack("!L", randomBytes(4))[0];
 }
 
+export function bufferXor(a: Buffer, b: Buffer): Buffer {
+  if (a.length !== b.length) {
+    throw new TypeError(
+      "[webrtc-stun] You can not XOR buffers which length are different"
+    );
+  }
+
+  const length = a.length;
+  const buffer = Buffer.allocUnsafe(length);
+
+  for (let i = 0; i < length; i++) {
+    buffer[i] = a[i] ^ b[i];
+  }
+
+  return buffer;
+}
+
+export function bufferArrayXor(arr: Buffer[]): Buffer {
+  const length = [...arr]
+    .sort((a, b) => a.length - b.length)
+    .reverse()[0].length;
+  const xored = Buffer.allocUnsafe(length);
+
+  for (let i = 0; i < length; i++) {
+    xored[i] = 0;
+    arr.forEach((buffer) => {
+      xored[i] ^= buffer[i] ?? 0;
+    });
+  }
+
+  return xored;
+}
+
 export class BitWriter {
   value = 0;
 
@@ -39,7 +72,11 @@ export class BitWriter2 {
   constructor(
     /**Max 32bit */
     private bitLength: number
-  ) {}
+  ) {
+    if (bitLength > 32) {
+      throw new Error();
+    }
+  }
 
   set(value: number, size: number = 1) {
     let value_b = BigInt(value);
