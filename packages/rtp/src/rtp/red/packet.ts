@@ -132,6 +132,7 @@ export class RedHeader {
 }
 
 interface RedHeaderField {
+  /**ヘッダーの最初のビットは、別のヘッダーブロックが続くかどうかを示す。 1の場合は、さらにヘッダーブロックが続き、0の場合は、これが最後のヘッダーブロックとなります。 */
   fBit: number;
   blockPT: number;
   /**14bit */

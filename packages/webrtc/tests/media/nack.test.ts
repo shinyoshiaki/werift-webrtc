@@ -2,11 +2,11 @@
 /* eslint-disable no-var */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { RtcpPacket, RtpHeader, RtpPacket } from "../../../rtp/src";
-import { Nack } from "../../src/media/receiver/nack";
+import { NackHandler } from "../../src/media/receiver/nack";
 
 describe("media/nack", () => {
   test("16bit rotate", () => {
-    const nack = new Nack(new MockRTCRtpReceiver() as any);
+    const nack = new NackHandler(new MockRTCRtpReceiver() as any);
     var packet = new RtpPacket(
       new RtpHeader({ sequenceNumber: 65535, ssrc: 1 }),
       Buffer.from("")
@@ -19,7 +19,7 @@ describe("media/nack", () => {
     );
     nack.addPacket(packet);
 
-    expect(nack.lost).toEqual([0, 1, 2]);
+    expect(nack.lostNumber).toEqual([0, 1, 2]);
   });
 });
 

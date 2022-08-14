@@ -5,7 +5,7 @@ import { EventTarget } from "./helper";
 import { RTCSctpTransport } from "./transport/sctp";
 import { Callback, CallbackWithValue } from "./types/util";
 
-const log = debug("werift/webrtc/datachannel");
+const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
 export class RTCDataChannel extends EventTarget {
   readonly stateChanged = new Event<[DCState]>();

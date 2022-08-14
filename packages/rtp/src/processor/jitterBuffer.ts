@@ -29,7 +29,6 @@ export class JitterBuffer extends Pipeline {
       this.head = p.header.sequenceNumber;
     } else if (p.header.sequenceNumber != uint16Add(this.head, 1)) {
       if (this.retry++ >= this.maxRetry) {
-        log("give up packet lost");
         this.head = uint16Add(this.head, 2);
       } else {
         return;

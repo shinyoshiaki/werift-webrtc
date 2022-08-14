@@ -89,12 +89,12 @@ export class RTCRtpTransceiver {
   }
 }
 
-export const Directions = [
-  "inactive",
-  "sendonly",
-  "recvonly",
-  "sendrecv",
-] as const;
+export const Inactive = "inactive";
+export const Sendonly = "sendonly";
+export const Recvonly = "recvonly";
+export const Sendrecv = "sendrecv";
+
+export const Directions = [Inactive, Sendonly, Recvonly, Sendrecv] as const;
 
 export type Direction = typeof Directions[number];
 

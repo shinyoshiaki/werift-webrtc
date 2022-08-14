@@ -18,7 +18,7 @@ import { Direction, Directions } from "./media/rtpTransceiver";
 import { RTCIceServer } from "./peerConnection";
 const now = require("nano-time");
 
-const log = debug("werift/webrtc/utils");
+const log = debug("werift:packages/webrtc/src/utils.ts");
 
 export function fingerprint(file: Buffer, hashName: string) {
   const upper = (s: string) => s.toUpperCase();
@@ -64,6 +64,8 @@ export const microTime = () => now.micro() as number;
 
 export const milliTime = () => new Date().getTime();
 
+export const timestampSeconds = () => Date.now() / 1000;
+
 /**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
 export const ntpTime = () => {
   const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
@@ -76,7 +78,11 @@ export const ntpTime = () => {
   return buf.readBigUInt64BE();
 };
 
-/**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
+/**
+ * https://datatracker.ietf.org/doc/html/rfc3550#section-4
+ * @param ntp
+ * @returns 32bit
+ */
 export const compactNtp = (ntp: bigint) => {
   const buf = bufferWriter([8], [ntp]);
   const [, sec, msec] = bufferReader(buf, [2, 2, 2, 2]);
