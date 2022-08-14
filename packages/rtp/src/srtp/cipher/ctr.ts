@@ -1,5 +1,4 @@
 import { createCipheriv, createDecipheriv, createHmac } from "crypto";
-import range from "lodash/range";
 
 import { growBufferSize } from "../../helper";
 import { RtcpHeader } from "../../rtcp/header";
@@ -21,12 +20,7 @@ export class CipherAesCtr extends CipherAesBase {
   }
 
   encryptRtp(header: RtpHeader, payload: Buffer, rolloverCounter: number) {
-    const dst = Buffer.alloc(
-      header.serializeSize + payload.length + this.authTagLength
-    );
-    header.serialize(dst.length).copy(dst);
-
-    const { payloadOffset } = header;
+    const headerBuffer = header.serialize(header.serializeSize);
 
     const counter = this.generateCounter(
       header.sequenceNumber,
@@ -37,15 +31,13 @@ export class CipherAesCtr extends CipherAesBase {
 
     const cipher = createCipheriv("aes-128-ctr", this.srtpSessionKey, counter);
     const enc = cipher.update(payload);
-    enc.copy(dst, payloadOffset);
-    const totalLength = payloadOffset + payload.length;
 
     const authTag = this.generateSrtpAuthTag(
-      dst.slice(0, totalLength),
-      rolloverCounter
+      rolloverCounter,
+      headerBuffer,
+      enc
     );
-    authTag.copy(dst, totalLength);
-    return dst;
+    return Buffer.concat([headerBuffer, enc, authTag]);
   }
 
   decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
@@ -54,9 +46,9 @@ export class CipherAesCtr extends CipherAesBase {
     let dst = Buffer.from([]);
     dst = growBufferSize(dst, cipherText.length - this.authTagLength);
 
-    cipherText = cipherText.slice(0, cipherText.length - this.authTagLength);
+    cipherText = cipherText.subarray(0, cipherText.length - this.authTagLength);
 
-    cipherText.slice(0, header.payloadOffset).copy(dst);
+    cipherText.subarray(0, header.payloadOffset).copy(dst);
 
     const counter = this.generateCounter(
       header.sequenceNumber,
@@ -114,7 +106,7 @@ export class CipherAesCtr extends CipherAesBase {
     const ssrc = encrypted.readUInt32BE(4);
 
     // todo impl compare
-    const actualTag = encrypted.slice(encrypted.length - 10);
+    const actualTag = encrypted.subarray(encrypted.length - 10);
 
     const counter = this.generateCounter(
       srtcpIndex & 0xffff,
@@ -127,7 +119,7 @@ export class CipherAesCtr extends CipherAesBase {
       this.srtcpSessionKey,
       counter
     );
-    const buf = cipher.update(out.slice(8));
+    const buf = cipher.update(out.subarray(8));
     buf.copy(out, 8);
     return [out, header];
   }
@@ -148,18 +140,21 @@ export class CipherAesCtr extends CipherAesBase {
     counter.writeUInt32BE(rolloverCounter, 8);
     counter.writeUInt32BE(Number(BigInt(sequenceNumber) << 16n), 12);
 
-    range(sessionSalt.length).forEach((i) => {
+    for (let i = 0; i < sessionSalt.length; i++) {
       counter[i] = counter[i] ^ sessionSalt[i];
-    });
+    }
     return counter;
   }
 
-  generateSrtpAuthTag(buf: Buffer, roc: number) {
+  generateSrtpAuthTag(roc: number, ...buffers: Buffer[]) {
     const srtpSessionAuth = createHmac("sha1", this.srtpSessionAuthTag);
     const rocRaw = Buffer.alloc(4);
     rocRaw.writeUInt32BE(roc);
 
-    return srtpSessionAuth.update(buf).update(rocRaw).digest().slice(0, 10);
+    for (const buf of buffers) {
+      srtpSessionAuth.update(buf);
+    }
+    return srtpSessionAuth.update(rocRaw).digest().subarray(0, 10);
   }
 }
 

@@ -81,7 +81,7 @@ export class RtpHeader {
     }
     if (h.extension) {
       h.extensionProfile = rawPacket
-        .slice(currOffset)
+        .subarray(currOffset)
         .readUInt16BE() as ExtensionProfile;
       currOffset += 2;
       const extensionLength = rawPacket.slice(currOffset).readUInt16BE() * 4;
@@ -170,14 +170,14 @@ export class RtpHeader {
       let extSize = 4;
       switch (extensionProfile) {
         case ExtensionProfiles.OneByte:
-          extensions.forEach((extension) => {
+          for (const extension of extensions) {
             extSize += 1 + extension.payload.length;
-          });
+          }
           break;
         case ExtensionProfiles.TwoByte:
-          extensions.forEach((extension) => {
+          for (const extension of extensions) {
             extSize += 2 + extension.payload.length;
-          });
+          }
           break;
         default:
           extSize += extensions[0].payload.length;
@@ -212,10 +212,10 @@ export class RtpHeader {
     buf.writeUInt32BE(this.ssrc, ssrcOffset);
     offset += 4;
 
-    this.csrc.forEach((csrc) => {
+    for (const csrc of this.csrc) {
       buf.writeUInt32BE(csrc, offset);
       offset += 4;
-    });
+    }
 
     if (this.extension) {
       const extHeaderPos = offset;
@@ -225,22 +225,22 @@ export class RtpHeader {
 
       switch (this.extensionProfile) {
         case ExtensionProfiles.OneByte:
-          this.extensions.forEach((extension) => {
+          for (const extension of this.extensions) {
             buf.writeUInt8(
               (extension.id << 4) | (extension.payload.length - 1),
               offset++
             );
             extension.payload.copy(buf, offset);
             offset += extension.payload.length;
-          });
+          }
           break;
         case ExtensionProfiles.TwoByte: // 1バイトで収まらなくなった歴史的経緯
-          this.extensions.forEach((extension) => {
+          for (const extension of this.extensions) {
             buf.writeUInt8(extension.id, offset++);
             buf.writeUInt8(extension.payload.length, offset++);
             extension.payload.copy(buf, offset);
             offset += extension.payload.length;
-          });
+          }
           break;
         default:
           const extLen = this.extensions[0].payload.length;
