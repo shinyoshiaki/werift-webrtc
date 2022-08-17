@@ -5,6 +5,7 @@ import PCancelable from "p-cancelable";
 import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
 
+import { InterfaceAddresses } from "../../../common/src/network";
 import { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
 import { Future, future } from "../helper";
@@ -287,18 +288,24 @@ export async function createTurnEndpoint(
   {
     lifetime,
     portRange,
+    interfaceAddresses,
   }: {
     lifetime?: number;
     ssl?: boolean;
     transport?: "udp";
     portRange?: [number, number];
+    interfaceAddresses?: InterfaceAddresses;
   }
 ) {
   if (lifetime == undefined) {
     lifetime = 600;
   }
 
-  const transport = await UdpTransport.init("udp4", portRange);
+  const transport = await UdpTransport.init(
+    "udp4",
+    portRange,
+    interfaceAddresses
+  );
 
   const turnClient = new TurnClient(
     serverAddr,

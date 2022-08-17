@@ -5,7 +5,7 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { deepMerge } from ".";
+import { deepMerge, InterfaceAddresses } from ".";
 import {
   codecParametersFromString,
   DtlsKeys,
@@ -410,6 +410,7 @@ export class RTCPeerConnection extends EventTarget {
       ...parseIceServers(this.config.iceServers),
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
+      interfaceAddresses: this.config.iceInterfaceAddresses,
     });
     if (existing) {
       iceGatherer.connection.localUserName = existing.connection.localUserName;
@@ -1481,6 +1482,7 @@ export interface PeerConfig {
   iceServers: RTCIceServer[];
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
+  iceInterfaceAddresses: InterfaceAddresses | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1542,6 +1544,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceTransportPolicy: "all",
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
+  iceInterfaceAddresses: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},

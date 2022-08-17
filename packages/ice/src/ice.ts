@@ -10,6 +10,7 @@ import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import timers from "timers/promises";
 
+import { InterfaceAddresses } from "../../common/src/network";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { DnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
@@ -112,7 +113,11 @@ export class Connection {
     for (const address of addresses) {
       // # create transport
       const protocol = new StunProtocol(this);
-      await protocol.connectionMade(isIPv4(address), this.options.portRange);
+      await protocol.connectionMade(
+        isIPv4(address),
+        this.options.portRange,
+        this.options.interfaceAddresses
+      );
       protocol.localAddress = address;
       this.protocols.push(protocol);
 
@@ -180,7 +185,10 @@ export class Connection {
         this.turnServer,
         this.options.turnUsername,
         this.options.turnPassword,
-        { portRange: this.options.portRange }
+        {
+          portRange: this.options.portRange,
+          interfaceAddresses: this.options.interfaceAddresses,
+        }
       );
       this.protocols.push(protocol);
 
@@ -951,6 +959,7 @@ export interface IceOptions {
   useIpv4: boolean;
   useIpv6: boolean;
   portRange?: [number, number];
+  interfaceAddresses?: InterfaceAddresses;
 }
 
 const defaultOptions: IceOptions = {
