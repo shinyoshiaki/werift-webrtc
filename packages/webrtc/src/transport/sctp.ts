@@ -21,7 +21,7 @@ import {
 } from "../dataChannel";
 import { RTCDtlsTransport } from "./dtls";
 
-const log = debug("werift/webrtc/transport/sctp");
+const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;

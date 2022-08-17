@@ -1,4 +1,5 @@
 import {
+  defaultPeerConfig,
   MediaStreamTrack,
   RTCRtpTransceiver,
   RtpHeader,
@@ -20,7 +21,7 @@ describe("media/router", () => {
     const transceiver = new RTCRtpTransceiver(
       "audio",
       dtls,
-      new RTCRtpReceiver("audio", 0),
+      new RTCRtpReceiver(defaultPeerConfig, "audio", 0),
       new RTCRtpSender("audio"),
       "recvonly"
     );

@@ -13,7 +13,7 @@ import {
 import { RTCDtlsTransport } from "../../transport/dtls";
 import { microTime } from "../../utils";
 
-const log = debug("werift/webrtc/media/receiver/receiverTwcc");
+const log = debug("werift:packages/webrtc/media/receiver/receiverTwcc");
 
 type ExtensionInfo = { tsn: number; timestamp: number };
 

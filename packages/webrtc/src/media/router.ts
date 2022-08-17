@@ -27,9 +27,9 @@ const log = debug("werift:packages/webrtc/src/media/router.ts");
 export type Extensions = { [uri: string]: number | string };
 
 export class RtpRouter {
-  private ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
-  private ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
-  private extIdUriMap: { [id: number]: string } = {};
+  ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
+  ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
+  extIdUriMap: { [id: number]: string } = {};
 
   constructor() {}
 
@@ -110,6 +110,8 @@ export class RtpRouter {
               uri,
               value: bufferReader(extension.payload, [3])[0],
             };
+          default:
+            return { uri, value: 0 };
         }
       })
       .reduce((acc: { [uri: string]: any }, cur) => {

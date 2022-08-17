@@ -1,3 +1,4 @@
+import debug from "debug";
 import range from "lodash/range";
 import Event from "rx.mini";
 
@@ -9,20 +10,27 @@ import {
 } from "../../../../rtp/src";
 import { RTCRtpReceiver } from "../rtpReceiver";
 
+const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
+
 const LOST_SIZE = 30 * 5;
 
-export class Nack {
+export class NackHandler {
   private newEstSeqNum = 0;
-  private _lost: { [seqNum: number]: number } = {};
-  private nackLoop = setInterval(() => this.packetLost(), 20);
+  lost: { [seqNum: number]: number } = {};
+  private nackLoop = setInterval(() => this.sendNack(), 20);
 
   readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
+  retryCount = 10;
 
   constructor(private receiver: RTCRtpReceiver) {}
 
-  get lost() {
-    return Object.keys(this._lost).map(Number);
+  get lostNumber() {
+    return Object.keys(this.lost).map(Number);
+  }
+
+  removeLost(sequenceNumber: number) {
+    delete this.lost[sequenceNumber];
   }
 
   addPacket(packet: RtpPacket) {
@@ -34,8 +42,8 @@ export class Nack {
       return;
     }
 
-    if (this._lost[sequenceNumber]) {
-      delete this._lost[sequenceNumber];
+    if (this.lost[sequenceNumber]) {
+      this.removeLost(sequenceNumber);
       return;
     }
 
@@ -44,48 +52,59 @@ export class Nack {
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
       range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
-        this._lost[seq] = 1;
+        this.lost[seq] = 1;
       });
       this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
       this.newEstSeqNum = sequenceNumber;
+      this.pruneLost();
+    }
+  }
 
-      if (Object.keys(this._lost).length > LOST_SIZE) {
-        this._lost = Object.entries(this._lost)
-          .slice(-LOST_SIZE)
-          .reduce((acc, [key, v]) => {
-            acc[key] = v;
-            return acc;
-          }, {} as { [seqNum: number]: number });
-      }
+  private pruneLost() {
+    if (Object.keys(this.lost).length > LOST_SIZE) {
+      this.lost = Object.entries(this.lost)
+        .slice(-LOST_SIZE)
+        .reduce((acc, [key, v]) => {
+          acc[key] = v;
+          return acc;
+        }, {} as { [seqNum: number]: number });
     }
   }
 
   close() {
     clearInterval(this.nackLoop);
+    this.lost = {};
   }
 
-  private increment() {
-    Object.keys(this._lost).forEach((seq) => {
-      if (++this._lost[seq] > 10) {
-        delete this._lost[seq];
-      }
-    });
+  private updateRetryCount() {
+    const res = Object.keys(this.lost)
+      .map((seq) => {
+        const count = this.lost[seq]++;
+        if (count > this.retryCount) {
+          delete this.lost[seq];
+          return seq;
+        }
+      })
+      .filter((v) => v != undefined);
+    if (res.length > 0) {
+      // log("failed to retransmit", res);
+    }
   }
 
-  private packetLost() {
-    if (this.lost.length > 0 && this.mediaSourceSsrc) {
+  private sendNack() {
+    if (this.lostNumber.length > 0 && this.mediaSourceSsrc) {
       const nack = new GenericNack({
         senderSsrc: this.receiver.rtcpSsrc,
         mediaSourceSsrc: this.mediaSourceSsrc,
-        lost: this.lost,
+        lost: this.lostNumber,
       });
       const rtcp = new RtcpTransportLayerFeedback({
         feedback: nack,
       });
       this.receiver.dtlsTransport.sendRtcp([rtcp]);
 
-      this.increment();
+      this.updateRetryCount();
       this.onPacketLost.execute(nack);
     }
   }

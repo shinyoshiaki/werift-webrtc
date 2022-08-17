@@ -202,7 +202,11 @@ export class RTCDtlsTransport {
       } else {
         const dec = this.srtp.decrypt(data);
         const rtp = RtpPacket.deSerialize(dec);
-        this.router.routeRtp(rtp);
+        try {
+          this.router.routeRtp(rtp);
+        } catch (error) {
+          log("router error", error);
+        }
       }
     });
   }
