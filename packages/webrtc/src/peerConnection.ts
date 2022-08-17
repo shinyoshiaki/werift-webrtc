@@ -5,11 +5,10 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { deepMerge, InterfaceAddresses } from ".";
+import { deepMerge, InterfaceAddresses, Recvonly, Sendonly, Sendrecv } from ".";
 import {
   codecParametersFromString,
   DtlsKeys,
-  useAbsSendTime,
   useNACK,
   usePLI,
   useREMB,
@@ -22,8 +21,6 @@ import {
 } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { enumerate, EventTarget } from "./helper";
-import { useFIR } from "./media/extension/rtcpFeedback";
-import { useSdesMid, useTransportWideCC } from "./media/extension/rtpExtension";
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -226,10 +223,38 @@ export class RTCPeerConnection extends EventTarget {
     return description.toJSON();
   }
 
+  private assignTransceiverCodecs(transceiver: RTCRtpTransceiver) {
+    const codecs = (
+      this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
+    ).filter((codecCandidate) => {
+      switch (codecCandidate.direction) {
+        case "recvonly": {
+          if ([Recvonly, Sendrecv].includes(transceiver.direction)) return true;
+          return false;
+        }
+        case "sendonly": {
+          if ([Sendonly, Sendrecv].includes(transceiver.direction)) return true;
+          return false;
+        }
+        case "sendrecv": {
+          if ([Sendrecv, Recvonly, Sendonly].includes(transceiver.direction))
+            return true;
+          return false;
+        }
+        case "all": {
+          return true;
+        }
+        default:
+          return false;
+      }
+    });
+    transceiver.codecs = codecs;
+  }
+
   buildOfferSdp() {
     this.transceivers.forEach((transceiver) => {
       if (transceiver.codecs.length === 0) {
-        transceiver.codecs = this.config.codecs[transceiver.kind];
+        this.assignTransceiverCodecs(transceiver);
       }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
@@ -1054,7 +1079,7 @@ export class RTCPeerConnection extends EventTarget {
     ]);
 
     const sender = new RTCRtpSender(trackOrKind);
-    const receiver = new RTCRtpReceiver(kind, sender.ssrc);
+    const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
     const transceiver = new RTCRtpTransceiver(
       kind,
       dtlsTransport,
@@ -1494,6 +1519,8 @@ export interface PeerConfig {
     outboundPacketLoss: number;
     /**ms */
     receiverReportDelay: number;
+    disableSendNack: boolean;
+    disableRecvRetransmit: boolean;
   }>;
 }
 
