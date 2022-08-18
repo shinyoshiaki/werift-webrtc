@@ -37,7 +37,6 @@ describe("ice/trickle", () => {
         peer.on("request", async (request, accept) => {
           if (request.method !== label) return;
           const candidate = request.data;
-          console.log(candidate);
           await pc.addIceCandidate(candidate);
           accept();
         });
@@ -90,7 +89,6 @@ describe("ice/trickle", () => {
         peer.on("request", async (request, accept) => {
           if (request.method !== label) return;
           const candidate = request.data;
-          console.log(candidate);
           await pc.addIceCandidate(candidate);
           accept();
         });
@@ -100,7 +98,6 @@ describe("ice/trickle", () => {
           type: "init",
           payload: pc.localDescription,
         });
-        console.log(answer.sdp);
         await pc.setRemoteDescription(answer);
       }),
     10 * 1000

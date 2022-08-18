@@ -5,6 +5,7 @@ import {
   SignatureAlgorithm,
   PeerConfig,
 } from ".";
+import { BundlePolicy } from "../../packages/webrtc/src";
 
 export class DtlsKeysContext {
   static keys: DtlsKeys;
@@ -22,5 +23,5 @@ export class DtlsKeysContext {
 export const peerConfig: Promise<Partial<PeerConfig>> = (async () => ({
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   dtls: { keys: await DtlsKeysContext.get() },
-  bundlePolicy: "max-bundle",
+  bundlePolicy: "max-bundle" as BundlePolicy,
 }))();

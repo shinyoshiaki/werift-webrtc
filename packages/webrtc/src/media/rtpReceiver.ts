@@ -16,15 +16,15 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
-import { codecParametersFromString } from "..";
+import { codecParametersFromString, PeerConfig } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
-import { compactNtp } from "../utils";
+import { compactNtp, timestampSeconds } from "../utils";
 import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
-import { Nack } from "./receiver/nack";
+import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
-import { RedHandler } from "./receiver/red";
+import { AudioRedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -33,18 +33,26 @@ const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private get codecArray() {
+    return Object.values(this.codecs).sort(
+      (a, b) => a.payloadType - b.payloadType
+    );
+  }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
-  private readonly nack = new Nack(this);
-  private readonly redHandler = new RedHandler();
+  private readonly nack = new NackHandler(this);
+  private readonly redHandler = new AudioRedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
-  // last senderReport
-  readonly lsr: { [ssrc: number]: number } = {};
-  readonly lsrTime: { [ssrc: number]: number } = {};
+  /**last sender Report Timestamp
+   * compactNtp
+   */
+  readonly lastSRtimestamp: { [ssrc: number]: number } = {};
+  /**seconds */
+  readonly receiveLastSRTimestamp: { [ssrc: number]: number } = {};
   readonly onPacketLost = this.nack.onPacketLost;
   readonly onRtcp = new Event<[RtcpPacket]>();
 
@@ -63,7 +71,11 @@ export class RTCRtpReceiver {
   private rtcpCancel = new AbortController();
   private remoteStreams: { [ssrc: number]: StreamStatistics } = {};
 
-  constructor(public kind: Kind, public rtcpSsrc: number) {}
+  constructor(
+    readonly config: PeerConfig,
+    public kind: Kind,
+    public rtcpSsrc: number
+  ) {}
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
     this.dtlsTransport = dtls;
@@ -72,6 +84,10 @@ export class RTCRtpReceiver {
   // todo fix
   get track() {
     return this.tracks[0];
+  }
+
+  get nackEnabled() {
+    return this.codecArray[0].rtcpFeedback.find((f) => f.type === "nack");
   }
 
   prepareReceive(params: RTCRtpReceiveParameters) {
@@ -136,13 +152,14 @@ export class RTCRtpReceiver {
 
         const reports = Object.entries(this.remoteStreams).map(
           ([ssrc, stream]) => {
-            let lsr = 0,
-              dlsr = 0;
-            if (this.lsr[ssrc]) {
-              lsr = this.lsr[ssrc];
-              const delay = Date.now() / 1000 - this.lsrTime[ssrc];
-              if (delay > 0 && delay < 65536) {
-                dlsr = int(delay * 65536);
+            let lastSRtimestamp = 0,
+              delaySinceLastSR = 0;
+            if (this.lastSRtimestamp[ssrc]) {
+              lastSRtimestamp = this.lastSRtimestamp[ssrc];
+              const delaySeconds =
+                timestampSeconds() - this.receiveLastSRTimestamp[ssrc];
+              if (delaySeconds > 0 && delaySeconds < 65536) {
+                delaySinceLastSR = int(delaySeconds * 65536);
               }
             }
 
@@ -152,8 +169,8 @@ export class RTCRtpReceiver {
               packetsLost: stream.packets_lost,
               highestSequence: stream.max_seq,
               jitter: stream.jitter,
-              lsr,
-              dlsr,
+              lsr: lastSRtimestamp,
+              dlsr: delaySinceLastSR,
             });
           }
         );
@@ -161,6 +178,9 @@ export class RTCRtpReceiver {
         const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
 
         try {
+          if (this.config.debug.receiverReportDelay) {
+            await setTimeout(this.config.debug.receiverReportDelay);
+          }
           await this.dtlsTransport.sendRtcp([packet]);
         } catch (error) {
           log("sendRtcp failed", error);
@@ -192,8 +212,10 @@ export class RTCRtpReceiver {
       case RtcpSrPacket.type:
         {
           const sr = packet as RtcpSrPacket;
-          this.lsr[sr.ssrc] = compactNtp(sr.senderInfo.ntpTimestamp);
-          this.lsrTime[sr.ssrc] = Date.now() / 1000;
+          this.lastSRtimestamp[sr.ssrc] = compactNtp(
+            sr.senderInfo.ntpTimestamp
+          );
+          this.receiveLastSRTimestamp[sr.ssrc] = timestampSeconds();
 
           const track = this.trackBySSRC[packet.ssrc];
           if (track) {
@@ -229,7 +251,7 @@ export class RTCRtpReceiver {
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
-      log("unknown codec " + packet.header.payloadType);
+      // log("unknown codec " + packet.header.payloadType);
       return;
     }
 
@@ -264,18 +286,27 @@ export class RTCRtpReceiver {
     let red: Red | undefined;
     if (codec.name.toLowerCase() === "red") {
       red = Red.deSerialize(packet.payload);
+      if (
+        !Object.keys(this.codecs).includes(
+          red.header.fields[0].blockPT.toString()
+        )
+      ) {
+        return;
+      }
     }
 
-    // todo fix select use or not use nack
-    if (track?.kind === "video") {
+    if (track?.kind === "video" && this.nackEnabled) {
       this.nack.addPacket(packet);
     }
 
     if (track) {
       if (red) {
-        const payloads = this.redHandler.push(red, packet);
-        for (const packet of payloads) {
-          track.onReceiveRtp.execute(packet.clone());
+        if (track.kind === "audio") {
+          const payloads = this.redHandler.push(red, packet);
+          for (const packet of payloads) {
+            track.onReceiveRtp.execute(packet.clone());
+          }
+        } else {
         }
       } else {
         track.onReceiveRtp.execute(packet.clone());
@@ -291,11 +322,11 @@ export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
     new RtpHeader({
       payloadType,
       marker: rtx.header.marker,
-      sequenceNumber: jspack.Unpack("!H", rtx.payload.slice(0, 2))[0],
+      sequenceNumber: jspack.Unpack("!H", rtx.payload.subarray(0, 2))[0],
       timestamp: rtx.header.timestamp,
       ssrc,
     }),
-    rtx.payload.slice(2)
+    rtx.payload.subarray(2)
   );
   return packet;
 }

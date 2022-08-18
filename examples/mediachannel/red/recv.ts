@@ -3,11 +3,9 @@ import {
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { OpusEncoder } from "@discordjs/opus";
-import Speaker from "speaker";
+import { createSocket } from "dgram";
 
-const encoder = new OpusEncoder(48000, 2);
-const speaker = new Speaker({ channels: 2, sampleRate: 48000 });
+const udp = createSocket("udp4");
 const server = new Server({ port: 8888 });
 console.log("start");
 
@@ -33,8 +31,7 @@ server.on("connection", async (socket) => {
   pc.addTransceiver("audio", { direction: "recvonly" }).onTrack.subscribe(
     (track) => {
       track.onReceiveRtp.subscribe((rtp) => {
-        const decoded = encoder.decode(rtp.payload);
-        speaker.write(decoded);
+        udp.send(rtp.serialize(), 4005);
       });
     }
   );

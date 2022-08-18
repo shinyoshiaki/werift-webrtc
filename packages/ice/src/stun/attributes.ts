@@ -3,9 +3,10 @@ import * as nodeIp from "ip";
 import { jspack } from "jspack";
 import range from "lodash/range";
 
-import { COOKIE, IPV4_PROTOCOL, IPV6_PROTOCOL } from "./const";
+import { Address } from "../types/model";
+import { AttributeKeys, COOKIE, IPV4_PROTOCOL, IPV6_PROTOCOL } from "./const";
 
-function packAddress(value: [string, number]) {
+function packAddress(value: Address) {
   const [address] = value;
 
   const protocol = nodeIp.isV4Format(address) ? IPV4_PROTOCOL : IPV6_PROTOCOL;
@@ -23,7 +24,7 @@ export function unpackErrorCode(data: Buffer): [number, string] {
   return [codeHigh * 100 + codeLow, reason];
 }
 
-function unpackAddress(data: Buffer): [string, number] {
+function unpackAddress(data: Buffer): Address {
   if (data.length < 4)
     throw new Error("STUN address length is less than 4 bytes");
   const [, protocol, port] = jspack.Unpack("!BBH", data.slice(0, 4));
@@ -58,7 +59,7 @@ function xorAddress(data: Buffer, transactionId: Buffer) {
   return xData;
 }
 
-export function unpackXorAddress(data: Buffer, transactionId: Buffer) {
+export function unpackXorAddress(data: Buffer, transactionId: Buffer): Address {
   return unpackAddress(xorAddress(data, transactionId));
 }
 
@@ -70,7 +71,7 @@ export function packErrorCode(value: [number, string]) {
   return Buffer.concat([pack, encode]);
 }
 
-export function packXorAddress(value: [string, number], transactionId: Buffer) {
+export function packXorAddress(value: Address, transactionId: Buffer) {
   return xorAddress(packAddress(value), transactionId);
 }
 
@@ -104,7 +105,7 @@ const unpackNone = (data: Buffer) => null;
 
 export type ATTRIBUTE = [
   number,
-  string,
+  AttributeKey,
   (...args: any) => Buffer,
   (...args: any) => any
 ];
@@ -135,6 +136,44 @@ const ATTRIBUTES: ATTRIBUTE[] = [
   [0x802b, "RESPONSE-ORIGIN", packAddress, unpackAddress],
   [0x802c, "OTHER-ADDRESS", packAddress, unpackAddress],
 ];
+
+export class AttributeRepository {
+  constructor(protected attributes: AttributePair[] = []) {}
+
+  getAttributes() {
+    return this.attributes;
+  }
+
+  setAttribute(key: typeof AttributeKeys[number], value: any) {
+    const exist = this.attributes.find((a) => a[0] === key);
+    if (exist) {
+      exist[1] = value;
+    } else {
+      this.attributes.push([key, value]);
+    }
+    return this;
+  }
+
+  getAttributeValue(key: AttributeKey) {
+    const attribute = this.attributes.find((a) => a[0] === key);
+    if (!attribute) {
+      return undefined;
+    }
+    return attribute[1];
+  }
+
+  get attributesKeys(): typeof AttributeKeys[number][] {
+    return this.attributes.map((a) => a[0]);
+  }
+
+  clear() {
+    this.attributes = [];
+  }
+}
+
+export type AttributeKey = typeof AttributeKeys[number];
+
+export type AttributePair = [AttributeKey, any];
 
 export const ATTRIBUTES_BY_TYPE = ATTRIBUTES.reduce((acc, cur) => {
   acc[cur[0]] = cur;

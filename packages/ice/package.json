@@ -1,6 +1,6 @@
 {
   "name": "werift-ice",
-  "version": "0.0.8",
+  "version": "0.0.12",
   "description": "> TODO: description",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc/tree/master/packages/ice#readme",
   "bugs": {
@@ -18,20 +18,21 @@
     "lib"
   ],
   "scripts": {
-    "build": "yarn format && tsc -p ./tsconfig.production.json",
-    "format": "yarn unused && yarn lint && prettier --write {src,tests}/**/*.{ts,test.ts}",
+    "build": "npm run format && tsc -p ./tsconfig.production.json",
+    "deploy": "npm run build && npm publish",
+    "deploy:alpha": "npm run build && npm publish --tag alpha",
+    "format": "npm run unused && npm run lint && prettier --write {src,tests}/**/*.{ts,test.ts}",
     "lint": "eslint ./src --fix",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
-    "test": "yarn type && jest --runInBand --forceExit",
+    "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },
   "dependencies": {
     "buffer-crc32": "^0.2.13",
-    "debug": "^4.3.3",
-    "dgram": "^1.0.1",
+    "debug": "^4.3.4",
     "int64-buffer": "^1.0.1",
-    "ip": "^1.1.5",
+    "ip": "^1.1.8",
     "jspack": "^0.0.4",
     "lodash": "^4.17.20",
     "p-cancelable": "^2.1.1",
@@ -45,8 +46,5 @@
     "@types/utf8": "^3.0.0",
     "@types/ws": "^8.2.2",
     "ws": "^8.3.0"
-  },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
   }
 }

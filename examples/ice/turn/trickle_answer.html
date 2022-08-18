@@ -29,7 +29,7 @@
 
         React.useEffect(() => {
           (async () => {
-            const socket = new WebSocket("ws://localhost:8888");
+            const socket = new WebSocket("ws://localhost:8889");
             await new Promise((r) => (socket.onopen = r));
             console.log("open websocket");
 
@@ -41,9 +41,9 @@
             const peer = (rtc = new RTCPeerConnection({
               iceServers: [
                 {
-                  urls: "turn:35.200.71.35:3478",
-                  username: "webrtc",
+                  urls: "turn:relay.backups.cz:3478",
                   credential: "webrtc",
+                  username: "webrtc",
                 },
               ],
               iceTransportPolicy: "relay",

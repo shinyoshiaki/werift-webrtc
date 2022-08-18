@@ -7,6 +7,7 @@ import {
   RTCRtpCodecParameters,
 } from "../../packages/webrtc/src";
 import { Server } from "ws";
+import promises from "fs/promises";
 
 // open ./answer.html
 
@@ -34,7 +35,7 @@ server.on("connection", async (socket) => {
   const start = async () => {
     const { video, audio } = tracks;
 
-    const webm = new WebmOutput("./test.webm", [
+    const webm = new WebmOutput(promises, "./test.webm", [
       {
         width: 640,
         height: 360,

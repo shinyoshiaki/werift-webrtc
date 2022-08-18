@@ -1,18 +1,21 @@
 import { Message } from "./stun/message";
+import { Address } from "./types/model";
 
 export class TransactionError extends Error {
   response?: Message;
+  addr?: Address;
 }
 
 export class TransactionFailed extends TransactionError {
-  constructor(public response: Message) {
+  constructor(public response: Message, public addr: Address) {
     super();
   }
 
   get str() {
     let out = "STUN transaction failed";
-    if (Object.keys(this.response.attributes).includes("ERROR-CODE")) {
-      const [code, msg] = this.response.attributes["ERROR-CODE"];
+    const attribute = this.response.getAttributeValue("ERROR-CODE");
+    if (attribute) {
+      const [code, msg] = attribute;
       out += ` (${code} - ${msg})`;
     }
     return out;

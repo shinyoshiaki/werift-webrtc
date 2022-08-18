@@ -5,9 +5,10 @@ import PCancelable from "p-cancelable";
 import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
 
+import { InterfaceAddresses } from "../../../common/src/network";
 import { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
-import { Future, future, randomTransactionId } from "../helper";
+import { Future, future } from "../helper";
 import { Connection } from "../ice";
 import { classes, methods } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
@@ -58,7 +59,6 @@ class TurnTransport implements Protocol {
     }
 
     const transaction = new Transaction(request, addr, this);
-    transaction.integrityKey = integrityKey;
     this.turn.transactions[request.transactionIdHex] = transaction;
 
     try {
@@ -87,11 +87,12 @@ class TurnClient implements Protocol {
   mappedAddress!: Address;
   refreshHandle?: Future;
   channelNumber = 0x4000;
-  channelByAddr: { [key: string]: number } = {};
-  addrByChannel: { [key: number]: Address } = {};
+  channel?: { number: number; address: Address };
   localCandidate!: Candidate;
 
   onDatagramReceived: (data: Buffer, addr: Address) => void = () => {};
+
+  private channelBinding?: Promise<void>;
 
   constructor(
     public server: Address,
@@ -108,13 +109,11 @@ class TurnClient implements Protocol {
   }
 
   private handleChannelData(data: Buffer) {
-    const [channel, length] = jspack.Unpack("!HH", data.slice(0, 4));
+    const [, length] = jspack.Unpack("!HH", data.slice(0, 4));
 
-    const peerAddr = this.addrByChannel[channel];
-
-    if (peerAddr) {
+    if (this.channel?.address) {
       const payload = data.slice(4, 4 + length);
-      this.onDatagramReceived(payload, peerAddr);
+      this.onDatagramReceived(payload, this.channel.address);
     }
   }
 
@@ -132,8 +131,8 @@ class TurnClient implements Protocol {
         this.onDatagramReceived(data, addr);
       }
 
-      if (message.attributes.DATA) {
-        const buf: Buffer = message.attributes.DATA;
+      if (message.getAttributeValue("DATA")) {
+        const buf: Buffer = message.getAttributeValue("DATA");
         this.onDatagramReceived(buf, addr);
       }
     } catch (error) {
@@ -144,53 +143,59 @@ class TurnClient implements Protocol {
   private datagramReceived(data: Buffer, addr: Address) {
     if (data.length >= 4 && isChannelData(data)) {
       this.handleChannelData(data);
-      return;
+    } else {
+      this.handleSTUNMessage(data, addr);
     }
-
-    this.handleSTUNMessage(data, addr);
   }
 
   async connect() {
-    const request = new Message(methods.ALLOCATE, classes.REQUEST);
-    request.attributes["LIFETIME"] = this.lifetime;
-    request.attributes["REQUESTED-TRANSPORT"] = UDP_TRANSPORT;
+    const withoutCred = new Message(methods.ALLOCATE, classes.REQUEST);
+    withoutCred
+      .setAttribute("LIFETIME", this.lifetime)
+      .setAttribute("REQUESTED-TRANSPORT", UDP_TRANSPORT);
 
-    let response: Message;
-    try {
-      [response] = await this.request(request, this.server, this.integrityKey);
-    } catch (error) {
-      log("error", error);
-      response = (error as TransactionFailed).response;
-      if (!response) {
-        throw error;
-      }
-      if (response.attributes["ERROR-CODE"][0] === 401) {
-        this.nonce = response.attributes.NONCE;
-        this.realm = response.attributes.REALM;
-        this.integrityKey = makeIntegrityKey(
-          this.username,
-          this.realm!,
-          this.password
-        );
-        request.transactionId = randomTransactionId();
+    const err: TransactionFailed = await this.request(
+      withoutCred,
+      this.server
+    ).catch((e) => e);
 
-        try {
-          [response] = await this.request(
-            request,
-            this.server,
-            this.integrityKey
-          );
-        } catch (error) {
-          log(error);
-          // todo fix
-        }
-      }
+    // resolve dns address
+    this.server = err.addr;
+
+    if (err.response.getAttributeValue("NONCE")) {
+      this.nonce = err.response.getAttributeValue("NONCE");
     }
+    if (err.response.getAttributeValue("REALM")) {
+      this.realm = err.response.getAttributeValue("REALM");
+    }
+    this.integrityKey = makeIntegrityKey(
+      this.username,
+      this.realm!,
+      this.password
+    );
 
-    this.relayedAddress = response.attributes["XOR-RELAYED-ADDRESS"];
-    this.mappedAddress = response.attributes["XOR-MAPPED-ADDRESS"];
+    const request = new Message(methods.ALLOCATE, classes.REQUEST);
+    request.setAttribute("REQUESTED-TRANSPORT", UDP_TRANSPORT);
+
+    const [response] = await this.request(request, this.server);
+    this.relayedAddress = response.getAttributeValue("XOR-RELAYED-ADDRESS");
+    this.mappedAddress = response.getAttributeValue("XOR-MAPPED-ADDRESS");
 
     this.refreshHandle = future(this.refresh());
+  }
+
+  async createPermission(peerAddress: Address) {
+    const request = new Message(methods.CREATE_PERMISSION, classes.REQUEST);
+    request
+      .setAttribute("XOR-PEER-ADDRESS", peerAddress)
+      .setAttribute("USERNAME", this.username)
+      .setAttribute("REALM", this.realm)
+      .setAttribute("NONCE", this.nonce);
+    const [response] = await this.request(request, this.server).catch((e) => {
+      request;
+      throw e;
+    });
+    return response;
   }
 
   refresh = () =>
@@ -206,34 +211,26 @@ class TurnClient implements Protocol {
         await setTimeout((5 / 6) * this.lifetime * 1000);
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
-        request.attributes.LIFETIME = this.lifetime;
+        request.setAttribute("LIFETIME", this.lifetime);
 
-        await this.request(request, this.server, this.integrityKey).catch(
-          // todo fix
-          log
-        );
+        await this.request(request, this.server);
       }
     });
 
-  async request(
-    request: Message,
-    addr: Address,
-    integrityKey?: Buffer
-  ): Promise<[Message, Address]> {
-    if (this.transactions[request.transactionIdHex]) throw new Error("exist");
-
-    if (integrityKey) {
-      request.addMessageIntegrity(integrityKey);
-
-      request.attributes["USERNAME"] = this.username;
-      request.attributes["REALM"] = this.realm;
-      request.attributes["NONCE"] = this.nonce;
-
-      request.addFingerprint();
+  async request(request: Message, addr: Address): Promise<[Message, Address]> {
+    if (this.transactions[request.transactionIdHex]) {
+      throw new Error("exist");
+    }
+    if (this.integrityKey) {
+      request
+        .setAttribute("USERNAME", this.username)
+        .setAttribute("REALM", this.realm)
+        .setAttribute("NONCE", this.nonce)
+        .addMessageIntegrity(this.integrityKey)
+        .addFingerprint();
     }
 
     const transaction = new Transaction(request, addr, this);
-    transaction.integrityKey = integrityKey;
     this.transactions[request.transactionIdHex] = transaction;
 
     try {
@@ -244,38 +241,38 @@ class TurnClient implements Protocol {
   }
 
   async sendData(data: Buffer, addr: Address) {
-    let channel = this.channelByAddr[addr.join()];
-    if (!channel) {
-      channel = this.channelNumber++;
-      this.channelByAddr[addr.join()] = channel;
-      this.addrByChannel[channel] = addr;
+    const channel = await this.getChannel(addr);
 
-      await this.channelBind(channel, addr);
-      log("bind", channel);
-    }
-
-    const header = jspack.Pack("!HH", [channel, data.length]);
-
+    const header = jspack.Pack("!HH", [channel.number, data.length]);
     this.transport.send(
       Buffer.concat([Buffer.from(header), data]),
       this.server
     );
   }
 
+  private async getChannel(addr: Address) {
+    if (this.channelBinding) {
+      await this.channelBinding;
+    }
+    if (!this.channel) {
+      this.channel = { number: this.channelNumber++, address: addr };
+
+      this.channelBinding = this.channelBind(this.channel.number, addr);
+      await this.channelBinding;
+      this.channelBinding = undefined;
+      log("channelBind", this.channel);
+    }
+    return this.channel;
+  }
+
   private async channelBind(channelNumber: number, addr: Address) {
     const request = new Message(methods.CHANNEL_BIND, classes.REQUEST);
-    request.attributes["CHANNEL-NUMBER"] = channelNumber;
-    request.attributes["XOR-PEER-ADDRESS"] = addr;
-    try {
-      const [response] = await this.request(
-        request,
-        this.server,
-        this.integrityKey
-      );
-      if (response.messageMethod !== methods.CHANNEL_BIND) throw new Error();
-    } catch (error) {
-      log(error);
-      // todo fix
+    request
+      .setAttribute("CHANNEL-NUMBER", channelNumber)
+      .setAttribute("XOR-PEER-ADDRESS", addr);
+    const [response] = await this.request(request, this.server);
+    if (response.messageMethod !== methods.CHANNEL_BIND) {
+      throw new Error();
     }
   }
 
@@ -291,18 +288,24 @@ export async function createTurnEndpoint(
   {
     lifetime,
     portRange,
+    interfaceAddresses,
   }: {
     lifetime?: number;
     ssl?: boolean;
     transport?: "udp";
     portRange?: [number, number];
+    interfaceAddresses?: InterfaceAddresses;
   }
 ) {
   if (lifetime == undefined) {
     lifetime = 600;
   }
 
-  const transport = await UdpTransport.init("udp4", portRange);
+  const transport = await UdpTransport.init(
+    "udp4",
+    portRange,
+    interfaceAddresses
+  );
 
   const turnClient = new TurnClient(
     serverAddr,
@@ -319,7 +322,11 @@ export async function createTurnEndpoint(
   return turnTransport;
 }
 
-function makeIntegrityKey(username: string, realm: string, password: string) {
+export function makeIntegrityKey(
+  username: string,
+  realm: string,
+  password: string
+) {
   return createHash("md5")
     .update(Buffer.from([username, realm, password].join(":")))
     .digest();

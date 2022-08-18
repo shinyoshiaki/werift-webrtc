@@ -21,16 +21,17 @@ import {
 } from "../dataChannel";
 import { RTCDtlsTransport } from "./dtls";
 
-const log = debug("werift/webrtc/transport/sctp");
+const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly uuid = uuid.v4();
+  readonly id = uuid.v4();
 
   mid?: string;
+  mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
 

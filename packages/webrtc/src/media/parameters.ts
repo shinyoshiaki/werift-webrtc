@@ -1,3 +1,5 @@
+import { Direction } from "./rtpTransceiver";
+
 export interface RTCRtpParameters {
   codecs: RTCRtpCodecParameters[];
   headerExtensions: RTCRtpHeaderExtensionParameters[];
@@ -7,29 +9,20 @@ export interface RTCRtpParameters {
   rtcp?: RTCRtcpParameters;
 }
 
-export class RTCRtpCodecCapability {
-  mimeType!: string;
-  clockRate!: number;
-  channels?: number;
-  parameters = {};
-  constructor(parameters: Partial<RTCRtpCodecCapability> = {}) {
-    Object.assign(this, parameters);
-  }
-
-  get name() {
-    return this.mimeType.split("/")[1];
-  }
-}
-
 export type RTCPFB = { type: string; parameter?: string };
 
 export class RTCRtpCodecParameters {
+  /**
+   * When specifying a codec with a fixed payloadType such as PCMU,
+   * it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
+   */
   payloadType!: number;
   mimeType!: string;
   clockRate!: number;
   channels?: number;
   rtcpFeedback: RTCPFB[] = [];
   parameters?: string;
+  direction: Direction | "all" = "all";
 
   constructor(
     props: Pick<RTCRtpCodecParameters, "mimeType" | "clockRate"> &
@@ -40,6 +33,10 @@ export class RTCRtpCodecParameters {
 
   get name() {
     return this.mimeType.split("/")[1];
+  }
+
+  get contentType() {
+    return this.mimeType.split("/")[0];
   }
 
   get str() {

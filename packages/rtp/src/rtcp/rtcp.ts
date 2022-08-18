@@ -1,6 +1,6 @@
 import debug from "debug";
 
-import { HEADER_SIZE, RtcpHeader } from "./header";
+import { RTCP_HEADER_SIZE, RtcpHeader } from "./header";
 import { RtcpPayloadSpecificFeedback } from "./psfb";
 import { RtcpRrPacket } from "./rr";
 import { RtcpTransportLayerFeedback } from "./rtpfb";
@@ -38,14 +38,16 @@ export class RtcpPacketConverter {
     const packets: RtcpPacket[] = [];
 
     while (pos < data.length) {
-      const header = RtcpHeader.deSerialize(data.slice(pos, pos + HEADER_SIZE));
-      pos += HEADER_SIZE;
+      const header = RtcpHeader.deSerialize(
+        data.subarray(pos, pos + RTCP_HEADER_SIZE)
+      );
+      pos += RTCP_HEADER_SIZE;
 
-      let payload = data.slice(pos);
+      let payload = data.subarray(pos);
       pos += header.length * 4;
 
       if (header.padding) {
-        payload = payload.slice(0, payload.length - payload.slice(-1)[0]);
+        payload = payload.subarray(0, payload.length - payload.subarray(-1)[0]);
       }
 
       try {

@@ -1,6 +1,6 @@
 {
   "name": "werift-dtls",
-  "version": "0.5.1",
+  "version": "0.5.3",
   "description": "DTLS protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-dtls",
   "repository": {
@@ -14,23 +14,25 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
-    "build": "rm -rf lib && yarn format && tsc -p ./tsconfig.production.json",
-    "ci": "yarn type && yarn test",
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "ci": "npm run type && npm run test",
     "client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
     "dep": "depcheck",
-    "format": "yarn unused && yarn lint && prettier --write src/**/*.ts",
+    "deploy": "npm run build && npm publish",
+    "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix",
     "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
-    "test": "yarn type && jest --forceExit",
+    "test": "npm run type && jest --forceExit",
     "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts"
+    "unused": "organize-imports-cli src/**/*.ts",
+    "upgrade-interactive": "npx npm-check --update"
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
-    "@peculiar/webcrypto": "^1.1.6",
-    "@peculiar/x509": "^1.2.2",
+    "@peculiar/webcrypto": "^1.4.0",
+    "@peculiar/x509": "^1.7.2",
     "binary-data": "^0.6.0",
-    "date-fns": "^2.27.0",
+    "date-fns": "^2.28.0",
     "elliptic": "^6.5.3",
     "lodash": "^4.17.20",
     "rx.mini": "^1.1.0",
@@ -41,7 +43,7 @@
     "@types/lodash": "^4.14.178"
   },
   "engines": {
-    "node": ">=15"
+    "node": ">=16"
   },
   "readme": "README.md"
 }

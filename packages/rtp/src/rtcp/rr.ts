@@ -45,7 +45,9 @@ export class RtcpReceiverInfo {
   packetsLost!: number;
   highestSequence!: number;
   jitter!: number;
+  /**last SR */
   lsr!: number;
+  /**delay since last SR */
   dlsr!: number;
 
   constructor(props: Partial<RtcpReceiverInfo> = {}) {

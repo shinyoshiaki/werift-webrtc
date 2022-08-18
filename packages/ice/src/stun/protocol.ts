@@ -1,6 +1,7 @@
 import debug from "debug";
 import { Event } from "rx.mini";
 
+import { InterfaceAddresses } from "../../../common/src/network";
 import { Candidate } from "../candidate";
 import { Connection } from "../ice";
 import { UdpTransport } from "../transport";
@@ -31,11 +32,23 @@ export class StunProtocol implements Protocol {
     this.closed.complete();
   }
 
-  connectionMade = async (useIpv4: boolean, portRange?: [number, number]) => {
+  connectionMade = async (
+    useIpv4: boolean,
+    portRange?: [number, number],
+    interfaceAddresses?: InterfaceAddresses
+  ) => {
     if (useIpv4) {
-      this.transport = await UdpTransport.init("udp4", portRange);
+      this.transport = await UdpTransport.init(
+        "udp4",
+        portRange,
+        interfaceAddresses
+      );
     } else {
-      this.transport = await UdpTransport.init("udp6", portRange);
+      this.transport = await UdpTransport.init(
+        "udp6",
+        portRange,
+        interfaceAddresses
+      );
     }
 
     this.transport.onData = (data, addr) => this.datagramReceived(data, addr);
@@ -101,7 +114,6 @@ export class StunProtocol implements Protocol {
       this,
       retransmissions
     );
-    transaction.integrityKey = integrityKey;
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

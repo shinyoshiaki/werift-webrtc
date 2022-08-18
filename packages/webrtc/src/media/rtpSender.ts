@@ -1,3 +1,25 @@
+/**
+   [10 Nov 1995 11:33:25.125 UTC]       [10 Nov 1995 11:33:36.5 UTC]
+   n                 SR(n)              A=b710:8000 (46864.500 s)
+   ---------------------------------------------------------------->
+                      v                 ^
+   ntp_sec =0xb44db705 v               ^ dlsr=0x0005:4000 (    5.250s)
+   ntp_frac=0x20000000  v             ^  lsr =0xb705:2000 (46853.125s)
+     (3024992005.125 s)  v           ^
+   r                      v         ^ RR(n)
+   ---------------------------------------------------------------->
+                          |<-DLSR->|
+                           (5.250 s)
+        
+   A     0xb710:8000 (46864.500 s)
+   DLSR -0x0005:4000 (    5.250 s)
+   LSR  -0xb705:2000 (46853.125 s)
+   -------------------------------
+   delay 0x0006:2000 (    6.125 s)
+        
+Figure 2: Example for round-trip time computation
+ */
+
 import { randomBytes } from "crypto";
 import debug from "debug";
 import { jspack } from "jspack";
@@ -33,7 +55,7 @@ import {
 import { codecParametersFromString } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
-import { compactNtp, milliTime, ntpTime } from "../utils";
+import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
 import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import {
   RTCRtpCodecParameters,
@@ -77,8 +99,8 @@ export class RTCRtpSender {
   private disposeTrack?: () => void;
 
   // # stats
-  private lsr?: number;
-  private lsrTime: number = Date.now() / 1000;
+  private lastSRtimestamp?: number;
+  private lastSentSRTimestamp?: number;
   private ntpTimestamp = 0n;
   private rtpTimestamp = 0;
   private octetCount = 0;
@@ -233,8 +255,8 @@ export class RTCRtpSender {
             }),
           }),
         ];
-        this.lsr = compactNtp(this.ntpTimestamp);
-        this.lsrTime = Date.now() / 1000;
+        this.lastSRtimestamp = compactNtp(this.ntpTimestamp);
+        this.lastSentSRTimestamp = timestampSeconds();
 
         if (this.cname) {
           packets.push(
@@ -375,13 +397,17 @@ export class RTCRtpSender {
           packet.reports
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
-              if (this.lsr === report.lsr && report.dlsr) {
-                const rtt =
-                  Date.now() / 1000 - this.lsrTime - report.dlsr / 65536;
-                if (this.rtt === undefined) {
-                  this.rtt = rtt;
-                } else {
-                  this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
+              if (this.lastSRtimestamp === report.lsr && report.dlsr) {
+                if (this.lastSentSRTimestamp) {
+                  const rtt =
+                    timestampSeconds() -
+                    this.lastSentSRTimestamp -
+                    report.dlsr / 65536;
+                  if (this.rtt === undefined) {
+                    this.rtt = rtt;
+                  } else {
+                    this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
+                  }
                 }
               }
             });

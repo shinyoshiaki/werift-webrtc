@@ -1,8 +1,13 @@
 import debug from "debug";
 import { createSocket, SocketType } from "dgram";
 
+import {
+  findPort,
+  interfaceAddress,
+  InterfaceAddresses,
+} from "../../common/src";
 import { Address } from "./types/model";
-import { findPort } from "./utils";
+import { normalizeFamilyNodeV18 } from "./utils";
 
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
@@ -10,9 +15,13 @@ export class UdpTransport implements Transport {
   private socket = createSocket(this.type);
   onData: (data: Buffer, addr: Address) => void = () => {};
 
-  constructor(private type: SocketType, private portRange?: [number, number]) {
+  constructor(
+    private type: SocketType,
+    private portRange?: [number, number],
+    private interfaceAddresses?: InterfaceAddresses
+  ) {
     this.socket.on("message", (data, info) => {
-      if (info.family === "IPv6") {
+      if (normalizeFamilyNodeV18(info.family) === 6) {
         [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0
       }
       try {
@@ -23,22 +32,28 @@ export class UdpTransport implements Transport {
     });
   }
 
-  static async init(type: SocketType, portRange?: [number, number]) {
-    const transport = new UdpTransport(type, portRange);
+  static async init(
+    type: SocketType,
+    portRange?: [number, number],
+    interfaceAddresses?: InterfaceAddresses
+  ) {
+    const transport = new UdpTransport(type, portRange, interfaceAddresses);
     await transport.init();
     return transport;
   }
 
   private async init() {
+    const address = interfaceAddress(this.type, this.interfaceAddresses);
     if (this.portRange) {
       const port = await findPort(
         this.portRange[0],
         this.portRange[1],
-        this.type
+        this.type,
+        this.interfaceAddresses
       );
-      this.socket.bind(port);
+      this.socket.bind({ port, address });
     } else {
-      this.socket.bind();
+      this.socket.bind({ address });
     }
     await new Promise((r) => this.socket.once("listening", r));
   }

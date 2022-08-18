@@ -3,7 +3,7 @@ import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
 import { v4 } from "uuid";
 
-import { randomPort } from "../../../ice/src";
+import { randomPort } from "../../../common/src";
 import { RtpPacket } from "../../../rtp/src";
 import { MediaStreamTrack } from "../media/track";
 

@@ -9,16 +9,19 @@ export const IPV6_PROTOCOL = 2;
 export const RETRY_MAX = 6;
 export const RETRY_RTO = 50;
 
-export const ATTRIBUTES = [
+export const AttributeKeys = [
   "FINGERPRINT",
   "MESSAGE-INTEGRITY",
+  "CHANGE-REQUEST",
   "PRIORITY",
   "USERNAME",
   "ICE-CONTROLLING",
+  "SOURCE-ADDRESS",
   "USE-CANDIDATE",
   "ICE-CONTROLLED",
   "ERROR-CODE",
   "XOR-MAPPED-ADDRESS",
+  "CHANGED-ADDRESS",
   "LIFETIME",
   "REQUESTED-TRANSPORT",
   "NONCE",

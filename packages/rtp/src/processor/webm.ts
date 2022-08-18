@@ -232,8 +232,7 @@ class TimestampManager {
       ? tailTimestamp + Max32Uint - this.baseTimestamp
       : tailTimestamp - this.baseTimestamp;
 
-    const relativeTimestamp = int((elapsed / this.clockRate) * 1000);
-    this.relativeTimestamp = relativeTimestamp;
+    this.relativeTimestamp = int((elapsed / this.clockRate) * 1000);
   }
 }
 

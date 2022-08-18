@@ -61,7 +61,6 @@ describe("datachannel", () => {
         };
         channel.onmessage = ({ data }) => {
           expect(data).toBe("ping" + "pong");
-          console.warn("offer", "succeed");
           done();
         };
         pc.onicecandidate = ({ candidate }) => {

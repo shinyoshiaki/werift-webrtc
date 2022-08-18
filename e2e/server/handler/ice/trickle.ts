@@ -55,7 +55,7 @@ export class ice_trickle_offer {
           this.pc.onIceCandidate.subscribe((candidate) => {
             peer.request("ice_trickle_offer", candidate).catch(() => {});
           });
-          await this.pc.setRemoteDescription(payload);
+          this.pc.setRemoteDescription(payload);
           this.pc.setLocalDescription(await this.pc.createAnswer());
 
           accept(this.pc.localDescription);

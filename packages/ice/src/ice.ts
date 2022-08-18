@@ -1,17 +1,18 @@
 import { randomBytes } from "crypto";
 import debug from "debug";
-import dns from "dns";
 import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
 import isEqual from "lodash/isEqual";
 import range from "lodash/range";
 import { isIPv4 } from "net";
+import os from "os";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import timers from "timers/promises";
-import util from "util";
 
+import { InterfaceAddresses } from "../../common/src/network";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
+import { DnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
 import { difference, Future, future, PQueue, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
@@ -19,6 +20,7 @@ import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
+import { normalizeFamilyNodeV18 } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
@@ -40,6 +42,7 @@ export class Connection {
   _localCandidatesEnd = false;
   _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
   state: IceState = "new";
+  dnsLookup?: DnsLookup;
 
   readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -82,7 +85,7 @@ export class Connection {
       this.localCandidatesStart = true;
       this.promiseGatherCandidates = new Event();
 
-      const address = getHostAddress(this.useIpv4, this.useIpv6);
+      const address = getHostAddresses(this.useIpv4, this.useIpv6);
       for (const component of this._components) {
         const candidates = await this.getComponentCandidates(
           component,
@@ -110,7 +113,11 @@ export class Connection {
     for (const address of addresses) {
       // # create transport
       const protocol = new StunProtocol(this);
-      await protocol.connectionMade(isIPv4(address), this.options.portRange);
+      await protocol.connectionMade(
+        isIPv4(address),
+        this.options.portRange,
+        this.options.interfaceAddresses
+      );
       protocol.localAddress = address;
       this.protocols.push(protocol);
 
@@ -128,7 +135,9 @@ export class Connection {
       );
 
       candidates.push(protocol.localCandidate);
-      if (cb) cb(protocol.localCandidate);
+      if (cb) {
+        cb(protocol.localCandidate);
+      }
     }
 
     // # query STUN server for server-reflexive candidates (IPv4 only)
@@ -176,7 +185,10 @@ export class Connection {
         this.turnServer,
         this.options.turnUsername,
         this.options.turnPassword,
-        { portRange: this.options.portRange }
+        {
+          portRange: this.options.portRange,
+          interfaceAddresses: this.options.interfaceAddresses,
+        }
       );
       this.protocols.push(protocol);
 
@@ -215,7 +227,7 @@ export class Connection {
     // This coroutine returns if a candidate pair was successfully nominated
     // and raises an exception otherwise.
     // """
-    log("start connect ice");
+    log("start connect ice", this.localCandidates);
     if (!this._localCandidatesEnd) {
       if (!this.localCandidatesStart)
         throw new Error("Local candidates gathering was not performed");
@@ -239,16 +251,15 @@ export class Connection {
     // # perform checks
     // 5.8.  Scheduling Checks
     for (;;) {
+      if (this.state === "closed") break;
       if (!this.schedulingChecks()) break;
       await timers.setTimeout(20);
     }
 
     // # wait for completion
-    let res: number;
-    if (this.checkList.length > 0) {
+    let res: number = ICE_FAILED;
+    while (this.checkList.length > 0 && res === ICE_FAILED) {
       res = await this.checkListState.get();
-    } else {
-      res = ICE_FAILED;
     }
 
     // # cancel remaining checks
@@ -365,6 +376,7 @@ export class Connection {
                 this.setState("connected");
               }
             } catch (error) {
+              log("no stun response");
               failures++;
               this.setState("disconnected");
             }
@@ -415,6 +427,8 @@ export class Connection {
 
     this.protocols = [];
     this.localCandidates = [];
+
+    await this.dnsLookup?.close();
   }
 
   private setState(state: IceState) {
@@ -440,18 +454,15 @@ export class Connection {
     }
 
     if (remoteCandidate.host.includes(".local")) {
-      await timers.setTimeout(10);
-
-      const res = await util
-        .promisify(dns.lookup)(remoteCandidate.host)
-        .catch((err) => {
-          log(err, remoteCandidate);
-        });
-      if (res) {
-        remoteCandidate.host = res.address;
-      } else {
-        // todo fix
-        remoteCandidate.host = "127.0.0.1";
+      try {
+        if (this.state === "closed") return;
+        if (!this.dnsLookup) {
+          this.dnsLookup = new DnsLookup();
+        }
+        const host = await this.dnsLookup.lookup(remoteCandidate.host);
+        remoteCandidate.host = host;
+      } catch (error) {
+        return;
       }
     }
 
@@ -460,6 +471,7 @@ export class Connection {
     } catch (error) {
       return;
     }
+    log("addRemoteCandidate", remoteCandidate);
     this.remoteCandidates.push(remoteCandidate);
 
     this.pairRemoteCandidate(remoteCandidate);
@@ -490,7 +502,8 @@ export class Connection {
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
     } else {
-      throw new Error("Cannot send data, ice not connected");
+      // log("Cannot send data, ice not connected");
+      return;
     }
   }
 
@@ -520,7 +533,7 @@ export class Connection {
       parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
       if (!this.remoteUsername) {
         const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
-        if (message.attributes["USERNAME"] != rxUsername)
+        if (message.getAttributeValue("USERNAME") != rxUsername)
           throw new Error("Wrong username");
       }
     } catch (error) {
@@ -532,7 +545,7 @@ export class Connection {
 
     // 7.2.1.1.  Detecting and Repairing Role Conflicts
     if (iceControlling && message.attributesKeys.includes("ICE-CONTROLLING")) {
-      if (this._tieBreaker >= message.attributes["ICE-CONTROLLING"]) {
+      if (this._tieBreaker >= message.getAttributeValue("ICE-CONTROLLING")) {
         this.respondError(message, addr, protocol, [487, "Role Conflict"]);
         return;
       } else {
@@ -542,7 +555,7 @@ export class Connection {
       !iceControlling &&
       message.attributesKeys.includes("ICE-CONTROLLED")
     ) {
-      if (this._tieBreaker < message.attributes["ICE-CONTROLLED"]) {
+      if (this._tieBreaker < message.getAttributeValue("ICE-CONTROLLED")) {
         this.respondError(message, addr, protocol, [487, "Role Conflict"]);
       } else {
         this.switchRole(true);
@@ -556,9 +569,10 @@ export class Connection {
       classes.RESPONSE,
       message.transactionId
     );
-    response.attributes["XOR-MAPPED-ADDRESS"] = addr;
-    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
-    response.addFingerprint();
+    response
+      .setAttribute("XOR-MAPPED-ADDRESS", addr)
+      .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
+      .addFingerprint();
     protocol.sendStun(response, addr);
 
     // todo fix
@@ -693,7 +707,6 @@ export class Connection {
           r(ICE_FAILED);
         })
       );
-      this.checkListDone = true;
     }
   }
 
@@ -718,7 +731,8 @@ export class Connection {
         const [response, addr] = await pair.protocol.request(
           request,
           pair.remoteAddr,
-          Buffer.from(this.remotePassword, "utf8")
+          Buffer.from(this.remotePassword, "utf8"),
+          4
         );
         log("response", response, addr);
         result.response = response;
@@ -727,7 +741,7 @@ export class Connection {
         const exc: TransactionError = error;
         // 7.1.3.1.  Failure Cases
         log("failure case", exc.response);
-        if (exc.response?.attributes["ERROR-CODE"][0] === 487) {
+        if (exc.response?.getAttributeValue("ERROR-CODE")[0] === 487) {
           if (request.attributesKeys.includes("ICE-CONTROLLED")) {
             this.switchRole(true);
           } else if (request.attributesKeys.includes("ICE-CONTROLLING")) {
@@ -806,7 +820,7 @@ export class Connection {
         randomString(10),
         component,
         "udp",
-        message.attributes["PRIORITY"],
+        message.getAttributeValue("PRIORITY"),
         host,
         port,
         "prflx"
@@ -860,15 +874,16 @@ export class Connection {
   private buildRequest(pair: CandidatePair, nominate: boolean) {
     const txUsername = `${this.remoteUsername}:${this.localUserName}`;
     const request = new Message(methods.BINDING, classes.REQUEST);
-    request.attributes["USERNAME"] = txUsername;
-    request.attributes["PRIORITY"] = candidatePriority(pair.component, "prflx");
+    request
+      .setAttribute("USERNAME", txUsername)
+      .setAttribute("PRIORITY", candidatePriority(pair.component, "prflx"));
     if (this.iceControlling) {
-      request.attributes["ICE-CONTROLLING"] = this._tieBreaker;
+      request.setAttribute("ICE-CONTROLLING", this._tieBreaker);
       if (nominate) {
-        request.attributes["USE-CANDIDATE"] = null;
+        request.setAttribute("USE-CANDIDATE", null);
       }
     } else {
-      request.attributes["ICE-CONTROLLED"] = this._tieBreaker;
+      request.setAttribute("ICE-CONTROLLED", this._tieBreaker);
     }
     return request;
   }
@@ -884,9 +899,10 @@ export class Connection {
       classes.ERROR,
       request.transactionId
     );
-    response.attributes["ERROR-CODE"] = errorCode;
-    response.addMessageIntegrity(Buffer.from(this.localPassword, "utf8"));
-    response.addFingerprint();
+    response
+      .setAttribute("ERROR-CODE", errorCode)
+      .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
+      .addFingerprint();
     protocol.sendStun(response, addr);
   }
 }
@@ -943,6 +959,7 @@ export interface IceOptions {
   useIpv4: boolean;
   useIpv6: boolean;
   portRange?: [number, number];
+  interfaceAddresses?: InterfaceAddresses;
 }
 
 const defaultOptions: IceOptions = {
@@ -988,10 +1005,48 @@ export function candidatePairPriority(
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
 }
 
-export function getHostAddress(useIpv4: boolean, useIpv6: boolean) {
+function nodeIpAddress(family: number): string[] {
+  // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
+  const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
+  const banNetworks = ["vmnet", "veth"];
+
+  const interfaces = os.networkInterfaces();
+
+  const all = Object.keys(interfaces)
+    .map((nic) => {
+      for (const word of [...costlyNetworks, ...banNetworks]) {
+        if (nic.startsWith(word)) {
+          return {
+            nic,
+            addresses: [],
+          };
+        }
+      }
+      const addresses = interfaces[nic]!.filter(
+        (details) =>
+          normalizeFamilyNodeV18(details.family) === family &&
+          !nodeIp.isLoopback(details.address)
+      );
+      return {
+        nic,
+        addresses: addresses.map((address) => address.address),
+      };
+    })
+    .filter((address) => !!address);
+
+  // os.networkInterfaces doesn't actually return addresses in a good order.
+  // have seen instances where en0 (ethernet) is after en1 (wlan), etc.
+  // eth0 > eth1
+  all.sort((a, b) => a.nic.localeCompare(b.nic));
+  return Object.values(all)
+    .map((entry) => entry.addresses)
+    .flat();
+}
+
+export function getHostAddresses(useIpv4: boolean, useIpv6: boolean) {
   const address: string[] = [];
-  if (useIpv4) address.push(nodeIp.address("", "ipv4"));
-  if (useIpv6) address.push(nodeIp.address("", "ipv6"));
+  if (useIpv4) address.push(...nodeIpAddress(4));
+  if (useIpv6) address.push(...nodeIpAddress(6));
   return address;
 }
 
@@ -1016,8 +1071,8 @@ export async function serverReflexiveCandidate(
       localCandidate.component,
       localCandidate.transport,
       candidatePriority(localCandidate.component, "srflx"),
-      response.attributes["XOR-MAPPED-ADDRESS"][0],
-      response.attributes["XOR-MAPPED-ADDRESS"][1],
+      response.getAttributeValue("XOR-MAPPED-ADDRESS")[0],
+      response.getAttributeValue("XOR-MAPPED-ADDRESS")[1],
       "srflx",
       localCandidate.host,
       localCandidate.port

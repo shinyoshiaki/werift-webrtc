@@ -1,58 +1,12 @@
-import { createSocket, SocketType } from "dgram";
-
+import { InterfaceAddresses } from "../../common/src/network";
 import { Connection, serverReflexiveCandidate } from "./ice";
 import { StunProtocol } from "./stun/protocol";
 import { Address } from "./types/model";
 
-export async function randomPort(protocol: SocketType = "udp4") {
-  const socket = createSocket(protocol);
-
-  setImmediate(() => socket.bind(0));
-
-  await new Promise<void>((r) => {
-    socket.once("error", r);
-    socket.once("listening", r);
-  });
-
-  const port = socket.address()?.port;
-  await new Promise<void>((r) => socket.close(() => r()));
-  return port;
-}
-
-export async function randomPorts(num: number, protocol: SocketType = "udp4") {
-  return Promise.all([...Array(num)].map(() => randomPort(protocol)));
-}
-
-export async function findPort(
-  min: number,
-  max: number,
-  protocol: SocketType = "udp4"
+export async function getGlobalIp(
+  stunServer?: Address,
+  interfaceAddresses?: InterfaceAddresses
 ) {
-  let port: number | undefined;
-
-  for (let i = min; i <= max; i++) {
-    const socket = createSocket(protocol);
-
-    setImmediate(() => socket.bind(i));
-
-    await new Promise<void>((r) => {
-      socket.once("error", r);
-      socket.once("listening", r);
-    });
-
-    port = socket.address()?.port;
-    await new Promise<void>((r) => socket.close(() => r()));
-    if (min <= port && port <= max) {
-      break;
-    }
-  }
-
-  if (!port) throw new Error("port not found");
-
-  return port;
-}
-
-export async function getGlobalIp(stunServer?: Address) {
   const connection = new Connection(true, {
     stunServer: stunServer ?? ["stun.l.google.com", 19302],
   });
@@ -60,7 +14,7 @@ export async function getGlobalIp(stunServer?: Address) {
 
   const protocol = new StunProtocol(connection);
   protocol.localCandidate = connection.localCandidates[0];
-  await protocol.connectionMade(true);
+  await protocol.connectionMade(true, undefined, interfaceAddresses);
   const candidate = await serverReflexiveCandidate(protocol, [
     "stun.l.google.com",
     19302,
@@ -70,4 +24,11 @@ export async function getGlobalIp(stunServer?: Address) {
   await protocol.close();
 
   return candidate?.host;
+}
+
+export function normalizeFamilyNodeV18(family: string | number): 4 | 6 {
+  if (family === "IPv4") return 4;
+  if (family === "IPv6") return 6;
+
+  return family as 4 | 6;
 }

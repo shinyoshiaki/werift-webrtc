@@ -4,7 +4,19 @@ import { RtcpHeader } from "../header";
 import { GenericNack } from "./nack";
 import { TransportWideCC } from "./twcc";
 
-const log = debug("werift/rtp/rtcp/rtpfb/index");
+const log = debug("werift-rtp:packages/rtp/rtcp/rtpfb/index");
+
+// 0                   1                   2                   3
+// 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |V=2|P|   FMT   |       PT      |          length               |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                  SSRC of packet sender                        |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                  SSRC of media source                         |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// :            Feedback Control Information (FCI)                 :
+// :                                                               :
 
 type Feedback = GenericNack | TransportWideCC;
 

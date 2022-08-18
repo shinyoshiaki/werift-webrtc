@@ -2,6 +2,7 @@ import { setTimeout } from "timers/promises";
 
 import {
   codecParametersToString,
+  defaultPeerConfig,
   MediaStreamTrack,
   RedEncoder,
   RTCRtpCodecParameters,
@@ -9,7 +10,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../src";
-import { RedHandler } from "../../src/media/receiver/red";
+import { AudioRedHandler } from "../../src/media/receiver/red";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { wrapRtx } from "../../src/media/rtpSender";
 import { createDtlsTransport } from "../fixture";
@@ -18,7 +19,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
   test("abort runRtcp", async () =>
     new Promise<void>(async (done) => {
       const dtls = createDtlsTransport();
-      const receiver = new RTCRtpReceiver("audio", 1234);
+      const receiver = new RTCRtpReceiver(defaultPeerConfig, "audio", 1234);
       receiver.setDtlsTransport(dtls);
 
       jest.spyOn(dtls, "sendRtcp");
@@ -37,7 +38,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
 
   test("handleRTP with RTX packet", async () => {
     const dtls = createDtlsTransport();
-    const receiver = new RTCRtpReceiver("video", 1234);
+    const receiver = new RTCRtpReceiver(defaultPeerConfig, "video", 1234);
     receiver.setDtlsTransport(dtls);
 
     const track = new MediaStreamTrack({ kind: "video" });
@@ -183,7 +184,7 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     const packet = present.clone();
     packet.payload = red.serialize();
 
-    const redHandler = new RedHandler();
+    const redHandler = new AudioRedHandler();
     const res = redHandler.push(red, packet);
     expect(res.length).toBe(3);
     expect(res).toEqual([...redundantPackets, present]);

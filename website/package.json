@@ -8,7 +8,7 @@
     "deploy": "docusaurus deploy",
     "docusaurus": "docusaurus",
     "format": "prettier --write .",
-    "ja": "yarn start -- --locale ja",
+    "ja": "npm run start -- --locale ja",
     "serve": "docusaurus serve",
     "start": "docusaurus start",
     "swizzle": "docusaurus swizzle"

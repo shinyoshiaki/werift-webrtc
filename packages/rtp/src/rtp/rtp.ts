@@ -13,7 +13,7 @@ const seqNumOffset = 2;
 const timestampOffset = 4;
 const ssrcOffset = 8;
 const csrcOffset = 12;
-const csrcLength = 4;
+const csrcSize = 4;
 
 /*
  *  0                   1                   2                   3
@@ -43,6 +43,7 @@ export class RtpHeader {
   /**32bit milliseconds/1000 */
   timestamp: number = 0;
   ssrc: number = 0;
+  csrcLength = 0;
   csrc: number[] = [];
   extensionProfile: ExtensionProfile = ExtensionProfiles.OneByte;
   /**deserialize only */
@@ -59,8 +60,8 @@ export class RtpHeader {
     h.version = getBit(v_p_x_cc, 0, 2);
     h.padding = getBit(v_p_x_cc, 2) > 0;
     h.extension = getBit(v_p_x_cc, 3) > 0;
-    const cc = getBit(v_p_x_cc, 4, 4);
-    h.csrc = [...Array(cc)].map(() => {
+    h.csrcLength = getBit(v_p_x_cc, 4, 4);
+    h.csrc = [...Array(h.csrcLength)].map(() => {
       const csrc = rawPacket.readUInt32BE(currOffset);
       currOffset += 4;
       return csrc;
@@ -76,15 +77,15 @@ export class RtpHeader {
     h.ssrc = rawPacket.readUInt32BE(ssrcOffset);
 
     for (let i = 0; i < h.csrc.length; i++) {
-      const offset = csrcOffset + i * csrcLength;
-      h.csrc[i] = rawPacket.slice(offset).readUInt32BE();
+      const offset = csrcOffset + i * csrcSize;
+      h.csrc[i] = rawPacket.subarray(offset).readUInt32BE();
     }
     if (h.extension) {
       h.extensionProfile = rawPacket
-        .slice(currOffset)
+        .subarray(currOffset)
         .readUInt16BE() as ExtensionProfile;
       currOffset += 2;
-      const extensionLength = rawPacket.slice(currOffset).readUInt16BE() * 4;
+      const extensionLength = rawPacket.subarray(currOffset).readUInt16BE() * 4;
       h.extensionLength = extensionLength;
       currOffset += 2;
 
@@ -100,15 +101,15 @@ export class RtpHeader {
               }
 
               const extId = rawPacket[currOffset] >> 4;
-              const len = // and not &^
-                (rawPacket[currOffset] & (rawPacket[currOffset] ^ 0xf0)) + 1;
+              const len =
+                (rawPacket[currOffset] & (rawPacket[currOffset] ^ 0xf0)) + 1; // and not &^
               currOffset++;
               if (extId === 0xf) {
                 break;
               }
               const extension: Extension = {
                 id: extId,
-                payload: rawPacket.slice(currOffset, currOffset + len),
+                payload: rawPacket.subarray(currOffset, currOffset + len),
               };
               h.extensions = [...h.extensions, extension];
               currOffset += len;
@@ -131,7 +132,7 @@ export class RtpHeader {
 
               const extension: Extension = {
                 id: extId,
-                payload: rawPacket.slice(currOffset, currOffset + len),
+                payload: rawPacket.subarray(currOffset, currOffset + len),
               };
               h.extensions = [...h.extensions, extension];
               currOffset += len;
@@ -142,7 +143,7 @@ export class RtpHeader {
           {
             const extension: Extension = {
               id: 0,
-              payload: rawPacket.slice(
+              payload: rawPacket.subarray(
                 currOffset,
                 currOffset + extensionLength
               ),
@@ -164,20 +165,20 @@ export class RtpHeader {
   get serializeSize() {
     const { csrc, extensionProfile, extensions } = this;
 
-    let size = 12 + csrc.length * csrcLength;
+    let size = 12 + csrc.length * csrcSize;
 
     if (extensions.length > 0 || this.extension === true) {
       let extSize = 4;
       switch (extensionProfile) {
         case ExtensionProfiles.OneByte:
-          extensions.forEach((extension) => {
+          for (const extension of extensions) {
             extSize += 1 + extension.payload.length;
-          });
+          }
           break;
         case ExtensionProfiles.TwoByte:
-          extensions.forEach((extension) => {
+          for (const extension of extensions) {
             extSize += 2 + extension.payload.length;
-          });
+          }
           break;
         default:
           extSize += extensions[0].payload.length;
@@ -212,10 +213,10 @@ export class RtpHeader {
     buf.writeUInt32BE(this.ssrc, ssrcOffset);
     offset += 4;
 
-    this.csrc.forEach((csrc) => {
+    for (const csrc of this.csrc) {
       buf.writeUInt32BE(csrc, offset);
       offset += 4;
-    });
+    }
 
     if (this.extension) {
       const extHeaderPos = offset;
@@ -225,22 +226,22 @@ export class RtpHeader {
 
       switch (this.extensionProfile) {
         case ExtensionProfiles.OneByte:
-          this.extensions.forEach((extension) => {
+          for (const extension of this.extensions) {
             buf.writeUInt8(
               (extension.id << 4) | (extension.payload.length - 1),
               offset++
             );
             extension.payload.copy(buf, offset);
             offset += extension.payload.length;
-          });
+          }
           break;
         case ExtensionProfiles.TwoByte: // 1バイトで収まらなくなった歴史的経緯
-          this.extensions.forEach((extension) => {
+          for (const extension of this.extensions) {
             buf.writeUInt8(extension.id, offset++);
             buf.writeUInt8(extension.payload.length, offset++);
             extension.payload.copy(buf, offset);
             offset += extension.payload.length;
-          });
+          }
           break;
         default:
           const extLen = this.extensions[0].payload.length;
@@ -252,9 +253,10 @@ export class RtpHeader {
       }
 
       const extSize = offset - startExtensionsPos;
-      const roundedExtSize = Math.floor((extSize + 3) / 4) * 4;
+      const roundedExtSize = Math.trunc((extSize + 3) / 4) * 4;
 
-      buf.writeUInt16BE(Math.floor(roundedExtSize / 4), extHeaderPos + 2);
+      buf.writeUInt16BE(Math.trunc(roundedExtSize / 4), extHeaderPos + 2);
+      // padding 4 bytes boundaries
       for (let i = 0; i < roundedExtSize - extSize; i++) {
         buf.writeUInt8(0, offset);
         offset++;
@@ -295,7 +297,7 @@ export class RtpPacket {
     const header = RtpHeader.deSerialize(buf);
     const p = new RtpPacket(
       header,
-      buf.slice(header.payloadOffset, buf.length - header.paddingSize)
+      buf.subarray(header.payloadOffset, buf.length - header.paddingSize)
     );
     return p;
   }

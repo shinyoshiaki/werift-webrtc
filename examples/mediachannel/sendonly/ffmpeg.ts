@@ -15,7 +15,19 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection();
+  const payloadType = 96;
+  const pc = new RTCPeerConnection({
+    codecs: {
+      audio: [],
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: payloadType,
+        }),
+      ],
+    },
+  });
 
   const track = new MediaStreamTrack({ kind: "video" });
   randomPort().then((port) => {
@@ -27,6 +39,7 @@ server.on("connection", async (socket) => {
     );
     udp.on("message", (data) => {
       const rtp = RtpPacket.deSerialize(data);
+      rtp.header.payloadType = payloadType;
       track.writeRtp(rtp);
     });
   });
