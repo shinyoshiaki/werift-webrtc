@@ -1,9 +1,26 @@
 import { createSocket, SocketType } from "dgram";
 
-export async function randomPort(protocol: SocketType = "udp4") {
+export type InterfaceAddresses = {
+  [K in SocketType]?: string;
+};
+
+export const interfaceAddress = (
+  type: SocketType,
+  interfaceAddresses: InterfaceAddresses | undefined
+) => (interfaceAddresses ? interfaceAddresses[type] : undefined);
+
+export async function randomPort(
+  protocol: SocketType = "udp4",
+  interfaceAddresses?: InterfaceAddresses
+) {
   const socket = createSocket(protocol);
 
-  setImmediate(() => socket.bind(0));
+  setImmediate(() =>
+    socket.bind({
+      port: 0,
+      address: interfaceAddress(protocol, interfaceAddresses),
+    })
+  );
 
   await new Promise<void>((r) => {
     socket.once("error", r);
@@ -15,21 +32,33 @@ export async function randomPort(protocol: SocketType = "udp4") {
   return port;
 }
 
-export async function randomPorts(num: number, protocol: SocketType = "udp4") {
-  return Promise.all([...Array(num)].map(() => randomPort(protocol)));
+export async function randomPorts(
+  num: number,
+  protocol: SocketType = "udp4",
+  interfaceAddresses?: InterfaceAddresses
+) {
+  return Promise.all(
+    [...Array(num)].map(() => randomPort(protocol, interfaceAddresses))
+  );
 }
 
 export async function findPort(
   min: number,
   max: number,
-  protocol: SocketType = "udp4"
+  protocol: SocketType = "udp4",
+  interfaceAddresses?: InterfaceAddresses
 ) {
   let port: number | undefined;
 
   for (let i = min; i <= max; i++) {
     const socket = createSocket(protocol);
 
-    setImmediate(() => socket.bind(i));
+    setImmediate(() =>
+      socket.bind({
+        port: i,
+        address: interfaceAddress(protocol, interfaceAddresses),
+      })
+    );
 
     await new Promise<void>((r) => {
       socket.once("error", r);
