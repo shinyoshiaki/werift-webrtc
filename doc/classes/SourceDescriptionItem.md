@@ -34,29 +34,17 @@
 | :------ | :------ |
 | `props` | `Partial`<[`SourceDescriptionItem`](SourceDescriptionItem.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sdes.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sdes.ts#L90)
-
 ## Properties
 
 ### text
 
 • **text**: `string`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sdes.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sdes.ts#L88)
-
 ___
 
 ### type
 
 • **type**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sdes.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sdes.ts#L87)
 
 ## Accessors
 
@@ -68,10 +56,6 @@ ___
 
 `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sdes.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sdes.ts#L94)
-
 ## Methods
 
 ### serialize
@@ -81,10 +65,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sdes.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sdes.ts#L98)
 
 ___
 
@@ -101,7 +81,3 @@ ___
 #### Returns
 
 [`SourceDescriptionItem`](SourceDescriptionItem.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sdes.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sdes.ts#L106)

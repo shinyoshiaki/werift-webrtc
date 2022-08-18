@@ -29,10 +29,6 @@
 
 • **fields**: `RedHeaderField`[] = `[]`
 
-#### Defined in
-
-[packages/rtp/src/rtp/red/packet.ts:79](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/red/packet.ts#L79)
-
 ## Methods
 
 ### serialize
@@ -42,10 +38,6 @@
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtp/red/packet.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/red/packet.ts#L108)
 
 ___
 
@@ -62,7 +54,3 @@ ___
 #### Returns
 
 readonly [[`RedHeader`](RedHeader.md), `number`]
-
-#### Defined in
-
-[packages/rtp/src/rtp/red/packet.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/red/packet.ts#L81)

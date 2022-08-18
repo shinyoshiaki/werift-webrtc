@@ -33,19 +33,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`PictureLossIndication`](PictureLossIndication.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L11)
-
 ## Properties
 
 ### count
 
 • **count**: `number` = `PictureLossIndication.count`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L5)
 
 ___
 
@@ -53,19 +45,11 @@ ___
 
 • **length**: `number` = `2`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L6)
-
 ___
 
 ### mediaSsrc
 
 • **mediaSsrc**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L9)
 
 ___
 
@@ -73,19 +57,11 @@ ___
 
 • **senderSsrc**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L8)
-
 ___
 
 ### count
 
 ▪ `Static` **count**: `number` = `1`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L4)
 
 ## Methods
 
@@ -96,10 +72,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L20)
 
 ___
 
@@ -116,7 +88,3 @@ ___
 #### Returns
 
 [`PictureLossIndication`](PictureLossIndication.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/pictureLossIndication.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/pictureLossIndication.ts#L15)

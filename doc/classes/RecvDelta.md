@@ -33,10 +33,6 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RecvDelta`](RecvDelta.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:354](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L354)
-
 ## Properties
 
 ### delta
@@ -45,19 +41,11 @@
 
 micro sec
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:352](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L352)
-
 ___
 
 ### parsed
 
 • **parsed**: `boolean` = `false`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:380](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L380)
 
 ___
 
@@ -66,10 +54,6 @@ ___
 • `Optional` **type**: [`TypeTCCPacketReceivedSmallDelta`](../enums/PacketStatus.md#typetccpacketreceivedsmalldelta) \| [`TypeTCCPacketReceivedLargeDelta`](../enums/PacketStatus.md#typetccpacketreceivedlargedelta)
 
 optional (If undefined, it will be set automatically.)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:348](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L348)
 
 ## Methods
 
@@ -87,10 +71,6 @@ optional (If undefined, it will be set automatically.)
 
 `void`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:375](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L375)
-
 ___
 
 ### parseDelta
@@ -101,10 +81,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:381](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L381)
-
 ___
 
 ### serialize
@@ -114,10 +90,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:394](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L394)
 
 ___
 
@@ -134,7 +106,3 @@ ___
 #### Returns
 
 [`RecvDelta`](RecvDelta.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:358](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L358)

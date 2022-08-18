@@ -23,7 +23,6 @@
 ### Methods
 
 - [gather](RTCIceGatherer.md#gather)
-- [setState](RTCIceGatherer.md#setstate)
 
 ## Constructors
 
@@ -37,19 +36,11 @@
 | :------ | :------ |
 | `options` | `Partial`<[`IceOptions`](../interfaces/IceOptions.md)\> |
 
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:111](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L111)
-
 ## Properties
 
 ### connection
 
 • `Readonly` **connection**: [`Connection`](Connection.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:109](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L109)
 
 ___
 
@@ -57,19 +48,11 @@ ___
 
 • **gatheringState**: ``"new"`` \| ``"complete"`` \| ``"gathering"`` = `"new"`
 
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L106)
-
 ___
 
 ### onGatheringStateChange
 
 • `Readonly` **onGatheringStateChange**: `default`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L108)
 
 ___
 
@@ -91,10 +74,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:105](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L105)
-
 ## Accessors
 
 ### localCandidates
@@ -104,10 +83,6 @@ ___
 #### Returns
 
 [`IceCandidate`](IceCandidate.md)[]
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:123](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L123)
 
 ___
 
@@ -119,10 +94,6 @@ ___
 
 [`RTCIceParameters`](RTCIceParameters.md)
 
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L127)
-
 ## Methods
 
 ### gather
@@ -132,27 +103,3 @@ ___
 #### Returns
 
 `Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:113](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L113)
-
-___
-
-### setState
-
-▸ `Private` **setState**(`state`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `state` | ``"new"`` \| ``"complete"`` \| ``"gathering"`` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:136](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L136)

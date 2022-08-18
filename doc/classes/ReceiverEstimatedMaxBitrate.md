@@ -39,19 +39,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L21)
-
 ## Properties
 
 ### bitrate
 
 • **bitrate**: `bigint`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L18)
 
 ___
 
@@ -59,19 +51,11 @@ ___
 
 • **brExp**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L16)
-
 ___
 
 ### brMantissa
 
 • **brMantissa**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L17)
 
 ___
 
@@ -79,19 +63,11 @@ ___
 
 • **count**: `number` = `ReceiverEstimatedMaxBitrate.count`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L11)
-
 ___
 
 ### length
 
 • **length**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L10)
 
 ___
 
@@ -99,19 +75,11 @@ ___
 
 • **mediaSsrc**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L13)
-
 ___
 
 ### senderSsrc
 
 • **senderSsrc**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L12)
 
 ___
 
@@ -119,19 +87,11 @@ ___
 
 • **ssrcFeedbacks**: `number`[] = `[]`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L19)
-
 ___
 
 ### ssrcNum
 
 • **ssrcNum**: `number` = `0`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L15)
 
 ___
 
@@ -139,19 +99,11 @@ ___
 
 • `Readonly` **uniqueID**: `string` = `"REMB"`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L14)
-
 ___
 
 ### count
 
 ▪ `Static` **count**: `number` = `15`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L9)
 
 ## Methods
 
@@ -162,10 +114,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L55)
 
 ___
 
@@ -182,7 +130,3 @@ ___
 #### Returns
 
 [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/remb.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/remb.ts#L25)

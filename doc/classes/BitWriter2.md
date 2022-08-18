@@ -10,7 +10,6 @@
 
 ### Properties
 
-- [\_value](BitWriter2.md#_value)
 - [offset](BitWriter2.md#offset)
 
 ### Accessors
@@ -36,29 +35,11 @@
 | :------ | :------ |
 | `bitLength` | `number` |
 
-#### Defined in
-
-[packages/common/src/binary.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L72)
-
 ## Properties
-
-### \_value
-
-• `Private` **\_value**: `bigint`
-
-#### Defined in
-
-[packages/common/src/binary.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L66)
-
-___
 
 ### offset
 
 • **offset**: `bigint`
-
-#### Defined in
-
-[packages/common/src/binary.ts:67](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L67)
 
 ## Accessors
 
@@ -70,10 +51,6 @@ ___
 
 `Buffer`
 
-#### Defined in
-
-[packages/common/src/binary.ts:95](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L95)
-
 ___
 
 ### value
@@ -83,10 +60,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/common/src/binary.ts:91](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L91)
 
 ## Methods
 
@@ -104,7 +77,3 @@ ___
 #### Returns
 
 [`BitWriter2`](BitWriter2.md)
-
-#### Defined in
-
-[packages/common/src/binary.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L81)

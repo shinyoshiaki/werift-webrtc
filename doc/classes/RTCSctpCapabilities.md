@@ -24,16 +24,8 @@
 | :------ | :------ |
 | `maxMessageSize` | `number` |
 
-#### Defined in
-
-[packages/webrtc/src/transport/sctp.ts:376](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/sctp.ts#L376)
-
 ## Properties
 
 ### maxMessageSize
 
 • **maxMessageSize**: `number`
-
-#### Defined in
-
-[packages/webrtc/src/transport/sctp.ts:376](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/sctp.ts#L376)

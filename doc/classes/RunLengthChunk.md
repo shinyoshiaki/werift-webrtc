@@ -32,19 +32,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RunLengthChunk`](RunLengthChunk.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:262](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L262)
-
 ## Properties
 
 ### packetStatus
 
 • **packetStatus**: [`PacketStatus`](../enums/PacketStatus.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:258](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L258)
 
 ___
 
@@ -54,19 +46,11 @@ ___
 
 13bit
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:260](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L260)
-
 ___
 
 ### type
 
 • **type**: [`TypeTCCRunLengthChunk`](../enums/PacketChunk.md#typetccrunlengthchunk)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:257](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L257)
 
 ## Methods
 
@@ -84,10 +68,6 @@ ___
 
 [`PacketResult`](PacketResult.md)[]
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:283](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L283)
-
 ___
 
 ### serialize
@@ -97,10 +77,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:274](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L274)
 
 ___
 
@@ -117,7 +93,3 @@ ___
 #### Returns
 
 [`RunLengthChunk`](RunLengthChunk.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:267](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L267)

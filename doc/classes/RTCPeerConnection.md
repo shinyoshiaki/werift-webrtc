@@ -16,18 +16,14 @@
 
 ### Properties
 
-- [certificates](RTCPeerConnection.md#certificates)
 - [cname](RTCPeerConnection.md#cname)
 - [config](RTCPeerConnection.md#config)
 - [connectionState](RTCPeerConnection.md#connectionstate)
 - [connectionStateChange](RTCPeerConnection.md#connectionstatechange)
-- [currentLocalDescription](RTCPeerConnection.md#currentlocaldescription)
-- [currentRemoteDescription](RTCPeerConnection.md#currentremotedescription)
 - [iceConnectionState](RTCPeerConnection.md#iceconnectionstate)
 - [iceConnectionStateChange](RTCPeerConnection.md#iceconnectionstatechange)
 - [iceGatheringState](RTCPeerConnection.md#icegatheringstate)
 - [iceGatheringStateChange](RTCPeerConnection.md#icegatheringstatechange)
-- [isClosed](RTCPeerConnection.md#isclosed)
 - [masterTransportEstablished](RTCPeerConnection.md#mastertransportestablished)
 - [negotiationneeded](RTCPeerConnection.md#negotiationneeded)
 - [onDataChannel](RTCPeerConnection.md#ondatachannel)
@@ -41,13 +37,8 @@
 - [onnegotiationneeded](RTCPeerConnection.md#onnegotiationneeded-1)
 - [onsignalingstatechange](RTCPeerConnection.md#onsignalingstatechange)
 - [ontrack](RTCPeerConnection.md#ontrack)
-- [pendingLocalDescription](RTCPeerConnection.md#pendinglocaldescription)
-- [pendingRemoteDescription](RTCPeerConnection.md#pendingremotedescription)
-- [router](RTCPeerConnection.md#router)
 - [sctpRemotePort](RTCPeerConnection.md#sctpremoteport)
 - [sctpTransport](RTCPeerConnection.md#sctptransport)
-- [seenMid](RTCPeerConnection.md#seenmid)
-- [shouldNegotiationneeded](RTCPeerConnection.md#shouldnegotiationneeded)
 - [signalingState](RTCPeerConnection.md#signalingstate)
 - [signalingStateChange](RTCPeerConnection.md#signalingstatechange)
 - [transceivers](RTCPeerConnection.md#transceivers)
@@ -58,8 +49,6 @@
 
 ### Accessors
 
-- [\_localDescription](RTCPeerConnection.md#_localdescription)
-- [\_remoteDescription](RTCPeerConnection.md#_remotedescription)
 - [dtlsTransports](RTCPeerConnection.md#dtlstransports)
 - [iceTransports](RTCPeerConnection.md#icetransports)
 - [localDescription](RTCPeerConnection.md#localdescription)
@@ -73,34 +62,19 @@
 - [addListener](RTCPeerConnection.md#addlistener)
 - [addTrack](RTCPeerConnection.md#addtrack)
 - [addTransceiver](RTCPeerConnection.md#addtransceiver)
-- [assertNotClosed](RTCPeerConnection.md#assertnotclosed)
-- [buildAnswer](RTCPeerConnection.md#buildanswer)
 - [buildOfferSdp](RTCPeerConnection.md#buildoffersdp)
 - [close](RTCPeerConnection.md#close)
-- [connect](RTCPeerConnection.md#connect)
 - [createAnswer](RTCPeerConnection.md#createanswer)
 - [createDataChannel](RTCPeerConnection.md#createdatachannel)
 - [createOffer](RTCPeerConnection.md#createoffer)
-- [createSctpTransport](RTCPeerConnection.md#createsctptransport)
-- [createTransport](RTCPeerConnection.md#createtransport)
-- [dispose](RTCPeerConnection.md#dispose)
 - [emit](RTCPeerConnection.md#emit)
-- [ensureCerts](RTCPeerConnection.md#ensurecerts)
 - [eventNames](RTCPeerConnection.md#eventnames)
-- [fireOnTrack](RTCPeerConnection.md#fireontrack)
-- [getLocalRtpParams](RTCPeerConnection.md#getlocalrtpparams)
 - [getMaxListeners](RTCPeerConnection.md#getmaxlisteners)
 - [getReceivers](RTCPeerConnection.md#getreceivers)
-- [getRemoteRtpParams](RTCPeerConnection.md#getremotertpparams)
 - [getSenders](RTCPeerConnection.md#getsenders)
-- [getTransceiverByMLineIndex](RTCPeerConnection.md#gettransceiverbymlineindex)
-- [getTransceiverByMid](RTCPeerConnection.md#gettransceiverbymid)
 - [getTransceivers](RTCPeerConnection.md#gettransceivers)
-- [getTransportByMLineIndex](RTCPeerConnection.md#gettransportbymlineindex)
-- [getTransportByMid](RTCPeerConnection.md#gettransportbymid)
 - [listenerCount](RTCPeerConnection.md#listenercount)
 - [listeners](RTCPeerConnection.md#listeners)
-- [needNegotiation](RTCPeerConnection.md#neednegotiation)
 - [off](RTCPeerConnection.md#off)
 - [on](RTCPeerConnection.md#on)
 - [once](RTCPeerConnection.md#once)
@@ -111,17 +85,9 @@
 - [removeEventListener](RTCPeerConnection.md#removeeventlistener)
 - [removeListener](RTCPeerConnection.md#removelistener)
 - [removeTrack](RTCPeerConnection.md#removetrack)
-- [setConnectionState](RTCPeerConnection.md#setconnectionstate)
-- [setLocal](RTCPeerConnection.md#setlocal)
 - [setLocalDescription](RTCPeerConnection.md#setlocaldescription)
 - [setMaxListeners](RTCPeerConnection.md#setmaxlisteners)
 - [setRemoteDescription](RTCPeerConnection.md#setremotedescription)
-- [setRemoteRTP](RTCPeerConnection.md#setremotertp)
-- [setRemoteSCTP](RTCPeerConnection.md#setremotesctp)
-- [setSignalingState](RTCPeerConnection.md#setsignalingstate)
-- [updateIceConnectionState](RTCPeerConnection.md#updateiceconnectionstate)
-- [updateIceGatheringState](RTCPeerConnection.md#updateicegatheringstate)
-- [validateDescription](RTCPeerConnection.md#validatedescription)
 - [getEventListeners](RTCPeerConnection.md#geteventlisteners)
 - [listenerCount](RTCPeerConnection.md#listenercount-1)
 - [on](RTCPeerConnection.md#on-1)
@@ -144,29 +110,11 @@
 
 EventTarget.constructor
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:129](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L129)
-
 ## Properties
-
-### certificates
-
-• `Private` `Readonly` **certificates**: [`RTCCertificate`](RTCCertificate.md)[] = `[]`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L103)
-
-___
 
 ### cname
 
 • `Readonly` **cname**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:74](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L74)
 
 ___
 
@@ -174,19 +122,11 @@ ___
 
 • **config**: `Required`<[`PeerConfig`](../interfaces/PeerConfig.md)\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:77](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L77)
-
 ___
 
 ### connectionState
 
 • **connectionState**: ``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"`` = `"new"`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:78](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L78)
 
 ___
 
@@ -194,39 +134,11 @@ ___
 
 • `Readonly` **connectionStateChange**: `default`<[``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L88)
-
-___
-
-### currentLocalDescription
-
-• `Private` `Optional` **currentLocalDescription**: [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:106](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L106)
-
-___
-
-### currentRemoteDescription
-
-• `Private` `Optional` **currentRemoteDescription**: [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:107](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L107)
-
 ___
 
 ### iceConnectionState
 
 • **iceConnectionState**: ``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"`` = `"new"`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:79](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L79)
 
 ___
 
@@ -234,19 +146,11 @@ ___
 
 • `Readonly` **iceConnectionStateChange**: `default`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L86)
-
 ___
 
 ### iceGatheringState
 
 • **iceGatheringState**: ``"new"`` \| ``"complete"`` \| ``"gathering"`` = `"new"`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L80)
 
 ___
 
@@ -254,29 +158,11 @@ ___
 
 • `Readonly` **iceGatheringStateChange**: `default`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:85](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L85)
-
-___
-
-### isClosed
-
-• `Private` **isClosed**: `boolean` = `false`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:110](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L110)
-
 ___
 
 ### masterTransportEstablished
 
 • **masterTransportEstablished**: `boolean` = `false`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:76](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L76)
 
 ___
 
@@ -284,19 +170,11 @@ ___
 
 • **negotiationneeded**: `boolean` = `false`
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:82](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L82)
-
 ___
 
 ### onDataChannel
 
 • `Readonly` **onDataChannel**: `default`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:89](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L89)
 
 ___
 
@@ -304,19 +182,11 @@ ___
 
 • `Readonly` **onIceCandidate**: `default`<[[`RTCIceCandidate`](RTCIceCandidate.md)]\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:92](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L92)
-
 ___
 
 ### onNegotiationneeded
 
 • `Readonly` **onNegotiationneeded**: `default`<[]\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:93](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L93)
 
 ___
 
@@ -324,19 +194,11 @@ ___
 
 • `Readonly` **onRemoteTransceiverAdded**: `default`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L90)
-
 ___
 
 ### onTransceiverAdded
 
 • `Readonly` **onTransceiverAdded**: `default`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:91](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L91)
 
 ___
 
@@ -344,19 +206,11 @@ ___
 
 • `Optional` **onconnectionstatechange**: `Callback`
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:100](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L100)
-
 ___
 
 ### ondatachannel
 
 • `Optional` **ondatachannel**: `CallbackWithValue`<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:95](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L95)
 
 ___
 
@@ -364,19 +218,11 @@ ___
 
 • `Optional` **onicecandidate**: `CallbackWithValue`<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:96](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L96)
-
 ___
 
 ### onnegotiationneeded
 
 • `Optional` **onnegotiationneeded**: `CallbackWithValue`<`any`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:97](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L97)
 
 ___
 
@@ -384,49 +230,11 @@ ___
 
 • `Optional` **onsignalingstatechange**: `CallbackWithValue`<`any`\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:98](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L98)
-
 ___
 
 ### ontrack
 
 • `Optional` **ontrack**: `CallbackWithValue`<[`RTCTrackEvent`](../interfaces/RTCTrackEvent.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L99)
-
-___
-
-### pendingLocalDescription
-
-• `Private` `Optional` **pendingLocalDescription**: [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:108](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L108)
-
-___
-
-### pendingRemoteDescription
-
-• `Private` `Optional` **pendingRemoteDescription**: [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:109](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L109)
-
-___
-
-### router
-
-• `Private` `Readonly` **router**: `RtpRouter`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L102)
 
 ___
 
@@ -434,39 +242,11 @@ ___
 
 • `Optional` **sctpRemotePort**: `number`
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:104](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L104)
-
 ___
 
 ### sctpTransport
 
 • `Optional` **sctpTransport**: [`RTCSctpTransport`](RTCSctpTransport.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L75)
-
-___
-
-### seenMid
-
-• `Private` **seenMid**: `Set`<`string`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:105](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L105)
-
-___
-
-### shouldNegotiationneeded
-
-• `Private` **shouldNegotiationneeded**: `boolean` = `false`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:111](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L111)
 
 ___
 
@@ -474,29 +254,17 @@ ___
 
 • **signalingState**: ``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"`` = `"stable"`
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L81)
-
 ___
 
 ### signalingStateChange
 
 • `Readonly` **signalingStateChange**: `default`<[``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"``]\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L87)
-
 ___
 
 ### transceivers
 
 • `Readonly` **transceivers**: [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[] = `[]`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:83](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L83)
 
 ___
 
@@ -507,10 +275,6 @@ ___
 #### Inherited from
 
 EventTarget.captureRejectionSymbol
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:291
 
 ___
 
@@ -524,10 +288,6 @@ Sets or gets the default captureRejection value for all emitters.
 
 EventTarget.captureRejections
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:296
-
 ___
 
 ### defaultMaxListeners
@@ -537,10 +297,6 @@ ___
 #### Inherited from
 
 EventTarget.defaultMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:297
 
 ___
 
@@ -560,39 +316,7 @@ regular `'error'` listener is installed.
 
 EventTarget.errorMonitor
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:290
-
 ## Accessors
-
-### \_localDescription
-
-• `Private` `get` **_localDescription**(): `undefined` \| [`SessionDescription`](SessionDescription.md)
-
-#### Returns
-
-`undefined` \| [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:205](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L205)
-
-___
-
-### \_remoteDescription
-
-• `Private` `get` **_remoteDescription**(): `undefined` \| [`SessionDescription`](SessionDescription.md)
-
-#### Returns
-
-`undefined` \| [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:209](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L209)
-
-___
 
 ### dtlsTransports
 
@@ -601,10 +325,6 @@ ___
 #### Returns
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:113](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L113)
 
 ___
 
@@ -616,10 +336,6 @@ ___
 
 [`RTCIceTransport`](RTCIceTransport.md)[]
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:125](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L125)
-
 ___
 
 ### localDescription
@@ -629,10 +345,6 @@ ___
 #### Returns
 
 `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:195](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L195)
 
 ___
 
@@ -644,10 +356,6 @@ ___
 
 `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:200](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L200)
-
 ___
 
 ### remoteIsBundled
@@ -657,10 +365,6 @@ ___
 #### Returns
 
 `undefined` \| [`GroupDescription`](GroupDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:734](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L734)
 
 ## Methods
 
@@ -683,10 +387,6 @@ ___
 
 EventTarget.addEventListener
 
-#### Defined in
-
-[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/helper.ts#L37)
-
 ___
 
 ### addIceCandidate
@@ -702,10 +402,6 @@ ___
 #### Returns
 
 `Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:629](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L629)
 
 ___
 
@@ -734,10 +430,6 @@ v0.1.26
 
 EventTarget.addListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:317
-
 ___
 
 ### addTrack
@@ -754,10 +446,6 @@ ___
 #### Returns
 
 `RTCRtpSender`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1089](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1089)
 
 ___
 
@@ -776,38 +464,6 @@ ___
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1041](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1041)
-
-___
-
-### assertNotClosed
-
-▸ `Private` **assertNotClosed**(): `void`
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1252](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1252)
-
-___
-
-### buildAnswer
-
-▸ `Private` **buildAnswer**(): [`SessionDescription`](SessionDescription.md)
-
-#### Returns
-
-[`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1160](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1160)
-
 ___
 
 ### buildOfferSdp
@@ -817,10 +473,6 @@ ___
 #### Returns
 
 [`SessionDescription`](SessionDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:229](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L229)
 
 ___
 
@@ -832,24 +484,6 @@ ___
 
 `Promise`<`void`\>
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1228](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1228)
-
-___
-
-### connect
-
-▸ `Private` **connect**(): `Promise`<`void`\>
-
-#### Returns
-
-`Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:656](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L656)
-
 ___
 
 ### createAnswer
@@ -859,10 +493,6 @@ ___
 #### Returns
 
 `Promise`<[`RTCSessionDescription`](RTCSessionDescription.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1154](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1154)
 
 ___
 
@@ -881,10 +511,6 @@ ___
 
 [`RTCDataChannel`](RTCDataChannel.md)
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:318](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L318)
-
 ___
 
 ### createOffer
@@ -894,58 +520,6 @@ ___
 #### Returns
 
 `Promise`<[`RTCSessionDescription`](RTCSessionDescription.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:223](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L223)
-
-___
-
-### createSctpTransport
-
-▸ `Private` **createSctpTransport**(): [`RTCSctpTransport`](RTCSctpTransport.md)
-
-#### Returns
-
-[`RTCSctpTransport`](RTCSctpTransport.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:472](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L472)
-
-___
-
-### createTransport
-
-▸ `Private` **createTransport**(`srtpProfiles?`): [`RTCDtlsTransport`](RTCDtlsTransport.md)
-
-#### Parameters
-
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `srtpProfiles` | (``1`` \| ``7``)[] | `[]` |
-
-#### Returns
-
-[`RTCDtlsTransport`](RTCDtlsTransport.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:398](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L398)
-
-___
-
-### dispose
-
-▸ `Private` **dispose**(): `void`
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1348](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1348)
 
 ___
 
@@ -1010,24 +584,6 @@ v0.1.26
 
 EventTarget.emit
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:573
-
-___
-
-### ensureCerts
-
-▸ `Private` **ensureCerts**(): `Promise`<`void`\>
-
-#### Returns
-
-`Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1139](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1139)
-
 ___
 
 ### eventNames
@@ -1062,52 +618,6 @@ v6.0.0
 
 EventTarget.eventNames
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:632
-
-___
-
-### fireOnTrack
-
-▸ `Private` **fireOnTrack**(`track`, `transceiver`, `stream`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `track` | [`MediaStreamTrack`](MediaStreamTrack.md) |
-| `transceiver` | [`RTCRtpTransceiver`](RTCRtpTransceiver.md) |
-| `stream` | [`MediaStream`](MediaStream.md) |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1026](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1026)
-
-___
-
-### getLocalRtpParams
-
-▸ `Private` **getLocalRtpParams**(`transceiver`): [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `transceiver` | [`RTCRtpTransceiver`](RTCRtpTransceiver.md) |
-
-#### Returns
-
-[`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:688](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L688)
-
 ___
 
 ### getMaxListeners
@@ -1129,10 +639,6 @@ v1.0.0
 
 EventTarget.getMaxListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:489
-
 ___
 
 ### getReceivers
@@ -1142,31 +648,6 @@ ___
 #### Returns
 
 `RTCRtpReceiver`[]
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1084](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1084)
-
-___
-
-### getRemoteRtpParams
-
-▸ `Private` **getRemoteRtpParams**(`media`, `transceiver`): [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `media` | [`MediaDescription`](MediaDescription.md) |
-| `transceiver` | [`RTCRtpTransceiver`](RTCRtpTransceiver.md) |
-
-#### Returns
-
-[`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:700](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L700)
 
 ___
 
@@ -1178,50 +659,6 @@ ___
 
 `RTCRtpSender`[]
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1080](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1080)
-
-___
-
-### getTransceiverByMLineIndex
-
-▸ `Private` **getTransceiverByMLineIndex**(`index`): `undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `index` | `number` |
-
-#### Returns
-
-`undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:217](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L217)
-
-___
-
-### getTransceiverByMid
-
-▸ `Private` **getTransceiverByMid**(`mid`): `undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `mid` | `string` |
-
-#### Returns
-
-`undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:213](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L213)
-
 ___
 
 ### getTransceivers
@@ -1231,50 +668,6 @@ ___
 #### Returns
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1076](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1076)
-
-___
-
-### getTransportByMLineIndex
-
-▸ `Private` **getTransportByMLineIndex**(`index`): `undefined` \| [`RTCIceTransport`](RTCIceTransport.md)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `index` | `number` |
-
-#### Returns
-
-`undefined` \| [`RTCIceTransport`](RTCIceTransport.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:618](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L618)
-
-___
-
-### getTransportByMid
-
-▸ `Private` **getTransportByMid**(`mid`): `undefined` \| [`RTCIceTransport`](RTCIceTransport.md)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `mid` | `string` |
-
-#### Returns
-
-`undefined` \| [`RTCIceTransport`](RTCIceTransport.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:605](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L605)
 
 ___
 
@@ -1301,10 +694,6 @@ v3.2.0
 #### Inherited from
 
 EventTarget.listenerCount
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:579
 
 ___
 
@@ -1340,24 +729,6 @@ v0.1.26
 
 EventTarget.listeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:502
-
-___
-
-### needNegotiation
-
-▸ `Private` **needNegotiation**(): `Promise`<`void`\>
-
-#### Returns
-
-`Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:387](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L387)
-
 ___
 
 ### off
@@ -1384,10 +755,6 @@ v10.0.0
 #### Inherited from
 
 EventTarget.off
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:462
 
 ___
 
@@ -1440,10 +807,6 @@ v0.1.101
 
 EventTarget.on
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:348
-
 ___
 
 ### once
@@ -1493,10 +856,6 @@ v0.3.0
 
 EventTarget.once
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:377
-
 ___
 
 ### prependListener
@@ -1535,10 +894,6 @@ v6.0.0
 
 EventTarget.prependListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:597
-
 ___
 
 ### prependOnceListener
@@ -1574,10 +929,6 @@ v6.0.0
 #### Inherited from
 
 EventTarget.prependOnceListener
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:613
 
 ___
 
@@ -1630,10 +981,6 @@ v9.4.0
 
 EventTarget.rawListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:532
-
 ___
 
 ### removeAllListeners
@@ -1666,10 +1013,6 @@ v0.1.26
 
 EventTarget.removeAllListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:473
-
 ___
 
 ### removeEventListener
@@ -1690,10 +1033,6 @@ ___
 #### Inherited from
 
 EventTarget.removeEventListener
-
-#### Defined in
-
-[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/helper.ts#L41)
 
 ___
 
@@ -1797,10 +1136,6 @@ v0.1.26
 
 EventTarget.removeListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:457
-
 ___
 
 ### removeTrack
@@ -1816,50 +1151,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:359](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L359)
-
-___
-
-### setConnectionState
-
-▸ `Private` **setConnectionState**(`state`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `state` | ``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"`` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1340](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1340)
-
-___
-
-### setLocal
-
-▸ `Private` **setLocal**(`description`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `description` | [`SessionDescription`](SessionDescription.md) |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:596](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L596)
 
 ___
 
@@ -1878,10 +1169,6 @@ ___
 #### Returns
 
 `Promise`<[`SessionDescription`](SessionDescription.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:495](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L495)
 
 ___
 
@@ -1914,10 +1201,6 @@ v0.3.5
 
 EventTarget.setMaxListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:483
-
 ___
 
 ### setRemoteDescription
@@ -1935,124 +1218,6 @@ ___
 #### Returns
 
 `Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:743](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L743)
-
-___
-
-### setRemoteRTP
-
-▸ `Private` **setRemoteRTP**(`transceiver`, `remoteMedia`, `type`, `mLineIndex`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `transceiver` | [`RTCRtpTransceiver`](RTCRtpTransceiver.md) |
-| `remoteMedia` | [`MediaDescription`](MediaDescription.md) |
-| `type` | ``"offer"`` \| ``"answer"`` |
-| `mLineIndex` | `number` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:868](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L868)
-
-___
-
-### setRemoteSCTP
-
-▸ `Private` **setRemoteSCTP**(`remoteMedia`, `sctpTransport`, `mLineIndex`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `remoteMedia` | [`MediaDescription`](MediaDescription.md) |
-| `sctpTransport` | [`RTCSctpTransport`](RTCSctpTransport.md) |
-| `mLineIndex` | `number` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:953](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L953)
-
-___
-
-### setSignalingState
-
-▸ `Private` **setSignalingState**(`state`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `state` | ``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"`` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1333](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1333)
-
-___
-
-### updateIceConnectionState
-
-▸ `Private` **updateIceConnectionState**(): `void`
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1294](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1294)
-
-___
-
-### updateIceGatheringState
-
-▸ `Private` **updateIceGatheringState**(): `void`
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1259](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1259)
-
-___
-
-### validateDescription
-
-▸ `Private` **validateDescription**(`description`, `isLocal`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `description` | [`SessionDescription`](SessionDescription.md) |
-| `isLocal` | `boolean` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:971](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L971)
 
 ___
 
@@ -2104,10 +1269,6 @@ v15.2.0, v14.17.0
 
 EventTarget.getEventListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:262
-
 ___
 
 ### listenerCount
@@ -2147,10 +1308,6 @@ Since v3.2.0 - Use `listenerCount` instead.
 #### Inherited from
 
 EventTarget.listenerCount
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:234
 
 ___
 
@@ -2233,10 +1390,6 @@ that iterates `eventName` events emitted by the `emitter`
 #### Inherited from
 
 EventTarget.on
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:217
 
 ___
 
@@ -2344,10 +1497,6 @@ v11.13.0, v10.16.0
 
 EventTarget.once
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:157
-
 ▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
 
 #### Parameters
@@ -2365,10 +1514,6 @@ node_modules/@types/node/events.d.ts:157
 #### Inherited from
 
 EventTarget.once
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:158
 
 ___
 
@@ -2406,7 +1551,3 @@ v15.4.0
 #### Inherited from
 
 EventTarget.setMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:280

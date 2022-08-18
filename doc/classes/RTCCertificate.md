@@ -33,19 +33,11 @@
 | `certPem` | `string` |
 | `signatureHash` | [`SignatureHash`](../modules.md#signaturehash) |
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:280](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L280)
-
 ## Properties
 
 ### certPem
 
 • **certPem**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:282](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L282)
 
 ___
 
@@ -53,29 +45,17 @@ ___
 
 • **privateKey**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:278](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L278)
-
 ___
 
 ### publicKey
 
 • **publicKey**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:277](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L277)
-
 ___
 
 ### signatureHash
 
 • **signatureHash**: [`SignatureHash`](../modules.md#signaturehash)
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:283](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L283)
 
 ## Methods
 
@@ -86,7 +66,3 @@ ___
 #### Returns
 
 [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[]
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:290](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L290)

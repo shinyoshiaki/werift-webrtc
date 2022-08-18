@@ -18,7 +18,6 @@
 - [id](RTCDtlsTransport.md#id)
 - [localCertificate](RTCDtlsTransport.md#localcertificate)
 - [onStateChange](RTCDtlsTransport.md#onstatechange)
-- [remoteParameters](RTCDtlsTransport.md#remoteparameters)
 - [role](RTCDtlsTransport.md#role)
 - [router](RTCDtlsTransport.md#router)
 - [srtcp](RTCDtlsTransport.md#srtcp)
@@ -37,7 +36,6 @@
 - [sendRtcp](RTCDtlsTransport.md#sendrtcp)
 - [sendRtp](RTCDtlsTransport.md#sendrtp)
 - [setRemoteParams](RTCDtlsTransport.md#setremoteparams)
-- [setState](RTCDtlsTransport.md#setstate)
 - [setupCertificate](RTCDtlsTransport.md#setupcertificate)
 - [start](RTCDtlsTransport.md#start)
 - [startSrtp](RTCDtlsTransport.md#startsrtp)
@@ -59,29 +57,17 @@
 | `certificates` | [`RTCCertificate`](RTCCertificate.md)[] | `undefined` |
 | `srtpProfiles` | (``1`` \| ``7``)[] | `[]` |
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L55)
-
 ## Properties
 
 ### certificates
 
 • `Readonly` **certificates**: [`RTCCertificate`](RTCCertificate.md)[]
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L59)
-
 ___
 
 ### config
 
 • `Readonly` **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L56)
 
 ___
 
@@ -103,19 +89,11 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L45)
-
 ___
 
 ### dtls
 
 • `Optional` **dtls**: `DtlsSocket`
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L46)
 
 ___
 
@@ -123,19 +101,11 @@ ___
 
 • `Readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L57)
-
 ___
 
 ### id
 
 • **id**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L39)
 
 ___
 
@@ -143,29 +113,11 @@ ___
 
 • `Optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:52](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L52)
-
 ___
 
 ### onStateChange
 
 • `Readonly` **onStateChange**: `default`<[``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L50)
-
-___
-
-### remoteParameters
-
-• `Private` `Optional` **remoteParameters**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L53)
 
 ___
 
@@ -173,19 +125,11 @@ ___
 
 • **role**: [`DtlsRole`](../modules.md#dtlsrole) = `"auto"`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L41)
-
 ___
 
 ### router
 
 • `Readonly` **router**: `RtpRouter`
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L58)
 
 ___
 
@@ -193,19 +137,11 @@ ___
 
 • **srtcp**: [`SrtcpSession`](SrtcpSession.md)
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L48)
-
 ___
 
 ### srtp
 
 • **srtp**: [`SrtpSession`](SrtpSession.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L47)
 
 ___
 
@@ -213,29 +149,17 @@ ___
 
 • **srtpStarted**: `boolean` = `false`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L42)
-
 ___
 
 ### state
 
 • **state**: ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"`` = `"new"`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L40)
-
 ___
 
 ### transportSequenceNumber
 
 • **transportSequenceNumber**: `number` = `0`
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L43)
 
 ## Accessors
 
@@ -246,10 +170,6 @@ ___
 #### Returns
 
 [`RTCDtlsParameters`](RTCDtlsParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L63)
 
 ## Methods
 
@@ -267,10 +187,6 @@ ___
 
 `Promise`<`void`\>
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:210](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L210)
-
 ___
 
 ### sendRtcp
@@ -286,10 +202,6 @@ ___
 #### Returns
 
 `Promise`<`undefined` \| `number`\>
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:238](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L238)
 
 ___
 
@@ -308,10 +220,6 @@ ___
 
 `Promise`<`number`\>
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:224](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L224)
-
 ___
 
 ### setRemoteParams
@@ -328,30 +236,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:89](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L89)
-
-___
-
-### setState
-
-▸ `Private` **setState**(`state`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `state` | ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"`` |
-
-#### Returns
-
-`void`
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:252](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L252)
-
 ___
 
 ### setupCertificate
@@ -361,10 +245,6 @@ ___
 #### Returns
 
 `Promise`<[`RTCCertificate`](RTCCertificate.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L70)
 
 ___
 
@@ -376,10 +256,6 @@ ___
 
 `Promise`<`void`\>
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:93](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L93)
-
 ___
 
 ### startSrtp
@@ -390,10 +266,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:162](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L162)
-
 ___
 
 ### stop
@@ -403,7 +275,3 @@ ___
 #### Returns
 
 `Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:259](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L259)

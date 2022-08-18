@@ -32,19 +32,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L90)
-
 ## Properties
 
 ### ntpTimestamp
 
 • **ntpTimestamp**: `bigint`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:85](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L85)
 
 ___
 
@@ -52,29 +44,17 @@ ___
 
 • **octetCount**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L88)
-
 ___
 
 ### packetCount
 
 • **packetCount**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:87](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L87)
-
 ___
 
 ### rtpTimestamp
 
 • **rtpTimestamp**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L86)
 
 ## Methods
 
@@ -85,10 +65,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:94](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L94)
 
 ___
 
@@ -105,7 +81,3 @@ ___
 #### Returns
 
 [`RtcpSenderInfo`](RtcpSenderInfo.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:101](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L101)

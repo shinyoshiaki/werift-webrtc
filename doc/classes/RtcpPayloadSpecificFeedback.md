@@ -31,19 +31,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/index.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/index.ts#L22)
-
 ## Properties
 
 ### feedback
 
 • **feedback**: `Feedback`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/index.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/index.ts#L20)
 
 ___
 
@@ -51,19 +43,11 @@ ___
 
 • `Readonly` **type**: ``206``
 
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/index.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/index.ts#L18)
-
 ___
 
 ### type
 
 ▪ `Static` `Readonly` **type**: ``206``
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/index.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/index.ts#L17)
 
 ## Methods
 
@@ -74,10 +58,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/index.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/index.ts#L26)
 
 ___
 
@@ -95,7 +75,3 @@ ___
 #### Returns
 
 [`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/psfb/index.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/psfb/index.ts#L36)

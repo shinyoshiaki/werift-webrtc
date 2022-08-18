@@ -26,19 +26,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RTCRtcpParameters`](RTCRtcpParameters.md)\> |
 
-#### Defined in
-
-[packages/webrtc/src/media/parameters.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/parameters.ts#L63)
-
 ## Properties
 
 ### cname
 
 • `Optional` **cname**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/media/parameters.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/parameters.ts#L59)
 
 ___
 
@@ -46,16 +38,8 @@ ___
 
 • **mux**: `boolean` = `false`
 
-#### Defined in
-
-[packages/webrtc/src/media/parameters.ts:60](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/parameters.ts#L60)
-
 ___
 
 ### ssrc
 
 • `Optional` **ssrc**: `number`
-
-#### Defined in
-
-[packages/webrtc/src/media/parameters.ts:61](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/parameters.ts#L61)

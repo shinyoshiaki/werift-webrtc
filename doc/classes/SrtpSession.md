@@ -43,19 +43,11 @@
 
 Session&lt;SrtpContext\&gt;.constructor
 
-#### Defined in
-
-[packages/rtp/src/srtp/srtp.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/srtp.ts#L6)
-
 ## Properties
 
 ### config
 
 • **config**: `Config`
-
-#### Defined in
-
-[packages/rtp/src/srtp/srtp.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/srtp.ts#L6)
 
 ___
 
@@ -66,10 +58,6 @@ ___
 #### Inherited from
 
 Session.localContext
-
-#### Defined in
-
-[packages/rtp/src/srtp/session.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/session.ts#L16)
 
 ___
 
@@ -95,10 +83,6 @@ ___
 
 Session.onData
 
-#### Defined in
-
-[packages/rtp/src/srtp/session.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/session.ts#L18)
-
 ___
 
 ### remoteContext
@@ -108,10 +92,6 @@ ___
 #### Inherited from
 
 Session.remoteContext
-
-#### Defined in
-
-[packages/rtp/src/srtp/session.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/session.ts#L17)
 
 ## Methods
 
@@ -129,10 +109,6 @@ Session.remoteContext
 
 `Buffer`
 
-#### Defined in
-
-[packages/rtp/src/srtp/srtp.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/srtp.ts#L17)
-
 ___
 
 ### encrypt
@@ -149,10 +125,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/srtp/srtp.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/srtp.ts#L22)
 
 ___
 
@@ -177,7 +149,3 @@ ___
 #### Inherited from
 
 Session.start
-
-#### Defined in
-
-[packages/rtp/src/srtp/session.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/srtp/session.ts#L22)

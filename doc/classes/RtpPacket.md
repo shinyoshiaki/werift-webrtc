@@ -36,29 +36,17 @@
 | `header` | [`RtpHeader`](RtpHeader.md) |
 | `payload` | `Buffer` |
 
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L269)
-
 ## Properties
 
 ### header
 
 • **header**: [`RtpHeader`](RtpHeader.md)
 
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L269)
-
 ___
 
 ### payload
 
 • **payload**: `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:269](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L269)
 
 ## Accessors
 
@@ -70,10 +58,6 @@ ___
 
 `number`
 
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:271](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L271)
-
 ## Methods
 
 ### clone
@@ -84,10 +68,6 @@ ___
 
 [`RtpPacket`](RtpPacket.md)
 
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:275](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L275)
-
 ___
 
 ### serialize
@@ -97,10 +77,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:279](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L279)
 
 ___
 
@@ -117,7 +93,3 @@ ___
 #### Returns
 
 [`RtpPacket`](RtpPacket.md)
-
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:294](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L294)

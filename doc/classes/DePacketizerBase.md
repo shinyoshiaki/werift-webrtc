@@ -40,10 +40,6 @@
 
 • **payload**: `Buffer`
 
-#### Defined in
-
-[packages/rtp/src/codec/base.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/base.ts#L4)
-
 ## Accessors
 
 ### isKeyframe
@@ -53,10 +49,6 @@
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/base.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/base.ts#L14)
 
 ## Methods
 
@@ -74,10 +66,6 @@
 
 [`DePacketizerBase`](DePacketizerBase.md)
 
-#### Defined in
-
-[packages/rtp/src/codec/base.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/base.ts#L6)
-
 ___
 
 ### isDetectedFinalPacketInSequence
@@ -93,7 +81,3 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/base.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/base.ts#L10)

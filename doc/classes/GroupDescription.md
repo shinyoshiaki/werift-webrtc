@@ -30,29 +30,17 @@
 | `semantic` | `string` |
 | `items` | `string`[] |
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:505](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L505)
-
 ## Properties
 
 ### items
 
 • **items**: `string`[]
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:505](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L505)
-
 ___
 
 ### semantic
 
 • **semantic**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:505](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L505)
 
 ## Accessors
 
@@ -63,7 +51,3 @@ ___
 #### Returns
 
 `string`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:507](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L507)

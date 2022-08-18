@@ -30,29 +30,17 @@
 | :------ | :------ |
 | `props` | `Partial`<[`MediaStream`](MediaStream.md)\> & `Pick`<[`MediaStream`](MediaStream.md), ``"id"``\> |
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L68)
-
 ## Properties
 
 ### id
 
 • **id**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L65)
-
 ___
 
 ### tracks
 
 • **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[] = `[]`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L66)
 
 ## Methods
 
@@ -70,10 +58,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L72)
-
 ___
 
 ### getTracks
@@ -83,7 +67,3 @@ ___
 #### Returns
 
 [`MediaStreamTrack`](MediaStreamTrack.md)[]
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:77](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L77)

@@ -31,19 +31,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`StatusVectorChunk`](StatusVectorChunk.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:307](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L307)
-
 ## Properties
 
 ### symbolList
 
 • **symbolList**: `number`[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:305](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L305)
 
 ___
 
@@ -51,19 +43,11 @@ ___
 
 • **symbolSize**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:304](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L304)
-
 ___
 
 ### type
 
 • **type**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L303)
 
 ## Methods
 
@@ -74,10 +58,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:332](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L332)
 
 ___
 
@@ -94,7 +74,3 @@ ___
 #### Returns
 
 [`StatusVectorChunk`](StatusVectorChunk.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/twcc.ts:311](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/twcc.ts#L311)

@@ -41,19 +41,11 @@
 RtpStartsNewCodedVideoSequence
 MUST be set to 1 if the packet is the first packet of a coded video sequence, and MUST be set to 0 otherwise.
 
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L80)
-
 ___
 
 ### obu\_or\_fragment
 
 • **obu\_or\_fragment**: { `data`: `Buffer` ; `isFragment`: `boolean`  }[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L81)
 
 ___
 
@@ -64,10 +56,6 @@ ___
 RtpNumObus
 two bit field that describes the number of OBU elements in the packet. This field MUST be set equal to 0 or equal to the number of OBU elements contained in the packet. If set to 0, each OBU element MUST be preceded by a length field.
 
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L75)
-
 ___
 
 ### yBit\_RtpEndsWithFragment
@@ -76,10 +64,6 @@ ___
 
 RtpEndsWithFragment
 MUST be set to 1 if the last OBU element is an OBU fragment that will continue in the next packet, and MUST be set to 0 otherwise.
-
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L70)
 
 ___
 
@@ -90,10 +74,6 @@ ___
 RtpStartsWithFragment
 MUST be set to 1 if the first OBU element is an OBU fragment that is a continuation of an OBU fragment from the previous packet, and MUST be set to 0 otherwise.
 
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L65)
-
 ## Accessors
 
 ### isKeyframe
@@ -103,10 +83,6 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:131](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L131)
 
 ## Methods
 
@@ -124,10 +100,6 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 [`AV1RtpPayload`](AV1RtpPayload.md)
 
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:83](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L83)
-
 ___
 
 ### getFrame
@@ -144,10 +116,6 @@ ___
 
 `Buffer`
 
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:135](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L135)
-
 ___
 
 ### isDetectedFinalPacketInSequence
@@ -163,7 +131,3 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:127](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L127)

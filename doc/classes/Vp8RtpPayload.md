@@ -54,19 +54,11 @@
 
 • `Optional` **hBit**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:52](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L52)
-
 ___
 
 ### iBit
 
 • `Optional` **iBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L44)
 
 ___
 
@@ -74,19 +66,11 @@ ___
 
 • `Optional` **kBit**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L47)
-
 ___
 
 ### lBit
 
 • `Optional` **lBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L45)
 
 ___
 
@@ -94,29 +78,17 @@ ___
 
 • `Optional` **mBit**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L48)
-
 ___
 
 ### nBit
 
 • **nBit**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L41)
-
 ___
 
 ### pBit
 
 • `Optional` **pBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L54)
 
 ___
 
@@ -128,19 +100,11 @@ ___
 
 [DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L50)
-
 ___
 
 ### pictureId
 
 • `Optional` **pictureId**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L49)
 
 ___
 
@@ -148,19 +112,11 @@ ___
 
 • **pid**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L43)
-
 ___
 
 ### sBit
 
 • **sBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L42)
 
 ___
 
@@ -168,19 +124,11 @@ ___
 
 • `Optional` **size0**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L51)
-
 ___
 
 ### size1
 
 • `Optional` **size1**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L55)
 
 ___
 
@@ -188,19 +136,11 @@ ___
 
 • `Optional` **size2**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L56)
-
 ___
 
 ### tBit
 
 • `Optional` **tBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L46)
 
 ___
 
@@ -208,19 +148,11 @@ ___
 
 • `Optional` **ver**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L53)
-
 ___
 
 ### xBit
 
 • **xBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:40](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L40)
 
 ## Accessors
 
@@ -236,10 +168,6 @@ ___
 
 DePacketizerBase.isKeyframe
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:124](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L124)
-
 ___
 
 ### isPartitionHead
@@ -249,10 +177,6 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:128](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L128)
 
 ## Methods
 
@@ -270,10 +194,6 @@ ___
 
 [`Vp8RtpPayload`](Vp8RtpPayload.md)
 
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L58)
-
 ___
 
 ### isDetectedFinalPacketInSequence
@@ -289,7 +209,3 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp8.ts:120](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp8.ts#L120)

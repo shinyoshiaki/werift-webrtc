@@ -16,7 +16,6 @@
 
 ### Properties
 
-- [\_bufferedAmountLowThreshold](RTCDataChannel.md#_bufferedamountlowthreshold)
 - [bufferedAmount](RTCDataChannel.md#bufferedamount)
 - [bufferedAmountLow](RTCDataChannel.md#bufferedamountlow)
 - [error](RTCDataChannel.md#error)
@@ -94,29 +93,11 @@
 
 EventTarget.constructor
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L29)
-
 ## Properties
-
-### \_bufferedAmountLowThreshold
-
-• `Private` **\_bufferedAmountLowThreshold**: `number` = `0`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L27)
-
-___
 
 ### bufferedAmount
 
 • **bufferedAmount**: `number` = `0`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L26)
 
 ___
 
@@ -124,19 +105,11 @@ ___
 
 • `Readonly` **bufferedAmountLow**: `default`<`any`[]\>
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L15)
-
 ___
 
 ### error
 
 • `Readonly` **error**: `default`<[`Error`]\>
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L14)
 
 ___
 
@@ -144,19 +117,11 @@ ___
 
 • **id**: `number`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L23)
-
 ___
 
 ### isCreatedByRemote
 
 • **isCreatedByRemote**: `boolean` = `false`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L22)
 
 ___
 
@@ -164,19 +129,11 @@ ___
 
 • `Readonly` **message**: `default`<[`string` \| `Buffer`]\>
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L12)
-
 ___
 
 ### onclose
 
 • `Optional` **onclose**: `Callback`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:17](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L17)
 
 ___
 
@@ -184,19 +141,11 @@ ___
 
 • `Optional` **onclosing**: `Callback`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L18)
-
 ___
 
 ### onerror
 
 • `Optional` **onerror**: `CallbackWithValue`<[`RTCErrorEvent`](../interfaces/RTCErrorEvent.md)\>
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L21)
 
 ___
 
@@ -204,19 +153,11 @@ ___
 
 • `Optional` **onmessage**: `CallbackWithValue`<[`MessageEvent`](../interfaces/MessageEvent.md)\>
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L19)
-
 ___
 
 ### onopen
 
 • `Optional` **onopen**: `Callback`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L16)
 
 ___
 
@@ -224,29 +165,17 @@ ___
 
 • **readyState**: [`DCState`](../modules.md#dcstate) = `"connecting"`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L24)
-
 ___
 
 ### sendOpen
 
 • `Readonly` **sendOpen**: `boolean` = `true`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L32)
-
 ___
 
 ### stateChanged
 
 • `Readonly` **stateChanged**: `default`<[[`DCState`](../modules.md#dcstate)]\>
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L11)
 
 ___
 
@@ -257,10 +186,6 @@ ___
 #### Inherited from
 
 EventTarget.captureRejectionSymbol
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:291
 
 ___
 
@@ -274,10 +199,6 @@ Sets or gets the default captureRejection value for all emitters.
 
 EventTarget.captureRejections
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:296
-
 ___
 
 ### defaultMaxListeners
@@ -287,10 +208,6 @@ ___
 #### Inherited from
 
 EventTarget.defaultMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:297
 
 ___
 
@@ -310,10 +227,6 @@ regular `'error'` listener is installed.
 
 EventTarget.errorMonitor
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:290
-
 ## Accessors
 
 ### bufferedAmountLowThreshold
@@ -323,10 +236,6 @@ node_modules/@types/node/events.d.ts:290
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L75)
 
 • `set` **bufferedAmountLowThreshold**(`value`): `void`
 
@@ -340,10 +249,6 @@ node_modules/@types/node/events.d.ts:290
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:79](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L79)
-
 ___
 
 ### label
@@ -353,10 +258,6 @@ ___
 #### Returns
 
 `string`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L63)
 
 ___
 
@@ -368,10 +269,6 @@ ___
 
 `undefined` \| `number`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L59)
-
 ___
 
 ### maxRetransmits
@@ -381,10 +278,6 @@ ___
 #### Returns
 
 `undefined` \| `number`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L55)
 
 ___
 
@@ -396,10 +289,6 @@ ___
 
 `boolean`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:71](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L71)
-
 ___
 
 ### ordered
@@ -410,10 +299,6 @@ ___
 
 `boolean`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L51)
-
 ___
 
 ### protocol
@@ -423,10 +308,6 @@ ___
 #### Returns
 
 `string`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:67](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L67)
 
 ## Methods
 
@@ -443,10 +324,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:114](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L114)
 
 ___
 
@@ -468,10 +345,6 @@ ___
 #### Inherited from
 
 EventTarget.addEventListener
-
-#### Defined in
-
-[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/helper.ts#L37)
 
 ___
 
@@ -500,10 +373,6 @@ v0.1.26
 
 EventTarget.addListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:317
-
 ___
 
 ### close
@@ -513,10 +382,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:129](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L129)
 
 ___
 
@@ -581,10 +446,6 @@ v0.1.26
 
 EventTarget.emit
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:573
-
 ___
 
 ### eventNames
@@ -619,10 +480,6 @@ v6.0.0
 
 EventTarget.eventNames
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:632
-
 ___
 
 ### getMaxListeners
@@ -643,10 +500,6 @@ v1.0.0
 #### Inherited from
 
 EventTarget.getMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:489
 
 ___
 
@@ -673,10 +526,6 @@ v3.2.0
 #### Inherited from
 
 EventTarget.listenerCount
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:579
 
 ___
 
@@ -712,10 +561,6 @@ v0.1.26
 
 EventTarget.listeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:502
-
 ___
 
 ### off
@@ -742,10 +587,6 @@ v10.0.0
 #### Inherited from
 
 EventTarget.off
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:462
 
 ___
 
@@ -798,10 +639,6 @@ v0.1.101
 
 EventTarget.on
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:348
-
 ___
 
 ### once
@@ -851,10 +688,6 @@ v0.3.0
 
 EventTarget.once
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:377
-
 ___
 
 ### prependListener
@@ -893,10 +726,6 @@ v6.0.0
 
 EventTarget.prependListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:597
-
 ___
 
 ### prependOnceListener
@@ -932,10 +761,6 @@ v6.0.0
 #### Inherited from
 
 EventTarget.prependOnceListener
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:613
 
 ___
 
@@ -988,10 +813,6 @@ v9.4.0
 
 EventTarget.rawListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:532
-
 ___
 
 ### removeAllListeners
@@ -1024,10 +845,6 @@ v0.1.26
 
 EventTarget.removeAllListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:473
-
 ___
 
 ### removeEventListener
@@ -1048,10 +865,6 @@ ___
 #### Inherited from
 
 EventTarget.removeEventListener
-
-#### Defined in
-
-[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/helper.ts#L41)
 
 ___
 
@@ -1155,10 +968,6 @@ v0.1.26
 
 EventTarget.removeListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:457
-
 ___
 
 ### send
@@ -1175,10 +984,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:125](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L125)
-
 ___
 
 ### setId
@@ -1194,10 +999,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L88)
 
 ___
 
@@ -1230,10 +1031,6 @@ v0.3.5
 
 EventTarget.setMaxListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:483
-
 ___
 
 ### setReadyState
@@ -1249,10 +1046,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:92](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L92)
 
 ___
 
@@ -1304,10 +1097,6 @@ v15.2.0, v14.17.0
 
 EventTarget.getEventListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:262
-
 ___
 
 ### listenerCount
@@ -1347,10 +1136,6 @@ Since v3.2.0 - Use `listenerCount` instead.
 #### Inherited from
 
 EventTarget.listenerCount
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:234
 
 ___
 
@@ -1433,10 +1218,6 @@ that iterates `eventName` events emitted by the `emitter`
 #### Inherited from
 
 EventTarget.on
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:217
 
 ___
 
@@ -1544,10 +1325,6 @@ v11.13.0, v10.16.0
 
 EventTarget.once
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:157
-
 ▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
 
 #### Parameters
@@ -1565,10 +1342,6 @@ node_modules/@types/node/events.d.ts:157
 #### Inherited from
 
 EventTarget.once
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:158
 
 ___
 
@@ -1606,7 +1379,3 @@ v15.4.0
 #### Inherited from
 
 EventTarget.setMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:280

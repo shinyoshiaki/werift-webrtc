@@ -34,19 +34,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`GenericNack`](GenericNack.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L14)
-
 ## Properties
 
 ### count
 
 • `Readonly` **count**: `number` = `GenericNack.count`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L8)
 
 ___
 
@@ -54,19 +46,11 @@ ___
 
 • **header**: [`RtcpHeader`](RtcpHeader.md)
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L9)
-
 ___
 
 ### lost
 
 • **lost**: `number`[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L12)
 
 ___
 
@@ -74,29 +58,17 @@ ___
 
 • **mediaSourceSsrc**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L11)
-
 ___
 
 ### senderSsrc
 
 • **senderSsrc**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L10)
-
 ___
 
 ### count
 
 ▪ `Static` **count**: `number` = `1`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L7)
 
 ## Methods
 
@@ -107,10 +79,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L49)
 
 ___
 
@@ -128,7 +96,3 @@ ___
 #### Returns
 
 [`GenericNack`](GenericNack.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtpfb/nack.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtpfb/nack.ts#L25)

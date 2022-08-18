@@ -32,19 +32,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RtcpRrPacket`](RtcpRrPacket.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L12)
-
 ## Properties
 
 ### reports
 
 • **reports**: [`RtcpReceiverInfo`](RtcpReceiverInfo.md)[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L8)
 
 ___
 
@@ -52,29 +44,17 @@ ___
 
 • **ssrc**: `number` = `0`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L7)
-
 ___
 
 ### type
 
 • `Readonly` **type**: ``201``
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L10)
-
 ___
 
 ### type
 
 ▪ `Static` `Readonly` **type**: ``201``
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L9)
 
 ## Methods
 
@@ -85,10 +65,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L16)
 
 ___
 
@@ -106,7 +82,3 @@ ___
 #### Returns
 
 [`RtcpRrPacket`](RtcpRrPacket.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L30)

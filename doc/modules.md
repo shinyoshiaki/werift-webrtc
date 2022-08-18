@@ -120,6 +120,7 @@
 - [Extension](modules.md#extension)
 - [HashAlgorithms](modules.md#hashalgorithms)
 - [IceGathererState](modules.md#icegathererstate)
+- [InterfaceAddresses](modules.md#interfaceaddresses)
 - [Kind](modules.md#kind)
 - [NamedCurveAlgorithms](modules.md#namedcurvealgorithms)
 - [RTCIceConnectionState](modules.md#rtciceconnectionstate)
@@ -140,15 +141,19 @@
 - [Directions](modules.md#directions)
 - [DtlsStates](modules.md#dtlsstates)
 - [ExtensionProfiles](modules.md#extensionprofiles)
-- [HEADER\_SIZE](modules.md#header_size)
 - [HashAlgorithm](modules.md#hashalgorithm)
 - [IceGathererStates](modules.md#icegathererstates)
 - [IceTransportStates](modules.md#icetransportstates)
+- [Inactive](modules.md#inactive)
 - [Max32bit](modules.md#max32bit)
 - [NalUnitType](modules.md#nalunittype)
 - [NamedCurveAlgorithm](modules.md#namedcurvealgorithm)
 - [NamedCurveAlgorithmList](modules.md#namedcurvealgorithmlist)
+- [RTCP\_HEADER\_SIZE](modules.md#rtcp_header_size)
 - [RTP\_EXTENSION\_URI](modules.md#rtp_extension_uri)
+- [Recvonly](modules.md#recvonly)
+- [Sendonly](modules.md#sendonly)
+- [Sendrecv](modules.md#sendrecv)
 - [SignalingStates](modules.md#signalingstates)
 - [SignatureAlgorithm](modules.md#signaturealgorithm)
 - [SignatureScheme](modules.md#signaturescheme)
@@ -185,6 +190,7 @@
 - [getGlobalIp](modules.md#getglobalip)
 - [getUserMp4](modules.md#getusermp4)
 - [int](modules.md#int)
+- [interfaceAddress](modules.md#interfaceaddress)
 - [isDtls](modules.md#isdtls)
 - [isMedia](modules.md#ismedia)
 - [isRtcp](modules.md#isrtcp)
@@ -205,6 +211,7 @@
 - [randomPorts](modules.md#randomports)
 - [reverseDirection](modules.md#reversedirection)
 - [reverseSimulcastDirection](modules.md#reversesimulcastdirection)
+- [timestampSeconds](modules.md#timestampseconds)
 - [uint16Add](modules.md#uint16add)
 - [uint16Gt](modules.md#uint16gt)
 - [uint16Gte](modules.md#uint16gte)
@@ -214,6 +221,7 @@
 - [uint32Gte](modules.md#uint32gte)
 - [uint8Add](modules.md#uint8add)
 - [useAbsSendTime](modules.md#useabssendtime)
+- [useDependencyDescriptor](modules.md#usedependencydescriptor)
 - [useFIR](modules.md#usefir)
 - [useNACK](modules.md#usenack)
 - [usePLI](modules.md#usepli)
@@ -230,19 +238,11 @@
 
 Ƭ **Address**: `Readonly`<[`string`, `number`]\>
 
-#### Defined in
-
-[packages/ice/src/types/model.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/ice/src/types/model.ts#L4)
-
 ___
 
 ### BundlePolicy
 
 Ƭ **BundlePolicy**: ``"max-compat"`` \| ``"max-bundle"`` \| ``"disable"``
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1465](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1465)
 
 ___
 
@@ -250,19 +250,11 @@ ___
 
 Ƭ **CipherSuites**: typeof [`CipherSuite`](modules.md#ciphersuite)[keyof typeof [`CipherSuite`](modules.md#ciphersuite)]
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L22)
-
 ___
 
 ### ConnectionState
 
 Ƭ **ConnectionState**: typeof [`ConnectionStates`](modules.md#connectionstates)[`number`]
-
-#### Defined in
-
-[packages/webrtc/src/types/domain.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/types/domain.ts#L23)
 
 ___
 
@@ -270,29 +262,17 @@ ___
 
 Ƭ **CurveTypes**: typeof [`CurveType`](modules.md#curvetype)[keyof typeof [`CurveType`](modules.md#curvetype)]
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L35)
-
 ___
 
 ### DCState
 
 Ƭ **DCState**: ``"open"`` \| ``"closed"`` \| ``"connecting"`` \| ``"closing"``
 
-#### Defined in
-
-[packages/webrtc/src/dataChannel.ts:134](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/dataChannel.ts#L134)
-
 ___
 
 ### Direction
 
 Ƭ **Direction**: typeof [`Directions`](modules.md#directions)[`number`]
-
-#### Defined in
-
-[packages/webrtc/src/media/rtpTransceiver.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/rtpTransceiver.ts#L99)
 
 ___
 
@@ -308,29 +288,17 @@ ___
 | `keyPem` | `string` |
 | `signatureHash` | [`SignatureHash`](modules.md#signaturehash) |
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:303](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L303)
-
 ___
 
 ### DtlsRole
 
 Ƭ **DtlsRole**: ``"auto"`` \| ``"server"`` \| ``"client"``
 
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:274](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L274)
-
 ___
 
 ### DtlsState
 
 Ƭ **DtlsState**: typeof [`DtlsStates`](modules.md#dtlsstates)[`number`]
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:272](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L272)
 
 ___
 
@@ -345,19 +313,11 @@ ___
 | `id` | `number` |
 | `payload` | `Buffer` |
 
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L3)
-
 ___
 
 ### HashAlgorithms
 
 Ƭ **HashAlgorithms**: typeof [`HashAlgorithm`](modules.md#hashalgorithm)[keyof typeof [`HashAlgorithm`](modules.md#hashalgorithm)]
-
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L11)
 
 ___
 
@@ -365,9 +325,11 @@ ___
 
 Ƭ **IceGathererState**: typeof [`IceGathererStates`](modules.md#icegathererstates)[`number`]
 
-#### Defined in
+___
 
-[packages/webrtc/src/transport/ice.ts:102](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L102)
+### InterfaceAddresses
+
+Ƭ **InterfaceAddresses**: { [K in SocketType]?: string }
 
 ___
 
@@ -375,29 +337,17 @@ ___
 
 Ƭ **Kind**: ``"audio"`` \| ``"video"`` \| ``"application"`` \| ``"unknown"``
 
-#### Defined in
-
-[packages/webrtc/src/types/domain.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/types/domain.ts#L1)
-
 ___
 
 ### NamedCurveAlgorithms
 
 Ƭ **NamedCurveAlgorithms**: typeof [`NamedCurveAlgorithm`](modules.md#namedcurvealgorithm)[keyof typeof [`NamedCurveAlgorithm`](modules.md#namedcurvealgorithm)]
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L29)
-
 ___
 
 ### RTCIceConnectionState
 
 Ƭ **RTCIceConnectionState**: typeof [`IceTransportStates`](modules.md#icetransportstates)[`number`]
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:99](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L99)
 
 ___
 
@@ -413,10 +363,6 @@ ___
 | `urls` | `string` |
 | `username?` | `string` |
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1509](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1509)
-
 ___
 
 ### RTCPFB
@@ -430,19 +376,11 @@ ___
 | `parameter?` | `string` |
 | `type` | `string` |
 
-#### Defined in
-
-[packages/webrtc/src/media/parameters.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/parameters.ts#L10)
-
 ___
 
 ### RTCSignalingState
 
 Ƭ **RTCSignalingState**: typeof [`SignalingStates`](modules.md#signalingstates)[`number`]
-
-#### Defined in
-
-[packages/webrtc/src/types/domain.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/types/domain.ts#L12)
 
 ___
 
@@ -450,19 +388,11 @@ ___
 
 Ƭ **RtcpPacket**: [`RtcpRrPacket`](classes/RtcpRrPacket.md) \| [`RtcpSrPacket`](classes/RtcpSrPacket.md) \| [`RtcpPayloadSpecificFeedback`](classes/RtcpPayloadSpecificFeedback.md) \| [`RtcpSourceDescriptionPacket`](classes/RtcpSourceDescriptionPacket.md) \| [`RtcpTransportLayerFeedback`](classes/RtcpTransportLayerFeedback.md)
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtcp.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtcp.ts#L12)
-
 ___
 
 ### SignatureAlgorithms
 
 Ƭ **SignatureAlgorithms**: typeof [`SignatureAlgorithm`](modules.md#signaturealgorithm)[keyof typeof [`SignatureAlgorithm`](modules.md#signaturealgorithm)]
-
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L5)
 
 ___
 
@@ -477,19 +407,11 @@ ___
 | `hash` | [`HashAlgorithms`](modules.md#hashalgorithms) |
 | `signature` | [`SignatureAlgorithms`](modules.md#signaturealgorithms) |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L13)
-
 ___
 
 ### SignatureSchemes
 
 Ƭ **SignatureSchemes**: typeof [`SignatureScheme`](modules.md#signaturescheme)[keyof typeof [`SignatureScheme`](modules.md#signaturescheme)]
-
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L41)
 
 ## Variables
 
@@ -504,29 +426,17 @@ ___
 | `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195` | ``49195`` |
 | `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199` | ``49199`` |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L18)
-
 ___
 
 ### CipherSuiteList
 
 • `Const` **CipherSuiteList**: [`CipherSuites`](modules.md#ciphersuites)[]
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L23)
-
 ___
 
 ### ConnectionStates
 
 • `Const` **ConnectionStates**: readonly [``"closed"``, ``"failed"``, ``"disconnected"``, ``"new"``, ``"connecting"``, ``"connected"``]
-
-#### Defined in
-
-[packages/webrtc/src/types/domain.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/types/domain.ts#L14)
 
 ___
 
@@ -540,29 +450,17 @@ ___
 | :------ | :------ |
 | `named_curve_3` | ``3`` |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L34)
-
 ___
 
 ### Directions
 
 • `Const` **Directions**: readonly [``"inactive"``, ``"sendonly"``, ``"recvonly"``, ``"sendrecv"``]
 
-#### Defined in
-
-[packages/webrtc/src/media/rtpTransceiver.ts:92](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/rtpTransceiver.ts#L92)
-
 ___
 
 ### DtlsStates
 
 • `Const` **DtlsStates**: readonly [``"new"``, ``"connecting"``, ``"connected"``, ``"closed"``, ``"failed"``]
-
-#### Defined in
-
-[packages/webrtc/src/transport/dtls.ts:265](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/dtls.ts#L265)
 
 ___
 
@@ -577,20 +475,6 @@ ___
 | `OneByte` | ``48862`` |
 | `TwoByte` | ``4096`` |
 
-#### Defined in
-
-[packages/rtp/src/rtp/rtp.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtp/rtp.ts#L5)
-
-___
-
-### HEADER\_SIZE
-
-• `Const` **HEADER\_SIZE**: ``4``
-
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L8)
-
 ___
 
 ### HashAlgorithm
@@ -603,19 +487,11 @@ ___
 | :------ | :------ |
 | `sha256_4` | ``4`` |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L8)
-
 ___
 
 ### IceGathererStates
 
 • `Const` **IceGathererStates**: readonly [``"new"``, ``"gathering"``, ``"complete"``]
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:101](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L101)
 
 ___
 
@@ -623,9 +499,11 @@ ___
 
 • `Const` **IceTransportStates**: readonly [``"new"``, ``"checking"``, ``"connected"``, ``"completed"``, ``"disconnected"``, ``"failed"``, ``"closed"``]
 
-#### Defined in
+___
 
-[packages/webrtc/src/transport/ice.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L90)
+### Inactive
+
+• `Const` **Inactive**: ``"inactive"``
 
 ___
 
@@ -634,10 +512,6 @@ ___
 • `Const` **Max32bit**: `number`
 
 4294967295
-
-#### Defined in
-
-[packages/rtp/src/processor/lipsync.ts:90](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/lipsync.ts#L90)
 
 ___
 
@@ -657,10 +531,6 @@ ___
 | `stap_a` | ``24`` |
 | `stap_b` | ``25`` |
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:104](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L104)
-
 ___
 
 ### NamedCurveAlgorithm
@@ -674,19 +544,17 @@ ___
 | `secp256r1_23` | ``23`` |
 | `x25519_29` | ``29`` |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L25)
-
 ___
 
 ### NamedCurveAlgorithmList
 
 • `Const` **NamedCurveAlgorithmList**: [`NamedCurveAlgorithms`](modules.md#namedcurvealgorithms)[]
 
-#### Defined in
+___
 
-[packages/dtls/src/cipher/const.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L31)
+### RTCP\_HEADER\_SIZE
+
+• `Const` **RTCP\_HEADER\_SIZE**: ``4``
 
 ___
 
@@ -699,24 +567,35 @@ ___
 | Name | Type |
 | :------ | :------ |
 | `absSendTime` | ``"http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"`` |
+| `dependencyDescriptor` | ``"https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension"`` |
 | `repairedRtpStreamId` | ``"urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"`` |
 | `sdesMid` | ``"urn:ietf:params:rtp-hdrext:sdes:mid"`` |
 | `sdesRTPStreamID` | ``"urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"`` |
 | `transportWideCC` | ``"http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"`` |
 
-#### Defined in
+___
 
-[packages/webrtc/src/media/extension/rtpExtension.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtpExtension.ts#L3)
+### Recvonly
+
+• `Const` **Recvonly**: ``"recvonly"``
+
+___
+
+### Sendonly
+
+• `Const` **Sendonly**: ``"sendonly"``
+
+___
+
+### Sendrecv
+
+• `Const` **Sendrecv**: ``"sendrecv"``
 
 ___
 
 ### SignalingStates
 
 • `Const` **SignalingStates**: readonly [``"stable"``, ``"have-local-offer"``, ``"have-remote-offer"``, ``"have-local-pranswer"``, ``"have-remote-pranswer"``, ``"closed"``]
-
-#### Defined in
-
-[packages/webrtc/src/types/domain.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/types/domain.ts#L3)
 
 ___
 
@@ -731,10 +610,6 @@ ___
 | `ecdsa_3` | ``3`` |
 | `rsa_1` | ``1`` |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L1)
-
 ___
 
 ### SignatureScheme
@@ -748,19 +623,11 @@ ___
 | `ecdsa_secp256r1_sha256` | ``1027`` |
 | `rsa_pkcs1_sha256` | ``1025`` |
 
-#### Defined in
-
-[packages/dtls/src/cipher/const.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/cipher/const.ts#L37)
-
 ___
 
 ### defaultPeerConfig
 
 • `Const` **defaultPeerConfig**: [`PeerConfig`](interfaces/PeerConfig.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1515](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1515)
 
 ## Functions
 
@@ -779,10 +646,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:619](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L619)
-
 ___
 
 ### addTransportDescription
@@ -799,10 +662,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1419](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1419)
 
 ___
 
@@ -821,10 +680,6 @@ ___
 
 `string`
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1453](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1453)
-
 ___
 
 ### andDirection
@@ -842,10 +697,6 @@ ___
 
 ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L51)
-
 ___
 
 ### buffer2ArrayBuffer
@@ -862,10 +713,6 @@ ___
 
 `ArrayBuffer`
 
-#### Defined in
-
-[packages/common/src/binary.ts:196](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L196)
-
 ___
 
 ### bufferArrayXor
@@ -881,10 +728,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/common/src/binary.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L29)
 
 ___
 
@@ -903,10 +746,6 @@ ___
 
 `any`[]
 
-#### Defined in
-
-[packages/common/src/binary.ts:153](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L153)
-
 ___
 
 ### bufferWriter
@@ -923,10 +762,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/common/src/binary.ts:123](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L123)
 
 ___
 
@@ -945,10 +780,6 @@ ___
 
 `Buffer`
 
-#### Defined in
-
-[packages/common/src/binary.ts:138](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L138)
-
 ___
 
 ### bufferXor
@@ -966,10 +797,6 @@ ___
 
 `Buffer`
 
-#### Defined in
-
-[packages/common/src/binary.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L12)
-
 ___
 
 ### candidateFromIce
@@ -985,10 +812,6 @@ ___
 #### Returns
 
 [`IceCandidate`](classes/IceCandidate.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:144](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L144)
 
 ___
 
@@ -1006,10 +829,6 @@ ___
 
 [`IceCandidate`](classes/IceCandidate.md)
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:579](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L579)
-
 ___
 
 ### candidateToIce
@@ -1025,10 +844,6 @@ ___
 #### Returns
 
 [`Candidate`](classes/Candidate.md)
-
-#### Defined in
-
-[packages/webrtc/src/transport/ice.ts:160](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/transport/ice.ts#L160)
 
 ___
 
@@ -1046,10 +861,6 @@ ___
 
 `string`
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:523](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L523)
-
 ___
 
 ### codecParametersFromString
@@ -1066,10 +877,6 @@ ___
 
 `Object`
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:632](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L632)
-
 ___
 
 ### codecParametersToString
@@ -1085,10 +892,6 @@ ___
 #### Returns
 
 `undefined` \| `string`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:649](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L649)
 
 ___
 
@@ -1108,9 +911,7 @@ https://datatracker.ietf.org/doc/html/rfc3550#section-4
 
 `number`
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L80)
+32bit
 
 ___
 
@@ -1127,10 +928,6 @@ ___
 #### Returns
 
 [`MediaDescription`](classes/MediaDescription.md)
-
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1404](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1404)
 
 ___
 
@@ -1150,10 +947,6 @@ ___
 
 [`MediaDescription`](classes/MediaDescription.md)
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1359](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1359)
-
 ___
 
 ### createSelfSignedCertificate
@@ -1170,10 +963,6 @@ ___
 #### Returns
 
 `Promise`<{ `certPem`: `string` ; `keyPem`: `string` ; `signatureHash`: [`SignatureHash`](modules.md#signaturehash)  }\>
-
-#### Defined in
-
-[packages/dtls/src/context/cipher.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/dtls/src/context/cipher.ts#L58)
 
 ___
 
@@ -1198,10 +987,6 @@ ___
 
 `T`
 
-#### Defined in
-
-[packages/common/src/array.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/array.ts#L3)
-
 ___
 
 ### dumpBuffer
@@ -1217,10 +1002,6 @@ ___
 #### Returns
 
 `string`
-
-#### Defined in
-
-[packages/common/src/binary.ts:187](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L187)
 
 ___
 
@@ -1239,15 +1020,11 @@ ___
 
 `undefined` \| [`RTCRtpCodecParameters`](classes/RTCRtpCodecParameters.md)
 
-#### Defined in
-
-[packages/webrtc/src/peerConnection.ts:1498](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/peerConnection.ts#L1498)
-
 ___
 
 ### findPort
 
-▸ **findPort**(`min`, `max`, `protocol?`): `Promise`<`number`\>
+▸ **findPort**(`min`, `max`, `protocol?`, `interfaceAddresses?`): `Promise`<`number`\>
 
 #### Parameters
 
@@ -1256,14 +1033,11 @@ ___
 | `min` | `number` | `undefined` |
 | `max` | `number` | `undefined` |
 | `protocol` | `SocketType` | `"udp4"` |
+| `interfaceAddresses?` | [`InterfaceAddresses`](modules.md#interfaceaddresses) | `undefined` |
 
 #### Returns
 
 `Promise`<`number`\>
-
-#### Defined in
-
-[packages/common/src/network.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/network.ts#L22)
 
 ___
 
@@ -1281,10 +1055,6 @@ ___
 #### Returns
 
 `any`
-
-#### Defined in
-
-[packages/webrtc/src/utils.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L23)
 
 ___
 
@@ -1304,29 +1074,22 @@ ___
 
 `number`
 
-#### Defined in
-
-[packages/common/src/binary.ts:103](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L103)
-
 ___
 
 ### getGlobalIp
 
-▸ **getGlobalIp**(`stunServer?`): `Promise`<`undefined` \| `string`\>
+▸ **getGlobalIp**(`stunServer?`, `interfaceAddresses?`): `Promise`<`undefined` \| `string`\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `stunServer?` | readonly [`string`, `number`] |
+| `interfaceAddresses?` | [`InterfaceAddresses`](modules.md#interfaceaddresses) |
 
 #### Returns
 
 `Promise`<`undefined` \| `string`\>
-
-#### Defined in
-
-[packages/ice/src/utils.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/ice/src/utils.ts#L5)
 
 ___
 
@@ -1345,10 +1108,6 @@ ___
 
 `Promise`<`MediaMp4`\>
 
-#### Defined in
-
-[packages/webrtc/src/nonstandard/userMedia.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/userMedia.ts#L10)
-
 ___
 
 ### int
@@ -1365,9 +1124,22 @@ ___
 
 `number`
 
-#### Defined in
+___
 
-[packages/common/src/number.ts:39](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L39)
+### interfaceAddress
+
+▸ **interfaceAddress**(`type`, `interfaceAddresses`): `undefined` \| `string`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `type` | `SocketType` |
+| `interfaceAddresses` | `undefined` \| [`InterfaceAddresses`](modules.md#interfaceaddresses) |
+
+#### Returns
+
+`undefined` \| `string`
 
 ___
 
@@ -1385,10 +1157,6 @@ ___
 
 `boolean`
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L32)
-
 ___
 
 ### isMedia
@@ -1404,10 +1172,6 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/webrtc/src/utils.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L37)
 
 ___
 
@@ -1425,10 +1189,6 @@ ___
 
 `boolean`
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:42](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L42)
-
 ___
 
 ### leb128decode
@@ -1445,10 +1205,6 @@ ___
 
 `number`[]
 
-#### Defined in
-
-[packages/rtp/src/codec/av1.ts:227](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/av1.ts#L227)
-
 ___
 
 ### microTime
@@ -1459,10 +1215,6 @@ ___
 
 `number`
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L63)
-
 ___
 
 ### milliTime
@@ -1472,10 +1224,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/webrtc/src/utils.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L65)
 
 ___
 
@@ -1493,10 +1241,6 @@ ___
 
 ``4`` \| ``6``
 
-#### Defined in
-
-[packages/ice/src/utils.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/ice/src/utils.ts#L25)
-
 ___
 
 ### ntpTime
@@ -1508,10 +1252,6 @@ https://datatracker.ietf.org/doc/html/rfc3550#section-4
 #### Returns
 
 `bigint`
-
-#### Defined in
-
-[packages/webrtc/src/utils.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L68)
 
 ___
 
@@ -1528,10 +1268,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/rtp/src/processor/lipsync.ts:83](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/lipsync.ts#L83)
 
 ___
 
@@ -1550,10 +1286,6 @@ ___
 
 ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L54)
-
 ___
 
 ### paddingBits
@@ -1571,10 +1303,6 @@ ___
 
 `string`
 
-#### Defined in
-
-[packages/common/src/binary.ts:116](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L116)
-
 ___
 
 ### paddingByte
@@ -1590,10 +1318,6 @@ ___
 #### Returns
 
 `string`
-
-#### Defined in
-
-[packages/common/src/binary.ts:111](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L111)
 
 ___
 
@@ -1612,10 +1336,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:568](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L568)
 
 ___
 
@@ -1640,10 +1360,6 @@ ___
 | `turnServer` | `undefined` \| readonly [`string`, `number`] |
 | `turnUsername` | `undefined` \| `string` |
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:86](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L86)
-
 ___
 
 ### random16
@@ -1653,10 +1369,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/common/src/binary.ts:4](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L4)
 
 ___
 
@@ -1668,35 +1380,28 @@ ___
 
 `number`
 
-#### Defined in
-
-[packages/common/src/binary.ts:8](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L8)
-
 ___
 
 ### randomPort
 
-▸ **randomPort**(`protocol?`): `Promise`<`number`\>
+▸ **randomPort**(`protocol?`, `interfaceAddresses?`): `Promise`<`number`\>
 
 #### Parameters
 
 | Name | Type | Default value |
 | :------ | :------ | :------ |
 | `protocol` | `SocketType` | `"udp4"` |
+| `interfaceAddresses?` | [`InterfaceAddresses`](modules.md#interfaceaddresses) | `undefined` |
 
 #### Returns
 
 `Promise`<`number`\>
 
-#### Defined in
-
-[packages/common/src/network.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/network.ts#L3)
-
 ___
 
 ### randomPorts
 
-▸ **randomPorts**(`num`, `protocol?`): `Promise`<`number`[]\>
+▸ **randomPorts**(`num`, `protocol?`, `interfaceAddresses?`): `Promise`<`number`[]\>
 
 #### Parameters
 
@@ -1704,14 +1409,11 @@ ___
 | :------ | :------ | :------ |
 | `num` | `number` | `undefined` |
 | `protocol` | `SocketType` | `"udp4"` |
+| `interfaceAddresses?` | [`InterfaceAddresses`](modules.md#interfaceaddresses) | `undefined` |
 
 #### Returns
 
 `Promise`<`number`[]\>
-
-#### Defined in
-
-[packages/common/src/network.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/network.ts#L18)
 
 ___
 
@@ -1729,29 +1431,31 @@ ___
 
 [`Direction`](modules.md#direction)
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L57)
-
 ___
 
 ### reverseSimulcastDirection
 
-▸ **reverseSimulcastDirection**(`dir`): ``"send"`` \| ``"recv"``
+▸ **reverseSimulcastDirection**(`dir`): ``"recv"`` \| ``"send"``
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `dir` | ``"send"`` \| ``"recv"`` |
+| `dir` | ``"recv"`` \| ``"send"`` |
 
 #### Returns
 
-``"send"`` \| ``"recv"``
+``"recv"`` \| ``"send"``
 
-#### Defined in
+___
 
-[packages/webrtc/src/utils.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L46)
+### timestampSeconds
+
+▸ **timestampSeconds**(): `number`
+
+#### Returns
+
+`number`
 
 ___
 
@@ -1769,10 +1473,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/common/src/number.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L5)
 
 ___
 
@@ -1793,10 +1493,6 @@ Return a > b
 
 `boolean`
 
-#### Defined in
-
-[packages/common/src/number.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L18)
-
 ___
 
 ### uint16Gte
@@ -1816,10 +1512,6 @@ Return a >= b
 
 `boolean`
 
-#### Defined in
-
-[packages/common/src/number.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L24)
-
 ___
 
 ### uint24
@@ -1835,10 +1527,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/common/src/number.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L13)
 
 ___
 
@@ -1856,10 +1544,6 @@ ___
 #### Returns
 
 `number`
-
-#### Defined in
-
-[packages/common/src/number.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L9)
 
 ___
 
@@ -1880,10 +1564,6 @@ Return a > b
 
 `boolean`
 
-#### Defined in
-
-[packages/common/src/number.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L29)
-
 ___
 
 ### uint32Gte
@@ -1903,10 +1583,6 @@ Return a >= b
 
 `boolean`
 
-#### Defined in
-
-[packages/common/src/number.ts:35](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L35)
-
 ___
 
 ### uint8Add
@@ -1924,10 +1600,6 @@ ___
 
 `number`
 
-#### Defined in
-
-[packages/common/src/number.ts:1](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/number.ts#L1)
-
 ___
 
 ### useAbsSendTime
@@ -1938,9 +1610,15 @@ ___
 
 [`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
 
-#### Defined in
+___
 
-[packages/webrtc/src/media/extension/rtpExtension.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtpExtension.ts#L36)
+### useDependencyDescriptor
+
+▸ **useDependencyDescriptor**(): [`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
+
+#### Returns
+
+[`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
 
 ___
 
@@ -1952,10 +1630,6 @@ ___
 
 [`RTCPFB`](modules.md#rtcpfb)
 
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtcpFeedback.ts:3](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtcpFeedback.ts#L3)
-
 ___
 
 ### useNACK
@@ -1965,10 +1639,6 @@ ___
 #### Returns
 
 [`RTCPFB`](modules.md#rtcpfb)
-
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtcpFeedback.ts:5](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtcpFeedback.ts#L5)
 
 ___
 
@@ -1980,10 +1650,6 @@ ___
 
 [`RTCPFB`](modules.md#rtcpfb)
 
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtcpFeedback.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtcpFeedback.ts#L7)
-
 ___
 
 ### useREMB
@@ -1993,10 +1659,6 @@ ___
 #### Returns
 
 [`RTCPFB`](modules.md#rtcpfb)
-
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtcpFeedback.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtcpFeedback.ts#L9)
 
 ___
 
@@ -2008,10 +1670,6 @@ ___
 
 [`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
 
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtpExtension.ts:24](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtpExtension.ts#L24)
-
 ___
 
 ### useSdesMid
@@ -2021,10 +1679,6 @@ ___
 #### Returns
 
 [`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtpExtension.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtpExtension.ts#L12)
 
 ___
 
@@ -2036,10 +1690,6 @@ ___
 
 [`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
 
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtpExtension.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtpExtension.ts#L18)
-
 ___
 
 ### useTWCC
@@ -2050,10 +1700,6 @@ ___
 
 [`RTCPFB`](modules.md#rtcpfb)
 
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtcpFeedback.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtcpFeedback.ts#L11)
-
 ___
 
 ### useTransportWideCC
@@ -2063,7 +1709,3 @@ ___
 #### Returns
 
 [`RTCRtpHeaderExtensionParameters`](classes/RTCRtpHeaderExtensionParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/media/extension/rtpExtension.ts:30](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/extension/rtpExtension.ts#L30)

@@ -32,7 +32,6 @@
 
 - [deSerialize](H264RtpPayload.md#deserialize)
 - [isDetectedFinalPacketInSequence](H264RtpPayload.md#isdetectedfinalpacketinsequence)
-- [packaging](H264RtpPayload.md#packaging)
 
 ## Constructors
 
@@ -48,10 +47,6 @@
 
 end of a fragmented NAL unit
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L31)
-
 ___
 
 ### f
@@ -60,19 +55,11 @@ ___
 
 forbidden_zero_bit
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L23)
-
 ___
 
 ### nalUnitPayloadType
 
 • **nalUnitPayloadType**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L33)
 
 ___
 
@@ -82,10 +69,6 @@ ___
 
 nal_unit_types
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L27)
-
 ___
 
 ### nri
@@ -93,10 +76,6 @@ ___
 • **nri**: `number`
 
 nal_ref_idc
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L25)
 
 ___
 
@@ -108,19 +87,11 @@ ___
 
 [DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L34)
-
 ___
 
 ### r
 
 • **r**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L32)
 
 ___
 
@@ -129,10 +100,6 @@ ___
 • **s**: `number`
 
 start of a fragmented NAL unit
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L29)
 
 ## Accessors
 
@@ -148,10 +115,6 @@ start of a fragmented NAL unit
 
 DePacketizerBase.isKeyframe
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:88](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L88)
-
 ___
 
 ### isPartitionHead
@@ -161,10 +124,6 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:92](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L92)
 
 ## Methods
 
@@ -182,10 +141,6 @@ ___
 
 [`H264RtpPayload`](H264RtpPayload.md)
 
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L36)
-
 ___
 
 ### isDetectedFinalPacketInSequence
@@ -201,27 +156,3 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:84](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L84)
-
-___
-
-### packaging
-
-▸ `Static` `Private` **packaging**(`buf`): `Buffer`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
-
-#### Returns
-
-`Buffer`
-
-#### Defined in
-
-[packages/rtp/src/codec/h264.ts:80](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/h264.ts#L80)

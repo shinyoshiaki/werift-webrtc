@@ -32,19 +32,11 @@
 | :------ | :------ |
 | `bitLength` | `number` |
 
-#### Defined in
-
-[packages/common/src/binary.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L48)
-
 ## Properties
 
 ### value
 
 • **value**: `number` = `0`
-
-#### Defined in
-
-[packages/common/src/binary.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L46)
 
 ## Accessors
 
@@ -55,10 +47,6 @@
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/common/src/binary.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L57)
 
 ## Methods
 
@@ -77,7 +65,3 @@
 #### Returns
 
 [`BitWriter`](BitWriter.md)
-
-#### Defined in
-
-[packages/common/src/binary.ts:50](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L50)

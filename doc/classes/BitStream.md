@@ -10,8 +10,6 @@
 
 ### Properties
 
-- [bitsPending](BitStream.md#bitspending)
-- [position](BitStream.md#position)
 - [uint8Array](BitStream.md#uint8array)
 
 ### Methods
@@ -32,39 +30,11 @@
 | :------ | :------ |
 | `uint8Array` | `Buffer` |
 
-#### Defined in
-
-[packages/common/src/binary.ts:204](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L204)
-
 ## Properties
-
-### bitsPending
-
-• `Private` **bitsPending**: `number` = `0`
-
-#### Defined in
-
-[packages/common/src/binary.ts:202](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L202)
-
-___
-
-### position
-
-• `Private` **position**: `number` = `0`
-
-#### Defined in
-
-[packages/common/src/binary.ts:201](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L201)
-
-___
 
 ### uint8Array
 
 • **uint8Array**: `Buffer`
-
-#### Defined in
-
-[packages/common/src/binary.ts:204](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L204)
 
 ## Methods
 
@@ -83,10 +53,6 @@ ___
 
 `any`
 
-#### Defined in
-
-[packages/common/src/binary.ts:243](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L243)
-
 ___
 
 ### seekTo
@@ -102,10 +68,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/common/src/binary.ts:268](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L268)
 
 ___
 
@@ -123,7 +85,3 @@ ___
 #### Returns
 
 [`BitStream`](BitStream.md)
-
-#### Defined in
-
-[packages/common/src/binary.ts:206](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/common/src/binary.ts#L206)

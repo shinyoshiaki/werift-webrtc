@@ -66,10 +66,6 @@
 
 Start of a frame
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L49)
-
 ___
 
 ### d
@@ -77,10 +73,6 @@ ___
 • `Optional` **d**: `number`
 
 inter_layer_predicted
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:61](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L61)
 
 ___
 
@@ -90,10 +82,6 @@ ___
 
 End of a frame
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L51)
-
 ___
 
 ### fBit
@@ -102,29 +90,17 @@ ___
 
 Flexible mode
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L47)
-
 ___
 
 ### g
 
 • `Optional` **g**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:66](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L66)
-
 ___
 
 ### height
 
 • **height**: `number`[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:68](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L68)
 
 ___
 
@@ -134,10 +110,6 @@ ___
 
 Picture ID (PID) present
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L41)
-
 ___
 
 ### lBit
@@ -146,19 +118,11 @@ ___
 
 Layer indices present
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L45)
-
 ___
 
 ### m
 
 • `Optional` **m**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L55)
 
 ___
 
@@ -166,19 +130,11 @@ ___
 
 • **n\_g**: `number` = `0`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:69](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L69)
-
 ___
 
 ### n\_s
 
 • `Optional` **n\_s**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:64](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L64)
 
 ___
 
@@ -188,19 +144,11 @@ ___
 
 Inter-picture predicted frame
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L43)
-
 ___
 
 ### pDiff
 
 • **pDiff**: `number`[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:63](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L63)
 
 ___
 
@@ -212,19 +160,11 @@ ___
 
 [DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:73](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L73)
-
 ___
 
 ### pgP\_Diff
 
 • **pgP\_Diff**: `number`[][] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:72](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L72)
 
 ___
 
@@ -232,19 +172,11 @@ ___
 
 • **pgT**: `number`[] = `[]`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L70)
-
 ___
 
 ### pgU
 
 • **pgU**: `number`[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:71](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L71)
 
 ___
 
@@ -252,19 +184,11 @@ ___
 
 • `Optional` **pictureId**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:56](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L56)
-
 ___
 
 ### sid
 
 • `Optional` **sid**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:59](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L59)
 
 ___
 
@@ -272,29 +196,17 @@ ___
 
 • `Optional` **tid**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:57](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L57)
-
 ___
 
 ### tl0PicIdx
 
 • `Optional` **tl0PicIdx**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:62](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L62)
-
 ___
 
 ### u
 
 • `Optional` **u**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:58](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L58)
 
 ___
 
@@ -304,19 +216,11 @@ ___
 
 Scalability structure
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:53](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L53)
-
 ___
 
 ### width
 
 • **width**: `number`[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:67](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L67)
 
 ___
 
@@ -324,19 +228,11 @@ ___
 
 • `Optional` **y**: `number`
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:65](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L65)
-
 ___
 
 ### zBit
 
 • **zBit**: `number`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L54)
 
 ## Accessors
 
@@ -352,10 +248,6 @@ ___
 
 DePacketizerBase.isKeyframe
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:194](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L194)
-
 ___
 
 ### isPartitionHead
@@ -365,10 +257,6 @@ ___
 #### Returns
 
 `boolean` \| ``0``
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:198](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L198)
 
 ## Methods
 
@@ -386,10 +274,6 @@ ___
 
 [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:75](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L75)
-
 ___
 
 ### isDetectedFinalPacketInSequence
@@ -405,10 +289,6 @@ ___
 #### Returns
 
 `boolean`
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:190](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L190)
 
 ___
 
@@ -430,7 +310,3 @@ ___
 | :------ | :------ |
 | `offset` | `number` |
 | `p` | [`Vp9RtpPayload`](Vp9RtpPayload.md) |
-
-#### Defined in
-
-[packages/rtp/src/codec/vp9.ts:81](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/codec/vp9.ts#L81)

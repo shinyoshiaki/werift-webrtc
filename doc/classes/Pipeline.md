@@ -42,19 +42,11 @@
 | `streams.rtcpStream?` | `default`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
 | `streams.rtpStream?` | `default`<[[`RtpPacket`](RtpPacket.md)]\> |
 
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L7)
-
 ## Properties
 
 ### children
 
 • `Protected` `Optional` **children**: [`Pipeline`](Pipeline.md) \| [`Output`](Output.md)
-
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L6)
 
 ## Methods
 
@@ -72,10 +64,6 @@
 
 [`Pipeline`](Pipeline.md) \| [`Output`](Output.md)
 
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L18)
-
 ___
 
 ### pushRtcpPackets
@@ -92,10 +80,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L23)
-
 ___
 
 ### pushRtpPackets
@@ -111,7 +95,3 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L22)

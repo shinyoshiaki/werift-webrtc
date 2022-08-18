@@ -33,19 +33,11 @@
 | :------ | :------ |
 | `props` | `Pick`<[`RtcpSrPacket`](RtcpSrPacket.md), ``"senderInfo"``\> & `Partial`<[`RtcpSrPacket`](RtcpSrPacket.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L51)
-
 ## Properties
 
 ### reports
 
 • **reports**: [`RtcpReceiverInfo`](RtcpReceiverInfo.md)[] = `[]`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L47)
 
 ___
 
@@ -53,19 +45,11 @@ ___
 
 • **senderInfo**: [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L46)
-
 ___
 
 ### ssrc
 
 • **ssrc**: `number` = `0`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L45)
 
 ___
 
@@ -73,19 +57,11 @@ ___
 
 • `Readonly` **type**: ``200``
 
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L49)
-
 ___
 
 ### type
 
 ▪ `Static` `Readonly` **type**: ``200``
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L48)
 
 ## Methods
 
@@ -96,10 +72,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L55)
 
 ___
 
@@ -117,7 +89,3 @@ ___
 #### Returns
 
 [`RtcpSrPacket`](RtcpSrPacket.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/sr.ts:71](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/sr.ts#L71)

@@ -28,19 +28,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`SsrcDescription`](SsrcDescription.md)\> |
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:669](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L669)
-
 ## Properties
 
 ### cname
 
 • `Optional` **cname**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:664](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L664)
 
 ___
 
@@ -48,19 +40,11 @@ ___
 
 • `Optional` **label**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:667](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L667)
-
 ___
 
 ### msLabel
 
 • `Optional` **msLabel**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:666](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L666)
 
 ___
 
@@ -68,16 +52,8 @@ ___
 
 • `Optional` **msid**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:665](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L665)
-
 ___
 
 ### ssrc
 
 • **ssrc**: `number`
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:663](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L663)

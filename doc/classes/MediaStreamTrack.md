@@ -80,19 +80,11 @@
 
 EventTarget.constructor
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:34](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L34)
-
 ## Properties
 
 ### codec
 
 • `Optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L21)
 
 ___
 
@@ -102,19 +94,11 @@ ___
 
 todo impl
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L23)
-
 ___
 
 ### header
 
 • `Optional` **header**: [`RtpHeader`](RtpHeader.md)
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L20)
 
 ___
 
@@ -122,19 +106,11 @@ ___
 
 • `Optional` **id**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:16](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L16)
-
 ___
 
 ### kind
 
 • **kind**: [`Kind`](../modules.md#kind)
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:15](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L15)
 
 ___
 
@@ -142,19 +118,11 @@ ___
 
 • **label**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:14](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L14)
-
 ___
 
 ### muted
 
 • **muted**: `boolean` = `true`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:32](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L32)
 
 ___
 
@@ -162,19 +130,11 @@ ___
 
 • `Readonly` **onReceiveRtcp**: `default`<[[`RtcpPacket`](../modules.md#rtcppacket)]\>
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:26](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L26)
-
 ___
 
 ### onReceiveRtp
 
 • `Readonly` **onReceiveRtp**: `default`<[[`RtpPacket`](RtpPacket.md)]\>
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L25)
 
 ___
 
@@ -182,29 +142,17 @@ ___
 
 • `Readonly` **onSourceChanged**: `default`<[`Pick`<[`RtpHeader`](RtpHeader.md), ``"sequenceNumber"`` \| ``"timestamp"``\>]\>
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L27)
-
 ___
 
 ### remote
 
 • **remote**: `boolean` = `false`
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:13](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L13)
-
 ___
 
 ### rid
 
 • `Optional` **rid**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L19)
 
 ___
 
@@ -214,19 +162,11 @@ ___
 
 mediaSsrc
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:18](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L18)
-
 ___
 
 ### stopped
 
 • **stopped**: `boolean` = `false`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:31](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L31)
 
 ___
 
@@ -236,19 +176,11 @@ ___
 
 MediaStream ID
 
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L12)
-
 ___
 
 ### uuid
 
 • `Readonly` **uuid**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L10)
 
 ___
 
@@ -259,10 +191,6 @@ ___
 #### Inherited from
 
 EventTarget.captureRejectionSymbol
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:291
 
 ___
 
@@ -276,10 +204,6 @@ Sets or gets the default captureRejection value for all emitters.
 
 EventTarget.captureRejections
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:296
-
 ___
 
 ### defaultMaxListeners
@@ -289,10 +213,6 @@ ___
 #### Inherited from
 
 EventTarget.defaultMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:297
 
 ___
 
@@ -311,10 +231,6 @@ regular `'error'` listener is installed.
 #### Inherited from
 
 EventTarget.errorMonitor
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:290
 
 ## Methods
 
@@ -336,10 +252,6 @@ node_modules/@types/node/events.d.ts:290
 #### Inherited from
 
 EventTarget.addEventListener
-
-#### Defined in
-
-[packages/webrtc/src/helper.ts:37](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/helper.ts#L37)
 
 ___
 
@@ -367,10 +279,6 @@ v0.1.26
 #### Inherited from
 
 EventTarget.addListener
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:317
 
 ___
 
@@ -435,10 +343,6 @@ v0.1.26
 
 EventTarget.emit
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:573
-
 ___
 
 ### eventNames
@@ -473,10 +377,6 @@ v6.0.0
 
 EventTarget.eventNames
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:632
-
 ___
 
 ### getMaxListeners
@@ -497,10 +397,6 @@ v1.0.0
 #### Inherited from
 
 EventTarget.getMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:489
 
 ___
 
@@ -527,10 +423,6 @@ v3.2.0
 #### Inherited from
 
 EventTarget.listenerCount
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:579
 
 ___
 
@@ -566,10 +458,6 @@ v0.1.26
 
 EventTarget.listeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:502
-
 ___
 
 ### off
@@ -596,10 +484,6 @@ v10.0.0
 #### Inherited from
 
 EventTarget.off
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:462
 
 ___
 
@@ -652,10 +536,6 @@ v0.1.101
 
 EventTarget.on
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:348
-
 ___
 
 ### once
@@ -705,10 +585,6 @@ v0.3.0
 
 EventTarget.once
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:377
-
 ___
 
 ### prependListener
@@ -747,10 +623,6 @@ v6.0.0
 
 EventTarget.prependListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:597
-
 ___
 
 ### prependOnceListener
@@ -786,10 +658,6 @@ v6.0.0
 #### Inherited from
 
 EventTarget.prependOnceListener
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:613
 
 ___
 
@@ -842,10 +710,6 @@ v9.4.0
 
 EventTarget.rawListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:532
-
 ___
 
 ### removeAllListeners
@@ -878,10 +742,6 @@ v0.1.26
 
 EventTarget.removeAllListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:473
-
 ___
 
 ### removeEventListener
@@ -902,10 +762,6 @@ ___
 #### Inherited from
 
 EventTarget.removeEventListener
-
-#### Defined in
-
-[packages/webrtc/src/helper.ts:41](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/helper.ts#L41)
 
 ___
 
@@ -1009,10 +865,6 @@ v0.1.26
 
 EventTarget.removeListener
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:457
-
 ___
 
 ### setMaxListeners
@@ -1044,10 +896,6 @@ v0.3.5
 
 EventTarget.setMaxListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:483
-
 ___
 
 ### stop
@@ -1057,10 +905,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L48)
 
 ___
 
@@ -1077,10 +921,6 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/webrtc/src/media/track.ts:54](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/media/track.ts#L54)
 
 ___
 
@@ -1132,10 +972,6 @@ v15.2.0, v14.17.0
 
 EventTarget.getEventListeners
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:262
-
 ___
 
 ### listenerCount
@@ -1175,10 +1011,6 @@ Since v3.2.0 - Use `listenerCount` instead.
 #### Inherited from
 
 EventTarget.listenerCount
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:234
 
 ___
 
@@ -1261,10 +1093,6 @@ that iterates `eventName` events emitted by the `emitter`
 #### Inherited from
 
 EventTarget.on
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:217
 
 ___
 
@@ -1372,10 +1200,6 @@ v11.13.0, v10.16.0
 
 EventTarget.once
 
-#### Defined in
-
-node_modules/@types/node/events.d.ts:157
-
 ▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
 
 #### Parameters
@@ -1393,10 +1217,6 @@ node_modules/@types/node/events.d.ts:157
 #### Inherited from
 
 EventTarget.once
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:158
 
 ___
 
@@ -1434,7 +1254,3 @@ v15.4.0
 #### Inherited from
 
 EventTarget.setMaxListeners
-
-#### Defined in
-
-node_modules/@types/node/events.d.ts:280

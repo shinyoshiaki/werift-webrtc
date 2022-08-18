@@ -33,19 +33,11 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RtcpHeader`](RtcpHeader.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L25)
-
 ## Properties
 
 ### count
 
 • **count**: `number` = `0`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:21](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L21)
 
 ___
 
@@ -53,9 +45,7 @@ ___
 
 • **length**: `number` = `0`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:23](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L23)
+このパケットの長さは、ヘッダーと任意のパディングを含む32ビットワードから 1を引いたものである
 
 ___
 
@@ -63,29 +53,17 @@ ___
 
 • **padding**: `boolean` = `false`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L20)
-
 ___
 
 ### type
 
 • **type**: `number` = `0`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:22](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L22)
-
 ___
 
 ### version
 
 • **version**: `number` = `2`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:19](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L19)
 
 ## Methods
 
@@ -96,10 +74,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L29)
 
 ___
 
@@ -116,7 +90,3 @@ ___
 #### Returns
 
 [`RtcpHeader`](RtcpHeader.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/header.ts:38](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/header.ts#L38)

@@ -30,29 +30,17 @@
 | `sdp` | `string` |
 | `type` | ``"offer"`` \| ``"answer"`` |
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:613](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L613)
-
 ## Properties
 
 ### sdp
 
 • **sdp**: `string`
 
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:613](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L613)
-
 ___
 
 ### type
 
 • **type**: ``"offer"`` \| ``"answer"``
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:613](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L613)
 
 ## Methods
 
@@ -69,7 +57,3 @@ ___
 #### Returns
 
 `undefined` \| ``true``
-
-#### Defined in
-
-[packages/webrtc/src/sdp.ts:614](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/sdp.ts#L614)

@@ -29,19 +29,11 @@
 
 • **sequenceNumber**: `number`
 
-#### Defined in
-
-[packages/webrtc/src/utils.ts:113](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L113)
-
 ___
 
 ### timestamp
 
 • **timestamp**: `number`
-
-#### Defined in
-
-[packages/webrtc/src/utils.ts:114](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L114)
 
 ## Methods
 
@@ -58,7 +50,3 @@ ___
 #### Returns
 
 [`RtpPacket`](RtpPacket.md)
-
-#### Defined in
-
-[packages/webrtc/src/utils.ts:116](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/utils.ts#L116)

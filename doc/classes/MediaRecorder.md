@@ -36,19 +36,11 @@
 | `path` | `string` |
 | `options` | `Partial`<[`MediaRecorderOptions`](../interfaces/MediaRecorderOptions.md)\> |
 
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:9](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L9)
-
 ## Properties
 
 ### ext
 
 • **ext**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:7](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L7)
 
 ___
 
@@ -56,19 +48,11 @@ ___
 
 • **options**: `Partial`<[`MediaRecorderOptions`](../interfaces/MediaRecorderOptions.md)\> = `{}`
 
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:12](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L12)
-
 ___
 
 ### path
 
 • **path**: `string`
-
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:11](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L11)
 
 ___
 
@@ -76,19 +60,11 @@ ___
 
 • **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
 
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:10](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L10)
-
 ___
 
 ### writer
 
 • **writer**: `MediaWriter`
-
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:6](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L6)
 
 ## Methods
 
@@ -106,10 +82,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:25](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L25)
-
 ___
 
 ### start
@@ -120,10 +92,6 @@ ___
 
 `void`
 
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:29](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L29)
-
 ___
 
 ### stop
@@ -133,7 +101,3 @@ ___
 #### Returns
 
 `Promise`<`void`\>
-
-#### Defined in
-
-[packages/webrtc/src/nonstandard/recorder/index.ts:33](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/webrtc/src/nonstandard/recorder/index.ts#L33)

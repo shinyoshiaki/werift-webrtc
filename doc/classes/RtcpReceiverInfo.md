@@ -35,19 +35,13 @@
 | :------ | :------ |
 | `props` | `Partial`<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> |
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:51](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L51)
-
 ## Properties
 
 ### dlsr
 
 • **dlsr**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:49](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L49)
+delay since last SR
 
 ___
 
@@ -55,19 +49,11 @@ ___
 
 • **fractionLost**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:44](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L44)
-
 ___
 
 ### highestSequence
 
 • **highestSequence**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:46](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L46)
 
 ___
 
@@ -75,19 +61,13 @@ ___
 
 • **jitter**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:47](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L47)
-
 ___
 
 ### lsr
 
 • **lsr**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:48](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L48)
+last SR
 
 ___
 
@@ -95,19 +75,11 @@ ___
 
 • **packetsLost**: `number`
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:45](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L45)
-
 ___
 
 ### ssrc
 
 • **ssrc**: `number`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:43](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L43)
 
 ## Methods
 
@@ -118,10 +90,6 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:55](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L55)
 
 ___
 
@@ -138,7 +106,3 @@ ___
 #### Returns
 
 [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rr.ts:70](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rr.ts#L70)

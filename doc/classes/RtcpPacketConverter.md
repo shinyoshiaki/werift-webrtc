@@ -35,10 +35,6 @@
 
 [`RtcpPacket`](../modules.md#rtcppacket)[]
 
-#### Defined in
-
-[packages/rtp/src/rtcp/rtcp.ts:36](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtcp.ts#L36)
-
 ___
 
 ### serialize
@@ -57,7 +53,3 @@ ___
 #### Returns
 
 `Buffer`
-
-#### Defined in
-
-[packages/rtp/src/rtcp/rtcp.ts:20](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/rtcp/rtcp.ts#L20)

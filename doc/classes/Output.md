@@ -39,10 +39,6 @@
 
 `void`
 
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:28](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L28)
-
 ___
 
 ### pushRtpPackets
@@ -58,7 +54,3 @@ ___
 #### Returns
 
 `void`
-
-#### Defined in
-
-[packages/rtp/src/processor/base.ts:27](https://github.com/shinyoshiaki/werift-webrtc/blob/f609bd5a/packages/rtp/src/processor/base.ts#L27)
