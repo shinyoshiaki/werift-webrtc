@@ -42,6 +42,7 @@ export class RTCRtpTransceiver {
   options: Partial<TransceiverOptions> = {};
   stopping = false;
   stopped = false;
+  removed = false;
 
   constructor(
     public readonly kind: Kind,
