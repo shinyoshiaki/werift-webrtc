@@ -87,6 +87,7 @@ export class RTCPeerConnection extends EventTarget {
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   readonly transceivers: RTCRtpTransceiver[] = [];
+  candidatesSent = new Set<string>();
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -298,6 +299,10 @@ export class RTCPeerConnection extends EventTarget {
       } else {
         const transceiver = this.getTransceiverByMid(mid);
         if (!transceiver) {
+          if (m.direction === "inactive") {
+            description.media.push(m);
+            return;
+          }
           throw new Error("transceiver not found");
         }
         transceiver.mLineIndex = i;
@@ -315,17 +320,20 @@ export class RTCPeerConnection extends EventTarget {
     this.transceivers
       .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
-        transceiver.mLineIndex = description.media.length;
         if (transceiver.mid == undefined) {
           transceiver.mid = allocateMid(this.seenMid, "av");
         }
-        description.media.push(
-          createMediaDescriptionForTransceiver(
-            transceiver,
-            this.cname,
-            transceiver.direction
-          )
+        const mediaDescription = createMediaDescriptionForTransceiver(
+          transceiver,
+          this.cname,
+          transceiver.direction
         );
+        if (transceiver.mLineIndex === undefined) {
+          transceiver.mLineIndex = description.media.length;
+          description.media.push(mediaDescription);
+        } else {
+          description.media[transceiver.mLineIndex] = mediaDescription;
+        }
       });
 
     if (
@@ -341,10 +349,12 @@ export class RTCPeerConnection extends EventTarget {
 
     if (this.config.bundlePolicy !== "disable") {
       const mids = description.media
-        .map((m) => m.rtp.muxId)
+        .map((m) => (m.direction !== "inactive" ? m.rtp.muxId : undefined))
         .filter((v) => v) as string[];
-      const bundle = new GroupDescription("BUNDLE", mids);
-      description.group.push(bundle);
+      if (mids.length) {
+        const bundle = new GroupDescription("BUNDLE", mids);
+        description.group.push(bundle);
+      }
     }
 
     return description;
@@ -408,13 +418,17 @@ export class RTCPeerConnection extends EventTarget {
       return;
     }
 
-    if (transceiver.direction === "sendrecv") {
-      transceiver.direction = "recvonly";
-    } else if (
-      transceiver.direction === "sendonly" ||
-      transceiver.direction === "recvonly"
-    ) {
+    if (transceiver.stopping || transceiver.stopped) {
       transceiver.direction = "inactive";
+    } else {
+      if (transceiver.direction === "sendrecv") {
+        transceiver.direction = "recvonly";
+      } else if (
+        transceiver.direction === "sendonly" ||
+        transceiver.direction === "recvonly"
+      ) {
+        transceiver.direction = "inactive";
+      }
     }
     this.needNegotiation();
   }
@@ -490,6 +504,16 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       candidate.foundation = "candidate:" + candidate.foundation;
+
+      // prevent ice candidates that have already been sent from being being resent
+      // when the connection is renegotiated during a later setLocalDescription call.
+      if (candidate.sdpMid) {
+        const candidateKey = `${candidate.foundation}:${candidate.sdpMid}`;
+        if (this.candidatesSent.has(candidateKey)) {
+          return;
+        }
+        this.candidatesSent.add(candidateKey);
+      }
 
       this.onIceCandidate.execute(candidate.toJSON());
       if (this.onicecandidate) {
@@ -800,7 +824,9 @@ export class RTCPeerConnection extends EventTarget {
 
     // # apply description
 
-    const transports = enumerate(remoteSdp.media).map(([i, remoteMedia]) => {
+    const removedTransceivers = new Set(this.transceivers);
+
+    let transports = enumerate(remoteSdp.media).map(([i, remoteMedia]) => {
       let dtlsTransport: RTCDtlsTransport | undefined;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
@@ -816,6 +842,13 @@ export class RTCPeerConnection extends EventTarget {
           });
           transceiver.mid = remoteMedia.rtp.muxId;
           this.onRemoteTransceiverAdded.execute(transceiver);
+        } else {
+          removedTransceivers.delete(transceiver);
+          if (transceiver.direction === "inactive" && transceiver.stopping) {
+            transceiver.stopped = true;
+            transceiver.currentDirection = "inactive";
+            return;
+          }
         }
 
         if (this.remoteIsBundled) {
@@ -878,6 +911,18 @@ export class RTCPeerConnection extends EventTarget {
       return iceTransport;
     });
 
+    // filter out inactive transports
+    transports = transports.filter((iceTransport) => !!iceTransport);
+
+    if (sessionDescription.type === "answer") {
+      for (const transceiver of removedTransceivers) {
+        // todo: handle answer side transceiver removal work.
+        // event should trigger to notify media source to stop.
+        transceiver.stop();
+        transceiver.stopped = true;
+      }
+    }
+
     if (remoteSdp.type === "offer") {
       this.setSignalingState("have-remote-offer");
     } else if (remoteSdp.type === "answer") {
@@ -895,7 +940,7 @@ export class RTCPeerConnection extends EventTarget {
 
     await Promise.all(
       transports.map(async (iceTransport) => {
-        await iceTransport.iceGather.gather();
+        await iceTransport?.iceGather.gather();
       })
     );
 
@@ -1090,24 +1135,34 @@ export class RTCPeerConnection extends EventTarget {
 
     const direction = options.direction || "sendrecv";
 
-    const dtlsTransport = this.createTransport([
-      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
+    let transceiver: RTCRtpTransceiver;
 
-    const sender = new RTCRtpSender(trackOrKind);
-    const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
-    const transceiver = new RTCRtpTransceiver(
-      kind,
-      dtlsTransport,
-      receiver,
-      sender,
-      direction
+    const foundIndex = this.transceivers.findIndex(
+      (t) => t.stopped && t.direction === "inactive" && t.kind === kind
     );
+    if (foundIndex !== -1) {
+      transceiver = this.transceivers[foundIndex];
+      transceiver.direction = direction;
+    } else {
+      const dtlsTransport = this.createTransport([
+        SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+        SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+      ]);
+
+      const sender = new RTCRtpSender(trackOrKind);
+      const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
+      transceiver = new RTCRtpTransceiver(
+        kind,
+        dtlsTransport,
+        receiver,
+        sender,
+        direction
+      );
+      this.transceivers.push(transceiver);
+    }
     transceiver.options = options;
     this.router.registerRtpSender(transceiver.sender);
 
-    this.transceivers.push(transceiver);
     this.onTransceiverAdded.execute(transceiver);
 
     this.updateIceConnectionState();
