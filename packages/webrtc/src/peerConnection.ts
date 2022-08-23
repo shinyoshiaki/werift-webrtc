@@ -436,6 +436,8 @@ export class RTCPeerConnection extends EventTarget {
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
+      useIpv4: this.config.iceUseIpv4,
+      useIpv6: this.config.iceUseIpv6,
     });
     if (existing) {
       iceGatherer.connection.localUserName = existing.connection.localUserName;
@@ -1508,6 +1510,8 @@ export interface PeerConfig {
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
   iceInterfaceAddresses: InterfaceAddresses | undefined;
+  iceUseIpv4: boolean | undefined;
+  iceUseIpv6: boolean | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1572,6 +1576,8 @@ export const defaultPeerConfig: PeerConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
   iceInterfaceAddresses: undefined,
+  iceUseIpv4: undefined,
+  iceUseIpv6: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},
