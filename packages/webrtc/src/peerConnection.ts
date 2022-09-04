@@ -1509,6 +1509,13 @@ export interface PeerConfig {
   icePortRange: [number, number] | undefined;
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   dtls: Partial<{
+    /**
+     * default signatureHash
+     * - signature:ecdsa
+     * - hash:sha256
+     * default namedCurve
+     * - secp256r1
+     */
     keys: DtlsKeys;
   }>;
   bundlePolicy: BundlePolicy;

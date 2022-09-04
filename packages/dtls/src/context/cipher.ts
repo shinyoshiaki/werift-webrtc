@@ -6,13 +6,13 @@ import nodeCrypto, { createSign } from "crypto";
 import addYears from "date-fns/addYears";
 
 import {
-  CipherSuites,
   CurveType,
   HashAlgorithm,
   NamedCurveAlgorithm,
   NamedCurveAlgorithms,
   SignatureAlgorithm,
   SignatureHash,
+  SupportedCipherSuites,
 } from "../cipher/const";
 import { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
@@ -28,7 +28,7 @@ x509.cryptoProvider.set(crypto as any);
 export class CipherContext {
   localRandom!: DtlsRandom;
   remoteRandom!: DtlsRandom;
-  cipherSuite!: CipherSuites;
+  cipherSuite!: SupportedCipherSuites;
   remoteCertificate?: Buffer;
   remoteKeyPair!: Partial<NamedCurveKeyPair>;
   localKeyPair!: NamedCurveKeyPair;

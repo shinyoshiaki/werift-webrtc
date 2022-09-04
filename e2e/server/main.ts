@@ -52,6 +52,7 @@ import {
   bundle_max_bundle_answer,
   bundle_max_bundle_offer,
 } from "./handler/bundle/max-bundle";
+import { dtls_cbc_answer, dtls_cbc_offer } from "./handler/dtls/cbc";
 
 const app = express();
 app.use(express.json() as never);
@@ -107,6 +108,8 @@ server.on("connectionrequest", async (_, accept) => {
     bundle_disable_offer: new bundle_disable_offer(),
     bundle_max_bundle_answer: new bundle_max_bundle_answer(),
     bundle_max_bundle_offer: new bundle_max_bundle_offer(),
+    dtls_cbc_answer: new dtls_cbc_answer(),
+    dtls_cbc_offer: new dtls_cbc_offer(),
   };
 
   const transport = accept();

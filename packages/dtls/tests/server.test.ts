@@ -1,7 +1,7 @@
 import { createSocket } from "dgram";
 
 import { createUdpTransport, DtlsServer } from "../src";
-import { CipherSuite } from "../src/cipher/const";
+import { SupportedCipherSuite } from "../src/cipher/const";
 import { ClientHello } from "../src/handshake/message/client/hello";
 import { DtlsRandom } from "../src/handshake/random";
 
@@ -19,8 +19,8 @@ describe("server", () => {
       Buffer.from([]),
       Buffer.from([]),
       [
-        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
-        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
+        SupportedCipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+        SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
       ],
       [0], // don't compress
       []

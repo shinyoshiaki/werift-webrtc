@@ -15,12 +15,31 @@ export type SignatureHash = {
   signature: SignatureAlgorithms;
 };
 
-export const CipherSuite = {
-  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195: 0xc02b, //49195,
-  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f, //49199
+export const SupportedCipherSuite = {
+  /**49195 */
+  TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195: 0xc02b,
+  /**49187 */
+  TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256_49187: 0xc023,
+  /**49199 */
+  TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f,
 } as const;
-export type CipherSuites = typeof CipherSuite[keyof typeof CipherSuite];
-export const CipherSuiteList: CipherSuites[] = Object.values(CipherSuite);
+export type SupportedCipherSuites =
+  typeof SupportedCipherSuite[keyof typeof SupportedCipherSuite];
+export const SupportedCipherSuiteList: SupportedCipherSuites[] =
+  Object.values(SupportedCipherSuite);
+export const getPreferredSupportedSuites = (signature: SignatureAlgorithms) => {
+  switch (signature) {
+    case SignatureAlgorithm.ecdsa_3:
+      return [
+        SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256_49187,
+        // SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
+      ];
+    case SignatureAlgorithm.rsa_1:
+      return [SupportedCipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199];
+    default:
+      throw new Error("getSupportedSuites");
+  }
+};
 
 export const NamedCurveAlgorithm = {
   x25519_29: 29,

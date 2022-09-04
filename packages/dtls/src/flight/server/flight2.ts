@@ -1,11 +1,12 @@
 import { randomBytes } from "crypto";
 import debug from "debug";
 
+import { matchOfArrays } from "../../../../common/src";
 import {
-  CipherSuite,
+  getPreferredSupportedSuites,
   NamedCurveAlgorithmList,
   NamedCurveAlgorithms,
-  SignatureAlgorithm,
+  SupportedCipherSuites,
 } from "../../cipher/const";
 import { generateKeyPair } from "../../cipher/namedCurve";
 import { CipherContext } from "../../context/cipher";
@@ -104,14 +105,11 @@ export const flight2 =
 
     const suites = clientHello.cipherSuites;
     log(dtls.sessionId, "cipher suites", suites);
-    const suite = (() => {
-      switch (cipher.signatureHashAlgorithm?.signature) {
-        case SignatureAlgorithm.ecdsa_3:
-          return CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195;
-        case SignatureAlgorithm.rsa_1:
-          return CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199;
-      }
-    })();
+
+    const suite = matchOfArrays(
+      suites,
+      getPreferredSupportedSuites(cipher.signatureHashAlgorithm!.signature)
+    ) as SupportedCipherSuites;
     if (suite === undefined || !suites.includes(suite)) {
       throw new Error("dtls cipher suite negotiation failed");
     }

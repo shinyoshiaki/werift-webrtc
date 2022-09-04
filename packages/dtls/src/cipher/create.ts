@@ -23,29 +23,23 @@ const cipherSuites = {
   TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: 0xcca9,
   TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: 0xcca8,
   TLS_PSK_WITH_CHACHA20_POLY1305_SHA256: 0xccab,
+  TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256: 0xc027,
+  TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: 0xc023,
 };
 
 const AEAD_AES_128_GCM = {
   K_LEN: 16, // Length of a key.
-  N_MIN: 12, // Min nonce length.
   N_MAX: 12, // Max nonce length.
-  P_MAX: 2 ** 36 - 31, // Max length of a plaintext.
-
-  // Max safe int in js is 2 ** 53. So, use this value
-  // instead of 2 ** 61 as described in rfc5116.
-  A_MAX: 2 ** 53 - 1, // Max length of an additional data.
-  C_MAX: 2 ** 36 - 15, // Cipher text length.
 };
 
 const AEAD_AES_256_GCM = {
   K_LEN: 32, // Length of a key.
-  N_MIN: 12, // Min nonce length.
   N_MAX: 12, // Max nonce length.
-  P_MAX: 2 ** 36 - 31, // Max length of a plaintext.
+};
 
-  // Note: see above.
-  A_MAX: 2 ** 53 - 1, // Max length of an additional data.
-  C_MAX: 2 ** 36 - 15, // Cipher text length.
+const AEAD_AES_128_CBC = {
+  K_LEN: 16, // Length of a key.
+  N_MAX: 12, // Max nonce length.
 };
 
 const RSA_KEY_EXCHANGE = createRSAKeyExchange();
@@ -94,13 +88,30 @@ export function createCipher(cipher: number) {
         AEAD_AES_256_GCM,
         "sha384"
       );
+    case cipherSuites.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+      return createAEADCipher(
+        cipherSuites.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+        "aes-128-cbc",
+        ECDHE_RSA_KEY_EXCHANGE,
+        AEAD_AES_128_CBC
+      );
     case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
       return createAEADCipher(
-        cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-        "aes-128-gcm",
+        cipherSuites.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        "aes-256-gcm",
+        ECDHE_RSA_KEY_EXCHANGE,
+        AEAD_AES_256_GCM,
+        "sha384"
+      );
+    case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
+      return createAEADCipher(
+        cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+        "aes-128-cbc",
         ECDHE_ECDSA_KEY_EXCHANGE,
-        AEAD_AES_128_GCM
+        AEAD_AES_128_CBC
       );
     case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(

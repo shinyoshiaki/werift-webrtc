@@ -1,6 +1,6 @@
 import { decode, encode, types } from "binary-data";
 
-import { CipherSuites } from "../../../cipher/const";
+import { SupportedCipherSuites } from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import { Extension, Handshake, Random, Version } from "../../../typings/domain";
 import { ExtensionList, ProtocolVersion } from "../../binary";
@@ -24,7 +24,7 @@ export class ServerHello implements Handshake {
     public serverVersion: Version,
     public random: Random,
     public sessionId: Buffer,
-    public cipherSuite: CipherSuites,
+    public cipherSuite: SupportedCipherSuites,
     public compressionMethod: number,
     public extensions: Extension[]
   ) {}
