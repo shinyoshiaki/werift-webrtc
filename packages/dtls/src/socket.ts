@@ -8,6 +8,7 @@ import {
   NamedCurveAlgorithmList,
   SignatureAlgorithm,
   SignatureHash,
+  SupportedCipherSuites,
 } from "./cipher/const";
 import { exportKeyingMaterial } from "./cipher/prf";
 import { SessionType, SessionTypes } from "./cipher/suites/abstract";
@@ -251,4 +252,5 @@ export interface Options {
   signatureHash?: SignatureHash;
   certificateRequest?: boolean;
   extendedMasterSecret?: boolean;
+  useCipherSuites?: SupportedCipherSuites[];
 }

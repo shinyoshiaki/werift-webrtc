@@ -18,8 +18,8 @@ export type SignatureHash = {
 export const SupportedCipherSuite = {
   /**49195 */
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195: 0xc02b,
-  /**49187 */
-  TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256_49187: 0xc023,
+  /**49161 */
+  TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA_49161: 0xc009,
   /**49199 */
   TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f,
 } as const;
@@ -27,15 +27,28 @@ export type SupportedCipherSuites =
   typeof SupportedCipherSuite[keyof typeof SupportedCipherSuite];
 export const SupportedCipherSuiteList: SupportedCipherSuites[] =
   Object.values(SupportedCipherSuite);
-export const getPreferredSupportedSuites = (signature: SignatureAlgorithms) => {
+export const getPreferredSupportedSuites = (
+  suites: SupportedCipherSuites[],
+  signature: SignatureAlgorithms
+) => {
+  const map = suites.reduce((acc: {}, cur) => {
+    const [key] = Object.entries(SupportedCipherSuite).find(
+      ([, v]) => v === cur
+    )!;
+    acc[key] = cur;
+    return acc;
+  }, {});
+
   switch (signature) {
     case SignatureAlgorithm.ecdsa_3:
-      return [
-        SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256_49187,
-        // SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
-      ];
+      return Object.keys(map)
+        .filter((s) => s.includes("ECDSA"))
+        .map((s) => map[s]);
+
     case SignatureAlgorithm.rsa_1:
-      return [SupportedCipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199];
+      return Object.keys(map)
+        .filter((s) => s.includes("RSA"))
+        .map((s) => map[s]);
     default:
       throw new Error("getSupportedSuites");
   }

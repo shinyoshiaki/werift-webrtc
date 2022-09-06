@@ -1,5 +1,6 @@
 import debug from "debug";
 
+import { SupportedCipherSuiteList } from "./cipher/const";
 import { SessionType } from "./cipher/suites/abstract";
 import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
@@ -20,7 +21,8 @@ export class DtlsClient extends DtlsSocket {
 
   async connect() {
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
-      this.extensions
+      this.extensions,
+      this.options.useCipherSuites ?? SupportedCipherSuiteList
     );
   }
 

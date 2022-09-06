@@ -6,6 +6,7 @@ import {
   createRSAKeyExchange,
   KeyExchange,
 } from "./key-exchange";
+import { HashAlgorithm } from "./suites/abstract";
 import AEADCipher from "./suites/aead";
 
 const cipherSuites = {
@@ -24,7 +25,7 @@ const cipherSuites = {
   TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: 0xcca8,
   TLS_PSK_WITH_CHACHA20_POLY1305_SHA256: 0xccab,
   TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256: 0xc027,
-  TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256: 0xc023,
+  TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: 0xc009,
 };
 
 const AEAD_AES_128_GCM = {
@@ -105,13 +106,14 @@ export function createCipher(cipher: number) {
         AEAD_AES_256_GCM,
         "sha384"
       );
-    case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
+    case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:
       return createAEADCipher(
-        cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+        cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
         "aes-128-cbc",
         ECDHE_ECDSA_KEY_EXCHANGE,
-        AEAD_AES_128_CBC
+        AEAD_AES_128_CBC,
+        "sha1"
       );
     case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(
@@ -180,7 +182,7 @@ export function createAEADCipher(
   block: string,
   kx: KeyExchange,
   constants: { K_LEN: number; N_MAX: number },
-  hash = "sha256"
+  hash: HashAlgorithm = "sha256"
 ) {
   const cipher = new AEADCipher();
 

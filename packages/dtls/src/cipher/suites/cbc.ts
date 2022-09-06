@@ -28,7 +28,7 @@ const err = debug(
 /**
  * This class implements AEAD cipher family.
  */
-export default class AEADCipher extends Cipher {
+export default class CBCCipher extends Cipher {
   keyLength = 0;
   nonceLength = 0;
   ivLength = 0;
@@ -68,19 +68,25 @@ export default class AEADCipher extends Cipher {
     this.serverNonce = keys.serverNonce;
   }
 
+  prevEncBlock?: Buffer;
+
   /**
    * Encrypt message.
    */
   encrypt(type: SessionTypes, data: Buffer, header: CipherHeader) {
     const isClient = type === SessionType.CLIENT;
-    const iv = isClient ? this.clientNonce : this.serverNonce;
+    let iv = isClient ? this.clientNonce : this.serverNonce;
     const writeKey = isClient ? this.clientWriteKey : this.serverWriteKey;
     if (!iv || !writeKey) throw new Error();
 
     iv.writeUInt16BE(header.epoch, this.nonceImplicitLength);
     iv.writeUIntBE(header.sequenceNumber, this.nonceImplicitLength + 2, 6);
 
-    const explicitNonce = iv.subarray(this.nonceImplicitLength);
+    if (this.prevEncBlock) {
+      iv = this.prevEncBlock;
+    }
+
+    const explicitNonce = iv.slice(this.nonceImplicitLength);
 
     const additionalData = {
       epoch: header.epoch,
@@ -109,17 +115,26 @@ export default class AEADCipher extends Cipher {
     const finalPart = cipher.final();
     const authTag = cipher.getAuthTag();
 
-    return Buffer.concat([explicitNonce, headPart, finalPart, authTag]);
+    const res = Buffer.concat([explicitNonce, headPart, finalPart, authTag]);
+    this.prevEncBlock = res;
+    return res;
   }
 
+  prevDecBlock?: Buffer;
   /**
    * Decrypt message.
    */
   decrypt(type: SessionTypes, data: Buffer, header: CipherHeader) {
     const isClient = type === SessionType.CLIENT;
-    const iv = isClient ? this.serverNonce : this.clientNonce;
+    let iv = isClient ? this.serverNonce : this.clientNonce;
     const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
     if (!iv || !writeKey) throw new Error();
+
+    if (this.prevDecBlock) {
+      iv = this.prevDecBlock;
+    } else {
+      iv = Buffer.alloc(16);
+    }
 
     const final = createDecode(data);
 
@@ -156,9 +171,10 @@ export default class AEADCipher extends Cipher {
     const headPart = decipher.update(encrypted);
     try {
       const finalPart = decipher.final();
-      return finalPart.length > 0
-        ? Buffer.concat([headPart, finalPart])
-        : headPart;
+      const res =
+        finalPart.length > 0 ? Buffer.concat([headPart, finalPart]) : headPart;
+      this.prevDecBlock = res;
+      return res;
     } catch (error) {
       err(
         "decrypt failed",

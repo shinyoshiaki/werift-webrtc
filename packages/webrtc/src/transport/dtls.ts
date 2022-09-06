@@ -113,6 +113,7 @@ export class RTCDtlsTransport {
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
+          useCipherSuites: this.config.dtls.useCipherSuites,
           // certificateRequest: true,
         });
       } else {
@@ -123,6 +124,7 @@ export class RTCDtlsTransport {
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
+          useCipherSuites: this.config.dtls.useCipherSuites,
         });
       }
       this.dtls.onData.subscribe((buf) => {

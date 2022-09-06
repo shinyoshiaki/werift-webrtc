@@ -26,7 +26,6 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
-import { dumpBuffer } from "../../helper";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";

@@ -5,7 +5,14 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { deepMerge, InterfaceAddresses, Recvonly, Sendonly, Sendrecv } from ".";
+import {
+  deepMerge,
+  InterfaceAddresses,
+  Recvonly,
+  Sendonly,
+  Sendrecv,
+  SupportedCipherSuites,
+} from ".";
 import {
   codecParametersFromString,
   DtlsKeys,
@@ -1517,6 +1524,7 @@ export interface PeerConfig {
      * - secp256r1
      */
     keys: DtlsKeys;
+    useCipherSuites: SupportedCipherSuites[];
   }>;
   bundlePolicy: BundlePolicy;
   debug: Partial<{

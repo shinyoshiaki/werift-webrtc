@@ -6,6 +6,7 @@ import {
   getPreferredSupportedSuites,
   NamedCurveAlgorithmList,
   NamedCurveAlgorithms,
+  SupportedCipherSuiteList,
   SupportedCipherSuites,
 } from "../../cipher/const";
 import { generateKeyPair } from "../../cipher/namedCurve";
@@ -23,6 +24,7 @@ import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVe
 import { DtlsRandom } from "../../handshake/random";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
+import { Options } from "../../socket";
 
 const log = debug("werift-dtls : packages/dtls/flight/server/flight2.ts : log");
 
@@ -33,7 +35,8 @@ export const flight2 =
     udp: TransportContext,
     dtls: DtlsContext,
     cipher: CipherContext,
-    srtp: SrtpContext
+    srtp: SrtpContext,
+    options: Options
   ) =>
   (clientHello: ClientHello) => {
     dtls.flight = 2;
@@ -106,9 +109,13 @@ export const flight2 =
     const suites = clientHello.cipherSuites;
     log(dtls.sessionId, "cipher suites", suites);
 
+    const supportedSuites = getPreferredSupportedSuites(
+      options.useCipherSuites ?? SupportedCipherSuiteList,
+      cipher.signatureHashAlgorithm!.signature
+    );
     const suite = matchOfArrays(
       suites,
-      getPreferredSupportedSuites(cipher.signatureHashAlgorithm!.signature)
+      supportedSuites
     ) as SupportedCipherSuites;
     if (suite === undefined || !suites.includes(suite)) {
       throw new Error("dtls cipher suite negotiation failed");

@@ -1,5 +1,5 @@
 import { AcceptFn } from "protoo-server";
-import { RTCPeerConnection, deepMerge } from "../..";
+import { RTCPeerConnection, deepMerge, SupportedCipherSuite } from "../..";
 import { peerConfig } from "../../fixture";
 
 export class dtls_cbc_answer {
@@ -9,7 +9,15 @@ export class dtls_cbc_answer {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection(deepMerge(await peerConfig, {}));
+          this.pc = new RTCPeerConnection(
+            deepMerge(await peerConfig, {
+              dtls: {
+                useCipherSuites: [
+                  SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA_49161,
+                ],
+              },
+            })
+          );
           const dc = this.pc.createDataChannel("dc");
           dc.message.subscribe((msg) => {
             dc.send(msg + "pong");
@@ -41,7 +49,15 @@ export class dtls_cbc_offer {
     switch (type) {
       case "init":
         {
-          this.pc = new RTCPeerConnection(await peerConfig);
+          this.pc = new RTCPeerConnection(
+            deepMerge(await peerConfig, {
+              dtls: {
+                useCipherSuites: [
+                  SupportedCipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA_49161,
+                ],
+              },
+            })
+          );
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
 

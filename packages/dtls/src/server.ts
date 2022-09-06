@@ -39,7 +39,8 @@ export class DtlsServer extends DtlsSocket {
                 this.transport,
                 this.dtls,
                 this.cipher,
-                this.srtp
+                this.srtp,
+                this.options
               )(clientHello);
             } else if (
               this.dtls.cookie &&

@@ -13,6 +13,8 @@ export const SessionType = {
 } as const;
 export type SessionTypes = typeof SessionType[keyof typeof SessionType];
 
+export type HashAlgorithm = "sha1" | "sha256" | "sha128" | "sha384";
+
 export default abstract class AbstractCipher {
   id = 0;
   name?: string;

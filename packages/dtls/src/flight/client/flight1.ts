@@ -1,4 +1,4 @@
-import { SupportedCipherSuiteList } from "../../cipher/const";
+import { SupportedCipherSuites } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
 import { TransportContext } from "../../context/transport";
@@ -16,7 +16,10 @@ export class Flight1 extends Flight {
     super(udp, dtls, 1, 3);
   }
 
-  async exec(extensions: Extension[]) {
+  async exec(
+    extensions: Extension[],
+    cipherSuiteList: SupportedCipherSuites[]
+  ) {
     if (this.dtls.flight === 1) throw new Error();
     this.dtls.flight = 1;
 
@@ -25,7 +28,7 @@ export class Flight1 extends Flight {
       new DtlsRandom(),
       Buffer.from([]),
       Buffer.from([]),
-      SupportedCipherSuiteList,
+      cipherSuiteList,
       [0], // don't compress
       extensions
     );
