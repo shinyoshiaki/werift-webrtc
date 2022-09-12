@@ -1510,8 +1510,8 @@ export interface PeerConfig {
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
   iceInterfaceAddresses: InterfaceAddresses | undefined;
-  iceUseIpv4: boolean | undefined;
-  iceUseIpv6: boolean | undefined;
+  iceUseIpv4: boolean;
+  iceUseIpv6: boolean;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1576,8 +1576,8 @@ export const defaultPeerConfig: PeerConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
   iceInterfaceAddresses: undefined,
-  iceUseIpv4: undefined,
-  iceUseIpv6: undefined,
+  iceUseIpv4: true,
+  iceUseIpv6: true,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},
