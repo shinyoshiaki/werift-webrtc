@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/ice/turn/trickle_offer.ts"
+        "${workspaceRoot}/examples/mediachannel/sendrecv/offer.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

@@ -258,7 +258,7 @@ export class RTCPeerConnection extends EventTarget {
       }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
-          this.config.headerExtensions[transceiver.kind];
+          this.config.headerExtensions[transceiver.kind] ?? [];
       }
     });
 
