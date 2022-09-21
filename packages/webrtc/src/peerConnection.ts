@@ -436,6 +436,7 @@ export class RTCPeerConnection extends EventTarget {
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
+      additionalHostAddresses: this.config.iceAdditionalHostAddresses,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
     });
@@ -1510,6 +1511,10 @@ export interface PeerConfig {
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
   iceInterfaceAddresses: InterfaceAddresses | undefined;
+  /** Add additional host (local) addresses to use for candidate gathering.
+   * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   */
+  iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
   dtls: Partial<{
@@ -1576,6 +1581,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
   iceInterfaceAddresses: undefined,
+  iceAdditionalHostAddresses: undefined,
   iceUseIpv4: true,
   iceUseIpv6: true,
   dtls: {},

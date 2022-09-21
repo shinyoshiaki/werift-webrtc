@@ -4,6 +4,7 @@ import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
 import isEqual from "lodash/isEqual";
 import range from "lodash/range";
+import uniq from "lodash/uniq";
 import { isIPv4 } from "net";
 import os from "os";
 import PCancelable from "p-cancelable";
@@ -85,7 +86,11 @@ export class Connection {
       this.localCandidatesStart = true;
       this.promiseGatherCandidates = new Event();
 
-      const address = getHostAddresses(this.useIpv4, this.useIpv6);
+      let address = getHostAddresses(this.useIpv4, this.useIpv6);
+      if (this.options.additionalHostAddresses) {
+        address = uniq([...this.options.additionalHostAddresses, ...address]);
+      }
+
       for (const component of this._components) {
         const candidates = await this.getComponentCandidates(
           component,
@@ -960,6 +965,7 @@ export interface IceOptions {
   useIpv6: boolean;
   portRange?: [number, number];
   interfaceAddresses?: InterfaceAddresses;
+  additionalHostAddresses?: string[];
 }
 
 const defaultOptions: IceOptions = {
