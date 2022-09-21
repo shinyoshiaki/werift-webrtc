@@ -563,6 +563,13 @@ export class Connection {
       }
     }
 
+    if (
+      this.options.filterStunResponse &&
+      !this.options.filterStunResponse(message, addr, protocol)
+    ) {
+      return;
+    }
+
     // # send binding response
     const response = new Message(
       methods.BINDING,
@@ -960,6 +967,11 @@ export interface IceOptions {
   useIpv6: boolean;
   portRange?: [number, number];
   interfaceAddresses?: InterfaceAddresses;
+  filterStunResponse?: (
+    message: Message,
+    addr: Address,
+    protocol: Protocol
+  ) => boolean;
 }
 
 const defaultOptions: IceOptions = {
