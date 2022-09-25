@@ -1,17 +1,17 @@
+import { BinaryLike } from "crypto";
 import Event from "rx.mini";
 
 import { int, PromiseQueue } from "../../../common/src";
-import {
-  AV1RtpPayload,
-  DePacketizerBase,
-  H264RtpPayload,
-  OpusRtpPayload,
-  RtpPacket,
-  Vp8RtpPayload,
-  Vp9RtpPayload,
-} from "..";
+import { RtpPacket } from "..";
+import { dePacketizeRtpPackets } from "../codec";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
 import { Output } from "./base";
+
+export interface FileIO {
+  writeFile: (path: string, bin: BinaryLike) => Promise<void>;
+  appendFile: (path: string, bin: BinaryLike) => Promise<void>;
+  readFile: (path: string) => Promise<Buffer>;
+}
 
 export class WebmOutput implements Output {
   private builder: WEBMBuilder;
@@ -24,8 +24,7 @@ export class WebmOutput implements Output {
   stopped = false;
 
   constructor(
-    /**fs/promises */
-    private fs: any,
+    private writer: FileIO,
     public path: string,
     public tracks: {
       width?: number;
@@ -61,7 +60,7 @@ export class WebmOutput implements Output {
       this.builder.ebmlHeader,
       this.builder.createSegment(),
     ]);
-    await this.fs.writeFile(this.path, staticPart);
+    await this.writer.writeFile(this.path, staticPart);
     this.position += staticPart.length;
 
     const video = this.tracks.find((t) => t.kind === "video");
@@ -72,21 +71,25 @@ export class WebmOutput implements Output {
     }
 
     const cluster = this.builder.createCluster(0.0);
-    await this.fs.appendFile(this.path, cluster);
+    await this.writer.appendFile(this.path, cluster);
     this.position += cluster.length;
   }
 
-  async stop() {
+  async stop(insertDuration = true) {
     this.stopped = true;
     if (this.disposer) {
       this.disposer();
+    }
+
+    if (!insertDuration) {
+      return;
     }
 
     const originStaticPartOffset = Buffer.concat([
       this.builder.ebmlHeader,
       this.builder.createSegment(),
     ]).length;
-    const clusters = (await this.fs.readFile(this.path)).slice(
+    const clusters = (await this.writer.readFile(this.path)).slice(
       originStaticPartOffset
     );
 
@@ -115,9 +118,9 @@ export class WebmOutput implements Output {
       cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
     }
 
-    await this.fs.writeFile(this.path, staticPart);
-    await this.fs.appendFile(this.path, cues);
-    await this.fs.appendFile(this.path, clusters);
+    await this.writer.writeFile(this.path, staticPart);
+    await this.writer.appendFile(this.path, cues);
+    await this.writer.appendFile(this.path, clusters);
   }
 
   pushRtpPackets(packets: RtpPacket[]) {
@@ -135,10 +138,7 @@ export class WebmOutput implements Output {
 
     const timestampManager = this.timestamps[track.payloadType];
 
-    const { data, isKeyframe } = this.dePacketizeRtpPackets(
-      track.codec,
-      packets
-    );
+    const { data, isKeyframe } = dePacketizeRtpPackets(track.codec, packets);
 
     const tailTimestamp = packets.slice(-1)[0].header.timestamp;
     timestampManager.update(tailTimestamp);
@@ -152,7 +152,7 @@ export class WebmOutput implements Output {
       this.relativeTimestamp += timestampManager.relativeTimestamp;
 
       const cluster = this.builder.createCluster(this.relativeTimestamp);
-      await this.fs.appendFile(this.path, cluster);
+      await this.writer.appendFile(this.path, cluster);
       this.cuePoints.push(
         new CuePoint(
           this.builder,
@@ -171,41 +171,11 @@ export class WebmOutput implements Output {
       track.trackNumber,
       timestampManager.relativeTimestamp
     );
-    await this.fs.appendFile(this.path, block);
+    await this.writer.appendFile(this.path, block);
     this.position += block.length;
     const [cuePoint] = this.cuePoints.slice(-1);
     if (cuePoint) {
       cuePoint.blockNumber++;
-    }
-  }
-
-  private dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
-    const basicCodecParser = (
-      DePacketizer: typeof DePacketizerBase
-    ): { data: Buffer; isKeyframe: boolean } => {
-      const frames = packets.map((p) => DePacketizer.deSerialize(p.payload));
-      const isKeyframe = !!frames.find((f) => f.isKeyframe);
-      const data = Buffer.concat(frames.map((f) => f.payload));
-      return { isKeyframe, data };
-    };
-
-    switch (codec) {
-      case "AV1": {
-        const chunks = packets.map((p) => AV1RtpPayload.deSerialize(p.payload));
-        const data = AV1RtpPayload.getFrame(chunks);
-        const isKeyframe = !!chunks.find((f) => f.isKeyframe);
-        return { isKeyframe, data };
-      }
-      case "MPEG4/ISO/AVC":
-        return basicCodecParser(H264RtpPayload);
-      case "VP8":
-        return basicCodecParser(Vp8RtpPayload);
-      case "VP9":
-        return basicCodecParser(Vp9RtpPayload);
-      case "OPUS":
-        return basicCodecParser(OpusRtpPayload);
-      default:
-        throw new Error();
     }
   }
 }
