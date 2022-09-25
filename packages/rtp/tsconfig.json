@@ -5,6 +5,7 @@
     "lib": ["esnext"],
     "declaration": true,
     "outDir": "lib",
+    "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "pretty": true,
@@ -13,7 +14,7 @@
     "noUnusedLocals": false,
     "skipLibCheck": true,
     "strictNullChecks": true,
-    "noImplicitAny": true
+    "noImplicitAny": false
   },
   "include": ["src", "tests"]
 }
