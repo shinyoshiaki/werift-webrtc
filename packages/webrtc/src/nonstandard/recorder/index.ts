@@ -9,7 +9,7 @@ export class MediaRecorder {
   constructor(
     public tracks: MediaStreamTrack[],
     public path: string,
-    public options: Partial<MediaRecorderOptions> = {}
+    public options: MediaRecorderOptions
   ) {
     this.ext = path.split(".").slice(-1)[0];
     this.writer = (() => {
