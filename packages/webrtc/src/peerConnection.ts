@@ -5,7 +5,16 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { deepMerge, InterfaceAddresses, Recvonly, Sendonly, Sendrecv } from ".";
+import { Message } from "../../ice/src/stun/message";
+import { Protocol } from "../../ice/src/types/model";
+import {
+  Address,
+  deepMerge,
+  InterfaceAddresses,
+  Recvonly,
+  Sendonly,
+  Sendrecv,
+} from ".";
 import {
   codecParametersFromString,
   DtlsKeys,
@@ -436,6 +445,7 @@ export class RTCPeerConnection extends EventTarget {
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
+      filterStunResponse: this.config.iceFilterStunResponse,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
     });
@@ -1512,6 +1522,11 @@ export interface PeerConfig {
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
+  /** If provided, is called on each STUN request.
+   * Return `true` if a STUN response should be sent, false if it should be skipped. */
+  iceFilterStunResponse:
+    | ((message: Message, addr: Address, protocol: Protocol) => boolean)
+    | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1578,6 +1593,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceInterfaceAddresses: undefined,
   iceUseIpv4: true,
   iceUseIpv6: true,
+  iceFilterStunResponse: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},
