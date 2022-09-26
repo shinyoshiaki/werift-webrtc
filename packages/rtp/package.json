@@ -21,6 +21,7 @@
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "ci": "npm run type && npm run lint && npm run test",
     "deploy": "npm run build && npm publish",
+    "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
     "lint": "eslint ./src --fix && eslint ./tests --fix",
     "test": "npm run type && jest --forceExit",
