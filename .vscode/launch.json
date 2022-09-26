@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/packages/rtp/examples/record/packetlost.ts"
+        "${workspaceRoot}/examples/save_to_disk/packetloss/vp8.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

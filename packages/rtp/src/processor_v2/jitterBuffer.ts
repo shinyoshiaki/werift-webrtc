@@ -1,7 +1,13 @@
 import debug from "debug";
 import { TransformStream } from "stream/web";
 
-import { RequireAtLeastOne, RtpPacket, uint16Add, uint32Add } from "..";
+import {
+  RequireAtLeastOne,
+  RtpPacket,
+  uint16Add,
+  uint32Add,
+  uint32Gt,
+} from "..";
 import { RtpOutput } from "./source/rtp";
 
 const srcPath = `werift-rtp : packages/rtp/src/processor_v2/jitterBuffer.ts`;
@@ -32,7 +38,7 @@ export class JitterBufferTransformer {
     options: Partial<JitterBufferOptions> = {}
   ) {
     this.options = {
-      latency: options.latency ?? 1000,
+      latency: options.latency ?? 200,
       bufferSize: options.bufferSize ?? 10000,
     };
 
@@ -54,11 +60,15 @@ export class JitterBufferTransformer {
             from: this.expectNextSeqNum,
             to: timeoutSeqNum,
           };
-          this.presentSeqNum = timeoutSeqNum;
+          this.presentSeqNum = input.rtp.header.sequenceNumber;
           output.enqueue({ isPacketLost });
-        }
-        if (packets != undefined) {
-          packets.forEach((rtp) => output.enqueue({ rtp }));
+          if (packets) {
+            [...packets, input.rtp].forEach((rtp) => output.enqueue({ rtp }));
+          }
+        } else {
+          if (packets) {
+            packets.forEach((rtp) => output.enqueue({ rtp }));
+          }
         }
       },
     });
@@ -149,11 +159,21 @@ export class JitterBufferTransformer {
       .map((rtp) => {
         const { timestamp, sequenceNumber } = rtp.header;
 
+        if (uint32Gt(timestamp, baseTimestamp)) {
+          log("gap", { timestamp, baseTimestamp });
+          return;
+        }
+
         const elapsedSec =
           uint32Add(baseTimestamp, -timestamp) / this.clockRate;
 
         if (elapsedSec * 1000 > this.options.latency) {
-          log("timeout packet", { sequenceNumber, elapsedSec });
+          log("timeout packet", {
+            sequenceNumber,
+            elapsedSec,
+            baseTimestamp,
+            timestamp,
+          });
 
           if (latestTimeoutSeqNum == undefined) {
             latestTimeoutSeqNum = sequenceNumber;

@@ -55,15 +55,27 @@ describe("test JitterBuffer", () => {
 
     writer.write({ rtp: createRtpPacket(2, 2) });
     writer.write({ rtp: createRtpPacket(3, 3) });
-    writer.write({ rtp: createRtpPacket(4, 4 + 90000 * 200) });
+    writer.write({ rtp: createRtpPacket(4, 4 + 90000 * 1) });
     const res = (await reader.read()).value!;
     expect(res.isPacketLost).toEqual({ from: 1, to: 3 });
     expect(jitterBuffer.presentSeqNum).toBe(4);
 
+    {
+      const res = (await reader.read()).value!;
+      expect(res.rtp!.header.sequenceNumber).toBe(2);
+    }
+    {
+      const res = (await reader.read()).value!;
+      expect(res.rtp!.header.sequenceNumber).toBe(3);
+    }
+    {
+      const res = (await reader.read()).value!;
+      expect(res.rtp!.header.sequenceNumber).toBe(4);
+    }
+
     writer.write({ rtp: createRtpPacket(5, 5) });
     {
       const res = (await reader.read()).value!;
-
       expect(res.rtp!.header.sequenceNumber).toBe(5);
     }
   });

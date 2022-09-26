@@ -13,7 +13,7 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const recorder = new MediaRecorder([], "./test.webm", {
+  const recorder = new MediaRecorder([], "./werift.webm", {
     width: 640,
     height: 360,
   });
