@@ -7,7 +7,7 @@ export abstract class MediaWriter {
     protected options: Partial<MediaRecorderOptions>
   ) {}
 
-  start(tracks: MediaStreamTrack[]) {}
+  async start(tracks: MediaStreamTrack[]) {}
 
   async stop() {}
 }

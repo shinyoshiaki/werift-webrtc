@@ -5,7 +5,7 @@ import { RtpPacket } from "..";
 import { RtcpPacket } from "../rtcp/rtcp";
 import { Pipeline } from "./base";
 
-const log = debug("werift:packages/webrtc/src/nonstandard/jitterBuffer.ts");
+const log = debug("werift : packages/rtp/src/processor/jitterBuffer.ts");
 
 export class JitterBuffer extends Pipeline {
   private retry = 0;

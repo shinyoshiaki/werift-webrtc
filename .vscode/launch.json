@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/ice/turn/trickle_offer.ts"
+        "${workspaceRoot}/examples/save_to_disk/packetloss/vp8.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

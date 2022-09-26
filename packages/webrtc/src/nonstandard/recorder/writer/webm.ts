@@ -1,75 +1,123 @@
-import * as fs from "fs/promises";
+import { appendFile, open, unlink } from "fs/promises";
+import { ReadableStreamDefaultReadResult } from "stream/web";
 
 import { SupportedCodec } from "../../../../../rtp/src/container/webm";
 import {
-  JitterBuffer,
+  depacketizeTransformer,
+  jitterBufferTransformer,
   MediaStreamTrack,
-  SampleBuilder,
-  WebmOutput,
+  RtpSourceStream,
+  WebmLiveOutput,
+  WebmLiveSink,
+  WeriftError,
 } from "../../..";
 import { MediaWriter } from ".";
 
+const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
+
 export class WebmFactory extends MediaWriter {
-  webm?: WebmOutput;
+  rtpSources: RtpSourceStream[] = [];
 
-  start(tracks: MediaStreamTrack[]) {
-    this.webm = new WebmOutput(
-      fs,
-      this.path,
-      tracks.map((track, i) => {
-        const trackNumber = i + 1;
-        const payloadType = track.codec!.payloadType;
+  async start(tracks: MediaStreamTrack[]) {
+    await unlink(this.path).catch((e) => e);
 
-        if (track.kind === "video") {
-          const codec = ((): SupportedCodec => {
-            switch (track.codec?.name.toLowerCase() as SupportedVideoCodec) {
-              case "vp8":
-                return "VP8";
-              case "vp9":
-                return "VP9";
-              case "h264":
-                return "MPEG4/ISO/AVC";
-              case "av1x":
-                return "AV1";
-              default:
-                throw new Error();
-            }
-          })();
-          return {
-            kind: "video",
-            clockRate: 90000,
-            payloadType,
-            trackNumber,
-            codec,
-            width: this.options.width,
-            height: this.options.height,
-          };
-        } else {
-          return {
-            kind: "audio",
-            clockRate: 48000,
-            payloadType,
-            trackNumber,
-            codec: "OPUS",
-          };
-        }
-      })
-    );
+    const inputTracks = tracks.map((track, i) => {
+      const trackNumber = i + 1;
+      const payloadType = track.codec!.payloadType;
 
-    tracks.forEach((track) => {
-      const sampleBuilder =
-        track.kind === "video"
-          ? new SampleBuilder((h) => !!h.marker).pipe(this.webm!)
-          : new SampleBuilder(() => true).pipe(this.webm!);
-      new JitterBuffer({
-        rtpStream: track.onReceiveRtp,
-        rtcpStream: track.onReceiveRtcp,
-      }).pipe(sampleBuilder);
+      if (track.kind === "video") {
+        const codec = ((): SupportedCodec => {
+          switch (track.codec?.name.toLowerCase() as SupportedVideoCodec) {
+            case "vp8":
+              return "VP8";
+            case "vp9":
+              return "VP9";
+            case "h264":
+              return "MPEG4/ISO/AVC";
+            case "av1x":
+              return "AV1";
+            default:
+              throw new WeriftError({
+                message: "unsupported codec",
+                payload: { track, path: sourcePath },
+              });
+          }
+        })();
+        return {
+          kind: "video" as const,
+          codec,
+          clockRate: 90000,
+          trackNumber,
+          width: this.options.width,
+          height: this.options.height,
+          payloadType,
+          track,
+        };
+      } else {
+        return {
+          kind: "audio" as const,
+          codec: "OPUS" as const,
+          clockRate: 48000,
+          trackNumber,
+          payloadType,
+          track,
+        };
+      }
     });
+
+    const webm = new WebmLiveSink(inputTracks, {
+      duration: this.options.defaultDuration ?? 1000 * 60 * 60 * 24,
+    });
+
+    this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
+      const rtpSource = new RtpSourceStream(track.onReceiveRtp);
+
+      const jitterBuffer = jitterBufferTransformer(clockRate, {
+        latency: this.options.jitterBufferLatency,
+        bufferSize: this.options.jitterBufferSize,
+      });
+
+      if (track.kind === "video") {
+        rtpSource.readable
+          .pipeThrough(jitterBuffer)
+          .pipeThrough(
+            depacketizeTransformer((h) => h.marker, codec, {
+              waitForKeyframe: this.options.waitForKeyframe,
+            })
+          )
+          .pipeTo(webm.videoStream);
+      } else {
+        rtpSource.readable
+          .pipeThrough(jitterBuffer)
+          .pipeThrough(depacketizeTransformer(() => true, codec))
+          .pipeTo(webm.audioStream);
+      }
+
+      return rtpSource;
+    });
+
+    const reader = webm.webmStream.getReader();
+    const readChunk = async ({
+      value,
+      done,
+    }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
+      if (done) return;
+
+      if (value.packet) {
+        await appendFile(this.path, value.packet);
+      } else if (value.eol) {
+        const { durationElement } = value.eol;
+        const handler = await open(this.path, "r+");
+        await handler.write(durationElement, 0, durationElement.length, 83);
+        await handler.close();
+      }
+      reader.read().then(readChunk);
+    };
+    reader.read().then(readChunk);
   }
 
   async stop() {
-    await this.webm!.stop();
+    await Promise.all(this.rtpSources.map((r) => r.stop()));
   }
 }
 

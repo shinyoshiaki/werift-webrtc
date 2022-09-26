@@ -37,6 +37,17 @@ export const flight2 =
   (clientHello: ClientHello) => {
     dtls.flight = 2;
 
+    // if flight 2 restarts due to packet loss, sequence numbers are reused from the top:
+    // https://datatracker.ietf.org/doc/html/rfc6347#section-4.2.2
+    // The first message each side transmits in each handshake always has
+    // message_seq = 0.  Whenever each new message is generated, the
+    // message_seq value is incremented by one.  Note that in the case of a
+    // rehandshake, this implies that the HelloRequest will have message_seq = 0
+    // and the ServerHello will have message_seq = 1.  When a message is
+    // retransmitted, the same message_seq value is used.
+    dtls.recordSequenceNumber = 0;
+    dtls.sequenceNumber = 0;
+
     clientHello.extensions.forEach((extension) => {
       switch (extension.type) {
         case EllipticCurves.type:
