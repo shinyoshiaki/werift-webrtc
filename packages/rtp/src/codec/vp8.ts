@@ -48,12 +48,12 @@ export class Vp8RtpPayload implements DePacketizerBase {
   mBit?: number;
   pictureId?: number;
   payload!: Buffer;
-  size0?: number;
+  size0: number = 0;
   hBit?: number;
   ver?: number;
   pBit?: number;
-  size1?: number;
-  size2?: number;
+  size1: number = 0;
+  size2: number = 0;
 
   static deSerialize(buf: Buffer) {
     const p = new Vp8RtpPayload();
@@ -101,18 +101,16 @@ export class Vp8RtpPayload implements DePacketizerBase {
 
     p.payload = buf.slice(offset);
 
-    if (p.sBit === 1 && p.pid === 0) {
+    if (p.payloadHeaderExist) {
       p.size0 = getBit(buf[offset], 0, 3);
       p.hBit = getBit(buf[offset], 3);
       p.ver = getBit(buf[offset], 4, 3);
       p.pBit = getBit(buf[offset], 7);
       offset++;
+      p.size1 = buf[offset];
+      offset++;
+      p.size2 = buf[offset];
     }
-
-    p.size1 = buf[offset];
-    offset++;
-    p.size2 = buf[offset];
-    offset++;
 
     return p;
   }
@@ -127,5 +125,17 @@ export class Vp8RtpPayload implements DePacketizerBase {
 
   get isPartitionHead() {
     return this.sBit === 1;
+  }
+
+  get payloadHeaderExist() {
+    return this.sBit === 1 && this.pid === 0;
+  }
+
+  get size() {
+    if (this.payloadHeaderExist) {
+      const size = this.size0 + 8 * this.size1 + 2048 * this.size2;
+      return size;
+    }
+    return 0;
   }
 }

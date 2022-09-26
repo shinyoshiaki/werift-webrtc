@@ -5,6 +5,28 @@ import { RtcpSrPacket, RtpPacket } from "..";
 import { RtcpPacket } from "../rtcp/rtcp";
 import { Pipeline } from "./base";
 
+// #### リップシンク
+// ```
+//         0                   1                   2                   3
+//         0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+//        +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+// sender |              NTP timestamp, most significant word             |
+// info   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//        |             NTP timestamp, least significant word             |
+//        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//        |                         RTP timestamp                         |
+//        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//        |                     sender's packet count                     |
+//        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//        |                      sender's octet count                     |
+//        +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+// ```
+
+// - RTCP-SRにはNTP timestampとRTCP-SRを送った時点で最後に送ったRTPパケットのtimestampが載っている
+// - RTP timestampは開始時点の値がランダムなので、Audio,VideoのRTPパケットの同期にはそのままでは使えない
+//     - ある時点のRTP timestampのNTP timestampがRTCP-SRでわかるので、任意のRTP timestampに対応するNTP timestampを計算できる
+// - Audio,VideoのRTPパケットの同期にはRTP timestampをNTP timestampに変換して行えば良い
+
 // WIP
 // todo impl
 export class LipSync extends Pipeline {
@@ -46,8 +68,8 @@ export class LipSync extends Pipeline {
     });
     if (Object.keys(this.rtpPackets).length === 2) {
       const [a, b] = Object.values(this.rtpPackets);
-      const lastA = this.calcNtpTime(a.slice(-1)[0].header.timestamp);
-      const lastB = this.calcNtpTime(b.slice(-1)[0].header.timestamp);
+      const lastA = this.calcNtpTime(a.at(-1)!.header.timestamp);
+      const lastB = this.calcNtpTime(b.at(-1)!.header.timestamp);
 
       if (lastA == undefined || lastB == undefined) {
         this.children?.pushRtpPackets?.(packets);
