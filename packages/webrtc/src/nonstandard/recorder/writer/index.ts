@@ -4,10 +4,10 @@ import { MediaRecorderOptions } from "..";
 export abstract class MediaWriter {
   constructor(
     protected path: string,
-    protected options: MediaRecorderOptions
+    protected options: Partial<MediaRecorderOptions>
   ) {}
 
-  start(tracks: MediaStreamTrack[]) {}
+  async start(tracks: MediaStreamTrack[]) {}
 
   async stop() {}
 }

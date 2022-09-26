@@ -1,3 +1,4 @@
+import debug from "debug";
 import {
   ReadableStream,
   ReadableStreamController,
@@ -8,11 +9,24 @@ import { int, PromiseQueue } from "..";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
 import { DepacketizerOutput } from "./depacketizer";
 
+const sourcePath = `werift-rtp : packages/rtp/src/processor_v2/webmLive.ts`;
+const log = debug(sourcePath);
+
 export type WebmLiveInput = DepacketizerOutput;
 
 export type WebmLiveOutput = {
-  packet: Buffer;
+  packet?: Buffer;
+  eol?: {
+    /**ms */
+    duration: number;
+    durationElement: Uint8Array;
+  };
 };
+
+export interface WebmLiveOption {
+  /**ms */
+  duration?: number;
+}
 
 export class WebmLiveSink {
   private builder: WEBMBuilder;
@@ -35,7 +49,8 @@ export class WebmLiveSink {
       codec: SupportedCodec;
       clockRate: number;
       trackNumber: number;
-    }[]
+    }[],
+    private options: WebmLiveOption = {}
   ) {
     this.builder = new WEBMBuilder(tracks);
 
@@ -45,10 +60,17 @@ export class WebmLiveSink {
 
     const createStream = (trackNumber: number) =>
       new WritableStream({
-        write: (input: WebmLiveInput) => {
+        write: ({ frame, eol }: WebmLiveInput) => {
           if (this.stopped) return;
+          if (!frame) {
+            if (eol) {
+              this.stop();
+            }
+            return;
+          }
+
           this.queue.push(() =>
-            this.onFrameReceived({ ...input.frame, trackNumber })
+            this.onFrameReceived({ ...frame, trackNumber })
           );
         },
       });
@@ -75,7 +97,7 @@ export class WebmLiveSink {
   private async init() {
     const staticPart = Buffer.concat([
       this.builder.ebmlHeader,
-      this.builder.createSegment(),
+      this.builder.createSegment(this.options.duration),
     ]);
     this.controller.enqueue({ packet: staticPart });
     this.position += staticPart.length;
@@ -103,24 +125,24 @@ export class WebmLiveSink {
       (track.kind === "video" && frame.isKeyframe) ||
       elapsed > MaxSinged16Int
     ) {
-      if (elapsed === 0) {
-        elapsed = 1000;
-      }
       this.relativeTimestamp += elapsed;
 
       const cluster = this.builder.createCluster(this.relativeTimestamp);
       this.controller.enqueue({ packet: Buffer.from(cluster) });
-      this.cuePoints.push(
-        new CuePoint(
-          this.builder,
-          track.trackNumber,
-          this.relativeTimestamp,
-          this.position
-        )
-      );
+
+      if (elapsed !== 0) {
+        this.cuePoints.push(
+          new CuePoint(
+            this.builder,
+            track.trackNumber,
+            this.relativeTimestamp,
+            this.position
+          )
+        );
+      }
       this.position += cluster.length;
       Object.values(this.timestamps).forEach((t) => t.reset());
-      elapsed = 0;
+      elapsed = timestampManager.update(frame.timestamp);
     }
 
     const block = this.builder.createSimpleBlock(
@@ -137,17 +159,31 @@ export class WebmLiveSink {
     }
   }
 
-  async stop() {
+  private async stop() {
+    if (this.stopped) {
+      return;
+    }
     this.stopped = true;
+
+    log("stop");
 
     const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
     this.controller.enqueue({ packet: Buffer.from(cues) });
+
+    const latestTimestamp = Object.values(this.timestamps).sort(
+      (a, b) => a.elapsed - b.elapsed
+    )[0].elapsed;
+    const duration = this.relativeTimestamp + latestTimestamp;
+    const durationElement = this.builder.createDuration(duration);
+    this.controller.enqueue({ eol: { duration, durationElement } });
+
     this.controller.close();
   }
 }
 
 class ClusterTimestamp {
   baseTimestamp?: number;
+  elapsed = 0;
 
   constructor(public clockRate: number) {}
 
@@ -163,15 +199,15 @@ class ClusterTimestamp {
       Math.abs(timestamp - this.baseTimestamp) > (Max32Uint / 4) * 3;
 
     if (rotate) {
-      console.log("rotate");
+      log("rotate", { baseTimestamp: this.baseTimestamp, timestamp });
     }
 
     const elapsed = rotate
       ? timestamp + Max32Uint - this.baseTimestamp
       : timestamp - this.baseTimestamp;
 
-    const elapsedNs = int((elapsed / this.clockRate) * 1000);
-    return elapsedNs;
+    this.elapsed = int((elapsed / this.clockRate) * 1000);
+    return this.elapsed;
   }
 }
 

@@ -1,15 +1,20 @@
+import debug from "debug";
 import { TransformStream } from "stream/web";
 
+import { uint16Add } from "..";
 import { RtpHeader, RtpPacket } from "..";
 import { dePacketizeRtpPackets } from "../codec";
 import { enumerate } from "../helper";
+import { RtpOutput } from "./source/rtp";
 
-export interface DepacketizerInput {
-  rtp: RtpPacket;
-}
+const srcPath = `werift-rtp : packages/rtp/src/processor_v2/depacketizer.ts`;
+const log = debug(srcPath);
+
+export type DepacketizerInput = RtpOutput;
 
 export interface DepacketizerOutput {
-  frame: { data: Buffer; isKeyframe: boolean; timestamp: number };
+  frame?: { data: Buffer; isKeyframe: boolean; timestamp: number };
+  eol?: boolean;
 }
 
 export const depacketizeTransformer = (
@@ -24,10 +29,18 @@ class DepacketizeTransformer {
 
   constructor(
     private isFinalPacketInSequence: (header: RtpHeader) => boolean,
-    codec: string
+    codec: string,
+    options: { waitForKeyframe?: boolean } = {}
   ) {
     this.transform = new TransformStream({
       transform: (input, output) => {
+        if (!input.rtp) {
+          if (input.eol) {
+            output.enqueue({ eol: true });
+          }
+          return;
+        }
+
         const packets = this.onRtp(input.rtp);
         if (packets) {
           try {
@@ -36,11 +49,11 @@ class DepacketizeTransformer {
             if (this.packetLostHappened) {
               if (isKeyframe) {
                 this.packetLostHappened = false;
-              } else {
-                console.log("skip");
+              } else if (options.waitForKeyframe) {
                 return;
               }
             }
+
             output.enqueue({
               frame: {
                 data,
@@ -56,17 +69,21 @@ class DepacketizeTransformer {
 
   lastSeqNum?: number;
   private onRtp(rtp: RtpPacket) {
-    // if (this.lastSeqNum != undefined) {
-    //   if (uint16Add(this.lastSeqNum, 1) !== rtp.header.sequenceNumber) {
-    //     // packet loss happened
-    //     console.log("packet loss happened");
-    //     this.packetLostHappened = true;
-    //     this.buffering = [];
-    //   }
-    // }
+    const { sequenceNumber } = rtp.header;
+    if (this.lastSeqNum != undefined) {
+      const expect = uint16Add(this.lastSeqNum, 1);
+      if (sequenceNumber < expect) {
+        return;
+      }
+      if (sequenceNumber > expect) {
+        log("packet lost happened", { expect, sequenceNumber });
+        this.packetLostHappened = true;
+        this.buffering = [];
+      }
+    }
 
     this.buffering.push(rtp);
-    this.lastSeqNum = rtp.header.sequenceNumber;
+    this.lastSeqNum = sequenceNumber;
 
     let finalPacket: number | undefined;
     for (const [i, p] of enumerate(this.buffering)) {

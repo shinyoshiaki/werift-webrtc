@@ -14,7 +14,7 @@ import { MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
   readonly uuid = uuid.v4();
-  readonly onTrack = new Event<[MediaStreamTrack]>();
+  readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid?: string;
   mLineIndex?: number;
   usedForSender = false;
@@ -69,7 +69,9 @@ export class RTCRtpTransceiver {
 
   addTrack(track: MediaStreamTrack) {
     const res = this.receiver.addTrack(track);
-    if (res) this.onTrack.execute(track);
+    if (res) {
+      this.onTrack.execute(track, this);
+    }
   }
 
   // todo impl

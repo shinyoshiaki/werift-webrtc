@@ -14,38 +14,31 @@ server.on("connection", async (socket) => {
 
   const pc = new RTCPeerConnection();
 
-  {
-    const transceiver = pc.addTransceiver("video");
+  pc.addTransceiver("video").onTrack.subscribe(async (track, transceiver) => {
+    transceiver.sender.replaceTrack(track);
 
-    transceiver.onTrack.subscribe((track) => {
-      transceiver.sender.replaceTrack(track);
+    recorder.addTrack(track);
+    if (recorder.tracks.length === 2) {
+      await recorder.start();
+    }
 
-      recorder.addTrack(track);
-      if (recorder.tracks.length === 2) {
-        recorder.start();
-      }
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 3_000);
+  });
 
-      setInterval(() => {
-        transceiver.receiver.sendRtcpPLI(track.ssrc);
-      }, 10_000);
-    });
-  }
-  {
-    const transceiver = pc.addTransceiver("audio");
-    transceiver.onTrack.subscribe((track) => {
-      transceiver.sender.replaceTrack(track);
+  pc.addTransceiver("audio").onTrack.subscribe(async (track, transceiver) => {
+    transceiver.sender.replaceTrack(track);
+    recorder.addTrack(track);
+    if (recorder.tracks.length === 2) {
+      await recorder.start();
+    }
+  });
 
-      recorder.addTrack(track);
-      if (recorder.tracks.length === 2) {
-        recorder.start();
-      }
-    });
-  }
-
-  setTimeout(() => {
-    recorder.stop();
+  setTimeout(async () => {
+    await recorder.stop();
     console.log("stop");
-  }, 60_000 * 60 * 3);
+  }, 10_000);
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
