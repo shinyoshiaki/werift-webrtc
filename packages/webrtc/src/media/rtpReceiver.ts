@@ -1,6 +1,7 @@
 import { debug } from "debug";
 import { jspack } from "jspack";
 import Event from "rx.mini";
+import { ReadableStream, WritableStream } from "stream/web";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
 
@@ -70,6 +71,10 @@ export class RTCRtpReceiver {
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
   private remoteStreams: { [ssrc: number]: StreamStatistics } = {};
+  private writable?: WritableStream;
+  private readable?: ReadableStream;
+  private insertStream?: (rtp: RtpPacket) => void;
+  private onStreamTransformed = new Event<[RTCEncodedFrame]>();
 
   constructor(
     readonly config: PeerConfig,
@@ -242,12 +247,29 @@ export class RTCRtpReceiver {
     this.handleRTP(packet, extensions, track);
   };
 
-  private handleRTP(
+  private async handleRTP(
     packet: RtpPacket,
     extensions: Extensions,
     track?: MediaStreamTrack
   ) {
     if (this.stopped) return;
+    if (this.insertStream) {
+      const origin = packet;
+      setImmediate(() => {
+        this.insertStream!(origin);
+      });
+      try {
+        const [frame] = await this.onStreamTransformed.watch((frame) => {
+          return frame.sequenceNumber === origin.header.sequenceNumber;
+        }, 1000);
+        if (frame.data == undefined) {
+          return;
+        }
+        packet.payload = frame.data;
+      } catch (error) {
+        return;
+      }
+    }
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
@@ -265,7 +287,8 @@ export class RTCRtpReceiver {
         RTP_EXTENSION_URI.transportWideCC
       ] as number;
       if (!transportSequenceNumber == undefined) {
-        throw new Error("undefined");
+        log("transportSequenceNumber undefined");
+        return;
       }
 
       this.receiverTWCC.handleTWCC(transportSequenceNumber);
@@ -315,6 +338,37 @@ export class RTCRtpReceiver {
 
     this.runRtcp();
   }
+
+  createEncodedStreams(): {
+    readable: ReadableStream;
+    writable: WritableStream;
+  } {
+    if (this.writable || this.readable) {
+      throw new Error("createEncodedStreams already called");
+    }
+
+    const readable = new ReadableStream<RTCEncodedFrame>({
+      start: (controller) => {
+        this.insertStream = (rtp) => {
+          controller.enqueue({
+            timestamp: rtp.header.timestamp,
+            sequenceNumber: rtp.header.sequenceNumber,
+            data: rtp.payload,
+            ssrc: rtp.header.ssrc,
+          });
+        };
+      },
+    });
+    const writable = new WritableStream<RTCEncodedFrame>({
+      write: (frame) => {
+        this.onStreamTransformed.execute(frame);
+      },
+    });
+    this.readable = readable;
+    this.writable = writable;
+
+    return { readable, writable };
+  }
 }
 
 export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
@@ -329,4 +383,11 @@ export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
     rtx.payload.subarray(2)
   );
   return packet;
+}
+
+export interface RTCEncodedFrame {
+  timestamp: number;
+  sequenceNumber: number;
+  data: Buffer;
+  ssrc: number;
 }
