@@ -24,6 +24,7 @@
 - [pipe](JitterBuffer.md#pipe)
 - [pushRtcpPackets](JitterBuffer.md#pushrtcppackets)
 - [pushRtpPackets](JitterBuffer.md#pushrtppackets)
+- [stop](JitterBuffer.md#stop)
 
 ## Constructors
 
@@ -36,8 +37,8 @@
 | Name | Type |
 | :------ | :------ |
 | `streams?` | `Object` |
-| `streams.rtcpStream?` | `default`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
-| `streams.rtpStream?` | `default`<[[`RtpPacket`](RtpPacket.md)]\> |
+| `streams.rtcpStream?` | `Event`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
+| `streams.rtpStream?` | `Event`<[[`RtpPacket`](RtpPacket.md)]\> |
 
 #### Inherited from
 
@@ -118,3 +119,17 @@ ___
 #### Overrides
 
 [Pipeline](Pipeline.md).[pushRtpPackets](Pipeline.md#pushrtppackets)
+
+___
+
+### stop
+
+▸ **stop**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[Pipeline](Pipeline.md).[stop](Pipeline.md#stop)

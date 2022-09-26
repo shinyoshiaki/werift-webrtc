@@ -36,6 +36,8 @@
 
 - [isKeyframe](Vp8RtpPayload.md#iskeyframe)
 - [isPartitionHead](Vp8RtpPayload.md#ispartitionhead)
+- [payloadHeaderExist](Vp8RtpPayload.md#payloadheaderexist)
+- [size](Vp8RtpPayload.md#size)
 
 ### Methods
 
@@ -122,19 +124,19 @@ ___
 
 ### size0
 
-• `Optional` **size0**: `number`
+• **size0**: `number` = `0`
 
 ___
 
 ### size1
 
-• `Optional` **size1**: `number`
+• **size1**: `number` = `0`
 
 ___
 
 ### size2
 
-• `Optional` **size2**: `number`
+• **size2**: `number` = `0`
 
 ___
 
@@ -177,6 +179,26 @@ ___
 #### Returns
 
 `boolean`
+
+___
+
+### payloadHeaderExist
+
+• `get` **payloadHeaderExist**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+___
+
+### size
+
+• `get` **size**(): `number`
+
+#### Returns
+
+`number`
 
 ## Methods
 

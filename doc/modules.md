@@ -25,6 +25,7 @@
 - [H264RtpPayload](classes/H264RtpPayload.md)
 - [IceCandidate](classes/IceCandidate.md)
 - [JitterBuffer](classes/JitterBuffer.md)
+- [JitterBufferTransformer](classes/JitterBufferTransformer.md)
 - [LipSync](classes/LipSync.md)
 - [MediaDescription](classes/MediaDescription.md)
 - [MediaRecorder](classes/MediaRecorder.md)
@@ -75,6 +76,7 @@
 - [RtpBuilder](classes/RtpBuilder.md)
 - [RtpHeader](classes/RtpHeader.md)
 - [RtpPacket](classes/RtpPacket.md)
+- [RtpSourceStream](classes/RtpSourceStream.md)
 - [RunLengthChunk](classes/RunLengthChunk.md)
 - [SampleBuilder](classes/SampleBuilder.md)
 - [SessionDescription](classes/SessionDescription.md)
@@ -87,12 +89,18 @@
 - [TransportWideCC](classes/TransportWideCC.md)
 - [Vp8RtpPayload](classes/Vp8RtpPayload.md)
 - [Vp9RtpPayload](classes/Vp9RtpPayload.md)
+- [WebmLiveSink](classes/WebmLiveSink.md)
 - [WebmOutput](classes/WebmOutput.md)
+- [WeriftError](classes/WeriftError.md)
 
 ### Interfaces
 
 - [BufferResolve](interfaces/BufferResolve.md)
+- [DepacketizerOutput](interfaces/DepacketizerOutput.md)
+- [FileIO](interfaces/FileIO.md)
 - [IceOptions](interfaces/IceOptions.md)
+- [JitterBufferOptions](interfaces/JitterBufferOptions.md)
+- [JitterBufferOutput](interfaces/JitterBufferOutput.md)
 - [MediaRecorderOptions](interfaces/MediaRecorderOptions.md)
 - [MessageEvent](interfaces/MessageEvent.md)
 - [PeerConfig](interfaces/PeerConfig.md)
@@ -104,6 +112,7 @@
 - [RTCRtpSendParameters](interfaces/RTCRtpSendParameters.md)
 - [RTCTrackEvent](interfaces/RTCTrackEvent.md)
 - [TransceiverOptions](interfaces/TransceiverOptions.md)
+- [WebmLiveOption](interfaces/WebmLiveOption.md)
 
 ### Type Aliases
 
@@ -113,6 +122,7 @@
 - [ConnectionState](modules.md#connectionstate)
 - [CurveTypes](modules.md#curvetypes)
 - [DCState](modules.md#dcstate)
+- [DepacketizerInput](modules.md#depacketizerinput)
 - [Direction](modules.md#direction)
 - [DtlsKeys](modules.md#dtlskeys)
 - [DtlsRole](modules.md#dtlsrole)
@@ -121,16 +131,20 @@
 - [HashAlgorithms](modules.md#hashalgorithms)
 - [IceGathererState](modules.md#icegathererstate)
 - [InterfaceAddresses](modules.md#interfaceaddresses)
+- [JitterBufferInput](modules.md#jitterbufferinput)
 - [Kind](modules.md#kind)
 - [NamedCurveAlgorithms](modules.md#namedcurvealgorithms)
 - [RTCIceConnectionState](modules.md#rtciceconnectionstate)
 - [RTCIceServer](modules.md#rtciceserver)
 - [RTCPFB](modules.md#rtcpfb)
 - [RTCSignalingState](modules.md#rtcsignalingstate)
+- [RequireAtLeastOne](modules.md#requireatleastone)
 - [RtcpPacket](modules.md#rtcppacket)
 - [SignatureAlgorithms](modules.md#signaturealgorithms)
 - [SignatureHash](modules.md#signaturehash)
 - [SignatureSchemes](modules.md#signatureschemes)
+- [WebmLiveInput](modules.md#webmliveinput)
+- [WebmLiveOutput](modules.md#webmliveoutput)
 
 ### Variables
 
@@ -181,7 +195,10 @@
 - [createMediaDescriptionForSctp](modules.md#createmediadescriptionforsctp)
 - [createMediaDescriptionForTransceiver](modules.md#createmediadescriptionfortransceiver)
 - [createSelfSignedCertificate](modules.md#createselfsignedcertificate)
+- [dePacketizeRtpPacket](modules.md#depacketizertppacket)
+- [dePacketizeRtpPackets](modules.md#depacketizertppackets)
 - [deepMerge](modules.md#deepmerge)
+- [depacketizeTransformer](modules.md#depacketizetransformer)
 - [dumpBuffer](modules.md#dumpbuffer)
 - [findCodecByMimeType](modules.md#findcodecbymimetype)
 - [findPort](modules.md#findport)
@@ -194,6 +211,7 @@
 - [isDtls](modules.md#isdtls)
 - [isMedia](modules.md#ismedia)
 - [isRtcp](modules.md#isrtcp)
+- [jitterBufferTransformer](modules.md#jitterbuffertransformer)
 - [leb128decode](modules.md#leb128decode)
 - [microTime](modules.md#microtime)
 - [milliTime](modules.md#millitime)
@@ -270,6 +288,12 @@ ___
 
 ___
 
+### DepacketizerInput
+
+Ƭ **DepacketizerInput**: `RtpOutput`
+
+___
+
 ### Direction
 
 Ƭ **Direction**: typeof [`Directions`](modules.md#directions)[`number`]
@@ -333,6 +357,12 @@ ___
 
 ___
 
+### JitterBufferInput
+
+Ƭ **JitterBufferInput**: `RtpOutput`
+
+___
+
 ### Kind
 
 Ƭ **Kind**: ``"audio"`` \| ``"video"`` \| ``"application"`` \| ``"unknown"``
@@ -384,6 +414,18 @@ ___
 
 ___
 
+### RequireAtLeastOne
+
+Ƭ **RequireAtLeastOne**<`T`\>: { [K in keyof T]-?: Required<Pick<T, K\>\> & Partial<Pick<T, Exclude<keyof T, K\>\>\> }[keyof `T`]
+
+#### Type parameters
+
+| Name |
+| :------ |
+| `T` |
+
+___
+
 ### RtcpPacket
 
 Ƭ **RtcpPacket**: [`RtcpRrPacket`](classes/RtcpRrPacket.md) \| [`RtcpSrPacket`](classes/RtcpSrPacket.md) \| [`RtcpPayloadSpecificFeedback`](classes/RtcpPayloadSpecificFeedback.md) \| [`RtcpSourceDescriptionPacket`](classes/RtcpSourceDescriptionPacket.md) \| [`RtcpTransportLayerFeedback`](classes/RtcpTransportLayerFeedback.md)
@@ -412,6 +454,27 @@ ___
 ### SignatureSchemes
 
 Ƭ **SignatureSchemes**: typeof [`SignatureScheme`](modules.md#signaturescheme)[keyof typeof [`SignatureScheme`](modules.md#signaturescheme)]
+
+___
+
+### WebmLiveInput
+
+Ƭ **WebmLiveInput**: [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)
+
+___
+
+### WebmLiveOutput
+
+Ƭ **WebmLiveOutput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `eol?` | { `duration`: `number` ; `durationElement`: `Uint8Array`  } |
+| `eol.duration` | `number` |
+| `eol.durationElement` | `Uint8Array` |
+| `packet?` | `Buffer` |
 
 ## Variables
 
@@ -966,6 +1029,40 @@ ___
 
 ___
 
+### dePacketizeRtpPacket
+
+▸ **dePacketizeRtpPacket**(`codec`, `packet`): [`DePacketizerBase`](classes/DePacketizerBase.md)
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `codec` | `string` |
+| `packet` | [`RtpPacket`](classes/RtpPacket.md) |
+
+#### Returns
+
+[`DePacketizerBase`](classes/DePacketizerBase.md)
+
+___
+
+### dePacketizeRtpPackets
+
+▸ **dePacketizeRtpPackets**(`codec`, `packets`): { `data`: `Buffer` ; `isKeyframe`: `boolean` ; `partitions`: [`DePacketizerBase`](classes/DePacketizerBase.md)[]  } \| { `data`: `Buffer` ; `isKeyframe`: `boolean`  }
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `codec` | `string` |
+| `packets` | [`RtpPacket`](classes/RtpPacket.md)[] |
+
+#### Returns
+
+{ `data`: `Buffer` ; `isKeyframe`: `boolean` ; `partitions`: [`DePacketizerBase`](classes/DePacketizerBase.md)[]  } \| { `data`: `Buffer` ; `isKeyframe`: `boolean`  }
+
+___
+
 ### deepMerge
 
 ▸ **deepMerge**<`T`\>(`dst`, `src`): `T`
@@ -986,6 +1083,22 @@ ___
 #### Returns
 
 `T`
+
+___
+
+### depacketizeTransformer
+
+▸ **depacketizeTransformer**(...`args`): `TransformStream`<`RtpOutput`, [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `...args` | [isFinalPacketInSequence: Function, codec: string, options: Object] |
+
+#### Returns
+
+`TransformStream`<`RtpOutput`, [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)\>
 
 ___
 
@@ -1188,6 +1301,22 @@ ___
 #### Returns
 
 `boolean`
+
+___
+
+### jitterBufferTransformer
+
+▸ **jitterBufferTransformer**(...`args`): `TransformStream`<`RtpOutput`, [`JitterBufferOutput`](interfaces/JitterBufferOutput.md)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `...args` | [clockRate: number, options: Partial<JitterBufferOptions\>] |
+
+#### Returns
+
+`TransformStream`<`RtpOutput`, [`JitterBufferOutput`](interfaces/JitterBufferOutput.md)\>
 
 ___
 

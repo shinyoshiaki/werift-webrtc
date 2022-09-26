@@ -117,7 +117,7 @@ ___
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: `default`<[``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
+• `Readonly` **onStateChange**: `Event`<[``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
 
 ___
 

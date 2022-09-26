@@ -89,7 +89,7 @@ ___
 
 ### onDataChannel
 
-• `Readonly` **onDataChannel**: `default`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
+• `Readonly` **onDataChannel**: `Event`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
 
 ___
 

@@ -27,6 +27,7 @@
 - [pipe](LipSync.md#pipe)
 - [pushRtcpPackets](LipSync.md#pushrtcppackets)
 - [pushRtpPackets](LipSync.md#pushrtppackets)
+- [stop](LipSync.md#stop)
 
 ## Constructors
 
@@ -41,8 +42,8 @@
 | `clockRate` | `number` |
 | `mismatch` | `number` |
 | `streams?` | `Object` |
-| `streams.rtcpStream?` | `default`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
-| `streams.rtpStream?` | `default`<[[`RtpPacket`](RtpPacket.md)]\> |
+| `streams.rtcpStream?` | `Event`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
+| `streams.rtpStream?` | `Event`<[[`RtpPacket`](RtpPacket.md)]\> |
 
 #### Overrides
 
@@ -141,3 +142,17 @@ ___
 #### Overrides
 
 [Pipeline](Pipeline.md).[pushRtpPackets](Pipeline.md#pushrtppackets)
+
+___
+
+### stop
+
+▸ **stop**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[Pipeline](Pipeline.md).[stop](Pipeline.md#stop)

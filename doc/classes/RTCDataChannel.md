@@ -103,13 +103,13 @@ ___
 
 ### bufferedAmountLow
 
-• `Readonly` **bufferedAmountLow**: `default`<`any`[]\>
+• `Readonly` **bufferedAmountLow**: `Event`<`any`[]\>
 
 ___
 
 ### error
 
-• `Readonly` **error**: `default`<[`Error`]\>
+• `Readonly` **error**: `Event`<[`Error`]\>
 
 ___
 
@@ -127,7 +127,7 @@ ___
 
 ### message
 
-• `Readonly` **message**: `default`<[`string` \| `Buffer`]\>
+• `Readonly` **message**: `Event`<[`string` \| `Buffer`]\>
 
 ___
 
@@ -175,7 +175,7 @@ ___
 
 ### stateChanged
 
-• `Readonly` **stateChanged**: `default`<[[`DCState`](../modules.md#dcstate)]\>
+• `Readonly` **stateChanged**: `Event`<[[`DCState`](../modules.md#dcstate)]\>
 
 ___
 
@@ -732,7 +732,7 @@ ___
 
 ▸ **prependOnceListener**(`eventName`, `listener`): [`RTCDataChannel`](RTCDataChannel.md)
 
-Adds a **one-time**`listener` function for the event named `eventName` to the_beginning_ of the listeners array. The next time `eventName` is triggered, this
+Adds a **one-time**`listener` function for the event named `eventName` to the _beginning_ of the listeners array. The next time `eventName` is triggered, this
 listener is removed, and then invoked.
 
 ```js
@@ -889,8 +889,8 @@ listener array for the specified `eventName`, then `removeListener()` must be
 called multiple times to remove each instance.
 
 Once an event is emitted, all listeners attached to it at the
-time of emitting are called in order. This implies that any`removeListener()` or `removeAllListeners()` calls _after_ emitting and_before_ the last listener finishes execution will
-not remove them from`emit()` in progress. Subsequent events behave as expected.
+time of emitting are called in order. This implies that any`removeListener()` or `removeAllListeners()` calls _after_ emitting and _before_ the last listener finishes execution
+will not remove them from`emit()` in progress. Subsequent events behave as expected.
 
 ```js
 const myEmitter = new MyEmitter();
