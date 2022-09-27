@@ -10,7 +10,7 @@ export class SampleBuilder extends Pipeline {
   constructor(
     private isFinalPacketInSequence: (header: RtpHeader) => boolean,
     streams?: {
-      rtpStream?: Event<[RtpPacket]>;
+      rtpStream?: Event<[RtpPacket, any]>;
       rtcpStream?: Event<[RtcpPacket]>;
     }
   ) {
