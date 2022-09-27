@@ -7,7 +7,7 @@ export abstract class Pipeline {
   private disposer?: () => void;
 
   constructor(streams?: {
-    rtpStream?: Event<[RtpPacket, any]>;
+    rtpStream?: Event<[RtpPacket]>;
     rtcpStream?: Event<[RtcpPacket]>;
   }) {
     const disposers: ((() => void) | undefined)[] = [];

@@ -15,7 +15,6 @@ import {
   RtcpSrPacket,
   RtpHeader,
   RtpPacket,
-  UlpFec,
 } from "../../../rtp/src";
 import { codecParametersFromString, PeerConfig } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
@@ -251,7 +250,6 @@ export class RTCRtpReceiver {
     if (this.stopped) return;
 
     const codec = this.codecs[packet.header.payloadType];
-    // console.log(codec);
     if (!codec) {
       // log("unknown codec " + packet.header.payloadType);
       return;
@@ -306,7 +304,7 @@ export class RTCRtpReceiver {
         if (track.kind === "audio") {
           const payloads = this.redHandler.push(red, packet);
           for (const packet of payloads) {
-            track.onReceiveRtp.execute(packet.clone(), { isRed: true });
+            track.onReceiveRtp.execute(packet.clone());
           }
         } else {
           if (red.blocks.length === 1) {
@@ -321,13 +319,13 @@ export class RTCRtpReceiver {
               }),
               block.block
             );
-            track.onReceiveRtp.execute(mediaPacket, { isRed: true });
+            track.onReceiveRtp.execute(mediaPacket);
           } else if (red.blocks.length > 1) {
             console.log("!!!!!");
           }
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone(), {});
+        track.onReceiveRtp.execute(packet.clone());
       }
     }
 

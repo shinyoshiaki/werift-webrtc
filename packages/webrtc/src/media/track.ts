@@ -22,9 +22,7 @@ export class MediaStreamTrack extends EventTarget {
   /**todo impl */
   enabled = true;
 
-  readonly onReceiveRtp = new Event<
-    [RtpPacket, { isRed?: boolean; isUlpFex?: boolean }]
-  >();
+  readonly onReceiveRtp = new Event<[RtpPacket]>();
   readonly onReceiveRtcp = new Event<[RtcpPacket]>();
   readonly onSourceChanged = new Event<
     [Pick<RtpHeader, "sequenceNumber" | "timestamp">]
@@ -63,7 +61,7 @@ export class MediaStreamTrack extends EventTarget {
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
     packet.header.payloadType = this.codec.payloadType;
-    this.onReceiveRtp.execute(packet, {});
+    this.onReceiveRtp.execute(packet);
   };
 }
 
