@@ -86,17 +86,17 @@ export class RTCRtpReceiver {
   }
 
   get nackEnabled() {
-    return this.codecArray[0].rtcpFeedback.find((f) => f.type === "nack");
+    return this.codecArray[0]?.rtcpFeedback.find((f) => f.type === "nack");
   }
 
   get twccEnabled() {
-    return this.codecArray[0].rtcpFeedback.find(
+    return this.codecArray[0]?.rtcpFeedback.find(
       (f) => f.type === useTWCC().type
     );
   }
 
   get pliEnabled() {
-    return this.codecArray[0].rtcpFeedback.find(
+    return this.codecArray[0]?.rtcpFeedback.find(
       (f) => f.type === usePLI().type
     );
   }
