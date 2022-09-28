@@ -16,6 +16,7 @@ server.on("connection", async (socket) => {
   const recorder = new MediaRecorder([], "./werift.webm", {
     width: 640,
     height: 360,
+    jitterBufferLatency: 50,
   });
 
   const pc = new RTCPeerConnection({

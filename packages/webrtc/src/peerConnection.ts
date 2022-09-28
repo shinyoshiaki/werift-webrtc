@@ -986,7 +986,9 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
+    if (remoteMedia.ssrc[0]?.ssrc) {
+      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
+    }
   }
 
   private setRemoteSCTP(
