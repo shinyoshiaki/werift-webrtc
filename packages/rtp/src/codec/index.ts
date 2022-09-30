@@ -18,7 +18,7 @@ export function dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
     const partitions = packets.map((p) => DePacketizer.deSerialize(p.payload));
     const isKeyframe = !!partitions.find((f) => f.isKeyframe);
     const data = Buffer.concat(partitions.map((f) => f.payload));
-    return { isKeyframe, data, partitions };
+    return { isKeyframe, data };
   };
 
   switch (codec.toUpperCase()) {
@@ -31,12 +31,7 @@ export function dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
     case "MPEG4/ISO/AVC":
       return basicCodecParser(H264RtpPayload);
     case "VP8": {
-      const { partitions, data, isKeyframe } = basicCodecParser(Vp8RtpPayload);
-      if (!(partitions[0] as Vp8RtpPayload).payloadHeaderExist) {
-        throw new Error();
-      }
-
-      return { data, isKeyframe };
+      return basicCodecParser(Vp8RtpPayload);
     }
     case "VP9":
       return basicCodecParser(Vp9RtpPayload);

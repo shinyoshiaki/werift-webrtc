@@ -1,21 +1,16 @@
 import debug from "debug";
-import {
-  ReadableStream,
-  ReadableStreamController,
-  WritableStream,
-} from "stream/web";
 
-import { int, PromiseQueue } from "..";
+import { int } from "..";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
 import { DepacketizerOutput } from "./depacketizer";
 
 const sourcePath = `werift-rtp : packages/rtp/src/processor_v2/webmLive.ts`;
 const log = debug(sourcePath);
 
-export type WebmLiveInput = DepacketizerOutput;
+export type WebmInput = DepacketizerOutput;
 
-export type WebmLiveOutput = {
-  packet?: Buffer;
+export type WebmOutput = {
+  saveToFile?: Buffer;
   eol?: {
     /**ms */
     duration: number;
@@ -23,23 +18,18 @@ export type WebmLiveOutput = {
   };
 };
 
-export interface WebmLiveOption {
+export interface WebmOption {
   /**ms */
   duration?: number;
 }
 
-export class WebmLiveSink {
+export class WebmBase {
   private builder: WEBMBuilder;
-  private queue = new PromiseQueue();
   private relativeTimestamp = 0;
   private timestamps: { [pt: number]: ClusterTimestamp } = {};
   private cuePoints: CuePoint[] = [];
   private position = 0;
   stopped = false;
-  audioStream!: WritableStream<WebmLiveInput>;
-  videoStream!: WritableStream<WebmLiveInput>;
-  webmStream: ReadableStream<WebmLiveOutput>;
-  private controller!: ReadableStreamController<WebmLiveOutput>;
 
   constructor(
     public tracks: {
@@ -50,56 +40,48 @@ export class WebmLiveSink {
       clockRate: number;
       trackNumber: number;
     }[],
-    private options: WebmLiveOption = {}
+    private output: (output: WebmOutput) => void,
+    private options: WebmOption = {}
   ) {
     this.builder = new WEBMBuilder(tracks);
 
     tracks.forEach((t) => {
       this.timestamps[t.trackNumber] = new ClusterTimestamp(t.clockRate);
     });
-
-    const createStream = (trackNumber: number) =>
-      new WritableStream({
-        write: ({ frame, eol }: WebmLiveInput) => {
-          if (this.stopped) return;
-          if (!frame) {
-            if (eol) {
-              this.stop();
-            }
-            return;
-          }
-
-          this.queue.push(() =>
-            this.onFrameReceived({ ...frame, trackNumber })
-          );
-        },
-      });
-
-    const audioTrack = tracks.find((t) => t.kind === "audio");
-    if (audioTrack) {
-      this.audioStream = createStream(audioTrack.trackNumber);
-    }
-
-    const videoTrack = tracks.find((t) => t.kind === "video");
-    if (videoTrack) {
-      this.videoStream = createStream(videoTrack.trackNumber);
-    }
-
-    this.webmStream = new ReadableStream<WebmLiveOutput>({
-      start: (controller) => {
-        this.controller = controller;
-      },
-    });
-
-    this.queue.push(() => this.init());
   }
 
-  private async init() {
+  private processInput(input: WebmInput, trackNumber: number) {
+    if (this.stopped) return;
+    if (!input.frame) {
+      if (input.eol) {
+        this.stop();
+      }
+      return;
+    }
+
+    this.onFrameReceived({ ...input.frame, trackNumber });
+  }
+
+  processAudioInput(input: WebmInput) {
+    const track = this.tracks.find((t) => t.kind === "audio");
+    if (track) {
+      this.processInput(input, track.trackNumber);
+    }
+  }
+
+  processVideoInput(input: WebmInput) {
+    const track = this.tracks.find((t) => t.kind === "video");
+    if (track) {
+      this.processInput(input, track.trackNumber);
+    }
+  }
+
+  start() {
     const staticPart = Buffer.concat([
       this.builder.ebmlHeader,
       this.builder.createSegment(this.options.duration),
     ]);
-    this.controller.enqueue({ packet: staticPart });
+    this.output({ saveToFile: staticPart });
     this.position += staticPart.length;
 
     const video = this.tracks.find((t) => t.kind === "video");
@@ -110,9 +92,7 @@ export class WebmLiveSink {
     }
   }
 
-  private async onFrameReceived(
-    frame: WebmLiveInput["frame"] & { trackNumber: number }
-  ) {
+  private onFrameReceived(frame: WebmInput["frame"] & { trackNumber: number }) {
     const track = this.tracks.find((t) => t.trackNumber === frame.trackNumber);
     if (!track) {
       return;
@@ -128,7 +108,7 @@ export class WebmLiveSink {
       this.relativeTimestamp += elapsed;
 
       const cluster = this.builder.createCluster(this.relativeTimestamp);
-      this.controller.enqueue({ packet: Buffer.from(cluster) });
+      this.output({ saveToFile: Buffer.from(cluster) });
 
       if (elapsed !== 0) {
         this.cuePoints.push(
@@ -151,7 +131,7 @@ export class WebmLiveSink {
       track.trackNumber,
       elapsed
     );
-    this.controller.enqueue({ packet: block });
+    this.output({ saveToFile: block });
     this.position += block.length;
     const [cuePoint] = this.cuePoints.slice(-1);
     if (cuePoint) {
@@ -159,7 +139,7 @@ export class WebmLiveSink {
     }
   }
 
-  private async stop() {
+  private stop() {
     if (this.stopped) {
       return;
     }
@@ -168,16 +148,14 @@ export class WebmLiveSink {
     log("stop");
 
     const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
-    this.controller.enqueue({ packet: Buffer.from(cues) });
+    this.output({ saveToFile: Buffer.from(cues) });
 
     const latestTimestamp = Object.values(this.timestamps).sort(
       (a, b) => a.elapsed - b.elapsed
     )[0].elapsed;
     const duration = this.relativeTimestamp + latestTimestamp;
     const durationElement = this.builder.createDuration(duration);
-    this.controller.enqueue({ eol: { duration, durationElement } });
-
-    this.controller.close();
+    this.output({ eol: { duration, durationElement } });
   }
 }
 

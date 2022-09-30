@@ -1,5 +1,4 @@
 import debug from "debug";
-import { TransformStream } from "stream/web";
 
 import {
   RequireAtLeastOne,
@@ -19,16 +18,10 @@ export interface JitterBufferOutput extends RtpOutput {
   isPacketLost?: { from: number; to: number };
 }
 
-export const jitterBufferTransformer = (
-  ...args: ConstructorParameters<typeof JitterBufferTransformer>
-) => new JitterBufferTransformer(...args).transform;
-
-export class JitterBufferTransformer {
-  transform: TransformStream<JitterBufferInput, JitterBufferOutput>;
-  options: JitterBufferOptions;
-  presentSeqNum?: number;
-  rtpBuffer: { [sequenceNumber: number]: RtpPacket } = {};
-
+export class JitterBufferBase {
+  private options: JitterBufferOptions;
+  private presentSeqNum?: number;
+  private rtpBuffer: { [sequenceNumber: number]: RtpPacket } = {};
   private get expectNextSeqNum() {
     return uint16Add(this.presentSeqNum!, 1);
   }
@@ -41,37 +34,46 @@ export class JitterBufferTransformer {
       latency: options.latency ?? 200,
       bufferSize: options.bufferSize ?? 10000,
     };
+  }
 
-    this.transform = new TransformStream({
-      transform: (input, output) => {
-        if (!input.rtp) {
-          if (input.eol) {
-            const packets = this.sortAndClearBuffer(this.rtpBuffer);
-            packets.forEach((rtp) => output.enqueue({ rtp }));
-            output.enqueue({ eol: true });
-          }
-          return;
+  processInput(input: JitterBufferInput): JitterBufferOutput[] {
+    const output: JitterBufferOutput[] = [];
+
+    if (!input.rtp) {
+      if (input.eol) {
+        const packets = this.sortAndClearBuffer(this.rtpBuffer);
+        for (const rtp of packets) {
+          output.push({ rtp });
         }
+        output.push({ eol: true });
+      }
+      return output;
+    }
 
-        const { packets, timeoutSeqNum } = this.processRtp(input.rtp);
+    const { packets, timeoutSeqNum } = this.processRtp(input.rtp);
 
-        if (timeoutSeqNum != undefined) {
-          const isPacketLost = {
-            from: this.expectNextSeqNum,
-            to: timeoutSeqNum,
-          };
-          this.presentSeqNum = input.rtp.header.sequenceNumber;
-          output.enqueue({ isPacketLost });
-          if (packets) {
-            [...packets, input.rtp].forEach((rtp) => output.enqueue({ rtp }));
-          }
-        } else {
-          if (packets) {
-            packets.forEach((rtp) => output.enqueue({ rtp }));
-          }
+    if (timeoutSeqNum != undefined) {
+      const isPacketLost = {
+        from: this.expectNextSeqNum,
+        to: timeoutSeqNum,
+      };
+      this.presentSeqNum = input.rtp.header.sequenceNumber;
+      output.push({ isPacketLost });
+      if (packets) {
+        for (const rtp of [...packets, input.rtp]) {
+          output.push({ rtp });
         }
-      },
-    });
+      }
+      return output;
+    } else {
+      if (packets) {
+        for (const rtp of packets) {
+          output.push({ rtp });
+        }
+        return output;
+      }
+      return [];
+    }
   }
 
   private processRtp(rtp: RtpPacket): RequireAtLeastOne<{
@@ -81,15 +83,18 @@ export class JitterBufferTransformer {
   }> {
     const { sequenceNumber, timestamp } = rtp.header;
 
+    // init
     if (this.presentSeqNum == undefined) {
       this.presentSeqNum = sequenceNumber;
       return { packets: [rtp] };
     }
 
+    // duplicate
     if (sequenceNumber <= this.presentSeqNum) {
       return { nothing: undefined };
     }
 
+    // expect
     if (sequenceNumber === this.expectNextSeqNum) {
       this.presentSeqNum = sequenceNumber;
 
@@ -116,7 +121,6 @@ export class JitterBufferTransformer {
     if (Object.values(this.rtpBuffer).length > this.options.bufferSize) {
       return;
     }
-
     this.rtpBuffer[rtp.header.sequenceNumber] = rtp;
   }
 
