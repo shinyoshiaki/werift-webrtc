@@ -18,15 +18,15 @@ export class RTCRtpTransceiver {
   mid?: string;
   mLineIndex?: number;
   usedForSender = false;
-  private _currentDirection?: Direction | "stopped";
-  set currentDirection(direction: Direction | "stopped" | undefined) {
+  private _currentDirection: CurrentDirection = this.direction;
+  set currentDirection(direction: CurrentDirection) {
     this._currentDirection = direction;
-    if (SenderDirections.includes(this._currentDirection || "")) {
+    if (SenderDirections.includes(this._currentDirection)) {
       this.usedForSender = true;
     }
   }
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): Direction | "stopped" | undefined {
+  get currentDirection(): CurrentDirection {
     return this._currentDirection;
   }
 
@@ -40,9 +40,6 @@ export class RTCRtpTransceiver {
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
-  stopping = false;
-  stopped = false;
-  removed = false;
 
   constructor(
     public readonly kind: Kind,
@@ -50,9 +47,10 @@ export class RTCRtpTransceiver {
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
-    public direction: Direction
+    public readonly direction: Direction
   ) {
     this.setDtlsTransport(dtlsTransport);
+    this.currentDirection = direction;
   }
 
   get dtlsTransport() {
@@ -75,13 +73,7 @@ export class RTCRtpTransceiver {
 
   // todo impl
   // https://www.w3.org/TR/webrtc/#methods-8
-  stop() {
-    if (this.stopping) return;
-
-    // todo Stop sending and receiving with transceiver.
-
-    this.stopping = true;
-  }
+  stop() {}
 
   getPayloadType(mimeType: string) {
     return this.codecs.find((codec) =>
@@ -98,6 +90,7 @@ export const Sendrecv = "sendrecv";
 export const Directions = [Inactive, Sendonly, Recvonly, Sendrecv] as const;
 
 export type Direction = typeof Directions[number];
+export type CurrentDirection = Direction | "stopped";
 
 type SimulcastDirection = "send" | "recv";
 

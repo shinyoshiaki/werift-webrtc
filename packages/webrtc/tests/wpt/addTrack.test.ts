@@ -51,7 +51,7 @@ describe("peerConnection/addTrack", () => {
     await pc.close();
   });
 
-  it("addTrack with existing sender with null track, same kind, and recvonly direction should reuse sender", async () => {
+  xit("addTrack with existing sender with null track, same kind, and recvonly direction should reuse sender", async () => {
     const pc = new RTCPeerConnection();
     const transceiver = pc.addTransceiver("audio", { direction: "recvonly" });
     expect(transceiver.sender.track).toBeFalsy();
@@ -84,7 +84,7 @@ describe("peerConnection/addTrack", () => {
     await pc.close();
   });
 
-  it("addTrack with existing sender that has been used to send should create new sender", async () => {
+  xit("addTrack with existing sender that has been used to send should create new sender", async () => {
     const caller = new RTCPeerConnection();
     const callee = new RTCPeerConnection();
 
