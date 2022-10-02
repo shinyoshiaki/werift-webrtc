@@ -12,7 +12,14 @@ export class RtpSourceStream {
   write!: (chunk: RtpOutput) => void;
   protected controller!: ReadableStreamController<RtpOutput>;
 
-  constructor(private options: { payloadType?: number } = {}) {
+  constructor(
+    private options: {
+      payloadType?: number;
+      clearInvalidPTPacket?: boolean;
+    } = {}
+  ) {
+    options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
+
     this.readable = new ReadableStream({
       start: (controller) => {
         this.controller = controller;
@@ -27,7 +34,8 @@ export class RtpSourceStream {
 
     if (
       this.options.payloadType != undefined &&
-      this.options.payloadType !== rtp.header.payloadType
+      this.options.payloadType !== rtp.header.payloadType &&
+      this.options.clearInvalidPTPacket
     ) {
       rtp.clear();
       return;
