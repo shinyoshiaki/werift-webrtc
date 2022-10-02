@@ -52,6 +52,7 @@ import {
   bundle_max_bundle_answer,
   bundle_max_bundle_offer,
 } from "./handler/bundle/max-bundle";
+import { mediachannel_removetrack_answer } from "./handler/mediachannel/removeTrack";
 
 const app = express();
 app.use(express.json() as never);
@@ -107,6 +108,7 @@ server.on("connectionrequest", async (_, accept) => {
     bundle_disable_offer: new bundle_disable_offer(),
     bundle_max_bundle_answer: new bundle_max_bundle_answer(),
     bundle_max_bundle_offer: new bundle_max_bundle_offer(),
+    mediachannel_removetrack_answer: new mediachannel_removetrack_answer(),
   };
 
   const transport = accept();
