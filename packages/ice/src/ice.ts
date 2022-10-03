@@ -4,7 +4,6 @@ import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
 import isEqual from "lodash/isEqual";
 import range from "lodash/range";
-import uniq from "lodash/uniq";
 import { isIPv4 } from "net";
 import os from "os";
 import PCancelable from "p-cancelable";
@@ -88,7 +87,9 @@ export class Connection {
 
       let address = getHostAddresses(this.useIpv4, this.useIpv6);
       if (this.options.additionalHostAddresses) {
-        address = uniq([...this.options.additionalHostAddresses, ...address]);
+        address = Array.from(
+          new Set([...this.options.additionalHostAddresses, ...address])
+        );
       }
 
       for (const component of this._components) {
