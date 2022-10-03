@@ -301,4 +301,8 @@ export class RtpPacket {
     );
     return p;
   }
+
+  clear() {
+    this.payload = null as any;
+  }
 }

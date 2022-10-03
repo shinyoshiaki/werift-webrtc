@@ -1,33 +1,50 @@
-import Event, { EventDisposer } from "rx.mini";
+import { ReadableStream, ReadableStreamController } from "stream/web";
 
 import { RtpPacket } from "../../rtp/rtp";
-import { SourceStream } from "./base";
 
 export interface RtpOutput {
   rtp?: RtpPacket;
   eol?: boolean;
 }
 
-export class RtpSourceStream extends SourceStream<RtpOutput> {
-  private readonly disposer = new EventDisposer();
+export class RtpSourceStream {
+  readable: ReadableStream<RtpOutput>;
+  write!: (chunk: RtpOutput) => void;
+  protected controller!: ReadableStreamController<RtpOutput>;
 
-  constructor(ev: Event<[RtpPacket]>, options: { payloadType?: number } = {}) {
-    super();
+  constructor(
+    private options: {
+      payloadType?: number;
+      clearInvalidPTPacket?: boolean;
+    } = {}
+  ) {
+    options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
 
-    ev.subscribe((rtp) => {
-      if (
-        options.payloadType != undefined &&
-        options.payloadType !== rtp.header.payloadType
-      ) {
-        return;
-      }
-
-      this.write({ rtp });
-    }).disposer(this.disposer);
+    this.readable = new ReadableStream({
+      start: (controller) => {
+        this.controller = controller;
+        this.write = (chunk) => controller.enqueue(chunk);
+      },
+    });
   }
 
-  async stop() {
+  push(packet: Buffer | RtpPacket) {
+    const rtp =
+      packet instanceof RtpPacket ? packet : RtpPacket.deSerialize(packet);
+
+    if (
+      this.options.payloadType != undefined &&
+      this.options.payloadType !== rtp.header.payloadType &&
+      this.options.clearInvalidPTPacket
+    ) {
+      rtp.clear();
+      return;
+    }
+
+    this.write({ rtp });
+  }
+
+  stop() {
     this.controller.enqueue({ eol: true });
-    this.disposer.dispose();
   }
 }
