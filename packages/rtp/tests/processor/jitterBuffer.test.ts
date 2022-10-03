@@ -58,6 +58,7 @@ describe("test JitterBuffer", () => {
     writer.write({ rtp: createRtpPacket(4, 4 + 90000 * 1) });
     const res = (await reader.read()).value!;
     expect(res.isPacketLost).toEqual({ from: 1, to: 3 });
+    //@ts-ignore
     expect(jitterBuffer.presentSeqNum).toBe(4);
 
     {
