@@ -31,9 +31,9 @@
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `bitLength` | `number` |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `bitLength` | `number` | Max 32bit |
 
 ## Properties
 

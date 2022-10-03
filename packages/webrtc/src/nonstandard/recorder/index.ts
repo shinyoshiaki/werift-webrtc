@@ -26,8 +26,8 @@ export class MediaRecorder {
     this.tracks.push(track);
   }
 
-  start() {
-    this.writer.start(this.tracks);
+  async start() {
+    await this.writer.start(this.tracks);
   }
 
   async stop() {
@@ -38,4 +38,8 @@ export class MediaRecorder {
 export interface MediaRecorderOptions {
   width: number;
   height: number;
+  jitterBufferLatency: number;
+  jitterBufferSize: number;
+  waitForKeyframe: boolean;
+  defaultDuration: number;
 }

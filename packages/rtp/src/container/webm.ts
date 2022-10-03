@@ -80,13 +80,16 @@ export class WEBMBuilder {
     return trackEntry;
   }
 
-  createSegment(duration?: number) {
+  createSegment(
+    /**ms */
+    duration?: number
+  ) {
     const elements = [
       EBML.element(EBML.ID.TimecodeScale, EBML.number(millisecond)),
       EBML.element(EBML.ID.MuxingApp, EBML.string("webrtc")),
       EBML.element(EBML.ID.WritingApp, EBML.string("webrtc")),
     ];
-    if (duration) {
+    if (duration != undefined) {
       elements.push(EBML.element(EBML.ID.Duration, EBML.float(duration)));
     }
     return EBML.build(
@@ -96,6 +99,13 @@ export class WEBMBuilder {
         EBML.element(EBML.ID.Tracks, this.trackEntries),
       ])
     );
+  }
+
+  createDuration(
+    /**ms */
+    duration: number
+  ) {
+    return EBML.build(EBML.element(EBML.ID.Duration, EBML.float(duration)));
   }
 
   createCuePoint(

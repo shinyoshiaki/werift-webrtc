@@ -27,6 +27,7 @@
 - [pipe](Pipeline.md#pipe)
 - [pushRtcpPackets](Pipeline.md#pushrtcppackets)
 - [pushRtpPackets](Pipeline.md#pushrtppackets)
+- [stop](Pipeline.md#stop)
 
 ## Constructors
 
@@ -39,8 +40,8 @@
 | Name | Type |
 | :------ | :------ |
 | `streams?` | `Object` |
-| `streams.rtcpStream?` | `default`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
-| `streams.rtpStream?` | `default`<[[`RtpPacket`](RtpPacket.md)]\> |
+| `streams.rtcpStream?` | `Event`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
+| `streams.rtpStream?` | `Event`<[[`RtpPacket`](RtpPacket.md)]\> |
 
 ## Properties
 
@@ -91,6 +92,16 @@ ___
 | Name | Type |
 | :------ | :------ |
 | `packets` | [`RtpPacket`](RtpPacket.md)[] |
+
+#### Returns
+
+`void`
+
+___
+
+### stop
+
+▸ **stop**(): `void`
 
 #### Returns
 

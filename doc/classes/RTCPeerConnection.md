@@ -30,13 +30,14 @@
 - [onIceCandidate](RTCPeerConnection.md#onicecandidate)
 - [onNegotiationneeded](RTCPeerConnection.md#onnegotiationneeded)
 - [onRemoteTransceiverAdded](RTCPeerConnection.md#onremotetransceiveradded)
+- [onTrack](RTCPeerConnection.md#ontrack)
 - [onTransceiverAdded](RTCPeerConnection.md#ontransceiveradded)
 - [onconnectionstatechange](RTCPeerConnection.md#onconnectionstatechange)
 - [ondatachannel](RTCPeerConnection.md#ondatachannel-1)
 - [onicecandidate](RTCPeerConnection.md#onicecandidate-1)
 - [onnegotiationneeded](RTCPeerConnection.md#onnegotiationneeded-1)
 - [onsignalingstatechange](RTCPeerConnection.md#onsignalingstatechange)
-- [ontrack](RTCPeerConnection.md#ontrack)
+- [ontrack](RTCPeerConnection.md#ontrack-1)
 - [sctpRemotePort](RTCPeerConnection.md#sctpremoteport)
 - [sctpTransport](RTCPeerConnection.md#sctptransport)
 - [signalingState](RTCPeerConnection.md#signalingstate)
@@ -132,7 +133,7 @@ ___
 
 ### connectionStateChange
 
-• `Readonly` **connectionStateChange**: `default`<[``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
+• `Readonly` **connectionStateChange**: `Event`<[``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
 
 ___
 
@@ -144,7 +145,7 @@ ___
 
 ### iceConnectionStateChange
 
-• `Readonly` **iceConnectionStateChange**: `default`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
+• `Readonly` **iceConnectionStateChange**: `Event`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
 
 ___
 
@@ -156,7 +157,7 @@ ___
 
 ### iceGatheringStateChange
 
-• `Readonly` **iceGatheringStateChange**: `default`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
+• `Readonly` **iceGatheringStateChange**: `Event`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
 
 ___
 
@@ -174,31 +175,37 @@ ___
 
 ### onDataChannel
 
-• `Readonly` **onDataChannel**: `default`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
+• `Readonly` **onDataChannel**: `Event`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
 
 ___
 
 ### onIceCandidate
 
-• `Readonly` **onIceCandidate**: `default`<[[`RTCIceCandidate`](RTCIceCandidate.md)]\>
+• `Readonly` **onIceCandidate**: `Event`<[[`RTCIceCandidate`](RTCIceCandidate.md)]\>
 
 ___
 
 ### onNegotiationneeded
 
-• `Readonly` **onNegotiationneeded**: `default`<[]\>
+• `Readonly` **onNegotiationneeded**: `Event`<[]\>
 
 ___
 
 ### onRemoteTransceiverAdded
 
-• `Readonly` **onRemoteTransceiverAdded**: `default`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+• `Readonly` **onRemoteTransceiverAdded**: `Event`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+
+___
+
+### onTrack
+
+• `Readonly` **onTrack**: `Event`<[[`MediaStreamTrack`](MediaStreamTrack.md)]\>
 
 ___
 
 ### onTransceiverAdded
 
-• `Readonly` **onTransceiverAdded**: `default`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+• `Readonly` **onTransceiverAdded**: `Event`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
 
 ___
 
@@ -258,7 +265,7 @@ ___
 
 ### signalingStateChange
 
-• `Readonly` **signalingStateChange**: `default`<[``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"``]\>
+• `Readonly` **signalingStateChange**: `Event`<[``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"``]\>
 
 ___
 
@@ -438,10 +445,10 @@ ___
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `track` | [`MediaStreamTrack`](MediaStreamTrack.md) |
-| `ms?` | [`MediaStream`](MediaStream.md) |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `track` | [`MediaStreamTrack`](MediaStreamTrack.md) | - |
+| `ms?` | [`MediaStream`](MediaStream.md) | todo impl |
 
 #### Returns
 
@@ -900,7 +907,7 @@ ___
 
 ▸ **prependOnceListener**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
 
-Adds a **one-time**`listener` function for the event named `eventName` to the_beginning_ of the listeners array. The next time `eventName` is triggered, this
+Adds a **one-time**`listener` function for the event named `eventName` to the _beginning_ of the listeners array. The next time `eventName` is triggered, this
 listener is removed, and then invoked.
 
 ```js
@@ -1057,8 +1064,8 @@ listener array for the specified `eventName`, then `removeListener()` must be
 called multiple times to remove each instance.
 
 Once an event is emitted, all listeners attached to it at the
-time of emitting are called in order. This implies that any`removeListener()` or `removeAllListeners()` calls _after_ emitting and_before_ the last listener finishes execution will
-not remove them from`emit()` in progress. Subsequent events behave as expected.
+time of emitting are called in order. This implies that any`removeListener()` or `removeAllListeners()` calls _after_ emitting and _before_ the last listener finishes execution
+will not remove them from`emit()` in progress. Subsequent events behave as expected.
 
 ```js
 const myEmitter = new MyEmitter();

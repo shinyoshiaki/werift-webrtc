@@ -5,7 +5,16 @@ import Event from "rx.mini";
 import * as uuid from "uuid";
 
 import { Profile } from "../../dtls/src/context/srtp";
-import { deepMerge, InterfaceAddresses, Recvonly, Sendonly, Sendrecv } from ".";
+import { Message } from "../../ice/src/stun/message";
+import { Protocol } from "../../ice/src/types/model";
+import {
+  Address,
+  deepMerge,
+  InterfaceAddresses,
+  Recvonly,
+  Sendonly,
+  Sendrecv,
+} from ".";
 import {
   codecParametersFromString,
   DtlsKeys,
@@ -88,6 +97,7 @@ export class RTCPeerConnection extends EventTarget {
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate]>();
   readonly onNegotiationneeded = new Event<[]>();
+  readonly onTrack = new Event<[MediaStreamTrack]>();
 
   ondatachannel?: CallbackWithValue<RTCDataChannelEvent>;
   onicecandidate?: CallbackWithValue<RTCPeerConnectionIceEvent>;
@@ -437,6 +447,7 @@ export class RTCPeerConnection extends EventTarget {
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
       additionalHostAddresses: this.config.iceAdditionalHostAddresses,
+      filterStunResponse: this.config.iceFilterStunResponse,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
     });
@@ -976,7 +987,9 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
+    if (remoteMedia.ssrc[0]?.ssrc) {
+      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
+    }
   }
 
   private setRemoteSCTP(
@@ -1063,6 +1076,7 @@ export class RTCPeerConnection extends EventTarget {
       transceiver,
       receiver: transceiver.receiver,
     };
+    this.onTrack.execute(track);
     this.emit("track", event);
     if (this.ontrack) this.ontrack(event);
   }
@@ -1517,6 +1531,11 @@ export interface PeerConfig {
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
+  /** If provided, is called on each STUN request.
+   * Return `true` if a STUN response should be sent, false if it should be skipped. */
+  iceFilterStunResponse:
+    | ((message: Message, addr: Address, protocol: Protocol) => boolean)
+    | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1584,6 +1603,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceAdditionalHostAddresses: undefined,
   iceUseIpv4: true,
   iceUseIpv6: true,
+  iceFilterStunResponse: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},

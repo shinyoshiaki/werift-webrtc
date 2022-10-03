@@ -55,7 +55,7 @@ ___
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: `default`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
+• `Readonly` **onStateChange**: `Event`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
 
 ___
 

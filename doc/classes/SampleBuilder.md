@@ -23,6 +23,7 @@
 - [pipe](SampleBuilder.md#pipe)
 - [pushRtcpPackets](SampleBuilder.md#pushrtcppackets)
 - [pushRtpPackets](SampleBuilder.md#pushrtppackets)
+- [stop](SampleBuilder.md#stop)
 
 ## Constructors
 
@@ -36,8 +37,8 @@
 | :------ | :------ |
 | `isFinalPacketInSequence` | (`header`: [`RtpHeader`](RtpHeader.md)) => `boolean` |
 | `streams?` | `Object` |
-| `streams.rtcpStream?` | `default`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
-| `streams.rtpStream?` | `default`<[[`RtpPacket`](RtpPacket.md)]\> |
+| `streams.rtcpStream?` | `Event`<[[`RtcpPacket`](../modules.md#rtcppacket)]\> |
+| `streams.rtpStream?` | `Event`<[[`RtpPacket`](RtpPacket.md)]\> |
 
 #### Overrides
 
@@ -112,3 +113,17 @@ ___
 #### Overrides
 
 [Pipeline](Pipeline.md).[pushRtpPackets](Pipeline.md#pushrtppackets)
+
+___
+
+### stop
+
+▸ **stop**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[Pipeline](Pipeline.md).[stop](Pipeline.md#stop)

@@ -16,7 +16,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
-import { codecParametersFromString, PeerConfig } from "..";
+import { codecParametersFromString, PeerConfig, usePLI, useTWCC } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { compactNtp, timestampSeconds } from "../utils";
@@ -62,7 +62,6 @@ export class RTCRtpReceiver {
   latestRepairedRid?: string;
 
   receiverTWCC?: ReceiverTWCC;
-  supportTWCC = false;
   stopped = false;
   remoteStreamId?: string;
   remoteTrackId?: string;
@@ -87,7 +86,19 @@ export class RTCRtpReceiver {
   }
 
   get nackEnabled() {
-    return this.codecArray[0].rtcpFeedback.find((f) => f.type === "nack");
+    return this.codecArray[0]?.rtcpFeedback.find((f) => f.type === "nack");
+  }
+
+  get twccEnabled() {
+    return this.codecArray[0]?.rtcpFeedback.find(
+      (f) => f.type === useTWCC().type
+    );
+  }
+
+  get pliEnabled() {
+    return this.codecArray[0]?.rtcpFeedback.find(
+      (f) => f.type === usePLI().type
+    );
   }
 
   prepareReceive(params: RTCRtpReceiveParameters) {
@@ -104,13 +115,8 @@ export class RTCRtpReceiver {
   /**
    * setup TWCC if supported
    */
-  setupTWCC(mediaSourceSsrc?: number) {
-    this.supportTWCC = !!Object.values(this.codecs).find((codec) =>
-      codec.rtcpFeedback.find((v) => v.type === "transport-cc")
-    );
-    log("twcc support", this.supportTWCC);
-
-    if (this.supportTWCC && mediaSourceSsrc) {
+  setupTWCC(mediaSourceSsrc: number) {
+    if (this.twccEnabled && !this.receiverTWCC) {
       this.receiverTWCC = new ReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
@@ -194,6 +200,12 @@ export class RTCRtpReceiver {
   getStats() {}
 
   async sendRtcpPLI(mediaSsrc: number) {
+    if (!this.pliEnabled) {
+      log("pli not supported", { mediaSsrc });
+      return;
+    }
+    log("sendRtcpPLI", { mediaSsrc });
+
     const packet = new RtcpPayloadSpecificFeedback({
       feedback: new PictureLossIndication({
         senderSsrc: this.rtcpSsrc,
@@ -269,7 +281,7 @@ export class RTCRtpReceiver {
       }
 
       this.receiverTWCC.handleTWCC(transportSequenceNumber);
-    } else if (this.supportTWCC) {
+    } else if (this.twccEnabled) {
       this.setupTWCC(packet.header.ssrc);
     }
 

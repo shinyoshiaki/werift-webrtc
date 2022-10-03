@@ -122,7 +122,7 @@ ___
 
 ### onData
 
-• `Readonly` **onData**: `default`<[`Buffer`, `number`]\>
+• `Readonly` **onData**: `Event`<[`Buffer`, `number`]\>
 
 ___
 
@@ -164,7 +164,7 @@ ___
 
 ### stateChanged
 
-• `Readonly` **stateChanged**: `default`<[`IceState`]\>
+• `Readonly` **stateChanged**: `Event`<[`IceState`]\>
 
 ___
 

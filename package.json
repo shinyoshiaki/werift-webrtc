@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.11.0",
+  "version": "0.0.1",
   "private": "true",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
@@ -22,7 +22,7 @@
     "build": "npm run build --workspaces --if-present",
     "ci": "npm run type:all && npm run build && npm run test && npm run e2e && npm run doc",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
-    "doc": "rm -rf doc && cd packages/webrtc && npm run doc && mv doc ../..",
+    "doc": "npm run doc --workspaces --if-present && rm -rf doc && cd packages/webrtc && mv doc ../..",
     "e2e": "cd e2e && npm run ci",
     "e2e:dev": "cd e2e && npm run dev:server",
     "format": "npm run format --workspaces --if-present",
@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@types/jest": "^28.1.6",
-    "@types/node": "^18.6.3",
+    "@types/node": "^18.7.21",
     "@typescript-eslint/eslint-plugin": "^5.31.0",
     "@typescript-eslint/parser": "^5.31.0",
     "eslint": "^8.20.0",

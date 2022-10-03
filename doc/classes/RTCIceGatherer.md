@@ -52,7 +52,7 @@ ___
 
 ### onGatheringStateChange
 
-• `Readonly` **onGatheringStateChange**: `default`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
+• `Readonly` **onGatheringStateChange**: `Event`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
 
 ___
 
