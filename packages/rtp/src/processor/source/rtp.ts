@@ -34,10 +34,11 @@ export class RtpSourceStream {
 
     if (
       this.options.payloadType != undefined &&
-      this.options.payloadType !== rtp.header.payloadType &&
-      this.options.clearInvalidPTPacket
+      this.options.payloadType !== rtp.header.payloadType
     ) {
-      rtp.clear();
+      if (this.options.clearInvalidPTPacket) {
+        rtp.clear();
+      }
       return;
     }
 
