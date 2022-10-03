@@ -275,10 +275,7 @@ export class RtpPacket {
   }
 
   clone() {
-    return new RtpPacket(
-      new RtpHeader({ ...this.header }),
-      Buffer.from(this.payload)
-    );
+    return new RtpPacket(new RtpHeader({ ...this.header }), this.payload);
   }
 
   serialize() {
