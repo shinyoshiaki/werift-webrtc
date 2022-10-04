@@ -1,11 +1,11 @@
 {
   "name": "werift-rtp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
-  "homepage": "https://github.com/shinyoshiaki/werift-rtp",
+  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shinyoshiaki/werift-rtp.git"
+    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
   },
   "license": "MIT",
   "author": {
