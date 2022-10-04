@@ -85,7 +85,13 @@ export class Connection {
       this.localCandidatesStart = true;
       this.promiseGatherCandidates = new Event();
 
-      const address = getHostAddresses(this.useIpv4, this.useIpv6);
+      let address = getHostAddresses(this.useIpv4, this.useIpv6);
+      if (this.options.additionalHostAddresses) {
+        address = Array.from(
+          new Set([...this.options.additionalHostAddresses, ...address])
+        );
+      }
+
       for (const component of this._components) {
         const candidates = await this.getComponentCandidates(
           component,
@@ -967,6 +973,7 @@ export interface IceOptions {
   useIpv6: boolean;
   portRange?: [number, number];
   interfaceAddresses?: InterfaceAddresses;
+  additionalHostAddresses?: string[];
   filterStunResponse?: (
     message: Message,
     addr: Address,
