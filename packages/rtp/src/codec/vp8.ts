@@ -99,7 +99,7 @@ export class Vp8RtpPayload implements DePacketizerBase {
       offset++;
     }
 
-    p.payload = buf.slice(offset);
+    p.payload = buf.subarray(offset);
 
     if (p.payloadHeaderExist) {
       p.size0 = getBit(buf[offset], 0, 3);

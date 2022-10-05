@@ -67,7 +67,7 @@ export class H264RtpPayload implements DePacketizerBase {
 
         result = Buffer.concat([
           result,
-          this.packaging(buf.slice(offset, offset + naluSize)),
+          this.packaging(buf.subarray(offset, offset + naluSize)),
         ]);
         offset += naluSize;
       }
