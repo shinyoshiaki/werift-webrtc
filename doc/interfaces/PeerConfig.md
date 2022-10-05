@@ -11,10 +11,13 @@
 - [debug](PeerConfig.md#debug)
 - [dtls](PeerConfig.md#dtls)
 - [headerExtensions](PeerConfig.md#headerextensions)
+- [iceFilterStunResponse](PeerConfig.md#icefilterstunresponse)
 - [iceInterfaceAddresses](PeerConfig.md#iceinterfaceaddresses)
 - [icePortRange](PeerConfig.md#iceportrange)
 - [iceServers](PeerConfig.md#iceservers)
 - [iceTransportPolicy](PeerConfig.md#icetransportpolicy)
+- [iceUseIpv4](PeerConfig.md#iceuseipv4)
+- [iceUseIpv6](PeerConfig.md#iceuseipv6)
 
 ## Properties
 
@@ -48,6 +51,15 @@ ___
 
 ___
 
+### iceFilterStunResponse
+
+• **iceFilterStunResponse**: `undefined` \| (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: `Protocol`) => `boolean`
+
+If provided, is called on each STUN request.
+Return `true` if a STUN response should be sent, false if it should be skipped.
+
+___
+
 ### iceInterfaceAddresses
 
 • **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../modules.md#interfaceaddresses)
@@ -71,3 +83,15 @@ ___
 ### iceTransportPolicy
 
 • **iceTransportPolicy**: ``"relay"`` \| ``"all"``
+
+___
+
+### iceUseIpv4
+
+• **iceUseIpv4**: `boolean`
+
+___
+
+### iceUseIpv6
+
+• **iceUseIpv6**: `boolean`

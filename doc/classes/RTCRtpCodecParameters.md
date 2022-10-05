@@ -34,7 +34,7 @@
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Pick`<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), ``"mimeType"`` \| ``"clockRate"``\> & `Partial`<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\> |
+| `props` | `Pick`<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), ``"clockRate"`` \| ``"mimeType"``\> & `Partial`<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\> |
 
 ## Properties
 

@@ -48,13 +48,13 @@
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `kind` | [`Kind`](../modules.md#kind) |
-| `dtlsTransport` | [`RTCDtlsTransport`](RTCDtlsTransport.md) |
-| `receiver` | `RTCRtpReceiver` |
-| `sender` | `RTCRtpSender` |
-| `direction` | ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `kind` | [`Kind`](../modules.md#kind) | - |
+| `dtlsTransport` | [`RTCDtlsTransport`](RTCDtlsTransport.md) | - |
+| `receiver` | `RTCRtpReceiver` | - |
+| `sender` | `RTCRtpSender` | - |
+| `direction` | ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` | RFC 8829 4.2.4.  direction the transceiver was initialized with |
 
 ## Properties
 
@@ -67,6 +67,8 @@ ___
 ### direction
 
 • **direction**: ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
+
+RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ___
 
@@ -102,7 +104,7 @@ ___
 
 ### onTrack
 
-• `Readonly` **onTrack**: `default`<[[`MediaStreamTrack`](MediaStreamTrack.md)]\>
+• `Readonly` **onTrack**: `Event`<[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
 
 ___
 

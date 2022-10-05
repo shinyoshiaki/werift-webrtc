@@ -8,7 +8,7 @@ import {
   MediaStreamTrack,
   RtpSourceStream,
   WebmLiveOutput,
-  WebmLiveSink,
+  WebmStream,
   WeriftError,
 } from "../../..";
 import { MediaWriter } from ".";
@@ -65,12 +65,13 @@ export class WebmFactory extends MediaWriter {
       }
     });
 
-    const webm = new WebmLiveSink(inputTracks, {
+    const webm = new WebmStream(inputTracks, {
       duration: this.options.defaultDuration ?? 1000 * 60 * 60 * 24,
     });
 
     this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
-      const rtpSource = new RtpSourceStream(track.onReceiveRtp);
+      const rtpSource = new RtpSourceStream();
+      track.onReceiveRtp.subscribe((r) => rtpSource.push(r));
 
       const jitterBuffer = jitterBufferTransformer(clockRate, {
         latency: this.options.jitterBufferLatency,
@@ -81,15 +82,16 @@ export class WebmFactory extends MediaWriter {
         rtpSource.readable
           .pipeThrough(jitterBuffer)
           .pipeThrough(
-            depacketizeTransformer((h) => h.marker, codec, {
+            depacketizeTransformer(codec, {
               waitForKeyframe: this.options.waitForKeyframe,
+              isFinalPacketInSequence: (h) => h.marker,
             })
           )
           .pipeTo(webm.videoStream);
       } else {
         rtpSource.readable
           .pipeThrough(jitterBuffer)
-          .pipeThrough(depacketizeTransformer(() => true, codec))
+          .pipeThrough(depacketizeTransformer(codec))
           .pipeTo(webm.audioStream);
       }
 
@@ -103,8 +105,8 @@ export class WebmFactory extends MediaWriter {
     }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
       if (done) return;
 
-      if (value.packet) {
-        await appendFile(this.path, value.packet);
+      if (value.saveToFile) {
+        await appendFile(this.path, value.saveToFile);
       } else if (value.eol) {
         const { durationElement } = value.eol;
         const handler = await open(this.path, "r+");

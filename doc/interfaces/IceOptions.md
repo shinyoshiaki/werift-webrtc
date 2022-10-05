@@ -7,6 +7,7 @@
 ### Properties
 
 - [components](IceOptions.md#components)
+- [filterStunResponse](IceOptions.md#filterstunresponse)
 - [forceTurn](IceOptions.md#forceturn)
 - [interfaceAddresses](IceOptions.md#interfaceaddresses)
 - [portRange](IceOptions.md#portrange)
@@ -24,6 +25,28 @@
 ### components
 
 • **components**: `number`
+
+___
+
+### filterStunResponse
+
+• `Optional` **filterStunResponse**: (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: `Protocol`) => `boolean`
+
+#### Type declaration
+
+▸ (`message`, `addr`, `protocol`): `boolean`
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `message` | `Message` |
+| `addr` | readonly [`string`, `number`] |
+| `protocol` | `Protocol` |
+
+##### Returns
+
+`boolean`
 
 ___
 

@@ -1,12 +1,7 @@
 import "buffer";
 export * from "../../common/src";
 export * from "./codec";
-export * from "./processor/base";
-export * from "./processor/jitterBuffer";
-export * from "./processor/lipsync";
-export * from "./processor/sampleBuilder";
-export * from "./processor/webm";
-export * from "./processor_v2";
+export * from "./processor";
 export * from "./rtcp/header";
 export * from "./rtcp/psfb";
 export * from "./rtcp/psfb/pictureLossIndication";

@@ -86,11 +86,11 @@ ___
 
 ### start
 
-▸ **start**(): `void`
+▸ **start**(): `Promise`<`void`\>
 
 #### Returns
 
-`void`
+`Promise`<`void`\>
 
 ___
 

@@ -27,17 +27,17 @@
 
 ### constructor
 
-• **new WebmOutput**(`fs`, `path`, `tracks`, `streams?`)
+• **new WebmOutput**(`writer`, `path`, `tracks`, `streams?`)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `fs` | `any` |
+| `writer` | [`FileIO`](../interfaces/FileIO.md) |
 | `path` | `string` |
-| `tracks` | { `clockRate`: `number` ; `codec`: ``"MPEG4/ISO/AVC"`` \| ``"VP8"`` \| ``"VP9"`` \| ``"AV1"`` \| ``"OPUS"`` ; `height?`: `number` ; `kind`: ``"audio"`` \| ``"video"`` ; `payloadType`: `number` ; `trackNumber`: `number` ; `width?`: `number`  }[] |
+| `tracks` | { `clockRate`: `number` ; `codec`: ``"AV1"`` \| ``"MPEG4/ISO/AVC"`` \| ``"VP8"`` \| ``"VP9"`` \| ``"OPUS"`` ; `height?`: `number` ; `kind`: ``"audio"`` \| ``"video"`` ; `payloadType`: `number` ; `trackNumber`: `number` ; `width?`: `number`  }[] |
 | `streams?` | `Object` |
-| `streams.rtpStream?` | `default`<[[`RtpPacket`](RtpPacket.md)]\> |
+| `streams.rtpStream?` | `Event`<[[`RtpPacket`](RtpPacket.md)]\> |
 
 ## Properties
 
@@ -55,7 +55,7 @@ ___
 
 ### tracks
 
-• **tracks**: { `clockRate`: `number` ; `codec`: ``"MPEG4/ISO/AVC"`` \| ``"VP8"`` \| ``"VP9"`` \| ``"AV1"`` \| ``"OPUS"`` ; `height?`: `number` ; `kind`: ``"audio"`` \| ``"video"`` ; `payloadType`: `number` ; `trackNumber`: `number` ; `width?`: `number`  }[]
+• **tracks**: { `clockRate`: `number` ; `codec`: ``"AV1"`` \| ``"MPEG4/ISO/AVC"`` \| ``"VP8"`` \| ``"VP9"`` \| ``"OPUS"`` ; `height?`: `number` ; `kind`: ``"audio"`` \| ``"video"`` ; `payloadType`: `number` ; `trackNumber`: `number` ; `width?`: `number`  }[]
 
 ## Methods
 
@@ -81,7 +81,13 @@ ___
 
 ### stop
 
-▸ **stop**(): `Promise`<`void`\>
+▸ **stop**(`insertDuration?`): `Promise`<`void`\>
+
+#### Parameters
+
+| Name | Type | Default value |
+| :------ | :------ | :------ |
+| `insertDuration` | `boolean` | `true` |
 
 #### Returns
 

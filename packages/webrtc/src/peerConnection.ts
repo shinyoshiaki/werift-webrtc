@@ -446,6 +446,7 @@ export class RTCPeerConnection extends EventTarget {
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
+      additionalHostAddresses: this.config.iceAdditionalHostAddresses,
       filterStunResponse: this.config.iceFilterStunResponse,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
@@ -986,7 +987,9 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    transceiver.receiver.setupTWCC(remoteMedia.ssrc[0]?.ssrc);
+    if (remoteMedia.ssrc[0]?.ssrc) {
+      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
+    }
   }
 
   private setRemoteSCTP(
@@ -1522,6 +1525,10 @@ export interface PeerConfig {
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
   iceInterfaceAddresses: InterfaceAddresses | undefined;
+  /** Add additional host (local) addresses to use for candidate gathering.
+   * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   */
+  iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
   /** If provided, is called on each STUN request.
@@ -1593,6 +1600,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   icePortRange: undefined,
   iceInterfaceAddresses: undefined,
+  iceAdditionalHostAddresses: undefined,
   iceUseIpv4: true,
   iceUseIpv6: true,
   iceFilterStunResponse: undefined,
