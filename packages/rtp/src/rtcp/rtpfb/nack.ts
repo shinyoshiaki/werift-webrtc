@@ -68,7 +68,7 @@ export class GenericNack {
         blp = 0;
       this.lost.slice(1).forEach((p) => {
         const d = p - pid - 1;
-        if (d < 16) {
+        if (d >= 0 && d < 16) {
           blp |= 1 << d;
         } else {
           fci.push(bufferWriter([2, 2], [pid, blp]));
