@@ -1,4 +1,8 @@
-import { RtcpHeader, RtcpPacketConverter } from "../../../src";
+import {
+  RTCP_HEADER_SIZE,
+  RtcpHeader,
+  RtcpPacketConverter,
+} from "../../../src";
 import { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb";
 import { GenericNack } from "../../../src/rtcp/rtpfb/nack";
 import { load } from "../../utils";
@@ -24,6 +28,6 @@ describe("rtcp/rtpfb/nack", () => {
     ];
     const nack = GenericNack.deSerialize(Buffer.from(data), new RtcpHeader());
     const serialized = nack.serialize();
-    expect(Array.from(serialized).slice(4)).toEqual(data);
+    expect(Array.from(serialized).slice(RTCP_HEADER_SIZE)).toEqual(data);
   });
 });

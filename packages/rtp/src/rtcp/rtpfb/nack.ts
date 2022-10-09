@@ -39,9 +39,9 @@ export class GenericNack {
         const lost: number[] = [];
         const [pid, blp] = bufferReader(data.subarray(pos), [2, 2]);
         lost.push(pid);
-        range(0, 16).forEach((d) => {
-          if ((blp >> d) & 1) {
-            lost.push(pid + d + 1);
+        range(0, 16).forEach((diff) => {
+          if ((blp >> diff) & 1) {
+            lost.push(pid + diff + 1);
           }
         });
         return lost;
@@ -64,19 +64,19 @@ export class GenericNack {
 
     const fci: Buffer[] = [];
     if (this.lost.length > 0) {
-      let pid = this.lost[0],
+      let headPid = this.lost[0],
         blp = 0;
-      this.lost.slice(1).forEach((p) => {
-        const d = p - pid - 1;
-        if (d >= 0 && d < 16) {
-          blp |= 1 << d;
+      this.lost.slice(1).forEach((pid) => {
+        const diff = pid - headPid - 1;
+        if (diff >= 0 && diff < 16) {
+          blp |= 1 << diff;
         } else {
-          fci.push(bufferWriter([2, 2], [pid, blp]));
-          pid = p;
+          fci.push(bufferWriter([2, 2], [headPid, blp]));
+          headPid = pid;
           blp = 0;
         }
       });
-      fci.push(bufferWriter([2, 2], [pid, blp]));
+      fci.push(bufferWriter([2, 2], [headPid, blp]));
     }
     const buf = Buffer.concat([ssrcPair, Buffer.concat(fci)]);
     this.header.length = buf.length / 4;

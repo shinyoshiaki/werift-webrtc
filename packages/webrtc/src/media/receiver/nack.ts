@@ -16,7 +16,7 @@ const LOST_SIZE = 30 * 5;
 
 export class NackHandler {
   private newEstSeqNum = 0;
-  lost: { [seqNum: number]: number } = {};
+  private _lost: { [seqNum: number]: number } = {};
   private nackLoop = setInterval(() => this.sendNack(), 20);
 
   readonly onPacketLost = new Event<[GenericNack]>();
@@ -25,12 +25,20 @@ export class NackHandler {
 
   constructor(private receiver: RTCRtpReceiver) {}
 
-  get lostNumber() {
-    return Object.keys(this.lost).map(Number);
+  get lostSeqNumbers() {
+    return Object.keys(this._lost).map(Number).sort();
+  }
+
+  getLost(seq: number) {
+    return this._lost[seq];
+  }
+
+  setLost(seq: number, count: number) {
+    this._lost[seq] = count;
   }
 
   removeLost(sequenceNumber: number) {
-    delete this.lost[sequenceNumber];
+    delete this._lost[sequenceNumber];
   }
 
   addPacket(packet: RtpPacket) {
@@ -42,7 +50,7 @@ export class NackHandler {
       return;
     }
 
-    if (this.lost[sequenceNumber]) {
+    if (this.getLost(sequenceNumber)) {
       this.removeLost(sequenceNumber);
       return;
     }
@@ -52,7 +60,7 @@ export class NackHandler {
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
       range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
-        this.lost[seq] = 1;
+        this.setLost(seq, 1);
       });
       this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
@@ -62,8 +70,8 @@ export class NackHandler {
   }
 
   private pruneLost() {
-    if (Object.keys(this.lost).length > LOST_SIZE) {
-      this.lost = Object.entries(this.lost)
+    if (this.lostSeqNumbers.length > LOST_SIZE) {
+      this._lost = Object.entries(this._lost)
         .slice(-LOST_SIZE)
         .reduce((acc, [key, v]) => {
           acc[key] = v;
@@ -74,30 +82,25 @@ export class NackHandler {
 
   close() {
     clearInterval(this.nackLoop);
-    this.lost = {};
+    this._lost = {};
   }
 
   private updateRetryCount() {
-    const res = Object.keys(this.lost)
-      .map((seq) => {
-        const count = this.lost[seq]++;
-        if (count > this.retryCount) {
-          delete this.lost[seq];
-          return seq;
-        }
-      })
-      .filter((v) => v != undefined);
-    if (res.length > 0) {
-      // log("failed to retransmit", res);
-    }
+    this.lostSeqNumbers.forEach((seq) => {
+      const count = this._lost[seq]++;
+      if (count > this.retryCount) {
+        this.removeLost(seq);
+        return seq;
+      }
+    });
   }
 
   private sendNack() {
-    if (this.lostNumber.length > 0 && this.mediaSourceSsrc) {
+    if (this.lostSeqNumbers.length > 0 && this.mediaSourceSsrc) {
       const nack = new GenericNack({
         senderSsrc: this.receiver.rtcpSsrc,
         mediaSourceSsrc: this.mediaSourceSsrc,
-        lost: this.lostNumber,
+        lost: this.lostSeqNumbers,
       });
       const rtcp = new RtcpTransportLayerFeedback({
         feedback: nack,
