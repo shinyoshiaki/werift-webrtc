@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/save_to_disk/packetloss/vp8.ts"
+        "${workspaceRoot}/examples/mediachannel/encodedTransform/server.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",

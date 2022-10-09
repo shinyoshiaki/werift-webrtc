@@ -1,7 +1,6 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 import { appendFile, open, unlink } from "fs/promises";
-import Event from "rx.mini";
 import { ReadableStreamDefaultReadResult } from "stream/web";
 
 import {
@@ -11,10 +10,9 @@ import {
   RtpPacket,
   RtpSourceStream,
   WebmLiveOutput,
-  WebmLiveSink,
+  WebmStream,
 } from "../../src";
 
-const onReceiveVideo = new Event<[RtpPacket]>();
 const path = "./webmLive.webm";
 
 console.log("start");
@@ -36,10 +34,10 @@ randomPort().then(async (port) => {
   udp.bind(port);
   udp.on("message", (data) => {
     const rtp = RtpPacket.deSerialize(data);
-    onReceiveVideo.execute(rtp);
+    source.push(rtp);
   });
 
-  const webm = new WebmLiveSink(
+  const webm = new WebmStream(
     [
       {
         width: 640,
@@ -53,10 +51,14 @@ randomPort().then(async (port) => {
     { duration: 1000 * 60 * 60 * 24 }
   );
 
-  const source = new RtpSourceStream(onReceiveVideo);
+  const source = new RtpSourceStream();
   source.readable
     .pipeThrough(jitterBufferTransformer(90000))
-    .pipeThrough(depacketizeTransformer((h) => h.marker, "vp8"))
+    .pipeThrough(
+      depacketizeTransformer("vp8", {
+        isFinalPacketInSequence: (h) => h.marker,
+      })
+    )
     .pipeTo(webm.videoStream);
 
   const reader = webm.webmStream.getReader();
@@ -66,8 +68,8 @@ randomPort().then(async (port) => {
   }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
     if (done) return;
 
-    if (value.packet) {
-      await appendFile(path, value.packet);
+    if (value.saveToFile) {
+      await appendFile(path, value.saveToFile);
     } else if (value.eol) {
       const { durationElement } = value.eol;
       const handler = await open(path, "r+");
