@@ -48,6 +48,7 @@ export class RTCSctpTransport {
 
     this.eventDisposer.forEach((dispose) => dispose());
 
+    const oldTransport = this.dtlsTransport;
     this.dtlsTransport = dtlsTransport;
     this.sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
 
@@ -90,6 +91,11 @@ export class RTCSctpTransport {
     this.sctp.onSackReceived = async () => {
       await this.dataChannelFlush();
     };
+
+    if (oldTransport) {
+      oldTransport.stop();
+      oldTransport.iceTransport.stop();
+    }
   }
 
   private get isServer() {

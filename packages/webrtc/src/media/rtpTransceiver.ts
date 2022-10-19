@@ -59,8 +59,13 @@ export class RTCRtpTransceiver {
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
+    const oldTransport = this.dtlsTransport;
     this.receiver.setDtlsTransport(dtls);
     this.sender.setDtlsTransport(dtls);
+    if (oldTransport) {
+      oldTransport.stop();
+      oldTransport.iceTransport.stop();
+    }
   }
 
   get msid() {
