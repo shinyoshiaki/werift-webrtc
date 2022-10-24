@@ -3,6 +3,7 @@ import debug from "debug";
 import { RtpHeader, RtpPacket, uint16Add } from "..";
 import { dePacketizeRtpPackets } from "../codec";
 import { enumerate } from "../helper";
+import { Processor } from "./interface";
 import { RtpOutput } from "./source/rtp";
 
 const srcPath = `werift-rtp : packages/rtp/src/processor_v2/depacketizer.ts`;
@@ -15,7 +16,9 @@ export interface DepacketizerOutput {
   eol?: boolean;
 }
 
-export class DepacketizeBase {
+export class DepacketizeBase
+  implements Processor<DepacketizerInput, DepacketizerOutput>
+{
   private buffering: RtpPacket[] = [];
   private lastSeqNum?: number;
   private packetLostHappened = false;
