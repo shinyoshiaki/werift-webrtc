@@ -9,7 +9,7 @@ import {
 } from "../../";
 import { peerConfig } from "../../fixture";
 
-export class mediachannel_removetrack_answer {
+export class mediachannel_removetrack_t1 {
   pc!: RTCPeerConnection;
   process!: ChildProcess;
   udp = createSocket("udp4");
@@ -88,3 +88,5 @@ export class mediachannel_removetrack_answer {
     }
   }
 }
+
+export class mediachannel_removetrack_t2 extends mediachannel_removetrack_t1 {}

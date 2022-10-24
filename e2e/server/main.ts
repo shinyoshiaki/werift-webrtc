@@ -52,7 +52,10 @@ import {
   bundle_max_bundle_answer,
   bundle_max_bundle_offer,
 } from "./handler/bundle/max-bundle";
-import { mediachannel_removetrack_answer } from "./handler/mediachannel/removeTrack";
+import {
+  mediachannel_removetrack_t2,
+  mediachannel_removetrack_t1,
+} from "./handler/mediachannel/removeTrack";
 
 const app = express();
 app.use(express.json() as never);
@@ -108,7 +111,8 @@ server.on("connectionrequest", async (_, accept) => {
     bundle_disable_offer: new bundle_disable_offer(),
     bundle_max_bundle_answer: new bundle_max_bundle_answer(),
     bundle_max_bundle_offer: new bundle_max_bundle_offer(),
-    mediachannel_removetrack_answer: new mediachannel_removetrack_answer(),
+    mediachannel_removetrack_t1: new mediachannel_removetrack_t1(),
+    mediachannel_removetrack_t2: new mediachannel_removetrack_t2(),
   };
 
   const transport = accept();

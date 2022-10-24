@@ -5,18 +5,19 @@ export const peer = new Peer(transport);
 
 export async function waitVideoPlay(track: MediaStreamTrack) {
   const video = document.createElement("video");
-  const media = new MediaStream();
-  media.addTrack(track);
+  const media = new MediaStream([track]);
   video.srcObject = media;
+  video.muted = true;
   video.autoplay = true;
-  video.load();
   video.width = 100;
   video.height = 100;
+  document.body.appendChild(video);
+
   const canvas = document.createElement("canvas");
   document.body.appendChild(canvas);
   const context = canvas.getContext("2d")!;
-  canvas.width = video.width;
-  canvas.height = video.height;
+  canvas.width = video.width / 10;
+  canvas.height = video.height / 10;
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
   const snapshot = await digestMessage(
     context.getImageData(0, 0, canvas.width, canvas.height).data

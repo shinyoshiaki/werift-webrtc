@@ -134,11 +134,11 @@ export class RTCDtlsTransport {
         }
         this.dataReceiver(buf);
       });
-      this.dtls.onClose.once(() => {
+      this.dtls.onClose.subscribe(() => {
         this.setState("closed");
       });
       this.dtls.onConnect.once(r);
-      this.dtls.onError.once((error) => {
+      this.dtls.onError.subscribe((error) => {
         this.setState("failed");
         log("dtls failed", error);
       });
@@ -155,15 +155,17 @@ export class RTCDtlsTransport {
     if (this.srtpProfiles.length > 0) {
       this.startSrtp();
     }
+    this.dtls!.onConnect.subscribe(() => {
+      this.updateSrtpSession();
+      this.setState("connected");
+    });
     this.setState("connected");
+
     log("dtls connected");
   }
 
-  startSrtp() {
+  updateSrtpSession() {
     if (!this.dtls) throw new Error();
-
-    if (this.srtpStarted) return;
-    this.srtpStarted = true;
 
     const profile = this.dtls.srtp.srtpProfile;
     if (!profile) {
@@ -185,6 +187,13 @@ export class RTCDtlsTransport {
     };
     this.srtp = new SrtpSession(config);
     this.srtcp = new SrtcpSession(config);
+  }
+
+  startSrtp() {
+    if (this.srtpStarted) return;
+    this.srtpStarted = true;
+
+    this.updateSrtpSession();
 
     this.iceTransport.connection.onData.subscribe((data) => {
       if (

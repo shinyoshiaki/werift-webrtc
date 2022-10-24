@@ -1,15 +1,15 @@
 import { waitVideoPlay, peer, sleep } from "../fixture";
 
-fdescribe("mediachannel_removeTrack", () => {
-  const mediachannel_removetrack_answer = "mediachannel_removetrack_answer";
+describe("mediachannel_removeTrack", () => {
+  const t1 = "mediachannel_removetrack_t1";
   it(
-    "removeTrack -> addTrack",
+    "If there is one mLine and it is Inactive",
     async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
-        let offer = await peer.request(mediachannel_removetrack_answer, {
+        let offer = await peer.request(t1, {
           type: "init",
         });
 
@@ -18,7 +18,7 @@ fdescribe("mediachannel_removeTrack", () => {
         });
         pc.onicecandidate = ({ candidate }) => {
           peer
-            .request(mediachannel_removetrack_answer, {
+            .request(t1, {
               type: "candidate",
               payload: candidate,
             })
@@ -29,7 +29,7 @@ fdescribe("mediachannel_removeTrack", () => {
           await pc.setRemoteDescription(offer);
           await pc.setLocalDescription(await pc.createAnswer());
           peer
-            .request(mediachannel_removetrack_answer, {
+            .request(t1, {
               type: "answer",
               payload: pc.localDescription,
             })
@@ -42,13 +42,13 @@ fdescribe("mediachannel_removeTrack", () => {
         );
         await waitVideoPlay(track);
 
-        offer = await peer.request(mediachannel_removetrack_answer, {
+        offer = await peer.request(t1, {
           type: "removeTrack",
           payload: 0,
         });
         await answer();
 
-        offer = await peer.request(mediachannel_removetrack_answer, {
+        offer = await peer.request(t1, {
           type: "addTrack",
         });
         answer();
@@ -57,7 +57,7 @@ fdescribe("mediachannel_removeTrack", () => {
         );
         await waitVideoPlay(track);
 
-        await peer.request(mediachannel_removetrack_answer, {
+        peer.request(t1, {
           type: "done",
         });
         pc.close();
@@ -66,14 +66,15 @@ fdescribe("mediachannel_removeTrack", () => {
     10 * 1000
   );
 
+  const t2 = "mediachannel_removetrack_t2";
   it(
-    "addTrack -> remove first -> addTrack",
+    "If there are two mLines and the first is Inactive",
     async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
 
-        let offer = await peer.request(mediachannel_removetrack_answer, {
+        let offer = await peer.request(t2, {
           type: "init",
         });
 
@@ -82,7 +83,7 @@ fdescribe("mediachannel_removeTrack", () => {
         });
         pc.onicecandidate = ({ candidate }) => {
           peer
-            .request(mediachannel_removetrack_answer, {
+            .request(t2, {
               type: "candidate",
               payload: candidate,
             })
@@ -93,7 +94,7 @@ fdescribe("mediachannel_removeTrack", () => {
           await pc.setRemoteDescription(offer);
           await pc.setLocalDescription(await pc.createAnswer());
           peer
-            .request(mediachannel_removetrack_answer, {
+            .request(t2, {
               type: "answer",
               payload: pc.localDescription,
             })
@@ -106,7 +107,7 @@ fdescribe("mediachannel_removeTrack", () => {
         );
         await waitVideoPlay(track);
 
-        offer = await peer.request(mediachannel_removetrack_answer, {
+        offer = await peer.request(t2, {
           type: "addTrack",
         });
         answer();
@@ -115,13 +116,13 @@ fdescribe("mediachannel_removeTrack", () => {
         );
         await waitVideoPlay(track);
 
-        offer = await peer.request(mediachannel_removetrack_answer, {
+        offer = await peer.request(t2, {
           type: "removeTrack",
           payload: 0,
         });
         await answer();
 
-        offer = await peer.request(mediachannel_removetrack_answer, {
+        offer = await peer.request(t2, {
           type: "addTrack",
         });
         answer();
@@ -130,7 +131,7 @@ fdescribe("mediachannel_removeTrack", () => {
         );
         await waitVideoPlay(track);
 
-        await peer.request(mediachannel_removetrack_answer, {
+        peer.request(t2, {
           type: "done",
         });
         pc.close();

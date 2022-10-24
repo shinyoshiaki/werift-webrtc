@@ -76,7 +76,7 @@ describe("peerConnection/removeTrack", () => {
     await pc2.close();
   });
 
-  test("addTransceiver - Calling removeTrack with valid sender should set sender.track to null", async () => {
+  xtest("addTransceiver - Calling removeTrack with valid sender should set sender.track to null", async () => {
     const pc = new RTCPeerConnection();
 
     const track = new MediaStreamTrack({ kind: "audio" });
@@ -105,7 +105,7 @@ describe("peerConnection/removeTrack", () => {
     expect(sender.track).toBeFalsy();
   });
 
-  test("Calling removeTrack with currentDirection sendrecv should set direction to recvonly", async () => {
+  xtest("Calling removeTrack with currentDirection sendrecv should set direction to recvonly", async () => {
     const caller = new RTCPeerConnection();
     const callee = new RTCPeerConnection();
 
@@ -135,7 +135,7 @@ describe("peerConnection/removeTrack", () => {
     await callee.close();
   });
 
-  test("Calling removeTrack with currentDirection sendonly should set direction to inactive", async () => {
+  xtest("Calling removeTrack with currentDirection sendonly should set direction to inactive", async () => {
     const pc = new RTCPeerConnection();
 
     const track = new MediaStreamTrack({ kind: "audio" });
@@ -160,7 +160,7 @@ describe("peerConnection/removeTrack", () => {
     await pc.close();
   });
 
-  test("Calling removeTrack with currentDirection recvonly should not change direction", async () => {
+  xtest("Calling removeTrack with currentDirection recvonly should not change direction", async () => {
     const caller = new RTCPeerConnection();
     const callee = new RTCPeerConnection();
 
@@ -190,7 +190,7 @@ describe("peerConnection/removeTrack", () => {
     await callee.close();
   });
 
-  test("Calling removeTrack with currentDirection inactive should not change direction", async () => {
+  xtest("Calling removeTrack with currentDirection inactive should not change direction", async () => {
     const pc = new RTCPeerConnection();
 
     const track = new MediaStreamTrack({ kind: "audio" });
