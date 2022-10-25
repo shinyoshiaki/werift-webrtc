@@ -4,7 +4,7 @@ const mediachannel_removetrack_addtrack = "mediachannel_removetrack_addtrack";
 const mediachannel_addtrack_removefirst_addtrack =
   "mediachannel_addtrack_removefirst_addtrack";
 
-fdescribe("mediachannel_removeTrack", () => {
+describe("mediachannel_removeTrack", () => {
   it(
     "removeTrack -> addTrack",
     async () =>
