@@ -1135,34 +1135,37 @@ export class RTCPeerConnection extends EventTarget {
 
     const direction = options.direction || "sendrecv";
 
-    let transceiver: RTCRtpTransceiver;
+    const dtlsTransport = this.createTransport([
+      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+    ]);
 
-    const foundIndex = this.transceivers.findIndex(
-      (t) => t.stopped && t.direction === "inactive" && t.kind === kind
+    const sender = new RTCRtpSender(trackOrKind);
+    const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
+    const transceiver = new RTCRtpTransceiver(
+      kind,
+      dtlsTransport,
+      receiver,
+      sender,
+      direction
     );
-    if (foundIndex !== -1) {
-      transceiver = this.transceivers[foundIndex];
-      transceiver.direction = direction;
-    } else {
-      const dtlsTransport = this.createTransport([
-        SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-        SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-      ]);
-
-      const sender = new RTCRtpSender(trackOrKind);
-      const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
-      transceiver = new RTCRtpTransceiver(
-        kind,
-        dtlsTransport,
-        receiver,
-        sender,
-        direction
-      );
-      this.transceivers.push(transceiver);
-    }
     transceiver.options = options;
     this.router.registerRtpSender(transceiver.sender);
 
+    // reuse inactive
+    const inactiveTransceiverIndex = this.transceivers.findIndex(
+      (t) => t.currentDirection === "inactive"
+    );
+    const inactiveTransceiver = this.transceivers.find(
+      (t) => t.currentDirection === "inactive"
+    )!;
+    if (inactiveTransceiverIndex > -1) {
+      this.transceivers[inactiveTransceiverIndex] = transceiver;
+      transceiver.mLineIndex = inactiveTransceiver.mLineIndex;
+      inactiveTransceiver.currentDirection = "stopped";
+    } else {
+      this.transceivers.push(transceiver);
+    }
     this.onTransceiverAdded.execute(transceiver);
 
     this.updateIceConnectionState();
@@ -1526,17 +1529,12 @@ export function addTransportDescription(
   media.iceParams = iceGatherer.localParameters;
   media.iceOptions = "trickle";
 
-  if (media.iceCandidates.length > 0) {
-    const candidate = media.iceCandidates[media.iceCandidates.length - 1];
-    media.host = candidate.ip;
-    media.port = candidate.port;
-  } else {
-    media.host = DISCARD_HOST;
-    media.port = DISCARD_PORT;
-  }
+  media.host = DISCARD_HOST;
+  media.port = DISCARD_PORT;
 
   if (media.direction === "inactive") {
     media.port = 0;
+    media.msid = undefined;
   }
 
   if (!media.dtlsParams) {

@@ -31,6 +31,9 @@ export class DtlsServer extends DtlsSocket {
         // flight1,3
         case HandshakeType.client_hello_1:
           {
+            if (this.connected) {
+              this.renegotiation();
+            }
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 
             if (clientHello.cookie.length === 0) {
