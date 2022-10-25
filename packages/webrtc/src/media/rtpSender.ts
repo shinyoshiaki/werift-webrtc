@@ -283,15 +283,24 @@ export class RTCRtpSender {
     } catch (error) {}
   }
 
-  replaceRTP({
-    sequenceNumber,
-    timestamp,
-  }: Pick<RtpHeader, "sequenceNumber" | "timestamp">) {
+  replaceRTP(
+    {
+      sequenceNumber,
+      timestamp,
+    }: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
+    discontinuity = false
+  ) {
     if (this.sequenceNumber != undefined) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
+      if (discontinuity) {
+        this.seqOffset = uint16Add(this.seqOffset, 2);
+      }
     }
     if (this.timestamp != undefined) {
       this.timestampOffset = uint32Add(this.timestamp, -timestamp);
+      if (discontinuity) {
+        this.timestampOffset = uint16Add(this.timestampOffset, 1);
+      }
     }
     this.rtpCache = [];
     log("replaceRTP", this.sequenceNumber, sequenceNumber, this.seqOffset);
