@@ -824,16 +824,19 @@ export class RTCPeerConnection extends EventTarget {
 
     // # apply description
 
-    const removedTransceivers = new Set(this.transceivers);
+    const matchTransceiverWithMedia = (
+      transceiver: RTCRtpTransceiver,
+      media: MediaDescription
+    ) =>
+      transceiver.kind === media.kind &&
+      [undefined, media.rtp.muxId].includes(transceiver.mid);
 
     let transports = enumerate(remoteSdp.media).map(([i, remoteMedia]) => {
       let dtlsTransport: RTCDtlsTransport | undefined;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
-        let transceiver = this.transceivers.find(
-          (t) =>
-            t.kind === remoteMedia.kind &&
-            [undefined, remoteMedia.rtp.muxId].includes(t.mid)
+        let transceiver = this.transceivers.find((t) =>
+          matchTransceiverWithMedia(t, remoteMedia)
         );
         if (!transceiver) {
           // create remote transceiver
@@ -843,7 +846,6 @@ export class RTCPeerConnection extends EventTarget {
           transceiver.mid = remoteMedia.rtp.muxId;
           this.onRemoteTransceiverAdded.execute(transceiver);
         } else {
-          removedTransceivers.delete(transceiver);
           if (transceiver.direction === "inactive" && transceiver.stopping) {
             transceiver.stopped = true;
             transceiver.currentDirection = "inactive";
@@ -909,10 +911,16 @@ export class RTCPeerConnection extends EventTarget {
           remoteMedia.dtlsParams.role === "client" ? "server" : "client";
       }
       return iceTransport;
-    });
+    }) as RTCIceTransport[];
 
     // filter out inactive transports
     transports = transports.filter((iceTransport) => !!iceTransport);
+
+    const removedTransceivers = this.transceivers.filter(
+      (t) =>
+        remoteSdp.media.find((m) => matchTransceiverWithMedia(t, m)) ==
+        undefined
+    );
 
     if (sessionDescription.type === "answer") {
       for (const transceiver of removedTransceivers) {
@@ -940,7 +948,7 @@ export class RTCPeerConnection extends EventTarget {
 
     await Promise.all(
       transports.map(async (iceTransport) => {
-        await iceTransport?.iceGather.gather();
+        await iceTransport.iceGather.gather();
       })
     );
 
