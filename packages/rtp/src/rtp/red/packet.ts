@@ -38,11 +38,11 @@ export class Red {
 
     red.header.fields.forEach(({ blockLength, timestampOffset, blockPT }) => {
       if (blockLength && timestampOffset) {
-        const block = buf.slice(offset, offset + blockLength);
+        const block = buf.subarray(offset, offset + blockLength);
         red.blocks.push({ block, blockPT, timestampOffset });
         offset += blockLength;
       } else {
-        const block = buf.slice(offset);
+        const block = buf.subarray(offset);
         red.blocks.push({ block, blockPT });
       }
     });
@@ -86,7 +86,7 @@ export class RedHeader {
       const field: RedHeaderField = {} as any;
       header.fields.push(field);
 
-      const bitStream = new BitStream(buf.slice(offset));
+      const bitStream = new BitStream(buf.subarray(offset));
       field.fBit = bitStream.readBits(1);
       field.blockPT = bitStream.readBits(7);
 

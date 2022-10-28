@@ -41,24 +41,3 @@ export function dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
       throw new Error();
   }
 }
-
-export function dePacketizeRtpPacket(codec: string, packet: RtpPacket) {
-  const depacketizer = (DePacketizer: typeof DePacketizerBase) => {
-    return DePacketizer.deSerialize(packet.payload);
-  };
-
-  switch (codec.toUpperCase()) {
-    case "AV1":
-      return depacketizer(AV1RtpPayload as any);
-    case "MPEG4/ISO/AVC":
-      return depacketizer(H264RtpPayload);
-    case "VP8":
-      return depacketizer(Vp8RtpPayload);
-    case "VP9":
-      return depacketizer(Vp9RtpPayload);
-    case "OPUS":
-      return depacketizer(OpusRtpPayload);
-    default:
-      throw new Error();
-  }
-}

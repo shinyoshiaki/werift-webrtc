@@ -7,6 +7,7 @@ import {
   uint32Add,
   uint32Gt,
 } from "..";
+import { Processor } from "./interface";
 import { RtpOutput } from "./source/rtp";
 
 const srcPath = `werift-rtp : packages/rtp/src/processor_v2/jitterBuffer.ts`;
@@ -18,7 +19,9 @@ export interface JitterBufferOutput extends RtpOutput {
   isPacketLost?: { from: number; to: number };
 }
 
-export class JitterBufferBase {
+export class JitterBufferBase
+  implements Processor<JitterBufferInput, JitterBufferOutput>
+{
   private options: JitterBufferOptions;
   private presentSeqNum?: number;
   private rtpBuffer: { [sequenceNumber: number]: RtpPacket } = {};

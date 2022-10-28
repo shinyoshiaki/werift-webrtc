@@ -74,7 +74,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
 
   static deSerialize(buf: Buffer) {
     const { p, offset } = this.parseRtpPayload(buf);
-    p.payload = buf.slice(offset);
+    p.payload = buf.subarray(offset);
     return p;
   }
 
