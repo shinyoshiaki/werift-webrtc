@@ -8,6 +8,7 @@ import { int } from "../../../common/src";
 import {
   PictureLossIndication,
   Red,
+  RedHandler,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
@@ -24,7 +25,6 @@ import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
-import { AudioRedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -40,7 +40,7 @@ export class RTCRtpReceiver {
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new NackHandler(this);
-  private readonly redHandler = new AudioRedHandler();
+  private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
@@ -314,7 +314,7 @@ export class RTCRtpReceiver {
     if (track) {
       if (red) {
         if (track.kind === "audio") {
-          const payloads = this.redHandler.push(red, packet);
+          const payloads = this.audioRedHandler.push(red, packet);
           for (const packet of payloads) {
             track.onReceiveRtp.execute(packet.clone());
           }

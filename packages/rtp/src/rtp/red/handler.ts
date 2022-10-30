@@ -11,25 +11,25 @@ import { Red, RtpHeader, RtpPacket, uint16Add, uint32Add } from "../..";
 // |0|   Block PT  |
 // +-+-+-+-+-+-+-+-+
 
-export class AudioRedHandler {
+export class RedHandler {
   private readonly size = 150;
   private sequenceNumbers: number[] = [];
 
-  push(red: Red, rtp: RtpPacket) {
+  push(red: Red, base: RtpPacket) {
     const packets: RtpPacket[] = [];
 
     red.blocks.forEach(({ blockPT, timestampOffset, block }, i) => {
       const sequenceNumber = uint16Add(
-        rtp.header.sequenceNumber,
+        base.header.sequenceNumber,
         -(red.blocks.length - (i + 1))
       );
       if (timestampOffset) {
         packets.push(
           new RtpPacket(
             new RtpHeader({
-              timestamp: uint32Add(rtp.header.timestamp, -timestampOffset),
+              timestamp: uint32Add(base.header.timestamp, -timestampOffset),
               payloadType: blockPT,
-              ssrc: rtp.header.ssrc,
+              ssrc: base.header.ssrc,
               sequenceNumber,
               marker: true,
             }),
@@ -40,9 +40,9 @@ export class AudioRedHandler {
         packets.push(
           new RtpPacket(
             new RtpHeader({
-              timestamp: rtp.header.timestamp,
+              timestamp: base.header.timestamp,
               payloadType: blockPT,
-              ssrc: rtp.header.ssrc,
+              ssrc: base.header.ssrc,
               sequenceNumber,
               marker: true,
             }),
