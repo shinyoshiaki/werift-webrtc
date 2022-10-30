@@ -344,7 +344,7 @@ export class SessionDescription {
   get string() {
     const lines = [`v=${this.version}`, `o=${this.origin}`, `s=${this.name}`];
     if (this.host) {
-      lines.push(`c=${ipAddressFromSdp(this.host)}`);
+      lines.push(`c=${ipAddressToSdp(this.host)}`);
     }
     lines.push(`t=${this.time}`);
     this.group.forEach((group) => lines.push(`a=group:${group.str}`));
