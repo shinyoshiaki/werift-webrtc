@@ -38,6 +38,10 @@ export class Connection {
   useIpv6: boolean;
   options: IceOptions;
   remoteCandidatesEnd = false;
+  /**コンポーネントはデータストリームの一部です. データストリームには複数のコンポーネントが必要な場合があり、
+   * データストリーム全体が機能するには、それぞれが機能する必要があります.
+   *  RTP / RTCPデータストリームの場合、RTPとRTCPが同じポートで多重化されていない限り、データストリームごとに2つのコンポーネントがあります.
+   * 1つはRTP用、もう1つはRTCP用です. コンポーネントには候補ペアがあり、他のコンポーネントでは使用できません.  */
   _components: Set<number>;
   _localCandidatesEnd = false;
   _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
