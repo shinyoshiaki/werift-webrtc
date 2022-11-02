@@ -639,7 +639,7 @@ export class RTCPeerConnection extends EventTarget {
     );
     if (this.remoteIsBundled && connected) {
       // no need to gather ice candidates on an existing bundled connection
-      connected.iceGather.gather();
+      await connected.iceGather.gather();
     } else {
       await Promise.all(
         this.iceTransports.map((iceTransport) =>
@@ -961,7 +961,7 @@ export class RTCPeerConnection extends EventTarget {
     );
     if (this.remoteIsBundled && connected) {
       // no need to gather ice candidates on an existing bundled connection
-      connected.iceGather.gather();
+      await connected.iceGather.gather();
     } else {
       await Promise.all(
         transports.map((iceTransport) => iceTransport.iceGather.gather())
