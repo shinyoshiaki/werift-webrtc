@@ -634,9 +634,19 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // # gather candidates
-    await Promise.all(
-      this.iceTransports.map((iceTransport) => iceTransport.iceGather.gather())
+    const connected = this.iceTransports.find(
+      (transport) => transport.state === "connected"
     );
+    if (this.remoteIsBundled && connected) {
+      // no need to gather ice candidates on an existing bundled connection
+      connected.iceGather.gather();
+    } else {
+      await Promise.all(
+        this.iceTransports.map((iceTransport) =>
+          iceTransport.iceGather.gather()
+        )
+      );
+    }
 
     description.media
       .filter((m) => ["audio", "video"].includes(m.kind))
@@ -946,11 +956,17 @@ export class RTCPeerConnection extends EventTarget {
       });
     }
 
-    await Promise.all(
-      transports.map(async (iceTransport) => {
-        await iceTransport.iceGather.gather();
-      })
+    const connected = this.iceTransports.find(
+      (transport) => transport.state === "connected"
     );
+    if (this.remoteIsBundled && connected) {
+      // no need to gather ice candidates on an existing bundled connection
+      connected.iceGather.gather();
+    } else {
+      await Promise.all(
+        transports.map((iceTransport) => iceTransport.iceGather.gather())
+      );
+    }
 
     this.negotiationneeded = false;
     if (this.shouldNegotiationneeded) {
