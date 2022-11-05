@@ -660,7 +660,12 @@ export class Connection {
   private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
-      if (pair.nominated) {
+      // Updating the Nominated Flag
+
+      // As per https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5, once the nominated 
+      // flag is set then this concludes the ICE processing for this component. So disallow
+      // overwriting of the pair nominated for that component
+      if (pair.nominated && this.nominated[pair.component] === undefined) {
         this.nominated[pair.component] = pair;
 
         // 8.1.2.  Updating States
