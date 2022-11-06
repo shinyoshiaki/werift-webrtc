@@ -1,8 +1,11 @@
+import debug from "debug";
 import Event from "rx.mini";
 import { v4 } from "uuid";
 
 import { Candidate, Connection, IceOptions } from "../../../ice/src";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
+
+const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
 export class RTCIceTransport {
   readonly id = v4();
@@ -54,9 +57,16 @@ export class RTCIceTransport {
   };
 
   setRemoteParams(remoteParameters: RTCIceParameters) {
-    this.connection.remoteIsLite = remoteParameters.iceLite;
-    this.connection.remoteUsername = remoteParameters.usernameFragment;
-    this.connection.remotePassword = remoteParameters.password;
+    if (
+      this.connection.remoteUsername &&
+      this.connection.remotePassword &&
+      (this.connection.remoteUsername !== remoteParameters.usernameFragment ||
+        this.connection.remotePassword !== remoteParameters.password)
+    ) {
+      log("restartIce", remoteParameters);
+      this.connection.resetNominatedPair();
+    }
+    this.connection.setRemoteParams(remoteParameters);
   }
 
   async start() {

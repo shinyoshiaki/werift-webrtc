@@ -49,14 +49,11 @@ export class Connection {
 
   private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
-  private nominated: { [key: number]: CandidatePair } = {};
+  private nominated: { [componentId: number]: CandidatePair } = {};
   get nominatedKeys() {
     return Object.keys(this.nominated).map((v) => v.toString());
   }
   private nominating = new Set<number>();
-  get remoteAddr() {
-    return Object.values(this.nominated)[0].remoteAddr;
-  }
   private checkListDone = false;
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
@@ -77,6 +74,20 @@ export class Connection {
     this.useIpv4 = useIpv4;
     this.useIpv6 = useIpv6;
     this._components = new Set(range(1, components + 1));
+  }
+
+  setRemoteParams({
+    iceLite,
+    usernameFragment,
+    password,
+  }: {
+    iceLite: boolean;
+    usernameFragment: string;
+    password: string;
+  }) {
+    this.remoteIsLite = iceLite;
+    this.remoteUsername = usernameFragment;
+    this.remotePassword = password;
   }
 
   // 4.1.1 Gathering Candidates
@@ -653,16 +664,23 @@ export class Connection {
     this.sortCheckList();
   }
 
+  resetNominatedPair() {
+    this.nominated = {};
+    this.nominating.clear();
+  }
+
   private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
       // Updating the Nominated Flag
 
-      // As per https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5, once the nominated 
-      // flag is set then this concludes the ICE processing for this component. So disallow
-      // overwriting of the pair nominated for that component
+      // https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5,
+      // Once the nominated flag is set for a component of a data stream, it
+      // concludes the ICE processing for that component.  See Section 8.
+      // So disallow overwriting of the pair nominated for that component
       if (pair.nominated && this.nominated[pair.component] === undefined) {
         this.nominated[pair.component] = pair;
+        this.nominating.delete(pair.component);
 
         // 8.1.2.  Updating States
 
