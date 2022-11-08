@@ -49,6 +49,7 @@
     "node-actionlint": "^1.2.1",
     "organize-imports-cli": "^0.10.0",
     "prettier": "^2.7.1",
+    "process": "^0.11.10",
     "ts-jest": "^28.0.7",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
