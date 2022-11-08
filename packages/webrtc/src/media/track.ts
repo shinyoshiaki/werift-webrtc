@@ -55,12 +55,13 @@ export class MediaStreamTrack extends EventTarget {
     if (this.remote) {
       throw new Error("this is remoteTrack");
     }
-    if (!this.codec || this.stopped) {
+    if (this.stopped) {
       return;
     }
 
     const packet = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
-    packet.header.payloadType = this.codec.payloadType;
+    packet.header.payloadType =
+      this.codec?.payloadType ?? packet.header.payloadType;
     this.onReceiveRtp.execute(packet);
   };
 }

@@ -7,8 +7,8 @@ import {
   jitterBufferTransformer,
   MediaStreamTrack,
   RtpSourceStream,
-  WebmLiveOutput,
   WebmStream,
+  WebmStreamOutput,
   WeriftError,
 } from "../../..";
 import { MediaWriter } from ".";
@@ -102,7 +102,7 @@ export class WebmFactory extends MediaWriter {
     const readChunk = async ({
       value,
       done,
-    }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
+    }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
       if (done) return;
 
       if (value.saveToFile) {
