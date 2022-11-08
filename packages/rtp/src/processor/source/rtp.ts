@@ -28,7 +28,7 @@ export class RtpSourceStream {
     });
   }
 
-  push(packet: Buffer | RtpPacket) {
+  push = (packet: Buffer | RtpPacket) => {
     const rtp =
       packet instanceof RtpPacket ? packet : RtpPacket.deSerialize(packet);
 
@@ -43,7 +43,7 @@ export class RtpSourceStream {
     }
 
     this.write({ rtp });
-  }
+  };
 
   stop() {
     this.controller.enqueue({ eol: true });

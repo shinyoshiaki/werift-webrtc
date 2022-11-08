@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@minhducsun2002/leb128": "^0.2.0",
-    "@shinyoshiaki/ebml-builder": "^0.0.1",
     "aes-js": "^3.1.2",
     "binary-data": "^0.6.0",
     "buffer": "^6.0.3",
@@ -42,7 +41,11 @@
   "devDependencies": {
     "@types/aes-js": "^3.1.1",
     "@types/debug": "^4.1.7",
-    "@types/lodash": "^4.14.178"
+    "@types/lodash": "^4.14.178",
+    "@types/react": "^17.0.16",
+    "@types/react-dom": "^17.0.8",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2"
   },
   "engines": {
     "node": ">=10"

@@ -7,3 +7,4 @@ coverage
 dist
 *.webm
 *.log
+*.key
