@@ -1,20 +1,20 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
-import { appendFile, open, unlink } from "fs/promises";
-import Event from "rx.mini";
+import { appendFile, open, stat, unlink } from "fs/promises";
 import { ReadableStreamDefaultReadResult } from "stream/web";
 
 import {
   depacketizeTransformer,
+  DurationPosition,
   jitterBufferTransformer,
   randomPort,
-  RtpPacket,
+  replaceSegmentSize,
   RtpSourceStream,
-  WebmLiveOutput,
-  WebmLiveSink,
+  SegmentSizePosition,
+  WebmStream,
+  WebmStreamOutput,
 } from "../../src";
 
-const onReceiveRtp = new Event<[RtpPacket]>();
 const path = "./webmAV.webm";
 
 console.log("start");
@@ -45,11 +45,11 @@ randomPort().then(async (port) => {
   const udp = createSocket("udp4");
   udp.bind(port);
   udp.on("message", (data) => {
-    const rtp = RtpPacket.deSerialize(data);
-    onReceiveRtp.execute(rtp);
+    video.push(data);
+    audio.push(data);
   });
 
-  const webm = new WebmLiveSink(
+  const webm = new WebmStream(
     [
       {
         kind: "video",
@@ -69,31 +69,45 @@ randomPort().then(async (port) => {
     { duration: 1000 * 60 * 60 * 24 }
   );
 
-  const video = new RtpSourceStream(onReceiveRtp, { payloadType: 96 });
+  const video = new RtpSourceStream({ payloadType: 96 });
   video.readable
     .pipeThrough(jitterBufferTransformer(90000))
-    .pipeThrough(depacketizeTransformer((h) => h.marker, "vp8"))
+    .pipeThrough(
+      depacketizeTransformer("vp8", {
+        isFinalPacketInSequence: (h) => h.marker,
+      })
+    )
     .pipeTo(webm.videoStream);
 
-  const audio = new RtpSourceStream(onReceiveRtp, { payloadType: 97 });
+  const audio = new RtpSourceStream({ payloadType: 97 });
   audio.readable
     .pipeThrough(jitterBufferTransformer(48000))
-    .pipeThrough(depacketizeTransformer(() => true, "opus"))
+    .pipeThrough(depacketizeTransformer("opus"))
     .pipeTo(webm.audioStream);
 
   const reader = webm.webmStream.getReader();
   const readChunk = async ({
     value,
     done,
-  }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
+  }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
     if (done) return;
 
-    if (value.packet) {
-      await appendFile(path, value.packet);
+    if (value.saveToFile) {
+      await appendFile(path, value.saveToFile);
     } else if (value.eol) {
       const { durationElement } = value.eol;
       const handler = await open(path, "r+");
-      await handler.write(durationElement, 0, durationElement.length, 83);
+      await handler.write(
+        durationElement,
+        0,
+        durationElement.length,
+        DurationPosition
+      );
+
+      const meta = await stat(path);
+      const resize = replaceSegmentSize(meta.size);
+      await handler.write(resize, 0, resize.length, SegmentSizePosition);
+
       await handler.close();
     }
     reader.read().then(readChunk);
@@ -101,7 +115,8 @@ randomPort().then(async (port) => {
   reader.read().then(readChunk);
 
   setTimeout(async () => {
-    await Promise.all([video.stop(), audio.stop()]);
     console.log("stop");
+    video.stop();
+    audio.stop();
   }, 5_000);
 });

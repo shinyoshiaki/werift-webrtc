@@ -9,8 +9,8 @@ import {
   randomPort,
   RtpPacket,
   RtpSourceStream,
-  WebmLiveOutput,
   WebmStream,
+  WebmStreamOutput,
 } from "../../src";
 
 const path = "./webmLive.webm";
@@ -65,7 +65,7 @@ randomPort().then(async (port) => {
   const readChunk = async ({
     value,
     done,
-  }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
+  }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
     if (done) return;
 
     if (value.saveToFile) {
