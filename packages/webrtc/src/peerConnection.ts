@@ -79,14 +79,21 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
   sctpTransport?: RTCSctpTransport;
-  masterTransportEstablished = false;
+  transportEstablished = false;
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
-  readonly transceivers: RTCRtpTransceiver[] = [];
+  private readonly transceivers: RTCRtpTransceiver[] = [];
+  private pushTransceiver(t: RTCRtpTransceiver) {
+    this.transceivers.push(t);
+  }
+  private replaceTransceiver(t: RTCRtpTransceiver, index: number) {
+    this.transceivers[index] = t;
+  }
+
   candidatesSent = new Set<string>();
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
@@ -403,8 +410,9 @@ export class RTCPeerConnection extends EventTarget {
 
   removeTrack(sender: RTCRtpSender) {
     if (this.isClosed) throw new Error("peer closed");
-    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc))
+    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
       throw new Error("unExist");
+    }
 
     const transceiver = this.transceivers.find(
       ({ sender: { ssrc } }) => sender.ssrc === ssrc
@@ -444,9 +452,10 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(srtpProfiles: Profile[] = []) {
-    const [existing] = this.iceTransports;
-
+  private createTransport(
+    existing: RTCIceTransport | undefined,
+    srtpProfiles: Profile[] = []
+  ) {
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
     if (this.config.bundlePolicy === "max-bundle") {
@@ -534,7 +543,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private createSctpTransport() {
-    const dtlsTransport = this.createTransport([
+    const dtlsTransport = this.createTransport(this.iceTransports[0], [
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
@@ -616,7 +625,10 @@ export class RTCPeerConnection extends EventTarget {
     // # configure direction
     this.transceivers.forEach((t) => {
       if (["answer", "pranswer"].includes(description.type)) {
-        const direction = andDirection(t.direction, t.offerDirection);
+        const direction = andDirection(
+          t.currentDirection ?? t.direction,
+          t.offerDirection
+        );
         t.currentDirection = direction;
       }
     });
@@ -626,7 +638,6 @@ export class RTCPeerConnection extends EventTarget {
 
     // connect transports
     if (description.type === "answer") {
-      log("callee start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
         this.setConnectionState("failed");
@@ -728,7 +739,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async connect() {
-    if (this.masterTransportEstablished) return;
+    if (this.transportEstablished) {
+      return;
+    }
+    log("start connect");
 
     this.setConnectionState("connecting");
 
@@ -755,7 +769,7 @@ export class RTCPeerConnection extends EventTarget {
       })
     );
 
-    this.masterTransportEstablished = true;
+    this.transportEstablished = true;
     this.setConnectionState("connected");
   }
 
@@ -841,26 +855,28 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.kind === media.kind &&
       [undefined, media.rtp.muxId].includes(transceiver.mid);
 
-    let transports = enumerate(remoteSdp.media).map(([i, remoteMedia]) => {
-      let dtlsTransport: RTCDtlsTransport | undefined;
+    let transports = remoteSdp.media.map((remoteMedia, i) => {
+      let dtlsTransport: RTCDtlsTransport;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
         let transceiver = this.transceivers.find((t) =>
           matchTransceiverWithMedia(t, remoteMedia)
         );
-        if (!transceiver) {
+        if (transceiver) {
+          if (remoteMedia.direction === "inactive") {
+            transceiver.stopped = true;
+            transceiver.currentDirection = "inactive";
+            transceiver.receiver.stop();
+            transceiver.sender.stop();
+            return;
+          }
+        } else {
           // create remote transceiver
-          transceiver = this.addTransceiver(remoteMedia.kind, {
+          transceiver = this._addTransceiver(remoteMedia.kind, {
             direction: "recvonly",
           });
           transceiver.mid = remoteMedia.rtp.muxId;
           this.onRemoteTransceiverAdded.execute(transceiver);
-        } else {
-          if (transceiver.direction === "inactive" && transceiver.stopping) {
-            transceiver.stopped = true;
-            transceiver.currentDirection = "inactive";
-            return;
-          }
         }
 
         if (this.remoteIsBundled) {
@@ -932,13 +948,9 @@ export class RTCPeerConnection extends EventTarget {
         undefined
     );
 
-    if (sessionDescription.type === "answer") {
-      for (const transceiver of removedTransceivers) {
-        // todo: handle answer side transceiver removal work.
-        // event should trigger to notify media source to stop.
-        transceiver.stop();
-        transceiver.stopped = true;
-      }
+    for (const transceiver of removedTransceivers) {
+      transceiver.stop();
+      transceiver.stopped = true;
     }
 
     if (remoteSdp.type === "offer") {
@@ -980,10 +992,8 @@ export class RTCPeerConnection extends EventTarget {
     type: "offer" | "answer",
     mLineIndex: number
   ) {
-    if (!transceiver.mid) {
-      transceiver.mid = remoteMedia.rtp.muxId;
-      transceiver.mLineIndex = mLineIndex;
-    }
+    transceiver.mid = remoteMedia.rtp.muxId;
+    transceiver.mLineIndex = mLineIndex;
 
     // # negotiate codecs
     transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
@@ -1154,27 +1164,34 @@ export class RTCPeerConnection extends EventTarget {
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {}
   ) {
+    return this._addTransceiver(trackOrKind, options);
+  }
+
+  private _addTransceiver(
+    trackOrKind: Kind | MediaStreamTrack,
+    options: Partial<TransceiverOptions> = {}
+  ) {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
 
     const direction = options.direction || "sendrecv";
 
-    const dtlsTransport = this.createTransport([
+    const dtlsTransport = this.createTransport(this.iceTransports[0], [
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
 
     const sender = new RTCRtpSender(trackOrKind);
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
-    const transceiver = new RTCRtpTransceiver(
+    const newTransceiver = new RTCRtpTransceiver(
       kind,
       dtlsTransport,
       receiver,
       sender,
       direction
     );
-    transceiver.options = options;
-    this.router.registerRtpSender(transceiver.sender);
+    newTransceiver.options = options;
+    this.router.registerRtpSender(newTransceiver.sender);
 
     // reuse inactive
     const inactiveTransceiverIndex = this.transceivers.findIndex(
@@ -1184,21 +1201,24 @@ export class RTCPeerConnection extends EventTarget {
       (t) => t.currentDirection === "inactive"
     )!;
     if (inactiveTransceiverIndex > -1) {
-      this.transceivers[inactiveTransceiverIndex] = transceiver;
-      transceiver.mLineIndex = inactiveTransceiver.mLineIndex;
-      inactiveTransceiver.currentDirection = "stopped";
+      this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
+      newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
+      inactiveTransceiver.currentDirection = undefined;
     } else {
-      this.transceivers.push(transceiver);
+      this.pushTransceiver(newTransceiver);
     }
-    this.onTransceiverAdded.execute(transceiver);
+    this.onTransceiverAdded.execute(newTransceiver);
 
     this.updateIceConnectionState();
     this.needNegotiation();
 
-    return transceiver;
+    return newTransceiver;
   }
 
   getTransceivers() {
+    // const transceivers = this.transceivers.filter(
+    //   (t) => t.currentDirection !== "inactive"
+    // );
     return this.transceivers;
   }
 
@@ -1255,7 +1275,9 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
       return sender;
     } else {
-      const transceiver = this.addTransceiver(track, { direction: "sendrecv" });
+      const transceiver = this._addTransceiver(track, {
+        direction: "sendrecv",
+      });
       this.needNegotiation();
       return transceiver.sender;
     }
@@ -1307,7 +1329,10 @@ export class RTCPeerConnection extends EventTarget {
         media = createMediaDescriptionForTransceiver(
           transceiver,
           this.cname,
-          andDirection(transceiver.direction, transceiver.offerDirection)
+          andDirection(
+            transceiver.currentDirection ?? transceiver.direction,
+            transceiver.offerDirection
+          )
         );
         dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteMedia.kind === "application") {
@@ -1322,13 +1347,12 @@ export class RTCPeerConnection extends EventTarget {
       }
 
       // # determine DTLS role, or preserve the currently configured role
-      if (!media.dtlsParams) {
-        throw new Error("dtlsParams missing");
-      }
-      if (dtlsTransport.role === "auto") {
-        media.dtlsParams.role = "client";
-      } else {
-        media.dtlsParams.role = dtlsTransport.role;
+      if (media.dtlsParams) {
+        if (dtlsTransport.role === "auto") {
+          media.dtlsParams.role = "client";
+        } else {
+          media.dtlsParams.role = dtlsTransport.role;
+        }
       }
 
       media.simulcastParameters = remoteMedia.simulcastParameters.map((v) => ({
