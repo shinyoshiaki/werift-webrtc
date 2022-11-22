@@ -13,20 +13,20 @@ import { RTCRtpSender } from "./rtpSender";
 import { MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
-  readonly uuid = uuid.v4();
+  readonly id = uuid.v4();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid?: string;
   mLineIndex?: number;
   usedForSender = false;
-  private _currentDirection?: Direction | "stopped";
-  set currentDirection(direction: Direction | "stopped" | undefined) {
+  private _currentDirection?: Direction;
+  set currentDirection(direction: Direction | undefined) {
     this._currentDirection = direction;
     if (SenderDirections.includes(this._currentDirection || "")) {
       this.usedForSender = true;
     }
   }
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): Direction | "stopped" | undefined {
+  get currentDirection(): Direction | undefined {
     return this._currentDirection;
   }
 
@@ -77,11 +77,14 @@ export class RTCRtpTransceiver {
   // todo impl
   // https://www.w3.org/TR/webrtc/#methods-8
   stop() {
-    if (this.stopping) return;
+    if (this.stopping) {
+      return;
+    }
 
     // todo Stop sending and receiving with transceiver.
 
     this.stopping = true;
+    this.currentDirection = "inactive";
   }
 
   getPayloadType(mimeType: string) {
