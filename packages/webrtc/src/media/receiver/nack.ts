@@ -105,7 +105,9 @@ export class NackHandler {
       const rtcp = new RtcpTransportLayerFeedback({
         feedback: nack,
       });
-      this.receiver.dtlsTransport.sendRtcp([rtcp]);
+      this.receiver.dtlsTransport.sendRtcp([rtcp]).catch((e) => {
+        log("send nack failed", e);
+      });
 
       this.updateRetryCount();
       this.onPacketLost.execute(nack);

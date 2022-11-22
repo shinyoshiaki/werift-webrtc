@@ -127,13 +127,23 @@ export class RTCRtpReceiver {
 
   addTrack(track: MediaStreamTrack) {
     const exist = this.tracks.find((t) => {
-      if (t.rid) return t.rid === track.rid;
-      if (t.ssrc) return t.ssrc === track.ssrc;
+      if (t.rid) {
+        return t.rid === track.rid;
+      }
+      if (t.ssrc) {
+        return t.ssrc === track.ssrc;
+      }
     });
-    if (exist) return false;
+    if (exist) {
+      return false;
+    }
     this.tracks.push(track);
-    if (track.ssrc) this.trackBySSRC[track.ssrc] = track;
-    if (track.rid) this.trackByRID[track.rid] = track;
+    if (track.ssrc) {
+      this.trackBySSRC[track.ssrc] = track;
+    }
+    if (track.rid) {
+      this.trackByRID[track.rid] = track;
+    }
     return true;
   }
 
@@ -259,7 +269,9 @@ export class RTCRtpReceiver {
     extensions: Extensions,
     track?: MediaStreamTrack
   ) {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {

@@ -279,7 +279,7 @@ export class SessionDescription {
             if (!bundle.items.includes(i.toString())) continue;
             const check = session.media[i];
             if (
-              check.iceParams &&
+              check?.iceParams &&
               check.iceParams.usernameFragment &&
               check.iceParams.password
             ) {
