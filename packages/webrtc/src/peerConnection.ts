@@ -410,8 +410,9 @@ export class RTCPeerConnection extends EventTarget {
 
   removeTrack(sender: RTCRtpSender) {
     if (this.isClosed) throw new Error("peer closed");
-    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc))
+    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
       throw new Error("unExist");
+    }
 
     const transceiver = this.transceivers.find(
       ({ sender: { ssrc } }) => sender.ssrc === ssrc
@@ -1215,10 +1216,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   getTransceivers() {
-    const transceivers = this.transceivers.filter(
-      (t) => t.currentDirection !== "inactive"
-    );
-    return transceivers;
+    // const transceivers = this.transceivers.filter(
+    //   (t) => t.currentDirection !== "inactive"
+    // );
+    return this.transceivers;
   }
 
   getSenders(): RTCRtpSender[] {

@@ -17,13 +17,26 @@ const LOST_SIZE = 30 * 5;
 export class NackHandler {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
-  private nackLoop = setInterval(() => this.sendNack(), 20);
+  private nackLoop: any;
 
   readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
   retryCount = 10;
 
   constructor(private receiver: RTCRtpReceiver) {}
+
+  private start() {
+    if (this.nackLoop) {
+      return;
+    }
+    this.nackLoop = setInterval(async () => {
+      try {
+        await this.sendNack();
+      } catch (error) {
+        log("failed to send nack", error);
+      }
+    }, 20);
+  }
 
   get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();
@@ -42,6 +55,8 @@ export class NackHandler {
   }
 
   addPacket(packet: RtpPacket) {
+    this.start();
+
     const { sequenceNumber, ssrc } = packet.header;
     this.mediaSourceSsrc = ssrc;
 
@@ -95,22 +110,21 @@ export class NackHandler {
     });
   }
 
-  private sendNack() {
-    if (this.lostSeqNumbers.length > 0 && this.mediaSourceSsrc) {
-      const nack = new GenericNack({
-        senderSsrc: this.receiver.rtcpSsrc,
-        mediaSourceSsrc: this.mediaSourceSsrc,
-        lost: this.lostSeqNumbers,
-      });
-      const rtcp = new RtcpTransportLayerFeedback({
-        feedback: nack,
-      });
-      this.receiver.dtlsTransport.sendRtcp([rtcp]).catch((e) => {
-        log("send nack failed", e);
-      });
+  private sendNack = () =>
+    new Promise((r, f) => {
+      if (this.lostSeqNumbers.length > 0 && this.mediaSourceSsrc) {
+        const nack = new GenericNack({
+          senderSsrc: this.receiver.rtcpSsrc,
+          mediaSourceSsrc: this.mediaSourceSsrc,
+          lost: this.lostSeqNumbers,
+        });
+        const rtcp = new RtcpTransportLayerFeedback({
+          feedback: nack,
+        });
+        this.receiver.dtlsTransport.sendRtcp([rtcp]).then(r).catch(f);
 
-      this.updateRetryCount();
-      this.onPacketLost.execute(nack);
-    }
-  }
+        this.updateRetryCount();
+        this.onPacketLost.execute(nack);
+      }
+    });
 }
