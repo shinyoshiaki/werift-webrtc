@@ -17,19 +17,9 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid?: string;
   mLineIndex?: number;
+  /**should not be reused because it has been used for sending before. */
   usedForSender = false;
   private _currentDirection?: Direction;
-  set currentDirection(direction: Direction | undefined) {
-    this._currentDirection = direction;
-    if (SenderDirections.includes(this._currentDirection || "")) {
-      this.usedForSender = true;
-    }
-  }
-  /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): Direction | undefined {
-    return this._currentDirection;
-  }
-
   offerDirection!: Direction;
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
@@ -49,13 +39,34 @@ export class RTCRtpTransceiver {
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
-    public direction: Direction
+    private _direction: Direction
   ) {
     this.setDtlsTransport(dtlsTransport);
   }
 
   get dtlsTransport() {
     return this.receiver.dtlsTransport;
+  }
+
+  /**RFC 8829 4.2.4. setDirectionに渡された最後の値を示します */
+  get direction() {
+    return this._direction;
+  }
+
+  setDirection(direction: Direction) {
+    this._direction = direction;
+    if (SenderDirections.includes(this._currentDirection ?? "")) {
+      this.usedForSender = true;
+    }
+  }
+
+  /**RFC 8829 4.2.5. last negotiated direction */
+  get currentDirection(): Direction | undefined {
+    return this._currentDirection;
+  }
+
+  setCurrentDirection(direction: Direction | undefined) {
+    this._currentDirection = direction;
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {

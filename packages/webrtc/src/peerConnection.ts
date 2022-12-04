@@ -25,6 +25,7 @@ import {
 import {
   DISCARD_HOST,
   DISCARD_PORT,
+  ReceiverDirection,
   SenderDirections,
   SRTP_PROFILE,
 } from "./const";
@@ -247,11 +248,11 @@ export class RTCPeerConnection extends EventTarget {
     ).filter((codecCandidate) => {
       switch (codecCandidate.direction) {
         case "recvonly": {
-          if ([Recvonly, Sendrecv].includes(transceiver.direction)) return true;
+          if (ReceiverDirection.includes(transceiver.direction)) return true;
           return false;
         }
         case "sendonly": {
-          if ([Sendonly, Sendrecv].includes(transceiver.direction)) return true;
+          if (SenderDirections.includes(transceiver.direction)) return true;
           return false;
         }
         case "sendrecv": {
@@ -427,15 +428,15 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     if (transceiver.stopping || transceiver.stopped) {
-      transceiver.direction = "inactive";
+      transceiver.setDirection("inactive");
     } else {
       if (transceiver.direction === "sendrecv") {
-        transceiver.direction = "recvonly";
+        transceiver.setDirection("recvonly");
       } else if (
         transceiver.direction === "sendonly" ||
         transceiver.direction === "recvonly"
       ) {
-        transceiver.direction = "inactive";
+        transceiver.setDirection("inactive");
       }
     }
     this.needNegotiation();
@@ -622,12 +623,12 @@ export class RTCPeerConnection extends EventTarget {
     this.dtlsTransports.forEach((d) => setupRole(d));
 
     // # configure direction
-    this.transceivers.forEach((t) => {
-      if (["answer", "pranswer"].includes(description.type)) {
+    if (["answer", "pranswer"].includes(description.type)) {
+      this.transceivers.forEach((t) => {
         const direction = andDirection(t.direction, t.offerDirection);
-        t.currentDirection = direction;
-      }
-    });
+        t.setCurrentDirection(direction);
+      });
+    }
 
     // for trickle ice
     this.setLocal(description);
@@ -868,7 +869,10 @@ export class RTCPeerConnection extends EventTarget {
         } else {
           if (transceiver.direction === "inactive" && transceiver.stopping) {
             transceiver.stopped = true;
-            transceiver.currentDirection = "inactive";
+
+            if (sessionDescription.type === "answer") {
+              transceiver.setCurrentDirection("inactive");
+            }
             return;
           }
         }
@@ -1025,14 +1029,13 @@ export class RTCPeerConnection extends EventTarget {
     );
 
     // # configure direction
-    const mediaDirection = remoteMedia.direction || "inactive";
+    const mediaDirection = remoteMedia.direction ?? "inactive";
     const direction = reverseDirection(mediaDirection);
     if (["answer", "pranswer"].includes(type)) {
-      transceiver.currentDirection = direction;
+      transceiver.setCurrentDirection(direction);
     } else {
       transceiver.offerDirection = direction;
     }
-
     const localParams = this.getLocalRtpParams(transceiver);
     transceiver.sender.prepareSend(localParams);
 
@@ -1199,11 +1202,11 @@ export class RTCPeerConnection extends EventTarget {
     );
     const inactiveTransceiver = this.transceivers.find(
       (t) => t.currentDirection === "inactive"
-    )!;
-    if (inactiveTransceiverIndex > -1) {
+    );
+    if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
       this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
       newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
-      inactiveTransceiver.currentDirection = undefined;
+      inactiveTransceiver.setCurrentDirection(undefined);
     } else {
       this.pushTransceiver(newTransceiver);
     }
@@ -1263,10 +1266,10 @@ export class RTCPeerConnection extends EventTarget {
       sender.registerTrack(track);
       switch (notSendTransceiver.direction) {
         case "recvonly":
-          notSendTransceiver.direction = "sendrecv";
+          notSendTransceiver.setDirection("sendrecv");
           break;
         case "inactive":
-          notSendTransceiver.direction = "sendonly";
+          notSendTransceiver.setDirection("sendonly");
           break;
       }
       this.needNegotiation();
