@@ -84,7 +84,6 @@ export class RTCRtpTransceiver {
     // todo Stop sending and receiving with transceiver.
 
     this.stopping = true;
-    this.currentDirection = "inactive";
   }
 
   getPayloadType(mimeType: string) {

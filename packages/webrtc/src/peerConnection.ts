@@ -452,10 +452,9 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(
-    existing: RTCIceTransport | undefined,
-    srtpProfiles: Profile[] = []
-  ) {
+  private createTransport(srtpProfiles: Profile[] = []) {
+    const [existing] = this.iceTransports;
+
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
     if (this.config.bundlePolicy === "max-bundle") {
@@ -543,7 +542,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private createSctpTransport() {
-    const dtlsTransport = this.createTransport(this.iceTransports[0], [
+    const dtlsTransport = this.createTransport([
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
@@ -625,10 +624,7 @@ export class RTCPeerConnection extends EventTarget {
     // # configure direction
     this.transceivers.forEach((t) => {
       if (["answer", "pranswer"].includes(description.type)) {
-        const direction = andDirection(
-          t.currentDirection ?? t.direction,
-          t.offerDirection
-        );
+        const direction = andDirection(t.direction, t.offerDirection);
         t.currentDirection = direction;
       }
     });
@@ -862,21 +858,19 @@ export class RTCPeerConnection extends EventTarget {
         let transceiver = this.transceivers.find((t) =>
           matchTransceiverWithMedia(t, remoteMedia)
         );
-        if (transceiver) {
-          if (remoteMedia.direction === "inactive") {
-            transceiver.stopped = true;
-            transceiver.currentDirection = "inactive";
-            transceiver.receiver.stop();
-            transceiver.sender.stop();
-            return;
-          }
-        } else {
+        if (!transceiver) {
           // create remote transceiver
           transceiver = this._addTransceiver(remoteMedia.kind, {
             direction: "recvonly",
           });
           transceiver.mid = remoteMedia.rtp.muxId;
           this.onRemoteTransceiverAdded.execute(transceiver);
+        } else {
+          if (transceiver.direction === "inactive" && transceiver.stopping) {
+            transceiver.stopped = true;
+            transceiver.currentDirection = "inactive";
+            return;
+          }
         }
 
         if (this.remoteIsBundled) {
@@ -948,9 +942,13 @@ export class RTCPeerConnection extends EventTarget {
         undefined
     );
 
-    for (const transceiver of removedTransceivers) {
-      transceiver.stop();
-      transceiver.stopped = true;
+    if (sessionDescription.type === "answer") {
+      for (const transceiver of removedTransceivers) {
+        // todo: handle answer side transceiver removal work.
+        // event should trigger to notify media source to stop.
+        transceiver.stop();
+        transceiver.stopped = true;
+      }
     }
 
     if (remoteSdp.type === "offer") {
@@ -992,7 +990,9 @@ export class RTCPeerConnection extends EventTarget {
     type: "offer" | "answer",
     mLineIndex: number
   ) {
-    transceiver.mid = remoteMedia.rtp.muxId;
+    if (!transceiver.mid) {
+      transceiver.mid = remoteMedia.rtp.muxId;
+    }
     transceiver.mLineIndex = mLineIndex;
 
     // # negotiate codecs
@@ -1176,7 +1176,7 @@ export class RTCPeerConnection extends EventTarget {
 
     const direction = options.direction || "sendrecv";
 
-    const dtlsTransport = this.createTransport(this.iceTransports[0], [
+    const dtlsTransport = this.createTransport([
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
@@ -1216,9 +1216,6 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   getTransceivers() {
-    // const transceivers = this.transceivers.filter(
-    //   (t) => t.currentDirection !== "inactive"
-    // );
     return this.transceivers;
   }
 
@@ -1329,10 +1326,7 @@ export class RTCPeerConnection extends EventTarget {
         media = createMediaDescriptionForTransceiver(
           transceiver,
           this.cname,
-          andDirection(
-            transceiver.currentDirection ?? transceiver.direction,
-            transceiver.offerDirection
-          )
+          andDirection(transceiver.direction, transceiver.offerDirection)
         );
         dtlsTransport = transceiver.dtlsTransport;
       } else if (remoteMedia.kind === "application") {
