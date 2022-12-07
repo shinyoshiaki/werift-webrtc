@@ -94,7 +94,7 @@ const unpackUnsigned64 = (data: Buffer) => {
   return BigInt(int.toString());
 };
 
-const packString = (value: string) => Buffer.from(value, "utf8");
+const packString = (value = "") => Buffer.from(value, "utf8");
 const unpackString = (data: Buffer) => data.toString("utf8");
 
 const packBytes = (value: Buffer) => value;
