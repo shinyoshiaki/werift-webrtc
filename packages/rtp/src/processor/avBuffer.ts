@@ -7,17 +7,48 @@ export type AVBufferInput = DepacketizerOutput;
 export type AVBufferOutput = AVBufferInput;
 
 export class AVBufferBase {
+  bufferLength = 50;
   baseAudioTimestamp?: number;
   baseVideoTimestamp?: number;
-  audioBuffer: AVBufferInput[] = [];
+  audioBuffer: (AVBufferInput & { elapsed: number; kind: string })[][] = [
+    ...new Array(this.bufferLength),
+  ].map(() => []);
+  videoBuffer: (AVBufferInput & { elapsed: number; kind: string })[][] = [
+    ...new Array(this.bufferLength),
+  ].map(() => []);
   stopped = false;
+  private interval = this.options.interval ?? 500;
 
   constructor(
     private audioOutput: (output: AVBufferOutput) => void,
-    private videoOutput: (output: AVBufferOutput) => void
-  ) {}
+    private videoOutput: (output: AVBufferOutput) => void,
+    private options: Partial<AvBufferOptions> = {}
+  ) {
+    let index = 0;
+    setInterval(() => {
+      const joined = [...this.audioBuffer[index], ...this.videoBuffer[index]];
+      const sorted = joined.sort((a, b) => a.elapsed - b.elapsed);
+      this.audioBuffer[index] = [];
+      this.videoBuffer[index] = [];
 
-  processAudioInput(input: AVBufferInput) {
+      // console.log(sorted.map((v) => ({ elapsed: v.elapsed, kind: v.kind })));
+
+      for (const output of sorted) {
+        if (output.kind === "audio") {
+          audioOutput(output);
+        } else {
+          videoOutput(output);
+        }
+      }
+
+      index++;
+      if (index === this.bufferLength) {
+        index = 0;
+      }
+    }, this.interval);
+  }
+
+  processAudioInput = (input: AVBufferInput) => {
     if (!input.frame) {
       this.stopped = true;
       this.audioOutput(input);
@@ -30,16 +61,21 @@ export class AVBufferBase {
     if (this.baseAudioTimestamp == undefined) {
       this.baseAudioTimestamp = input.frame?.timestamp;
     }
-    this.audioBuffer.push(input);
+
     const { elapsed, rotate } = this.calcElapsed(
       this.baseAudioTimestamp,
       input.frame.timestamp,
       48000
     );
-    console.log("audio", elapsed, this.audioBuffer.length);
-  }
+    if (rotate) {
+      this.baseAudioTimestamp = input.frame?.timestamp;
+    }
 
-  async processVideoInput(input: AVBufferInput) {
+    const index = int(elapsed / this.interval) % this.bufferLength;
+    this.audioBuffer[index].push({ ...input, elapsed, kind: "audio" });
+  };
+
+  processVideoInput = (input: AVBufferInput) => {
     if (!input.frame) {
       this.stopped = true;
       this.videoOutput(input);
@@ -49,43 +85,22 @@ export class AVBufferBase {
       return;
     }
 
-    await new Promise((r) => setTimeout(r, (90000 - 48000) / 10000));
-
-    const { timestamp } = input.frame;
-
     if (this.baseVideoTimestamp == undefined) {
-      this.baseVideoTimestamp = timestamp;
+      this.baseVideoTimestamp = input.frame?.timestamp;
     }
 
-    const { elapsed: videoElapsed, rotate } = this.calcElapsed(
+    const { elapsed, rotate } = this.calcElapsed(
       this.baseVideoTimestamp,
-      timestamp,
+      input.frame.timestamp,
       90000
     );
     if (rotate) {
-      this.baseVideoTimestamp = input.frame.timestamp;
+      this.baseVideoTimestamp = input.frame?.timestamp;
     }
 
-    const index = this.audioBuffer.findIndex((a) => {
-      const { timestamp } = a.frame!;
-      const { elapsed, rotate } = this.calcElapsed(
-        this.baseAudioTimestamp!,
-        timestamp,
-        48000
-      );
-      const target = elapsed > videoElapsed;
-      if (target && rotate) {
-        this.baseAudioTimestamp = timestamp;
-      }
-      if (target) {
-        console.log("over", elapsed, videoElapsed);
-      }
-      return target;
-    });
-    const buffer = this.audioBuffer.splice(0, index);
-    buffer.forEach((b) => this.audioOutput(b));
-    this.videoOutput(input);
-  }
+    const index = int(elapsed / this.interval) % this.bufferLength;
+    this.videoBuffer[index].push({ ...input, elapsed, kind: "video" });
+  };
 
   private calcElapsed(base: number, timestamp: number, clockRate: number) {
     const rotate = Math.abs(timestamp - base) > (Max32Uint / 4) * 3;
@@ -94,7 +109,12 @@ export class AVBufferBase {
     }
 
     const diff = rotate ? timestamp + Max32Uint - base : timestamp - base;
+    /**ms */
     const elapsed = int((diff / clockRate) * 1000);
     return { elapsed, rotate };
   }
+}
+
+export interface AvBufferOptions {
+  interval: number;
 }

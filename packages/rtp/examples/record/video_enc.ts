@@ -1,19 +1,18 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 import { appendFile, open, stat, unlink, writeFile } from "fs/promises";
-import { ReadableStreamDefaultReadResult } from "stream/web";
 
 import {
-  AVBufferTransformer,
-  depacketizeTransformer,
+  AvBufferCallback,
+  DepacketizeCallback,
   DurationPosition,
-  jitterBufferTransformer,
+  JitterBufferCallback,
+  PromiseQueue,
   randomPort,
   replaceSegmentSize,
-  RtpSourceStream,
+  RtpSourceCallback,
   SegmentSizePosition,
-  WebmStream,
-  WebmStreamOutput,
+  WebmCallback,
 } from "../../src";
 
 const path = "./webm_enc.webm";
@@ -25,7 +24,7 @@ randomPort().then(async (port) => {
 
   {
     const args = [
-      `audiotestsrc wave=ticks ! audioconvert ! audioresample ! queue ! opusenc`,
+      `audiotestsrc  ! audioconvert ! audioresample ! queue ! opusenc`,
       `rtpopuspay pt=96`,
       `udpsink host=127.0.0.1 port=${port}`,
     ].join(" ! ");
@@ -47,8 +46,8 @@ randomPort().then(async (port) => {
   const udp = createSocket("udp4");
   udp.bind(port);
   udp.on("message", (data) => {
-    audio.push(data);
-    video.push(data);
+    audio.input(data);
+    video.input(data);
   });
 
   const encryptionKey = Buffer.from([
@@ -57,7 +56,8 @@ randomPort().then(async (port) => {
   ]);
   await writeFile("webm_enc.key", encryptionKey);
 
-  const webm = new WebmStream(
+  const avBuffer = new AvBufferCallback();
+  const webm = new WebmCallback(
     [
       {
         kind: "audio",
@@ -76,59 +76,56 @@ randomPort().then(async (port) => {
     ],
     { duration: 1000 * 60 * 60 * 24, encryptionKey, strictTimestamp: true }
   );
-  const avBuffer = new AVBufferTransformer();
 
-  const audio = new RtpSourceStream({ payloadType: 96 });
-  audio.readable
-    .pipeThrough(jitterBufferTransformer(48000))
-    .pipeThrough(depacketizeTransformer("opus"))
-    .pipeTo(avBuffer.audioStream);
-  avBuffer.outputAudioStream.pipeTo(webm.audioStream);
+  const audio = new RtpSourceCallback({ payloadType: 96 });
+  {
+    const jitterBuffer = new JitterBufferCallback(48000);
+    const depacketizer = new DepacketizeCallback("opus");
 
-  const video = new RtpSourceStream({ payloadType: 97 });
-  video.readable
-    .pipeThrough(jitterBufferTransformer(90000))
-    .pipeThrough(
-      depacketizeTransformer("vp8", {
-        isFinalPacketInSequence: (h) => h.marker,
-      })
-    )
-    .pipeTo(avBuffer.videoStream);
-  avBuffer.outputVideoStream.pipeTo(webm.videoStream);
+    audio.pipe((input) => jitterBuffer.input(input));
+    jitterBuffer.pipe(depacketizer.input);
+    depacketizer.pipe(avBuffer.inputAudio);
+    avBuffer.pipeAudio(webm.inputAudio);
+  }
+  const video = new RtpSourceCallback({ payloadType: 97 });
+  {
+    const jitterBuffer = new JitterBufferCallback(90000);
+    const depacketizer = new DepacketizeCallback("vp8", {
+      isFinalPacketInSequence: (h) => h.marker,
+    });
 
-  const reader = webm.webmStream.getReader();
-  const readChunk = async ({
-    value,
-    done,
-  }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
-    if (done) return;
+    video.pipe((input) => jitterBuffer.input(input));
+    jitterBuffer.pipe(depacketizer.input);
+    depacketizer.pipe(avBuffer.inputVideo);
+    avBuffer.pipeVideo(webm.inputVideo);
+  }
 
-    if (value.saveToFile) {
-      await appendFile(path, value.saveToFile);
-    } else if (value.eol) {
-      const { durationElement } = value.eol;
-      const handler = await open(path, "r+");
-      await handler.write(
-        durationElement,
-        0,
-        durationElement.length,
-        DurationPosition
-      );
+  const queue = new PromiseQueue();
+  webm.pipe(async (value) => {
+    queue.push(async () => {
+      if (value.saveToFile) {
+        await appendFile(path, value.saveToFile);
+      } else if (value.eol) {
+        const { durationElement } = value.eol;
+        const handler = await open(path, "r+");
+        await handler.write(
+          durationElement,
+          0,
+          durationElement.length,
+          DurationPosition
+        );
+        const meta = await stat(path);
+        const resize = replaceSegmentSize(meta.size);
+        await handler.write(resize, 0, resize.length, SegmentSizePosition);
 
-      const meta = await stat(path);
-      const resize = replaceSegmentSize(meta.size);
-      await handler.write(resize, 0, resize.length, SegmentSizePosition);
-
-      await handler.close();
-    }
-
-    reader.read().then(readChunk);
-  };
-  reader.read().then(readChunk);
+        await handler.close();
+      }
+    });
+  });
 
   setTimeout(() => {
     console.log("stop");
     audio.stop();
     video.stop();
-  }, 10_000);
+  }, 5_000);
 });
