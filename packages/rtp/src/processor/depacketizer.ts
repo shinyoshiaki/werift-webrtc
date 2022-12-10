@@ -4,7 +4,7 @@ import { RtpHeader, RtpPacket, uint16Add } from "..";
 import { dePacketizeRtpPackets } from "../codec";
 import { enumerate } from "../helper";
 import { Processor } from "./interface";
-import { RtpOutput } from "./source/rtp";
+import { RtpOutput } from "./source";
 
 const srcPath = `werift-rtp : packages/rtp/src/processor_v2/depacketizer.ts`;
 const log = debug(srcPath);

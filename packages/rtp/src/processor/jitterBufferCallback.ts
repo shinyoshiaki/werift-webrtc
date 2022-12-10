@@ -14,8 +14,8 @@ export class JitterBufferCallback extends JitterBufferBase {
     super(clockRate, options);
   }
 
-  pipe = (instance: { input: (input: JitterBufferOutput) => void }) => {
-    this.cb = instance.input;
+  pipe = (cb: (input: JitterBufferOutput) => void) => {
+    this.cb = cb;
     return this;
   };
 

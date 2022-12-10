@@ -1,11 +1,7 @@
 import { ReadableStream, ReadableStreamController } from "stream/web";
 
 import { RtpPacket } from "../../rtp/rtp";
-
-export interface RtpOutput {
-  rtp?: RtpPacket;
-  eol?: boolean;
-}
+import { RtpOutput } from "./rtpCallback";
 
 export class RtpSourceStream {
   readable: ReadableStream<RtpOutput>;
