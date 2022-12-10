@@ -9,7 +9,7 @@ import {
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
 import { DepacketizerOutput } from "./depacketizer";
 
-const sourcePath = `werift-rtp : packages/rtp/src/processor_v2/webmLive.ts`;
+const sourcePath = `werift-rtp : packages/rtp/src/processor/webm.ts`;
 const log = debug(sourcePath);
 
 export type WebmInput = DepacketizerOutput;
@@ -27,6 +27,7 @@ export interface WebmOption {
   /**ms */
   duration?: number;
   encryptionKey?: Buffer;
+  strictTimestamp?: boolean;
 }
 
 export class WebmBase {
@@ -37,6 +38,7 @@ export class WebmBase {
   private position = 0;
   private clusterCounts = 0;
   stopped = false;
+  elapsed?: number;
 
   constructor(
     public tracks: {
@@ -69,19 +71,19 @@ export class WebmBase {
     this.onFrameReceived({ ...input.frame, trackNumber });
   }
 
-  processAudioInput(input: WebmInput) {
+  processAudioInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "audio");
     if (track) {
       this.processInput(input, track.trackNumber);
     }
-  }
+  };
 
-  processVideoInput(input: WebmInput) {
+  processVideoInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "video");
     if (track) {
       this.processInput(input, track.trackNumber);
     }
-  }
+  };
 
   start() {
     const staticPart = Buffer.concat([
@@ -127,7 +129,7 @@ export class WebmBase {
         );
 
         this.createCluster(this.relativeTimestamp);
-        Object.values(this.timestamps).forEach((t) => t.reset());
+        Object.values(this.timestamps).forEach((t) => t.shift(elapsed));
         elapsed = timestampManager.update(frame.timestamp);
       }
     }
@@ -140,6 +142,7 @@ export class WebmBase {
     this.clusterCounts++;
     this.output({ saveToFile: Buffer.from(cluster) });
     this.position += cluster.length;
+    this.elapsed = undefined;
   }
 
   private createSimpleBlock({
@@ -151,6 +154,19 @@ export class WebmBase {
     trackNumber: number;
     elapsed: number;
   }) {
+    if (this.elapsed == undefined) {
+      this.elapsed = elapsed;
+    }
+    if (elapsed < this.elapsed && this.options.strictTimestamp) {
+      log("previous timestamp", {
+        elapsed,
+        present: this.elapsed,
+        trackNumber,
+      });
+      return;
+    }
+    this.elapsed = elapsed;
+
     const block = this.builder.createSimpleBlock(
       frame.data,
       frame.isKeyframe,
@@ -187,12 +203,14 @@ export class WebmBase {
 
 class ClusterTimestamp {
   baseTimestamp?: number;
+  /**ms */
   elapsed = 0;
+  private offset = 0;
 
   constructor(public clockRate: number) {}
 
-  reset() {
-    this.baseTimestamp = undefined;
+  shift(elapsed: number) {
+    this.offset += elapsed;
   }
 
   update(timestamp: number) {
@@ -210,7 +228,7 @@ class ClusterTimestamp {
       ? timestamp + Max32Uint - this.baseTimestamp
       : timestamp - this.baseTimestamp;
 
-    this.elapsed = int((elapsed / this.clockRate) * 1000);
+    this.elapsed = int((elapsed / this.clockRate) * 1000) - this.offset;
     return this.elapsed;
   }
 }
@@ -241,9 +259,9 @@ class CuePoint {
 }
 
 /**4294967295 */
-const Max32Uint = Number(0x01n << 32n) - 1;
+export const Max32Uint = Number(0x01n << 32n) - 1;
 /**32767 */
-const MaxSinged16Int = (0x01 << 16) / 2 - 1;
+export const MaxSinged16Int = (0x01 << 16) / 2 - 1;
 
 export const DurationPosition = 83;
 

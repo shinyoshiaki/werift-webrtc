@@ -1,18 +1,18 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 import { appendFile, open, stat, unlink, writeFile } from "fs/promises";
-import { ReadableStreamDefaultReadResult } from "stream/web";
 
 import {
-  depacketizeTransformer,
+  AvBufferCallback,
+  DepacketizeCallback,
   DurationPosition,
-  jitterBufferTransformer,
+  JitterBufferCallback,
+  PromiseQueue,
   randomPort,
   replaceSegmentSize,
-  RtpSourceStream,
+  RtpSourceCallback,
   SegmentSizePosition,
-  WebmStream,
-  WebmStreamOutput,
+  WebmCallback,
 } from "../../src";
 
 const path = "./webm_enc.webm";
@@ -24,19 +24,20 @@ randomPort().then(async (port) => {
 
   {
     const args = [
-      `videotestsrc`,
-      "clockoverlay",
-      "video/x-raw,width=640,height=480,format=I420",
-      "vp8enc error-resilient=partitions keyframe-max-dist=30 auto-alt-ref=true cpu-used=5 deadline=1",
-      "rtpvp8pay pt=96",
+      `audiotestsrc  ! audioconvert ! audioresample ! queue ! opusenc`,
+      `rtpopuspay pt=96`,
       `udpsink host=127.0.0.1 port=${port}`,
     ].join(" ! ");
     spawn("gst-launch-1.0", args.split(" "));
   }
+
   {
     const args = [
-      `audiotestsrc wave=ticks ! audioconvert ! audioresample ! queue ! opusenc`,
-      `rtpopuspay pt=97`,
+      `videotestsrc`,
+      "clockoverlay",
+      "video/x-raw,width=640,height=480,format=I420",
+      "vp8enc error-resilient=partitions keyframe-max-dist=30 auto-alt-ref=true cpu-used=5 deadline=1",
+      "rtpvp8pay pt=97",
       `udpsink host=127.0.0.1 port=${port}`,
     ].join(" ! ");
     spawn("gst-launch-1.0", args.split(" "));
@@ -45,8 +46,8 @@ randomPort().then(async (port) => {
   const udp = createSocket("udp4");
   udp.bind(port);
   udp.on("message", (data) => {
-    video.push(data);
-    audio.push(data);
+    audio.input(data);
+    video.input(data);
   });
 
   const encryptionKey = Buffer.from([
@@ -55,75 +56,76 @@ randomPort().then(async (port) => {
   ]);
   await writeFile("webm_enc.key", encryptionKey);
 
-  const webm = new WebmStream(
+  const avBuffer = new AvBufferCallback();
+  const webm = new WebmCallback(
     [
+      {
+        kind: "audio",
+        codec: "OPUS",
+        clockRate: 48000,
+        trackNumber: 1,
+      },
       {
         width: 640,
         height: 480,
         kind: "video",
         codec: "VP8",
         clockRate: 90000,
-        trackNumber: 1,
-      },
-      {
-        kind: "audio",
-        codec: "OPUS",
-        clockRate: 48000,
         trackNumber: 2,
       },
     ],
-    { duration: 1000 * 60 * 60 * 24, encryptionKey }
+    { duration: 1000 * 60 * 60 * 24, encryptionKey, strictTimestamp: true }
   );
 
-  const video = new RtpSourceStream({ payloadType: 96 });
-  video.readable
-    .pipeThrough(jitterBufferTransformer(90000))
-    .pipeThrough(
-      depacketizeTransformer("vp8", {
-        isFinalPacketInSequence: (h) => h.marker,
-      })
-    )
-    .pipeTo(webm.videoStream);
+  const audio = new RtpSourceCallback({ payloadType: 96 });
+  {
+    const jitterBuffer = new JitterBufferCallback(48000);
+    const depacketizer = new DepacketizeCallback("opus");
 
-  const audio = new RtpSourceStream({ payloadType: 97 });
-  audio.readable
-    .pipeThrough(jitterBufferTransformer(48000))
-    .pipeThrough(depacketizeTransformer("opus"))
-    .pipeTo(webm.audioStream);
+    audio.pipe((input) => jitterBuffer.input(input));
+    jitterBuffer.pipe(depacketizer.input);
+    depacketizer.pipe(avBuffer.inputAudio);
+    avBuffer.pipeAudio(webm.inputAudio);
+  }
+  const video = new RtpSourceCallback({ payloadType: 97 });
+  {
+    const jitterBuffer = new JitterBufferCallback(90000);
+    const depacketizer = new DepacketizeCallback("vp8", {
+      isFinalPacketInSequence: (h) => h.marker,
+    });
 
-  const reader = webm.webmStream.getReader();
-  const readChunk = async ({
-    value,
-    done,
-  }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
-    if (done) return;
+    video.pipe((input) => jitterBuffer.input(input));
+    jitterBuffer.pipe(depacketizer.input);
+    depacketizer.pipe(avBuffer.inputVideo);
+    avBuffer.pipeVideo(webm.inputVideo);
+  }
 
-    if (value.saveToFile) {
-      await appendFile(path, value.saveToFile);
-    } else if (value.eol) {
-      const { durationElement } = value.eol;
-      const handler = await open(path, "r+");
-      await handler.write(
-        durationElement,
-        0,
-        durationElement.length,
-        DurationPosition
-      );
+  const queue = new PromiseQueue();
+  webm.pipe(async (value) => {
+    queue.push(async () => {
+      if (value.saveToFile) {
+        await appendFile(path, value.saveToFile);
+      } else if (value.eol) {
+        const { durationElement } = value.eol;
+        const handler = await open(path, "r+");
+        await handler.write(
+          durationElement,
+          0,
+          durationElement.length,
+          DurationPosition
+        );
+        const meta = await stat(path);
+        const resize = replaceSegmentSize(meta.size);
+        await handler.write(resize, 0, resize.length, SegmentSizePosition);
 
-      const meta = await stat(path);
-      const resize = replaceSegmentSize(meta.size);
-      await handler.write(resize, 0, resize.length, SegmentSizePosition);
-
-      await handler.close();
-    }
-
-    reader.read().then(readChunk);
-  };
-  reader.read().then(readChunk);
+        await handler.close();
+      }
+    });
+  });
 
   setTimeout(() => {
     console.log("stop");
-    video.stop();
     audio.stop();
-  }, 10_000);
+    video.stop();
+  }, 5_000);
 });

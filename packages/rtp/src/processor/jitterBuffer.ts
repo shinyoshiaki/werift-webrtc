@@ -8,7 +8,7 @@ import {
   uint32Gt,
 } from "..";
 import { Processor } from "./interface";
-import { RtpOutput } from "./source/rtp";
+import { RtpOutput } from "./source";
 
 const srcPath = `werift-rtp : packages/rtp/src/processor_v2/jitterBuffer.ts`;
 const log = debug(srcPath);
