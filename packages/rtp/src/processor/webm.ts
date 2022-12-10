@@ -9,7 +9,7 @@ import {
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
 import { DepacketizerOutput } from "./depacketizer";
 
-const sourcePath = `werift-rtp : packages/rtp/src/processor_v2/webmLive.ts`;
+const sourcePath = `werift-rtp : packages/rtp/src/processor/webm.ts`;
 const log = debug(sourcePath);
 
 export type WebmInput = DepacketizerOutput;
@@ -71,19 +71,19 @@ export class WebmBase {
     this.onFrameReceived({ ...input.frame, trackNumber });
   }
 
-  processAudioInput(input: WebmInput) {
+  processAudioInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "audio");
     if (track) {
       this.processInput(input, track.trackNumber);
     }
-  }
+  };
 
-  processVideoInput(input: WebmInput) {
+  processVideoInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "video");
     if (track) {
       this.processInput(input, track.trackNumber);
     }
-  }
+  };
 
   start() {
     const staticPart = Buffer.concat([
@@ -129,7 +129,7 @@ export class WebmBase {
         );
 
         this.createCluster(this.relativeTimestamp);
-        Object.values(this.timestamps).forEach((t) => t.reset());
+        Object.values(this.timestamps).forEach((t) => t.shift(elapsed));
         elapsed = timestampManager.update(frame.timestamp);
       }
     }
@@ -203,12 +203,14 @@ export class WebmBase {
 
 class ClusterTimestamp {
   baseTimestamp?: number;
+  /**ms */
   elapsed = 0;
+  private offset = 0;
 
   constructor(public clockRate: number) {}
 
-  reset() {
-    this.baseTimestamp = undefined;
+  shift(elapsed: number) {
+    this.offset += elapsed;
   }
 
   update(timestamp: number) {
@@ -226,7 +228,7 @@ class ClusterTimestamp {
       ? timestamp + Max32Uint - this.baseTimestamp
       : timestamp - this.baseTimestamp;
 
-    this.elapsed = int((elapsed / this.clockRate) * 1000);
+    this.elapsed = int((elapsed / this.clockRate) * 1000) - this.offset;
     return this.elapsed;
   }
 }
