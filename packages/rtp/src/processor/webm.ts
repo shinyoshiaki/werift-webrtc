@@ -16,6 +16,8 @@ export type WebmInput = DepacketizerOutput;
 
 export type WebmOutput = {
   saveToFile?: Buffer;
+  kind?: "initial" | "cluster" | "block" | "cuePoints";
+  previousDuration?: number;
   eol?: {
     /**ms */
     duration: number;
@@ -90,7 +92,7 @@ export class WebmBase {
       this.builder.ebmlHeader,
       this.builder.createSegment(this.options.duration),
     ]);
-    this.output({ saveToFile: staticPart });
+    this.output({ saveToFile: staticPart, kind: "initial" });
     this.position += staticPart.length;
 
     const video = this.tracks.find((t) => t.kind === "video");
@@ -108,10 +110,11 @@ export class WebmBase {
     }
 
     const timestampManager = this.timestamps[track.trackNumber];
+    // clusterの経過時間
     let elapsed = timestampManager.update(frame.timestamp);
 
     if (this.clusterCounts === 0) {
-      this.createCluster(0.0);
+      this.createCluster(0.0, 0);
     } else if (
       (track.kind === "video" && frame.isKeyframe) ||
       elapsed > MaxSinged16Int
@@ -128,7 +131,7 @@ export class WebmBase {
           )
         );
 
-        this.createCluster(this.relativeTimestamp);
+        this.createCluster(this.relativeTimestamp, elapsed);
         Object.values(this.timestamps).forEach((t) => t.shift(elapsed));
         elapsed = timestampManager.update(frame.timestamp);
       }
@@ -137,10 +140,14 @@ export class WebmBase {
     this.createSimpleBlock({ frame, trackNumber: track.trackNumber, elapsed });
   }
 
-  private createCluster(timestamp: number) {
+  private createCluster(timestamp: number, duration: number) {
     const cluster = this.builder.createCluster(timestamp);
     this.clusterCounts++;
-    this.output({ saveToFile: Buffer.from(cluster) });
+    this.output({
+      saveToFile: Buffer.from(cluster),
+      kind: "cluster",
+      previousDuration: duration,
+    });
     this.position += cluster.length;
     this.elapsed = undefined;
   }
@@ -173,7 +180,7 @@ export class WebmBase {
       trackNumber,
       elapsed
     );
-    this.output({ saveToFile: block });
+    this.output({ saveToFile: block, kind: "block" });
     this.position += block.length;
     const [cuePoint] = this.cuePoints.slice(-1);
     if (cuePoint) {
@@ -190,7 +197,7 @@ export class WebmBase {
     log("stop");
 
     const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
-    this.output({ saveToFile: Buffer.from(cues) });
+    this.output({ saveToFile: Buffer.from(cues), kind: "cuePoints" });
 
     const latestTimestamp = Object.values(this.timestamps).sort(
       (a, b) => a.elapsed - b.elapsed
