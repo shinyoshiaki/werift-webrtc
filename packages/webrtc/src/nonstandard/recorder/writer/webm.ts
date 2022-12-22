@@ -18,6 +18,8 @@ const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
 export class WebmFactory extends MediaWriter {
   rtpSources: RtpSourceStream[] = [];
 
+  unSubscribers: Record<string, () => void> = {};
+
   async start(tracks: MediaStreamTrack[]) {
     await unlink(this.path).catch((e) => e);
 
@@ -71,7 +73,11 @@ export class WebmFactory extends MediaWriter {
 
     this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
       const rtpSource = new RtpSourceStream();
-      track.onReceiveRtp.subscribe((r) => rtpSource.push(r));
+
+      const { unSubscribe } = track.onReceiveRtp.subscribe((r) =>
+        rtpSource.push(r)
+      );
+      this.unSubscribers[track.kind] = unSubscribe;
 
       const jitterBuffer = jitterBufferTransformer(clockRate, {
         latency: this.options.jitterBufferLatency,
@@ -120,6 +126,11 @@ export class WebmFactory extends MediaWriter {
 
   async stop() {
     await Promise.all(this.rtpSources.map((r) => r.stop()));
+
+    Object.keys(this.unSubscribers).forEach((item) => {
+      this.unSubscribers[item]();
+    });
+    this.unSubscribers = {};
   }
 }
 
