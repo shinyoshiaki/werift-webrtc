@@ -60,10 +60,13 @@ export async function findPort(
       })
     );
 
-    await new Promise<void>((r) => {
+    const err = await new Promise<Error | undefined>((r) => {
       socket.once("error", r);
       socket.once("listening", r);
     });
+    if (err) {
+      continue;
+    }
 
     port = socket.address()?.port;
     await new Promise<void>((r) => socket.close(() => r()));
