@@ -60,7 +60,7 @@ export async function findPort(
       })
     );
 
-    const err = await new Promise<Error | undefined>((r) => {
+    const err = await new Promise<Error | void>((r) => {
       socket.once("error", (e) => r(e));
       socket.once("listening", () => r());
     });
