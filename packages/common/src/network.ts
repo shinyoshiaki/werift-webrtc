@@ -61,8 +61,8 @@ export async function findPort(
     );
 
     const err = await new Promise<Error | undefined>((r) => {
-      socket.once("error", r);
-      socket.once("listening", r);
+      socket.once("error", (e) => r(e));
+      socket.once("listening", () => r());
     });
     if (err) {
       continue;
