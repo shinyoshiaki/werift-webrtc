@@ -230,7 +230,9 @@ export class RTCRtpSender {
     this.stopped = true;
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
-
+    if (this.disposeTrack) {
+      this.disposeTrack();
+    }
     this.track = undefined;
   }
 
