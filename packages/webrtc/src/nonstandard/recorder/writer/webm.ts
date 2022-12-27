@@ -76,7 +76,9 @@ export class WebmFactory extends MediaWriter {
       const rtpSource = new RtpSourceStream();
 
       track.onReceiveRtp
-        .subscribe((r) => rtpSource.push(r))
+        .subscribe((rtp) => {
+          rtpSource.push(rtp.clone());
+        })
         .disposer(this.unSubscribers);
 
       const jitterBuffer = jitterBufferTransformer(clockRate, {
