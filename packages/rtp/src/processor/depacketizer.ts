@@ -21,12 +21,11 @@ export class DepacketizeBase
 {
   private buffering: RtpPacket[] = [];
   private lastSeqNum?: number;
-  private packetLostHappened = false;
+  private frameBroken = false;
 
   constructor(
     private codec: string,
     private options: {
-      waitForKeyframe?: boolean;
       isFinalPacketInSequence?: (header: RtpHeader) => boolean;
     } = {}
   ) {}
@@ -51,21 +50,24 @@ export class DepacketizeBase
           );
           this.clearBuffer();
 
-          if (this.packetLostHappened) {
-            if (isKeyframe) {
-              this.packetLostHappened = false;
-            } else if (this.options.waitForKeyframe) {
-              return [];
-            }
+          if (isKeyframe) {
+            // console.log("isKeyframe", this.codec);
           }
 
-          output.push({
-            frame: {
-              data,
-              isKeyframe,
-              timestamp,
-            },
-          });
+          if (!this.frameBroken) {
+            output.push({
+              frame: {
+                data,
+                isKeyframe,
+                timestamp,
+              },
+            });
+          }
+
+          if (this.frameBroken) {
+            this.frameBroken = false;
+          }
+
           return output;
         } catch (error) {
           log("error", error, input);
@@ -110,7 +112,7 @@ export class DepacketizeBase
       }
       if (sequenceNumber > expect) {
         log("packet lost happened", { expect, sequenceNumber });
-        this.packetLostHappened = true;
+        this.frameBroken = true;
         this.clearBuffer();
       }
     }

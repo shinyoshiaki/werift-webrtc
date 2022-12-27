@@ -3,7 +3,7 @@ import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
 import { v4 } from "uuid";
 
-import { randomPort } from "../../../common/src";
+import { randomPort, uint32Add } from "../../../common/src";
 import { RtpPacket } from "../../../rtp/src";
 import { MediaStreamTrack } from "../media/track";
 
@@ -105,6 +105,8 @@ export class MediaPlayerWebm {
 
   private setupTrack = (port: number, track: MediaStreamTrack) => {
     let payloadType = 0;
+    let latestTimestamp = 0;
+    let timestampDiff = 0;
 
     const socket = createSocket("udp4");
     socket.bind(port);
@@ -118,8 +120,12 @@ export class MediaPlayerWebm {
       if (payloadType !== rtp.header.payloadType) {
         payloadType = rtp.header.payloadType;
         track.onSourceChanged.execute(rtp.header);
+        timestampDiff = uint32Add(rtp.header.timestamp, -latestTimestamp);
+        console.log({ timestampDiff });
       }
-      track.writeRtp(buf);
+      latestTimestamp = rtp.header.timestamp;
+      rtp.header.timestamp = uint32Add(rtp.header.timestamp, -timestampDiff);
+      track.writeRtp(rtp.serialize());
     });
   };
 

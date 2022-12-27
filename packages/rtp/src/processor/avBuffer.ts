@@ -6,8 +6,13 @@ export type AVBufferInput = DepacketizerOutput;
 
 export type AVBufferOutput = AVBufferInput;
 
+/**
+ * @description [japanese]
+ * audioパケットとvideoパケットを同一のタイムラインで扱い、それぞれの
+ * パケットのタイムスタンプが前後しないように制御する
+ */
 export class AVBufferBase {
-  bufferLength = 50;
+  bufferLength = this.options.bufferLength ?? 50;
   baseAudioTimestamp?: number;
   baseVideoTimestamp?: number;
   audioBuffer: (AVBufferInput & { elapsed: number; kind: string })[][] = [
@@ -18,12 +23,24 @@ export class AVBufferBase {
   ].map(() => []);
   stopped = false;
   private interval = this.options.interval ?? 500;
+  private started = false;
 
   constructor(
     private audioOutput: (output: AVBufferOutput) => void,
     private videoOutput: (output: AVBufferOutput) => void,
     private options: Partial<AvBufferOptions> = {}
-  ) {
+  ) {}
+
+  private start() {
+    if ([...this.audioBuffer[1], ...this.videoBuffer[1]].length === 0) {
+      return;
+    }
+
+    if (this.started) {
+      return;
+    }
+    this.started = true;
+
     let index = 0;
     setInterval(() => {
       const joined = [...this.audioBuffer[index], ...this.videoBuffer[index]];
@@ -31,13 +48,11 @@ export class AVBufferBase {
       this.audioBuffer[index] = [];
       this.videoBuffer[index] = [];
 
-      // console.log(sorted.map((v) => ({ elapsed: v.elapsed, kind: v.kind })));
-
       for (const output of sorted) {
         if (output.kind === "audio") {
-          audioOutput(output);
+          this.audioOutput(output);
         } else {
-          videoOutput(output);
+          this.videoOutput(output);
         }
       }
 
@@ -73,6 +88,8 @@ export class AVBufferBase {
 
     const index = int(elapsed / this.interval) % this.bufferLength;
     this.audioBuffer[index].push({ ...input, elapsed, kind: "audio" });
+
+    this.start();
   };
 
   processVideoInput = (input: AVBufferInput) => {
@@ -100,6 +117,8 @@ export class AVBufferBase {
 
     const index = int(elapsed / this.interval) % this.bufferLength;
     this.videoBuffer[index].push({ ...input, elapsed, kind: "video" });
+
+    this.start();
   };
 
   private calcElapsed(base: number, timestamp: number, clockRate: number) {
@@ -117,4 +136,5 @@ export class AVBufferBase {
 
 export interface AvBufferOptions {
   interval: number;
+  bufferLength: number;
 }
