@@ -81,14 +81,14 @@ export class WebmFactory extends MediaWriter {
         })
         .disposer(this.unSubscribers);
 
-      const jitterBuffer = jitterBufferTransformer(clockRate, {
-        latency: this.options.jitterBufferLatency,
-        bufferSize: this.options.jitterBufferSize,
-      });
+      // const jitterBuffer = jitterBufferTransformer(clockRate, {
+      //   latency: this.options.jitterBufferLatency,
+      //   bufferSize: this.options.jitterBufferSize,
+      // });
 
       if (track.kind === "video") {
         rtpSource.readable
-          .pipeThrough(jitterBuffer)
+          // .pipeThrough(jitterBuffer)
           .pipeThrough(
             depacketizeTransformer(codec, {
               waitForKeyframe: this.options.waitForKeyframe,
@@ -98,7 +98,7 @@ export class WebmFactory extends MediaWriter {
           .pipeTo(webm.videoStream);
       } else {
         rtpSource.readable
-          .pipeThrough(jitterBuffer)
+          // .pipeThrough(jitterBuffer)
           .pipeThrough(depacketizeTransformer(codec))
           .pipeTo(webm.audioStream);
       }
