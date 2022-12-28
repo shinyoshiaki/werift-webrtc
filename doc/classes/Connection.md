@@ -35,7 +35,6 @@
 ### Accessors
 
 - [nominatedKeys](Connection.md#nominatedkeys)
-- [remoteAddr](Connection.md#remoteaddr)
 - [remoteCandidates](Connection.md#remotecandidates)
 
 ### Methods
@@ -49,7 +48,9 @@
 - [gatherCandidates](Connection.md#gathercandidates)
 - [getDefaultCandidate](Connection.md#getdefaultcandidate)
 - [requestReceived](Connection.md#requestreceived)
+- [resetNominatedPair](Connection.md#resetnominatedpair)
 - [send](Connection.md#send)
+- [setRemoteParams](Connection.md#setremoteparams)
 
 ## Constructors
 
@@ -69,6 +70,11 @@
 ### \_components
 
 • **\_components**: `Set`<`number`\>
+
+コンポーネントはデータストリームの一部です. データストリームには複数のコンポーネントが必要な場合があり、
+データストリーム全体が機能するには、それぞれが機能する必要があります.
+ RTP / RTCPデータストリームの場合、RTPとRTCPが同じポートで多重化されていない限り、データストリームごとに2つのコンポーネントがあります.
+1つはRTP用、もう1つはRTCP用です. コンポーネントには候補ペアがあり、他のコンポーネントでは使用できません.
 
 ___
 
@@ -199,16 +205,6 @@ ___
 #### Returns
 
 `string`[]
-
-___
-
-### remoteAddr
-
-• `get` **remoteAddr**(): readonly [`string`, `number`]
-
-#### Returns
-
-readonly [`string`, `number`]
 
 ___
 
@@ -372,6 +368,16 @@ ___
 
 ___
 
+### resetNominatedPair
+
+▸ **resetNominatedPair**(): `void`
+
+#### Returns
+
+`void`
+
+___
+
 ### send
 
 ▸ **send**(`data`): `Promise`<`void`\>
@@ -385,3 +391,22 @@ ___
 #### Returns
 
 `Promise`<`void`\>
+
+___
+
+### setRemoteParams
+
+▸ **setRemoteParams**(`«destructured»`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `«destructured»` | `Object` |
+| › `iceLite` | `boolean` |
+| › `password` | `string` |
+| › `usernameFragment` | `string` |
+
+#### Returns
+
+`void`

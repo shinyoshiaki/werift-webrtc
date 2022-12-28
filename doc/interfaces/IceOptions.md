@@ -6,6 +6,7 @@
 
 ### Properties
 
+- [additionalHostAddresses](IceOptions.md#additionalhostaddresses)
 - [components](IceOptions.md#components)
 - [filterStunResponse](IceOptions.md#filterstunresponse)
 - [forceTurn](IceOptions.md#forceturn)
@@ -21,6 +22,12 @@
 - [useIpv6](IceOptions.md#useipv6)
 
 ## Properties
+
+### additionalHostAddresses
+
+• `Optional` **additionalHostAddresses**: `string`[]
+
+___
 
 ### components
 

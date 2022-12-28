@@ -40,6 +40,7 @@
 - [start](RTCDtlsTransport.md#start)
 - [startSrtp](RTCDtlsTransport.md#startsrtp)
 - [stop](RTCDtlsTransport.md#stop)
+- [updateSrtpSession](RTCDtlsTransport.md#updatesrtpsession)
 
 ## Constructors
 
@@ -275,3 +276,13 @@ ___
 #### Returns
 
 `Promise`<`void`\>
+
+___
+
+### updateSrtpSession
+
+▸ **updateSrtpSession**(): `void`
+
+#### Returns
+
+`void`

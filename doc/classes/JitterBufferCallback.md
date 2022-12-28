@@ -1,33 +1,34 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / JitterBufferTransformer
+[werift](../README.md) / [Exports](../modules.md) / JitterBufferCallback
 
-# Class: JitterBufferTransformer
+# Class: JitterBufferCallback
 
 ## Hierarchy
 
 - [`JitterBufferBase`](JitterBufferBase.md)
 
-  ↳ **`JitterBufferTransformer`**
+  ↳ **`JitterBufferCallback`**
 
 ## Table of contents
 
 ### Constructors
 
-- [constructor](JitterBufferTransformer.md#constructor)
+- [constructor](JitterBufferCallback.md#constructor)
 
 ### Properties
 
-- [clockRate](JitterBufferTransformer.md#clockrate)
-- [transform](JitterBufferTransformer.md#transform)
+- [clockRate](JitterBufferCallback.md#clockrate)
 
 ### Methods
 
-- [processInput](JitterBufferTransformer.md#processinput)
+- [input](JitterBufferCallback.md#input)
+- [pipe](JitterBufferCallback.md#pipe)
+- [processInput](JitterBufferCallback.md#processinput)
 
 ## Constructors
 
 ### constructor
 
-• **new JitterBufferTransformer**(`clockRate`, `options?`)
+• **new JitterBufferCallback**(`clockRate`, `options?`)
 
 #### Parameters
 
@@ -50,13 +51,39 @@
 
 [JitterBufferBase](JitterBufferBase.md).[clockRate](JitterBufferBase.md#clockrate)
 
+## Methods
+
+### input
+
+▸ **input**(`input`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `input` | [`RtpOutput`](../interfaces/RtpOutput.md) |
+
+#### Returns
+
+`void`
+
 ___
 
-### transform
+### pipe
 
-• **transform**: `TransformStream`<[`RtpOutput`](../interfaces/RtpOutput.md), [`JitterBufferOutput`](../interfaces/JitterBufferOutput.md)\>
+▸ **pipe**(`cb`): `this`
 
-## Methods
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `cb` | (`input`: [`JitterBufferOutput`](../interfaces/JitterBufferOutput.md)) => `void` |
+
+#### Returns
+
+`this`
+
+___
 
 ### processInput
 
