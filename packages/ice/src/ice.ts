@@ -922,6 +922,7 @@ export class Connection {
       ) {
         const pair = new CandidatePair(protocol, remoteCandidate);
         this.checkList.push(pair);
+        this.setPairState(pair, CandidatePairState.WAITING);
       }
     }
   };
