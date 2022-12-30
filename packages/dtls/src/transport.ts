@@ -1,4 +1,7 @@
+import debug from "debug";
 import { RemoteInfo, Socket } from "dgram";
+
+const log = debug("werift-dtls : packages/dtls/src/transport.ts");
 
 export interface Transport {
   onData?: (buf: Buffer) => void;
@@ -17,6 +20,7 @@ export class UdpTransport implements Transport {
 
   send = (buf: Buffer) =>
     new Promise<void>((r, f) => {
+      log("this.rinfo", this.rinfo);
       this.upd.send(buf, this.rinfo.port, this.rinfo.address, (err) => {
         if (err) {
           f(err);
