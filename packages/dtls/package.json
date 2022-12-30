@@ -25,22 +25,22 @@
     "test": "npm run type && jest --forceExit",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli src/**/*.ts",
-    "upgrade-interactive": "npx npm-check --update"
+    "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
-    "@peculiar/webcrypto": "^1.4.0",
-    "@peculiar/x509": "^1.7.2",
+    "@peculiar/webcrypto": "^1.4.1",
+    "@peculiar/x509": "^1.9.2",
     "binary-data": "^0.6.0",
-    "date-fns": "^2.28.0",
-    "elliptic": "^6.5.3",
-    "lodash": "^4.17.20",
-    "rx.mini": "^1.1.0",
+    "date-fns": "^2.29.3",
+    "elliptic": "^6.5.4",
+    "lodash": "^4.17.21",
+    "rx.mini": "^1.2.2",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@types/elliptic": "^6.4.14",
-    "@types/lodash": "^4.14.178"
+    "@types/lodash": "^4.14.191"
   },
   "engines": {
     "node": ">=16"

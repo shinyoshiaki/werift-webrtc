@@ -34,7 +34,7 @@
     "type:all": "npm run type:example && npm run type",
     "type:example": "tsc --noEmit -p ./tsconfig.json",
     "clean": "rm -rf packages/*/node_modules",
-    "upgrade-interactive": "npx npm-check --update"
+    "upgrade-interactive": "npx npm-check-updates -i"
   },
   "devDependencies": {
     "@types/jest": "^29.2.4",
@@ -42,11 +42,11 @@
     "@typescript-eslint/eslint-plugin": "^5.47.1",
     "@typescript-eslint/parser": "^5.47.1",
     "eslint": "^8.30.0",
-    "eslint-config-prettier": "^8.3.0",
+    "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-prettier": "^4.2.1",
     "eslint-plugin-simple-import-sort": "^8.0.0",
     "jest": "^29.3.1",
-    "node-actionlint": "^1.2.1",
+    "node-actionlint": "^1.2.2",
     "organize-imports-cli": "^0.10.0",
     "prettier": "^2.8.1",
     "process": "^0.11.10",

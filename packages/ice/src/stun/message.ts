@@ -104,6 +104,13 @@ export class Message extends AttributeRepository {
     super(attributes);
   }
 
+  toJSON() {
+    return {
+      messageMethod: this.messageMethod,
+      messageClass: this.messageClass,
+    };
+  }
+
   get transactionIdHex() {
     return this.transactionId.toString("hex");
   }

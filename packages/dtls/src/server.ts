@@ -55,6 +55,11 @@ export class DtlsServer extends DtlsSocket {
                 this.cipher,
                 this.srtp
               ).exec(handshake, this.options.certificateRequest);
+            } else {
+              log("wrong state", {
+                dtlsCookie: this.dtls.cookie?.toString("hex").slice(10),
+                helloCookie: clientHello.cookie.toString("hex").slice(10),
+              });
             }
           }
           break;

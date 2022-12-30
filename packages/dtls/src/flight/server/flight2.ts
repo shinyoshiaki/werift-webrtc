@@ -148,6 +148,8 @@ export const flight2 =
       ++dtls.recordSequenceNumber
     );
 
-    const buf = packets.map((v) => v.serialize());
-    buf.forEach((v) => udp.send(v));
+    const chunk = packets.map((v) => v.serialize());
+    for (const buf of chunk) {
+      udp.send(buf);
+    }
   };

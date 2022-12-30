@@ -216,7 +216,7 @@ export class AV1Obu {
       .set(this.obu_extension_flag)
       .set(this.obu_has_size_field)
       .set(this.obu_reserved_1bit).buffer;
-    let obuSize = Buffer.alloc(0);
+    let obuSize: Uint8Array | Buffer = Buffer.alloc(0);
     if (this.obu_has_size_field) {
       obuSize = LEB128.encode(this.payload.length);
     }
