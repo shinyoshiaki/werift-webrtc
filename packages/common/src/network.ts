@@ -65,6 +65,7 @@ export async function findPort(
       socket.once("listening", () => r());
     });
     if (err) {
+      await new Promise<void>((r) => socket.close(() => r()));
       continue;
     }
 
