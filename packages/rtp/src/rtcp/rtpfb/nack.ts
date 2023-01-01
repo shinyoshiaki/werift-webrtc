@@ -21,6 +21,14 @@ export class GenericNack {
   mediaSourceSsrc!: number;
   lost: number[] = [];
 
+  toJSON() {
+    return {
+      lost: this.lost,
+      senderSsrc: this.senderSsrc,
+      mediaSourceSsrc: this.mediaSourceSsrc,
+    };
+  }
+
   constructor(props: Partial<GenericNack> = {}) {
     Object.assign(this, props);
     if (!this.header) {

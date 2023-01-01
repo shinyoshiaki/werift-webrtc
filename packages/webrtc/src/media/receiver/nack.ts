@@ -35,7 +35,7 @@ export class NackHandler {
       } catch (error) {
         log("failed to send nack", error);
       }
-    }, 20);
+    }, 5);
   }
 
   get lostSeqNumbers() {
@@ -66,6 +66,7 @@ export class NackHandler {
     }
 
     if (this.getLost(sequenceNumber)) {
+      log("packetLoss resolved", { sequenceNumber });
       this.removeLost(sequenceNumber);
       return;
     }
@@ -77,7 +78,7 @@ export class NackHandler {
       range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
         this.setLost(seq, 1);
       });
-      this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
+      // this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
       this.newEstSeqNum = sequenceNumber;
       this.pruneLost();
@@ -118,6 +119,7 @@ export class NackHandler {
           mediaSourceSsrc: this.mediaSourceSsrc,
           lost: this.lostSeqNumbers,
         });
+        log("sendNack", nack.toJSON());
         const rtcp = new RtcpTransportLayerFeedback({
           feedback: nack,
         });

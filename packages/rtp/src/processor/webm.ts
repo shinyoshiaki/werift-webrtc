@@ -137,7 +137,15 @@ export class WebmBase {
       }
     }
 
-    this.createSimpleBlock({ frame, trackNumber: track.trackNumber, elapsed });
+    if (elapsed >= 0) {
+      this.createSimpleBlock({
+        frame,
+        trackNumber: track.trackNumber,
+        elapsed,
+      });
+    } else {
+      log("delayed frame", { elapsed });
+    }
   }
 
   private createCluster(timestamp: number, duration: number) {

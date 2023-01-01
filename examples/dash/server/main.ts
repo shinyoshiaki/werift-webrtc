@@ -97,11 +97,9 @@ async function recorder() {
   const video = new RtpSourceCallback();
 
   {
-    const jitterBuffer = new JitterBufferCallback(48000);
     const depacketizer = new DepacketizeCallback("opus");
 
-    audio.pipe(jitterBuffer.input);
-    jitterBuffer.pipe(depacketizer.input);
+    audio.pipe(depacketizer.input);
     depacketizer.pipe(avBuffer.inputAudio);
     avBuffer.pipeAudio(webm.inputAudio);
   }

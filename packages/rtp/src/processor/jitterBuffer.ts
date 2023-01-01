@@ -4,7 +4,6 @@ import {
   RequireAtLeastOne,
   RtpPacket,
   uint16Add,
-  uint16Gt,
   uint16Gte,
   uint32Add,
   uint32Gt,
@@ -12,7 +11,7 @@ import {
 import { Processor } from "./interface";
 import { RtpOutput } from "./source";
 
-const srcPath = `werift-rtp : packages/rtp/src/processor_v2/jitterBuffer.ts`;
+const srcPath = `werift-rtp : packages/rtp/src/processor/jitterBuffer.ts`;
 const log = debug(srcPath);
 
 export type JitterBufferInput = RtpOutput;
@@ -109,6 +108,8 @@ export class JitterBufferBase
       this.presentSeqNum =
         rtpBuffer.at(-1)?.header.sequenceNumber ?? this.presentSeqNum;
 
+      this.disposeTimeoutPackets(timestamp);
+
       return { packets: [rtp, ...rtpBuffer] };
     }
 
@@ -129,7 +130,7 @@ export class JitterBufferBase
       log("buffer over flow");
       return;
     }
-    log("pushRtpBuffer", { seq: rtp.header.sequenceNumber });
+    // log("pushRtpBuffer", { seq: rtp.header.sequenceNumber });
     this.rtpBuffer[rtp.header.sequenceNumber] = rtp;
   }
 
@@ -145,12 +146,12 @@ export class JitterBufferBase
         break;
       }
     }
-    if (resolve.length > 0) {
-      log(
-        "resolveBuffer",
-        resolve.map((r) => r.header.sequenceNumber)
-      );
-    }
+    // if (resolve.length > 0) {
+    //   log(
+    //     "resolveBuffer",
+    //     resolve.map((r) => r.header.sequenceNumber)
+    //   );
+    // }
     return resolve;
   }
 
@@ -179,7 +180,6 @@ export class JitterBufferBase
         const { timestamp, sequenceNumber } = rtp.header;
 
         if (uint32Gt(timestamp, baseTimestamp)) {
-          log("gap", { timestamp, baseTimestamp });
           return;
         }
 
