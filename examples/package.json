@@ -52,7 +52,8 @@
     "uuid": "^8.3.2",
     "werift-rtp": "^0.4.0",
     "ws": "^8.0.0",
-    "wtfnode": "^0.9.1"
+    "wtfnode": "^0.9.1",
+    "xmlbuilder2": "^3.0.2"
   },
   "engines": {
     "node": ">=14"

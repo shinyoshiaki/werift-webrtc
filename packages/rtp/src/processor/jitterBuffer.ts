@@ -4,6 +4,8 @@ import {
   RequireAtLeastOne,
   RtpPacket,
   uint16Add,
+  uint16Gt,
+  uint16Gte,
   uint32Add,
   uint32Gt,
 } from "..";
@@ -23,6 +25,7 @@ export class JitterBufferBase
   implements Processor<JitterBufferInput, JitterBufferOutput>
 {
   private options: JitterBufferOptions;
+  /**uint16 */
   private presentSeqNum?: number;
   private rtpBuffer: { [sequenceNumber: number]: RtpPacket } = {};
   private get expectNextSeqNum() {
@@ -93,7 +96,8 @@ export class JitterBufferBase
     }
 
     // duplicate
-    if (sequenceNumber <= this.presentSeqNum) {
+    if (uint16Gte(this.presentSeqNum, sequenceNumber)) {
+      log("duplicate", { sequenceNumber });
       return { nothing: undefined };
     }
 
@@ -122,8 +126,10 @@ export class JitterBufferBase
 
   private pushRtpBuffer(rtp: RtpPacket) {
     if (Object.values(this.rtpBuffer).length > this.options.bufferSize) {
+      log("buffer over flow");
       return;
     }
+    log("pushRtpBuffer", { seq: rtp.header.sequenceNumber });
     this.rtpBuffer[rtp.header.sequenceNumber] = rtp;
   }
 
@@ -138,6 +144,12 @@ export class JitterBufferBase
       } else {
         break;
       }
+    }
+    if (resolve.length > 0) {
+      log(
+        "resolveBuffer",
+        resolve.map((r) => r.header.sequenceNumber)
+      );
     }
     return resolve;
   }

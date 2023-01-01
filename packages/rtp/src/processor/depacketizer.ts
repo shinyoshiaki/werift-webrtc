@@ -51,7 +51,7 @@ export class DepacketizeBase
           this.clearBuffer();
 
           if (isKeyframe) {
-            // console.log("isKeyframe", this.codec);
+            log("isKeyframe", this.codec);
           }
 
           if (!this.frameBroken) {
