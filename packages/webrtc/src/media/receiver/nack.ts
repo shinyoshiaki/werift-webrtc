@@ -66,7 +66,7 @@ export class NackHandler {
     }
 
     if (this.getLost(sequenceNumber)) {
-      log("packetLoss resolved", { sequenceNumber });
+      // log("packetLoss resolved", { sequenceNumber });
       this.removeLost(sequenceNumber);
       return;
     }
@@ -119,7 +119,7 @@ export class NackHandler {
           mediaSourceSsrc: this.mediaSourceSsrc,
           lost: this.lostSeqNumbers,
         });
-        log("sendNack", nack.toJSON());
+        // log("sendNack", nack.toJSON());
         const rtcp = new RtcpTransportLayerFeedback({
           feedback: nack,
         });
