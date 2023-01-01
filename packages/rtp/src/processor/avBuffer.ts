@@ -32,6 +32,7 @@ export class AVBufferBase {
   ) {}
 
   private start() {
+    // 2列目にカーソルが移ってから処理を始めることで1列目の処理を完了できる
     if ([...this.audioBuffer[1], ...this.videoBuffer[1]].length === 0) {
       return;
     }
