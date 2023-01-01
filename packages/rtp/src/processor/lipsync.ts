@@ -13,22 +13,22 @@ export type LipsyncOutput = {
 };
 
 export class LipsyncBase implements AVProcessor<LipsyncInput> {
-  bufferLength = this.options.bufferLength ?? 50;
+  bufferLength: number;
   /**ms */
   baseTime?: number;
   audioBuffer: (LipsyncInput & {
     elapsed: number;
     kind: string;
     [key: string]: any;
-  })[][] = [...new Array(this.bufferLength)].map(() => []);
+  })[][];
   videoBuffer: (LipsyncInput & {
     elapsed: number;
     kind: string;
     [key: string]: any;
-  })[][] = [...new Array(this.bufferLength)].map(() => []);
+  })[][];
   stopped = false;
   /**ms */
-  private interval = this.options.interval ?? 500;
+  private interval: number;
   private started = false;
   /**ms */
   lastCommited = 0;
@@ -37,7 +37,12 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     private audioOutput: (output: LipsyncOutput) => void,
     private videoOutput: (output: LipsyncOutput) => void,
     private options: Partial<LipSyncOptions> = {}
-  ) {}
+  ) {
+    this.bufferLength = this.options.bufferLength ?? 50;
+    this.audioBuffer = [...new Array(this.bufferLength)].map(() => []);
+    this.videoBuffer = [...new Array(this.bufferLength)].map(() => []);
+    this.interval = this.options.interval ?? 500;
+  }
 
   private start() {
     // 2列目にカーソルが移ってから処理を始めることで1列目の処理を完了できる

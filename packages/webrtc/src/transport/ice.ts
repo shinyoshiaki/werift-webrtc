@@ -9,7 +9,7 @@ const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
 export class RTCIceTransport {
   readonly id = v4();
-  connection = this.gather.connection;
+  connection: Connection;
   state: RTCIceConnectionState = "new";
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
@@ -17,6 +17,7 @@ export class RTCIceTransport {
   private waitStart?: Event<[]>;
 
   constructor(private gather: RTCIceGatherer) {
+    this.connection = this.gather.connection;
     this.connection.stateChanged.subscribe((state) => {
       this.setState(state);
     });
@@ -116,9 +117,11 @@ export class RTCIceGatherer {
   gatheringState: IceGathererState = "new";
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
-  readonly connection = new Connection(false, this.options);
+  readonly connection: Connection;
 
-  constructor(private options: Partial<IceOptions> = {}) {}
+  constructor(private options: Partial<IceOptions> = {}) {
+    this.connection = new Connection(false, this.options);
+  }
 
   async gather() {
     if (this.gatheringState === "new") {

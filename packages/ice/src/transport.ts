@@ -1,5 +1,5 @@
 import debug from "debug";
-import { createSocket, SocketType } from "dgram";
+import { createSocket, Socket, SocketType } from "dgram";
 
 import {
   findPort,
@@ -12,7 +12,7 @@ import { normalizeFamilyNodeV18 } from "./utils";
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
 export class UdpTransport implements Transport {
-  private socket = createSocket(this.type);
+  private socket: Socket;
   onData: (data: Buffer, addr: Address) => void = () => {};
 
   constructor(
@@ -20,6 +20,7 @@ export class UdpTransport implements Transport {
     private portRange?: [number, number],
     private interfaceAddresses?: InterfaceAddresses
   ) {
+    this.socket = createSocket(this.type);
     this.socket.on("message", (data, info) => {
       if (normalizeFamilyNodeV18(info.family) === 6) {
         [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0

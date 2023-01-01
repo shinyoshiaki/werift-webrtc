@@ -72,10 +72,7 @@ const RTT_ALPHA = 0.85;
 
 export class RTCRtpSender {
   readonly type = "sender";
-  readonly kind =
-    typeof this.trackOrKind === "string"
-      ? this.trackOrKind
-      : this.trackOrKind.kind;
+  readonly kind: Kind;
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
   streamId = uuid.v4();
@@ -124,6 +121,10 @@ export class RTCRtpSender {
   private rtcpCancel = new AbortController();
 
   constructor(public trackOrKind: Kind | MediaStreamTrack) {
+    this.kind =
+      typeof this.trackOrKind === "string"
+        ? this.trackOrKind
+        : this.trackOrKind.kind;
     if (trackOrKind instanceof MediaStreamTrack) {
       if (trackOrKind.streamId) {
         this.streamId = trackOrKind.streamId;
