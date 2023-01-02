@@ -2,7 +2,7 @@
 import React, { FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
-import { Red } from "../../../../packages/rtp";
+import { Red } from "../../../../packages/rtp/src";
 import { getAudioStream, uint32Add } from "./util";
 
 const peer = new RTCPeerConnection({

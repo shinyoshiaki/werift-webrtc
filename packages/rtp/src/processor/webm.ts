@@ -87,7 +87,7 @@ export class WebmBase {
     }
   };
 
-  start() {
+  protected start() {
     const staticPart = Buffer.concat([
       this.builder.ebmlHeader,
       this.builder.createSegment(this.options.duration),

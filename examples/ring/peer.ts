@@ -1,4 +1,3 @@
-import { BasicPeerConnection } from "ring-client-api/lib/api/streaming/peer-connection";
 import {
   RTCPeerConnection,
   MediaStreamTrack,
@@ -6,8 +5,10 @@ import {
   RtpPacket,
   ConnectionState,
   RtcpPacket,
+  RTCIceCandidate,
 } from "../../packages/webrtc/src";
-import { Subject, ReplaySubject } from "rxjs";
+import { Subject, ReplaySubject, Observable } from "rxjs";
+import { BasicPeerConnection } from "ring-client-api/lib/streaming/peer-connection";
 
 export class CustomPeerConnection implements BasicPeerConnection {
   private pc;
@@ -15,7 +16,7 @@ export class CustomPeerConnection implements BasicPeerConnection {
   onAudioRtcp = new Subject<RtcpPacket>();
   onVideoRtp = new Subject<RtpPacket>();
   onVideoRtcp = new Subject<RtcpPacket>();
-  onIceCandidate = new Subject<RTCIceCandidate>();
+  onIceCandidate = new Observable<RTCIceCandidate>();
   onConnectionState = new ReplaySubject<ConnectionState>(1);
   returnAudioTrack = new MediaStreamTrack({ kind: "audio" });
 
@@ -75,7 +76,7 @@ export class CustomPeerConnection implements BasicPeerConnection {
       });
     });
     this.pc.onIceCandidate.subscribe((iceCandidate) => {
-      this.onIceCandidate.next(iceCandidate);
+      this.onIceCandidate.pipe(iceCandidate);
     });
 
     pc.iceConnectionStateChange.subscribe(() => {

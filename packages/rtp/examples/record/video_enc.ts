@@ -1,17 +1,14 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
-import { appendFile, open, stat, unlink, writeFile } from "fs/promises";
+import { unlink, writeFile } from "fs/promises";
 
 import {
   AvBufferCallback,
   DepacketizeCallback,
-  DurationPosition,
   JitterBufferCallback,
-  PromiseQueue,
   randomPort,
-  replaceSegmentSize,
   RtpSourceCallback,
-  SegmentSizePosition,
+  saveToFileSystem,
   WebmCallback,
 } from "../../src";
 
@@ -100,28 +97,7 @@ randomPort().then(async (port) => {
     avBuffer.pipeVideo(webm.inputVideo);
   }
 
-  const queue = new PromiseQueue();
-  webm.pipe(async (value) => {
-    queue.push(async () => {
-      if (value.saveToFile) {
-        await appendFile(path, value.saveToFile);
-      } else if (value.eol) {
-        const { durationElement } = value.eol;
-        const handler = await open(path, "r+");
-        await handler.write(
-          durationElement,
-          0,
-          durationElement.length,
-          DurationPosition
-        );
-        const meta = await stat(path);
-        const resize = replaceSegmentSize(meta.size);
-        await handler.write(resize, 0, resize.length, SegmentSizePosition);
-
-        await handler.close();
-      }
-    });
-  });
+  webm.pipe(saveToFileSystem(path));
 
   setTimeout(() => {
     console.log("stop");

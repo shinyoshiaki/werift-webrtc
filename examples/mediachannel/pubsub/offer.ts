@@ -53,7 +53,7 @@ server.on("connection", async (socket) => {
       case "unpublish":
         {
           const { media } = payload;
-          const transceiver = pc.transceivers.find((t) => t.mid === media);
+          const transceiver = pc.getTransceivers().find((t) => t.mid === media);
           pc.removeTrack(transceiver.sender);
           await pc.setLocalDescription(await pc.createOffer());
           send("offer", { sdp: pc.localDescription });
@@ -78,7 +78,7 @@ server.on("connection", async (socket) => {
       case "unsubscribe":
         {
           const { mid } = payload;
-          const transceiver = pc.transceivers.find((t) => t.mid === mid);
+          const transceiver = pc.getTransceivers().find((t) => t.mid === mid);
           pc.removeTrack(transceiver.sender);
           await pc.setLocalDescription(await pc.createOffer());
 

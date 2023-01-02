@@ -2,10 +2,10 @@ import {
   RTCPeerConnection,
   RtpPacket,
   RtpSourceStream,
-  WebmLiveOutput,
   WebmStream,
   DepacketizerInput,
   DepacketizerOutput,
+  WebmStreamOutput,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
 import { ReadableStreamDefaultReadResult, TransformStream } from "stream/web";
@@ -77,7 +77,7 @@ const reader = webm.webmStream.getReader();
 const readChunk = async ({
   value,
   done,
-}: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
+}: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
   if (done) return;
   if (value.saveToFile) {
     await appendFile(path, value.saveToFile);
