@@ -214,6 +214,11 @@ export class RTCRtpReceiver {
       log("pli not supported", { mediaSsrc });
       return;
     }
+
+    if (this.stopped) {
+      return;
+    }
+
     log("sendRtcpPLI", { mediaSsrc });
 
     const packet = new RtcpPayloadSpecificFeedback({

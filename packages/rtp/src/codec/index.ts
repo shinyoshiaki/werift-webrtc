@@ -18,7 +18,12 @@ export function dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
     const partitions = packets.map((p) => DePacketizer.deSerialize(p.payload));
     const isKeyframe = !!partitions.find((f) => f.isKeyframe);
     const data = Buffer.concat(partitions.map((f) => f.payload));
-    return { isKeyframe, data };
+    return {
+      isKeyframe,
+      data,
+      sequence: packets.at(-1)?.header.sequenceNumber ?? 0,
+      timestamp: packets.at(-1)?.header.timestamp ?? 0,
+    };
   };
 
   switch (codec.toUpperCase()) {
@@ -26,7 +31,12 @@ export function dePacketizeRtpPackets(codec: string, packets: RtpPacket[]) {
       const chunks = packets.map((p) => AV1RtpPayload.deSerialize(p.payload));
       const isKeyframe = !!chunks.find((f) => f.isKeyframe);
       const data = AV1RtpPayload.getFrame(chunks);
-      return { isKeyframe, data };
+      return {
+        isKeyframe,
+        data,
+        sequence: packets.at(-1)?.header.sequenceNumber ?? 0,
+        timestamp: packets.at(-1)?.header.timestamp ?? 0,
+      };
     }
     case "MPEG4/ISO/AVC":
       return basicCodecParser(H264RtpPayload);

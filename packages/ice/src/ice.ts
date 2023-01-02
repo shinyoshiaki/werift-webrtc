@@ -846,7 +846,7 @@ export class Connection {
   // 7.2.  STUN Server Procedures
   // 7.2.1.3、7.2.1.4、および7.2.1.5
   checkIncoming(message: Message, addr: Address, protocol: Protocol) {
-    log("checkIncoming", message.toJSON(), addr);
+    // log("checkIncoming", message.toJSON(), addr);
     // """
     // Handle a successful incoming check.
     // """
