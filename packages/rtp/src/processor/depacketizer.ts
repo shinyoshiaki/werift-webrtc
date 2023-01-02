@@ -1,6 +1,6 @@
 import debug from "debug";
 
-import { RtpHeader, RtpPacket, uint16Add } from "..";
+import { RtpHeader, RtpPacket, uint16Add, uint16Gt } from "..";
 import { dePacketizeRtpPackets } from "../codec";
 import { enumerate } from "../helper";
 import { Processor } from "./interface";
@@ -129,10 +129,11 @@ export class DepacketizeBase
     const { sequenceNumber } = rtp!.header;
     if (this.lastSeqNum != undefined) {
       const expect = uint16Add(this.lastSeqNum, 1);
-      if (sequenceNumber < expect) {
+      if (uint16Gt(expect, sequenceNumber)) {
+        log("unexpect", { expect, sequenceNumber });
         return false;
       }
-      if (sequenceNumber > expect) {
+      if (uint16Gt(sequenceNumber, expect)) {
         log("packet lost happened", { expect, sequenceNumber });
         this.frameBroken = true;
         this.clearBuffer();

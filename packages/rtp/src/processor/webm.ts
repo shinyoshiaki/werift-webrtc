@@ -117,9 +117,9 @@ export class WebmBase {
 
     const timestampManager = this.timestamps[track.trackNumber];
     if (timestampManager.baseTime == undefined) {
-      Object.values(this.timestamps).forEach((t) => {
+      for (const t of Object.values(this.timestamps)) {
         t.baseTime = frame.time;
-      });
+      }
     }
 
     // clusterの経過時間
@@ -247,7 +247,7 @@ class ClusterTimestamp {
     time: number
   ) {
     if (this.baseTime == undefined) {
-      throw new Error();
+      throw new Error("baseTime not exist");
     }
 
     this.elapsed = time - this.baseTime - this.offset;
