@@ -1,10 +1,12 @@
 import {
-  AvBufferCallback,
   DepacketizeCallback,
   JitterBufferCallback,
+  LipsyncCallback,
   PromiseQueue,
   RTCPeerConnection,
+  RtcpSourceCallback,
   RtpSourceCallback,
+  NtpTimeCallback,
   WebmCallback,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
@@ -28,7 +30,7 @@ console.log({ dir, dashServerPort, signalingServerPort });
 
 const signalingServer = new Server({ port: signalingServerPort });
 signalingServer.on("connection", async (socket) => {
-  const { audio, video } = await recorder();
+  const { audio, video, audioRtcp, videoRtcp } = await recorder();
 
   const pc = new RTCPeerConnection();
 
@@ -38,6 +40,9 @@ signalingServer.on("connection", async (socket) => {
       track.onReceiveRtp.subscribe((rtp) => {
         audio.input(rtp);
       });
+      track.onReceiveRtcp.subscribe((rtcp) => {
+        audioRtcp.input(rtcp);
+      });
     }
   );
 
@@ -46,6 +51,9 @@ signalingServer.on("connection", async (socket) => {
       // 映像のRTPを受け取る
       track.onReceiveRtp.subscribe((rtp) => {
         video.input(rtp);
+      });
+      track.onReceiveRtcp.subscribe((rtcp) => {
+        videoRtcp.input(rtcp);
       });
       // 5秒ごとにキーフレームを要求する
       setInterval(() => {
@@ -72,7 +80,6 @@ async function recorder() {
 
   await writeFile(dir + "/dash.mpd", mpd.build());
 
-  const avBuffer = new AvBufferCallback();
   const webm = new WebmCallback(
     [
       {
@@ -92,27 +99,38 @@ async function recorder() {
     ],
     { duration: 1000 * 60 * 60 * 24, strictTimestamp: true }
   );
+  const lipsync = new LipsyncCallback();
 
   const audio = new RtpSourceCallback();
   const video = new RtpSourceCallback();
+  const audioRtcp = new RtcpSourceCallback();
+  const videoRtcp = new RtcpSourceCallback();
 
   {
     const depacketizer = new DepacketizeCallback("opus");
+    const ntpTime = new NtpTimeCallback(48000);
 
-    audio.pipe(depacketizer.input);
-    depacketizer.pipe(avBuffer.inputAudio);
-    avBuffer.pipeAudio(webm.inputAudio);
+    audio.pipe(ntpTime.input);
+    audioRtcp.pipe(ntpTime.input);
+
+    ntpTime.pipe(depacketizer.input);
+    depacketizer.pipe(lipsync.inputAudio);
+    lipsync.pipeAudio(webm.inputAudio);
   }
   {
     const jitterBuffer = new JitterBufferCallback(90000);
     const depacketizer = new DepacketizeCallback("vp8", {
       isFinalPacketInSequence: (h) => h.marker,
     });
+    const ntpTime = new NtpTimeCallback(90000);
 
     video.pipe(jitterBuffer.input);
-    jitterBuffer.pipe(depacketizer.input);
-    depacketizer.pipe(avBuffer.inputVideo);
-    avBuffer.pipeVideo(webm.inputVideo);
+    videoRtcp.pipe(ntpTime.input);
+
+    jitterBuffer.pipe(ntpTime.input);
+    ntpTime.pipe(depacketizer.input);
+    depacketizer.pipe(lipsync.inputVideo);
+    lipsync.pipeVideo(webm.inputVideo);
   }
 
   let timestamp = 0;
@@ -165,7 +183,7 @@ async function recorder() {
     });
   });
 
-  return { audio, video };
+  return { audio, video, audioRtcp, videoRtcp };
 }
 
 const mpd = new MPD({
