@@ -1,18 +1,24 @@
 import debug from "debug";
 
-import { int } from "..";
 import {
   getEBMLByteLength,
   numberToByteArray,
   vintEncode,
 } from "../container/ebml";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
-import { DepacketizerOutput } from "./depacketizer";
 
 const sourcePath = `werift-rtp : packages/rtp/src/processor/webm.ts`;
 const log = debug(sourcePath);
 
-export type WebmInput = DepacketizerOutput;
+export type WebmInput = {
+  frame?: {
+    data: Buffer;
+    isKeyframe: boolean;
+    /**ms */
+    time: number;
+  };
+  eol?: boolean;
+};
 
 export type WebmOutput = {
   saveToFile?: Buffer;
@@ -57,7 +63,7 @@ export class WebmBase {
     this.builder = new WEBMBuilder(tracks, options.encryptionKey);
 
     tracks.forEach((t) => {
-      this.timestamps[t.trackNumber] = new ClusterTimestamp(t.clockRate);
+      this.timestamps[t.trackNumber] = new ClusterTimestamp();
     });
   }
 
@@ -110,8 +116,14 @@ export class WebmBase {
     }
 
     const timestampManager = this.timestamps[track.trackNumber];
+    if (timestampManager.baseTime == undefined) {
+      Object.values(this.timestamps).forEach((t) => {
+        t.baseTime = frame.time;
+      });
+    }
+
     // clusterの経過時間
-    let elapsed = timestampManager.update(frame.timestamp);
+    let elapsed = timestampManager.update(frame.time);
 
     if (this.clusterCounts === 0) {
       this.createCluster(0.0, 0);
@@ -133,7 +145,7 @@ export class WebmBase {
 
         this.createCluster(this.relativeTimestamp, elapsed);
         Object.values(this.timestamps).forEach((t) => t.shift(elapsed));
-        elapsed = timestampManager.update(frame.timestamp);
+        elapsed = timestampManager.update(frame.time);
       }
     }
 
@@ -217,33 +229,29 @@ export class WebmBase {
 }
 
 class ClusterTimestamp {
-  baseTimestamp?: number;
+  /**ms */
+  baseTime?: number;
   /**ms */
   elapsed = 0;
   private offset = 0;
 
-  constructor(public clockRate: number) {}
-
-  shift(elapsed: number) {
+  shift(
+    /**ms */
+    elapsed: number
+  ) {
     this.offset += elapsed;
   }
 
-  update(timestamp: number) {
-    if (this.baseTimestamp == undefined) {
-      this.baseTimestamp = timestamp;
-    }
-    const rotate =
-      Math.abs(timestamp - this.baseTimestamp) > (Max32Uint / 4) * 3;
-
-    if (rotate) {
-      log("rotate", { baseTimestamp: this.baseTimestamp, timestamp });
+  update(
+    /**ms */
+    time: number
+  ) {
+    if (this.baseTime == undefined) {
+      throw new Error();
     }
 
-    const elapsed = rotate
-      ? timestamp + Max32Uint - this.baseTimestamp
-      : timestamp - this.baseTimestamp;
+    this.elapsed = time - this.baseTime - this.offset;
 
-    this.elapsed = int((elapsed / this.clockRate) * 1000) - this.offset;
     return this.elapsed;
   }
 }
