@@ -385,29 +385,31 @@ export class Connection {
 
           for (const key of this.nominatedKeys) {
             const pair = this.nominated[Number(key)];
-            const request = this.buildRequest(pair, false);
-            try {
-              const [msg, addr] = await pair.protocol.request(
-                request,
-                pair.remoteAddr,
-                Buffer.from(this.remotePassword, "utf8"),
-                0
-              );
-              failures = 0;
-              if (this.state === "disconnected") {
-                this.setState("connected");
+            if (pair?.protocol?.type !== "turn") {
+              const request = this.buildRequest(pair, false);
+              try {
+                const [msg, addr] = await pair.protocol.request(
+                  request,
+                  pair.remoteAddr,
+                  Buffer.from(this.remotePassword, "utf8"),
+                  0
+                );
+                failures = 0;
+                if (this.state === "disconnected") {
+                  this.setState("connected");
+                }
+              } catch (error) {
+                log("no stun response");
+                failures++;
+                this.setState("disconnected");
               }
-            } catch (error) {
-              log("no stun response");
-              failures++;
-              this.setState("disconnected");
-            }
-            if (failures >= CONSENT_FAILURES) {
-              log("Consent to send expired");
-              this.queryConsentHandle = undefined;
-              // 切断検知
-              r(await this.close());
-              return;
+              if (failures >= CONSENT_FAILURES) {
+                log("Consent to send expired");
+                this.queryConsentHandle = undefined;
+                // 切断検知
+                r(await this.close());
+                return;
+              }
             }
           }
         }
