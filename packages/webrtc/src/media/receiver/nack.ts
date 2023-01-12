@@ -22,21 +22,11 @@ export class NackHandler {
   readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
   retryCount = 10;
+  closed = false;
 
   constructor(private receiver: RTCRtpReceiver) {}
 
-  private start() {
-    if (this.nackLoop) {
-      return;
-    }
-    this.nackLoop = setInterval(async () => {
-      try {
-        await this.sendNack();
-      } catch (error) {
-        log("failed to send nack", error);
-      }
-    }, 5);
-  }
+  private start() {}
 
   get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();
@@ -48,6 +38,21 @@ export class NackHandler {
 
   setLost(seq: number, count: number) {
     this._lost[seq] = count;
+
+    if (this.nackLoop || this.closed) {
+      return;
+    }
+    this.nackLoop = setInterval(async () => {
+      try {
+        await this.sendNack();
+        if (!Object.keys(this._lost).length) {
+          clearInterval(this.nackLoop);
+          this.nackLoop = undefined;
+        }
+      } catch (error) {
+        log("failed to send nack", error);
+      }
+    }, 5);
   }
 
   removeLost(sequenceNumber: number) {
@@ -97,6 +102,7 @@ export class NackHandler {
   }
 
   close() {
+    this.closed = true;
     clearInterval(this.nackLoop);
     this._lost = {};
   }
