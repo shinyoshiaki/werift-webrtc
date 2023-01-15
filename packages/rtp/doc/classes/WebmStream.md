@@ -50,7 +50,7 @@
 
 ### audioStream
 
-• **audioStream**: `WritableStream`<[`DepacketizerOutput`](../interfaces/DepacketizerOutput.md)\>
+• **audioStream**: `WritableStream`<[`WebmInput`](../modules.md#webminput)\>
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 ### videoStream
 
-• **videoStream**: `WritableStream`<[`DepacketizerOutput`](../interfaces/DepacketizerOutput.md)\>
+• **videoStream**: `WritableStream`<[`WebmInput`](../modules.md#webminput)\>
 
 ___
 
@@ -104,7 +104,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md) |
+| `input` | [`WebmInput`](../modules.md#webminput) |
 
 #### Returns
 
@@ -124,7 +124,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md) |
+| `input` | [`WebmInput`](../modules.md#webminput) |
 
 #### Returns
 
@@ -138,7 +138,7 @@ ___
 
 ### start
 
-▸ **start**(): `void`
+▸ `Protected` **start**(): `void`
 
 #### Returns
 

@@ -20,6 +20,7 @@
 ### Methods
 
 - [serialize](GenericNack.md#serialize)
+- [toJSON](GenericNack.md#tojson)
 - [deSerialize](GenericNack.md#deserialize)
 
 ## Constructors
@@ -79,6 +80,22 @@ ___
 #### Returns
 
 `Buffer`
+
+___
+
+### toJSON
+
+▸ **toJSON**(): `Object`
+
+#### Returns
+
+`Object`
+
+| Name | Type |
+| :------ | :------ |
+| `lost` | `number`[] |
+| `mediaSourceSsrc` | `number` |
+| `senderSsrc` | `number` |
 
 ___
 

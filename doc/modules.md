@@ -13,8 +13,6 @@
 
 - [AV1Obu](classes/AV1Obu.md)
 - [AV1RtpPayload](classes/AV1RtpPayload.md)
-- [AVBufferBase](classes/AVBufferBase.md)
-- [AvBufferCallback](classes/AvBufferCallback.md)
 - [BitStream](classes/BitStream.md)
 - [BitWriter](classes/BitWriter.md)
 - [BitWriter2](classes/BitWriter2.md)
@@ -31,12 +29,15 @@
 - [JitterBufferBase](classes/JitterBufferBase.md)
 - [JitterBufferCallback](classes/JitterBufferCallback.md)
 - [JitterBufferTransformer](classes/JitterBufferTransformer.md)
+- [LipsyncBase](classes/LipsyncBase.md)
+- [LipsyncCallback](classes/LipsyncCallback.md)
 - [MediaDescription](classes/MediaDescription.md)
 - [MediaPlayerMp4](classes/MediaPlayerMp4.md)
 - [MediaPlayerWebm](classes/MediaPlayerWebm.md)
 - [MediaRecorder](classes/MediaRecorder.md)
 - [MediaStream](classes/MediaStream.md)
 - [MediaStreamTrack](classes/MediaStreamTrack.md)
+- [NtpTimeCallback](classes/NtpTimeCallback.md)
 - [OpusRtpPayload](classes/OpusRtpPayload.md)
 - [PacketResult](classes/PacketResult.md)
 - [PictureLossIndication](classes/PictureLossIndication.md)
@@ -75,6 +76,7 @@
 - [RtcpReceiverInfo](classes/RtcpReceiverInfo.md)
 - [RtcpRrPacket](classes/RtcpRrPacket.md)
 - [RtcpSenderInfo](classes/RtcpSenderInfo.md)
+- [RtcpSourceCallback](classes/RtcpSourceCallback.md)
 - [RtcpSourceDescriptionPacket](classes/RtcpSourceDescriptionPacket.md)
 - [RtcpSrPacket](classes/RtcpSrPacket.md)
 - [RtcpTransportLayerFeedback](classes/RtcpTransportLayerFeedback.md)
@@ -98,16 +100,19 @@
 - [WebmCallback](classes/WebmCallback.md)
 - [WebmStream](classes/WebmStream.md)
 - [WeriftError](classes/WeriftError.md)
+- [syncRtpBase](classes/syncRtpBase.md)
 
 ### Interfaces
 
-- [AvBufferOptions](interfaces/AvBufferOptions.md)
+- [CodecFrame](interfaces/CodecFrame.md)
 - [DepacketizerOutput](interfaces/DepacketizerOutput.md)
 - [IceOptions](interfaces/IceOptions.md)
 - [JitterBufferOptions](interfaces/JitterBufferOptions.md)
 - [JitterBufferOutput](interfaces/JitterBufferOutput.md)
+- [LipSyncOptions](interfaces/LipSyncOptions.md)
 - [MediaRecorderOptions](interfaces/MediaRecorderOptions.md)
 - [MessageEvent](interfaces/MessageEvent.md)
+- [NtpTimeOutput](interfaces/NtpTimeOutput.md)
 - [PeerConfig](interfaces/PeerConfig.md)
 - [RTCDataChannelEvent](interfaces/RTCDataChannelEvent.md)
 - [RTCErrorEvent](interfaces/RTCErrorEvent.md)
@@ -116,14 +121,13 @@
 - [RTCRtpReceiveParameters](interfaces/RTCRtpReceiveParameters.md)
 - [RTCRtpSendParameters](interfaces/RTCRtpSendParameters.md)
 - [RTCTrackEvent](interfaces/RTCTrackEvent.md)
+- [RtcpOutput](interfaces/RtcpOutput.md)
 - [RtpOutput](interfaces/RtpOutput.md)
 - [TransceiverOptions](interfaces/TransceiverOptions.md)
 - [WebmOption](interfaces/WebmOption.md)
 
 ### Type Aliases
 
-- [AVBufferInput](modules.md#avbufferinput)
-- [AVBufferOutput](modules.md#avbufferoutput)
 - [Address](modules.md#address)
 - [BundlePolicy](modules.md#bundlepolicy)
 - [CipherSuites](modules.md#ciphersuites)
@@ -141,7 +145,10 @@
 - [InterfaceAddresses](modules.md#interfaceaddresses)
 - [JitterBufferInput](modules.md#jitterbufferinput)
 - [Kind](modules.md#kind)
+- [LipsyncInput](modules.md#lipsyncinput)
+- [LipsyncOutput](modules.md#lipsyncoutput)
 - [NamedCurveAlgorithms](modules.md#namedcurvealgorithms)
+- [NtpTimeInput](modules.md#ntptimeinput)
 - [RTCIceConnectionState](modules.md#rtciceconnectionstate)
 - [RTCIceServer](modules.md#rtciceserver)
 - [RTCPFB](modules.md#rtcpfb)
@@ -205,6 +212,7 @@
 - [codecParametersFromString](modules.md#codecparametersfromstring)
 - [codecParametersToString](modules.md#codecparameterstostring)
 - [compactNtp](modules.md#compactntp)
+- [createBufferWriter](modules.md#createbufferwriter)
 - [createMediaDescriptionForSctp](modules.md#createmediadescriptionforsctp)
 - [createMediaDescriptionForTransceiver](modules.md#createmediadescriptionfortransceiver)
 - [createSelfSignedCertificate](modules.md#createselfsignedcertificate)
@@ -229,6 +237,7 @@
 - [milliTime](modules.md#millitime)
 - [normalizeFamilyNodeV18](modules.md#normalizefamilynodev18)
 - [ntpTime](modules.md#ntptime)
+- [ntpTime2Time](modules.md#ntptime2time)
 - [paddingBits](modules.md#paddingbits)
 - [paddingByte](modules.md#paddingbyte)
 - [parseGroup](modules.md#parsegroup)
@@ -240,6 +249,7 @@
 - [replaceSegmentSize](modules.md#replacesegmentsize)
 - [reverseDirection](modules.md#reversedirection)
 - [reverseSimulcastDirection](modules.md#reversesimulcastdirection)
+- [saveToFileSystem](modules.md#savetofilesystem)
 - [timestampSeconds](modules.md#timestampseconds)
 - [uint16Add](modules.md#uint16add)
 - [uint16Gt](modules.md#uint16gt)
@@ -262,18 +272,6 @@
 - [useTransportWideCC](modules.md#usetransportwidecc)
 
 ## Type Aliases
-
-### AVBufferInput
-
-Ƭ **AVBufferInput**: [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)
-
-___
-
-### AVBufferOutput
-
-Ƭ **AVBufferOutput**: [`AVBufferInput`](modules.md#avbufferinput)
-
-___
 
 ### Address
 
@@ -313,7 +311,15 @@ ___
 
 ### DepacketizerInput
 
-Ƭ **DepacketizerInput**: [`RtpOutput`](interfaces/RtpOutput.md)
+Ƭ **DepacketizerInput**: `Object`
+
+#### Type declaration
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `eol?` | `boolean` | - |
+| `rtp?` | [`RtpPacket`](classes/RtpPacket.md) | - |
+| `time?` | `number` | ms |
 
 ___
 
@@ -392,9 +398,49 @@ ___
 
 ___
 
+### LipsyncInput
+
+Ƭ **LipsyncInput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `eol?` | `boolean` |
+| `frame?` | [`CodecFrame`](interfaces/CodecFrame.md) |
+
+___
+
+### LipsyncOutput
+
+Ƭ **LipsyncOutput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `eol?` | `boolean` |
+| `frame?` | [`CodecFrame`](interfaces/CodecFrame.md) |
+
+___
+
 ### NamedCurveAlgorithms
 
 Ƭ **NamedCurveAlgorithms**: typeof [`NamedCurveAlgorithm`](modules.md#namedcurvealgorithm)[keyof typeof [`NamedCurveAlgorithm`](modules.md#namedcurvealgorithm)]
+
+___
+
+### NtpTimeInput
+
+Ƭ **NtpTimeInput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `eol?` | `boolean` |
+| `rtcp?` | [`RtcpPacket`](modules.md#rtcppacket) |
+| `rtp?` | [`RtpPacket`](classes/RtpPacket.md) |
 
 ___
 
@@ -482,7 +528,17 @@ ___
 
 ### WebmInput
 
-Ƭ **WebmInput**: [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)
+Ƭ **WebmInput**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `eol?` | `boolean` |
+| `frame?` | { `data`: `Buffer` ; `isKeyframe`: `boolean` ; `time`: `number`  } |
+| `frame.data` | `Buffer` |
+| `frame.isKeyframe` | `boolean` |
+| `frame.time` | `number` |
 
 ___
 
@@ -1035,6 +1091,35 @@ https://datatracker.ietf.org/doc/html/rfc3550#section-4
 
 ___
 
+### createBufferWriter
+
+▸ **createBufferWriter**(`bytes`, `singleBuffer?`): (`values`: (`number` \| `bigint`)[]) => `Buffer`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `bytes` | `number`[] |
+| `singleBuffer?` | `boolean` |
+
+#### Returns
+
+`fn`
+
+▸ (`values`): `Buffer`
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `values` | (`number` \| `bigint`)[] |
+
+##### Returns
+
+`Buffer`
+
+___
+
 ### createMediaDescriptionForSctp
 
 ▸ **createMediaDescriptionForSctp**(`sctp`): [`MediaDescription`](classes/MediaDescription.md)
@@ -1105,6 +1190,8 @@ ___
 | :------ | :------ |
 | `data` | `Buffer` |
 | `isKeyframe` | `boolean` |
+| `sequence` | `number` |
+| `timestamp` | `number` |
 
 ___
 
@@ -1133,7 +1220,7 @@ ___
 
 ### depacketizeTransformer
 
-▸ **depacketizeTransformer**(`...args`): `TransformStream`<[`RtpOutput`](interfaces/RtpOutput.md), [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)\>
+▸ **depacketizeTransformer**(`...args`): `TransformStream`<[`DepacketizerInput`](modules.md#depacketizerinput), [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)\>
 
 #### Parameters
 
@@ -1143,7 +1230,7 @@ ___
 
 #### Returns
 
-`TransformStream`<[`RtpOutput`](interfaces/RtpOutput.md), [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)\>
+`TransformStream`<[`DepacketizerInput`](modules.md#depacketizerinput), [`DepacketizerOutput`](interfaces/DepacketizerOutput.md)\>
 
 ___
 
@@ -1429,6 +1516,22 @@ https://datatracker.ietf.org/doc/html/rfc3550#section-4
 
 ___
 
+### ntpTime2Time
+
+▸ **ntpTime2Time**(`ntp`): `number`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `ntp` | `bigint` |
+
+#### Returns
+
+`number`
+
+___
+
 ### paddingBits
 
 ▸ **paddingBits**(`bits`, `expectLength`): `string`
@@ -1603,6 +1706,34 @@ ___
 #### Returns
 
 ``"recv"`` \| ``"send"``
+
+___
+
+### saveToFileSystem
+
+▸ **saveToFileSystem**(`path`): (`value`: [`WebmOutput`](modules.md#webmoutput)) => `Promise`<`void`\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `path` | `string` |
+
+#### Returns
+
+`fn`
+
+▸ (`value`): `Promise`<`void`\>
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `value` | [`WebmOutput`](modules.md#webmoutput) |
+
+##### Returns
+
+`Promise`<`void`\>
 
 ___
 

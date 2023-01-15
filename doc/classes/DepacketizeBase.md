@@ -18,6 +18,10 @@
 
 - [constructor](DepacketizeBase.md#constructor)
 
+### Properties
+
+- [sequence](DepacketizeBase.md#sequence)
+
 ### Methods
 
 - [processInput](DepacketizeBase.md#processinput)
@@ -36,6 +40,12 @@
 | `options` | `Object` |
 | `options.isFinalPacketInSequence?` | (`header`: [`RtpHeader`](RtpHeader.md)) => `boolean` |
 
+## Properties
+
+### sequence
+
+• **sequence**: `number` = `0`
+
 ## Methods
 
 ### processInput
@@ -46,7 +56,7 @@
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`RtpOutput`](../interfaces/RtpOutput.md) |
+| `input` | [`DepacketizerInput`](../modules.md#depacketizerinput) |
 
 #### Returns
 

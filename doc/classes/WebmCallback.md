@@ -60,7 +60,7 @@ ___
 
 ### inputAudio
 
-• **inputAudio**: (`input`: [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md)) => `void`
+• **inputAudio**: (`input`: [`WebmInput`](../modules.md#webminput)) => `void`
 
 #### Type declaration
 
@@ -70,7 +70,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md) |
+| `input` | [`WebmInput`](../modules.md#webminput) |
 
 ##### Returns
 
@@ -80,7 +80,7 @@ ___
 
 ### inputVideo
 
-• **inputVideo**: (`input`: [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md)) => `void`
+• **inputVideo**: (`input`: [`WebmInput`](../modules.md#webminput)) => `void`
 
 #### Type declaration
 
@@ -90,7 +90,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md) |
+| `input` | [`WebmInput`](../modules.md#webminput) |
 
 ##### Returns
 
@@ -126,7 +126,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `cb` | (`input`: [`WebmOutput`](../modules.md#webmoutput)) => `void` |
+| `cb` | (`input`: [`WebmOutput`](../modules.md#webmoutput)) => `Promise`<`void`\> |
 
 #### Returns
 
@@ -142,7 +142,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md) |
+| `input` | [`WebmInput`](../modules.md#webminput) |
 
 #### Returns
 
@@ -162,7 +162,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`DepacketizerOutput`](../interfaces/DepacketizerOutput.md) |
+| `input` | [`WebmInput`](../modules.md#webminput) |
 
 #### Returns
 
@@ -176,7 +176,7 @@ ___
 
 ### start
 
-▸ **start**(): `void`
+▸ `Protected` **start**(): `void`
 
 #### Returns
 

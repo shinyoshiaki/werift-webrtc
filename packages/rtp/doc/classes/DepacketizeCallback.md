@@ -14,6 +14,10 @@
 
 - [constructor](DepacketizeCallback.md#constructor)
 
+### Properties
+
+- [sequence](DepacketizeCallback.md#sequence)
+
 ### Methods
 
 - [input](DepacketizeCallback.md#input)
@@ -39,6 +43,16 @@
 
 [DepacketizeBase](DepacketizeBase.md).[constructor](DepacketizeBase.md#constructor)
 
+## Properties
+
+### sequence
+
+• **sequence**: `number` = `0`
+
+#### Inherited from
+
+[DepacketizeBase](DepacketizeBase.md).[sequence](DepacketizeBase.md#sequence)
+
 ## Methods
 
 ### input
@@ -49,7 +63,7 @@
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`RtpOutput`](../interfaces/RtpOutput.md) |
+| `input` | [`DepacketizerInput`](../modules.md#depacketizerinput) |
 
 #### Returns
 
@@ -81,7 +95,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `input` | [`RtpOutput`](../interfaces/RtpOutput.md) |
+| `input` | [`DepacketizerInput`](../modules.md#depacketizerinput) |
 
 #### Returns
 

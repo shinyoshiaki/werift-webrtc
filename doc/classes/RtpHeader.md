@@ -135,7 +135,7 @@ ___
 
 • **timestamp**: `number` = `0`
 
-32bit milliseconds/1000
+32bit microsec (milli/1000)
 
 ___
 
