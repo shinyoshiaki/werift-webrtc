@@ -334,7 +334,6 @@ export class RTCDtlsParameters {
 
 class IceTransport implements Transport {
   constructor(private ice: Connection) {
-    this.send = this.ice.send;
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) this.onData(buf);
@@ -343,7 +342,9 @@ class IceTransport implements Transport {
   }
   onData?: (buf: Buffer) => void;
 
-  readonly send: (data: Buffer) => Promise<void>;
+  readonly send = (data: Buffer) => {
+    return this.ice.send(data);
+  };
 
   close() {
     this.ice.close();

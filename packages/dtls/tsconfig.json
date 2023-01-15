@@ -5,6 +5,7 @@
     "lib": ["esnext"],
     "declaration": true,
     "outDir": "lib",
+    "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "pretty": true,
@@ -12,7 +13,9 @@
     "inlineSources": true,
     "noUnusedLocals": false,
     "skipLibCheck": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    "useDefineForClassFields": true
   },
   "include": ["src", "tests", "examples"]
 }

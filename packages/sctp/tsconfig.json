@@ -13,7 +13,9 @@
     "inlineSources": true,
     "noUnusedLocals": false,
     "skipLibCheck": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    "useDefineForClassFields": true
   },
   "include": ["src", "tests"]
 }
