@@ -1,6 +1,5 @@
 import { createCipheriv, createDecipheriv, createHmac } from "crypto";
 
-import { growBufferSize } from "../../helper";
 import { RtcpHeader } from "../../rtcp/header";
 import { RtpHeader } from "../../rtp/rtp";
 import { CipherAesBase } from ".";
@@ -43,12 +42,9 @@ export class CipherAesCtr extends CipherAesBase {
   decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
     const header = RtpHeader.deSerialize(cipherText);
 
-    let dst = Buffer.from([]);
-    dst = growBufferSize(dst, cipherText.length - this.authTagLength);
+    const size = cipherText.length - this.authTagLength;
 
     cipherText = cipherText.subarray(0, cipherText.length - this.authTagLength);
-
-    cipherText.subarray(0, header.payloadOffset).copy(dst);
 
     const counter = this.generateCounter(
       header.sequenceNumber,
@@ -61,9 +57,14 @@ export class CipherAesCtr extends CipherAesBase {
       this.srtpSessionKey,
       counter
     );
-    const payload = cipherText.slice(header.payloadOffset);
+    const payload = cipherText.subarray(header.payloadOffset);
     const buf = cipher.update(payload);
-    buf.copy(dst, header.payloadOffset);
+
+    const dst = Buffer.concat([
+      cipherText.subarray(0, header.payloadOffset),
+      buf,
+      Buffer.alloc(size - header.payloadOffset - buf.length),
+    ]);
 
     return [dst, header];
   }
@@ -141,7 +142,7 @@ export class CipherAesCtr extends CipherAesBase {
     counter.writeUInt32BE(Number(BigInt(sequenceNumber) << 16n), 12);
 
     for (let i = 0; i < sessionSalt.length; i++) {
-      counter[i] = counter[i] ^ sessionSalt[i];
+      counter[i] ^= sessionSalt[i];
     }
     return counter;
   }
