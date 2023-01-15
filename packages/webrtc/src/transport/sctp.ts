@@ -381,6 +381,8 @@ class BridgeDtls implements Transport {
   set onData(onData: (buf: Buffer) => void) {
     this.dtls.dataReceiver = onData;
   }
-  readonly send = this.dtls.sendData;
+  readonly send = (data: Buffer) => {
+    return this.dtls.sendData(data);
+  };
   close() {}
 }

@@ -20,7 +20,7 @@ export class RTCDataChannel extends EventTarget {
   // todo impl
   onerror?: CallbackWithValue<RTCErrorEvent>;
   isCreatedByRemote = false;
-  id: number = this.parameters.id;
+  id: number;
   readyState: DCState = "connecting";
 
   bufferedAmount = 0;
@@ -32,6 +32,8 @@ export class RTCDataChannel extends EventTarget {
     public readonly sendOpen = true
   ) {
     super();
+
+    this.id = this.parameters.id;
 
     if (parameters.negotiated) {
       if (this.id == undefined || this.id < 0 || this.id > 65534) {
