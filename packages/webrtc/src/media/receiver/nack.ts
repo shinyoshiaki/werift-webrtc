@@ -26,8 +26,6 @@ export class NackHandler {
 
   constructor(private receiver: RTCRtpReceiver) {}
 
-  private start() {}
-
   get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();
   }
@@ -60,8 +58,6 @@ export class NackHandler {
   }
 
   addPacket(packet: RtpPacket) {
-    this.start();
-
     const { sequenceNumber, ssrc } = packet.header;
     this.mediaSourceSsrc = ssrc;
 
