@@ -123,7 +123,10 @@ export class RTCRtpSender {
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
 
-  constructor(public trackOrKind: Kind | MediaStreamTrack) {
+  constructor(
+    public trackOrKind: Kind | MediaStreamTrack,
+    public disableSendRetransmit?: boolean
+  ) {
     if (trackOrKind instanceof MediaStreamTrack) {
       if (trackOrKind.streamId) {
         this.streamId = trackOrKind.streamId;
@@ -437,29 +440,31 @@ export class RTCRtpSender {
             case GenericNack.count:
               {
                 const feedback = packet.feedback as GenericNack;
-                feedback.lost.forEach(async (seqNum) => {
-                  let packet = this.rtpCache.find(
-                    (rtp) => rtp.header.sequenceNumber === seqNum
-                  );
-                  if (packet) {
-                    if (this.rtxPayloadType != undefined) {
-                      packet = wrapRtx(
-                        packet,
-                        this.rtxPayloadType,
-                        this.rtxSequenceNumber,
-                        this.rtxSsrc
-                      );
-                      this.rtxSequenceNumber = uint16Add(
-                        this.rtxSequenceNumber,
-                        1
+                if (this.disableSendRetransmit !== true) {
+                  feedback.lost.forEach(async (seqNum) => {
+                    let packet = this.rtpCache.find(
+                      (rtp) => rtp.header.sequenceNumber === seqNum
+                    );
+                    if (packet) {
+                      if (this.rtxPayloadType != undefined) {
+                        packet = wrapRtx(
+                          packet,
+                          this.rtxPayloadType,
+                          this.rtxSequenceNumber,
+                          this.rtxSsrc
+                        );
+                        this.rtxSequenceNumber = uint16Add(
+                          this.rtxSequenceNumber,
+                          1
+                        );
+                      }
+                      await this.dtlsTransport.sendRtp(
+                        packet.payload,
+                        packet.header
                       );
                     }
-                    await this.dtlsTransport.sendRtp(
-                      packet.payload,
-                      packet.header
-                    );
-                  }
-                });
+                  });
+                }
                 this.onGenericNack.execute(feedback);
               }
               break;
