@@ -1184,7 +1184,10 @@ export class RTCPeerConnection extends EventTarget {
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
     ]);
 
-    const sender = new RTCRtpSender(trackOrKind);
+    const sender = new RTCRtpSender(
+      trackOrKind,
+      this.config.debug.disableSendRetransmit
+    );
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
     const newTransceiver = new RTCRtpTransceiver(
       kind,
@@ -1646,6 +1649,7 @@ export interface PeerConfig {
     /**ms */
     receiverReportDelay: number;
     disableSendNack: boolean;
+    disableSendRetransmit: boolean;
     disableRecvRetransmit: boolean;
   }>;
 }
