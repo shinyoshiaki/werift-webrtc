@@ -1081,6 +1081,13 @@ export function candidatePairPriority(
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
 }
 
+function isAutoconfigurationAddress(info: os.NetworkInterfaceInfo) {
+  return (
+    normalizeFamilyNodeV18(info.family) === 4 &&
+    info.address?.startsWith("169.254.")
+  );
+}
+
 function nodeIpAddress(family: number): string[] {
   // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
   const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
@@ -1101,7 +1108,8 @@ function nodeIpAddress(family: number): string[] {
       const addresses = interfaces[nic]!.filter(
         (details) =>
           normalizeFamilyNodeV18(details.family) === family &&
-          !nodeIp.isLoopback(details.address)
+          !nodeIp.isLoopback(details.address) &&
+          !isAutoconfigurationAddress(details)
       );
       return {
         nic,
