@@ -52,10 +52,10 @@ const webm = new WebmStream(
 const transform = new TransformStream<DepacketizerInput, DepacketizerOutput>({
   transform: (input, output) => {
     if (input.rtp) {
-      const frame = {
+      const frame: NonNullable<DepacketizerOutput["frame"]> = {
         data: input.rtp.payload,
         isKeyframe: input.rtp.header.marker,
-        timestamp: input.rtp.header.timestamp,
+        time: input.time,
       };
       output.enqueue({ frame });
     } else {
