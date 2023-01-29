@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/dash/server/main.ts"
+        "${workspaceRoot}/examples/save_to_disk/pipeline.ts"
       ],
       "env": { "DEBUG": "werift*" },
       "console": "integratedTerminal",
