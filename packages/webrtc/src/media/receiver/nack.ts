@@ -30,11 +30,11 @@ export class NackHandler {
     return Object.keys(this._lost).map(Number).sort();
   }
 
-  getLost(seq: number) {
+  private getLost(seq: number) {
     return this._lost[seq];
   }
 
-  setLost(seq: number, count: number) {
+  private setLost(seq: number, count: number) {
     this._lost[seq] = count;
 
     if (this.nackLoop || this.closed) {
@@ -53,7 +53,7 @@ export class NackHandler {
     }, 5);
   }
 
-  removeLost(sequenceNumber: number) {
+  private removeLost(sequenceNumber: number) {
     delete this._lost[sequenceNumber];
   }
 
