@@ -1,3 +1,5 @@
+import Event from "rx.mini";
+
 import { MediaStreamTrack } from "../../media/track";
 import { MediaWriter } from "./writer";
 import { WebmFactory } from "./writer/webm";
@@ -7,6 +9,7 @@ export class MediaRecorder {
   ext: string;
   tracks: MediaStreamTrack[] = [];
   started = false;
+  onError = new Event<[Error]>();
 
   constructor(
     public path: string,
@@ -22,7 +25,13 @@ export class MediaRecorder {
           throw new Error();
       }
     })();
+
     this.tracks = options.tracks ?? this.tracks;
+    if (this.tracks.length === numOfTracks) {
+      this.start().catch((error) => {
+        this.onError.execute(error);
+      });
+    }
   }
 
   async addTrack(track: MediaStreamTrack) {
