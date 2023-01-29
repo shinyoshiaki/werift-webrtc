@@ -5,10 +5,12 @@ import { WebmFactory } from "./writer/webm";
 export class MediaRecorder {
   writer: MediaWriter;
   ext: string;
+  tracks: MediaStreamTrack[] = [];
+  started = false;
 
   constructor(
-    public tracks: MediaStreamTrack[],
     public path: string,
+    public numOfTracks = 1,
     public options: Partial<MediaRecorderOptions> = {}
   ) {
     this.ext = path.split(".").slice(-1)[0];
@@ -20,14 +22,19 @@ export class MediaRecorder {
           throw new Error();
       }
     })();
+    this.tracks = options.tracks ?? this.tracks;
   }
 
-  addTrack(track: MediaStreamTrack) {
+  async addTrack(track: MediaStreamTrack) {
     this.tracks.push(track);
+    await this.start();
   }
 
-  async start() {
-    await this.writer.start(this.tracks);
+  private async start() {
+    if (this.tracks.length === this.numOfTracks && this.started === false) {
+      this.started = true;
+      await this.writer.start(this.tracks);
+    }
   }
 
   async stop() {
@@ -42,4 +49,5 @@ export interface MediaRecorderOptions {
   jitterBufferSize: number;
   waitForKeyframe: boolean;
   defaultDuration: number;
+  tracks: MediaStreamTrack[];
 }
