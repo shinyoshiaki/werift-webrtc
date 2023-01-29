@@ -30,7 +30,7 @@ export class MediaRecorder {
     await this.start();
   }
 
-  private async start() {
+  async start() {
     if (this.tracks.length === this.numOfTracks && this.started === false) {
       this.started = true;
       await this.writer.start(this.tracks);
