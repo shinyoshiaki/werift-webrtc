@@ -12,7 +12,11 @@ import { normalizeFamilyNodeV18 } from "./utils";
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
 export class UdpTransport implements Transport {
-  private socket = createSocket(this.type);
+  private socket = createSocket({
+    type: this.type,
+    recvBufferSize: 16776960, // ~4MB
+    sendBufferSize: 65535, // 65KB
+  });
   onData: (data: Buffer, addr: Address) => void = () => {};
 
   constructor(
