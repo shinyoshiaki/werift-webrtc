@@ -127,7 +127,7 @@ export class RTCDtlsTransport {
       }
       this.dtls.onData.subscribe((buf) => {
         if (
-          this.config.debug.inboundPacketLoss &&
+          typeof this.config.debug.inboundPacketLoss === "number" &&
           this.config.debug.inboundPacketLoss / 100 < Math.random()
         ) {
           return;
@@ -197,7 +197,7 @@ export class RTCDtlsTransport {
 
     this.iceTransport.connection.onData.subscribe((data) => {
       if (
-        this.config.debug.inboundPacketLoss &&
+        typeof this.config.debug.inboundPacketLoss === "number" &&
         this.config.debug.inboundPacketLoss / 100 < Math.random()
       ) {
         return;
@@ -222,7 +222,7 @@ export class RTCDtlsTransport {
 
   readonly sendData = async (data: Buffer) => {
     if (
-      this.config.debug.outboundPacketLoss &&
+      typeof this.config.debug.outboundPacketLoss === "number" &&
       this.config.debug.outboundPacketLoss / 100 < Math.random()
     ) {
       return;
@@ -238,7 +238,7 @@ export class RTCDtlsTransport {
     const enc = this.srtp.encrypt(payload, header);
 
     if (
-      this.config.debug.outboundPacketLoss &&
+      typeof this.config.debug.outboundPacketLoss === "number" &&
       this.config.debug.outboundPacketLoss / 100 < Math.random()
     ) {
       return enc.length;
@@ -253,7 +253,7 @@ export class RTCDtlsTransport {
     const enc = this.srtcp.encrypt(payload);
 
     if (
-      this.config.debug.outboundPacketLoss &&
+      typeof this.config.debug.outboundPacketLoss === "number" &&
       this.config.debug.outboundPacketLoss / 100 < Math.random()
     ) {
       return enc.length;
