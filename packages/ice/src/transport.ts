@@ -1,5 +1,5 @@
 import debug from "debug";
-import { createSocket, SocketType } from "dgram";
+import { createSocket, Socket, SocketOptions, SocketType } from "dgram";
 
 import {
   findPort,
@@ -12,11 +12,7 @@ import { normalizeFamilyNodeV18 } from "./utils";
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
 export class UdpTransport implements Transport {
-  private socket = createSocket({
-    type: this.type,
-    recvBufferSize: 16776960, // ~4MB
-    sendBufferSize: 65535, // 65KB
-  });
+  private socket: Socket;
   onData: (data: Buffer, addr: Address) => void = () => {};
 
   constructor(
@@ -24,6 +20,30 @@ export class UdpTransport implements Transport {
     private portRange?: [number, number],
     private interfaceAddresses?: InterfaceAddresses
   ) {
+    const options: SocketOptions = { type: type };
+    if (process.env.ICE_RECV_BUFFER_SIZE !== undefined) {
+      const recvBufferSize = parseInt(process.env.ICE_RECV_BUFFER_SIZE);
+      if (isNaN(recvBufferSize)) {
+        console.error(
+          `Error setting recvBufferSize, ${process.env.ICE_RECV_BUFFER_SIZE} is not a valid integer`
+        );
+      } else {
+        options.recvBufferSize = recvBufferSize;
+      }
+    }
+    if (process.env.ICE_SEND_BUFFER_SIZE !== undefined) {
+      const sendBufferSize = parseInt(process.env.ICE_SEND_BUFFER_SIZE);
+      if (isNaN(sendBufferSize)) {
+        console.error(
+          `Error setting sendBufferSize, ${process.env.ICE_SEND_BUFFER_SIZE} is not a valid integer`
+        );
+      } else {
+        options.sendBufferSize = sendBufferSize;
+      }
+    }
+
+    this.socket = createSocket(options);
+
     this.socket.on("message", (data, info) => {
       if (normalizeFamilyNodeV18(info.family) === 6) {
         [info.address] = info.address.split("%"); // example fe80::1d3a:8751:4ffd:eb80%wlp82s0
