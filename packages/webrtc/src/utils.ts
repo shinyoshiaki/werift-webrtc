@@ -39,10 +39,6 @@ export function isMedia(buf: Buffer) {
   return firstByte > 127 && firstByte < 192;
 }
 
-export function isRtcp(buf: Buffer) {
-  return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
-}
-
 export function reverseSimulcastDirection(dir: "recv" | "send") {
   if (dir === "recv") return "send";
   return "recv";
