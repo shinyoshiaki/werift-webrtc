@@ -8,10 +8,6 @@ jobs:
   publish:
     name: Publish to NPM
     runs-on: ubuntu-latest
-    secrets:
-      # this secret is a token generated here: https://www.npmjs.com/settings/oeed/tokens/granular-access-tokens/new
-      # it does expire after a year
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       # based on the instructions given by werift's maintainers: https://github.com/shinyoshiaki/werift-webrtc/issues/251
       - uses: actions/checkout@v2
@@ -27,6 +23,8 @@ jobs:
         run: npm run build
         working-directory: ./packages/webrtc
       - name: npm login
+        # this secret is a token generated here: https://www.npmjs.com/settings/oeed/tokens/granular-access-tokens/new
+        # it does expire after a year
         run: npm set "//registry.npmjs.org/:_authToken" ${{ secrets.NPM_TOKEN }}
       - name: publish
         run: npm publish
