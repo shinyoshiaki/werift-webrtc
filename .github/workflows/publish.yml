@@ -21,9 +21,9 @@ jobs:
         working-directory: ./packages/webrtc
       - name: print
         run: |
-        npm list --depth 1 @oeed/werift
-        echo "Publish $(npm list --depth 1 @oeed/werift | grep "@oeed/werift" |  grep -o "\d*\.\d*\.\d*")"
-        working-directory: ./packages/webrtc
+          npm list --depth 1 @oeed/werift
+          echo "Publish $(npm list --depth 1 @oeed/werift | grep "@oeed/werift" |  grep -o "\d*\.\d*\.\d*")"
+          working-directory: ./packages/webrtc
 
       # - name: build
       #   run: npm run build
