@@ -33,5 +33,6 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -am "$(npm list --depth 1 @oeed/werift | grep "@oeed/werift" |  grep -o "\d*\.\d*\.\d*")"  
+          git commit -am "Publish $(npm list --depth 1 @oeed/werift | grep "@oeed/werift" |  grep -o "\d*\.\d*\.\d*")"  
           git push
+        working-directory: ./packages/webrtc
