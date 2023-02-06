@@ -23,8 +23,8 @@ jobs:
         run: |
           npm list --depth 1 @oeed/werift
           npm list --depth 1 @oeed/werift | grep "@oeed/werift"
-          npm list --depth 1 @oeed/werift | grep "@oeed/werift" |  grep -o "\d*\.\d*\.\d*"
-          echo "Publish $(npm list --depth 1 @oeed/werift | grep "@oeed/werift" |  grep -o "\d*\.\d*\.\d*")"
+          npm list --depth 1 @oeed/werift | grep "@oeed/werift" | grep -Eo "[0-9]{1,}\.[0-9]{1,}\.[0-9]{1,}"     
+          echo "Publish $(npm list --depth 1 @oeed/werift | grep "@oeed/werift" | grep -Eo "[0-9]{1,}\.[0-9]{1,}\.[0-9]{1,}")"
         working-directory: ./packages/webrtc
 
       # - name: build
