@@ -1,0 +1,30 @@
+name: Publish to NPM
+on:
+  push:
+    branches: ["develop"]
+
+jobs:
+  publish:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    steps:
+      # based on the instructions given by werift's maintainers: https://github.com/shinyoshiaki/werift-webrtc/issues/251
+      - uses: actions/checkout@v2
+      - name: root dependencies
+        run: npm install
+      - name: webrtc dependencies
+        run: npm install
+        working-directory: ./packages/webrtc
+      - name: version patch
+        run: npm version patch
+        working-directory: ./packages/webrtc
+      - name: build
+        run: npm run build
+        working-directory: ./packages/webrtc
+      - name: publish
+        run: npm publish
+        working-directory: ./packages/webrtc
+      - name: Commit & Push changes
+        uses: actions-js/push@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
