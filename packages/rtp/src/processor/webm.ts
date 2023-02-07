@@ -23,6 +23,7 @@ export type WebmInput = {
 export type WebmOutput = {
   saveToFile?: Buffer;
   kind?: "initial" | "cluster" | "block" | "cuePoints";
+  /**ms */
   previousDuration?: number;
   eol?: {
     /**ms */
@@ -122,7 +123,7 @@ export class WebmBase {
       }
     }
 
-    // clusterの経過時間
+    // clusterの経過時間 ms
     let elapsed = timestampManager.update(frame.time);
 
     if (this.clusterCounts === 0) {
@@ -160,7 +161,11 @@ export class WebmBase {
     }
   }
 
-  private createCluster(timestamp: number, duration: number) {
+  private createCluster(
+    timestamp: number,
+    /**ms */
+    duration: number
+  ) {
     const cluster = this.builder.createCluster(timestamp);
     this.clusterCounts++;
     this.output({
