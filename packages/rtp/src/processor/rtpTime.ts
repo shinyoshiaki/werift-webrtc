@@ -33,6 +33,7 @@ export class RtpTimeBase implements Processor<RtpTimeInput, RtpTimeOutput> {
     return [];
   }
 
+  /**ms */
   private update(timestamp: number) {
     if (this.baseTimestamp == undefined) {
       this.baseTimestamp = timestamp;

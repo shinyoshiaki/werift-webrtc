@@ -53,7 +53,8 @@ export class syncRtpBase implements Processor<NtpTimeInput, NtpTimeOutput> {
         .map((rtp) => {
           const ntp = this.calcNtp(rtp.header.timestamp);
           if (ntp) {
-            res.push({ rtp, time: ntp * 1000 });
+            const ms = ntp * 1000;
+            res.push({ rtp, time: ms });
             return undefined;
           }
           return rtp;

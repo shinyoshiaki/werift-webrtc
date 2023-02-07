@@ -8,6 +8,8 @@ export * from "./lipsync";
 export * from "./lipsyncCallback";
 export * from "./ntpTime";
 export * from "./ntpTimeCallback";
+export * from "./rtpTime";
+export * from "./rtpTimeCallback";
 export * from "./source";
 export * from "./webm";
 export * from "./webmCallback";
