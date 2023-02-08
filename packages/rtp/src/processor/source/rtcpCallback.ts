@@ -1,3 +1,5 @@
+import Event from "rx.mini";
+
 import { RtcpPacket } from "../../rtcp/rtcp";
 
 export interface RtcpOutput {
@@ -8,7 +10,7 @@ export interface RtcpOutput {
 export class RtcpSourceCallback {
   private cb?: (chunk: RtcpOutput) => void;
 
-  constructor() {}
+  onStopped = new Event();
 
   pipe(cb: (chunk: RtcpOutput) => void) {
     this.cb = cb;
@@ -24,5 +26,6 @@ export class RtcpSourceCallback {
     if (this.cb) {
       this.cb({ eol: true });
     }
+    this.onStopped.execute();
   }
 }
