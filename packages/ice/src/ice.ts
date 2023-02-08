@@ -236,6 +236,7 @@ export class Connection {
         candidates = [];
       }
 
+      if (protocol.localCandidate && cb) cb(protocol.localCandidate);
       candidates.push(protocol.localCandidate);
     }
 
