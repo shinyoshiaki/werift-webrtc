@@ -38,9 +38,9 @@ export class RtpHeader {
   marker: boolean = false;
   payloadOffset: number = 0;
   payloadType: number = 0;
-  /**16bit */
+  /**16bit, 初期値はランダムである必要があります*/
   sequenceNumber: number = 0;
-  /**32bit microsec (milli/1000) */
+  /**32bit microsec (milli/1000), 初期値はランダムである必要があります*/
   timestamp: number = 0;
   ssrc: number = 0;
   csrcLength = 0;
