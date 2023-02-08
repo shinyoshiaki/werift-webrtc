@@ -46,8 +46,10 @@ export class WebmBase {
   private cuePoints: CuePoint[] = [];
   private position = 0;
   private clusterCounts = 0;
-  stopped = false;
   elapsed?: number;
+  audioStopped = false;
+  videoStopped = false;
+  stopped = false;
 
   constructor(
     public tracks: {
@@ -71,9 +73,26 @@ export class WebmBase {
   private processInput(input: WebmInput, trackNumber: number) {
     if (this.stopped) return;
     if (!input.frame) {
-      if (input.eol) {
+      if (this.tracks.length === 2) {
+        const track = this.tracks.find((t) => t.trackNumber === trackNumber);
+        if (!track) {
+          throw new Error("track not found");
+        }
+        if (track.kind === "audio") {
+          this.audioStopped = true;
+          if (this.videoStopped) {
+            this.stop();
+          }
+        } else {
+          this.videoStopped = true;
+          if (this.audioStopped) {
+            this.stop();
+          }
+        }
+      } else if (input.eol) {
         this.stop();
       }
+
       return;
     }
 
