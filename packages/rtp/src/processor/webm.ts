@@ -72,12 +72,14 @@ export class WebmBase {
 
   private processInput(input: WebmInput, trackNumber: number) {
     if (this.stopped) return;
+
+    const track = this.tracks.find((t) => t.trackNumber === trackNumber);
+    if (!track) {
+      throw new Error("track not found");
+    }
+
     if (!input.frame) {
       if (this.tracks.length === 2) {
-        const track = this.tracks.find((t) => t.trackNumber === trackNumber);
-        if (!track) {
-          throw new Error("track not found");
-        }
         if (track.kind === "audio") {
           this.audioStopped = true;
           if (this.videoStopped) {
@@ -94,6 +96,12 @@ export class WebmBase {
       }
 
       return;
+    }
+
+    if (track.kind === "audio") {
+      this.audioStopped = false;
+    } else {
+      this.videoStopped = false;
     }
 
     this.onFrameReceived({ ...input.frame, trackNumber });
