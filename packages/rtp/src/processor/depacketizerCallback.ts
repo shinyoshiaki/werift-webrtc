@@ -1,20 +1,14 @@
-import { RtpHeader } from "..";
 import {
   DepacketizeBase,
   DepacketizerInput,
+  DepacketizerOptions,
   DepacketizerOutput,
 } from "./depacketizer";
 
 export class DepacketizeCallback extends DepacketizeBase {
   private cb!: (input: DepacketizerOutput) => void;
 
-  constructor(
-    codec: string,
-    options: {
-      waitForKeyframe?: boolean;
-      isFinalPacketInSequence?: (header: RtpHeader) => boolean;
-    } = {}
-  ) {
+  constructor(codec: string, options: DepacketizerOptions = {}) {
     super(codec, options);
   }
 

@@ -1,4 +1,5 @@
 import debug from "debug";
+import Event from "rx.mini";
 
 import { RtpHeader, RtpPacket, uint16Add, uint16Gt } from "..";
 import { dePacketizeRtpPackets } from "../codec";
@@ -28,19 +29,24 @@ export interface CodecFrame {
   [key: string]: any;
 }
 
+export interface DepacketizerOptions {
+  isFinalPacketInSequence?: (header: RtpHeader) => boolean;
+  waitForKeyframe?: boolean;
+}
+
 export class DepacketizeBase
   implements Processor<DepacketizerInput, DepacketizerOutput>
 {
   private buffering: DepacketizerInput[] = [];
   private lastSeqNum?: number;
   private frameBroken = false;
+  private keyframeReceived = false;
   sequence = 0;
+  readonly onNeedKeyFrame = new Event();
 
   constructor(
     private codec: string,
-    private options: {
-      isFinalPacketInSequence?: (header: RtpHeader) => boolean;
-    } = {}
+    private options: DepacketizerOptions = {}
   ) {}
 
   processInput(input: DepacketizerInput): DepacketizerOutput[] {
@@ -63,7 +69,12 @@ export class DepacketizeBase
             );
 
           if (isKeyframe) {
-            log("isKeyframe", this.codec);
+            this.keyframeReceived = true;
+          }
+
+          if (this.options.waitForKeyframe && this.keyframeReceived === false) {
+            this.onNeedKeyFrame.execute();
+            return [];
           }
 
           if (!this.frameBroken) {

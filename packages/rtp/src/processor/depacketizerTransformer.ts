@@ -1,9 +1,9 @@
 import { TransformStream } from "stream/web";
 
-import { RtpHeader } from "..";
 import {
   DepacketizeBase,
   DepacketizerInput,
+  DepacketizerOptions,
   DepacketizerOutput,
 } from "./depacketizer";
 
@@ -14,13 +14,7 @@ export const depacketizeTransformer = (
 class DepacketizeTransformer extends DepacketizeBase {
   transform: TransformStream<DepacketizerInput, DepacketizerOutput>;
 
-  constructor(
-    codec: string,
-    options: {
-      waitForKeyframe?: boolean;
-      isFinalPacketInSequence?: (header: RtpHeader) => boolean;
-    } = {}
-  ) {
+  constructor(codec: string, options: DepacketizerOptions = {}) {
     super(codec, options);
 
     this.transform = new TransformStream({
