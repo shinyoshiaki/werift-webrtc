@@ -51,12 +51,16 @@ export const saveToFileSystem = (path: string) => async (value: WebmOutput) => {
   } else if (value.eol) {
     const { durationElement } = value.eol;
     const handler = await open(path, "r+");
+
+    // set duration
     await handler.write(
       durationElement,
       0,
       durationElement.length,
       DurationPosition
     );
+
+    // set size
     const meta = await stat(path);
     const resize = replaceSegmentSize(meta.size);
     await handler.write(resize, 0, resize.length, SegmentSizePosition);

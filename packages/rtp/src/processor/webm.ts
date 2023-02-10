@@ -20,7 +20,7 @@ export type WebmInput = {
   eol?: boolean;
 };
 
-export type WebmOutput = {
+export interface WebmOutput {
   saveToFile?: Buffer;
   kind?: "initial" | "cluster" | "block" | "cuePoints";
   /**ms */
@@ -29,8 +29,9 @@ export type WebmOutput = {
     /**ms */
     duration: number;
     durationElement: Uint8Array;
+    header: Buffer;
   };
-};
+}
 
 export interface WebmOption {
   /**ms */
@@ -248,15 +249,25 @@ export class WebmBase {
 
     log("stop");
 
-    const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
-    this.output({ saveToFile: Buffer.from(cues), kind: "cuePoints" });
-
     const latestTimestamp = Object.values(this.timestamps).sort(
       (a, b) => a.elapsed - b.elapsed
     )[0].elapsed;
     const duration = this.relativeTimestamp + latestTimestamp;
+
+    const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
+    this.output({
+      saveToFile: Buffer.from(cues),
+      kind: "cuePoints",
+      previousDuration: duration,
+    });
+
     const durationElement = this.builder.createDuration(duration);
-    this.output({ eol: { duration, durationElement } });
+    const header = Buffer.concat([
+      this.builder.ebmlHeader,
+      this.builder.createSegment(duration),
+    ]);
+
+    this.output({ eol: { duration, durationElement, header } });
   }
 }
 
