@@ -38,6 +38,7 @@ export interface WebmOption {
   duration?: number;
   encryptionKey?: Buffer;
   strictTimestamp?: boolean;
+  waitForKeyframe?: boolean;
 }
 
 export class WebmBase {
@@ -51,6 +52,7 @@ export class WebmBase {
   audioStopped = false;
   videoStopped = false;
   stopped = false;
+  private keyframeReceived = false;
 
   constructor(
     public tracks: {
@@ -109,6 +111,10 @@ export class WebmBase {
   }
 
   processAudioInput = (input: WebmInput) => {
+    if (this.options.waitForKeyframe && this.keyframeReceived === false) {
+      return;
+    }
+
     const track = this.tracks.find((t) => t.kind === "audio");
     if (track) {
       this.processInput(input, track.trackNumber);
@@ -116,6 +122,10 @@ export class WebmBase {
   };
 
   processVideoInput = (input: WebmInput) => {
+    if (input.frame?.isKeyframe) {
+      this.keyframeReceived = true;
+    }
+
     const track = this.tracks.find((t) => t.kind === "video");
     if (track) {
       this.processInput(input, track.trackNumber);

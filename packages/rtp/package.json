@@ -1,6 +1,6 @@
 {
   "name": "werift-rtp",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
