@@ -249,9 +249,9 @@ export class WebmBase {
 
     log("stop");
 
-    const latestTimestamp = Object.values(this.timestamps).sort(
-      (a, b) => a.elapsed - b.elapsed
-    )[0].elapsed;
+    const latestTimestamp = Object.values(this.timestamps)
+      .sort((a, b) => a.elapsed - b.elapsed)
+      .reverse()[0].elapsed;
     const duration = this.relativeTimestamp + latestTimestamp;
 
     const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
