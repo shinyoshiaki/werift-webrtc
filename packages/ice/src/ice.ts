@@ -230,6 +230,9 @@ export class Connection {
         relatedAddress[0],
         relatedAddress[1]
       );
+      if (cb) {
+        cb(protocol.localCandidate);
+      }
       protocol.receiver = this;
 
       if (this.options.forceTurn) {
