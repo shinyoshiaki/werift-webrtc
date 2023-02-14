@@ -3,7 +3,7 @@ import debug from "debug";
 import { jspack } from "jspack";
 import PCancelable from "p-cancelable";
 import Event from "rx.mini";
-import { setTimeout } from "timers/promises";
+import { clearTimeout, setTimeout } from "timers";
 
 import { InterfaceAddresses } from "../../../common/src/network";
 import { Candidate } from "../candidate";
@@ -73,6 +73,18 @@ class TurnTransport implements Protocol {
   }
   async sendStun(message: Message, addr: Address) {
     await this.turn.sendData(message.bytes, addr);
+  }
+
+  async close() {
+    if (this.turn.refreshHandle) {
+      this.turn.refreshHandle.cancel();
+    }
+    Object.values(this.turn.transactions).forEach((transaction) => {
+      transaction.cancel();
+    });
+    if (this.turn.transport instanceof UdpTransport) {
+      this.turn.transport.close();
+    }
   }
 }
 
@@ -201,14 +213,24 @@ class TurnClient implements Protocol {
   refresh = () =>
     new PCancelable(async (r, f, onCancel) => {
       let run = true;
+      let timeoutHandle: NodeJS.Timeout | undefined;
       onCancel(() => {
         run = false;
+        if (timeoutHandle !== undefined) {
+          clearTimeout(timeoutHandle);
+        }
         f("cancel");
       });
 
       while (run) {
         // refresh before expire
-        await setTimeout((5 / 6) * this.lifetime * 1000);
+        let resolve: (value: void | PromiseLike<void>) => void = () => {};
+        const deferred = new Promise<void>((_r) => {
+          resolve = _r;
+        });
+
+        timeoutHandle = setTimeout(resolve, (5 / 6) * this.lifetime * 1000);
+        await deferred;
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
         request.setAttribute("LIFETIME", this.lifetime);
