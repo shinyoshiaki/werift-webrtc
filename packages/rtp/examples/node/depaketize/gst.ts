@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 
-import { randomPort, RtpPacket, Vp8RtpPayload } from "../../src";
+import { randomPort, RtpPacket, Vp8RtpPayload } from "../../../src";
 
 randomPort().then((port) => {
   const udp = createSocket("udp4");
