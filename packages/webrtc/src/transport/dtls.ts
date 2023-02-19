@@ -49,7 +49,7 @@ export class RTCDtlsTransport {
 
   readonly onStateChange = new Event<[DtlsState]>();
 
-  localCertificate?: RTCCertificate = this.certificates[0];
+  localCertificate?: RTCCertificate;
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
@@ -58,7 +58,9 @@ export class RTCDtlsTransport {
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
     private readonly srtpProfiles: Profile[] = []
-  ) {}
+  ) {
+    this.localCertificate = this.certificates[0];
+  }
 
   get localParameters() {
     return new RTCDtlsParameters(
@@ -340,7 +342,9 @@ class IceTransport implements Transport {
   }
   onData?: (buf: Buffer) => void;
 
-  readonly send = this.ice.send;
+  readonly send = (data: Buffer) => {
+    return this.ice.send(data);
+  };
 
   close() {
     this.ice.close();

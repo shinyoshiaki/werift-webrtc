@@ -4,13 +4,14 @@ import {
   RequireAtLeastOne,
   RtpPacket,
   uint16Add,
+  uint16Gte,
   uint32Add,
   uint32Gt,
 } from "..";
 import { Processor } from "./interface";
-import { RtpOutput } from "./source/rtp";
+import { RtpOutput } from "./source";
 
-const srcPath = `werift-rtp : packages/rtp/src/processor_v2/jitterBuffer.ts`;
+const srcPath = `werift-rtp : packages/rtp/src/processor/jitterBuffer.ts`;
 const log = debug(srcPath);
 
 export type JitterBufferInput = RtpOutput;
@@ -23,6 +24,7 @@ export class JitterBufferBase
   implements Processor<JitterBufferInput, JitterBufferOutput>
 {
   private options: JitterBufferOptions;
+  /**uint16 */
   private presentSeqNum?: number;
   private rtpBuffer: { [sequenceNumber: number]: RtpPacket } = {};
   private get expectNextSeqNum() {
@@ -93,7 +95,8 @@ export class JitterBufferBase
     }
 
     // duplicate
-    if (sequenceNumber <= this.presentSeqNum) {
+    if (uint16Gte(this.presentSeqNum, sequenceNumber)) {
+      log("duplicate", { sequenceNumber });
       return { nothing: undefined };
     }
 
@@ -104,6 +107,8 @@ export class JitterBufferBase
       const rtpBuffer = this.resolveBuffer(uint16Add(sequenceNumber, 1));
       this.presentSeqNum =
         rtpBuffer.at(-1)?.header.sequenceNumber ?? this.presentSeqNum;
+
+      this.disposeTimeoutPackets(timestamp);
 
       return { packets: [rtp, ...rtpBuffer] };
     }
@@ -122,8 +127,10 @@ export class JitterBufferBase
 
   private pushRtpBuffer(rtp: RtpPacket) {
     if (Object.values(this.rtpBuffer).length > this.options.bufferSize) {
+      log("buffer over flow");
       return;
     }
+    // log("pushRtpBuffer", { seq: rtp.header.sequenceNumber });
     this.rtpBuffer[rtp.header.sequenceNumber] = rtp;
   }
 
@@ -139,6 +146,12 @@ export class JitterBufferBase
         break;
       }
     }
+    // if (resolve.length > 0) {
+    //   log(
+    //     "resolveBuffer",
+    //     resolve.map((r) => r.header.sequenceNumber)
+    //   );
+    // }
     return resolve;
   }
 
@@ -167,7 +180,6 @@ export class JitterBufferBase
         const { timestamp, sequenceNumber } = rtp.header;
 
         if (uint32Gt(timestamp, baseTimestamp)) {
-          log("gap", { timestamp, baseTimestamp });
           return;
         }
 

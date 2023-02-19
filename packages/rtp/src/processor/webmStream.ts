@@ -5,27 +5,17 @@ import {
 } from "stream/web";
 
 import { SupportedCodec } from "../container/webm";
-import { WebmBase, WebmInput } from "./webm";
+import { WebmBase, WebmInput, WebmOption, WebmOutput } from "./webm";
 
-export type WebmLiveOutput = {
-  saveToFile?: Buffer;
-  eol?: {
-    /**ms */
-    duration: number;
-    durationElement: Uint8Array;
-  };
-};
+export type WebmStreamOutput = WebmOutput;
 
-export interface WebmLiveOption {
-  /**ms */
-  duration?: number;
-}
+export type WebmStreamOption = WebmOption;
 
 export class WebmStream extends WebmBase {
   audioStream!: WritableStream<WebmInput>;
   videoStream!: WritableStream<WebmInput>;
-  webmStream: ReadableStream<WebmLiveOutput>;
-  private controller!: ReadableStreamController<WebmLiveOutput>;
+  webmStream: ReadableStream<WebmStreamOutput>;
+  private controller!: ReadableStreamController<WebmStreamOutput>;
 
   constructor(
     tracks: {
@@ -36,7 +26,7 @@ export class WebmStream extends WebmBase {
       clockRate: number;
       trackNumber: number;
     }[],
-    options: WebmLiveOption = {}
+    options: WebmStreamOption = {}
   ) {
     super(
       tracks,
@@ -64,7 +54,7 @@ export class WebmStream extends WebmBase {
       });
     }
 
-    this.webmStream = new ReadableStream<WebmLiveOutput>({
+    this.webmStream = new ReadableStream<WebmStreamOutput>({
       start: (controller) => {
         this.controller = controller;
       },

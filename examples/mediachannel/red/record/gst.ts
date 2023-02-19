@@ -2,7 +2,6 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   randomPort,
-  JitterBuffer,
 } from "../../../../packages/webrtc/src";
 import { Server } from "ws";
 import { spawn } from "child_process";

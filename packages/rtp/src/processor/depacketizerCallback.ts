@@ -18,8 +18,8 @@ export class DepacketizeCallback extends DepacketizeBase {
     super(codec, options);
   }
 
-  pipe = (instance: { input: (input: DepacketizerOutput) => void }) => {
-    this.cb = instance.input;
+  pipe = (cb: (input: DepacketizerOutput) => void) => {
+    this.cb = cb;
     return this;
   };
 

@@ -8,6 +8,7 @@ import { int } from "../../../common/src";
 import {
   PictureLossIndication,
   Red,
+  RedHandler,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
@@ -24,7 +25,6 @@ import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
-import { AudioRedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -40,7 +40,7 @@ export class RTCRtpReceiver {
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new NackHandler(this);
-  private readonly redHandler = new AudioRedHandler();
+  private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
@@ -127,13 +127,23 @@ export class RTCRtpReceiver {
 
   addTrack(track: MediaStreamTrack) {
     const exist = this.tracks.find((t) => {
-      if (t.rid) return t.rid === track.rid;
-      if (t.ssrc) return t.ssrc === track.ssrc;
+      if (t.rid) {
+        return t.rid === track.rid;
+      }
+      if (t.ssrc) {
+        return t.ssrc === track.ssrc;
+      }
     });
-    if (exist) return false;
+    if (exist) {
+      return false;
+    }
     this.tracks.push(track);
-    if (track.ssrc) this.trackBySSRC[track.ssrc] = track;
-    if (track.rid) this.trackByRID[track.rid] = track;
+    if (track.ssrc) {
+      this.trackBySSRC[track.ssrc] = track;
+    }
+    if (track.rid) {
+      this.trackByRID[track.rid] = track;
+    }
     return true;
   }
 
@@ -204,6 +214,11 @@ export class RTCRtpReceiver {
       log("pli not supported", { mediaSsrc });
       return;
     }
+
+    if (this.stopped) {
+      return;
+    }
+
     log("sendRtcpPLI", { mediaSsrc });
 
     const packet = new RtcpPayloadSpecificFeedback({
@@ -259,7 +274,9 @@ export class RTCRtpReceiver {
     extensions: Extensions,
     track?: MediaStreamTrack
   ) {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
@@ -314,7 +331,7 @@ export class RTCRtpReceiver {
     if (track) {
       if (red) {
         if (track.kind === "audio") {
-          const payloads = this.redHandler.push(red, packet);
+          const payloads = this.audioRedHandler.push(red, packet);
           for (const packet of payloads) {
             track.onReceiveRtp.execute(packet.clone());
           }

@@ -43,6 +43,7 @@
     "process": "^0.11.10",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
+    "ring-client-api": "^11.7.1",
     "rx.mini": "^1.1.0",
     "sdp-transform": "^2.14.1",
     "socket.io-client": "^4.1.2",
@@ -52,7 +53,8 @@
     "uuid": "^8.3.2",
     "werift-rtp": "^0.4.0",
     "ws": "^8.0.0",
-    "wtfnode": "^0.9.1"
+    "wtfnode": "^0.9.1",
+    "xmlbuilder2": "^3.0.2"
   },
   "engines": {
     "node": ">=14"

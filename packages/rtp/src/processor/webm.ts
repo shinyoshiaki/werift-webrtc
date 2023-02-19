@@ -1,16 +1,29 @@
 import debug from "debug";
 
-import { int } from "..";
+import {
+  getEBMLByteLength,
+  numberToByteArray,
+  vintEncode,
+} from "../container/ebml";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
-import { DepacketizerOutput } from "./depacketizer";
 
-const sourcePath = `werift-rtp : packages/rtp/src/processor_v2/webmLive.ts`;
+const sourcePath = `werift-rtp : packages/rtp/src/processor/webm.ts`;
 const log = debug(sourcePath);
 
-export type WebmInput = DepacketizerOutput;
+export type WebmInput = {
+  frame?: {
+    data: Buffer;
+    isKeyframe: boolean;
+    /**ms */
+    time: number;
+  };
+  eol?: boolean;
+};
 
 export type WebmOutput = {
   saveToFile?: Buffer;
+  kind?: "initial" | "cluster" | "block" | "cuePoints";
+  previousDuration?: number;
   eol?: {
     /**ms */
     duration: number;
@@ -21,6 +34,8 @@ export type WebmOutput = {
 export interface WebmOption {
   /**ms */
   duration?: number;
+  encryptionKey?: Buffer;
+  strictTimestamp?: boolean;
 }
 
 export class WebmBase {
@@ -29,7 +44,9 @@ export class WebmBase {
   private timestamps: { [pt: number]: ClusterTimestamp } = {};
   private cuePoints: CuePoint[] = [];
   private position = 0;
+  private clusterCounts = 0;
   stopped = false;
+  elapsed?: number;
 
   constructor(
     public tracks: {
@@ -43,10 +60,10 @@ export class WebmBase {
     private output: (output: WebmOutput) => void,
     private options: WebmOption = {}
   ) {
-    this.builder = new WEBMBuilder(tracks);
+    this.builder = new WEBMBuilder(tracks, options.encryptionKey);
 
     tracks.forEach((t) => {
-      this.timestamps[t.trackNumber] = new ClusterTimestamp(t.clockRate);
+      this.timestamps[t.trackNumber] = new ClusterTimestamp();
     });
   }
 
@@ -62,26 +79,26 @@ export class WebmBase {
     this.onFrameReceived({ ...input.frame, trackNumber });
   }
 
-  processAudioInput(input: WebmInput) {
+  processAudioInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "audio");
     if (track) {
       this.processInput(input, track.trackNumber);
     }
-  }
+  };
 
-  processVideoInput(input: WebmInput) {
+  processVideoInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "video");
     if (track) {
       this.processInput(input, track.trackNumber);
     }
-  }
+  };
 
-  start() {
+  protected start() {
     const staticPart = Buffer.concat([
       this.builder.ebmlHeader,
       this.builder.createSegment(this.options.duration),
     ]);
-    this.output({ saveToFile: staticPart });
+    this.output({ saveToFile: staticPart, kind: "initial" });
     this.position += staticPart.length;
 
     const video = this.tracks.find((t) => t.kind === "video");
@@ -99,16 +116,22 @@ export class WebmBase {
     }
 
     const timestampManager = this.timestamps[track.trackNumber];
-    let elapsed = timestampManager.update(frame.timestamp);
+    if (timestampManager.baseTime == undefined) {
+      for (const t of Object.values(this.timestamps)) {
+        t.baseTime = frame.time;
+      }
+    }
 
-    if (
+    // clusterの経過時間
+    let elapsed = timestampManager.update(frame.time);
+
+    if (this.clusterCounts === 0) {
+      this.createCluster(0.0, 0);
+    } else if (
       (track.kind === "video" && frame.isKeyframe) ||
       elapsed > MaxSinged16Int
     ) {
       this.relativeTimestamp += elapsed;
-
-      const cluster = this.builder.createCluster(this.relativeTimestamp);
-      this.output({ saveToFile: Buffer.from(cluster) });
 
       if (elapsed !== 0) {
         this.cuePoints.push(
@@ -119,19 +142,65 @@ export class WebmBase {
             this.position
           )
         );
+
+        this.createCluster(this.relativeTimestamp, elapsed);
+        Object.values(this.timestamps).forEach((t) => t.shift(elapsed));
+        elapsed = timestampManager.update(frame.time);
       }
-      this.position += cluster.length;
-      Object.values(this.timestamps).forEach((t) => t.reset());
-      elapsed = timestampManager.update(frame.timestamp);
     }
+
+    if (elapsed >= 0) {
+      this.createSimpleBlock({
+        frame,
+        trackNumber: track.trackNumber,
+        elapsed,
+      });
+    } else {
+      log("delayed frame", { elapsed });
+    }
+  }
+
+  private createCluster(timestamp: number, duration: number) {
+    const cluster = this.builder.createCluster(timestamp);
+    this.clusterCounts++;
+    this.output({
+      saveToFile: Buffer.from(cluster),
+      kind: "cluster",
+      previousDuration: duration,
+    });
+    this.position += cluster.length;
+    this.elapsed = undefined;
+  }
+
+  private createSimpleBlock({
+    frame,
+    trackNumber,
+    elapsed,
+  }: {
+    frame: NonNullable<WebmInput["frame"]>;
+    trackNumber: number;
+    elapsed: number;
+  }) {
+    if (this.elapsed == undefined) {
+      this.elapsed = elapsed;
+    }
+    if (elapsed < this.elapsed && this.options.strictTimestamp) {
+      log("previous timestamp", {
+        elapsed,
+        present: this.elapsed,
+        trackNumber,
+      });
+      return;
+    }
+    this.elapsed = elapsed;
 
     const block = this.builder.createSimpleBlock(
       frame.data,
       frame.isKeyframe,
-      track.trackNumber,
+      trackNumber,
       elapsed
     );
-    this.output({ saveToFile: block });
+    this.output({ saveToFile: block, kind: "block" });
     this.position += block.length;
     const [cuePoint] = this.cuePoints.slice(-1);
     if (cuePoint) {
@@ -148,7 +217,7 @@ export class WebmBase {
     log("stop");
 
     const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
-    this.output({ saveToFile: Buffer.from(cues) });
+    this.output({ saveToFile: Buffer.from(cues), kind: "cuePoints" });
 
     const latestTimestamp = Object.values(this.timestamps).sort(
       (a, b) => a.elapsed - b.elapsed
@@ -160,31 +229,29 @@ export class WebmBase {
 }
 
 class ClusterTimestamp {
-  baseTimestamp?: number;
+  /**ms */
+  baseTime?: number;
+  /**ms */
   elapsed = 0;
+  private offset = 0;
 
-  constructor(public clockRate: number) {}
-
-  reset() {
-    this.baseTimestamp = undefined;
+  shift(
+    /**ms */
+    elapsed: number
+  ) {
+    this.offset += elapsed;
   }
 
-  update(timestamp: number) {
-    if (this.baseTimestamp == undefined) {
-      this.baseTimestamp = timestamp;
-    }
-    const rotate =
-      Math.abs(timestamp - this.baseTimestamp) > (Max32Uint / 4) * 3;
-
-    if (rotate) {
-      log("rotate", { baseTimestamp: this.baseTimestamp, timestamp });
+  update(
+    /**ms */
+    time: number
+  ) {
+    if (this.baseTime == undefined) {
+      throw new Error("baseTime not exist");
     }
 
-    const elapsed = rotate
-      ? timestamp + Max32Uint - this.baseTimestamp
-      : timestamp - this.baseTimestamp;
+    this.elapsed = time - this.baseTime - this.offset;
 
-    this.elapsed = int((elapsed / this.clockRate) * 1000);
     return this.elapsed;
   }
 }
@@ -215,6 +282,28 @@ class CuePoint {
 }
 
 /**4294967295 */
-const Max32Uint = Number(0x01n << 32n) - 1;
+export const Max32Uint = Number(0x01n << 32n) - 1;
 /**32767 */
-const MaxSinged16Int = (0x01 << 16) / 2 - 1;
+export const MaxSinged16Int = (0x01 << 16) / 2 - 1;
+
+export const DurationPosition = 83;
+
+export const SegmentSizePosition = 40;
+
+export function replaceSegmentSize(totalFileSize: number) {
+  const bodySize = totalFileSize - SegmentSizePosition;
+  const resize = [
+    ...vintEncode(numberToByteArray(bodySize, getEBMLByteLength(bodySize))),
+  ];
+  const todoFill = 8 - resize.length - 2;
+  if (todoFill > 0) {
+    resize.push(0xec);
+    if (todoFill > 1) {
+      const voidSize = vintEncode(
+        numberToByteArray(todoFill, getEBMLByteLength(todoFill))
+      );
+      [...voidSize].forEach((i) => resize.push(i));
+    }
+  }
+  return Buffer.from(resize);
+}

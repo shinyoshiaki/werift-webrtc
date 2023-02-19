@@ -2,12 +2,6 @@
 
 # Class: RtpSourceStream
 
-## Hierarchy
-
-- `SourceStream`<`RtpOutput`\>
-
-  ↳ **`RtpSourceStream`**
-
 ## Table of contents
 
 ### Constructors
@@ -22,51 +16,40 @@
 
 ### Methods
 
+- [push](RtpSourceStream.md#push)
 - [stop](RtpSourceStream.md#stop)
 
 ## Constructors
 
 ### constructor
 
-• **new RtpSourceStream**(`ev`, `options?`)
+• **new RtpSourceStream**(`options?`)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `ev` | `Event`<[[`RtpPacket`](RtpPacket.md)]\> |
 | `options` | `Object` |
+| `options.clearInvalidPTPacket?` | `boolean` |
 | `options.payloadType?` | `number` |
-
-#### Overrides
-
-SourceStream&lt;RtpOutput\&gt;.constructor
 
 ## Properties
 
 ### controller
 
-• `Protected` **controller**: `ReadableStreamController`<`RtpOutput`\>
-
-#### Inherited from
-
-SourceStream.controller
+• `Protected` **controller**: `ReadableStreamController`<[`RtpOutput`](../interfaces/RtpOutput.md)\>
 
 ___
 
 ### readable
 
-• **readable**: `ReadableStream`<`RtpOutput`\>
-
-#### Inherited from
-
-SourceStream.readable
+• **readable**: `ReadableStream`<[`RtpOutput`](../interfaces/RtpOutput.md)\>
 
 ___
 
 ### write
 
-• **write**: (`chunk`: `RtpOutput`) => `void`
+• **write**: (`chunk`: [`RtpOutput`](../interfaces/RtpOutput.md)) => `void`
 
 #### Type declaration
 
@@ -76,22 +59,34 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `chunk` | `RtpOutput` |
+| `chunk` | [`RtpOutput`](../interfaces/RtpOutput.md) |
 
 ##### Returns
 
 `void`
 
-#### Inherited from
-
-SourceStream.write
-
 ## Methods
 
-### stop
+### push
 
-▸ **stop**(): `Promise`<`void`\>
+▸ **push**(`packet`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `packet` | `Buffer` \| [`RtpPacket`](RtpPacket.md) |
 
 #### Returns
 
-`Promise`<`void`\>
+`void`
+
+___
+
+### stop
+
+▸ **stop**(): `void`
+
+#### Returns
+
+`void`

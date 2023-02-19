@@ -77,7 +77,8 @@ export class RtcpSrPacket {
       reports.push(RtcpReceiverInfo.deSerialize(payload.slice(pos, pos + 24)));
       pos += 24;
     }
-    return new RtcpSrPacket({ ssrc, senderInfo, reports });
+    const packet = new RtcpSrPacket({ ssrc, senderInfo, reports });
+    return packet;
   }
 }
 

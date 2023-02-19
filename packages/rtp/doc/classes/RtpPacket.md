@@ -19,6 +19,7 @@
 
 ### Methods
 
+- [clear](RtpPacket.md#clear)
 - [clone](RtpPacket.md#clone)
 - [serialize](RtpPacket.md#serialize)
 - [deSerialize](RtpPacket.md#deserialize)
@@ -59,6 +60,16 @@ ___
 `number`
 
 ## Methods
+
+### clear
+
+▸ **clear**(): `void`
+
+#### Returns
+
+`void`
+
+___
 
 ### clone
 

@@ -1,6 +1,6 @@
 import { Server } from "ws";
 import {
-  getUserMp4,
+  getUserMedia,
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
@@ -25,7 +25,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const stream = await getUserMp4("~/Downloads/test.mp4", true);
+  const stream = await getUserMedia("~/Downloads/test.mp4", true);
 
   pc.addTransceiver(stream.audio, { direction: "sendonly" });
   pc.addTransceiver(stream.video, { direction: "sendonly" });

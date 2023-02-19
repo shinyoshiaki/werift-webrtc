@@ -55,6 +55,7 @@ import {
 import {
   mediachannel_addtrack_removefirst_addtrack,
   mediachannel_removetrack_addtrack,
+  mediachannel_offer_replace_second,
 } from "./handler/mediachannel/removeTrack";
 
 const app = express();
@@ -114,6 +115,7 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_removetrack_addtrack: new mediachannel_removetrack_addtrack(),
     mediachannel_addtrack_removefirst_addtrack:
       new mediachannel_addtrack_removefirst_addtrack(),
+    mediachannel_offer_replace_second: new mediachannel_offer_replace_second(),
   };
 
   const transport = accept();

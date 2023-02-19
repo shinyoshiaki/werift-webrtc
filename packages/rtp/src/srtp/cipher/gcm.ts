@@ -1,7 +1,6 @@
 import { createCipheriv, createDecipheriv } from "crypto";
-import range from "lodash/range";
 
-import { bufferWriter } from "../../../../common/src";
+import { createBufferWriter } from "../../../../common/src";
 import { growBufferSize } from "../../helper";
 import { RtcpHeader } from "../../rtcp/header";
 import { RtpHeader } from "../../rtp/rtp";
@@ -9,6 +8,9 @@ import { CipherAesBase } from ".";
 
 export class CipherAesGcm extends CipherAesBase {
   readonly aeadAuthTagLen = 16;
+  readonly rtpIvWriter = createBufferWriter([2, 4, 4, 2], true);
+  readonly rtcpIvWriter = createBufferWriter([2, 4, 2, 4], true);
+  readonly aadWriter = createBufferWriter([4], true);
 
   constructor(
     srtpSessionKey: Buffer,
@@ -20,13 +22,7 @@ export class CipherAesGcm extends CipherAesBase {
   }
 
   encryptRtp(header: RtpHeader, payload: Buffer, rolloverCounter: number) {
-    const dst = Buffer.alloc(
-      header.serializeSize + payload.length + this.aeadAuthTagLen
-    );
     const hdr = header.serialize(header.serializeSize);
-    hdr.copy(dst);
-
-    const { payloadOffset } = header;
 
     const iv = this.rtpInitializationVector(header, rolloverCounter);
 
@@ -34,11 +30,10 @@ export class CipherAesGcm extends CipherAesBase {
     cipher.setAAD(hdr);
     const enc = cipher.update(payload);
     cipher.final();
-    enc.copy(dst, payloadOffset);
 
     const authTag = cipher.getAuthTag();
-    authTag.copy(dst, payloadOffset + enc.length);
 
+    const dst = Buffer.concat([hdr, enc, authTag]);
     return dst;
   }
 
@@ -114,22 +109,24 @@ export class CipherAesGcm extends CipherAesBase {
 
   // https://tools.ietf.org/html/rfc7714#section-8.1
   private rtpInitializationVector(header: RtpHeader, rolloverCounter: number) {
-    const iv = bufferWriter(
-      [2, 4, 4, 2],
-      [0, header.ssrc, rolloverCounter, header.sequenceNumber]
-    );
-    range(0, iv.length).forEach((i) => {
-      iv[i] = iv[i] ^ this.srtpSessionSalt[i];
-    });
+    const iv = this.rtpIvWriter([
+      0,
+      header.ssrc,
+      rolloverCounter,
+      header.sequenceNumber,
+    ]);
+    for (let i = 0; i < iv.length; i++) {
+      iv[i] ^= this.srtpSessionSalt[i];
+    }
     return iv;
   }
 
   // https://tools.ietf.org/html/rfc7714#section-9.1
   private rtcpInitializationVector(ssrc: number, srtcpIndex: number) {
-    const iv = bufferWriter([2, 4, 2, 4], [0, ssrc, 0, srtcpIndex]);
-    range(0, iv.length).forEach((i) => {
-      iv[i] = iv[i] ^ this.srtcpSessionSalt[i];
-    });
+    const iv = this.rtcpIvWriter([0, ssrc, 0, srtcpIndex]);
+    for (let i = 0; i < iv.length; i++) {
+      iv[i] ^= this.srtcpSessionSalt[i];
+    }
     return iv;
   }
 
@@ -139,8 +136,8 @@ export class CipherAesGcm extends CipherAesBase {
     srtcpIndex: number
   ) {
     const aad = Buffer.concat([
-      rtcpPacket.slice(0, 8),
-      bufferWriter([4], [srtcpIndex]),
+      rtcpPacket.subarray(0, 8),
+      this.aadWriter([srtcpIndex]),
     ]);
     aad[8] |= rtcpEncryptionFlag;
     return aad;

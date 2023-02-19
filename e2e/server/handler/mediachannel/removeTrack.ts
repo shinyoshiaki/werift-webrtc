@@ -9,7 +9,7 @@ import {
 } from "../../";
 import { peerConfig } from "../../fixture";
 
-export class mediachannel_removetrack_base {
+export class mediachannel_removetrack_answer_base {
   pc!: RTCPeerConnection;
   process!: ChildProcess;
   udp = createSocket("udp4");
@@ -56,7 +56,10 @@ export class mediachannel_removetrack_base {
         break;
       case "removeTrack":
         {
-          const sender = this.pc.transceivers[payload].sender;
+          const sender = this.pc
+            .getTransceivers()
+            .find((t) => t.mLineIndex === payload)!.sender;
+
           this.pc.removeTrack(sender);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -89,6 +92,54 @@ export class mediachannel_removetrack_base {
   }
 }
 
-export class mediachannel_removetrack_addtrack extends mediachannel_removetrack_base {}
+export class mediachannel_removetrack_addtrack extends mediachannel_removetrack_answer_base {}
 
-export class mediachannel_addtrack_removefirst_addtrack extends mediachannel_removetrack_base {}
+export class mediachannel_addtrack_removefirst_addtrack extends mediachannel_removetrack_answer_base {}
+
+class mediachannel_removetrack_offer_base {
+  pc!: RTCPeerConnection;
+
+  async exec(type: string, payload: any, accept: AcceptFn) {
+    switch (type) {
+      case "init":
+        {
+          this.pc = new RTCPeerConnection(await peerConfig);
+          accept({});
+        }
+        break;
+      case "offer":
+        {
+          await this.pc.setRemoteDescription(payload);
+          const answer = await this.pc.createAnswer();
+          await this.pc.setLocalDescription(answer);
+          accept(this.pc.localDescription);
+        }
+        break;
+      case "check":
+        {
+          const { index } = payload as { index: number };
+
+          const transceiver = this.pc
+            .getTransceivers()
+            .find((t) => t.mLineIndex === index)!;
+          const track = transceiver.receiver.track;
+          await track.onReceiveRtp.asPromise(2000);
+          accept({});
+        }
+        break;
+      case "candidate":
+        {
+          await this.pc.addIceCandidate(payload);
+          accept({});
+        }
+        break;
+      case "done":
+        {
+          await this.pc.close();
+        }
+        break;
+    }
+  }
+}
+
+export class mediachannel_offer_replace_second extends mediachannel_removetrack_offer_base {}

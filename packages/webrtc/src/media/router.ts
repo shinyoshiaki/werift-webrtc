@@ -38,6 +38,7 @@ export class RtpRouter {
   }
 
   private registerRtpReceiver(receiver: RTCRtpReceiver, ssrc: number) {
+    log("registerRtpReceiver", ssrc);
     this.ssrcTable[ssrc] = receiver;
   }
 
@@ -126,44 +127,46 @@ export class RtpRouter {
       this.extIdUriMap
     );
 
-    let ssrcReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
+    let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
       packet.header.ssrc
     ] as RTCRtpReceiver;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     if (typeof rid === "string") {
-      ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
-      ssrcReceiver.latestRid = rid;
-      ssrcReceiver.handleRtpByRid(packet, rid, extensions);
-    } else if (ssrcReceiver) {
-      ssrcReceiver.handleRtpBySsrc(packet, extensions);
+      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver;
+      rtpReceiver.latestRid = rid;
+      rtpReceiver.handleRtpByRid(packet, rid, extensions);
+    } else if (rtpReceiver) {
+      rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {
       // simulcast after send receiver report
-      ssrcReceiver = Object.values(this.ridTable)
+      rtpReceiver = Object.values(this.ridTable)
         .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
         .find((r) => r.trackBySSRC[packet.header.ssrc]);
-      if (ssrcReceiver) {
+      if (rtpReceiver) {
         log("simulcast register receiver by ssrc", packet.header.ssrc);
-        this.registerRtpReceiver(ssrcReceiver, packet.header.ssrc);
-        ssrcReceiver.handleRtpBySsrc(packet, extensions);
+        this.registerRtpReceiver(rtpReceiver, packet.header.ssrc);
+        rtpReceiver.handleRtpBySsrc(packet, extensions);
+      } else {
+        // bug
       }
     }
 
-    if (!ssrcReceiver) {
+    if (!rtpReceiver) {
       log("ssrcReceiver not found");
       return;
     }
 
     const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
     if (typeof sdesMid === "string") {
-      ssrcReceiver.sdesMid = sdesMid;
+      rtpReceiver.sdesMid = sdesMid;
     }
 
     const repairedRid = extensions[
       RTP_EXTENSION_URI.repairedRtpStreamId
     ] as string;
     if (typeof repairedRid === "string") {
-      ssrcReceiver.latestRepairedRid = repairedRid;
+      rtpReceiver.latestRepairedRid = repairedRid;
     }
   };
 

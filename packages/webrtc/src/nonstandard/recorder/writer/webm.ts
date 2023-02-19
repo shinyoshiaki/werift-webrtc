@@ -1,4 +1,5 @@
 import { appendFile, open, unlink } from "fs/promises";
+import { EventDisposer } from "rx.mini";
 import { ReadableStreamDefaultReadResult } from "stream/web";
 
 import { SupportedCodec } from "../../../../../rtp/src/container/webm";
@@ -7,8 +8,8 @@ import {
   jitterBufferTransformer,
   MediaStreamTrack,
   RtpSourceStream,
-  WebmLiveOutput,
   WebmStream,
+  WebmStreamOutput,
   WeriftError,
 } from "../../..";
 import { MediaWriter } from ".";
@@ -17,6 +18,8 @@ const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
 
 export class WebmFactory extends MediaWriter {
   rtpSources: RtpSourceStream[] = [];
+
+  unSubscribers = new EventDisposer();
 
   async start(tracks: MediaStreamTrack[]) {
     await unlink(this.path).catch((e) => e);
@@ -71,16 +74,21 @@ export class WebmFactory extends MediaWriter {
 
     this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
       const rtpSource = new RtpSourceStream();
-      track.onReceiveRtp.subscribe((r) => rtpSource.push(r));
 
-      const jitterBuffer = jitterBufferTransformer(clockRate, {
-        latency: this.options.jitterBufferLatency,
-        bufferSize: this.options.jitterBufferSize,
-      });
+      track.onReceiveRtp
+        .subscribe((rtp) => {
+          rtpSource.push(rtp.clone());
+        })
+        .disposer(this.unSubscribers);
+
+      // const jitterBuffer = jitterBufferTransformer(clockRate, {
+      //   latency: this.options.jitterBufferLatency,
+      //   bufferSize: this.options.jitterBufferSize,
+      // });
 
       if (track.kind === "video") {
         rtpSource.readable
-          .pipeThrough(jitterBuffer)
+          // .pipeThrough(jitterBuffer)
           .pipeThrough(
             depacketizeTransformer(codec, {
               waitForKeyframe: this.options.waitForKeyframe,
@@ -90,7 +98,7 @@ export class WebmFactory extends MediaWriter {
           .pipeTo(webm.videoStream);
       } else {
         rtpSource.readable
-          .pipeThrough(jitterBuffer)
+          // .pipeThrough(jitterBuffer)
           .pipeThrough(depacketizeTransformer(codec))
           .pipeTo(webm.audioStream);
       }
@@ -102,7 +110,7 @@ export class WebmFactory extends MediaWriter {
     const readChunk = async ({
       value,
       done,
-    }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
+    }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
       if (done) return;
 
       if (value.saveToFile) {
@@ -120,6 +128,8 @@ export class WebmFactory extends MediaWriter {
 
   async stop() {
     await Promise.all(this.rtpSources.map((r) => r.stop()));
+
+    this.unSubscribers.dispose();
   }
 }
 

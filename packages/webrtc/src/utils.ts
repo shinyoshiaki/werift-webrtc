@@ -51,9 +51,6 @@ export function reverseSimulcastDirection(dir: "recv" | "send") {
 export const andDirection = (a: Direction, b: Direction) =>
   Directions[Directions.indexOf(a) & Directions.indexOf(b)];
 
-export const orDirection = (a: Direction, b: Direction) =>
-  Directions[Directions.indexOf(a) & Directions.indexOf(b)];
-
 export function reverseDirection(dir: Direction): Direction {
   if (dir === "sendonly") return "recvonly";
   if (dir === "recvonly") return "sendonly";

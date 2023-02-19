@@ -38,6 +38,10 @@ export class Connection {
   useIpv6: boolean;
   options: IceOptions;
   remoteCandidatesEnd = false;
+  /**コンポーネントはデータストリームの一部です. データストリームには複数のコンポーネントが必要な場合があり、
+   * データストリーム全体が機能するには、それぞれが機能する必要があります.
+   *  RTP / RTCPデータストリームの場合、RTPとRTCPが同じポートで多重化されていない限り、データストリームごとに2つのコンポーネントがあります.
+   * 1つはRTP用、もう1つはRTCP用です. コンポーネントには候補ペアがあり、他のコンポーネントでは使用できません.  */
   _components: Set<number>;
   _localCandidatesEnd = false;
   _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
@@ -49,14 +53,11 @@ export class Connection {
 
   private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
-  private nominated: { [key: number]: CandidatePair } = {};
+  private nominated: { [componentId: number]: CandidatePair } = {};
   get nominatedKeys() {
     return Object.keys(this.nominated).map((v) => v.toString());
   }
   private nominating = new Set<number>();
-  get remoteAddr() {
-    return Object.values(this.nominated)[0].remoteAddr;
-  }
   private checkListDone = false;
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
@@ -77,6 +78,21 @@ export class Connection {
     this.useIpv4 = useIpv4;
     this.useIpv6 = useIpv6;
     this._components = new Set(range(1, components + 1));
+  }
+
+  setRemoteParams({
+    iceLite,
+    usernameFragment,
+    password,
+  }: {
+    iceLite: boolean;
+    usernameFragment: string;
+    password: string;
+  }) {
+    log("setRemoteParams", { iceLite, usernameFragment, password });
+    this.remoteIsLite = iceLite;
+    this.remoteUsername = usernameFragment;
+    this.remotePassword = password;
   }
 
   // 4.1.1 Gathering Candidates
@@ -288,7 +304,7 @@ export class Connection {
     );
     if (!firstPair) return;
     if (firstPair.state === CandidatePairState.FROZEN) {
-      this.checkState(firstPair, CandidatePairState.WAITING);
+      this.setPairState(firstPair, CandidatePairState.WAITING);
     }
 
     // # unfreeze pairs with same component but different foundations
@@ -299,7 +315,7 @@ export class Connection {
         !seenFoundations.has(pair.localCandidate.foundation) &&
         pair.state === CandidatePairState.FROZEN
       ) {
-        this.checkState(pair, CandidatePairState.WAITING);
+        this.setPairState(pair, CandidatePairState.WAITING);
         seenFoundations.add(pair.localCandidate.foundation);
       }
     }
@@ -450,8 +466,6 @@ export class Connection {
 
     // :param remote_candidate: A :class:`Candidate` instance or `None`.
     // """
-    if (this.remoteCandidatesEnd)
-      throw new Error("Cannot add remote candidate after end-of-candidates.");
 
     if (!remoteCandidate) {
       this.pruneComponents();
@@ -477,6 +491,7 @@ export class Connection {
     } catch (error) {
       return;
     }
+
     log("addRemoteCandidate", remoteCandidate);
     this.remoteCandidates.push(remoteCandidate);
 
@@ -539,8 +554,9 @@ export class Connection {
       parseMessage(rawData, Buffer.from(this.localPassword, "utf8"));
       if (!this.remoteUsername) {
         const rxUsername = `${this.localUserName}:${this.remoteUsername}`;
-        if (message.getAttributeValue("USERNAME") != rxUsername)
+        if (message.getAttributeValue("USERNAME") != rxUsername) {
           throw new Error("Wrong username");
+        }
       }
     } catch (error) {
       this.respondError(message, addr, protocol, [400, "Bad Request"]);
@@ -597,7 +613,11 @@ export class Connection {
   }
 
   dataReceived(data: Buffer, component: number) {
-    this.onData.execute(data, component);
+    try {
+      this.onData.execute(data, component);
+    } catch (error) {
+      log("dataReceived", error);
+    }
   }
 
   // for test only
@@ -643,8 +663,9 @@ export class Connection {
     return pair;
   }
 
-  private checkState(pair: CandidatePair, state: CandidatePairState) {
-    pair.state = state;
+  private setPairState(pair: CandidatePair, state: CandidatePairState) {
+    log("setPairState", pair.toJSON(), CandidatePairState[state]);
+    pair.updateState(state);
   }
 
   private switchRole(iceControlling: boolean) {
@@ -653,11 +674,25 @@ export class Connection {
     this.sortCheckList();
   }
 
+  resetNominatedPair() {
+    log("resetNominatedPair");
+    this.nominated = {};
+    this.nominating.clear();
+  }
+
   private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
-      if (pair.nominated) {
+      // Updating the Nominated Flag
+
+      // https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5,
+      // Once the nominated flag is set for a component of a data stream, it
+      // concludes the ICE processing for that component.  See Section 8.
+      // So disallow overwriting of the pair nominated for that component
+      if (pair.nominated && this.nominated[pair.component] == undefined) {
+        log("nominated", pair.toJSON());
         this.nominated[pair.component] = pair;
+        this.nominating.delete(pair.component);
 
         // 8.1.2.  Updating States
 
@@ -671,7 +706,7 @@ export class Connection {
               p.state
             )
           ) {
-            this.checkState(p, CandidatePairState.FAILED);
+            this.setPairState(p, CandidatePairState.FAILED);
           }
         }
       }
@@ -694,7 +729,7 @@ export class Connection {
           p.localCandidate.foundation === pair.localCandidate.foundation &&
           p.state === CandidatePairState.FROZEN
         ) {
-          this.checkState(p, CandidatePairState.WAITING);
+          this.setPairState(p, CandidatePairState.WAITING);
         }
       }
     }
@@ -732,9 +767,9 @@ export class Connection {
       // Starts a check.
       // """
 
-      log("check start", pair.remoteCandidate);
+      log("check start", pair.toJSON());
 
-      this.checkState(pair, CandidatePairState.IN_PROGRESS);
+      this.setPairState(pair, CandidatePairState.IN_PROGRESS);
 
       const nominate = this.iceControlling && !this.remoteIsLite;
       const request = this.buildRequest(pair, nominate);
@@ -764,8 +799,9 @@ export class Connection {
           r();
           return;
         } else {
-          log("CandidatePairState.FAILED");
-          this.checkState(pair, CandidatePairState.FAILED);
+          // timeout
+          log("CandidatePairState.FAILED", pair.toJSON());
+          this.setPairState(pair, CandidatePairState.FAILED);
           this.checkComplete(pair);
           r();
           return;
@@ -774,7 +810,7 @@ export class Connection {
 
       // # check remote address matches
       if (!isEqual(result.addr, pair.remoteAddr)) {
-        this.checkState(pair, CandidatePairState.FAILED);
+        this.setPairState(pair, CandidatePairState.FAILED);
         this.checkComplete(pair);
         r();
         return;
@@ -795,14 +831,14 @@ export class Connection {
             Buffer.from(this.remotePassword, "utf8")
           );
         } catch (error) {
-          this.checkState(pair, CandidatePairState.FAILED);
+          this.setPairState(pair, CandidatePairState.FAILED);
           this.checkComplete(pair);
           return;
         }
         pair.nominated = true;
       }
 
-      this.checkState(pair, CandidatePairState.SUCCEEDED);
+      this.setPairState(pair, CandidatePairState.SUCCEEDED);
       this.checkComplete(pair);
       r();
     });
@@ -810,11 +846,14 @@ export class Connection {
   // 7.2.  STUN Server Procedures
   // 7.2.1.3、7.2.1.4、および7.2.1.5
   checkIncoming(message: Message, addr: Address, protocol: Protocol) {
+    // log("checkIncoming", message.toJSON(), addr);
     // """
     // Handle a successful incoming check.
     // """
     const component = protocol.localCandidate?.component;
-    if (component == undefined) throw new Error();
+    if (component == undefined) {
+      throw new Error("component not exist");
+    }
 
     // find remote candidate
     let remoteCandidate: Candidate | undefined;
@@ -822,8 +861,9 @@ export class Connection {
     for (const c of this.remoteCandidates) {
       if (c.host === host && c.port === port) {
         remoteCandidate = c;
-        if (remoteCandidate.component !== component)
+        if (remoteCandidate.component !== component) {
           throw new Error("checkIncoming");
+        }
         break;
       }
     }
@@ -845,7 +885,7 @@ export class Connection {
     let pair = this.findPair(protocol, remoteCandidate);
     if (!pair) {
       pair = new CandidatePair(protocol, remoteCandidate);
-      pair.state = CandidatePairState.WAITING;
+      this.setPairState(pair, CandidatePairState.WAITING);
       this.checkList.push(pair);
       this.sortCheckList();
     }
@@ -857,6 +897,8 @@ export class Connection {
       )
     ) {
       pair.handle = future(this.checkStart(pair));
+    } else {
+      pair;
     }
 
     // 7.2.1.5. Updating the Nominated Flag
@@ -880,6 +922,7 @@ export class Connection {
       ) {
         const pair = new CandidatePair(protocol, remoteCandidate);
         this.checkList.push(pair);
+        this.setPairState(pair, CandidatePairState.WAITING);
       }
     }
   };
@@ -925,9 +968,23 @@ export class CandidatePair {
   nominated = false;
   remoteNominated = false;
   // 5.7.4.  Computing States
-  state = CandidatePairState.FROZEN;
+  private _state = CandidatePairState.FROZEN;
+  get state() {
+    return this._state;
+  }
+
+  toJSON() {
+    return {
+      protocol: this.protocol.type,
+      remoteAddr: this.remoteAddr,
+    };
+  }
 
   constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
+
+  updateState(state: CandidatePairState) {
+    this._state = state;
+  }
 
   get localCandidate() {
     if (!this.protocol.localCandidate)
