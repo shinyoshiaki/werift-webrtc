@@ -132,115 +132,127 @@ export class Connection {
   ) {
     let candidates: Candidate[] = [];
 
-    for (const address of addresses) {
-      // # create transport
-      const protocol = new StunProtocol(this);
-      await protocol.connectionMade(
-        isIPv4(address),
-        this.options.portRange,
-        this.options.interfaceAddresses
-      );
-      protocol.localAddress = address;
-      this.protocols.push(protocol);
+    await Promise.all(
+      addresses.map(async (address) => {
+        // # create transport
+        const protocol = new StunProtocol(this);
+        try {
+          await protocol.connectionMade(
+            isIPv4(address),
+            this.options.portRange,
+            this.options.interfaceAddresses
+          );
+        } catch (error) {
+          log("protocol STUN", error);
+          return;
+        }
 
-      // # add host candidate
-      const candidateAddress: Address = [address, protocol.getExtraInfo()[1]];
+        protocol.localAddress = address;
+        this.protocols.push(protocol);
 
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("host", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "host"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "host"
-      );
+        // # add host candidate
+        const candidateAddress: Address = [address, protocol.getExtraInfo()[1]];
 
-      candidates.push(protocol.localCandidate);
-      if (cb) {
-        cb(protocol.localCandidate);
-      }
-    }
+        protocol.localCandidate = new Candidate(
+          candidateFoundation("host", "udp", candidateAddress[0]),
+          component,
+          "udp",
+          candidatePriority(component, "host"),
+          candidateAddress[0],
+          candidateAddress[1],
+          "host"
+        );
+
+        candidates.push(protocol.localCandidate);
+        if (cb) {
+          cb(protocol.localCandidate);
+        }
+      })
+    );
+
+    let candidatePromises: Promise<Candidate | void>[] = [];
 
     // # query STUN server for server-reflexive candidates (IPv4 only)
-    const stunServer = this.stunServer;
+    const { stunServer, turnServer } = this;
     if (stunServer) {
-      try {
-        const srflxCandidates = (
-          await Promise.all<Candidate | void>(
-            this.protocols.map(
-              (protocol) =>
-                new Promise(async (r, f) => {
-                  const timer = setTimeout(f, timeout * 1000);
-                  if (
-                    protocol.localCandidate?.host &&
-                    isIPv4(protocol.localCandidate?.host)
-                  ) {
-                    const candidate = await serverReflexiveCandidate(
-                      protocol,
-                      stunServer
-                    ).catch((error) => log("error", error));
-                    if (candidate && cb) cb(candidate);
+      const stunPromises = this.protocols.map((protocol) =>
+        new Promise<Candidate | void>(async (r, f) => {
+          const timer = setTimeout(f, timeout * 1000);
+          if (
+            protocol.localCandidate?.host &&
+            isIPv4(protocol.localCandidate?.host)
+          ) {
+            const candidate = await serverReflexiveCandidate(
+              protocol,
+              stunServer
+            ).catch((error) => log("error", error));
+            if (candidate && cb) cb(candidate);
 
-                    clearTimeout(timer);
-                    r(candidate);
-                  } else {
-                    clearTimeout(timer);
-                    r();
-                  }
-                })
-            )
-          )
-        ).filter((v): v is Candidate => typeof v !== "undefined");
-        candidates = [...candidates, ...srflxCandidates];
-      } catch (error) {
-        log("query STUN server", error);
-      }
+            clearTimeout(timer);
+            r(candidate);
+          } else {
+            clearTimeout(timer);
+            r();
+          }
+        }).catch((error) => {
+          log("query STUN server", error);
+        })
+      );
+      candidatePromises.push(...stunPromises);
     }
 
-    if (
-      this.turnServer &&
-      this.options.turnUsername &&
-      this.options.turnPassword
-    ) {
-      const protocol = await createTurnEndpoint(
-        this.turnServer,
-        this.options.turnUsername,
-        this.options.turnPassword,
-        {
-          portRange: this.options.portRange,
-          interfaceAddresses: this.options.interfaceAddresses,
+    const { turnUsername, turnPassword } = this.options;
+    if (turnServer && turnUsername && turnPassword) {
+      const turnCandidate = (async () => {
+        const protocol = await createTurnEndpoint(
+          turnServer,
+          turnUsername,
+          turnPassword,
+          {
+            portRange: this.options.portRange,
+            interfaceAddresses: this.options.interfaceAddresses,
+          }
+        );
+        this.protocols.push(protocol);
+
+        const candidateAddress = protocol.turn.relayedAddress;
+        const relatedAddress = protocol.turn.mappedAddress;
+
+        log("turn candidateAddress", candidateAddress);
+
+        protocol.localCandidate = new Candidate(
+          candidateFoundation("relay", "udp", candidateAddress[0]),
+          component,
+          "udp",
+          candidatePriority(component, "relay"),
+          candidateAddress[0],
+          candidateAddress[1],
+          "relay",
+          relatedAddress[0],
+          relatedAddress[1]
+        );
+        if (cb) {
+          cb(protocol.localCandidate);
         }
-      );
-      this.protocols.push(protocol);
-
-      const candidateAddress = protocol.turn.relayedAddress;
-      const relatedAddress = protocol.turn.mappedAddress;
-
-      log("turn candidateAddress", candidateAddress);
-
-      protocol.localCandidate = new Candidate(
-        candidateFoundation("relay", "udp", candidateAddress[0]),
-        component,
-        "udp",
-        candidatePriority(component, "relay"),
-        candidateAddress[0],
-        candidateAddress[1],
-        "relay",
-        relatedAddress[0],
-        relatedAddress[1]
-      );
-      if (cb) {
-        cb(protocol.localCandidate);
-      }
-      protocol.receiver = this;
+        protocol.receiver = this;
+        return protocol.localCandidate;
+      })().catch((error) => {
+        log("query TURN server", error);
+      });
 
       if (this.options.forceTurn) {
         candidates = [];
+        candidatePromises = [];
       }
 
-      candidates.push(protocol.localCandidate);
+      candidatePromises.push(turnCandidate);
     }
+
+    const extraCandidates = (await Promise.all(candidatePromises)).filter(
+      (v): v is Candidate => typeof v !== "undefined"
+    );
+
+    candidates.push(...extraCandidates);
 
     return candidates;
   }
