@@ -1,4 +1,4 @@
-import { buffer2ArrayBuffer, Red, RedEncoder } from "../../../src";
+import { buffer2ArrayBuffer, Red, RedEncoder } from "../../../../src";
 
 (async () => {
   // カスタムエンコーダのdistanceを3とする

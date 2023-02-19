@@ -1,6 +1,6 @@
 import "buffer";
 
-import { Red } from "werift-rtp";
+import { Red } from "../../../../src";
 
 (async () => {
   const sender = new RTCPeerConnection({
