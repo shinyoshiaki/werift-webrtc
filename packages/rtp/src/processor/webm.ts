@@ -190,7 +190,7 @@ export class WebmBase {
         elapsed,
       });
     } else {
-      log("delayed frame", { elapsed });
+      log("delayed frame", { elapsed, trackNumber: track.trackNumber });
     }
   }
 
