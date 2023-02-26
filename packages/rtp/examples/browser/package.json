@@ -4,8 +4,13 @@
   "main": "index.js",
   "author": "shinyoshiaki",
   "license": "MIT",
+  "scripts": {
+    "lyra": "cp -r lyra/* dist && parcel ./lyra/index.html"
+  },
   "dependencies": {
+    "@shiguredo/lyra-wasm": "^2023.1.0",
     "buffer": "^6.0.3",
+    "lyra-codec": "1.1.1",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
     "sdp-transform": "^2.14.1",
@@ -15,8 +20,11 @@
     "@types/react": "^17.0.16",
     "@types/react-dom": "^17.0.8",
     "@types/sdp-transform": "^2.4.5",
-    "parcel": "^2.0.0-rc.0",
+    "crypto-browserify": "^3.12.0",
+    "events": "^3.3.0",
+    "parcel": "2.7.0",
     "rx.mini": "^1.1.0",
+    "stream-browserify": "^3.0.0",
     "ts-node": "^10.2.0",
     "ts-node-dev": "^1.1.8",
     "typescript": "^4.3.5"

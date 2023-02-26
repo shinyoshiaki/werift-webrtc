@@ -16,7 +16,7 @@ import { Red } from "../../../../src";
 
   const rtpSender = sender.addTrack(track);
 
-  const [transceiver] = sender.getTransceivers() as any;
+  const [transceiver] = sender.getTransceivers();
   const { codecs } = RTCRtpSender.getCapabilities("audio");
   transceiver.setCodecPreferences([
     codecs.find((c) => c.mimeType.includes("red")),
