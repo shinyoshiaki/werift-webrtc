@@ -22,7 +22,9 @@ import { MPD } from "../../../packages/dash/src";
 
 const dir = "./dash";
 const dashServerPort = 8125;
-const webrtcServerPort = 8888;
+const signalingServerPort = 8888;
+
+console.log({ dir, dashServerPort, signalingServerPort });
 
 const mpd = new MPD({
   codecs: ["vp8", "opus"],
@@ -30,8 +32,47 @@ const mpd = new MPD({
   minimumUpdatePeriod: 1,
 });
 
-const webrtcServer = new Server({ port: webrtcServerPort });
-webrtcServer.on("connection", async (socket) => {
+const signalingServer = new Server({ port: signalingServerPort });
+signalingServer.on("connection", async (socket) => {
+  const { audio, video } = await recorder();
+
+  const pc = new RTCPeerConnection();
+
+  pc.addTransceiver("audio", { direction: "recvonly" }).onTrack.subscribe(
+    (track) => {
+      // 音声のRTPを受け取る
+      track.onReceiveRtp.subscribe((rtp) => {
+        audio.input(rtp);
+      });
+    }
+  );
+
+  pc.addTransceiver("video", { direction: "recvonly" }).onTrack.subscribe(
+    (track, transceiver) => {
+      // 映像のRTPを受け取る
+      track.onReceiveRtp.subscribe((rtp) => {
+        video.input(rtp);
+      });
+      // 5秒ごとにキーフレームを要求する
+      setInterval(() => {
+        transceiver.receiver.sendRtcpPLI(track.ssrc!);
+      }, 5_000);
+    }
+  );
+
+  const sdp = await pc.setLocalDescription(await pc.createOffer());
+  socket.send(JSON.stringify(sdp));
+
+  socket.on("message", (data: any) => {
+    const obj = JSON.parse(data);
+    if (obj.sdp) {
+      console.log(new Date().toISOString(), "sRD");
+      pc.setRemoteDescription(obj);
+    }
+  });
+});
+
+async function recorder() {
   await rm(dir, { recursive: true }).catch((e) => e);
   await mkdir(dir).catch((e) => e);
 
@@ -65,8 +106,7 @@ webrtcServer.on("connection", async (socket) => {
     const jitterBuffer = new JitterBufferCallback(48000);
     const depacketizer = new DepacketizeCallback("opus");
 
-    audio.pipe((input) => jitterBuffer.input(input));
-    jitterBuffer.pipe(depacketizer.input);
+    audio.pipe(depacketizer.input);
     depacketizer.pipe(avBuffer.inputAudio);
     avBuffer.pipeAudio(webm.inputAudio);
   }
@@ -74,10 +114,10 @@ webrtcServer.on("connection", async (socket) => {
     const jitterBuffer = new JitterBufferCallback(90000);
     const depacketizer = new DepacketizeCallback("vp8", {
       isFinalPacketInSequence: (h) => h.marker,
+      // waitForKeyframe: true,
     });
 
-    video.pipe((input) => jitterBuffer.input(input));
-    jitterBuffer.pipe(depacketizer.input);
+    video.pipe(depacketizer.input);
     depacketizer.pipe(avBuffer.inputVideo);
     avBuffer.pipeVideo(webm.inputVideo);
   }
@@ -90,28 +130,40 @@ webrtcServer.on("connection", async (socket) => {
         switch (value.kind) {
           case "initial":
             {
+              // webmのSegmentのヘッダー部
               await writeFile(dir + "/init.webm", value.saveToFile);
             }
             break;
           case "cluster":
             {
               if (value.previousDuration! > 0) {
+                // MPDにクラスターの長さを書き込む
                 mpd.segmentationTimeLine.push({
                   d: value.previousDuration!,
                   t: timestamp,
                 });
                 await writeFile(dir + "/dash.mpd", mpd.build());
+                // 一時保存していたクラスターをDASH用にリネームする
+                // ファイル名はMPDで定義したとおりにする。
                 await rename(
                   dir + "/cluster.webm",
                   dir + `/media${timestamp}.webm`
                 );
+                console.log(
+                  new Date().toISOString(),
+                  "cluster",
+                  `media${timestamp}.webm`
+                );
                 timestamp += value.previousDuration!;
               }
+
+              // クラスターを一時保存する
               await writeFile(dir + `/cluster.webm`, value.saveToFile);
             }
             break;
           case "block":
             {
+              // 個々のブロックはクラスターの一時保存先に足していく
               await appendFile(dir + `/cluster.webm`, value.saveToFile);
             }
             break;
@@ -120,39 +172,8 @@ webrtcServer.on("connection", async (socket) => {
     });
   });
 
-  const pc = new RTCPeerConnection();
-  {
-    pc.addTransceiver("audio", { direction: "recvonly" }).onTrack.subscribe(
-      (track) => {
-        track.onReceiveRtp.subscribe((rtp) => {
-          audio.input(rtp);
-        });
-      }
-    );
-  }
-  {
-    pc.addTransceiver("video", { direction: "recvonly" }).onTrack.subscribe(
-      (track, transceiver) => {
-        track.onReceiveRtp.subscribe((rtp) => {
-          video.input(rtp);
-        });
-        setInterval(() => {
-          transceiver.receiver.sendRtcpPLI(track.ssrc);
-        }, 5_000);
-      }
-    );
-  }
-
-  const sdp = await pc.setLocalDescription(await pc.createOffer());
-  socket.send(JSON.stringify(sdp));
-
-  socket.on("message", (data: any) => {
-    const obj = JSON.parse(data);
-    if (obj.sdp) {
-      pc.setRemoteDescription(obj);
-    }
-  });
-});
+  return { audio, video };
+}
 
 const dashServer = createServer();
 dashServer.on("request", async (req, res) => {

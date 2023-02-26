@@ -1,7 +1,9 @@
-import React, { FC, useEffect } from "react";
+import React, { FC, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 
 const App: FC = () => {
+  const videoElm = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     (async () => {
       const socket = new WebSocket("ws://localhost:8888");
@@ -24,6 +26,8 @@ const App: FC = () => {
       peer.addTrack(audio);
       peer.addTrack(video);
 
+      videoElm.current.srcObject = new MediaStream([video]);
+
       await peer.setRemoteDescription(offer);
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
@@ -31,7 +35,11 @@ const App: FC = () => {
     })();
   }, []);
 
-  return <div></div>;
+  return (
+    <div>
+      <video muted autoPlay ref={videoElm} />
+    </div>
+  );
 };
 
 ReactDOM.render(<App />, document.getElementById("root"));
