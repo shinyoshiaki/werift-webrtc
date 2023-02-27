@@ -2,19 +2,24 @@ import debug from "debug";
 import range from "lodash/range";
 import Event from "rx.mini";
 
-import { uint16Add } from "../../../../common/src";
-import {
-  GenericNack,
-  RtcpTransportLayerFeedback,
-  RtpPacket,
-} from "../../../../rtp/src";
-import { RTCRtpReceiver } from "../rtpReceiver";
+import { uint16Add } from "../../../common/src";
+import { RtcpTransportLayerFeedback } from "../rtcp/rtpfb";
+import { GenericNack } from "../rtcp/rtpfb/nack";
+import { RtpPacket } from "../rtp/rtp";
+import { Processor } from "./interface";
+import { RtpOutput } from "./source";
 
-const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
+const log = debug("werift-rtp : packages/rtp/src/processor/nack.ts");
 
 const LOST_SIZE = 30 * 5;
 
-export class NackHandler {
+export type NackHandlerInput = RtpOutput;
+
+export type NackHandlerOutput = RtpOutput;
+
+export class NackHandlerBase
+  implements Processor<NackHandlerInput, NackHandlerOutput>
+{
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
   private nackLoop: any;
@@ -24,9 +29,12 @@ export class NackHandler {
   retryCount = 10;
   closed = false;
 
-  constructor(private receiver: RTCRtpReceiver) {}
+  constructor(
+    private senderSsrc: number,
+    private onNack: (rtcp: RtcpTransportLayerFeedback) => Promise<void>
+  ) {}
 
-  get lostSeqNumbers() {
+  private get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();
   }
 
@@ -57,7 +65,16 @@ export class NackHandler {
     delete this._lost[sequenceNumber];
   }
 
-  addPacket(packet: RtpPacket) {
+  processInput = (input: RtpOutput) => {
+    if (input.rtp) {
+      this.addPacket(input.rtp);
+      return [input];
+    }
+    this.close();
+    return [input];
+  };
+
+  private addPacket(packet: RtpPacket) {
     const { sequenceNumber, ssrc } = packet.header;
     this.mediaSourceSsrc = ssrc;
 
@@ -97,7 +114,7 @@ export class NackHandler {
     }
   }
 
-  close() {
+  private close() {
     this.closed = true;
     clearInterval(this.nackLoop);
     this._lost = {};
@@ -117,7 +134,7 @@ export class NackHandler {
     new Promise((r, f) => {
       if (this.lostSeqNumbers.length > 0 && this.mediaSourceSsrc) {
         const nack = new GenericNack({
-          senderSsrc: this.receiver.rtcpSsrc,
+          senderSsrc: this.senderSsrc,
           mediaSourceSsrc: this.mediaSourceSsrc,
           lost: this.lostSeqNumbers,
         });
@@ -125,7 +142,7 @@ export class NackHandler {
         const rtcp = new RtcpTransportLayerFeedback({
           feedback: nack,
         });
-        this.receiver.dtlsTransport.sendRtcp([rtcp]).then(r).catch(f);
+        this.onNack(rtcp).then(r).catch(f);
 
         this.updateRetryCount();
         this.onPacketLost.execute(nack);

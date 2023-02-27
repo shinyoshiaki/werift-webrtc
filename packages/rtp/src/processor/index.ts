@@ -6,6 +6,8 @@ export * from "./jitterBufferCallback";
 export * from "./jitterBufferTransformer";
 export * from "./lipsync";
 export * from "./lipsyncCallback";
+export * from "./nack";
+export * from "./nackHandlerCallback";
 export * from "./ntpTime";
 export * from "./ntpTimeCallback";
 export * from "./rtpTime";
