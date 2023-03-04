@@ -102,6 +102,12 @@ export class Connection {
       this.promiseGatherCandidates = new Event();
 
       let address = getHostAddresses(this.useIpv4, this.useIpv6);
+      const { interfaceAddresses } = this.options;
+      if (interfaceAddresses) {
+        address = address.filter((check) =>
+          Object.values(interfaceAddresses).includes(check)
+        );
+      }
       if (this.options.additionalHostAddresses) {
         address = Array.from(
           new Set([...this.options.additionalHostAddresses, ...address])
