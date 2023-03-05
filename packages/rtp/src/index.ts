@@ -17,5 +17,6 @@ export * from "./rtp/red/encoder";
 export * from "./rtp/red/handler";
 export * from "./rtp/red/packet";
 export * from "./rtp/rtp";
+export * from "./rtp/rtx";
 export * from "./srtp/srtcp";
 export * from "./srtp/srtp";

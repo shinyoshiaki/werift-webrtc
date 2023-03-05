@@ -14,8 +14,8 @@ import {
   RtcpReceiverInfo,
   RtcpRrPacket,
   RtcpSrPacket,
-  RtpHeader,
   RtpPacket,
+  unwrapRtx,
 } from "../../../rtp/src";
 import { codecParametersFromString, PeerConfig, usePLI, useTWCC } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
@@ -344,18 +344,4 @@ export class RTCRtpReceiver {
 
     this.runRtcp();
   }
-}
-
-export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
-  const packet = new RtpPacket(
-    new RtpHeader({
-      payloadType,
-      marker: rtx.header.marker,
-      sequenceNumber: jspack.Unpack("!H", rtx.payload.subarray(0, 2))[0],
-      timestamp: rtx.header.timestamp,
-      ssrc,
-    }),
-    rtx.payload.subarray(2)
-  );
-  return packet;
 }

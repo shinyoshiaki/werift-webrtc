@@ -51,6 +51,7 @@ import {
   SourceDescriptionChunk,
   SourceDescriptionItem,
   TransportWideCC,
+  wrapRtx,
 } from "../../../rtp/src";
 import { codecParametersFromString } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
@@ -490,28 +491,4 @@ export class RTCRtpSender {
     }
     this.onRtcp.execute(rtcpPacket);
   }
-}
-
-export function wrapRtx(
-  packet: RtpPacket,
-  payloadType: number,
-  sequenceNumber: number,
-  ssrc: number
-) {
-  const rtx = new RtpPacket(
-    new RtpHeader({
-      payloadType,
-      marker: packet.header.marker,
-      sequenceNumber,
-      timestamp: packet.header.timestamp,
-      ssrc,
-      csrc: packet.header.csrc,
-      extensions: packet.header.extensions,
-    }),
-    Buffer.concat([
-      Buffer.from(jspack.Pack("!H", [packet.header.sequenceNumber])),
-      packet.payload,
-    ])
-  );
-  return rtx;
 }
