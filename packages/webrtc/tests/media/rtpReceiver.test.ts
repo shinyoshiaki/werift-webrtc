@@ -1,5 +1,6 @@
 import { setTimeout } from "timers/promises";
 
+import { wrapRtx } from "../../../rtp/src";
 import {
   codecParametersToString,
   defaultPeerConfig,
@@ -10,7 +11,6 @@ import {
   RtpPacket,
 } from "../../src";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
-import { wrapRtx } from "../../src/media/rtpSender";
 import { createDtlsTransport } from "../fixture";
 
 describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
