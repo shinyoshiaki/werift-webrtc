@@ -1,6 +1,6 @@
 {
   "name": "werift-ice",
-  "version": "0.0.14",
+  "version": "0.0.16",
   "description": "> TODO: description",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc/tree/master/packages/ice#readme",
   "bugs": {
@@ -12,7 +12,7 @@
   },
   "license": "MIT",
   "author": "shinyoshiaki <shinyoshiaki2012@gmail.com>",
-  "main": "lib/ice.js",
+  "main": "lib/ice/src/index.js",
   "files": [
     "src",
     "lib"

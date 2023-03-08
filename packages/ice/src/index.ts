@@ -1,4 +1,4 @@
-export { Candidate } from "./candidate";
-export { Connection, IceOptions } from "./ice";
-export { Address } from "./types/model";
+export * from "./candidate";
+export * from "./ice";
+export * from "./types/model";
 export * from "./utils";

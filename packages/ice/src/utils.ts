@@ -23,6 +23,10 @@ export async function getGlobalIp(
   await connection.close();
   await protocol.close();
 
+  if (!candidate?.host) {
+    throw new Error("host not exist");
+  }
+
   return candidate?.host;
 }
 
