@@ -11,7 +11,7 @@ import {
   RtpSourceStream,
   WebmStream,
   WebmStreamOutput,
-} from "../../src";
+} from "../../../src";
 
 const path = "./webmLive.webm";
 

@@ -13,7 +13,7 @@ import {
   SegmentSizePosition,
   WebmStream,
   WebmStreamOutput,
-} from "../../src";
+} from "../../../src";
 
 const path = "./webmAV.webm";
 

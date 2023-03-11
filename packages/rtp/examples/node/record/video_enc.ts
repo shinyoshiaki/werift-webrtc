@@ -10,7 +10,7 @@ import {
   RtpSourceCallback,
   saveToFileSystem,
   WebmCallback,
-} from "../../src";
+} from "../../../src";
 
 const path = "./webm_enc.webm";
 
