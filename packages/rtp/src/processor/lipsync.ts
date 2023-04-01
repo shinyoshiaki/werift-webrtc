@@ -31,17 +31,17 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   private interval: number;
   private started = false;
   /**ms */
-  lastCommited = 0;
+  lastCommitted = 0;
 
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
     private videoOutput: (output: LipsyncOutput) => void,
     private options: Partial<LipSyncOptions> = {}
   ) {
-    this.bufferLength = this.options.bufferLength ?? 50;
+    this.interval = this.options.syncInterval ?? 500;
+    this.bufferLength = this.options.bufferingTimes ?? 10;
     this.audioBuffer = [...new Array(this.bufferLength)].map(() => []);
     this.videoBuffer = [...new Array(this.bufferLength)].map(() => []);
-    this.interval = this.options.interval ?? 500;
   }
 
   private start() {
@@ -60,7 +60,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       const joined = [
         ...this.audioBuffer[index],
         ...this.videoBuffer[index],
-      ].filter((b) => b.elapsed >= this.lastCommited);
+      ].filter((b) => b.elapsed >= this.lastCommitted);
       const sorted = joined.sort((a, b) => a.frame!.time - b.frame!.time);
       this.audioBuffer[index] = [];
       this.videoBuffer[index] = [];
@@ -71,7 +71,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
         } else {
           this.videoOutput(output);
         }
-        this.lastCommited = output.elapsed;
+        this.lastCommitted = output.elapsed;
       }
 
       index++;
@@ -97,7 +97,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
     /**ms */
     const elapsed = frame.time - this.baseTime;
-    if (elapsed < 0 || elapsed < this.lastCommited) {
+    if (elapsed < 0 || elapsed < this.lastCommitted) {
       return;
     }
     const index = int(elapsed / this.interval) % this.bufferLength;
@@ -127,7 +127,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
     /**ms */
     const elapsed = frame.time - this.baseTime;
-    if (elapsed < 0 || elapsed < this.lastCommited) {
+    if (elapsed < 0 || elapsed < this.lastCommitted) {
       return;
     }
     const index = int(elapsed / this.interval) % this.bufferLength;
@@ -143,6 +143,11 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 }
 
 export interface LipSyncOptions {
-  interval: number;
-  bufferLength: number;
+  /**ms */
+  syncInterval: number;
+  /**
+   * int
+   * @description syncInterval * bufferingTimes=bufferTimeLength
+   * */
+  bufferingTimes: number;
 }
