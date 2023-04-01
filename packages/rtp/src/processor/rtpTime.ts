@@ -33,19 +33,26 @@ export class RtpTimeBase implements Processor<RtpTimeInput, RtpTimeOutput> {
     return [];
   }
 
-  /**ms */
+  /**
+   *
+   * @param timestamp
+   * @returns ms
+   */
   private update(timestamp: number) {
     if (this.baseTimestamp == undefined) {
       this.baseTimestamp = timestamp;
     }
+
     const rotate =
       Math.abs(timestamp - this.baseTimestamp) > (Max32Uint / 4) * 3;
 
     const elapsed = rotate
       ? timestamp + Max32Uint - this.baseTimestamp
       : timestamp - this.baseTimestamp;
+    this.elapsed += int((elapsed / this.clockRate) * 1000);
 
-    this.elapsed = int((elapsed / this.clockRate) * 1000);
+    this.baseTimestamp = timestamp;
+
     return this.elapsed;
   }
 }

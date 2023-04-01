@@ -1,6 +1,6 @@
 import React, { FC, useRef } from "react";
 import ReactDOM from "react-dom";
-import { getVideoStream } from "../../util";
+import { getVideoStreamFromFile } from "../../util";
 
 const peer = new RTCPeerConnection({});
 
@@ -31,7 +31,7 @@ const App: FC = () => {
       }
     };
 
-    const stream = await getVideoStream(await file.arrayBuffer());
+    const stream = await getVideoStreamFromFile(file);
     const [video] = stream.getVideoTracks();
     peer.addTrack(video);
     const [audio] = stream.getAudioTracks();

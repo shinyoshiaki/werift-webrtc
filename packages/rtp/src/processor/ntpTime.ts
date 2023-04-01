@@ -1,16 +1,12 @@
-import debug from "debug";
-
 import {
   bufferReader,
   bufferWriter,
+  Max32Uint,
   RtcpPacket,
   RtcpSrPacket,
   RtpPacket,
 } from "..";
-import { Max32bit } from "../processor_old/lipsync";
 import { Processor } from "./interface";
-
-const log = debug("werift-rtp : packages/rtp/src/processor/ntpTime.ts");
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;
@@ -27,8 +23,8 @@ export interface NtpTimeOutput {
 
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   ntpTimestamp?: bigint;
-  rtpTimestamp?: number;
-
+  baseRtpTimestamp?: number;
+  elapsed = 0;
   buffer: RtpPacket[] = [];
 
   constructor(public clockRate: number) {}
@@ -41,7 +37,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
     if (rtcp && rtcp instanceof RtcpSrPacket && !this.ntpTimestamp) {
       const { ntpTimestamp, rtpTimestamp } = rtcp.senderInfo;
       this.ntpTimestamp = ntpTimestamp;
-      this.rtpTimestamp = rtpTimestamp;
+      this.baseRtpTimestamp = rtpTimestamp;
     }
 
     if (rtp) {
@@ -52,7 +48,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       this.buffer = this.buffer
         .map((rtp) => {
           const ntp = this.calcNtp(rtp.header.timestamp);
-          if (ntp) {
+          if (ntp != undefined) {
             const ms = ntp * 1000;
             res.push({ rtp, time: ms });
             return undefined;
@@ -66,31 +62,27 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
     return [];
   }
 
-  /**sec */
+  /**
+   *
+   * @param rtpTimestamp
+   * @returns sec
+   */
   private calcNtp(rtpTimestamp: number) {
-    if (this.rtpTimestamp == undefined || this.ntpTimestamp == undefined) {
+    if (this.baseRtpTimestamp == undefined || this.ntpTimestamp == undefined) {
       return;
     }
 
-    // base rtpTimestamp is rollover
-    if (rtpTimestamp - this.rtpTimestamp > Max32bit - this.clockRate * 60) {
-      this.rtpTimestamp += Max32bit;
-      log("base rtpTimestamp is rollover");
-    }
+    const rotate =
+      Math.abs(rtpTimestamp - this.baseRtpTimestamp) > (Max32Uint / 4) * 3;
 
-    // target rtpTimestamp is rollover
-    else if (
-      rtpTimestamp + (Max32bit - this.clockRate * 60) - this.rtpTimestamp <
-      0
-    ) {
-      rtpTimestamp += Max32bit;
-      log("target rtpTimestamp is rollover");
-    }
+    const elapsed = rotate
+      ? rtpTimestamp + Max32Uint - this.baseRtpTimestamp
+      : rtpTimestamp - this.baseRtpTimestamp;
+    this.elapsed += elapsed / this.clockRate;
 
-    const elapsed = (rtpTimestamp - this.rtpTimestamp) / this.clockRate;
+    this.baseRtpTimestamp = rtpTimestamp;
 
-    const ntp = ntpTime2Time(this.ntpTimestamp) + elapsed;
-
+    const ntp = ntpTime2Time(this.ntpTimestamp) + this.elapsed;
     return ntp;
   }
 }

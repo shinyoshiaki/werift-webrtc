@@ -9,3 +9,15 @@ export async function getVideoStream(ab: ArrayBuffer) {
 
   return stream as MediaStream;
 }
+
+export async function getVideoStreamFromFile(file: File) {
+  const video = document.createElement("video");
+  video.src = URL.createObjectURL(file);
+  video.volume = 0.001;
+  video.loop = true;
+  await video.play();
+
+  const stream = (video as any).captureStream();
+
+  return stream as MediaStream;
+}

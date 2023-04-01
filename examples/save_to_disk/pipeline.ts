@@ -38,14 +38,17 @@ server.on("connection", async (socket) => {
         trackNumber: 2,
       },
     ],
-    { duration: 1000 * 60 * 60 * 24 }
+    { duration: 1000 * 60 * 60 }
   );
 
   const audio = new RtpSourceCallback();
   const video = new RtpSourceCallback();
   const audioRtcp = new RtcpSourceCallback();
   const videoRtcp = new RtcpSourceCallback();
-  const lipsync = new LipsyncCallback();
+  const lipsync = new LipsyncCallback({
+    syncInterval: 1000,
+    bufferingTimes: 10,
+  });
 
   {
     const depacketizer = new DepacketizeCallback("opus");
@@ -60,10 +63,10 @@ server.on("connection", async (socket) => {
   }
   {
     const jitterBuffer = new JitterBufferCallback(90000);
+    const ntpTime = new NtpTimeCallback(90000);
     const depacketizer = new DepacketizeCallback("vp8", {
       isFinalPacketInSequence: (h) => h.marker,
     });
-    const ntpTime = new NtpTimeCallback(90000);
 
     video.pipe(jitterBuffer.input);
     videoRtcp.pipe(ntpTime.input);
@@ -77,19 +80,12 @@ server.on("connection", async (socket) => {
   await unlink(output).catch(() => {});
   webm.pipe(saveToFileSystem(output));
 
-  setTimeout(async () => {
-    console.log("stop");
-    audio.stop();
-    video.stop();
-    await pc.close();
-  }, 10_000);
-
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
     track.onReceiveRtp.subscribe((rtp) => {
       video.input(rtp);
     });
-    track.onReceiveRtcp.subscribe((rtcp) => {
+    track.onReceiveRtcp.once((rtcp) => {
       videoRtcp.input(rtcp);
     });
     setInterval(() => {
@@ -101,7 +97,7 @@ server.on("connection", async (socket) => {
     track.onReceiveRtp.subscribe((rtp) => {
       audio.input(rtp);
     });
-    track.onReceiveRtcp.subscribe((rtcp) => {
+    track.onReceiveRtcp.once((rtcp) => {
       audioRtcp.input(rtcp);
     });
   });
@@ -113,4 +109,11 @@ server.on("connection", async (socket) => {
   socket.on("message", (data: any) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
+
+  setTimeout(async () => {
+    console.log("stop");
+    audio.stop();
+    video.stop();
+    await pc.close();
+  }, 60_000 * 60 * 2);
 });
