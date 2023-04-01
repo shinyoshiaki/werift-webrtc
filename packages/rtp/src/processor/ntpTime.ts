@@ -25,7 +25,7 @@ export interface NtpTimeOutput {
   eol?: boolean;
 }
 
-export class syncRtpBase implements Processor<NtpTimeInput, NtpTimeOutput> {
+export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   ntpTimestamp?: bigint;
   rtpTimestamp?: number;
 

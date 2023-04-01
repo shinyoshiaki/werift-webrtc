@@ -8,7 +8,7 @@ const App: FC = () => {
   const videoRef = useRef<HTMLVideoElement>();
 
   const onFile = async (file: File) => {
-    const socket = new WebSocket("ws://127.0.0.1:8888");
+    const socket = new WebSocket("ws://localhost:8878");
     await new Promise((r) => (socket.onopen = r));
     console.log("open websocket");
 
@@ -20,7 +20,6 @@ const App: FC = () => {
     peer.onicecandidate = ({ candidate }) => {
       if (!candidate) {
         const sdp = JSON.stringify(peer.localDescription);
-        console.log("answer", peer.localDescription.sdp);
         socket.send(sdp);
       }
     };
@@ -33,8 +32,10 @@ const App: FC = () => {
     };
 
     const stream = await getVideoStream(await file.arrayBuffer());
-    const [track] = stream.getTracks();
-    peer.addTrack(track);
+    const [video] = stream.getVideoTracks();
+    peer.addTrack(video);
+    const [audio] = stream.getAudioTracks();
+    peer.addTrack(audio);
 
     await peer.setRemoteDescription(offer);
     const answer = await peer.createAnswer();

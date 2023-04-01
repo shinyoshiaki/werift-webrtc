@@ -1,8 +1,4 @@
-import {
-  NtpTimeInput,
-  NtpTimeOutput,
-  syncRtpBase as NtpTimeBase,
-} from "./ntpTime";
+import { NtpTimeBase, NtpTimeInput, NtpTimeOutput } from "./ntpTime";
 
 export class NtpTimeCallback extends NtpTimeBase {
   private cb!: (input: NtpTimeOutput) => void;
