@@ -238,17 +238,22 @@ export class RTCDtlsTransport {
   };
 
   async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
-    const enc = this.srtp.encrypt(payload, header);
+    try {
+      const enc = this.srtp.encrypt(payload, header);
 
-    if (
-      this.config.debug.outboundPacketLoss &&
-      this.config.debug.outboundPacketLoss / 100 < Math.random()
-    ) {
+      if (
+        this.config.debug.outboundPacketLoss &&
+        this.config.debug.outboundPacketLoss / 100 < Math.random()
+      ) {
+        return enc.length;
+      }
+
+      await this.iceTransport.connection.send(enc).catch(() => {});
       return enc.length;
+    } catch (error) {
+      log("failed to send", error);
+      return 0;
     }
-
-    await this.iceTransport.connection.send(enc).catch(() => {});
-    return enc.length;
   }
 
   async sendRtcp(packets: RtcpPacket[]) {
