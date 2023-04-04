@@ -81,7 +81,7 @@ describe("ntpTime", () => {
       const [res] = time.processInput({ rtp });
 
       const base = res.time!;
-      const toBe = (Max32Uint / time.clockRate) * 1000;
+      const toBe = Math.round((Max32Uint / time.clockRate) * 1000);
       expect(base).toBe(toBe);
     }
     {
@@ -93,7 +93,7 @@ describe("ntpTime", () => {
         Buffer.alloc(0)
       );
       const [res] = time.processInput({ rtp });
-      const toBe = (Max32Uint / time.clockRate) * 1000 + 1000;
+      const toBe = Math.round((Max32Uint / time.clockRate) * 1000 + 1000);
       expect(res.time).toBe(toBe);
     }
   });
