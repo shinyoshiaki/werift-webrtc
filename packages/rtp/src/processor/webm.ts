@@ -52,6 +52,7 @@ export class WebmBase {
   videoStopped = false;
   stopped = false;
   videoKeyframeReceived = false;
+  internalStats = {};
 
   constructor(
     public tracks: {
@@ -84,16 +85,19 @@ export class WebmBase {
       if (this.tracks.length === 2) {
         if (track.kind === "audio") {
           this.audioStopped = true;
+          this.internalStats["audioStopped"] = new Date().toISOString();
           if (this.videoStopped) {
             this.stop();
           }
         } else {
           this.videoStopped = true;
+          this.internalStats["videoStopped"] = new Date().toISOString();
           if (this.audioStopped) {
             this.stop();
           }
         }
       } else if (input.eol) {
+        this.internalStats["input.eol"] = new Date().toISOString();
         this.stop();
       }
 
@@ -112,6 +116,7 @@ export class WebmBase {
   processAudioInput = (input: WebmInput) => {
     const track = this.tracks.find((t) => t.kind === "audio");
     if (track) {
+      this.internalStats["processAudioInput"] = new Date().toISOString();
       this.processInput(input, track.trackNumber);
     }
   };
@@ -123,6 +128,7 @@ export class WebmBase {
 
     const track = this.tracks.find((t) => t.kind === "video");
     if (track) {
+      this.internalStats["processVideoInput"] = new Date().toISOString();
       this.processInput(input, track.trackNumber);
     }
   };
@@ -238,6 +244,10 @@ export class WebmBase {
       trackNumber,
       elapsed
     );
+
+    this.internalStats["createSimpleBlock_trackNumber" + trackNumber] =
+      new Date().toISOString();
+
     this.output({ saveToFile: block, kind: "block" });
     this.position += block.length;
     const [cuePoint] = this.cuePoints.slice(-1);
