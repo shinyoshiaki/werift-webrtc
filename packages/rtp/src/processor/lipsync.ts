@@ -44,7 +44,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.videoBuffer = [...new Array(this.bufferLength)].map(() => []);
   }
 
-  private start() {
+  private startIfNeed() {
     // 2列目にカーソルが移ってから処理を始めることで1列目の処理を完了できる
     if ([...this.audioBuffer[1], ...this.videoBuffer[1]].length === 0) {
       return;
@@ -56,7 +56,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.started = true;
 
     let index = 0;
-    setInterval(() => {
+    const task = () => {
       const joined = [
         ...this.audioBuffer[index],
         ...this.videoBuffer[index],
@@ -78,7 +78,8 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       if (index === this.bufferLength) {
         index = 0;
       }
-    }, this.interval);
+    };
+    setInterval(task, this.interval);
   }
 
   processAudioInput = ({ frame, eol }: LipsyncInput) => {
@@ -108,7 +109,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       seq: frame.sequence,
     });
 
-    this.start();
+    this.startIfNeed();
   };
 
   processVideoInput = ({ frame, eol }: LipsyncInput) => {
@@ -138,7 +139,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       seq: frame.sequence,
     });
 
-    this.start();
+    this.startIfNeed();
   };
 }
 

@@ -50,7 +50,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
           const ntp = this.calcNtp(rtp.header.timestamp);
           if (ntp != undefined) {
             const ms = ntp * 1000;
-            res.push({ rtp, time: ms });
+            res.push({ rtp, time: Math.round(ms) });
             return undefined;
           }
           return rtp;
