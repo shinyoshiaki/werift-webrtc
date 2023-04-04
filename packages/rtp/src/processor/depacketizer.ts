@@ -99,7 +99,7 @@ export class DepacketizeBase
 
           return output;
         } catch (error) {
-          log("error", error, input);
+          log("error", error, { input, codec: this.codec });
           this.clearBuffer();
         }
       }
@@ -121,7 +121,7 @@ export class DepacketizeBase
         });
         return output;
       } catch (error) {
-        log("error", error, input);
+        log("error", error, { input, codec: this.codec });
       }
     }
     return [];
@@ -141,11 +141,15 @@ export class DepacketizeBase
     if (this.lastSeqNum != undefined) {
       const expect = uint16Add(this.lastSeqNum, 1);
       if (uint16Gt(expect, sequenceNumber)) {
-        log("unexpect", { expect, sequenceNumber });
+        log("unexpect", { expect, sequenceNumber, codec: this.codec });
         return false;
       }
       if (uint16Gt(sequenceNumber, expect)) {
-        log("packet lost happened", { expect, sequenceNumber });
+        log("packet lost happened", {
+          expect,
+          sequenceNumber,
+          codec: this.codec,
+        });
         this.frameBroken = true;
         this.clearBuffer();
       }
