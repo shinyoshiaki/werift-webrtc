@@ -104,7 +104,7 @@ export class RtcpSenderInfo {
 
   toJSON() {
     return {
-      ntpTimestamp: this.ntpTimestamp,
+      ntpTimestamp: this.ntpTimestamp.toString(),
       rtpTimestamp: this.rtpTimestamp,
     };
   }
