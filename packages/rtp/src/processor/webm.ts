@@ -155,6 +155,9 @@ export class WebmBase {
       return;
     }
 
+    this.internalStats["onFrameReceived_trackNumber" + frame.trackNumber] =
+      new Date().toISOString();
+
     const timestampManager = this.timestamps[track.trackNumber];
     if (timestampManager.baseTime == undefined) {
       for (const t of Object.values(this.timestamps)) {

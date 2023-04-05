@@ -52,6 +52,14 @@ export class RtcpSrPacket {
     Object.assign(this, props);
   }
 
+  toJSON() {
+    return {
+      ssrc: this.ssrc,
+      senderInfo: this.senderInfo.toJSON(),
+      reports: this.reports.map((r) => r.toJSON()),
+    };
+  }
+
   serialize() {
     let payload = Buffer.alloc(4);
     payload.writeUInt32BE(this.ssrc);
@@ -92,6 +100,13 @@ export class RtcpSenderInfo {
 
   constructor(props: Partial<RtcpSenderInfo> = {}) {
     Object.assign(this, props);
+  }
+
+  toJSON() {
+    return {
+      ntpTimestamp: this.ntpTimestamp,
+      rtpTimestamp: this.rtpTimestamp,
+    };
   }
 
   serialize() {

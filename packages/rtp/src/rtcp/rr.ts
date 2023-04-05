@@ -54,6 +54,18 @@ export class RtcpReceiverInfo {
     Object.assign(this, props);
   }
 
+  toJSON() {
+    return {
+      ssrc: this.ssrc,
+      fractionLost: this.fractionLost,
+      packetsLost: this.packetsLost,
+      highestSequence: this.highestSequence,
+      jitter: this.jitter,
+      lsr: this.lsr,
+      dlsr: this.dlsr,
+    };
+  }
+
   serialize() {
     return bufferWriter(
       [4, 1, 3, 4, 4, 4, 4],
