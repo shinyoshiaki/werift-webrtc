@@ -1,7 +1,6 @@
 import {
-  bufferReader,
-  bufferWriter,
   Max32Uint,
+  ntpTime2Time,
   RtcpPacket,
   RtcpSrPacket,
   RtpPacket,
@@ -86,9 +85,3 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
     return ntp;
   }
 }
-
-export const ntpTime2Time = (ntp: bigint) => {
-  const [ntpSec, ntpMsec] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
-
-  return Number(`${ntpSec}.${ntpMsec}`);
-};
