@@ -41,6 +41,14 @@ export class JitterBufferBase
     };
   }
 
+  toJSON() {
+    return {
+      rtpBufferLength: Object.values(this.rtpBuffer).length,
+      presentSeqNum: this.presentSeqNum,
+      expectNextSeqNum: this.expectNextSeqNum,
+    };
+  }
+
   processInput(input: JitterBufferInput): JitterBufferOutput[] {
     const output: JitterBufferOutput[] = [];
 

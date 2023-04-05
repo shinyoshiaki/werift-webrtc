@@ -41,13 +41,21 @@ export class DepacketizeBase
   private lastSeqNum?: number;
   private frameBroken = false;
   private keyframeReceived = false;
-  sequence = 0;
+  count = 0;
   readonly onNeedKeyFrame = new Event();
 
   constructor(
     private codec: string,
     private options: DepacketizerOptions = {}
   ) {}
+
+  toJSON(): Record<string, any> {
+    return {
+      bufferingLength: this.buffering.length,
+      lastSeqNum: this.lastSeqNum,
+      count: this.count,
+    };
+  }
 
   processInput(input: DepacketizerInput): DepacketizerOutput[] {
     const output: DepacketizerOutput[] = [];
@@ -84,7 +92,7 @@ export class DepacketizeBase
                 data,
                 isKeyframe,
                 time,
-                sequence: this.sequence++,
+                sequence: this.count++,
                 rtpSeq: sequence,
                 timestamp,
               },
@@ -114,7 +122,7 @@ export class DepacketizeBase
             data,
             isKeyframe,
             time: input.time!,
-            sequence: this.sequence++,
+            sequence: this.count++,
             rtpSeq: sequence,
             timestamp,
           },

@@ -28,6 +28,15 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
   constructor(public clockRate: number) {}
 
+  toJSON(): Record<string, any> {
+    return {
+      ntpTimestamp: this.ntpTimestamp && ntpTime2Time(this.ntpTimestamp),
+      baseRtpTimestamp: this.baseRtpTimestamp,
+      bufferLength: this.buffer.length,
+      elapsed: this.elapsed,
+    };
+  }
+
   processInput({ rtcp, rtp, eol }: NtpTimeInput): NtpTimeOutput[] {
     if (eol) {
       return [{ eol: true }];

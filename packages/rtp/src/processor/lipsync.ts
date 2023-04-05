@@ -44,6 +44,15 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.videoBuffer = [...new Array(this.bufferLength)].map(() => []);
   }
 
+  toJSON(): Record<string, any> {
+    return {
+      audioBufferLength: this.audioBuffer.flatMap((v) => v).length,
+      videoBufferLength: this.videoBuffer.flatMap((v) => v).length,
+      baseTime: this.baseTime,
+      lastCommitted: this.lastCommitted,
+    };
+  }
+
   private startIfNeed() {
     // 2列目にカーソルが移ってから処理を始めることで1列目の処理を完了できる
     if ([...this.audioBuffer[1], ...this.videoBuffer[1]].length === 0) {

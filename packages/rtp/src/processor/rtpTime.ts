@@ -20,6 +20,13 @@ export class RtpTimeBase implements Processor<RtpTimeInput, RtpTimeOutput> {
 
   constructor(public clockRate: number) {}
 
+  toJSON(): Record<string, any> {
+    return {
+      baseTimestamp: this.baseTimestamp,
+      elapsed: this.elapsed,
+    };
+  }
+
   processInput({ rtp, eol }: RtpTimeInput): RtpTimeOutput[] {
     if (eol) {
       return [{ eol: true }];

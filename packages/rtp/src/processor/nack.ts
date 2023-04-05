@@ -34,6 +34,15 @@ export class NackHandlerBase
     private onNack: (rtcp: RtcpTransportLayerFeedback) => Promise<void>
   ) {}
 
+  toJSON(): Record<string, any> {
+    return {
+      newEstSeqNum: this.newEstSeqNum,
+      lostLength: Object.values(this._lost).length,
+      senderSsrc: this.senderSsrc,
+      mediaSourceSsrc: this.mediaSourceSsrc,
+    };
+  }
+
   private get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();
   }

@@ -6,6 +6,7 @@ import {
   vintEncode,
 } from "../container/ebml";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
+import { AVProcessor } from "./interface";
 
 const sourcePath = `werift-rtp : packages/rtp/src/processor/webm.ts`;
 const log = debug(sourcePath);
@@ -40,7 +41,7 @@ export interface WebmOption {
   strictTimestamp?: boolean;
 }
 
-export class WebmBase {
+export class WebmBase implements AVProcessor<WebmInput> {
   private builder: WEBMBuilder;
   private relativeTimestamp = 0;
   private timestamps: { [pt: number]: ClusterTimestamp } = {};
@@ -71,6 +72,10 @@ export class WebmBase {
     tracks.forEach((t) => {
       this.timestamps[t.trackNumber] = new ClusterTimestamp();
     });
+  }
+
+  toJSON(): Record<string, any> {
+    return { ...this.internalStats };
   }
 
   private processInput(input: WebmInput, trackNumber: number) {
