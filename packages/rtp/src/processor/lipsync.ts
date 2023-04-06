@@ -49,7 +49,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       audioBufferLength: this.audioBuffer.flatMap((v) => v).length,
       videoBufferLength: this.videoBuffer.flatMap((v) => v).length,
       baseTime: this.baseTime,
-      lastCommitted: this.lastCommitted,
+      lastCommittedSec: this.lastCommitted / 1000,
     };
   }
 

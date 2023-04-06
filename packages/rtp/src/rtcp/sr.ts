@@ -104,7 +104,7 @@ export class RtcpSenderInfo {
 
   toJSON() {
     return {
-      ntpTimestamp: ntpTime2Time(this.ntpTimestamp),
+      ntpTimestamp: ntpTime2Sec(this.ntpTimestamp),
       rtpTimestamp: this.rtpTimestamp,
     };
   }
@@ -131,7 +131,7 @@ export class RtcpSenderInfo {
   }
 }
 
-export const ntpTime2Time = (ntp: bigint) => {
+export const ntpTime2Sec = (ntp: bigint) => {
   const [ntpSec, ntpMsec] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
 
   return Number(`${ntpSec}.${ntpMsec}`);

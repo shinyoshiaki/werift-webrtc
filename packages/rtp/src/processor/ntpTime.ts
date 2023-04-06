@@ -1,6 +1,6 @@
 import {
   Max32Uint,
-  ntpTime2Time,
+  ntpTime2Sec,
   RtcpPacket,
   RtcpSrPacket,
   RtpPacket,
@@ -30,7 +30,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
   toJSON(): Record<string, any> {
     return {
-      ntpTimestamp: this.ntpTimestamp && ntpTime2Time(this.ntpTimestamp),
+      ntpTimestamp: this.ntpTimestamp && ntpTime2Sec(this.ntpTimestamp),
       baseRtpTimestamp: this.baseRtpTimestamp,
       bufferLength: this.buffer.length,
       elapsed: this.elapsed,
@@ -90,7 +90,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
     this.baseRtpTimestamp = rtpTimestamp;
 
-    const ntp = ntpTime2Time(this.ntpTimestamp) + this.elapsed;
+    const ntp = ntpTime2Sec(this.ntpTimestamp) + this.elapsed;
     return ntp;
   }
 }
