@@ -1,11 +1,11 @@
 import {
   Max32Uint,
   ntpTime2Sec,
+  Processor,
   RtcpPacket,
   RtcpSrPacket,
   RtpPacket,
 } from "..";
-import { Processor } from "./interface";
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;
@@ -23,6 +23,8 @@ export interface NtpTimeOutput {
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   baseNtpTimestamp?: bigint;
   baseRtpTimestamp?: number;
+  presentNtpTimestamp?: bigint;
+  presentRtpTimestamp?: number;
   elapsed = 0;
   buffer: RtpPacket[] = [];
   private internalStats = {};
@@ -31,9 +33,12 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
   toJSON(): Record<string, any> {
     return {
+      baseRtpTimestamp: this.baseRtpTimestamp,
+      presentRtpTimestamp: this.presentRtpTimestamp,
       baseNtpTimestamp:
         this.baseNtpTimestamp && ntpTime2Sec(this.baseNtpTimestamp),
-      baseRtpTimestamp: this.baseRtpTimestamp,
+      presentNtpTimestamp:
+        this.presentNtpTimestamp && ntpTime2Sec(this.presentNtpTimestamp),
       bufferLength: this.buffer.length,
       elapsed: this.elapsed,
       ...this.internalStats,
@@ -47,8 +52,8 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
     if (rtcp && rtcp instanceof RtcpSrPacket) {
       const { ntpTimestamp, rtpTimestamp } = rtcp.senderInfo;
-      this.internalStats["presentNtp"] = ntpTime2Sec(ntpTimestamp);
-      this.internalStats["presentRtp"] = rtpTimestamp;
+      this.presentNtpTimestamp = ntpTimestamp;
+      this.presentRtpTimestamp = rtpTimestamp;
 
       if (this.baseNtpTimestamp == undefined) {
         this.baseNtpTimestamp = ntpTimestamp;
@@ -63,7 +68,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
       this.buffer = this.buffer
         .map((rtp) => {
-          const ntp = this.calcNtp(rtp.header.timestamp);
+          const ntp = this.updateNtp(rtp.header.timestamp);
           if (ntp != undefined) {
             const ms = ntp * 1000;
             res.push({ rtp, time: Math.round(ms) });
@@ -78,34 +83,73 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
     return [];
   }
 
-  /**
-   *
-   * @param rtpTimestamp
-   * @returns sec
-   */
-  private calcNtp(rtpTimestamp: number) {
+  private updateNtp(rtpTimestamp: number) {
     if (
       this.baseRtpTimestamp == undefined ||
-      this.baseNtpTimestamp == undefined
+      this.baseNtpTimestamp == undefined ||
+      this.presentNtpTimestamp == undefined ||
+      this.presentRtpTimestamp == undefined
     ) {
       return;
     }
 
     this.internalStats["latestInputRtp"] = rtpTimestamp;
 
+    const base = this.calcNtp({
+      rtpTimestamp,
+      baseNtpTimestamp: this.baseNtpTimestamp,
+      baseRtpTimestamp: this.baseRtpTimestamp,
+      elapsedOffset: this.elapsed,
+    });
+    const present = this.calcNtp({
+      rtpTimestamp,
+      baseNtpTimestamp: this.presentNtpTimestamp,
+      baseRtpTimestamp: this.presentRtpTimestamp,
+      elapsedOffset: 0,
+    });
+
+    this.internalStats["latestCalcBaseNtp"] = base.ntp;
+    this.internalStats["latestCalcPresentNtp"] = present.ntp;
+
+    if (base.ntp >= present.ntp) {
+      this.elapsed += base.elapsedSec;
+      this.baseRtpTimestamp = rtpTimestamp;
+      this.internalStats["latestCalcNtp"] = base.ntp;
+      return base.ntp;
+    } else {
+      this.baseNtpTimestamp = this.presentNtpTimestamp;
+      this.baseRtpTimestamp = this.presentRtpTimestamp;
+      this.elapsed = 0;
+      this.internalStats["latestCalcNtp"] = present.ntp;
+      return present.ntp;
+    }
+  }
+
+  /**
+   *
+   * @param rtpTimestamp
+   * @returns sec
+   */
+  private calcNtp({
+    rtpTimestamp,
+    baseNtpTimestamp,
+    baseRtpTimestamp,
+    elapsedOffset,
+  }: {
+    rtpTimestamp: number;
+    baseRtpTimestamp: number;
+    baseNtpTimestamp: bigint;
+    elapsedOffset: number;
+  }) {
     const rotate =
-      Math.abs(rtpTimestamp - this.baseRtpTimestamp) > (Max32Uint / 4) * 3;
+      Math.abs(rtpTimestamp - baseRtpTimestamp) > (Max32Uint / 4) * 3;
 
     const elapsed = rotate
-      ? rtpTimestamp + Max32Uint - this.baseRtpTimestamp
-      : rtpTimestamp - this.baseRtpTimestamp;
-    this.elapsed += elapsed / this.clockRate;
+      ? rtpTimestamp + Max32Uint - baseRtpTimestamp
+      : rtpTimestamp - baseRtpTimestamp;
+    const elapsedSec = elapsed / this.clockRate;
 
-    this.baseRtpTimestamp = rtpTimestamp;
-
-    const ntp = ntpTime2Sec(this.baseNtpTimestamp) + this.elapsed;
-    this.internalStats["latestCalcNtp"] = ntp;
-
-    return ntp;
+    const ntp = ntpTime2Sec(baseNtpTimestamp) + elapsedOffset + elapsedSec;
+    return { ntp, elapsedSec };
   }
 }
