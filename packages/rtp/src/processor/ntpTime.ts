@@ -21,19 +21,22 @@ export interface NtpTimeOutput {
 }
 
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
-  ntpTimestamp?: bigint;
+  baseNtpTimestamp?: bigint;
   baseRtpTimestamp?: number;
   elapsed = 0;
   buffer: RtpPacket[] = [];
+  private internalStats = {};
 
   constructor(public clockRate: number) {}
 
   toJSON(): Record<string, any> {
     return {
-      ntpTimestamp: this.ntpTimestamp && ntpTime2Sec(this.ntpTimestamp),
+      baseNtpTimestamp:
+        this.baseNtpTimestamp && ntpTime2Sec(this.baseNtpTimestamp),
       baseRtpTimestamp: this.baseRtpTimestamp,
       bufferLength: this.buffer.length,
       elapsed: this.elapsed,
+      ...this.internalStats,
     };
   }
 
@@ -42,10 +45,15 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       return [{ eol: true }];
     }
 
-    if (rtcp && rtcp instanceof RtcpSrPacket && !this.ntpTimestamp) {
+    if (rtcp && rtcp instanceof RtcpSrPacket) {
       const { ntpTimestamp, rtpTimestamp } = rtcp.senderInfo;
-      this.ntpTimestamp = ntpTimestamp;
-      this.baseRtpTimestamp = rtpTimestamp;
+      this.internalStats["presentNtp"] = ntpTime2Sec(ntpTimestamp);
+      this.internalStats["presentRtp"] = rtpTimestamp;
+
+      if (this.baseNtpTimestamp == undefined) {
+        this.baseNtpTimestamp = ntpTimestamp;
+        this.baseRtpTimestamp = rtpTimestamp;
+      }
     }
 
     if (rtp) {
@@ -76,9 +84,14 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
    * @returns sec
    */
   private calcNtp(rtpTimestamp: number) {
-    if (this.baseRtpTimestamp == undefined || this.ntpTimestamp == undefined) {
+    if (
+      this.baseRtpTimestamp == undefined ||
+      this.baseNtpTimestamp == undefined
+    ) {
       return;
     }
+
+    this.internalStats["latestInputRtp"] = rtpTimestamp;
 
     const rotate =
       Math.abs(rtpTimestamp - this.baseRtpTimestamp) > (Max32Uint / 4) * 3;
@@ -90,7 +103,9 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
     this.baseRtpTimestamp = rtpTimestamp;
 
-    const ntp = ntpTime2Sec(this.ntpTimestamp) + this.elapsed;
+    const ntp = ntpTime2Sec(this.baseNtpTimestamp) + this.elapsed;
+    this.internalStats["latestCalcNtp"] = ntp;
+
     return ntp;
   }
 }

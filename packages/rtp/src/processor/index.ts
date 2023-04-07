@@ -1,6 +1,7 @@
 export * from "./depacketizer";
 export * from "./depacketizerCallback";
 export * from "./depacketizerTransformer";
+export * from "./interface";
 export * from "./jitterBuffer";
 export * from "./jitterBufferCallback";
 export * from "./jitterBufferTransformer";
