@@ -117,14 +117,13 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     clearInterval(this.intervalId);
     this.audioBuffer = [];
     this.videoBuffer = [];
-    this.audioOutput = undefined as any;
-    this.videoOutput = undefined as any;
   }
 
   processAudioInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
       this.audioOutput({ eol });
       this.stop();
+      this.audioOutput = undefined as any;
       return;
     }
     if (this.stopped) {
@@ -153,6 +152,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     if (!frame) {
       this.videoOutput({ eol });
       this.stop();
+      this.videoOutput = undefined as any;
       return;
     }
     if (this.stopped) {
