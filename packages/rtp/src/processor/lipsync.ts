@@ -1,6 +1,4 @@
-import { int } from "../../../common/src";
-import { CodecFrame } from "./depacketizer";
-import { AVProcessor } from "./interface";
+import { AVProcessor, CodecFrame, int } from "werift-rtp";
 
 export type LipsyncInput = {
   frame?: CodecFrame;
@@ -16,22 +14,15 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   bufferLength: number;
   /**ms */
   baseTime?: number;
-  audioBuffer: (LipsyncInput & {
-    elapsed: number;
-    kind: string;
-    [key: string]: any;
-  })[][];
-  videoBuffer: (LipsyncInput & {
-    elapsed: number;
-    kind: string;
-    [key: string]: any;
-  })[][];
+  audioBuffer: { frame: CodecFrame; kind: string }[][];
+  videoBuffer: { frame: CodecFrame; kind: string }[][];
   stopped = false;
   /**ms */
   private interval: number;
   private started = false;
   /**ms */
-  lastCommitted = 0;
+  lastCommittedTime = 0;
+  private intervalId?: any;
 
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
@@ -49,7 +40,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       audioBufferLength: this.audioBuffer.flatMap((v) => v).length,
       videoBufferLength: this.videoBuffer.flatMap((v) => v).length,
       baseTime: this.baseTime,
-      lastCommittedSec: this.lastCommitted / 1000,
+      lastCommittedTimeSec: this.lastCommittedTime / 1000,
     };
   }
 
@@ -65,12 +56,40 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.started = true;
 
     let index = 0;
+    let currentTimestamp = this.baseTime!;
     const task = () => {
-      const joined = [
-        ...this.audioBuffer[index],
-        ...this.videoBuffer[index],
-      ].filter((b) => b.elapsed >= this.lastCommitted);
-      const sorted = joined.sort((a, b) => a.frame!.time - b.frame!.time);
+      const audioBuffer = this.audioBuffer[index].sort(
+        (a, b) => a.frame.time - b.frame.time
+      );
+
+      if (this.options.fillDummyAudioPacket) {
+        const last = audioBuffer.at(-1);
+        const expect = last ? last.frame.time + 20 : currentTimestamp;
+
+        // パケット間の損失/muteはdtxプラグインでダミーパケットを挿入する
+        // interval中のパケットが途中から無いもしくはinterval中にパケットが無い場合はここでダミーパケットを挿入する
+        if (expect < currentTimestamp + this.interval) {
+          for (
+            let time = expect;
+            time < currentTimestamp + this.interval;
+            time += 20
+          ) {
+            audioBuffer.push({
+              frame: {
+                time,
+                data: this.options.fillDummyAudioPacket,
+                isKeyframe: true,
+              },
+              kind: "audio",
+            });
+          }
+        }
+        currentTimestamp += this.interval;
+      }
+      const joined = [...audioBuffer, ...this.videoBuffer[index]].filter(
+        (b) => b.frame.time >= this.lastCommittedTime
+      );
+      const sorted = joined.sort((a, b) => a.frame.time - b.frame.time);
       this.audioBuffer[index] = [];
       this.videoBuffer[index] = [];
 
@@ -80,7 +99,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
         } else {
           this.videoOutput(output);
         }
-        this.lastCommitted = output.elapsed;
+        this.lastCommittedTime = output.frame.time;
       }
 
       index++;
@@ -88,13 +107,14 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
         index = 0;
       }
     };
-    setInterval(task, this.interval);
+    this.intervalId = setInterval(task, this.interval);
   }
 
   processAudioInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
       this.stopped = true;
       this.audioOutput({ eol });
+      clearInterval(this.intervalId);
       return;
     }
     if (this.stopped) {
@@ -106,16 +126,14 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
 
     /**ms */
-    const elapsed = frame.time - this.baseTime;
-    if (elapsed < 0 || elapsed < this.lastCommitted) {
+    const elapsed = frame.time - this.baseTime!;
+    if (elapsed < 0 || frame.time < this.lastCommittedTime) {
       return;
     }
     const index = int(elapsed / this.interval) % this.bufferLength;
     this.audioBuffer[index].push({
       frame,
-      elapsed,
       kind: "audio",
-      seq: frame.sequence,
     });
 
     this.startIfNeed();
@@ -125,6 +143,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     if (!frame) {
       this.stopped = true;
       this.videoOutput({ eol });
+      clearInterval(this.intervalId);
       return;
     }
     if (this.stopped) {
@@ -136,16 +155,14 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
 
     /**ms */
-    const elapsed = frame.time - this.baseTime;
-    if (elapsed < 0 || elapsed < this.lastCommitted) {
+    const elapsed = frame.time - this.baseTime!;
+    if (elapsed < 0 || frame.time < this.lastCommittedTime) {
       return;
     }
     const index = int(elapsed / this.interval) % this.bufferLength;
     this.videoBuffer[index].push({
       frame,
-      elapsed,
       kind: "video",
-      seq: frame.sequence,
     });
 
     this.startIfNeed();
@@ -160,4 +177,5 @@ export interface LipSyncOptions {
    * @description syncInterval * bufferingTimes=bufferTimeLength
    * */
   bufferingTimes: number;
+  fillDummyAudioPacket: Buffer;
 }
