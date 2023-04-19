@@ -177,6 +177,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
       this.createCluster(0.0, 0);
     } else if (
       (track.kind === "video" && frame.isKeyframe) ||
+      // simpleBlockのタイムスタンプはsigned 16bitだから
       elapsed > MaxSinged16Int
     ) {
       this.relativeTimestamp += elapsed;

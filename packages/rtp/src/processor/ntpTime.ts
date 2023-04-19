@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import {
   Max32Uint,
   ntpTime2Sec,
@@ -5,7 +6,7 @@ import {
   RtcpPacket,
   RtcpSrPacket,
   RtpPacket,
-} from "..";
+} from "werift-rtp";
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;
@@ -28,6 +29,8 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   elapsed = 0;
   buffer: RtpPacket[] = [];
   private internalStats = {};
+  id = randomUUID();
+  payloadType = 0;
 
   constructor(public clockRate: number) {}
 
@@ -41,6 +44,8 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
         this.latestNtpTimestamp && ntpTime2Sec(this.latestNtpTimestamp),
       bufferLength: this.buffer.length,
       elapsed: this.elapsed,
+      id: this.id,
+      clockRate: this.clockRate,
       ...this.internalStats,
     };
   }
@@ -63,6 +68,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
 
     if (rtp) {
       this.buffer.push(rtp);
+      this.payloadType = rtp.header.payloadType;
 
       const res: NtpTimeOutput[] = [];
 
@@ -107,6 +113,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       : rtpTimestamp - baseRtpTimestamp;
     const elapsedSec = elapsed / this.clockRate;
 
+    // sec
     const ntp = ntpTime2Sec(baseNtpTimestamp) + elapsedOffset + elapsedSec;
     return { ntp, elapsedSec };
   }
