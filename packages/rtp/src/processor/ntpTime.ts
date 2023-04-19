@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+
 import {
   Max32Uint,
   ntpTime2Sec,
@@ -6,7 +7,7 @@ import {
   RtcpPacket,
   RtcpSrPacket,
   RtpPacket,
-} from "werift-rtp";
+} from "..";
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;
@@ -50,8 +51,14 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
     };
   }
 
+  private stop() {
+    this.buffer = [];
+    this.internalStats = {};
+  }
+
   processInput({ rtcp, rtp, eol }: NtpTimeInput): NtpTimeOutput[] {
     if (eol) {
+      this.stop();
       return [{ eol: true }];
     }
 

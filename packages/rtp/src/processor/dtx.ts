@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
-import { CodecFrame, DepacketizerOutput, Processor } from "werift-rtp";
+
+import { CodecFrame, DepacketizerOutput } from "./depacketizer";
+import { Processor } from "./interface";
 
 export type DtxInput = DepacketizerOutput;
 
@@ -17,6 +19,7 @@ export class DtxBase implements Processor<DtxInput, DtxOutput> {
 
   processInput({ frame, eol }: DtxInput): DtxOutput[] {
     if (eol) {
+      this.stop();
       return [{ eol: true }];
     }
 
@@ -52,5 +55,9 @@ export class DtxBase implements Processor<DtxInput, DtxOutput> {
     }
 
     return [];
+  }
+
+  private stop() {
+    this.dummyPacket = undefined as any;
   }
 }

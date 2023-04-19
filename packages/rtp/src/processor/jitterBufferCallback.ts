@@ -1,18 +1,11 @@
 import {
   JitterBufferBase,
   JitterBufferInput,
-  JitterBufferOptions,
   JitterBufferOutput,
 } from "./jitterBuffer";
 
 export class JitterBufferCallback extends JitterBufferBase {
-  private cb!: (input: JitterBufferOutput) => void;
-  constructor(
-    public clockRate: number,
-    options: Partial<JitterBufferOptions> = {}
-  ) {
-    super(clockRate, options);
-  }
+  private cb?: (input: JitterBufferOutput) => void;
 
   pipe = (cb: (input: JitterBufferOutput) => void) => {
     this.cb = cb;
@@ -20,8 +13,14 @@ export class JitterBufferCallback extends JitterBufferBase {
   };
 
   input = (input: JitterBufferInput) => {
+    if (!this.cb) {
+      return;
+    }
     for (const output of this.processInput(input)) {
       this.cb(output);
+    }
+    if (input.eol) {
+      this.cb = undefined;
     }
   };
 }

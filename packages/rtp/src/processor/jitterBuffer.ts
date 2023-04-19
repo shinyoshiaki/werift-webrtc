@@ -49,6 +49,10 @@ export class JitterBufferBase
     };
   }
 
+  private stop() {
+    this.rtpBuffer = {};
+  }
+
   processInput(input: JitterBufferInput): JitterBufferOutput[] {
     const output: JitterBufferOutput[] = [];
 
@@ -59,6 +63,8 @@ export class JitterBufferBase
           output.push({ rtp });
         }
         output.push({ eol: true });
+
+        this.stop();
       }
       return output;
     }
@@ -138,7 +144,7 @@ export class JitterBufferBase
       log("buffer over flow");
       return;
     }
-    // log("pushRtpBuffer", { seq: rtp.header.sequenceNumber });
+
     this.rtpBuffer[rtp.header.sequenceNumber] = rtp;
   }
 
@@ -154,12 +160,7 @@ export class JitterBufferBase
         break;
       }
     }
-    // if (resolve.length > 0) {
-    //   log(
-    //     "resolveBuffer",
-    //     resolve.map((r) => r.header.sequenceNumber)
-    //   );
-    // }
+
     return resolve;
   }
 

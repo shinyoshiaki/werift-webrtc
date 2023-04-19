@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
-import { CodecFrame, DepacketizerOutput, Processor } from "werift-rtp";
+
+import { CodecFrame, DepacketizerOutput } from "./depacketizer";
+import { Processor } from "./interface";
 
 export type MuteInput = DepacketizerOutput;
 
@@ -65,10 +67,16 @@ export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
     }, interval);
   }
 
+  private stop() {
+    clearInterval(this.intervalId);
+    this.ended = true;
+    this.buffer = [];
+    this.output = undefined as any;
+  }
+
   processInput = ({ frame, eol }: MuteInput): MuteOutput[] => {
     if (eol) {
-      clearInterval(this.intervalId);
-      this.ended = true;
+      this.stop();
       return [{ eol: true }];
     }
 

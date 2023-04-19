@@ -27,7 +27,7 @@ export class NackHandlerBase
   readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
   retryCount = 10;
-  closed = false;
+  stopped = false;
 
   constructor(
     private senderSsrc: number,
@@ -54,7 +54,7 @@ export class NackHandlerBase
   private setLost(seq: number, count: number) {
     this._lost[seq] = count;
 
-    if (this.nackLoop || this.closed) {
+    if (this.nackLoop || this.stopped) {
       return;
     }
     this.nackLoop = setInterval(async () => {
@@ -79,7 +79,8 @@ export class NackHandlerBase
       this.addPacket(input.rtp);
       return [input];
     }
-    this.close();
+
+    this.stop();
     return [input];
   };
 
@@ -123,10 +124,12 @@ export class NackHandlerBase
     }
   }
 
-  private close() {
-    this.closed = true;
-    clearInterval(this.nackLoop);
+  private stop() {
+    this.stopped = true;
     this._lost = {};
+    clearInterval(this.nackLoop);
+    this.onPacketLost.allUnsubscribe();
+    this.onNack = undefined as any;
   }
 
   private updateRetryCount() {

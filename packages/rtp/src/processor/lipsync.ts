@@ -1,4 +1,6 @@
-import { AVProcessor, CodecFrame, int } from "werift-rtp";
+import { int } from "../../../common/src";
+import { CodecFrame } from "./depacketizer";
+import { AVProcessor } from "./interface";
 
 export type LipsyncInput = {
   frame?: CodecFrame;
@@ -110,11 +112,19 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.intervalId = setInterval(task, this.interval);
   }
 
+  private stop() {
+    this.stopped = true;
+    clearInterval(this.intervalId);
+    this.audioBuffer = [];
+    this.videoBuffer = [];
+    this.audioOutput = undefined as any;
+    this.videoOutput = undefined as any;
+  }
+
   processAudioInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
-      this.stopped = true;
       this.audioOutput({ eol });
-      clearInterval(this.intervalId);
+      this.stop();
       return;
     }
     if (this.stopped) {
@@ -141,9 +151,8 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
   processVideoInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
-      this.stopped = true;
       this.videoOutput({ eol });
-      clearInterval(this.intervalId);
+      this.stop();
       return;
     }
     if (this.stopped) {

@@ -27,5 +27,8 @@ export class RtcpSourceCallback {
       this.cb({ eol: true });
     }
     this.onStopped.execute();
+
+    this.cb = undefined;
+    this.onStopped.allUnsubscribe();
   }
 }

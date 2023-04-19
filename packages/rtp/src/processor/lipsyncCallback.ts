@@ -1,8 +1,8 @@
 import { LipsyncBase, LipSyncOptions, LipsyncOutput } from "./lipsync";
 
 export class LipsyncCallback extends LipsyncBase {
-  private audioCb!: (input: LipsyncOutput) => void;
-  private videoCb!: (input: LipsyncOutput) => void;
+  private audioCb?: (input: LipsyncOutput) => void;
+  private videoCb?: (input: LipsyncOutput) => void;
   constructor(options: Partial<LipSyncOptions> = {}) {
     super(
       (output) => {

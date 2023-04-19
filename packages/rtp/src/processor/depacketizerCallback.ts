@@ -6,7 +6,7 @@ import {
 } from "./depacketizer";
 
 export class DepacketizeCallback extends DepacketizeBase {
-  private cb!: (input: DepacketizerOutput) => void;
+  private cb?: (input: DepacketizerOutput) => void;
 
   constructor(codec: string, options: DepacketizerOptions = {}) {
     super(codec, options);
@@ -18,8 +18,14 @@ export class DepacketizeCallback extends DepacketizeBase {
   };
 
   input = (input: DepacketizerInput) => {
+    if (!this.cb) {
+      return;
+    }
     for (const output of this.processInput(input)) {
       this.cb(output);
+    }
+    if (input.eol) {
+      this.cb = undefined;
     }
   };
 }

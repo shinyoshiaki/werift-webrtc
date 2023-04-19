@@ -292,6 +292,11 @@ export class WebmBase implements AVProcessor<WebmInput> {
     ]);
 
     this.output({ eol: { duration, durationElement, header } });
+
+    this.timestamps = {};
+    this.cuePoints = [];
+    this.internalStats = {};
+    this.output = undefined as any;
   }
 }
 

@@ -16,10 +16,14 @@ export class MuteCallback extends MuteHandlerBase {
   };
 
   input = (input: MuteInput) => {
+    if (!this.cb) {
+      return;
+    }
     for (const output of this.processInput(input)) {
-      if (this.cb) {
-        this.cb(output);
-      }
+      this.cb(output);
+    }
+    if (input.eol) {
+      this.cb = undefined;
     }
   };
 }

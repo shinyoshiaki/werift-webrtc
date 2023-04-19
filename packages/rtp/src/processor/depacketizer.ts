@@ -62,6 +62,7 @@ export class DepacketizeBase
     if (!input.rtp) {
       if (input.eol) {
         output.push({ eol: true });
+        this.stop();
       }
       return output;
     }
@@ -133,6 +134,11 @@ export class DepacketizeBase
       }
     }
     return [];
+  }
+
+  private stop() {
+    this.clearBuffer();
+    this.onNeedKeyFrame.allUnsubscribe();
   }
 
   private clearBuffer() {
