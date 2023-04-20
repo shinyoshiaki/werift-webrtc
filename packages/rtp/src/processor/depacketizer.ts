@@ -43,6 +43,7 @@ export class DepacketizeBase
   private keyframeReceived = false;
   count = 0;
   readonly onNeedKeyFrame = new Event();
+  private internalStats = {};
 
   constructor(
     private codec: string,
@@ -54,6 +55,7 @@ export class DepacketizeBase
       bufferingLength: this.buffering.length,
       lastSeqNum: this.lastSeqNum,
       count: this.count,
+      stats: this.internalStats,
     };
   }
 
@@ -155,15 +157,23 @@ export class DepacketizeBase
     if (this.lastSeqNum != undefined) {
       const expect = uint16Add(this.lastSeqNum, 1);
       if (uint16Gt(expect, sequenceNumber)) {
-        log("unexpect", { expect, sequenceNumber, codec: this.codec });
-        return false;
-      }
-      if (uint16Gt(sequenceNumber, expect)) {
-        log("packet lost happened", {
+        this.internalStats["unExpect"] = {
           expect,
           sequenceNumber,
           codec: this.codec,
-        });
+          at: new Date().toISOString(),
+          count: (this.internalStats["unExpect"]?.count ?? 0) + 1,
+        };
+        return false;
+      }
+      if (uint16Gt(sequenceNumber, expect)) {
+        this.internalStats["packetLost"] = {
+          expect,
+          sequenceNumber,
+          codec: this.codec,
+          at: new Date().toISOString(),
+          count: (this.internalStats["packetLost"]?.count ?? 0) + 1,
+        };
         this.frameBroken = true;
         this.clearBuffer();
       }

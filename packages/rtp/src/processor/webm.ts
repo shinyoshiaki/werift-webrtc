@@ -1,5 +1,3 @@
-import debug from "debug";
-
 import {
   getEBMLByteLength,
   numberToByteArray,
@@ -7,9 +5,6 @@ import {
 } from "../container/ebml";
 import { SupportedCodec, WEBMBuilder } from "../container/webm";
 import { AVProcessor } from "./interface";
-
-const sourcePath = `werift-rtp : packages/rtp/src/processor/webm.ts`;
-const log = debug(sourcePath);
 
 export type WebmInput = {
   frame?: {
@@ -205,7 +200,12 @@ export class WebmBase implements AVProcessor<WebmInput> {
         elapsed,
       });
     } else {
-      log("delayed frame", { elapsed, trackNumber: track.trackNumber });
+      this.internalStats["delayed_frame"] = {
+        elapsed,
+        trackNumber: track.trackNumber,
+        timestamp: new Date().toISOString(),
+        count: (this.internalStats["delayed_frame"]?.count ?? 0) + 1,
+      };
     }
   }
 
@@ -238,11 +238,13 @@ export class WebmBase implements AVProcessor<WebmInput> {
       this.elapsed = elapsed;
     }
     if (elapsed < this.elapsed && this.options.strictTimestamp) {
-      log("previous timestamp", {
+      this.internalStats["previous_timestamp"] = {
         elapsed,
         present: this.elapsed,
         trackNumber,
-      });
+        timestamp: new Date().toISOString(),
+        count: (this.internalStats["previous_timestamp"]?.count ?? 0) + 1,
+      };
       return;
     }
     this.elapsed = elapsed;
@@ -270,8 +272,6 @@ export class WebmBase implements AVProcessor<WebmInput> {
       return;
     }
     this.stopped = true;
-
-    log("stop");
 
     const latestTimestamp = Object.values(this.timestamps)
       .sort((a, b) => a.elapsed - b.elapsed)

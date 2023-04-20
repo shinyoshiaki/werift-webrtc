@@ -1,5 +1,3 @@
-import debug from "debug";
-
 import {
   RequireAtLeastOne,
   RtpPacket,
@@ -10,9 +8,6 @@ import {
 } from "..";
 import { Processor } from "./interface";
 import { RtpOutput } from "./source";
-
-const srcPath = `werift-rtp : packages/rtp/src/processor/jitterBuffer.ts`;
-const log = debug(srcPath);
 
 export type JitterBufferInput = RtpOutput;
 
@@ -30,6 +25,7 @@ export class JitterBufferBase
   private get expectNextSeqNum() {
     return uint16Add(this.presentSeqNum!, 1);
   }
+  private internalStats = {};
 
   constructor(
     public clockRate: number,
@@ -46,6 +42,7 @@ export class JitterBufferBase
       rtpBufferLength: Object.values(this.rtpBuffer).length,
       presentSeqNum: this.presentSeqNum,
       expectNextSeqNum: this.expectNextSeqNum,
+      stats: this.internalStats,
     };
   }
 
@@ -110,7 +107,11 @@ export class JitterBufferBase
 
     // duplicate
     if (uint16Gte(this.presentSeqNum, sequenceNumber)) {
-      log("duplicate", { sequenceNumber });
+      this.internalStats["duplicate"] = {
+        count: (this.internalStats["duplicate"]?.count ?? 0) + 1,
+        sequenceNumber,
+        timestamp: new Date().toISOString(),
+      };
       return { nothing: undefined };
     }
 
@@ -141,7 +142,10 @@ export class JitterBufferBase
 
   private pushRtpBuffer(rtp: RtpPacket) {
     if (Object.values(this.rtpBuffer).length > this.options.bufferSize) {
-      log("buffer over flow");
+      this.internalStats["buffer_overflow"] = {
+        count: (this.internalStats["buffer_overflow"]?.count ?? 0) + 1,
+        timestamp: new Date().toISOString(),
+      };
       return;
     }
 
@@ -196,12 +200,14 @@ export class JitterBufferBase
           uint32Add(baseTimestamp, -timestamp) / this.clockRate;
 
         if (elapsedSec * 1000 > this.options.latency) {
-          log("timeout packet", {
+          this.internalStats["timeout_packet"] = {
+            count: (this.internalStats["timeout_packet"]?.count ?? 0) + 1,
+            at: new Date().toISOString(),
             sequenceNumber,
             elapsedSec,
             baseTimestamp,
             timestamp,
-          });
+          };
 
           if (latestTimeoutSeqNum == undefined) {
             latestTimeoutSeqNum = sequenceNumber;
