@@ -23,6 +23,7 @@ export class NackHandlerBase
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
   private nackLoop: any;
+  private internalStats = {};
 
   readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
@@ -40,6 +41,7 @@ export class NackHandlerBase
       lostLength: Object.values(this._lost).length,
       senderSsrc: this.senderSsrc,
       mediaSourceSsrc: this.mediaSourceSsrc,
+      ...this.internalStats,
     };
   }
 
@@ -145,6 +147,8 @@ export class NackHandlerBase
   private sendNack = () =>
     new Promise((r, f) => {
       if (this.lostSeqNumbers.length > 0 && this.mediaSourceSsrc) {
+        this.internalStats["count"] = (this.internalStats["count"] ?? 0) + 1;
+
         const nack = new GenericNack({
           senderSsrc: this.senderSsrc,
           mediaSourceSsrc: this.mediaSourceSsrc,

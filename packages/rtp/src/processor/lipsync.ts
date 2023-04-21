@@ -25,6 +25,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   /**ms */
   lastCommittedTime = 0;
   private intervalId?: any;
+  private internalStats = {};
 
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
@@ -43,6 +44,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       videoBufferLength: this.videoBuffer.flatMap((v) => v).length,
       baseTime: this.baseTime,
       lastCommittedTimeSec: this.lastCommittedTime / 1000,
+      ...this.internalStats,
     };
   }
 
@@ -84,6 +86,11 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
               },
               kind: "audio",
             });
+            this.internalStats["pushDummyPacket"] = {
+              count: (this.internalStats["pushDummyPacket"]?.count ?? 0) + 1,
+              at: new Date().toISOString(),
+              time,
+            };
           }
         }
         currentTimestamp += this.interval;

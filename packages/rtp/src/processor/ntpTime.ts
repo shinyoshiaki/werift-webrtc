@@ -27,7 +27,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   baseRtpTimestamp?: number;
   latestNtpTimestamp?: bigint;
   latestRtpTimestamp?: number;
-  elapsed = 0;
+  private currentElapsed = 0;
   buffer: RtpPacket[] = [];
   private internalStats = {};
   id = randomUUID();
@@ -44,7 +44,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       latestNtpTimestamp:
         this.latestNtpTimestamp && ntpTime2Sec(this.latestNtpTimestamp),
       bufferLength: this.buffer.length,
-      elapsed: this.elapsed,
+      currentElapsed: this.currentElapsed,
       id: this.id,
       clockRate: this.clockRate,
       ...this.internalStats,
@@ -119,6 +119,8 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       ? rtpTimestamp + Max32Uint - baseRtpTimestamp
       : rtpTimestamp - baseRtpTimestamp;
     const elapsedSec = elapsed / this.clockRate;
+    this.internalStats["totalElapsed"] =
+      (this.internalStats["totalElapsed"] ?? 0) + elapsedSec;
 
     // sec
     const ntp = ntpTime2Sec(baseNtpTimestamp) + elapsedOffset + elapsedSec;
@@ -141,7 +143,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       rtpTimestamp,
       baseNtpTimestamp: this.baseNtpTimestamp,
       baseRtpTimestamp: this.baseRtpTimestamp,
-      elapsedOffset: this.elapsed,
+      elapsedOffset: this.currentElapsed,
     });
     const latest = this.calcNtp({
       rtpTimestamp,
@@ -157,11 +159,11 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       // update baseNtp
       this.baseNtpTimestamp = this.latestNtpTimestamp;
       this.baseRtpTimestamp = this.latestRtpTimestamp;
-      this.elapsed = 0;
+      this.currentElapsed = 0;
       this.internalStats["calcNtp"] = latest.ntp;
       return latest.ntp;
     } else {
-      this.elapsed += base.elapsedSec;
+      this.currentElapsed += base.elapsedSec;
       this.baseRtpTimestamp = rtpTimestamp;
       this.internalStats["calcNtp"] = base.ntp;
       return base.ntp;

@@ -157,6 +157,8 @@ export class WebmBase implements AVProcessor<WebmInput> {
 
     this.internalStats["onFrameReceived_trackNumber" + frame.trackNumber] =
       new Date().toISOString();
+    this.internalStats["onFrameReceived_count"] =
+      (this.internalStats["onFrameReceived_count"] ?? 0) + 1;
 
     const timestampManager = this.timestamps[track.trackNumber];
     if (timestampManager.baseTime == undefined) {
