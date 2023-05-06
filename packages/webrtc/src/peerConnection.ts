@@ -142,6 +142,10 @@ export class RTCPeerConnection extends EventTarget {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
 
+  get extIdUriMap() {
+    return this.router.extIdUriMap;
+  }
+
   constructor(config: Partial<PeerConfig> = {}) {
     super();
 
