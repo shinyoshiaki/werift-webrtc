@@ -27,12 +27,7 @@ import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
 import * as uuid from "uuid";
 
-import {
-  bufferWriter,
-  random16,
-  uint16Add,
-  uint32Add,
-} from "../../../common/src";
+import { random16, uint16Add, uint32Add } from "../../../common/src";
 import {
   Extension,
   GenericNack,
@@ -46,8 +41,14 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
+  serializeAbsSendTime,
+  serializeRepairedRtpStreamId,
+  serializeSdesMid,
+  serializeSdesRTPStreamID,
+  serializeTransportWideCC,
   SourceDescriptionChunk,
   SourceDescriptionItem,
   TransportWideCC,
@@ -57,7 +58,6 @@ import { codecParametersFromString } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -325,7 +325,7 @@ export class RTCRtpSender {
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
 
-    const ntptime = ntpTime();
+    const ntpTimestamp = ntpTime();
 
     header.extensions = this.headerExtensions
       .map((extension) => {
@@ -333,19 +333,19 @@ export class RTCRtpSender {
           switch (extension.uri) {
             case RTP_EXTENSION_URI.sdesMid:
               if (this.mid) {
-                return Buffer.from(this.mid);
+                return serializeSdesMid(this.mid);
               }
               return;
             // todo : sender simulcast unsupported now
             case RTP_EXTENSION_URI.sdesRTPStreamID:
               if (this.rtpStreamId) {
-                return Buffer.from(this.rtpStreamId);
+                return serializeSdesRTPStreamID(this.rtpStreamId);
               }
               return;
             // todo : sender simulcast unsupported now
             case RTP_EXTENSION_URI.repairedRtpStreamId:
               if (this.repairedRtpStreamId) {
-                return Buffer.from(this.repairedRtpStreamId);
+                return serializeRepairedRtpStreamId(this.repairedRtpStreamId);
               }
               return;
             case RTP_EXTENSION_URI.transportWideCC:
@@ -353,15 +353,11 @@ export class RTCRtpSender {
                 this.dtlsTransport.transportSequenceNumber,
                 1
               );
-              return bufferWriter(
-                [2],
-                [this.dtlsTransport.transportSequenceNumber]
+              return serializeTransportWideCC(
+                this.dtlsTransport.transportSequenceNumber
               );
             case RTP_EXTENSION_URI.absSendTime:
-              const buf = Buffer.alloc(3);
-              const time = (ntptime >> 14n) & 0x00ffffffn;
-              buf.writeUIntBE(Number(time), 0, 3);
-              return buf;
+              return serializeAbsSendTime(ntpTimestamp);
           }
         })();
 
@@ -369,7 +365,7 @@ export class RTCRtpSender {
       })
       .filter((v) => v) as Extension[];
 
-    this.ntpTimestamp = ntptime;
+    this.ntpTimestamp = ntpTimestamp;
     this.rtpTimestamp = header.timestamp;
     this.octetCount += payload.length;
     this.packetCount = uint32Add(this.packetCount, 1);

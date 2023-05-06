@@ -13,14 +13,15 @@ import {
   RtcpReceiverInfo,
   RtcpRrPacket,
   RtcpSrPacket,
+  RTP_EXTENSION_URI,
   RtpPacket,
+  TransportWideCCPayload,
   unwrapRtx,
 } from "../../../rtp/src";
 import { codecParametersFromString, PeerConfig, usePLI, useTWCC } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { compactNtp, timestampSeconds } from "../utils";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
@@ -291,7 +292,8 @@ export class RTCRtpReceiver {
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
-      ] as number;
+      ] as TransportWideCCPayload;
+
       if (!transportSequenceNumber == undefined) {
         throw new Error("undefined");
       }

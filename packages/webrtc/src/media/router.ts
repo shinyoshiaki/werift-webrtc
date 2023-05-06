@@ -1,8 +1,6 @@
 import debug from "debug";
 
-import { bufferReader } from "../../../common/src";
 import {
-  Extension,
   ReceiverEstimatedMaxBitrate,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
@@ -10,9 +8,10 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RTP_EXTENSION_URI,
+  rtpHeaderExtensionsParser,
   RtpPacket,
 } from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -92,37 +91,8 @@ export class RtpRouter {
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
-  static rtpHeaderExtensionsParser(
-    extensions: Extension[],
-    extIdUriMap: { [id: number]: string }
-  ): Extensions {
-    return extensions
-      .map((extension) => {
-        const uri = extIdUriMap[extension.id];
-        switch (uri) {
-          case RTP_EXTENSION_URI.sdesMid:
-          case RTP_EXTENSION_URI.sdesRTPStreamID:
-          case RTP_EXTENSION_URI.repairedRtpStreamId:
-            return { uri, value: extension.payload.toString() };
-          case RTP_EXTENSION_URI.transportWideCC:
-            return { uri, value: extension.payload.readUInt16BE() };
-          case RTP_EXTENSION_URI.absSendTime:
-            return {
-              uri,
-              value: bufferReader(extension.payload, [3])[0],
-            };
-          default:
-            return { uri, value: 0 };
-        }
-      })
-      .reduce((acc: { [uri: string]: any }, cur) => {
-        if (cur) acc[cur.uri] = cur.value;
-        return acc;
-      }, {});
-  }
-
   routeRtp = (packet: RtpPacket) => {
-    const extensions = RtpRouter.rtpHeaderExtensionsParser(
+    const extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
       this.extIdUriMap
     );
