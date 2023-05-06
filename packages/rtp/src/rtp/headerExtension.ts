@@ -39,7 +39,7 @@ export function rtpHeaderExtensionsParser(
         case RTP_EXTENSION_URI.audioLevelIndication: {
           const stream = new BitStream(extension.payload);
           const value: AudioLevelIndicationPayload = {
-            v: stream.readBits(1),
+            v: stream.readBits(1) === 1,
             level: stream.readBits(7),
           };
           return { uri, value };
