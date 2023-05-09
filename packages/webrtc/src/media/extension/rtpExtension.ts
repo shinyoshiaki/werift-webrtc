@@ -36,3 +36,9 @@ export function useDependencyDescriptor() {
     uri: RTP_EXTENSION_URI.dependencyDescriptor,
   });
 }
+
+export function useAudioLevelIndication() {
+  return new RTCRtpHeaderExtensionParameters({
+    uri: RTP_EXTENSION_URI.audioLevelIndication,
+  });
+}
