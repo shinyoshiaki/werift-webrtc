@@ -1,7 +1,7 @@
 import { RtpTimeBase, RtpTimeInput, RtpTimeOutput } from "./rtpTime";
 
 export class RtpTimeCallback extends RtpTimeBase {
-  private cb!: (input: RtpTimeOutput) => void;
+  private cb?: (input: RtpTimeOutput) => void;
 
   constructor(clockRate: number) {
     super(clockRate);
@@ -14,7 +14,12 @@ export class RtpTimeCallback extends RtpTimeBase {
 
   input = (input: RtpTimeInput) => {
     for (const output of this.processInput(input)) {
-      this.cb(output);
+      if (this.cb) {
+        this.cb(output);
+      }
+    }
+    if (input.eol) {
+      this.cb = undefined;
     }
   };
 }

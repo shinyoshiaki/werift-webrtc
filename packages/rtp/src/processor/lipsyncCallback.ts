@@ -1,4 +1,9 @@
-import { LipsyncBase, LipSyncOptions, LipsyncOutput } from "./lipsync";
+import {
+  LipsyncBase,
+  LipsyncInput,
+  LipSyncOptions,
+  LipsyncOutput,
+} from "./lipsync";
 
 export class LipsyncCallback extends LipsyncBase {
   private audioCb?: (input: LipsyncOutput) => void;
@@ -26,6 +31,16 @@ export class LipsyncCallback extends LipsyncBase {
     this.videoCb = cb;
   };
 
-  inputAudio = this.processAudioInput;
-  inputVideo = this.processVideoInput;
+  inputAudio = (input: LipsyncInput) => {
+    this.processAudioInput(input);
+    if (input.eol) {
+      this.audioCb = undefined;
+    }
+  };
+  inputVideo = (input: LipsyncInput) => {
+    this.processVideoInput(input);
+    if (input.eol) {
+      this.videoCb = undefined;
+    }
+  };
 }

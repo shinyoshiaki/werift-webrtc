@@ -2,7 +2,7 @@ import { RtcpTransportLayerFeedback } from "../rtcp/rtpfb";
 import { NackHandlerBase, NackHandlerInput, NackHandlerOutput } from "./nack";
 
 export class NackHandlerCallback extends NackHandlerBase {
-  private cb!: (input: NackHandlerOutput) => void;
+  private cb?: (input: NackHandlerOutput) => void;
   constructor(
     senderSsrc: number,
     onNack: (rtcp: RtcpTransportLayerFeedback) => Promise<void>
@@ -17,7 +17,12 @@ export class NackHandlerCallback extends NackHandlerBase {
 
   input = (input: NackHandlerInput) => {
     for (const output of this.processInput(input)) {
-      this.cb(output);
+      if (this.cb) {
+        this.cb(output);
+      }
+    }
+    if (input.eol) {
+      this.cb = undefined;
     }
   };
 }
