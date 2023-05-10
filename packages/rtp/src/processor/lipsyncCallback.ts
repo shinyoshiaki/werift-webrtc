@@ -7,7 +7,9 @@ import {
 
 export class LipsyncCallback extends LipsyncBase {
   private audioCb?: (input: LipsyncOutput) => void;
+  private audioDestructor?: () => void;
   private videoCb?: (input: LipsyncOutput) => void;
+  private videoDestructor?: () => void;
   constructor(options: Partial<LipSyncOptions> = {}) {
     super(
       (output) => {
@@ -24,23 +26,32 @@ export class LipsyncCallback extends LipsyncBase {
     );
   }
 
-  pipeAudio = (cb: (input: LipsyncOutput) => void) => {
+  pipeAudio = (cb: (input: LipsyncOutput) => void, destructor?: () => void) => {
     this.audioCb = cb;
+    this.audioDestructor = destructor;
   };
-  pipeVideo = (cb: (input: LipsyncOutput) => void) => {
+  pipeVideo = (cb: (input: LipsyncOutput) => void, destructor?: () => void) => {
     this.videoCb = cb;
+    this.videoDestructor = destructor;
   };
 
   inputAudio = (input: LipsyncInput) => {
     this.processAudioInput(input);
-    if (input.eol) {
-      this.audioCb = undefined;
-    }
   };
   inputVideo = (input: LipsyncInput) => {
     this.processVideoInput(input);
-    if (input.eol) {
-      this.videoCb = undefined;
-    }
   };
+
+  destroy() {
+    if (this.audioDestructor) {
+      this.audioDestructor();
+      this.audioDestructor = undefined;
+    }
+    if (this.videoDestructor) {
+      this.videoDestructor();
+      this.videoDestructor = undefined;
+    }
+    this.audioCb = undefined;
+    this.videoCb = undefined;
+  }
 }

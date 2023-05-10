@@ -45,18 +45,15 @@ export class WebmCallback extends WebmBase {
 
   inputAudio = (input: WebmInput) => {
     this.processAudioInput(input);
-    if (input.eol) {
-      this.cb = undefined;
-      this.queue.cancel();
-    }
   };
   inputVideo = (input: WebmInput) => {
     this.processVideoInput(input);
-    if (input.eol) {
-      this.cb = undefined;
-      this.queue.cancel();
-    }
   };
+
+  destroy() {
+    this.cb = undefined;
+    this.queue.cancel();
+  }
 }
 
 export const saveToFileSystem = (path: string) => async (value: WebmOutput) => {
