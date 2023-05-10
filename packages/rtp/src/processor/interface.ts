@@ -26,12 +26,12 @@ export const SimpleProcessorCallbackBase = <
   Base: TBase
 ) => {
   return class extends Base implements SimpleProcessorCallback<Input, Output> {
-    cb?: (o: Output) => void;
-    destructor?: () => void;
+    _cb?: (o: Output) => void;
+    _destructor?: () => void;
 
     pipe = (cb: (o: Output) => void, destructor?: () => void) => {
-      this.cb = cb;
-      this.destructor = destructor;
+      this._cb = cb;
+      this._destructor = destructor;
       cb = undefined as any;
       destructor = undefined;
       return this;
@@ -39,18 +39,18 @@ export const SimpleProcessorCallbackBase = <
 
     input = (input: Input) => {
       for (const output of this.processInput(input)) {
-        if (this.cb) {
-          this.cb(output);
+        if (this._cb) {
+          this._cb(output);
         }
       }
     };
 
     destroy = () => {
-      if (this.destructor) {
-        this.destructor();
-        this.destructor = undefined;
+      if (this._destructor) {
+        this._destructor();
+        this._destructor = undefined;
       }
-      this.cb = undefined;
+      this._cb = undefined;
     };
   };
 };
