@@ -1,5 +1,3 @@
-import memoize from "lodash/memoize";
-
 import {
   float32bit,
   numberToByteArray,
@@ -54,23 +52,23 @@ export class Element implements EBMLData {
   }
 }
 
-export const bytes = memoize((data: Uint8Array): Value => {
+export const bytes = (data: Uint8Array): Value => {
   return new Value(data);
-});
+};
 
-export const number = memoize((num: number): Value => {
+export const number = (num: number): Value => {
   return bytes(numberToByteArray(num));
-});
+};
 
-export const float = memoize((num: number): Value => bytes(float32bit(num)));
+export const float = (num: number): Value => bytes(float32bit(num));
 
-export const vintEncodedNumber = memoize((num: number): Value => {
+export const vintEncodedNumber = (num: number): Value => {
   return bytes(vintEncode(numberToByteArray(num, getEBMLByteLength(num))));
-});
+};
 
-export const string = memoize((str: string): Value => {
+export const string = (str: string): Value => {
   return bytes(stringToByteArray(str));
-});
+};
 
 export const element = (
   id: Uint8Array,
