@@ -1,20 +1,8 @@
+import { SimpleProcessorCallbackBase } from "./interface";
 import { RtpTimeBase, RtpTimeInput, RtpTimeOutput } from "./rtpTime";
 
-export class RtpTimeCallback extends RtpTimeBase {
-  private cb!: (input: RtpTimeOutput) => void;
-
-  constructor(clockRate: number) {
-    super(clockRate);
-  }
-
-  pipe = (cb: (input: RtpTimeOutput) => void) => {
-    this.cb = cb;
-    return this;
-  };
-
-  input = (input: RtpTimeInput) => {
-    for (const output of this.processInput(input)) {
-      this.cb(output);
-    }
-  };
-}
+export class RtpTimeCallback extends SimpleProcessorCallbackBase<
+  RtpTimeInput,
+  RtpTimeOutput,
+  typeof RtpTimeBase
+>(RtpTimeBase) {}

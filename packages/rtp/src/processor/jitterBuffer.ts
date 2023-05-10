@@ -7,7 +7,7 @@ import {
   uint32Gt,
 } from "..";
 import { Processor } from "./interface";
-import { RtpOutput } from "./source";
+import { RtpOutput } from "./rtpCallback";
 
 export type JitterBufferInput = RtpOutput;
 

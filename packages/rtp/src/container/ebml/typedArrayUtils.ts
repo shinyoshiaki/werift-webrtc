@@ -1,5 +1,3 @@
-import memoize from "lodash/memoize";
-
 export const numberToByteArray = (
   num: number,
   byteLength: number = getNumberByteLength(num)
@@ -48,9 +46,9 @@ export const numberToByteArray = (
   return new Uint8Array(byteArray.buffer);
 };
 
-export const stringToByteArray = memoize((str: string): Uint8Array => {
+export const stringToByteArray = (str: string): Uint8Array => {
   return Uint8Array.from(Array.from(str).map((_) => _.codePointAt(0)!));
-});
+};
 
 export function getNumberByteLength(num: number | bigint): number {
   if (num < 0) {
@@ -78,17 +76,17 @@ export function getNumberByteLength(num: number | bigint): number {
   }
 }
 
-export const int16Bit = memoize((num: number): Uint8Array => {
+export const int16Bit = (num: number): Uint8Array => {
   const ab = new ArrayBuffer(2);
   new DataView(ab).setInt16(0, num);
   return new Uint8Array(ab);
-});
+};
 
-export const float32bit = memoize((num: number): Uint8Array => {
+export const float32bit = (num: number): Uint8Array => {
   const ab = new ArrayBuffer(4);
   new DataView(ab).setFloat32(0, num);
   return new Uint8Array(ab);
-});
+};
 
 export const dumpBytes = (b: ArrayBuffer): string => {
   return Array.from(new Uint8Array(b))

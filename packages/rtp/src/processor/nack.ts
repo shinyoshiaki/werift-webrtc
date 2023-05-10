@@ -7,7 +7,7 @@ import { RtcpTransportLayerFeedback } from "../rtcp/rtpfb";
 import { GenericNack } from "../rtcp/rtpfb/nack";
 import { RtpPacket } from "../rtp/rtp";
 import { Processor } from "./interface";
-import { RtpOutput } from "./source";
+import { RtpOutput } from "./rtpCallback";
 
 const log = debug("werift-rtp : packages/rtp/src/processor/nack.ts");
 

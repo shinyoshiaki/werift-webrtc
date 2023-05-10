@@ -1,15 +1,20 @@
 import Event from "rx.mini";
 
-import { RtpPacket } from "../../rtp/rtp";
+import { RtpPacket } from "../rtp/rtp";
+import { SimpleProcessorCallback } from "./interface";
+
+export type RtpInput = Buffer | RtpPacket;
 
 export interface RtpOutput {
   rtp?: RtpPacket;
   eol?: boolean;
 }
 
-export class RtpSourceCallback {
+export class RtpSourceCallback
+  implements SimpleProcessorCallback<RtpInput, RtpOutput>
+{
   private cb?: (chunk: RtpOutput) => void;
-
+  private destructor?: () => void;
   onStopped = new Event();
 
   constructor(
@@ -21,8 +26,10 @@ export class RtpSourceCallback {
     options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
   }
 
-  pipe(cb: (chunk: RtpOutput) => void) {
+  pipe(cb: (chunk: RtpOutput) => void, destructor?: () => void) {
     this.cb = cb;
+    this.destructor = destructor;
+    return this;
   }
 
   input = (packet: Buffer | RtpPacket) => {
@@ -49,8 +56,14 @@ export class RtpSourceCallback {
       this.cb({ eol: true });
     }
     this.onStopped.execute();
+  }
 
+  destroy = () => {
+    if (this.destructor) {
+      this.destructor();
+      this.destructor = undefined;
+    }
     this.cb = undefined;
     this.onStopped.allUnsubscribe();
-  }
+  };
 }

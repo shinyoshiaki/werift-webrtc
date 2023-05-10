@@ -7,12 +7,13 @@ import {
   replaceSegmentSize,
   SegmentSizePosition,
   WebmBase,
+  WebmInput,
   WebmOption,
   WebmOutput,
 } from "./webm";
 
 export class WebmCallback extends WebmBase {
-  private cb!: (input: WebmOutput) => Promise<void>;
+  private cb?: (input: WebmOutput) => Promise<void>;
   private queue = new PromiseQueue();
   constructor(
     tracks: {
@@ -28,8 +29,9 @@ export class WebmCallback extends WebmBase {
     super(
       tracks,
       (output) => {
-        if (this.cb) {
-          this.queue.push(() => this.cb(output));
+        const cb = this.cb;
+        if (cb) {
+          this.queue.push(() => cb(output));
         }
       },
       options
@@ -41,8 +43,17 @@ export class WebmCallback extends WebmBase {
     this.start();
   };
 
-  inputAudio = this.processAudioInput;
-  inputVideo = this.processVideoInput;
+  inputAudio = (input: WebmInput) => {
+    this.processAudioInput(input);
+  };
+  inputVideo = (input: WebmInput) => {
+    this.processVideoInput(input);
+  };
+
+  destroy() {
+    this.cb = undefined;
+    this.queue.cancel();
+  }
 }
 
 export const saveToFileSystem = (path: string) => async (value: WebmOutput) => {

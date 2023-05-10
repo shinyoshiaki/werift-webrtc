@@ -1,3 +1,5 @@
+import Event from "rx.mini";
+
 import {
   getEBMLByteLength,
   numberToByteArray,
@@ -49,6 +51,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
   stopped = false;
   videoKeyframeReceived = false;
   internalStats = {};
+  onStopped = new Event();
 
   constructor(
     public tracks: {
@@ -299,6 +302,8 @@ export class WebmBase implements AVProcessor<WebmInput> {
     this.cuePoints = [];
     this.internalStats = {};
     this.output = undefined as any;
+
+    this.onStopped.execute();
   }
 }
 
