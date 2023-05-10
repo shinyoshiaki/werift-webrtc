@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import { RtpPacket } from "../../rtp/rtp";
+import { RtpPacket } from "../rtp/rtp";
 
 export interface RtpOutput {
   rtp?: RtpPacket;

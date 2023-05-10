@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import { RtcpPacket } from "../../rtcp/rtcp";
+import { RtcpPacket } from "../rtcp/rtcp";
 
 export interface RtcpOutput {
   rtcp?: RtcpPacket;
