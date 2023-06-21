@@ -131,7 +131,7 @@ export const flight2 =
 
     cipher.localKeyPair = generateKeyPair(cipher.namedCurve);
 
-    dtls.cookie = randomBytes(20);
+    dtls.cookie ||= randomBytes(20);
     const helloVerifyReq = new ServerHelloVerifyRequest(
       {
         major: 255 - 1,
