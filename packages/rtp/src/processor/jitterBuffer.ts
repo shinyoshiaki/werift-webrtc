@@ -39,10 +39,10 @@ export class JitterBufferBase
 
   toJSON() {
     return {
+      ...this.internalStats,
       rtpBufferLength: Object.values(this.rtpBuffer).length,
       presentSeqNum: this.presentSeqNum,
       expectNextSeqNum: this.expectNextSeqNum,
-      stats: this.internalStats,
     };
   }
 
@@ -80,12 +80,14 @@ export class JitterBufferBase
           output.push({ rtp });
         }
       }
+      this.internalStats["jitterBuffer"] = new Date().toISOString();
       return output;
     } else {
       if (packets) {
         for (const rtp of packets) {
           output.push({ rtp });
         }
+        this.internalStats["jitterBuffer"] = new Date().toISOString();
         return output;
       }
       return [];

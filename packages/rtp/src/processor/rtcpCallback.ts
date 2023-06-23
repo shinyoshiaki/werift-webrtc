@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import { RtcpPacket } from "../rtcp/rtcp";
+import { RtcpPacket } from "..";
 import { SimpleProcessorCallback } from "./interface";
 
 export type RtcpInput = RtcpPacket;
@@ -16,6 +16,10 @@ export class RtcpSourceCallback
   private cb?: (chunk: RtcpOutput) => void;
   private destructor?: () => void;
   onStopped = new Event();
+
+  toJSON() {
+    return {};
+  }
 
   pipe(cb: (chunk: RtcpOutput) => void, destructor?: () => void) {
     this.cb = cb;

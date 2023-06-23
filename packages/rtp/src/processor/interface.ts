@@ -16,6 +16,7 @@ export interface SimpleProcessorCallback<Input = any, Output = any> {
   ) => SimpleProcessorCallback<Input, Output>;
   input: (input: Input) => void;
   destroy: () => void;
+  toJSON(): Record<string, any>;
 }
 
 export const SimpleProcessorCallbackBase = <
@@ -26,12 +27,12 @@ export const SimpleProcessorCallbackBase = <
   Base: TBase
 ) => {
   return class extends Base implements SimpleProcessorCallback<Input, Output> {
-    _cb?: (o: Output) => void;
-    _destructor?: () => void;
+    cb?: (o: Output) => void;
+    destructor?: () => void;
 
     pipe = (cb: (o: Output) => void, destructor?: () => void) => {
-      this._cb = cb;
-      this._destructor = destructor;
+      this.cb = cb;
+      this.destructor = destructor;
       cb = undefined as any;
       destructor = undefined;
       return this;
@@ -39,18 +40,18 @@ export const SimpleProcessorCallbackBase = <
 
     input = (input: Input) => {
       for (const output of this.processInput(input)) {
-        if (this._cb) {
-          this._cb(output);
+        if (this.cb) {
+          this.cb(output);
         }
       }
     };
 
     destroy = () => {
-      if (this._destructor) {
-        this._destructor();
-        this._destructor = undefined;
+      if (this.destructor) {
+        this.destructor();
+        this.destructor = undefined;
       }
-      this._cb = undefined;
+      this.cb = undefined;
     };
   };
 };

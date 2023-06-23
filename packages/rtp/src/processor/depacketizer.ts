@@ -1,9 +1,14 @@
 import debug from "debug";
 import Event from "rx.mini";
 
-import { RtpHeader, RtpPacket, uint16Add, uint16Gt } from "..";
-import { dePacketizeRtpPackets } from "../codec";
-import { enumerate } from "../helper";
+import {
+  dePacketizeRtpPackets,
+  enumerate,
+  RtpHeader,
+  RtpPacket,
+  uint16Add,
+  uint16Gt,
+} from "..";
 import { Processor } from "./interface";
 
 const path = `werift-rtp : packages/rtp/src/processor/depacketizer.ts`;
@@ -41,7 +46,7 @@ export class DepacketizeBase
   private lastSeqNum?: number;
   private frameBroken = false;
   private keyframeReceived = false;
-  count = 0;
+  private count = 0;
   readonly onNeedKeyFrame = new Event();
   private internalStats = {};
 
@@ -52,10 +57,11 @@ export class DepacketizeBase
 
   toJSON(): Record<string, any> {
     return {
+      ...this.internalStats,
+      codec: this.codec,
       bufferingLength: this.buffering.length,
       lastSeqNum: this.lastSeqNum,
       count: this.count,
-      stats: this.internalStats,
     };
   }
 
@@ -100,6 +106,7 @@ export class DepacketizeBase
                 timestamp,
               },
             });
+            this.internalStats["depacketizer"] = new Date().toISOString();
           }
 
           if (this.frameBroken) {
@@ -130,6 +137,7 @@ export class DepacketizeBase
             timestamp,
           },
         });
+        this.internalStats["depacketizer"] = new Date().toISOString();
         return output;
       } catch (error) {
         log("error", error, { input, codec: this.codec });
@@ -167,13 +175,19 @@ export class DepacketizeBase
         return false;
       }
       if (uint16Gt(sequenceNumber, expect)) {
-        this.internalStats["packetLost"] = {
+        this.internalStats["packetLost"] ??= [];
+        if (this.internalStats["packetLost"].length > 10) {
+          this.internalStats["packetLost"].shift();
+        }
+        this.internalStats["packetLost"].push({
           expect,
           sequenceNumber,
           codec: this.codec,
           at: new Date().toISOString(),
-          count: (this.internalStats["packetLost"]?.count ?? 0) + 1,
-        };
+        });
+        this.internalStats["packetLostCount"] ??= 0;
+        this.internalStats["packetLostCount"]++;
+
         this.frameBroken = true;
         this.clearBuffer();
       }

@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import { RtpPacket } from "../rtp/rtp";
+import { RtpPacket } from "..";
 import { SimpleProcessorCallback } from "./interface";
 
 export type RtpInput = Buffer | RtpPacket;
@@ -16,14 +16,22 @@ export class RtpSourceCallback
   private cb?: (chunk: RtpOutput) => void;
   private destructor?: () => void;
   onStopped = new Event();
+  stats = {};
+  buffer: RtpPacket[] = [];
+  bufferFulfilled = false;
 
   constructor(
     private options: {
       payloadType?: number;
       clearInvalidPTPacket?: boolean;
+      initialBufferLength?: number;
     } = {}
   ) {
     options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
+  }
+
+  toJSON() {
+    return { ...this.stats };
   }
 
   pipe(cb: (chunk: RtpOutput) => void, destructor?: () => void) {
@@ -46,8 +54,31 @@ export class RtpSourceCallback
       return;
     }
 
-    if (this.cb) {
-      this.cb({ rtp });
+    this.stats["rtpSource"] =
+      new Date().toISOString() +
+      " timestamp:" +
+      rtp?.header.timestamp +
+      " seq:" +
+      rtp?.header.sequenceNumber;
+
+    const cb = this.cb;
+    if (cb) {
+      if (this.options.initialBufferLength) {
+        if (this.bufferFulfilled) {
+          cb({ rtp });
+          return;
+        }
+        this.buffer.push(rtp);
+        if (this.buffer.length > this.options.initialBufferLength) {
+          this.buffer.forEach((rtp) => {
+            cb({ rtp });
+          });
+          this.buffer = [];
+          this.bufferFulfilled = true;
+        }
+      } else {
+        cb({ rtp });
+      }
     }
   };
 

@@ -1,7 +1,6 @@
 import { appendFile, open, stat } from "fs/promises";
 
-import { PromiseQueue } from "../../../common/src";
-import { SupportedCodec } from "../container/webm";
+import { PromiseQueue, SupportedCodec } from "..";
 import {
   DurationPosition,
   replaceSegmentSize,
@@ -28,10 +27,10 @@ export class WebmCallback extends WebmBase {
   ) {
     super(
       tracks,
-      (output) => {
+      async (output) => {
         const cb = this.cb;
         if (cb) {
-          this.queue.push(() => cb(output));
+          await this.queue.push(() => cb(output));
         }
       },
       options
@@ -50,10 +49,10 @@ export class WebmCallback extends WebmBase {
     this.processVideoInput(input);
   };
 
-  destroy() {
+  destroy = () => {
     this.cb = undefined;
     this.queue.cancel();
-  }
+  };
 }
 
 export const saveToFileSystem = (path: string) => async (value: WebmOutput) => {

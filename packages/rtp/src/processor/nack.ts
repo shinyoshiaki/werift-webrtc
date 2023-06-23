@@ -2,10 +2,13 @@ import debug from "debug";
 import range from "lodash/range";
 import Event from "rx.mini";
 
-import { uint16Add } from "../../../common/src";
-import { RtcpTransportLayerFeedback } from "../rtcp/rtpfb";
-import { GenericNack } from "../rtcp/rtpfb/nack";
-import { RtpPacket } from "../rtp/rtp";
+import {
+  GenericNack,
+  RtcpTransportLayerFeedback,
+  RtpPacket,
+  timer,
+  uint16Add,
+} from "..";
 import { Processor } from "./interface";
 import { RtpOutput } from "./rtpCallback";
 
@@ -22,12 +25,13 @@ export class NackHandlerBase
 {
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
-  private nackLoop: any;
+  private clearNackInterval?: () => void;
   private internalStats = {};
 
-  readonly onPacketLost = new Event<[GenericNack]>();
+  readonly onNackSent = new Event<[GenericNack]>();
+  readonly onPacketLost = new Event<[number]>();
   mediaSourceSsrc?: number;
-  retryCount = 10;
+  readonly retryCount = 10;
   stopped = false;
 
   constructor(
@@ -37,11 +41,11 @@ export class NackHandlerBase
 
   toJSON(): Record<string, any> {
     return {
+      ...this.internalStats,
       newEstSeqNum: this.newEstSeqNum,
       lostLength: Object.values(this._lost).length,
       senderSsrc: this.senderSsrc,
       mediaSourceSsrc: this.mediaSourceSsrc,
-      ...this.internalStats,
     };
   }
 
@@ -56,15 +60,15 @@ export class NackHandlerBase
   private setLost(seq: number, count: number) {
     this._lost[seq] = count;
 
-    if (this.nackLoop || this.stopped) {
+    if (this.clearNackInterval || this.stopped) {
       return;
     }
-    this.nackLoop = setInterval(async () => {
+    this.clearNackInterval = timer.setInterval(async () => {
       try {
         await this.sendNack();
         if (!Object.keys(this._lost).length) {
-          clearInterval(this.nackLoop);
-          this.nackLoop = undefined;
+          this.clearNackInterval?.();
+          this.clearNackInterval = undefined;
         }
       } catch (error) {
         log("failed to send nack", error);
@@ -79,6 +83,7 @@ export class NackHandlerBase
   processInput = (input: RtpOutput) => {
     if (input.rtp) {
       this.addPacket(input.rtp);
+      this.internalStats["nackHandler"] = new Date().toISOString();
       return [input];
     }
 
@@ -129,7 +134,8 @@ export class NackHandlerBase
   private stop() {
     this.stopped = true;
     this._lost = {};
-    clearInterval(this.nackLoop);
+    this.clearNackInterval?.();
+    this.onNackSent.allUnsubscribe();
     this.onPacketLost.allUnsubscribe();
     this.onNack = undefined as any;
   }
@@ -139,7 +145,7 @@ export class NackHandlerBase
       const count = this._lost[seq]++;
       if (count > this.retryCount) {
         this.removeLost(seq);
-        return seq;
+        this.onPacketLost.execute(seq);
       }
     });
   }
@@ -161,7 +167,7 @@ export class NackHandlerBase
         this.onNack(rtcp).then(r).catch(f);
 
         this.updateRetryCount();
-        this.onPacketLost.execute(nack);
+        this.onNackSent.execute(nack);
       }
     });
 }
