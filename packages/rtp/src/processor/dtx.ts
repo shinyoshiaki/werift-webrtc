@@ -11,10 +11,11 @@ export class DtxBase implements Processor<DtxInput, DtxOutput> {
   readonly id = randomUUID();
   previousTimestamp?: number;
   private fillCount = 0;
+  private internalStats = {};
   constructor(public ptime: number, private dummyPacket: Buffer) {}
 
   toJSON(): Record<string, any> {
-    return { id: this.id, fillCount: this.fillCount };
+    return { ...this.internalStats, id: this.id, fillCount: this.fillCount };
   }
 
   processInput({ frame, eol }: DtxInput): DtxOutput[] {
@@ -26,6 +27,7 @@ export class DtxBase implements Processor<DtxInput, DtxOutput> {
     if (frame) {
       if (!this.previousTimestamp) {
         this.previousTimestamp = frame.time;
+        this.internalStats["dtx"] = new Date().toISOString();
         return [{ frame }];
       }
 
@@ -47,9 +49,11 @@ export class DtxBase implements Processor<DtxInput, DtxOutput> {
         }
 
         this.previousTimestamp = frame.time;
+        this.internalStats["dtx"] = new Date().toISOString();
         return [...dummyPackets, { frame }];
       } else {
         this.previousTimestamp = frame.time;
+        this.internalStats["dtx"] = new Date().toISOString();
         return [{ frame }];
       }
     }

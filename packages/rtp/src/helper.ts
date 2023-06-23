@@ -11,3 +11,17 @@ export function growBufferSize(buf: Buffer, size: number) {
 export function Int(v: number) {
   return parseInt(v.toString(), 10);
 }
+
+export const timer = {
+  setTimeout: (...args: Parameters<typeof setTimeout>) => {
+    const id = setTimeout(...args);
+    return () => clearTimeout(id);
+  },
+  setInterval: (...args: Parameters<typeof setInterval>) => {
+    const id = setInterval(() => {
+      args[0]();
+      //@ts-ignore
+    }, ...args.slice(1));
+    return () => clearInterval(id);
+  },
+};

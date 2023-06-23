@@ -3,9 +3,10 @@ import Event from "rx.mini";
 import {
   getEBMLByteLength,
   numberToByteArray,
+  SupportedCodec,
   vintEncode,
-} from "../container/ebml";
-import { SupportedCodec, WEBMBuilder } from "../container/webm";
+  WEBMBuilder,
+} from "..";
 import { AVProcessor } from "./interface";
 
 export type WebmInput = {
@@ -45,6 +46,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
   private cuePoints: CuePoint[] = [];
   private position = 0;
   private clusterCounts = 0;
+  /**ms */
   elapsed?: number;
   audioStopped = false;
   videoStopped = false;
@@ -57,7 +59,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
     public tracks: {
       width?: number;
       height?: number;
-      kind: "audio" | "video";
+      kind: MediaKind;
       codec: SupportedCodec;
       clockRate: number;
       trackNumber: number;
@@ -73,11 +75,19 @@ export class WebmBase implements AVProcessor<WebmInput> {
   }
 
   toJSON(): Record<string, any> {
-    return { ...this.internalStats };
+    return {
+      ...this.internalStats,
+      videoKeyframeReceived: this.videoKeyframeReceived,
+      videoStopped: this.videoStopped,
+      audioStopped: this.audioStopped,
+      stopped: this.stopped,
+    };
   }
 
   private processInput(input: WebmInput, trackNumber: number) {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
     const track = this.tracks.find((t) => t.trackNumber === trackNumber);
     if (!track) {
@@ -100,7 +110,6 @@ export class WebmBase implements AVProcessor<WebmInput> {
           }
         }
       } else if (input.eol) {
-        this.internalStats["input.eol"] = new Date().toISOString();
         this.stop();
       }
 
@@ -127,6 +136,9 @@ export class WebmBase implements AVProcessor<WebmInput> {
   processVideoInput = (input: WebmInput) => {
     if (input.frame?.isKeyframe) {
       this.videoKeyframeReceived = true;
+    }
+    if (!this.videoKeyframeReceived && input?.frame?.isKeyframe !== true) {
+      return;
     }
 
     const track = this.tracks.find((t) => t.kind === "video");
@@ -252,6 +264,16 @@ export class WebmBase implements AVProcessor<WebmInput> {
       };
       return;
     }
+    if (elapsed > this.elapsed + 1000) {
+      const key = "maybe_packetLost-" + trackNumber;
+      this.internalStats[key] = {
+        elapsed,
+        present: this.elapsed,
+        trackNumber,
+        timestamp: new Date().toISOString(),
+        count: (this.internalStats[key]?.count ?? 0) + 1,
+      };
+    }
     this.elapsed = elapsed;
 
     const block = this.builder.createSimpleBlock(
@@ -272,11 +294,14 @@ export class WebmBase implements AVProcessor<WebmInput> {
     }
   }
 
-  private stop() {
+  stop() {
     if (this.stopped) {
       return;
     }
+    this.videoStopped = true;
+    this.audioStopped = true;
     this.stopped = true;
+    this.internalStats["stopped"] = new Date().toISOString();
 
     const latestTimestamp = Object.values(this.timestamps)
       .sort((a, b) => a.elapsed - b.elapsed)
@@ -386,3 +411,5 @@ export function replaceSegmentSize(totalFileSize: number) {
   }
   return Buffer.from(resize);
 }
+
+export type MediaKind = "video" | "audio";

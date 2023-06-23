@@ -19,6 +19,7 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const output = `./output-${Date.now()}.webm`;
+  console.log("connected", output);
   const pc = new RTCPeerConnection();
 
   const webm = new WebmCallback(
@@ -46,8 +47,9 @@ server.on("connection", async (socket) => {
   const audioRtcp = new RtcpSourceCallback();
   const videoRtcp = new RtcpSourceCallback();
   const lipsync = new LipsyncCallback({
-    syncInterval: 1000,
-    bufferingTimes: 10,
+    syncInterval: 3000,
+    bufferLength: 5,
+    fillDummyAudioPacket: Buffer.from([0xf8, 0xff, 0xfe]),
   });
 
   {
@@ -63,7 +65,7 @@ server.on("connection", async (socket) => {
   }
   {
     const jitterBuffer = new JitterBufferCallback(90000);
-    const ntpTime = new NtpTimeCallback(90000);
+    const ntpTime = new NtpTimeCallback(jitterBuffer.clockRate);
     const depacketizer = new DepacketizeCallback("vp8", {
       isFinalPacketInSequence: (h) => h.marker,
     });
@@ -115,5 +117,5 @@ server.on("connection", async (socket) => {
     audio.stop();
     video.stop();
     await pc.close();
-  }, 60_000 * 60 * 2);
+  }, 20_000);
 });

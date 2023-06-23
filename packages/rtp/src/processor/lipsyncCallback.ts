@@ -42,7 +42,7 @@ export class LipsyncCallback extends LipsyncBase {
     this.processVideoInput(input);
   };
 
-  destroy() {
+  destroy = () => {
     if (this.audioDestructor) {
       this.audioDestructor();
       this.audioDestructor = undefined;
@@ -53,5 +53,5 @@ export class LipsyncCallback extends LipsyncBase {
     }
     this.audioCb = undefined;
     this.videoCb = undefined;
-  }
+  };
 }

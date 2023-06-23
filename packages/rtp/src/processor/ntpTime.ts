@@ -23,20 +23,22 @@ export interface NtpTimeOutput {
 }
 
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
-  baseNtpTimestamp?: bigint;
-  baseRtpTimestamp?: number;
-  latestNtpTimestamp?: bigint;
-  latestRtpTimestamp?: number;
+  readonly id = randomUUID();
+  private baseNtpTimestamp?: bigint;
+  private baseRtpTimestamp?: number;
+  private latestNtpTimestamp?: bigint;
+  private latestRtpTimestamp?: number;
   private currentElapsed = 0;
-  buffer: RtpPacket[] = [];
+  private buffer: RtpPacket[] = [];
   private internalStats = {};
-  id = randomUUID();
-  payloadType = 0;
+  started = false;
 
   constructor(public clockRate: number) {}
 
   toJSON(): Record<string, any> {
     return {
+      ...this.internalStats,
+      id: this.id,
       baseRtpTimestamp: this.baseRtpTimestamp,
       latestRtpTimestamp: this.latestRtpTimestamp,
       baseNtpTimestamp:
@@ -45,9 +47,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
         this.latestNtpTimestamp && ntpTime2Sec(this.latestNtpTimestamp),
       bufferLength: this.buffer.length,
       currentElapsed: this.currentElapsed,
-      id: this.id,
       clockRate: this.clockRate,
-      ...this.internalStats,
     };
   }
 
@@ -71,25 +71,36 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
         this.baseNtpTimestamp = ntpTimestamp;
         this.baseRtpTimestamp = rtpTimestamp;
       }
+
+      this.internalStats["ntpReceived"] = new Date().toISOString();
+      this.started = true;
     }
 
     if (rtp) {
       this.buffer.push(rtp);
-      this.payloadType = rtp.header.payloadType;
+      this.internalStats["payloadType"] = rtp.header.payloadType;
 
       const res: NtpTimeOutput[] = [];
 
-      this.buffer = this.buffer
-        .map((rtp) => {
-          const ntp = this.updateNtp(rtp.header.timestamp);
-          if (ntp != undefined) {
-            const ms = ntp * 1000;
-            res.push({ rtp, time: Math.round(ms) });
-            return undefined;
-          }
-          return rtp;
-        })
-        .filter((r): r is NonNullable<typeof r> => r != undefined);
+      if (
+        this.baseRtpTimestamp == undefined ||
+        this.baseNtpTimestamp == undefined ||
+        this.latestNtpTimestamp == undefined ||
+        this.latestRtpTimestamp == undefined
+      ) {
+        return [];
+      }
+
+      for (const rtp of this.buffer) {
+        const ntp = this.updateNtp(rtp.header.timestamp);
+        const ms = ntp * 1000;
+        const time = Math.round(ms);
+        res.push({ rtp, time });
+
+        this.internalStats["timeSource"] =
+          new Date().toISOString() + " time:" + time;
+      }
+      this.buffer = [];
       return res;
     }
 
@@ -119,8 +130,6 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       ? rtpTimestamp + Max32Uint - baseRtpTimestamp
       : rtpTimestamp - baseRtpTimestamp;
     const elapsedSec = elapsed / this.clockRate;
-    this.internalStats["totalElapsed"] =
-      (this.internalStats["totalElapsed"] ?? 0) + elapsedSec;
 
     // sec
     const ntp = ntpTime2Sec(baseNtpTimestamp) + elapsedOffset + elapsedSec;
@@ -128,27 +137,18 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   }
 
   private updateNtp(rtpTimestamp: number) {
-    if (
-      this.baseRtpTimestamp == undefined ||
-      this.baseNtpTimestamp == undefined ||
-      this.latestNtpTimestamp == undefined ||
-      this.latestRtpTimestamp == undefined
-    ) {
-      return;
-    }
-
     this.internalStats["inputRtp"] = rtpTimestamp;
 
     const base = this.calcNtp({
       rtpTimestamp,
-      baseNtpTimestamp: this.baseNtpTimestamp,
-      baseRtpTimestamp: this.baseRtpTimestamp,
+      baseNtpTimestamp: this.baseNtpTimestamp!,
+      baseRtpTimestamp: this.baseRtpTimestamp!,
       elapsedOffset: this.currentElapsed,
     });
     const latest = this.calcNtp({
       rtpTimestamp,
-      baseNtpTimestamp: this.latestNtpTimestamp,
-      baseRtpTimestamp: this.latestRtpTimestamp,
+      baseNtpTimestamp: this.latestNtpTimestamp!,
+      baseRtpTimestamp: this.latestRtpTimestamp!,
       elapsedOffset: 0,
     });
 
