@@ -7,14 +7,20 @@ import { randomPort } from "../../../common/src";
 import { RtpPacket } from "../../../rtp/src";
 import { MediaStreamTrack } from "../media/track";
 
-export const getUserMedia = async (path: string, loop?: boolean) => {
+export const getUserMedia = async ({
+  path,
+  loop,
+}: {
+  path: string;
+  loop?: boolean;
+}) => {
   const audioPort = await randomPort();
   const videoPort = await randomPort();
 
   if (path.endsWith(".mp4")) {
-    return new MediaPlayerMp4(audioPort, videoPort, path, loop);
+    return new MediaPlayerMp4({ audioPort, videoPort, path, loop });
   } else {
-    return new MediaPlayerWebm(audioPort, videoPort, path, loop);
+    return new MediaPlayerWebm({ audioPort, videoPort, path, loop });
   }
 };
 
@@ -26,13 +32,15 @@ abstract class MediaPlayer {
   stopped = false;
 
   constructor(
-    protected videoPort: number,
-    protected audioPort: number,
-    protected path: string,
-    protected loop?: boolean
+    protected props: {
+      videoPort: number;
+      audioPort: number;
+      path: string;
+      loop?: boolean;
+    }
   ) {
-    this.setupTrack(audioPort, this.audio);
-    this.setupTrack(videoPort, this.video);
+    this.setupTrack(props.audioPort, this.audio);
+    this.setupTrack(props.videoPort, this.video);
   }
 
   private setupTrack = (port: number, track: MediaStreamTrack) => {
@@ -68,15 +76,15 @@ export class MediaPlayerMp4 extends MediaPlayer {
     const run = async () => {
       if (payloadType > 100) payloadType = 96;
 
-      const cmd = `gst-launch-1.0 filesrc location= ${this.path} ! \
+      const cmd = `gst-launch-1.0 filesrc location= ${this.props.path} ! \
 qtdemux name=d ! \
 queue ! h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.videoPort} d. ! \
+udpsink host=127.0.0.1 port=${this.props.videoPort} d. ! \
 queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.audioPort}`;
+udpsink host=127.0.0.1 port=${this.props.audioPort}`;
       this.process = exec(cmd);
 
-      if (this.loop) {
+      if (this.props.loop) {
         await new Promise((r) => this.process.on("close", r));
         if (!this.stopped) {
           run();
@@ -95,15 +103,15 @@ export class MediaPlayerWebm extends MediaPlayer {
       if (payloadType > 100) payloadType = 96;
 
       const cmd = `gst-launch-1.0 filesrc location=${
-        this.path
+        this.props.path
       } ! matroskademux name=d \
 d.video_0 ! queue ! rtpvp8pay pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.videoPort} \
+udpsink host=127.0.0.1 port=${this.props.videoPort} \
 d.audio_0 ! queue ! rtpopuspay pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.audioPort}`;
+udpsink host=127.0.0.1 port=${this.props.audioPort}`;
       this.process = exec(cmd);
 
-      if (this.loop) {
+      if (this.props.loop) {
         await new Promise((r) => this.process.on("close", r));
         if (!this.stopped) {
           run();
