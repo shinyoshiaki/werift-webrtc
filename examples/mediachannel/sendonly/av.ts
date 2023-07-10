@@ -35,6 +35,8 @@ server.on("connection", async (socket) => {
   const stream = await getUserMedia({
     path: "~/Downloads/test.mp4",
     loop: true,
+    width: 320,
+    height: 240,
   });
 
   pc.addTransceiver(stream.audio, { direction: "sendonly" });

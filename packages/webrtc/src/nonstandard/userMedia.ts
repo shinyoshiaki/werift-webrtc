@@ -10,17 +10,35 @@ import { MediaStreamTrack } from "../media/track";
 export const getUserMedia = async ({
   path,
   loop,
+  width,
+  height,
 }: {
   path: string;
   loop?: boolean;
+  width?: number;
+  height?: number;
 }) => {
   const audioPort = await randomPort();
   const videoPort = await randomPort();
 
   if (path.endsWith(".mp4")) {
-    return new MediaPlayerMp4({ audioPort, videoPort, path, loop });
+    return new MediaPlayerMp4({
+      audioPort,
+      videoPort,
+      path,
+      loop,
+      width,
+      height,
+    });
   } else {
-    return new MediaPlayerWebm({ audioPort, videoPort, path, loop });
+    return new MediaPlayerWebm({
+      audioPort,
+      videoPort,
+      path,
+      loop,
+      width,
+      height,
+    });
   }
 };
 
@@ -37,6 +55,8 @@ abstract class MediaPlayer {
       audioPort: number;
       path: string;
       loop?: boolean;
+      width?: number;
+      height?: number;
     }
   ) {
     this.setupTrack(props.audioPort, this.audio);
@@ -76,13 +96,25 @@ export class MediaPlayerMp4 extends MediaPlayer {
     const run = async () => {
       if (payloadType > 100) payloadType = 96;
 
-      const cmd = `gst-launch-1.0 filesrc location= ${this.props.path} ! \
+      let cmd = "";
+      if (this.props.width && this.props.height) {
+        cmd = `gst-launch-1.0 filesrc location= ${this.props.path} ! \
+decodebin ! videoscale ! video/x-raw,width=${this.props.width},height=${
+          this.props.height
+        } ! x264enc ! \
+h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! \
+udpsink host=127.0.0.1 port=${this.props.videoPort}`;
+      } else {
+        cmd = `gst-launch-1.0 filesrc location= ${this.props.path} ! \
 qtdemux name=d ! \
 queue ! h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! \
 udpsink host=127.0.0.1 port=${this.props.videoPort} d. ! \
 queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! \
 udpsink host=127.0.0.1 port=${this.props.audioPort}`;
+      }
+      console.log(cmd);
       this.process = exec(cmd);
+      this.process.on("error", (e) => console.error("gst error", e));
 
       if (this.props.loop) {
         await new Promise((r) => this.process.on("close", r));
