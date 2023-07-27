@@ -126,7 +126,7 @@ export class RTCRtpSender {
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
         : this.trackOrKind.kind;
-    if (trackOrKind instanceof MediaStreamTrack) {
+    if (typeof trackOrKind !== "string") {
       if (trackOrKind.streamId) {
         this.streamId = trackOrKind.streamId;
       }

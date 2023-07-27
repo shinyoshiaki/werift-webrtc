@@ -25,8 +25,9 @@ export class RtpSourceStream {
   }
 
   push = (packet: Buffer | RtpPacket) => {
-    const rtp =
-      packet instanceof RtpPacket ? packet : RtpPacket.deSerialize(packet);
+    const rtp = Buffer.isBuffer(packet)
+      ? RtpPacket.deSerialize(packet)
+      : packet;
 
     if (
       this.options.payloadType != undefined &&
