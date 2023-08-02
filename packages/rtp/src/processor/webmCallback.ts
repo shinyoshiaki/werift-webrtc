@@ -11,20 +11,19 @@ import {
   WebmOutput,
 } from "./webm";
 
+export interface WebmTrack {
+  width?: number;
+  height?: number;
+  kind: "audio" | "video";
+  codec: SupportedCodec;
+  clockRate: number;
+  trackNumber: number;
+}
+
 export class WebmCallback extends WebmBase {
   private cb?: (input: WebmOutput) => Promise<void>;
   private queue = new PromiseQueue();
-  constructor(
-    tracks: {
-      width?: number;
-      height?: number;
-      kind: "audio" | "video";
-      codec: SupportedCodec;
-      clockRate: number;
-      trackNumber: number;
-    }[],
-    options: WebmOption = {}
-  ) {
+  constructor(tracks: WebmTrack[], options: WebmOption = {}) {
     super(
       tracks,
       async (output) => {
