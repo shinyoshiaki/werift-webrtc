@@ -2,6 +2,7 @@ import debug from "debug";
 import Event from "rx.mini";
 
 import {
+  DepacketizerCodec,
   dePacketizeRtpPackets,
   enumerate,
   RtpHeader,
@@ -42,7 +43,8 @@ export interface DepacketizerOptions {
 export class DepacketizeBase
   implements Processor<DepacketizerInput, DepacketizerOutput>
 {
-  private buffering: DepacketizerInput[] = [];
+  private rtpBuffer: DepacketizerInput[] = [];
+  private frameFragmentBuffer?: Buffer;
   private lastSeqNum?: number;
   private frameBroken = false;
   private keyframeReceived = false;
@@ -51,7 +53,7 @@ export class DepacketizeBase
   private internalStats = {};
 
   constructor(
-    private codec: string,
+    private codec: DepacketizerCodec,
     private options: DepacketizerOptions = {}
   ) {}
 
@@ -59,7 +61,7 @@ export class DepacketizeBase
     return {
       ...this.internalStats,
       codec: this.codec,
-      bufferingLength: this.buffering.length,
+      bufferingLength: this.rtpBuffer.length,
       lastSeqNum: this.lastSeqNum,
       count: this.count,
     };
@@ -79,11 +81,13 @@ export class DepacketizeBase
       const isFinal = this.checkFinalPacket(input);
       if (isFinal) {
         try {
-          const { data, isKeyframe, sequence, timestamp } =
+          const { data, isKeyframe, sequence, timestamp, frameFragmentBuffer } =
             dePacketizeRtpPackets(
               this.codec,
-              this.buffering.map((b) => b.rtp!)
+              this.rtpBuffer.map((b) => b.rtp!),
+              this.frameFragmentBuffer
             );
+          this.frameFragmentBuffer = frameFragmentBuffer;
 
           if (isKeyframe) {
             this.keyframeReceived = true;
@@ -94,8 +98,8 @@ export class DepacketizeBase
             return [];
           }
 
-          if (!this.frameBroken) {
-            const time = this.buffering.at(-1)?.time ?? 0;
+          if (!this.frameBroken && data.length > 0) {
+            const time = this.rtpBuffer.at(-1)?.time ?? 0;
             output.push({
               frame: {
                 data,
@@ -123,10 +127,13 @@ export class DepacketizeBase
       }
     } else {
       try {
-        const { data, isKeyframe, sequence, timestamp } = dePacketizeRtpPackets(
-          this.codec,
-          [input.rtp]
-        );
+        const { data, isKeyframe, sequence, timestamp, frameFragmentBuffer } =
+          dePacketizeRtpPackets(
+            this.codec,
+            [input.rtp],
+            this.frameFragmentBuffer
+          );
+        this.frameFragmentBuffer = frameFragmentBuffer;
         output.push({
           frame: {
             data,
@@ -148,12 +155,14 @@ export class DepacketizeBase
 
   private stop() {
     this.clearBuffer();
+
     this.onNeedKeyFrame.allUnsubscribe();
   }
 
   private clearBuffer() {
-    this.buffering.forEach((b) => b.rtp!.clear());
-    this.buffering = [];
+    this.rtpBuffer.forEach((b) => b.rtp!.clear());
+    this.rtpBuffer = [];
+    this.frameFragmentBuffer = undefined;
   }
 
   private checkFinalPacket({ rtp, time }: DepacketizerInput): boolean {
@@ -193,11 +202,11 @@ export class DepacketizeBase
       }
     }
 
-    this.buffering.push({ rtp, time });
+    this.rtpBuffer.push({ rtp, time });
     this.lastSeqNum = sequenceNumber;
 
     let finalPacket: number | undefined;
-    for (const [i, { rtp }] of enumerate(this.buffering)) {
+    for (const [i, { rtp }] of enumerate(this.rtpBuffer)) {
       if (this.options.isFinalPacketInSequence(rtp!.header)) {
         finalPacket = i;
         break;
