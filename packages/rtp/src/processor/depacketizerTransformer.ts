@@ -1,5 +1,6 @@
 import { TransformStream } from "stream/web";
 
+import { DepacketizerCodec } from "../codec";
 import {
   DepacketizeBase,
   DepacketizerInput,
@@ -14,7 +15,7 @@ export const depacketizeTransformer = (
 class DepacketizeTransformer extends DepacketizeBase {
   transform: TransformStream<DepacketizerInput, DepacketizerOutput>;
 
-  constructor(codec: string, options: DepacketizerOptions = {}) {
+  constructor(codec: DepacketizerCodec, options: DepacketizerOptions = {}) {
     super(codec, options);
 
     this.transform = new TransformStream({

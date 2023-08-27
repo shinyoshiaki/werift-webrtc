@@ -2,8 +2,9 @@ import { RtpHeader } from "../rtp/rtp";
 
 export abstract class DePacketizerBase {
   payload!: Buffer;
+  fragment?: Buffer;
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize(buf: Buffer, fragment?: Buffer) {
     return {} as unknown as DePacketizerBase;
   }
 
