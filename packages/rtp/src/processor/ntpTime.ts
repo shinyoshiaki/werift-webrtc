@@ -62,7 +62,7 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
       return [{ eol: true }];
     }
 
-    if (rtcp && rtcp instanceof RtcpSrPacket) {
+    if (rtcp && rtcp.type === RtcpSrPacket.type) {
       const { ntpTimestamp, rtpTimestamp } = rtcp.senderInfo;
       this.latestNtpTimestamp = ntpTimestamp;
       this.latestRtpTimestamp = rtpTimestamp;

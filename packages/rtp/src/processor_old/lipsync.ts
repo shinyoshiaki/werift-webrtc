@@ -47,7 +47,7 @@ export class LipSync extends Pipeline {
 
   pushRtcpPackets(packets: RtcpPacket[]) {
     packets.forEach((sr) => {
-      if (sr instanceof RtcpSrPacket) {
+      if (sr.type === RtcpSrPacket.type) {
         this.srReceived(sr);
       }
     });
