@@ -1367,7 +1367,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.config.bundlePolicy !== "disable") {
       const bundle = new GroupDescription("BUNDLE", []);
       description.media.forEach((media) => {
-        bundle.items.push(media.rtp.muxId!);
+        if (media.direction !== "inactive") {
+          bundle.items.push(media.rtp.muxId!);
+        }
       });
       description.group.push(bundle);
     }
