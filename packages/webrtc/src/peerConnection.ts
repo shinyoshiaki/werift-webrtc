@@ -333,7 +333,10 @@ export class RTCPeerConnection extends EventTarget {
       .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
       .forEach((transceiver) => {
         if (transceiver.mid == undefined) {
-          transceiver.mid = allocateMid(this.seenMid, "av");
+          transceiver.mid = allocateMid(
+            this.seenMid,
+            this.config.midSuffix ? "av" : ""
+          );
         }
         const mediaDescription = createMediaDescriptionForTransceiver(
           transceiver,
@@ -354,7 +357,10 @@ export class RTCPeerConnection extends EventTarget {
     ) {
       this.sctpTransport.mLineIndex = description.media.length;
       if (this.sctpTransport.mid == undefined) {
-        this.sctpTransport.mid = allocateMid(this.seenMid, "dc");
+        this.sctpTransport.mid = allocateMid(
+          this.seenMid,
+          this.config.midSuffix ? "dc" : ""
+        );
       }
       description.media.push(createMediaDescriptionForSctp(this.sctpTransport));
     }
@@ -1597,7 +1603,7 @@ export function addTransportDescription(
   }
 }
 
-export function allocateMid(mids: Set<string>, type: "dc" | "av") {
+export function allocateMid(mids: Set<string>, type: "dc" | "av" | "") {
   let mid = "";
   for (let i = 0; ; ) {
     // rfc9143.html#name-security-considerations
@@ -1654,6 +1660,7 @@ export interface PeerConfig {
     disableSendNack: boolean;
     disableRecvRetransmit: boolean;
   }>;
+  midSuffix: boolean;
 }
 
 export const findCodecByMimeType = (
@@ -1711,6 +1718,7 @@ export const defaultPeerConfig: PeerConfig = {
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},
+  midSuffix: false,
 };
 
 export interface RTCTrackEvent {
