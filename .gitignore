@@ -10,3 +10,4 @@ dist
 *.key
 *.mpd
 *.mp3
+credential.env
