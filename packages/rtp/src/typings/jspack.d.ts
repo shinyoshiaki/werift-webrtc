@@ -3,6 +3,6 @@ declare module "jspack" {
     Pack(s: string, arr: any[]): Buffer;
     Unpack(s: string, buf: Buffer): any[];
   }
-  declare const jspack: Jspack;
+  const jspack: Jspack;
   export { jspack };
 }

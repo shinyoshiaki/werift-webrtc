@@ -2,7 +2,9 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["esnext"],
+    "lib": [
+      "esnext"
+    ],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
@@ -15,7 +17,14 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": false,
-    "useDefineForClassFields": true
+    "useDefineForClassFields": true,
+    "typeRoots": [
+      "node_modules/@types",
+      "src/typings"
+    ]
   },
-  "include": ["src", "tests"]
+  "include": [
+    "src",
+    "tests"
+  ]
 }

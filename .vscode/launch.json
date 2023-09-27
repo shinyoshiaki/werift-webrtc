@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/google-nest/server.ts"
+        "${workspaceRoot}/examples/save_to_disk/mp4/pipeline.ts"
       ],
       "env": {
         "DEBUG": "werift*"
