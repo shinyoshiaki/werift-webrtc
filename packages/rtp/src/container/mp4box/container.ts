@@ -1,3 +1,4 @@
+import Event from "rx.mini";
 import { TransformStream, TransformStreamDefaultController } from "stream/web";
 
 import { Chunk } from "./chunk";
@@ -11,29 +12,25 @@ export class Container {
   #frame?: EncodedAudioChunk | EncodedVideoChunk; // 1 frame buffer
   #track?: number;
   #segment = 0;
-
-  encode: TransformStream<DecoderConfig | EncodedChunk, Chunk>;
+  onData = new Event<any>();
 
   constructor() {
     this.#mp4 = new MP4.ISOFile();
     this.#mp4.init();
-
-    this.encode = new TransformStream({
-      transform: (frame, controller) => {
-        if (isDecoderConfig(frame)) {
-          return this.#init(frame, controller);
-        } else {
-          return this.#enqueue(frame, controller);
-        }
-      },
-    });
   }
 
-  #init(
-    frame: DecoderConfig,
-    controller: TransformStreamDefaultController<Chunk>
-  ) {
-    if (this.#track) throw new Error("duplicate decoder config");
+  write(frame: DecoderConfig | EncodedChunk) {
+    if (isDecoderConfig(frame)) {
+      return this.#init(frame);
+    } else {
+      return this.#enqueue(frame);
+    }
+  }
+
+  #init(frame: DecoderConfig) {
+    if (this.#track) {
+      throw new Error("duplicate decoder config");
+    }
 
     let codec = frame.codec.substring(0, 4);
     if (codec == "opus") {
@@ -90,18 +87,17 @@ export class Container {
     );
     const data = new Uint8Array(buffer);
 
-    controller.enqueue({
+    const res = {
       type: "init",
       timestamp: 0,
       duration: 0,
       data,
-    });
+    };
+    this.onData.execute(res);
+    return res;
   }
 
-  #enqueue(
-    frame: EncodedChunk,
-    controller: TransformStreamDefaultController<Chunk>
-  ) {
+  #enqueue(frame: EncodedChunk) {
     // Check if we should create a new segment
     if (frame.type == "key") {
       this.#segment += 1;
@@ -150,15 +146,16 @@ export class Container {
 
     // TODO avoid this extra copy by writing to the buffer provided in copyTo
     const data = new Uint8Array(stream.buffer);
+    this.#frame = frame;
 
-    controller.enqueue({
+    const res = {
       type: this.#frame.type,
       timestamp: this.#frame.timestamp,
       duration: this.#frame.duration ?? 0,
       data,
-    });
-
-    this.#frame = frame;
+    };
+    this.onData.execute(res);
+    return res;
   }
 
   /* TODO flush the last frame

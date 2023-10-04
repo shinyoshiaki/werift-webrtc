@@ -1,10 +1,12 @@
 import {
+  annexb2avcc,
   buffer2ArrayBuffer,
   Container,
   DepacketizeCallback,
   JitterBufferCallback,
   LipsyncCallback,
   NtpTimeCallback,
+  PromiseQueue,
   RTCPeerConnection,
   RtcpSourceCallback,
   RTCRtpCodecParameters,
@@ -20,7 +22,7 @@ const server = new Server({ port: 8878 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const output = `./output-${Date.now()}.webm`;
+  const output = `./output-${Date.now()}.mp4`;
   console.log("connected", output);
   const pc = new RTCPeerConnection({
     codecs: {
@@ -66,33 +68,29 @@ server.on("connection", async (socket) => {
 
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(lipsync.inputAudio);
-    let first = true;
-    lipsync.pipeAudio(({ frame }) => {
-      if (frame) {
-        if (first) {
-          const writer = container.encode.writable.getWriter();
-          writer.write({
-            codec: "opus",
-            description: buffer2ArrayBuffer(frame.data),
-            numberOfChannels: 2,
-            sampleRate: 48000,
-          });
-          writer.close();
-          first = false;
-        } else {
-          const writer = container.encode.writable.getWriter();
-          writer.write({
-            byteLength: frame.data.length,
-            duration: null,
-            timestamp: frame.time,
-            type: "key",
-            copyTo: (destination: Uint8Array) => {
-              frame.data.copy(destination);
-            },
-          });
-          writer.close();
-        }
-      }
+    const first = true;
+    lipsync.pipeAudio(async ({ frame }) => {
+      // if (frame) {
+      //   if (first) {
+      //     container.write({
+      //       codec: "opus",
+      //       description: buffer2ArrayBuffer(frame.data),
+      //       numberOfChannels: 2,
+      //       sampleRate: 48000,
+      //     });
+      //     first = false;
+      //   } else {
+      //     container.write({
+      //       byteLength: frame.data.length,
+      //       duration: null,
+      //       timestamp: frame.time,
+      //       type: "key",
+      //       copyTo: (destination: Uint8Array) => {
+      //         frame.data.copy(destination);
+      //       },
+      //     });
+      //   }
+      // }
     });
   }
   {
@@ -108,37 +106,44 @@ server.on("connection", async (socket) => {
     jitterBuffer.pipe(ntpTime.input);
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(lipsync.inputVideo);
+
     let first = true;
-    lipsync.pipeVideo(({ frame }) => {
+    lipsync.pipeVideo(async ({ frame }) => {
       if (frame) {
         if (first) {
           if (frame.isKeyframe) {
-            const writer = container.encode.writable.getWriter();
-            writer.write({
+            const avcc = annexb2avcc(frame.data);
+            container.write({
               codec: "avc1",
               codedHeight: 480,
               codedWidth: 640,
-              description: buffer2ArrayBuffer(frame.data),
+              description: avcc.buffer,
               displayAspectHeight: 3,
               displayAspectWidth: 4,
             });
+            container.write({
+              byteLength: frame.data.length,
+              duration: null,
+              timestamp: frame.time * 1000,
+              type: "key",
+              copyTo: (destination: Uint8Array) => {
+                frame.data.copy(destination);
+              },
+            });
             first = false;
-            writer.close();
           } else {
             console.log("skip");
           }
         } else {
-          const writer = container.encode.writable.getWriter();
-          writer.write({
+          container.write({
             byteLength: frame.data.length,
             duration: null,
-            timestamp: frame.time,
+            timestamp: frame.time * 1000,
             type: frame.isKeyframe ? "key" : "delta",
             copyTo: (destination: Uint8Array) => {
               frame.data.copy(destination);
             },
           });
-          writer.close();
         }
       }
     });
@@ -181,18 +186,9 @@ server.on("connection", async (socket) => {
     audio.stop();
     video.stop();
     await pc.close();
-  }, 20_000);
+  }, 10_000);
 
-  const reader = container.encode.readable.getReader();
-  const readChunk = async ({
-    value,
-    done,
-  }: ReadableStreamDefaultReadResult<any>) => {
-    if (done) return;
-    if (value) {
-      await appendFile(output, value);
-    }
-    reader.read().then(readChunk);
-  };
-  reader.read().then(readChunk);
+  container.onData.subscribe(async (value) => {
+    await appendFile(output, value.data);
+  });
 });
