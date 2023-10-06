@@ -10,7 +10,7 @@ type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
 export class Container {
   #mp4: MP4.ISOFile;
   #frame?: EncodedAudioChunk | EncodedVideoChunk; // 1 frame buffer
-  #track?: number;
+  track?: number;
   #segment = 0;
   onData = new Event<any>();
 
@@ -28,7 +28,7 @@ export class Container {
   }
 
   #init(frame: DecoderConfig) {
-    if (this.#track) {
+    if (this.track) {
       throw new Error("duplicate decoder config");
     }
 
@@ -72,12 +72,12 @@ export class Container {
     }
 
     try {
-      this.#track = this.#mp4.addTrack(options);
+      this.track = this.#mp4.addTrack(options);
     } catch (error) {
       options;
       throw error;
     }
-    if (!this.#track) throw new Error("failed to initialize MP4 track");
+    if (!this.track) throw new Error("failed to initialize MP4 track");
 
     const buffer = MP4.ISOFile.writeInitializationSegment(
       this.#mp4.ftyp!,
@@ -118,10 +118,10 @@ export class Container {
     const buffer = new Uint8Array(this.#frame.byteLength);
     this.#frame.copyTo(buffer);
 
-    if (!this.#track) throw new Error("missing decoder config");
+    if (!this.track) throw new Error("missing decoder config");
 
     // Add the sample to the container
-    this.#mp4.addSample(this.#track, buffer, {
+    this.#mp4.addSample(this.track, buffer, {
       duration,
       dts: this.#frame.timestamp,
       cts: this.#frame.timestamp,
