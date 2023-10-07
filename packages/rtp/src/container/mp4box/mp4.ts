@@ -38,22 +38,13 @@ export function isVideoTrack(track: MP4Track): track is MP4VideoTrack {
 
 // TODO contribute to mp4box
 BoxParser.dOpsBox.prototype.write = function (stream: DataStream) {
-  this.size =
-    this.ChannelMappingFamily === 0 ? 11 : 13 + this.ChannelMapping!.length;
+  this.size = 11;
   this.writeHeader(stream);
 
-  stream.writeUint8(this.Version);
+  stream.writeUint8(0);
   stream.writeUint8(this.OutputChannelCount);
   stream.writeUint16(this.PreSkip);
   stream.writeUint32(this.InputSampleRate);
-  stream.writeInt16(this.OutputGain);
-  stream.writeUint8(this.ChannelMappingFamily);
-
-  if (this.ChannelMappingFamily !== 0) {
-    stream.writeUint8(this.StreamCount!);
-    stream.writeUint8(this.CoupledCount!);
-    for (const mapping of this.ChannelMapping!) {
-      stream.writeUint8(mapping);
-    }
-  }
+  stream.writeUint16(0);
+  stream.writeUint8(0);
 };

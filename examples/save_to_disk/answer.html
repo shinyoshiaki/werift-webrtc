@@ -91,12 +91,12 @@
               stream.addTrack(e.track);
               videoRef.current.srcObject = stream;
             };
-            // const video = createTestTrack(640, 360);
-            const [video] = (
+            const video = createTestTrack(640, 360);
+            /*const [video] = (
               await navigator.mediaDevices.getUserMedia({
                 video: true,
               })
-            ).getTracks();
+            ).getTracks();*/
             const [audio] = (
               await navigator.mediaDevices.getUserMedia({
                 audio: true,

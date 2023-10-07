@@ -48,6 +48,7 @@ export class Container {
     } else {
       options.channel_count = frame.numberOfChannels;
       options.samplerate = frame.sampleRate;
+      options.hdlr = "soun";
     }
 
     if (!frame.description) throw new Error("missing frame description");
@@ -60,11 +61,10 @@ export class Container {
     } else if (codec === "Opus") {
       // description is an identification header: https://datatracker.ietf.org/doc/html/rfc7845#section-5.1
       // The first 8 bytes are the magic string "OpusHead", followed by what we actually want.
-      const dops = new MP4.BoxParser.dOpsBox(undefined);
+      const dops = new MP4.BoxParser.dOpsBox();
 
       // Annoyingly, the header is little endian while MP4 is big endian, so we have to parse.
-      const data = new MP4.Stream(desc, 8, MP4.Stream.LITTLE_ENDIAN);
-      dops.parse(data);
+      dops.parse(new MP4.Stream(desc, 8, MP4.Stream.LITTLE_ENDIAN));
 
       options.description = dops;
     } else {
