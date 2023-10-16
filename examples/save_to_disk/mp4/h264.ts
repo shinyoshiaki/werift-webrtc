@@ -1,6 +1,6 @@
 import {
   annexb2avcc,
-  Container,
+  Mp4Container,
   DepacketizeCallback,
   JitterBufferCallback,
   NtpTimeCallback,
@@ -44,7 +44,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const container = new Container();
+  const container = new Mp4Container();
 
   const video = new RtpSourceCallback();
   const videoRtcp = new RtcpSourceCallback();

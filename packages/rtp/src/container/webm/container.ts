@@ -4,7 +4,7 @@ import { BitWriter2, BufferChain } from "../../../../common/src";
 import { OpusRtpPayload } from "../..";
 import * as EBML from "./ebml";
 
-export class WEBMBuilder {
+export class WEBMContainer {
   readonly ebmlHeader = EBML.build(
     EBML.element(EBML.ID.EBML, [
       EBML.element(EBML.ID.EBMLVersion, EBML.number(1)),

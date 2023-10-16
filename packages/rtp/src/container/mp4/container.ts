@@ -5,7 +5,7 @@ import * as MP4 from "./mp4box";
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
 type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
 
-export class Container {
+export class Mp4Container {
   #mp4: MP4.ISOFile;
   #audioFrame?: EncodedAudioChunk | EncodedVideoChunk;
   #videoFrame?: EncodedAudioChunk | EncodedVideoChunk; // 1 frame buffer

@@ -5,7 +5,7 @@ import {
   numberToByteArray,
   SupportedCodec,
   vintEncode,
-  WEBMBuilder,
+  WEBMContainer,
 } from "..";
 import { AVProcessor } from "./interface";
 
@@ -40,7 +40,7 @@ export interface WebmOption {
 }
 
 export class WebmBase implements AVProcessor<WebmInput> {
-  private builder: WEBMBuilder;
+  private builder: WEBMContainer;
   private relativeTimestamp = 0;
   private timestamps: { [pt: number]: ClusterTimestamp } = {};
   private cuePoints: CuePoint[] = [];
@@ -67,7 +67,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
     private output: (output: WebmOutput) => void,
     private options: WebmOption = {}
   ) {
-    this.builder = new WEBMBuilder(tracks, options.encryptionKey);
+    this.builder = new WEBMContainer(tracks, options.encryptionKey);
 
     tracks.forEach((t) => {
       this.timestamps[t.trackNumber] = new ClusterTimestamp();
@@ -369,7 +369,7 @@ class CuePoint {
   blockNumber = 0;
 
   constructor(
-    private readonly builder: WEBMBuilder,
+    private readonly builder: WEBMContainer,
     private readonly trackNumber: number,
     private readonly relativeTimestamp: number,
     public position: number

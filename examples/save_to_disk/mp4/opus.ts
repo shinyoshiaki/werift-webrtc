@@ -1,6 +1,6 @@
 import {
   buffer2ArrayBuffer,
-  Container,
+  Mp4Container,
   DepacketizeCallback,
   NtpTimeCallback,
   OpusRtpPayload,
@@ -44,7 +44,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const container = new Container();
+  const container = new Mp4Container();
 
   const audio = new RtpSourceCallback();
   const audioRtcp = new RtcpSourceCallback();
