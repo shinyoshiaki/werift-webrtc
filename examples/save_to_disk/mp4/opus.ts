@@ -58,7 +58,7 @@ server.on("connection", async (socket) => {
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(({ frame }) => {
       if (frame) {
-        if (!container.track) {
+        if (!container.audioTrack) {
           container.write({
             codec: "opus",
             description: buffer2ArrayBuffer(
@@ -66,6 +66,7 @@ server.on("connection", async (socket) => {
             ),
             numberOfChannels: 2,
             sampleRate: 48000,
+            track: "audio",
           });
         } else {
           container.write({
@@ -76,6 +77,7 @@ server.on("connection", async (socket) => {
             copyTo: (destination: Uint8Array) => {
               frame.data.copy(destination);
             },
+            track: "audio",
           });
         }
       }

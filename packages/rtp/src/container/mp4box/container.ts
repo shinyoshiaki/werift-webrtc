@@ -1,7 +1,5 @@
 import Event from "rx.mini";
-import { TransformStream, TransformStreamDefaultController } from "stream/web";
 
-import { Chunk } from "./chunk";
 import * as MP4 from "./mp4";
 
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
@@ -9,9 +7,12 @@ type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
 
 export class Container {
   #mp4: MP4.ISOFile;
-  #frame?: EncodedAudioChunk | EncodedVideoChunk; // 1 frame buffer
-  track?: number;
-  #segment = 0;
+  #audioFrame?: EncodedAudioChunk | EncodedVideoChunk;
+  #videoFrame?: EncodedAudioChunk | EncodedVideoChunk; // 1 frame buffer
+  audioTrack?: number;
+  videoTrack?: number;
+  #audioSegment = 0;
+  #videoSegment = 0;
   onData = new Event<any>();
 
   constructor() {
@@ -19,7 +20,21 @@ export class Container {
     this.#mp4.init();
   }
 
-  write(frame: DecoderConfig | EncodedChunk) {
+  get numOfTracks() {
+    if (this.audioTrack != undefined && this.videoTrack != undefined) {
+      return 2;
+    } else if (this.audioTrack != undefined || this.videoTrack != undefined) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  write(
+    frame: (DecoderConfig | EncodedChunk) & {
+      track: "video" | "audio";
+    }
+  ) {
     if (isDecoderConfig(frame)) {
       return this.#init(frame);
     } else {
@@ -27,11 +42,11 @@ export class Container {
     }
   }
 
-  #init(frame: DecoderConfig) {
-    if (this.track) {
-      throw new Error("duplicate decoder config");
+  #init(
+    frame: DecoderConfig & {
+      track: "video" | "audio";
     }
-
+  ) {
     let codec = frame.codec.substring(0, 4);
     if (codec == "opus") {
       codec = "Opus";
@@ -71,13 +86,17 @@ export class Container {
       throw new Error(`unsupported codec: ${codec}`);
     }
 
-    try {
-      this.track = this.#mp4.addTrack(options);
-    } catch (error) {
-      options;
-      throw error;
+    const track = this.#mp4.addTrack(options);
+    if (track == undefined) {
+      throw new Error("failed to initialize MP4 track");
     }
-    if (!this.track) throw new Error("failed to initialize MP4 track");
+    if (frame.track === "audio") {
+      this.audioTrack = track;
+    } else {
+      this.videoTrack = track;
+    }
+
+    if (this.numOfTracks < 2) return;
 
     const buffer = MP4.ISOFile.writeInitializationSegment(
       this.#mp4.ftyp!,
@@ -86,7 +105,6 @@ export class Container {
       0
     );
     const data = new Uint8Array(buffer);
-
     const res = {
       type: "init",
       timestamp: 0,
@@ -94,38 +112,81 @@ export class Container {
       data,
     };
     this.onData.execute(res);
-    return res;
   }
 
-  #enqueue(frame: EncodedChunk) {
+  frameBuffer: (EncodedChunk & {
+    track: "video" | "audio";
+  })[] = [];
+
+  #enqueue(
+    frame: EncodedChunk & {
+      track: "video" | "audio";
+    }
+  ) {
+    this.frameBuffer.push(frame);
+    if (this.numOfTracks < 2) {
+      return;
+    }
+    for (const frame of this.frameBuffer) {
+      this._enqueue(frame);
+    }
+    this.frameBuffer = [];
+  }
+
+  private _enqueue(
+    frame: EncodedChunk & {
+      track: "video" | "audio";
+    }
+  ) {
+    const track = frame.track === "audio" ? this.audioTrack : this.videoTrack;
+    if (!track) {
+      throw new Error("track missing");
+    }
+
     // Check if we should create a new segment
-    if (frame.type == "key") {
-      this.#segment += 1;
-    } else if (this.#segment == 0) {
-      throw new Error("must start with keyframe");
+    if (frame.track === "video") {
+      if (frame.type == "key") {
+        this.#videoSegment += 1;
+      } else if (this.#videoSegment == 0) {
+        throw new Error("must start with keyframe");
+      }
+    } else {
+      this.#audioSegment += 1;
     }
 
     // We need a one frame buffer to compute the duration
-    if (!this.#frame) {
-      this.#frame = frame;
-      return;
+    if (frame.track === "video") {
+      if (!this.#videoFrame) {
+        this.#videoFrame = frame;
+        return;
+      }
+    } else {
+      if (!this.#audioFrame) {
+        this.#audioFrame = frame;
+        return;
+      }
     }
 
-    const duration = frame.timestamp - this.#frame.timestamp;
+    const bufferFrame =
+      frame.track === "video" ? this.#videoFrame : this.#audioFrame;
+
+    if (!bufferFrame) {
+      throw new Error("bufferFrame missing");
+    }
+
+    const duration = frame.timestamp - bufferFrame.timestamp;
 
     // TODO avoid this extra copy by writing to the mdat directly
     // ...which means changing mp4box.js to take an offset instead of ArrayBuffer
-    const buffer = new Uint8Array(this.#frame.byteLength);
-    this.#frame.copyTo(buffer);
-
-    if (!this.track) throw new Error("missing decoder config");
+    const buffer = new Uint8Array(bufferFrame.byteLength);
+    bufferFrame.copyTo(buffer);
 
     // Add the sample to the container
-    this.#mp4.addSample(this.track, buffer, {
+    this.#mp4.addSample(track, buffer, {
       duration,
-      dts: this.#frame.timestamp,
-      cts: this.#frame.timestamp,
-      is_sync: this.#frame.type == "key",
+      dts: bufferFrame.timestamp,
+      cts: bufferFrame.timestamp,
+      is_sync: bufferFrame.type == "key",
     });
 
     const stream = new MP4.Stream(undefined, 0, MP4.Stream.BIG_ENDIAN);
@@ -146,16 +207,20 @@ export class Container {
 
     // TODO avoid this extra copy by writing to the buffer provided in copyTo
     const data = new Uint8Array(stream.buffer);
-    this.#frame = frame;
+
+    if (frame.track === "video") {
+      this.#videoFrame = frame;
+    } else {
+      this.#audioFrame = frame;
+    }
 
     const res = {
-      type: this.#frame.type,
-      timestamp: this.#frame.timestamp,
-      duration: this.#frame.duration ?? 0,
+      type: frame.type,
+      timestamp: frame.timestamp,
+      duration: frame.duration ?? 0,
       data,
     };
     this.onData.execute(res);
-    return res;
   }
 
   /* TODO flush the last frame

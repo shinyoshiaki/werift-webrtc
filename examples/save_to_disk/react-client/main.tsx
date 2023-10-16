@@ -2,7 +2,9 @@ import React, { FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import { getVideoStreamFromFile } from "../../util";
 
-const peer = new RTCPeerConnection({});
+const peer = new RTCPeerConnection({
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+});
 
 const App: FC = () => {
   const videoRef = useRef<HTMLVideoElement>();
@@ -18,28 +20,27 @@ const App: FC = () => {
     console.log("offer", offer.sdp);
 
     peer.onicecandidate = ({ candidate }) => {
-      if (!candidate) {
-        const sdp = JSON.stringify(peer.localDescription);
-        socket.send(sdp);
-      }
+      socket.send(JSON.stringify({ candidate }));
     };
+    const stream = new MediaStream();
     peer.ontrack = (e) => {
-      switch (e.track.kind) {
-        case "video":
-          videoRef.current.srcObject = e.streams[0];
-          break;
-      }
+      console.log("ontrack", e);
+      stream.addTrack(e.track);
+      videoRef.current.srcObject = stream;
     };
 
-    const stream = await getVideoStreamFromFile(file);
-    const [video] = stream.getVideoTracks();
+    const res = await getVideoStreamFromFile(file);
+    const [video] = res.getVideoTracks();
+    const [audio] = res.getAudioTracks();
     peer.addTrack(video);
-    const [audio] = stream.getAudioTracks();
     peer.addTrack(audio);
 
     await peer.setRemoteDescription(offer);
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
+
+    const sdp = JSON.stringify(peer.localDescription);
+    socket.send(sdp);
   };
 
   return (

@@ -1,10 +1,13 @@
 import {
   annexb2avcc,
+  buffer2ArrayBuffer,
   Container,
   DepacketizeCallback,
   JitterBufferCallback,
   LipsyncCallback,
   NtpTimeCallback,
+  OpusRtpPayload,
+  PromiseQueue,
   RTCPeerConnection,
   RtcpSourceCallback,
   RTCRtpCodecParameters,
@@ -51,7 +54,7 @@ server.on("connection", async (socket) => {
   const audioRtcp = new RtcpSourceCallback();
   const videoRtcp = new RtcpSourceCallback();
   const lipsync = new LipsyncCallback({
-    syncInterval: 2000,
+    syncInterval: 1000,
     bufferLength: 5,
     // fillDummyAudioPacket: Buffer.from([0xf8, 0xff, 0xfe]),
   });
@@ -65,29 +68,32 @@ server.on("connection", async (socket) => {
 
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(lipsync.inputAudio);
-    const first = true;
+
     lipsync.pipeAudio(async ({ frame }) => {
-      // if (frame) {
-      //   if (first) {
-      //     container.write({
-      //       codec: "opus",
-      //       description: buffer2ArrayBuffer(frame.data),
-      //       numberOfChannels: 2,
-      //       sampleRate: 48000,
-      //     });
-      //     first = false;
-      //   } else {
-      //     container.write({
-      //       byteLength: frame.data.length,
-      //       duration: null,
-      //       timestamp: frame.time,
-      //       type: "key",
-      //       copyTo: (destination: Uint8Array) => {
-      //         frame.data.copy(destination);
-      //       },
-      //     });
-      //   }
-      // }
+      if (frame) {
+        if (!container.audioTrack) {
+          container.write({
+            codec: "opus",
+            description: buffer2ArrayBuffer(
+              OpusRtpPayload.createCodecPrivate()
+            ),
+            numberOfChannels: 2,
+            sampleRate: 48000,
+            track: "audio",
+          });
+        } else {
+          container.write({
+            byteLength: frame.data.length,
+            duration: null,
+            timestamp: frame.time * 1000,
+            type: "key",
+            copyTo: (destination: Uint8Array) => {
+              frame.data.copy(destination);
+            },
+            track: "audio",
+          });
+        }
+      }
     });
   }
   {
@@ -104,10 +110,9 @@ server.on("connection", async (socket) => {
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(lipsync.inputVideo);
 
-    let first = true;
     lipsync.pipeVideo(async ({ frame }) => {
       if (frame) {
-        if (first) {
+        if (!container.videoTrack) {
           if (frame.isKeyframe) {
             const avcc = annexb2avcc(frame.data);
             container.write({
@@ -117,6 +122,7 @@ server.on("connection", async (socket) => {
               description: avcc.buffer,
               displayAspectHeight: 3,
               displayAspectWidth: 4,
+              track: "video",
             });
             container.write({
               byteLength: frame.data.length,
@@ -126,10 +132,8 @@ server.on("connection", async (socket) => {
               copyTo: (destination: Uint8Array) => {
                 frame.data.copy(destination);
               },
+              track: "video",
             });
-            first = false;
-          } else {
-            console.log("skip");
           }
         } else {
           container.write({
@@ -140,6 +144,7 @@ server.on("connection", async (socket) => {
             copyTo: (destination: Uint8Array) => {
               frame.data.copy(destination);
             },
+            track: "video",
           });
         }
       }
@@ -156,9 +161,11 @@ server.on("connection", async (socket) => {
     track.onReceiveRtcp.once((rtcp) => {
       videoRtcp.input(rtcp);
     });
-    setInterval(() => {
-      transceiver.receiver.sendRtcpPLI(track.ssrc);
-    }, 2_000);
+    track.onReceiveRtp.once(() => {
+      setInterval(() => {
+        transceiver.receiver.sendRtcpPLI(track.ssrc);
+      }, 2_000);
+    });
   });
   pc.addTransceiver("audio").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
@@ -175,7 +182,13 @@ server.on("connection", async (socket) => {
   socket.send(sdp);
 
   socket.on("message", (data: any) => {
-    pc.setRemoteDescription(JSON.parse(data));
+    const message = JSON.parse(data);
+    console.log("message", message);
+    if (message.sdp) {
+      pc.setRemoteDescription(message);
+    } else {
+      pc.addIceCandidate(message);
+    }
   });
 
   setTimeout(async () => {
@@ -183,9 +196,12 @@ server.on("connection", async (socket) => {
     audio.stop();
     video.stop();
     await pc.close();
-  }, 10_000);
+  }, 60_000);
 
+  const queue = new PromiseQueue();
   container.onData.subscribe(async (value) => {
-    await appendFile(output, value.data);
+    await queue.push(async () => {
+      await appendFile(output, value.data);
+    });
   });
 });

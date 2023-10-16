@@ -63,7 +63,7 @@ server.on("connection", async (socket) => {
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(({ frame }) => {
       if (frame) {
-        if (!container.track) {
+        if (!container.videoTrack) {
           if (frame.isKeyframe) {
             const avcc = annexb2avcc(frame.data);
             container.write({
@@ -73,6 +73,7 @@ server.on("connection", async (socket) => {
               description: avcc.buffer,
               displayAspectHeight: 3,
               displayAspectWidth: 4,
+              track: "video",
             });
             container.write({
               byteLength: frame.data.length,
@@ -82,6 +83,7 @@ server.on("connection", async (socket) => {
               copyTo: (destination: Uint8Array) => {
                 frame.data.copy(destination);
               },
+              track: "video",
             });
           }
         } else {
@@ -93,6 +95,7 @@ server.on("connection", async (socket) => {
             copyTo: (destination: Uint8Array) => {
               frame.data.copy(destination);
             },
+            track: "video",
           });
         }
       }
