@@ -1,7 +1,7 @@
 import { createCipheriv, randomBytes, randomFillSync } from "crypto";
 
-import { BitWriter2, BufferChain } from "../../../common/src";
-import { OpusRtpPayload } from "..";
+import { BitWriter2, BufferChain } from "../../../../common/src";
+import { OpusRtpPayload } from "../..";
 import * as EBML from "./ebml";
 
 export class WEBMBuilder {

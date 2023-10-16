@@ -4,7 +4,7 @@ import Event from "rx.mini";
 import { int, PromiseQueue } from "../../../common/src";
 import { RtpPacket } from "..";
 import { dePacketizeRtpPackets } from "../codec";
-import { SupportedCodec, WEBMBuilder } from "../container/webm";
+import { SupportedCodec, WEBMBuilder } from "../container/webm/container";
 import { Output } from "./base";
 
 export interface FileIO {

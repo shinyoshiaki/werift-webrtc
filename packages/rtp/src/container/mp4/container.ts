@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import * as MP4 from "./mp4";
+import * as MP4 from "./mp4box";
 
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
 type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;

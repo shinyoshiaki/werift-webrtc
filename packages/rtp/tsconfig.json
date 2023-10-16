@@ -17,11 +17,7 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": false,
-    "useDefineForClassFields": true,
-    "typeRoots": [
-      "node_modules/@types",
-      "src/typings"
-    ]
+    "useDefineForClassFields": true
   },
   "include": [
     "src",

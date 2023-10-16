@@ -1,3 +1,2 @@
-export * from "./ebml";
-export * from "./mp4box";
+export * from "./mp4";
 export * from "./webm";
