@@ -34,11 +34,6 @@ export function isDtls(buf: Buffer) {
   return firstByte > 19 && firstByte < 64;
 }
 
-export function isMedia(buf: Buffer) {
-  const firstByte = buf[0];
-  return firstByte > 127 && firstByte < 192;
-}
-
 export function reverseSimulcastDirection(dir: "recv" | "send") {
   if (dir === "recv") return "send";
   return "recv";

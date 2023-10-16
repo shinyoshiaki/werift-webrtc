@@ -20,6 +20,7 @@ import { CipherContext } from "../../../dtls/src/context/cipher";
 import { Profile } from "../../../dtls/src/context/srtp";
 import { Connection } from "../../../ice/src";
 import {
+  isMedia,
   isRtcp,
   RtcpPacket,
   RtcpPacketConverter,
@@ -31,7 +32,7 @@ import {
 import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
 import { RtpRouter } from "../media/router";
 import { PeerConfig } from "../peerConnection";
-import { fingerprint, isDtls, isMedia } from "../utils";
+import { fingerprint, isDtls } from "../utils";
 import { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
