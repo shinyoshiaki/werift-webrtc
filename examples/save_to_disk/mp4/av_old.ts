@@ -1,16 +1,20 @@
 import {
+  annexb2avcc,
+  buffer2ArrayBuffer,
+  Mp4Container,
   DepacketizeCallback,
   JitterBufferCallback,
   LipsyncCallback,
   NtpTimeCallback,
+  OpusRtpPayload,
+  PromiseQueue,
   RTCPeerConnection,
   RtcpSourceCallback,
   RTCRtpCodecParameters,
   RtpSourceCallback,
-  MP4Callback,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { unlink } from "fs/promises";
+import { appendFile, unlink } from "fs/promises";
 
 // open ./answer.html
 
@@ -43,24 +47,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const mp4 = new MP4Callback([
-    {
-      kind: "audio",
-      codec: "opus",
-      clockRate: 48000,
-      trackNumber: 1,
-    },
-    {
-      width: 640,
-      height: 360,
-      kind: "video",
-      codec: "avc1",
-      clockRate: 90000,
-      trackNumber: 2,
-    },
-  ]);
-  await unlink(output).catch(() => {});
-  mp4.pipe(MP4Callback.saveToFileSystem(output));
+  const container = new Mp4Container({ track: { audio: true, video: true } });
 
   const audio = new RtpSourceCallback();
   const video = new RtpSourceCallback();
@@ -69,6 +56,7 @@ server.on("connection", async (socket) => {
   const lipsync = new LipsyncCallback({
     syncInterval: 1000,
     bufferLength: 5,
+    // fillDummyAudioPacket: Buffer.from([0xf8, 0xff, 0xfe]),
   });
 
   {
@@ -81,7 +69,32 @@ server.on("connection", async (socket) => {
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(lipsync.inputAudio);
 
-    lipsync.pipeAudio(mp4.inputAudio);
+    lipsync.pipeAudio(async ({ frame }) => {
+      if (frame) {
+        if (!container.audioTrack) {
+          container.write({
+            codec: "opus",
+            description: buffer2ArrayBuffer(
+              OpusRtpPayload.createCodecPrivate()
+            ),
+            numberOfChannels: 2,
+            sampleRate: 48000,
+            track: "audio",
+          });
+        } else {
+          container.write({
+            byteLength: frame.data.length,
+            duration: null,
+            timestamp: frame.time * 1000,
+            type: "key",
+            copyTo: (destination: Uint8Array) => {
+              frame.data.copy(destination);
+            },
+            track: "audio",
+          });
+        }
+      }
+    });
   }
   {
     const jitterBuffer = new JitterBufferCallback(90000);
@@ -97,8 +110,48 @@ server.on("connection", async (socket) => {
     ntpTime.pipe(depacketizer.input);
     depacketizer.pipe(lipsync.inputVideo);
 
-    lipsync.pipeVideo(mp4.inputVideo);
+    lipsync.pipeVideo(async ({ frame }) => {
+      if (frame) {
+        if (!container.videoTrack) {
+          if (frame.isKeyframe) {
+            const avcc = annexb2avcc(frame.data);
+            container.write({
+              codec: "avc1",
+              codedHeight: 480,
+              codedWidth: 640,
+              description: avcc.buffer,
+              displayAspectHeight: 3,
+              displayAspectWidth: 4,
+              track: "video",
+            });
+            container.write({
+              byteLength: frame.data.length,
+              duration: null,
+              timestamp: frame.time * 1000,
+              type: "key",
+              copyTo: (destination: Uint8Array) => {
+                frame.data.copy(destination);
+              },
+              track: "video",
+            });
+          }
+        } else {
+          container.write({
+            byteLength: frame.data.length,
+            duration: null,
+            timestamp: frame.time * 1000,
+            type: frame.isKeyframe ? "key" : "delta",
+            copyTo: (destination: Uint8Array) => {
+              frame.data.copy(destination);
+            },
+            track: "video",
+          });
+        }
+      }
+    });
   }
+
+  await unlink(output).catch(() => {});
 
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
@@ -143,5 +196,12 @@ server.on("connection", async (socket) => {
     audio.stop();
     video.stop();
     await pc.close();
-  }, 10_000);
+  }, 30_000);
+
+  const queue = new PromiseQueue();
+  container.onData.subscribe(async (value) => {
+    await queue.push(async () => {
+      await appendFile(output, value.data);
+    });
+  });
 });

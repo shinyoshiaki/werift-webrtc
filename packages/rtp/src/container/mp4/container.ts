@@ -13,21 +13,35 @@ export class Mp4Container {
   videoTrack?: number;
   #audioSegment = 0;
   #videoSegment = 0;
-  onData = new Event<any>();
+  onData = new Event<
+    [
+      {
+        type: "init" | "delta" | "key";
+        timestamp: number;
+        duration: number;
+        data: Uint8Array;
+      }
+    ]
+  >();
 
-  constructor() {
+  constructor(
+    private props: {
+      track: { audio: boolean; video: boolean };
+    }
+  ) {
     this.#mp4 = new MP4.ISOFile();
     this.#mp4.init();
   }
 
-  get numOfTracks() {
-    if (this.audioTrack != undefined && this.videoTrack != undefined) {
-      return 2;
-    } else if (this.audioTrack != undefined || this.videoTrack != undefined) {
-      return 1;
-    } else {
-      return 0;
+  get tracksReady() {
+    let ready = true;
+    if (this.props.track.audio && !this.audioTrack) {
+      ready = false;
     }
+    if (this.props.track.video && !this.videoTrack) {
+      ready = false;
+    }
+    return ready;
   }
 
   write(
@@ -96,7 +110,9 @@ export class Mp4Container {
       this.videoTrack = track;
     }
 
-    if (this.numOfTracks < 2) return;
+    if (!this.tracksReady) {
+      return;
+    }
 
     const buffer = MP4.ISOFile.writeInitializationSegment(
       this.#mp4.ftyp!,
@@ -110,7 +126,7 @@ export class Mp4Container {
       timestamp: 0,
       duration: 0,
       data,
-    };
+    } as const;
     this.onData.execute(res);
   }
 
@@ -124,7 +140,7 @@ export class Mp4Container {
     }
   ) {
     this.frameBuffer.push(frame);
-    if (this.numOfTracks < 2) {
+    if (!this.tracksReady) {
       return;
     }
     for (const frame of this.frameBuffer) {
@@ -280,3 +296,6 @@ interface EncodedVideoChunk {
 }
 
 type EncodedVideoChunkType = "delta" | "key";
+
+export const mp4SupportedCodecs = ["avc1", "opus"] as const;
+export type Mp4SupportedCodec = typeof mp4SupportedCodecs[number];

@@ -1,14 +1,17 @@
 import {
+  buffer2ArrayBuffer,
+  Mp4Container,
   DepacketizeCallback,
   NtpTimeCallback,
+  OpusRtpPayload,
+  PromiseQueue,
   RTCPeerConnection,
   RtcpSourceCallback,
   RTCRtpCodecParameters,
   RtpSourceCallback,
-  MP4Callback,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { unlink } from "fs/promises";
+import { appendFile, unlink } from "fs/promises";
 
 // open ./answer.html
 
@@ -16,7 +19,7 @@ const server = new Server({ port: 8878 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const output = `./output-${Date.now()}.mp4`;
+  const output = `./original.m4a`;
   console.log("connected", output);
   const pc = new RTCPeerConnection({
     codecs: {
@@ -41,16 +44,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const mp4 = new MP4Callback([
-    {
-      kind: "audio",
-      codec: "opus",
-      clockRate: 48000,
-      trackNumber: 1,
-    },
-  ]);
-  await unlink(output).catch(() => {});
-  mp4.pipe(MP4Callback.saveToFileSystem(output));
+  const container = new Mp4Container({ track: { audio: true, video: false } });
 
   const audio = new RtpSourceCallback();
   const audioRtcp = new RtcpSourceCallback();
@@ -62,8 +56,35 @@ server.on("connection", async (socket) => {
     audio.pipe(ntpTime.input);
     audioRtcp.pipe(ntpTime.input);
     ntpTime.pipe(depacketizer.input);
-    depacketizer.pipe(mp4.inputAudio);
+    depacketizer.pipe(({ frame }) => {
+      if (frame) {
+        if (!container.audioTrack) {
+          container.write({
+            codec: "opus",
+            description: buffer2ArrayBuffer(
+              OpusRtpPayload.createCodecPrivate()
+            ),
+            numberOfChannels: 2,
+            sampleRate: 48000,
+            track: "audio",
+          });
+        } else {
+          container.write({
+            byteLength: frame.data.length,
+            duration: null,
+            timestamp: frame.time * 1000,
+            type: "key",
+            copyTo: (destination: Uint8Array) => {
+              frame.data.copy(destination);
+            },
+            track: "audio",
+          });
+        }
+      }
+    });
   }
+
+  await unlink(output).catch(() => {});
 
   pc.addTransceiver("audio").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
@@ -80,18 +101,19 @@ server.on("connection", async (socket) => {
   socket.send(sdp);
 
   socket.on("message", (data: any) => {
-    const message = JSON.parse(data);
-    console.log("message", message);
-    if (message.sdp) {
-      pc.setRemoteDescription(message);
-    } else {
-      pc.addIceCandidate(message);
-    }
+    pc.setRemoteDescription(JSON.parse(data));
   });
 
   setTimeout(async () => {
     console.log("stop");
     audio.stop();
     await pc.close();
-  }, 10_000);
+  }, 5_000);
+
+  const queue = new PromiseQueue();
+  container.onData.subscribe(async (value) => {
+    await queue.push(async () => {
+      await appendFile(output, value.data);
+    });
+  });
 });

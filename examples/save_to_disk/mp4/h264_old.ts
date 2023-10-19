@@ -1,15 +1,17 @@
 import {
+  annexb2avcc,
+  Mp4Container,
   DepacketizeCallback,
   JitterBufferCallback,
   NtpTimeCallback,
+  PromiseQueue,
   RTCPeerConnection,
   RtcpSourceCallback,
   RTCRtpCodecParameters,
   RtpSourceCallback,
-  MP4Callback,
 } from "../../../packages/webrtc/src";
 import { Server } from "ws";
-import { unlink } from "fs/promises";
+import { appendFile, unlink } from "fs/promises";
 
 // open ./answer.html
 
@@ -42,18 +44,7 @@ server.on("connection", async (socket) => {
     },
   });
 
-  const mp4 = new MP4Callback([
-    {
-      width: 640,
-      height: 360,
-      kind: "video",
-      codec: "avc1",
-      clockRate: 90000,
-      trackNumber: 1,
-    },
-  ]);
-  await unlink(output).catch(() => {});
-  mp4.pipe(MP4Callback.saveToFileSystem(output));
+  const container = new Mp4Container({ track: { video: true, audio: false } });
 
   const video = new RtpSourceCallback();
   const videoRtcp = new RtcpSourceCallback();
@@ -70,8 +61,48 @@ server.on("connection", async (socket) => {
 
     jitterBuffer.pipe(ntpTime.input);
     ntpTime.pipe(depacketizer.input);
-    depacketizer.pipe(mp4.inputVideo);
+    depacketizer.pipe(({ frame }) => {
+      if (frame) {
+        if (!container.videoTrack) {
+          if (frame.isKeyframe) {
+            const avcc = annexb2avcc(frame.data);
+            container.write({
+              codec: "avc1",
+              codedHeight: 480,
+              codedWidth: 640,
+              description: avcc.buffer,
+              displayAspectHeight: 3,
+              displayAspectWidth: 4,
+              track: "video",
+            });
+            container.write({
+              byteLength: frame.data.length,
+              duration: null,
+              timestamp: frame.time * 1000,
+              type: "key",
+              copyTo: (destination: Uint8Array) => {
+                frame.data.copy(destination);
+              },
+              track: "video",
+            });
+          }
+        } else {
+          container.write({
+            byteLength: frame.data.length,
+            duration: null,
+            timestamp: frame.time * 1000,
+            type: frame.isKeyframe ? "key" : "delta",
+            copyTo: (destination: Uint8Array) => {
+              frame.data.copy(destination);
+            },
+            track: "video",
+          });
+        }
+      }
+    });
   }
+
+  await unlink(output).catch(() => {});
 
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
     transceiver.sender.replaceTrack(track);
@@ -91,13 +122,7 @@ server.on("connection", async (socket) => {
   socket.send(sdp);
 
   socket.on("message", (data: any) => {
-    const message = JSON.parse(data);
-    console.log("message", message);
-    if (message.sdp) {
-      pc.setRemoteDescription(message);
-    } else {
-      pc.addIceCandidate(message);
-    }
+    pc.setRemoteDescription(JSON.parse(data));
   });
 
   setTimeout(async () => {
@@ -105,4 +130,11 @@ server.on("connection", async (socket) => {
     video.stop();
     await pc.close();
   }, 10_000);
+
+  const queue = new PromiseQueue();
+  container.onData.subscribe(async (value) => {
+    await queue.push(async () => {
+      await appendFile(output, value.data);
+    });
+  });
 });

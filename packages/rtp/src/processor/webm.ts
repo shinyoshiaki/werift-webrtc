@@ -3,10 +3,10 @@ import Event from "rx.mini";
 import {
   getEBMLByteLength,
   numberToByteArray,
-  SupportedCodec,
   vintEncode,
   WEBMContainer,
 } from "..";
+import { SupportedCodec } from "../container/webm";
 import { AVProcessor } from "./interface";
 
 export type WebmInput = {
