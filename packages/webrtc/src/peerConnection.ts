@@ -9,6 +9,7 @@ import { Message } from "../../ice/src/stun/message";
 import { Protocol } from "../../ice/src/types/model";
 import {
   Address,
+  CandidatePair,
   deepMerge,
   InterfaceAddresses,
   Recvonly,
@@ -481,6 +482,7 @@ export class RTCPeerConnection extends EventTarget {
       interfaceAddresses: this.config.iceInterfaceAddresses,
       additionalHostAddresses: this.config.iceAdditionalHostAddresses,
       filterStunResponse: this.config.iceFilterStunResponse,
+      filterCandidatePair: this.config.iceFilterCandidatePair,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
     });
@@ -1646,6 +1648,7 @@ export interface PeerConfig {
   iceFilterStunResponse:
     | ((message: Message, addr: Address, protocol: Protocol) => boolean)
     | undefined;
+  iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1715,6 +1718,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceUseIpv4: true,
   iceUseIpv6: true,
   iceFilterStunResponse: undefined,
+  iceFilterCandidatePair: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},

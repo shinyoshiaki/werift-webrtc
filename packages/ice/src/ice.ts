@@ -945,6 +945,12 @@ export class Connection {
         !this.findPair(protocol, remoteCandidate)
       ) {
         const pair = new CandidatePair(protocol, remoteCandidate);
+        if (
+          this.options.filterCandidatePair &&
+          !this.options.filterCandidatePair(pair)
+        ) {
+          continue;
+        }
         this.checkList.push(pair);
         this.setPairState(pair, CandidatePairState.WAITING);
       }
@@ -1060,6 +1066,7 @@ export interface IceOptions {
     addr: Address,
     protocol: Protocol
   ) => boolean;
+  filterCandidatePair?: (pair: CandidatePair) => boolean;
 }
 
 const defaultOptions: IceOptions = {
