@@ -66,10 +66,6 @@ server.on("connection", async (socket) => {
   const video = new RtpSourceCallback();
   const audioRtcp = new RtcpSourceCallback();
   const videoRtcp = new RtcpSourceCallback();
-  const lipsync = new LipsyncCallback({
-    syncInterval: 1000,
-    bufferLength: 5,
-  });
 
   {
     const depacketizer = new DepacketizeCallback("opus");
@@ -79,9 +75,7 @@ server.on("connection", async (socket) => {
     audioRtcp.pipe(ntpTime.input);
 
     ntpTime.pipe(depacketizer.input);
-    depacketizer.pipe(lipsync.inputAudio);
-
-    lipsync.pipeAudio(mp4.inputAudio);
+    depacketizer.pipe(mp4.inputAudio);
   }
   {
     const jitterBuffer = new JitterBufferCallback(90000);
@@ -95,9 +89,7 @@ server.on("connection", async (socket) => {
 
     jitterBuffer.pipe(ntpTime.input);
     ntpTime.pipe(depacketizer.input);
-    depacketizer.pipe(lipsync.inputVideo);
-
-    lipsync.pipeVideo(mp4.inputVideo);
+    depacketizer.pipe(mp4.inputVideo);
   }
 
   pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
@@ -143,5 +135,5 @@ server.on("connection", async (socket) => {
     audio.stop();
     video.stop();
     await pc.close();
-  }, 10_000);
+  }, 60_000);
 });

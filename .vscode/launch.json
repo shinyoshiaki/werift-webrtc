@@ -31,7 +31,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/save_to_disk/mp4/h264.ts"
+        "${workspaceRoot}/examples/save_to_disk/mp4/av.ts"
       ],
       "env": {
         "DEBUG": "werift*"
