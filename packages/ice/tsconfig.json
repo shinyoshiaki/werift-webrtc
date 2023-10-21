@@ -14,7 +14,8 @@
     "noUnusedLocals": false,
     "skipLibCheck": true,
     "strictNullChecks": true,
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "useDefineForClassFields": true
   },
   "include": ["src", "tests"]
 }

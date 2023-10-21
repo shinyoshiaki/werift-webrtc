@@ -2,6 +2,12 @@
 
 # Class: JitterBufferTransformer
 
+## Hierarchy
+
+- [`JitterBufferBase`](JitterBufferBase.md)
+
+  ↳ **`JitterBufferTransformer`**
+
 ## Table of contents
 
 ### Constructors
@@ -11,10 +17,11 @@
 ### Properties
 
 - [clockRate](JitterBufferTransformer.md#clockrate)
-- [options](JitterBufferTransformer.md#options)
-- [presentSeqNum](JitterBufferTransformer.md#presentseqnum)
-- [rtpBuffer](JitterBufferTransformer.md#rtpbuffer)
 - [transform](JitterBufferTransformer.md#transform)
+
+### Methods
+
+- [processInput](JitterBufferTransformer.md#processinput)
 
 ## Constructors
 
@@ -29,36 +36,42 @@
 | `clockRate` | `number` |
 | `options` | `Partial`<[`JitterBufferOptions`](../interfaces/JitterBufferOptions.md)\> |
 
+#### Overrides
+
+[JitterBufferBase](JitterBufferBase.md).[constructor](JitterBufferBase.md#constructor)
+
 ## Properties
 
 ### clockRate
 
 • **clockRate**: `number`
 
-___
+#### Inherited from
 
-### options
-
-• **options**: [`JitterBufferOptions`](../interfaces/JitterBufferOptions.md)
-
-___
-
-### presentSeqNum
-
-• `Optional` **presentSeqNum**: `number`
-
-___
-
-### rtpBuffer
-
-• **rtpBuffer**: `Object` = `{}`
-
-#### Index signature
-
-▪ [sequenceNumber: `number`]: [`RtpPacket`](RtpPacket.md)
+[JitterBufferBase](JitterBufferBase.md).[clockRate](JitterBufferBase.md#clockrate)
 
 ___
 
 ### transform
 
-• **transform**: `TransformStream`<`RtpOutput`, [`JitterBufferOutput`](../interfaces/JitterBufferOutput.md)\>
+• **transform**: `TransformStream`<[`RtpOutput`](../interfaces/RtpOutput.md), [`JitterBufferOutput`](../interfaces/JitterBufferOutput.md)\>
+
+## Methods
+
+### processInput
+
+▸ **processInput**(`input`): [`JitterBufferOutput`](../interfaces/JitterBufferOutput.md)[]
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `input` | [`RtpOutput`](../interfaces/RtpOutput.md) |
+
+#### Returns
+
+[`JitterBufferOutput`](../interfaces/JitterBufferOutput.md)[]
+
+#### Inherited from
+
+[JitterBufferBase](JitterBufferBase.md).[processInput](JitterBufferBase.md#processinput)

@@ -1,12 +1,15 @@
+import debug from "debug";
 import Event from "rx.mini";
 import { v4 } from "uuid";
 
 import { Candidate, Connection, IceOptions } from "../../../ice/src";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
+const log = debug("werift:packages/webrtc/src/transport/ice.ts");
+
 export class RTCIceTransport {
   readonly id = v4();
-  connection = this.gather.connection;
+  connection: Connection;
   state: RTCIceConnectionState = "new";
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
@@ -14,6 +17,7 @@ export class RTCIceTransport {
   private waitStart?: Event<[]>;
 
   constructor(private gather: RTCIceGatherer) {
+    this.connection = this.gather.connection;
     this.connection.stateChanged.subscribe((state) => {
       this.setState(state);
     });
@@ -54,9 +58,16 @@ export class RTCIceTransport {
   };
 
   setRemoteParams(remoteParameters: RTCIceParameters) {
-    this.connection.remoteIsLite = remoteParameters.iceLite;
-    this.connection.remoteUsername = remoteParameters.usernameFragment;
-    this.connection.remotePassword = remoteParameters.password;
+    if (
+      this.connection.remoteUsername &&
+      this.connection.remotePassword &&
+      (this.connection.remoteUsername !== remoteParameters.usernameFragment ||
+        this.connection.remotePassword !== remoteParameters.password)
+    ) {
+      log("restartIce", remoteParameters);
+      this.connection.resetNominatedPair();
+    }
+    this.connection.setRemoteParams(remoteParameters);
   }
 
   async start() {
@@ -106,9 +117,11 @@ export class RTCIceGatherer {
   gatheringState: IceGathererState = "new";
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
-  readonly connection = new Connection(false, this.options);
+  readonly connection: Connection;
 
-  constructor(private options: Partial<IceOptions> = {}) {}
+  constructor(private options: Partial<IceOptions> = {}) {
+    this.connection = new Connection(false, this.options);
+  }
 
   async gather() {
     if (this.gatheringState === "new") {

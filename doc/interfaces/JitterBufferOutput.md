@@ -4,7 +4,7 @@
 
 ## Hierarchy
 
-- `RtpOutput`
+- [`RtpOutput`](RtpOutput.md)
 
   ↳ **`JitterBufferOutput`**
 
@@ -24,7 +24,7 @@
 
 #### Inherited from
 
-RtpOutput.eol
+[RtpOutput](RtpOutput.md).[eol](RtpOutput.md#eol)
 
 ___
 
@@ -47,4 +47,4 @@ ___
 
 #### Inherited from
 
-RtpOutput.rtp
+[RtpOutput](RtpOutput.md).[rtp](RtpOutput.md#rtp)

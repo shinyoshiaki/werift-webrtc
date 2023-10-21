@@ -11,8 +11,8 @@
 ### Properties
 
 - [\_codecs](RTCRtpTransceiver.md#_codecs)
-- [direction](RTCRtpTransceiver.md#direction)
 - [headerExtensions](RTCRtpTransceiver.md#headerextensions)
+- [id](RTCRtpTransceiver.md#id)
 - [kind](RTCRtpTransceiver.md#kind)
 - [mLineIndex](RTCRtpTransceiver.md#mlineindex)
 - [mid](RTCRtpTransceiver.md#mid)
@@ -24,12 +24,12 @@
 - [stopped](RTCRtpTransceiver.md#stopped)
 - [stopping](RTCRtpTransceiver.md#stopping)
 - [usedForSender](RTCRtpTransceiver.md#usedforsender)
-- [uuid](RTCRtpTransceiver.md#uuid)
 
 ### Accessors
 
 - [codecs](RTCRtpTransceiver.md#codecs)
 - [currentDirection](RTCRtpTransceiver.md#currentdirection)
+- [direction](RTCRtpTransceiver.md#direction)
 - [dtlsTransport](RTCRtpTransceiver.md#dtlstransport)
 - [msid](RTCRtpTransceiver.md#msid)
 
@@ -37,6 +37,8 @@
 
 - [addTrack](RTCRtpTransceiver.md#addtrack)
 - [getPayloadType](RTCRtpTransceiver.md#getpayloadtype)
+- [setCurrentDirection](RTCRtpTransceiver.md#setcurrentdirection)
+- [setDirection](RTCRtpTransceiver.md#setdirection)
 - [setDtlsTransport](RTCRtpTransceiver.md#setdtlstransport)
 - [stop](RTCRtpTransceiver.md#stop)
 
@@ -44,7 +46,7 @@
 
 ### constructor
 
-• **new RTCRtpTransceiver**(`kind`, `dtlsTransport`, `receiver`, `sender`, `direction`)
+• **new RTCRtpTransceiver**(`kind`, `dtlsTransport`, `receiver`, `sender`, `_direction`)
 
 #### Parameters
 
@@ -54,7 +56,7 @@
 | `dtlsTransport` | [`RTCDtlsTransport`](RTCDtlsTransport.md) | - |
 | `receiver` | `RTCRtpReceiver` | - |
 | `sender` | `RTCRtpSender` | - |
-| `direction` | ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` | RFC 8829 4.2.4.  direction the transceiver was initialized with |
+| `_direction` | ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` | RFC 8829 4.2.4. direction the transceiver was initialized with |
 
 ## Properties
 
@@ -64,17 +66,15 @@
 
 ___
 
-### direction
-
-• **direction**: ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
-
-RFC 8829 4.2.4.  direction the transceiver was initialized with
-
-___
-
 ### headerExtensions
 
 • **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `[]`
+
+___
+
+### id
+
+• `Readonly` **id**: `string`
 
 ___
 
@@ -142,11 +142,7 @@ ___
 
 • **usedForSender**: `boolean` = `false`
 
-___
-
-### uuid
-
-• `Readonly` **uuid**: `string`
+should not be reused because it has been used for sending before.
 
 ## Accessors
 
@@ -174,25 +170,25 @@ ___
 
 ### currentDirection
 
-• `get` **currentDirection**(): `undefined` \| ``"stopped"`` \| ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
+• `get` **currentDirection**(): `undefined` \| ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
 
 RFC 8829 4.2.5. last negotiated direction
 
 #### Returns
 
-`undefined` \| ``"stopped"`` \| ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
+`undefined` \| ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
 
-• `set` **currentDirection**(`direction`): `void`
+___
 
-#### Parameters
+### direction
 
-| Name | Type |
-| :------ | :------ |
-| `direction` | `undefined` \| ``"stopped"`` \| ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` |
+• `get` **direction**(): ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
+
+RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Returns
 
-`void`
+``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
 
 ___
 
@@ -245,6 +241,38 @@ ___
 #### Returns
 
 `undefined` \| `number`
+
+___
+
+### setCurrentDirection
+
+▸ **setCurrentDirection**(`direction`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `direction` | `undefined` \| ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` |
+
+#### Returns
+
+`void`
+
+___
+
+### setDirection
+
+▸ **setDirection**(`direction`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `direction` | ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` |
+
+#### Returns
+
+`void`
 
 ___
 

@@ -1,14 +1,17 @@
-import { appendFile, open, unlink } from "fs/promises";
-import { ReadableStreamDefaultReadResult } from "stream/web";
+import { unlink } from "fs/promises";
+import { EventDisposer } from "rx.mini";
 
 import { SupportedCodec } from "../../../../../rtp/src/container/webm";
 import {
-  depacketizeTransformer,
-  jitterBufferTransformer,
+  DepacketizeCallback,
+  JitterBufferCallback,
+  LipsyncCallback,
   MediaStreamTrack,
-  RtpSourceStream,
-  WebmLiveOutput,
-  WebmLiveSink,
+  NtpTimeCallback,
+  RtcpSourceCallback,
+  RtpSourceCallback,
+  saveToFileSystem,
+  WebmCallback,
   WeriftError,
 } from "../../..";
 import { MediaWriter } from ".";
@@ -16,7 +19,9 @@ import { MediaWriter } from ".";
 const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
 
 export class WebmFactory extends MediaWriter {
-  rtpSources: RtpSourceStream[] = [];
+  rtpSources: RtpSourceCallback[] = [];
+
+  unSubscribers = new EventDisposer();
 
   async start(tracks: MediaStreamTrack[]) {
     await unlink(this.path).catch((e) => e);
@@ -65,59 +70,58 @@ export class WebmFactory extends MediaWriter {
       }
     });
 
-    const webm = new WebmLiveSink(inputTracks, {
+    const webm = new WebmCallback(inputTracks, {
       duration: this.options.defaultDuration ?? 1000 * 60 * 60 * 24,
     });
+    const lipsync = new LipsyncCallback();
 
     this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
-      const rtpSource = new RtpSourceStream(track.onReceiveRtp);
-
-      const jitterBuffer = jitterBufferTransformer(clockRate, {
-        latency: this.options.jitterBufferLatency,
-        bufferSize: this.options.jitterBufferSize,
-      });
+      const rtpSource = new RtpSourceCallback();
+      const rtcpSource = new RtcpSourceCallback();
+      track.onReceiveRtp
+        .subscribe((rtp) => {
+          rtpSource.input(rtp.clone());
+        })
+        .disposer(this.unSubscribers);
+      track.onReceiveRtcp
+        .subscribe((rtcp) => {
+          rtcpSource.input(rtcp);
+        })
+        .disposer(this.unSubscribers);
+      const ntpTime = new NtpTimeCallback(clockRate);
 
       if (track.kind === "video") {
-        rtpSource.readable
-          .pipeThrough(jitterBuffer)
-          .pipeThrough(
-            depacketizeTransformer((h) => h.marker, codec, {
-              waitForKeyframe: this.options.waitForKeyframe,
-            })
-          )
-          .pipeTo(webm.videoStream);
+        const depacketizer = new DepacketizeCallback(codec, {
+          isFinalPacketInSequence: (h) => h.marker,
+        });
+        const jitterBuffer = new JitterBufferCallback(clockRate);
+
+        rtpSource.pipe(jitterBuffer.input);
+        rtcpSource.pipe(ntpTime.input);
+
+        jitterBuffer.pipe(ntpTime.input);
+        ntpTime.pipe(depacketizer.input);
+        depacketizer.pipe(lipsync.inputVideo);
+        lipsync.pipeVideo(webm.inputVideo);
       } else {
-        rtpSource.readable
-          .pipeThrough(jitterBuffer)
-          .pipeThrough(depacketizeTransformer(() => true, codec))
-          .pipeTo(webm.audioStream);
+        const depacketizer = new DepacketizeCallback(codec);
+
+        rtpSource.pipe(ntpTime.input);
+        rtcpSource.pipe(ntpTime.input);
+
+        ntpTime.pipe(depacketizer.input);
+        depacketizer.pipe(lipsync.inputAudio);
+        lipsync.pipeAudio(webm.inputAudio);
       }
 
       return rtpSource;
     });
-
-    const reader = webm.webmStream.getReader();
-    const readChunk = async ({
-      value,
-      done,
-    }: ReadableStreamDefaultReadResult<WebmLiveOutput>) => {
-      if (done) return;
-
-      if (value.packet) {
-        await appendFile(this.path, value.packet);
-      } else if (value.eol) {
-        const { durationElement } = value.eol;
-        const handler = await open(this.path, "r+");
-        await handler.write(durationElement, 0, durationElement.length, 83);
-        await handler.close();
-      }
-      reader.read().then(readChunk);
-    };
-    reader.read().then(readChunk);
+    webm.pipe(saveToFileSystem(this.path));
   }
 
   async stop() {
     await Promise.all(this.rtpSources.map((r) => r.stop()));
+    this.unSubscribers.dispose();
   }
 }
 

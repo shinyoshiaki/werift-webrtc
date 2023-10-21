@@ -20,6 +20,8 @@ import { CipherContext } from "../../../dtls/src/context/cipher";
 import { Profile } from "../../../dtls/src/context/srtp";
 import { Connection } from "../../../ice/src";
 import {
+  isMedia,
+  isRtcp,
   RtcpPacket,
   RtcpPacketConverter,
   RtpHeader,
@@ -30,7 +32,7 @@ import {
 import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
 import { RtpRouter } from "../media/router";
 import { PeerConfig } from "../peerConnection";
-import { fingerprint, isDtls, isMedia, isRtcp } from "../utils";
+import { fingerprint, isDtls } from "../utils";
 import { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
@@ -49,7 +51,7 @@ export class RTCDtlsTransport {
 
   readonly onStateChange = new Event<[DtlsState]>();
 
-  localCertificate?: RTCCertificate = this.certificates[0];
+  localCertificate?: RTCCertificate;
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
@@ -58,7 +60,9 @@ export class RTCDtlsTransport {
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
     private readonly srtpProfiles: Profile[] = []
-  ) {}
+  ) {
+    this.localCertificate = this.certificates[0];
+  }
 
   get localParameters() {
     return new RTCDtlsParameters(
@@ -134,11 +138,11 @@ export class RTCDtlsTransport {
         }
         this.dataReceiver(buf);
       });
-      this.dtls.onClose.once(() => {
+      this.dtls.onClose.subscribe(() => {
         this.setState("closed");
       });
       this.dtls.onConnect.once(r);
-      this.dtls.onError.once((error) => {
+      this.dtls.onError.subscribe((error) => {
         this.setState("failed");
         log("dtls failed", error);
       });
@@ -155,15 +159,17 @@ export class RTCDtlsTransport {
     if (this.srtpProfiles.length > 0) {
       this.startSrtp();
     }
+    this.dtls!.onConnect.subscribe(() => {
+      this.updateSrtpSession();
+      this.setState("connected");
+    });
     this.setState("connected");
+
     log("dtls connected");
   }
 
-  startSrtp() {
+  updateSrtpSession() {
     if (!this.dtls) throw new Error();
-
-    if (this.srtpStarted) return;
-    this.srtpStarted = true;
 
     const profile = this.dtls.srtp.srtpProfile;
     if (!profile) {
@@ -185,6 +191,13 @@ export class RTCDtlsTransport {
     };
     this.srtp = new SrtpSession(config);
     this.srtcp = new SrtcpSession(config);
+  }
+
+  startSrtp() {
+    if (this.srtpStarted) return;
+    this.srtpStarted = true;
+
+    this.updateSrtpSession();
 
     this.iceTransport.connection.onData.subscribe((data) => {
       if (
@@ -226,17 +239,22 @@ export class RTCDtlsTransport {
   };
 
   async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
-    const enc = this.srtp.encrypt(payload, header);
+    try {
+      const enc = this.srtp.encrypt(payload, header);
 
-    if (
-      this.config.debug.outboundPacketLoss &&
-      this.config.debug.outboundPacketLoss / 100 < Math.random()
-    ) {
+      if (
+        this.config.debug.outboundPacketLoss &&
+        this.config.debug.outboundPacketLoss / 100 < Math.random()
+      ) {
+        return enc.length;
+      }
+
+      await this.iceTransport.connection.send(enc).catch(() => {});
       return enc.length;
+    } catch (error) {
+      log("failed to send", error);
+      return 0;
     }
-
-    await this.iceTransport.connection.send(enc).catch(() => {});
-    return enc.length;
   }
 
   async sendRtcp(packets: RtcpPacket[]) {
@@ -331,7 +349,9 @@ class IceTransport implements Transport {
   }
   onData?: (buf: Buffer) => void;
 
-  readonly send = this.ice.send;
+  readonly send = (data: Buffer) => {
+    return this.ice.send(data);
+  };
 
   close() {
     this.ice.close();

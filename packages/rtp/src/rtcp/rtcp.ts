@@ -85,3 +85,7 @@ export class RtcpPacketConverter {
     return packets;
   }
 }
+
+export function isRtcp(buf: Buffer) {
+  return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
+}

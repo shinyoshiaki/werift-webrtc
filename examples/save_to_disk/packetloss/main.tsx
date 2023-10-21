@@ -32,7 +32,7 @@ const App: FC = () => {
       }
     };
 
-    const { stream } = await getVideoStream(await file.arrayBuffer());
+    const stream = await getVideoStream(await file.arrayBuffer());
     const [track] = stream.getTracks();
     peer.addTrack(track);
 

@@ -19,7 +19,7 @@ describe("media/nack", () => {
     );
     nack.addPacket(packet);
 
-    expect(nack.lostNumber).toEqual([0, 1, 2]);
+    expect(nack.lostSeqNumbers).toEqual([0, 1, 2]);
   });
 });
 

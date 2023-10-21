@@ -22,7 +22,7 @@ const example = async () => {
   }
 
   const track = new MediaStreamTrack({ kind: "video" });
-  const receiver = new CustomPeerConnection();
+  const receiver = new CustomPeerConnection() as any;
   receiver.onVideoRtp.subscribe((rtp) => {
     track.writeRtp(rtp);
   });

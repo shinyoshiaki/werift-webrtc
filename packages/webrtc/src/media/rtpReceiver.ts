@@ -1,5 +1,4 @@
 import { debug } from "debug";
-import { jspack } from "jspack";
 import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
@@ -8,23 +7,24 @@ import { int } from "../../../common/src";
 import {
   PictureLossIndication,
   Red,
+  RedHandler,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
   RtcpRrPacket,
   RtcpSrPacket,
-  RtpHeader,
+  RTP_EXTENSION_URI,
   RtpPacket,
+  TransportWideCCPayload,
+  unwrapRtx,
 } from "../../../rtp/src";
-import { codecParametersFromString, PeerConfig } from "..";
+import { codecParametersFromString, PeerConfig, usePLI, useTWCC } from "..";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { Kind } from "../types/domain";
 import { compactNtp, timestampSeconds } from "../utils";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
-import { AudioRedHandler } from "./receiver/red";
 import { StreamStatistics } from "./receiver/statistics";
 import { Extensions } from "./router";
 import { MediaStreamTrack } from "./track";
@@ -40,7 +40,7 @@ export class RTCRtpReceiver {
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new NackHandler(this);
-  private readonly redHandler = new AudioRedHandler();
+  private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
   readonly uuid = uuid();
@@ -62,7 +62,6 @@ export class RTCRtpReceiver {
   latestRepairedRid?: string;
 
   receiverTWCC?: ReceiverTWCC;
-  supportTWCC = false;
   stopped = false;
   remoteStreamId?: string;
   remoteTrackId?: string;
@@ -87,7 +86,19 @@ export class RTCRtpReceiver {
   }
 
   get nackEnabled() {
-    return this.codecArray[0].rtcpFeedback.find((f) => f.type === "nack");
+    return this.codecArray[0]?.rtcpFeedback.find((f) => f.type === "nack");
+  }
+
+  get twccEnabled() {
+    return this.codecArray[0]?.rtcpFeedback.find(
+      (f) => f.type === useTWCC().type
+    );
+  }
+
+  get pliEnabled() {
+    return this.codecArray[0]?.rtcpFeedback.find(
+      (f) => f.type === usePLI().type
+    );
   }
 
   prepareReceive(params: RTCRtpReceiveParameters) {
@@ -104,13 +115,8 @@ export class RTCRtpReceiver {
   /**
    * setup TWCC if supported
    */
-  setupTWCC(mediaSourceSsrc?: number) {
-    this.supportTWCC = !!Object.values(this.codecs).find((codec) =>
-      codec.rtcpFeedback.find((v) => v.type === "transport-cc")
-    );
-    log("twcc support", this.supportTWCC);
-
-    if (this.supportTWCC && mediaSourceSsrc) {
+  setupTWCC(mediaSourceSsrc: number) {
+    if (this.twccEnabled && !this.receiverTWCC) {
       this.receiverTWCC = new ReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
@@ -121,13 +127,23 @@ export class RTCRtpReceiver {
 
   addTrack(track: MediaStreamTrack) {
     const exist = this.tracks.find((t) => {
-      if (t.rid) return t.rid === track.rid;
-      if (t.ssrc) return t.ssrc === track.ssrc;
+      if (t.rid) {
+        return t.rid === track.rid;
+      }
+      if (t.ssrc) {
+        return t.ssrc === track.ssrc;
+      }
     });
-    if (exist) return false;
+    if (exist) {
+      return false;
+    }
     this.tracks.push(track);
-    if (track.ssrc) this.trackBySSRC[track.ssrc] = track;
-    if (track.rid) this.trackByRID[track.rid] = track;
+    if (track.ssrc) {
+      this.trackBySSRC[track.ssrc] = track;
+    }
+    if (track.rid) {
+      this.trackByRID[track.rid] = track;
+    }
     return true;
   }
 
@@ -194,6 +210,17 @@ export class RTCRtpReceiver {
   getStats() {}
 
   async sendRtcpPLI(mediaSsrc: number) {
+    if (!this.pliEnabled) {
+      log("pli not supported", { mediaSsrc });
+      return;
+    }
+
+    if (this.stopped) {
+      return;
+    }
+
+    log("sendRtcpPLI", { mediaSsrc });
+
     const packet = new RtcpPayloadSpecificFeedback({
       feedback: new PictureLossIndication({
         senderSsrc: this.rtcpSsrc,
@@ -247,7 +274,9 @@ export class RTCRtpReceiver {
     extensions: Extensions,
     track?: MediaStreamTrack
   ) {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
 
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
@@ -263,13 +292,14 @@ export class RTCRtpReceiver {
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
-      ] as number;
+      ] as TransportWideCCPayload;
+
       if (!transportSequenceNumber == undefined) {
         throw new Error("undefined");
       }
 
       this.receiverTWCC.handleTWCC(transportSequenceNumber);
-    } else if (this.supportTWCC) {
+    } else if (this.twccEnabled) {
       this.setupTWCC(packet.header.ssrc);
     }
 
@@ -302,7 +332,7 @@ export class RTCRtpReceiver {
     if (track) {
       if (red) {
         if (track.kind === "audio") {
-          const payloads = this.redHandler.push(red, packet);
+          const payloads = this.audioRedHandler.push(red, packet);
           for (const packet of payloads) {
             track.onReceiveRtp.execute(packet.clone());
           }
@@ -331,18 +361,4 @@ export class RTCRtpReceiver {
 
     this.runRtcp();
   }
-}
-
-export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
-  const packet = new RtpPacket(
-    new RtpHeader({
-      payloadType,
-      marker: rtx.header.marker,
-      sequenceNumber: jspack.Unpack("!H", rtx.payload.subarray(0, 2))[0],
-      timestamp: rtx.header.timestamp,
-      ssrc,
-    }),
-    rtx.payload.subarray(2)
-  );
-  return packet;
 }

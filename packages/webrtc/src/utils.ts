@@ -34,24 +34,12 @@ export function isDtls(buf: Buffer) {
   return firstByte > 19 && firstByte < 64;
 }
 
-export function isMedia(buf: Buffer) {
-  const firstByte = buf[0];
-  return firstByte > 127 && firstByte < 192;
-}
-
-export function isRtcp(buf: Buffer) {
-  return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
-}
-
 export function reverseSimulcastDirection(dir: "recv" | "send") {
   if (dir === "recv") return "send";
   return "recv";
 }
 
 export const andDirection = (a: Direction, b: Direction) =>
-  Directions[Directions.indexOf(a) & Directions.indexOf(b)];
-
-export const orDirection = (a: Direction, b: Direction) =>
   Directions[Directions.indexOf(a) & Directions.indexOf(b)];
 
 export function reverseDirection(dir: Direction): Direction {

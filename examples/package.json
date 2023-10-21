@@ -36,12 +36,16 @@
     "benchmark": "^2.1.4",
     "body-parser": "^1.19.0",
     "cors": "^2.8.5",
+    "crypto-browserify": "^3.12.0",
+    "dotenv": "^16.3.1",
     "express": "^4.17.1",
+    "googleapis": "^126.0.1",
     "got": "^11.8.5",
     "parcel": "^2.7.0",
     "process": "^0.11.10",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
+    "ring-client-api": "^11.7.1",
     "rx.mini": "^1.1.0",
     "sdp-transform": "^2.14.1",
     "socket.io-client": "^4.1.2",
@@ -49,12 +53,16 @@
     "ts-node-dev": "^1.1.8",
     "typescript": "^4.3.5",
     "uuid": "^8.3.2",
-    "werift-rtp": "^0.3.1",
     "ws": "^8.0.0",
-    "wtfnode": "^0.9.1"
+    "wtfnode": "^0.9.1",
+    "xmlbuilder2": "^3.0.2"
   },
   "engines": {
     "node": ">=14"
+  },
+  "alias": {
+    "process": false,
+    "crypto": false
   },
   "readme": "README.md"
 }

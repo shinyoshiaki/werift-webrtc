@@ -10,6 +10,7 @@
     "ebml",
     "examples",
     "extmap",
+    "ffffffn",
     "files",
     "hdrext",
     "howdee",
@@ -70,5 +71,6 @@
   "liveServer.settings.port": 5501,
   "liveServer.settings.ignoreFiles": ["**"],
   "typescript.tsdk": "node_modules/typescript/lib",
-  "python.formatting.provider": "black"
+  "python.formatting.provider": "black",
+  "commentTranslate.source": "intellsmi.deepl-translate-deepl"
 }

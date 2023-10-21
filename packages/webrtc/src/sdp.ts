@@ -97,6 +97,8 @@ export class SessionDescription {
       }
     });
 
+    const bundle = session.group.find((g) => g.semantic === "BUNDLE");
+
     mediaGroups.forEach((mediaLines) => {
       const target = mediaLines[0];
       const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z/]+) (.+)/);
@@ -121,11 +123,13 @@ export class SessionDescription {
         [...session.dtlsFingerprints],
         session.dtlsRole
       );
+
       currentMedia.iceParams = new RTCIceParameters({
         iceLite: session.iceLite,
         usernameFragment: session.iceUsernameFragment,
         password: session.icePassword,
       });
+
       currentMedia.iceOptions = session.iceOptions;
       session.media.push(currentMedia);
 
@@ -262,6 +266,32 @@ export class SessionDescription {
         }
       });
 
+      if (
+        !currentMedia.iceParams.usernameFragment ||
+        !currentMedia.iceParams.password
+      ) {
+        if (
+          currentMedia.rtp.muxId &&
+          bundle &&
+          bundle.items.includes(currentMedia.rtp.muxId)
+        ) {
+          for (let i = 0; i < bundle.items.length; i++) {
+            if (!bundle.items.includes(i.toString())) continue;
+            const check = session.media[i];
+            if (
+              check?.iceParams &&
+              check.iceParams.usernameFragment &&
+              check.iceParams.password
+            ) {
+              currentMedia.iceParams = {
+                ...check.iceParams,
+              };
+              break;
+            }
+          }
+        }
+      }
+
       if (!currentMedia.dtlsParams.role) {
         currentMedia.dtlsParams = undefined;
       }
@@ -314,7 +344,7 @@ export class SessionDescription {
   get string() {
     const lines = [`v=${this.version}`, `o=${this.origin}`, `s=${this.name}`];
     if (this.host) {
-      lines.push(`c=${ipAddressFromSdp(this.host)}`);
+      lines.push(`c=${ipAddressToSdp(this.host)}`);
     }
     lines.push(`t=${this.time}`);
     this.group.forEach((group) => lines.push(`a=group:${group.str}`));

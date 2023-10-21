@@ -35,17 +35,10 @@ export class DtlsSocket {
   readonly onData = new Event<[Buffer]>();
   readonly onError = new Event<[Error]>();
   readonly onClose = new Event();
-  readonly transport: TransportContext = new TransportContext(
-    this.options.transport
-  );
-  readonly cipher: CipherContext = new CipherContext(
-    this.sessionType,
-    this.options.cert,
-    this.options.key,
-    this.options.signatureHash
-  );
-  readonly dtls: DtlsContext = new DtlsContext(this.options, this.sessionType);
-  readonly srtp: SrtpContext = new SrtpContext();
+  readonly transport: TransportContext;
+  cipher: CipherContext;
+  dtls: DtlsContext;
+  srtp: SrtpContext = new SrtpContext();
 
   connected = false;
   extensions: Extension[] = [];
@@ -54,8 +47,31 @@ export class DtlsSocket {
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
   constructor(public options: Options, public sessionType: SessionTypes) {
+    this.dtls = new DtlsContext(this.options, this.sessionType);
+    this.cipher = new CipherContext(
+      this.sessionType,
+      this.options.cert,
+      this.options.key,
+      this.options.signatureHash
+    );
+    this.transport = new TransportContext(this.options.transport);
     this.setupExtensions();
     this.transport.socket.onData = this.udpOnMessage;
+  }
+
+  renegotiation() {
+    log("renegotiation", this.sessionType);
+    this.connected = false;
+    this.cipher = new CipherContext(
+      this.sessionType,
+      this.options.cert,
+      this.options.key,
+      this.options.signatureHash
+    );
+    this.dtls = new DtlsContext(this.options, this.sessionType);
+    this.srtp = new SrtpContext();
+    this.extensions = [];
+    this.bufferFragmentedHandshakes = [];
   }
 
   private udpOnMessage = (data: Buffer) => {

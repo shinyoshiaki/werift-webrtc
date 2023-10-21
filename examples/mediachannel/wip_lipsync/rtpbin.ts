@@ -1,5 +1,5 @@
 import {
-  getUserMp4,
+  getUserMedia,
   randomPorts,
   RTCPeerConnection,
   RTCRtpCodecParameters,
@@ -29,7 +29,10 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
     },
   });
 
-  const stream = await getUserMp4("~/Downloads/test.mp4", true);
+  const stream = await getUserMedia({
+    path: "~/Downloads/test.mp4",
+    loop: true,
+  });
 
   pc.addTransceiver(stream.audio, { direction: "sendonly" });
   pc.addTransceiver(stream.video, { direction: "sendonly" });

@@ -7,3 +7,7 @@ coverage
 dist
 *.webm
 *.log
+*.key
+*.mpd
+*.mp3
+credential.env

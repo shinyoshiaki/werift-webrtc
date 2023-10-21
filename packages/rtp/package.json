@@ -1,11 +1,11 @@
 {
   "name": "werift-rtp",
-  "version": "0.4.0",
+  "version": "0.7.20",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
-  "homepage": "https://github.com/shinyoshiaki/werift-rtp",
+  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shinyoshiaki/werift-rtp.git"
+    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
   },
   "license": "MIT",
   "author": {
@@ -26,23 +26,27 @@
     "lint": "eslint ./src --fix && eslint ./tests --fix",
     "test": "npm run type && jest --forceExit",
     "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts"
+    "unused": "organize-imports-cli src/**/*.ts",
+    "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@minhducsun2002/leb128": "^0.2.0",
-    "@shinyoshiaki/ebml-builder": "^0.0.1",
+    "@minhducsun2002/leb128": "^1.0.0",
     "aes-js": "^3.1.2",
     "binary-data": "^0.6.0",
     "buffer": "^6.0.3",
     "debug": "^4.3.4",
     "jspack": "^0.0.4",
-    "lodash": "^4.17.20",
+    "lodash": "^4.17.21",
     "rx.mini": "^1.2.2"
   },
   "devDependencies": {
     "@types/aes-js": "^3.1.1",
     "@types/debug": "^4.1.7",
-    "@types/lodash": "^4.14.178"
+    "@types/lodash": "^4.14.191",
+    "@types/react": "^18.0.26",
+    "@types/react-dom": "^18.0.10",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "engines": {
     "node": ">=10"

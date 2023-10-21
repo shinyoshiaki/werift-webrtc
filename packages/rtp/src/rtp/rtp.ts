@@ -38,9 +38,9 @@ export class RtpHeader {
   marker: boolean = false;
   payloadOffset: number = 0;
   payloadType: number = 0;
-  /**16bit */
+  /**16bit, 初期値はランダムである必要があります*/
   sequenceNumber: number = 0;
-  /**32bit milliseconds/1000 */
+  /**32bit microsec (milli/1000), 初期値はランダムである必要があります*/
   timestamp: number = 0;
   ssrc: number = 0;
   csrcLength = 0;
@@ -300,5 +300,9 @@ export class RtpPacket {
       buf.subarray(header.payloadOffset, buf.length - header.paddingSize)
     );
     return p;
+  }
+
+  clear() {
+    this.payload = null as any;
   }
 }

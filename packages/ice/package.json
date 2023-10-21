@@ -1,6 +1,6 @@
 {
   "name": "werift-ice",
-  "version": "0.0.12",
+  "version": "0.0.16",
   "description": "> TODO: description",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc/tree/master/packages/ice#readme",
   "bugs": {
@@ -12,7 +12,7 @@
   },
   "license": "MIT",
   "author": "shinyoshiaki <shinyoshiaki2012@gmail.com>",
-  "main": "lib/ice.js",
+  "main": "lib/ice/src/index.js",
   "files": [
     "src",
     "lib"
@@ -26,7 +26,8 @@
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
     "test": "npm run type && jest --runInBand --forceExit",
     "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts"
+    "unused": "organize-imports-cli src/**/*.ts",
+    "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
     "buffer-crc32": "^0.2.13",
@@ -34,17 +35,17 @@
     "int64-buffer": "^1.0.1",
     "ip": "^1.1.8",
     "jspack": "^0.0.4",
-    "lodash": "^4.17.20",
+    "lodash": "^4.17.21",
     "p-cancelable": "^2.1.1",
-    "rx.mini": "^1.1.0"
+    "rx.mini": "^1.2.2"
   },
   "devDependencies": {
-    "@types/buffer-crc32": "^0.2.0",
+    "@types/buffer-crc32": "^0.2.2",
     "@types/debug": "^4.1.7",
     "@types/ip": "^1.1.0",
-    "@types/lodash": "^4.14.178",
-    "@types/utf8": "^3.0.0",
-    "@types/ws": "^8.2.2",
-    "ws": "^8.3.0"
+    "@types/lodash": "^4.14.191",
+    "@types/utf8": "^3.0.1",
+    "@types/ws": "^8.5.3",
+    "ws": "^8.11.0"
   }
 }

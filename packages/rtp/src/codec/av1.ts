@@ -96,7 +96,7 @@ export class AV1RtpPayload {
     }
 
     [...Array(p.w_RtpNumObus - 1).keys()].forEach((i) => {
-      const [elementSize, bytes] = leb128decode(buf.slice(offset));
+      const [elementSize, bytes] = leb128decode(buf.subarray(offset));
 
       const start = offset + bytes;
       const end = start + elementSize;
@@ -105,7 +105,7 @@ export class AV1RtpPayload {
       if (p.zBit_RtpStartsWithFragment && i === 0) {
         isFragment = true;
       }
-      p.obu_or_fragment.push({ data: buf.slice(start, end), isFragment });
+      p.obu_or_fragment.push({ data: buf.subarray(start, end), isFragment });
 
       offset += bytes + elementSize;
     });
@@ -117,7 +117,7 @@ export class AV1RtpPayload {
       isFragment = true;
     }
     p.obu_or_fragment.push({
-      data: buf.slice(offset),
+      data: buf.subarray(offset),
       isFragment: isFragment,
     });
 
@@ -204,7 +204,7 @@ export class AV1Obu {
     obu.obu_reserved_1bit = getBit(buf[offset], 7);
     offset++;
 
-    obu.payload = buf.slice(offset);
+    obu.payload = buf.subarray(offset);
 
     return obu;
   }
@@ -216,7 +216,7 @@ export class AV1Obu {
       .set(this.obu_extension_flag)
       .set(this.obu_has_size_field)
       .set(this.obu_reserved_1bit).buffer;
-    let obuSize = Buffer.alloc(0);
+    let obuSize: Uint8Array | Buffer = Buffer.alloc(0);
     if (this.obu_has_size_field) {
       obuSize = LEB128.encode(this.payload.length);
     }

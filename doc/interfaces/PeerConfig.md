@@ -11,6 +11,7 @@
 - [debug](PeerConfig.md#debug)
 - [dtls](PeerConfig.md#dtls)
 - [headerExtensions](PeerConfig.md#headerextensions)
+- [iceAdditionalHostAddresses](PeerConfig.md#iceadditionalhostaddresses)
 - [iceFilterStunResponse](PeerConfig.md#icefilterstunresponse)
 - [iceInterfaceAddresses](PeerConfig.md#iceinterfaceaddresses)
 - [icePortRange](PeerConfig.md#iceportrange)
@@ -48,6 +49,15 @@ ___
 ### headerExtensions
 
 • **headerExtensions**: `Partial`<{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[] ; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]  }\>
+
+___
+
+### iceAdditionalHostAddresses
+
+• **iceAdditionalHostAddresses**: `undefined` \| `string`[]
+
+Add additional host (local) addresses to use for candidate gathering.
+Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
 
 ___
 

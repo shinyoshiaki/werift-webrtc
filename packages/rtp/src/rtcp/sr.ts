@@ -52,6 +52,14 @@ export class RtcpSrPacket {
     Object.assign(this, props);
   }
 
+  toJSON() {
+    return {
+      ssrc: this.ssrc,
+      senderInfo: this.senderInfo.toJSON(),
+      reports: this.reports.map((r) => r.toJSON()),
+    };
+  }
+
   serialize() {
     let payload = Buffer.alloc(4);
     payload.writeUInt32BE(this.ssrc);
@@ -70,14 +78,17 @@ export class RtcpSrPacket {
 
   static deSerialize(payload: Buffer, count: number) {
     const ssrc = payload.readUInt32BE();
-    const senderInfo = RtcpSenderInfo.deSerialize(payload.slice(4, 24));
+    const senderInfo = RtcpSenderInfo.deSerialize(payload.subarray(4, 24));
     let pos = 24;
     const reports: RtcpReceiverInfo[] = [];
     for (const _ of range(count)) {
-      reports.push(RtcpReceiverInfo.deSerialize(payload.slice(pos, pos + 24)));
+      reports.push(
+        RtcpReceiverInfo.deSerialize(payload.subarray(pos, pos + 24))
+      );
       pos += 24;
     }
-    return new RtcpSrPacket({ ssrc, senderInfo, reports });
+    const packet = new RtcpSrPacket({ ssrc, senderInfo, reports });
+    return packet;
   }
 }
 
@@ -89,6 +100,13 @@ export class RtcpSenderInfo {
 
   constructor(props: Partial<RtcpSenderInfo> = {}) {
     Object.assign(this, props);
+  }
+
+  toJSON() {
+    return {
+      ntpTimestamp: ntpTime2Sec(this.ntpTimestamp),
+      rtpTimestamp: this.rtpTimestamp,
+    };
   }
 
   serialize() {
@@ -112,3 +130,9 @@ export class RtcpSenderInfo {
     });
   }
 }
+
+export const ntpTime2Sec = (ntp: bigint) => {
+  const [ntpSec, ntpMsec] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
+
+  return Number(`${ntpSec}.${ntpMsec}`);
+};

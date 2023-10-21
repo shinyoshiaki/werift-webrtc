@@ -12,8 +12,7 @@ export class Transaction {
   private timeoutDelay = RETRY_RTO;
   private timeoutHandle?: any;
   private tries = 0;
-  private readonly triesMax =
-    1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
+  private readonly triesMax: number;
   private readonly onResponse = new Event<[Message, Address]>();
 
   constructor(
@@ -21,7 +20,10 @@ export class Transaction {
     private addr: Address,
     private protocol: Protocol,
     private retransmissions?: number
-  ) {}
+  ) {
+    this.triesMax =
+      1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
+  }
 
   responseReceived = (message: Message, addr: Address) => {
     if (this.onResponse.length > 0) {

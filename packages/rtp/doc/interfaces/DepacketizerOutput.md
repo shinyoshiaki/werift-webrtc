@@ -19,12 +19,4 @@ ___
 
 ### frame
 
-• `Optional` **frame**: `Object`
-
-#### Type declaration
-
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `isKeyframe` | `boolean` |
-| `timestamp` | `number` |
+• `Optional` **frame**: [`CodecFrame`](CodecFrame.md)

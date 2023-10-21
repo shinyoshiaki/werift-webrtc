@@ -1,8 +1,6 @@
 import debug from "debug";
 
-import { bufferReader } from "../../../common/src";
 import {
-  Extension,
   ReceiverEstimatedMaxBitrate,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
@@ -10,9 +8,10 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RTP_EXTENSION_URI,
+  rtpHeaderExtensionsParser,
   RtpPacket,
 } from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
 import {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -38,6 +37,7 @@ export class RtpRouter {
   }
 
   private registerRtpReceiver(receiver: RTCRtpReceiver, ssrc: number) {
+    log("registerRtpReceiver", ssrc);
     this.ssrcTable[ssrc] = receiver;
   }
 
@@ -91,79 +91,52 @@ export class RtpRouter {
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
-  static rtpHeaderExtensionsParser(
-    extensions: Extension[],
-    extIdUriMap: { [id: number]: string }
-  ): Extensions {
-    return extensions
-      .map((extension) => {
-        const uri = extIdUriMap[extension.id];
-        switch (uri) {
-          case RTP_EXTENSION_URI.sdesMid:
-          case RTP_EXTENSION_URI.sdesRTPStreamID:
-          case RTP_EXTENSION_URI.repairedRtpStreamId:
-            return { uri, value: extension.payload.toString() };
-          case RTP_EXTENSION_URI.transportWideCC:
-            return { uri, value: extension.payload.readUInt16BE() };
-          case RTP_EXTENSION_URI.absSendTime:
-            return {
-              uri,
-              value: bufferReader(extension.payload, [3])[0],
-            };
-          default:
-            return { uri, value: 0 };
-        }
-      })
-      .reduce((acc: { [uri: string]: any }, cur) => {
-        if (cur) acc[cur.uri] = cur.value;
-        return acc;
-      }, {});
-  }
-
   routeRtp = (packet: RtpPacket) => {
-    const extensions = RtpRouter.rtpHeaderExtensionsParser(
+    const extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
       this.extIdUriMap
     );
 
-    let ssrcReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
+    let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
       packet.header.ssrc
     ] as RTCRtpReceiver;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     if (typeof rid === "string") {
-      ssrcReceiver = this.ridTable[rid] as RTCRtpReceiver;
-      ssrcReceiver.latestRid = rid;
-      ssrcReceiver.handleRtpByRid(packet, rid, extensions);
-    } else if (ssrcReceiver) {
-      ssrcReceiver.handleRtpBySsrc(packet, extensions);
+      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver;
+      rtpReceiver.latestRid = rid;
+      rtpReceiver.handleRtpByRid(packet, rid, extensions);
+    } else if (rtpReceiver) {
+      rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {
       // simulcast after send receiver report
-      ssrcReceiver = Object.values(this.ridTable)
+      rtpReceiver = Object.values(this.ridTable)
         .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
         .find((r) => r.trackBySSRC[packet.header.ssrc]);
-      if (ssrcReceiver) {
+      if (rtpReceiver) {
         log("simulcast register receiver by ssrc", packet.header.ssrc);
-        this.registerRtpReceiver(ssrcReceiver, packet.header.ssrc);
-        ssrcReceiver.handleRtpBySsrc(packet, extensions);
+        this.registerRtpReceiver(rtpReceiver, packet.header.ssrc);
+        rtpReceiver.handleRtpBySsrc(packet, extensions);
+      } else {
+        // bug
       }
     }
 
-    if (!ssrcReceiver) {
+    if (!rtpReceiver) {
       log("ssrcReceiver not found");
       return;
     }
 
     const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
     if (typeof sdesMid === "string") {
-      ssrcReceiver.sdesMid = sdesMid;
+      rtpReceiver.sdesMid = sdesMid;
     }
 
     const repairedRid = extensions[
       RTP_EXTENSION_URI.repairedRtpStreamId
     ] as string;
     if (typeof repairedRid === "string") {
-      ssrcReceiver.latestRepairedRid = repairedRid;
+      rtpReceiver.latestRepairedRid = repairedRid;
     }
   };
 

@@ -61,6 +61,6 @@ export const SRTP_PROFILE = {
 } as const;
 
 export const SenderDirections = ["sendonly", "sendrecv"];
-export const NotSenderDirections = ["inactive", "recvonly"];
+export const ReceiverDirection = ["sendrecv", "recvonly"];
 
 export { HashAlgorithms, SignatureAlgorithm };
