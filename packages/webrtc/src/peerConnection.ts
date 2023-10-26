@@ -837,10 +837,16 @@ export class RTCPeerConnection extends EventTarget {
     return bundle;
   }
 
-  async setRemoteDescription(sessionDescription: {
-    type: "offer" | "answer";
-    sdp: string;
-  }) {
+  async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
+    if (
+      !sessionDescription.sdp ||
+      !sessionDescription.type ||
+      sessionDescription.type === "rollback" ||
+      sessionDescription.type === "pranswer"
+    ) {
+      throw new Error("invalid sessionDescription");
+    }
+
     // # parse and validate description
     const remoteSdp = SessionDescription.parse(sessionDescription.sdp);
     remoteSdp.type = sessionDescription.type;
@@ -1741,3 +1747,9 @@ export interface RTCPeerConnectionIceEvent {
 }
 
 type Media = "audio" | "video";
+
+export interface RTCSessionDescriptionInit {
+  sdp?: string;
+  type: RTCSdpType;
+}
+export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";
