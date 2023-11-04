@@ -6,31 +6,27 @@ import {
   MediaStreamTrack,
   RtpPacket,
   randomPort,
+  MediaStreamTrackFactory,
 } from "../../";
 import { peerConfig } from "../../fixture";
 
 export class mediachannel_addTrack_answer {
   pc!: RTCPeerConnection;
   process!: ChildProcess;
-  udp = createSocket("udp4");
+  private disposer = () => {};
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
+          const [track, port, disposer] =
+            await MediaStreamTrackFactory.rtpSource({ kind: "video" });
+          this.disposer = disposer;
 
           this.pc = new RTCPeerConnection(await peerConfig);
-          const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
-
-          this.udp.on("message", (data) => {
-            const rtp = RtpPacket.deSerialize(data);
-            track.writeRtp(rtp);
-          });
 
           const args = [
             `videotestsrc`,
@@ -56,7 +52,7 @@ export class mediachannel_addTrack_answer {
         break;
       case "done":
         {
-          this.udp.close();
+          this.disposer();
           this.pc.close();
           try {
             this.process.kill("SIGINT");

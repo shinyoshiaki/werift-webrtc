@@ -3,11 +3,13 @@ import { createHash } from "crypto";
 import debug from "debug";
 import { performance } from "perf_hooks";
 
-import { bufferReader, bufferWriter } from "../../common/src";
+import { bufferReader, bufferWriter, randomPort } from "../../common/src";
 import { CipherContext } from "../../dtls/src/context/cipher";
 import { Address } from "../../ice/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
 import { RTCIceServer } from "./peerConnection";
+import { RemoteInfo, createSocket } from "dgram";
+import { MediaStreamTrack } from "./media/track";
 const now = require("nano-time");
 
 const log = debug("werift:packages/webrtc/src/utils.ts");
@@ -102,3 +104,30 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
  */
 export const createSelfSignedCertificate =
   CipherContext.createSelfSignedCertificateWithKey;
+
+export class MediaStreamTrackFactory {
+  static async rtpSource({
+    port,
+    kind,
+  }: {
+    port?: number;
+    kind: "audio" | "video";
+  }) {
+    port ??= await randomPort();
+    const track = new MediaStreamTrack({ kind });
+
+    const udp = createSocket("udp4");
+    udp.bind(port);
+    const onMessage = (msg: Buffer, rinfo: RemoteInfo) => {
+      track.writeRtp(msg);
+    };
+    udp.addListener("message", onMessage);
+
+    const dispose = () => {
+      udp.removeListener("message", onMessage);
+      udp.close();
+    };
+
+    return [track, port, dispose] as const;
+  }
+}
