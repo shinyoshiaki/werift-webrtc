@@ -1,5 +1,3 @@
-import range from "lodash/range";
-
 import { bufferReader, bufferWriter } from "../../../../common/src";
 import { RtcpHeader } from "../header";
 import { RtcpTransportLayerFeedback } from ".";
@@ -42,19 +40,17 @@ export class GenericNack {
 
   static deSerialize(data: Buffer, header: RtcpHeader) {
     const [senderSsrc, mediaSourceSsrc] = bufferReader(data, [4, 4]);
-    const lost = range(8, data.length, 4)
-      .map((pos) => {
-        const lost: number[] = [];
-        const [pid, blp] = bufferReader(data.subarray(pos), [2, 2]);
-        lost.push(pid);
-        range(0, 16).forEach((diff) => {
-          if ((blp >> diff) & 1) {
-            lost.push(pid + diff + 1);
-          }
-        });
-        return lost;
-      })
-      .flatMap((v) => v);
+
+    const lost: number[] = [];
+    for (let pos = 8; pos < data.length; pos += 4) {
+      const [pid, blp] = bufferReader(data.subarray(pos), [2, 2]);
+      lost.push(pid);
+      for (let diff = 0; diff < 16; diff++) {
+        if ((blp >> diff) & 1) {
+          lost.push(pid + diff + 1);
+        }
+      }
+    }
 
     return new GenericNack({
       header,

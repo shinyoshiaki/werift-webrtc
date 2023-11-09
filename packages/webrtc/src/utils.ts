@@ -1,6 +1,7 @@
 /* eslint-disable prefer-const */
 import { createHash } from "crypto";
 import debug from "debug";
+import mergeWith from "lodash/mergeWith";
 import { performance } from "perf_hooks";
 
 import {
@@ -131,3 +132,11 @@ export class RtpBuilder {
  */
 export const createSelfSignedCertificate =
   CipherContext.createSelfSignedCertificateWithKey;
+
+export const deepMerge = <T>(dst: T, src: T) =>
+  mergeWith(dst, src, (obj, src) => {
+    if (!(src == undefined)) {
+      return src;
+    }
+    return obj;
+  });

@@ -1,5 +1,4 @@
 import debug from "debug";
-import range from "lodash/range";
 
 import {
   BitWriter2,
@@ -105,11 +104,11 @@ export class TransportWideCC {
               packetStatus.packetStatus ===
                 PacketStatus.TypeTCCPacketReceivedLargeDelta
             ) {
-              range(packetNumberToProcess).forEach(() => {
+              for (let _ = 0; _ < packetNumberToProcess; _++) {
                 recvDeltas.push(
                   new RecvDelta({ type: packetStatus.packetStatus as any })
                 );
-              });
+              }
             }
             processedPacketNum += packetNumberToProcess;
           }
@@ -313,14 +312,20 @@ export class StatusVectorChunk {
     let symbolSize = getBit(data[0], 1, 1);
     const symbolList: number[] = [];
 
+    function range(n: number, cb: (i: number) => void) {
+      for (let i = 0; i < n; i++) {
+        cb(i);
+      }
+    }
+
     switch (symbolSize) {
       case 0:
-        range(6).forEach((_, i) => symbolList.push(getBit(data[0], 2 + i, 1)));
-        range(8).forEach((_, i) => symbolList.push(getBit(data[1], i, 1)));
+        range(6, (i) => symbolList.push(getBit(data[0], 2 + i, 1)));
+        range(8, (i) => symbolList.push(getBit(data[1], i, 1)));
         break;
       case 1:
-        range(3).forEach((i) => symbolList.push(getBit(data[0], 2 + i * 2, 2)));
-        range(4).forEach((i) => symbolList.push(getBit(data[1], i * 2, 2)));
+        range(6, (i) => symbolList.push(getBit(data[0], 2 + i * 2, 2)));
+        range(6, (i) => symbolList.push(getBit(data[1], i * 2, 2)));
         break;
       default:
         symbolSize = (getBit(data[0], 2, 6) << 8) + data[1];

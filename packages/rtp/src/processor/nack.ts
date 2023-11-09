@@ -1,5 +1,4 @@
 import debug from "debug";
-import range from "lodash/range";
 import Event from "rx.mini";
 
 import {
@@ -110,9 +109,13 @@ export class NackHandlerBase
       this.newEstSeqNum = sequenceNumber;
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
-      range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
+      for (
+        let seq = uint16Add(this.newEstSeqNum, 1);
+        seq < sequenceNumber;
+        seq++
+      ) {
         this.setLost(seq, 1);
-      });
+      }
       // this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
       this.newEstSeqNum = sequenceNumber;

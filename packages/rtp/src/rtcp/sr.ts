@@ -1,5 +1,3 @@
-import range from "lodash/range";
-
 import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpReceiverInfo } from "./rr";
 import { RtcpPacketConverter } from "./rtcp";
@@ -81,7 +79,7 @@ export class RtcpSrPacket {
     const senderInfo = RtcpSenderInfo.deSerialize(payload.subarray(4, 24));
     let pos = 24;
     const reports: RtcpReceiverInfo[] = [];
-    for (const _ of range(count)) {
+    for (let _ = 0; _ < count; _++) {
       reports.push(
         RtcpReceiverInfo.deSerialize(payload.subarray(pos, pos + 24))
       );
