@@ -44,7 +44,7 @@ module.exports = function (config) {
     // available browser launchers: https://npmjs.org/browse/keyword/karma-launcher
     customLaunchers: {
       chrome_headless_with_fake_device: {
-        base: "ChromeCanaryHeadless",
+        base: "ChromeHeadless",
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",
@@ -53,7 +53,7 @@ module.exports = function (config) {
         ],
       },
       chrome_with_fake_device: {
-        base: "ChromeCanary",
+        base: "Chrome",
         flags: [
           "--use-fake-device-for-media-stream",
           "--use-fake-ui-for-media-stream",

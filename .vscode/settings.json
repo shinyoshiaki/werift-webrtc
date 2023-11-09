@@ -35,6 +35,7 @@
     "parse",
     "pranswer",
     "prflx",
+    "protoo",
     "psfb",
     "raddr",
     "reconfig",
@@ -69,7 +70,9 @@
     "xffffffffn"
   ],
   "liveServer.settings.port": 5501,
-  "liveServer.settings.ignoreFiles": ["**"],
+  "liveServer.settings.ignoreFiles": [
+    "**"
+  ],
   "typescript.tsdk": "node_modules/typescript/lib",
   "python.formatting.provider": "black",
   "commentTranslate.source": "intellsmi.deepl-translate-deepl"

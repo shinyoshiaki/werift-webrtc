@@ -1,21 +1,15 @@
 /* eslint-disable prefer-const */
 import { createHash } from "crypto";
 import debug from "debug";
+import { createSocket, RemoteInfo } from "dgram";
 import mergeWith from "lodash/mergeWith";
 import { performance } from "perf_hooks";
 
-import {
-  bufferReader,
-  bufferWriter,
-  random16,
-  random32,
-  uint16Add,
-  uint32Add,
-} from "../../common/src";
+import { bufferReader, bufferWriter, randomPort } from "../../common/src";
 import { CipherContext } from "../../dtls/src/context/cipher";
 import { Address } from "../../ice/src";
-import { RtpHeader, RtpPacket } from "../../rtp/src";
 import { Direction, Directions } from "./media/rtpTransceiver";
+import { MediaStreamTrack } from "./media/track";
 import { RTCIceServer } from "./peerConnection";
 const now = require("nano-time");
 
@@ -104,27 +98,6 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   return options;
 }
 
-export class RtpBuilder {
-  sequenceNumber = random16();
-  timestamp = random32();
-
-  create(payload: Buffer) {
-    this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
-    this.timestamp = uint32Add(this.timestamp, 960);
-
-    const header = new RtpHeader({
-      sequenceNumber: this.sequenceNumber,
-      timestamp: Number(this.timestamp),
-      payloadType: 96,
-      extension: true,
-      marker: false,
-      padding: false,
-    });
-    const rtp = new RtpPacket(header, payload);
-    return rtp;
-  }
-}
-
 /**
  *
  * @param signatureHash
@@ -132,6 +105,33 @@ export class RtpBuilder {
  */
 export const createSelfSignedCertificate =
   CipherContext.createSelfSignedCertificateWithKey;
+
+export class MediaStreamTrackFactory {
+  static async rtpSource({
+    port,
+    kind,
+  }: {
+    port?: number;
+    kind: "audio" | "video";
+  }) {
+    port ??= await randomPort();
+    const track = new MediaStreamTrack({ kind });
+
+    const udp = createSocket("udp4");
+    udp.bind(port);
+    const onMessage = (msg: Buffer, rinfo: RemoteInfo) => {
+      track.writeRtp(msg);
+    };
+    udp.addListener("message", onMessage);
+
+    const dispose = () => {
+      udp.removeListener("message", onMessage);
+      udp.close();
+    };
+
+    return [track, port, dispose] as const;
+  }
+}
 
 export const deepMerge = <T>(dst: T, src: T) =>
   mergeWith(dst, src, (obj, src) => {

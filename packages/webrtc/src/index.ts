@@ -6,6 +6,8 @@ export * from "./dataChannel";
 export * from "./media/extension/rtcpFeedback";
 export * from "./media/extension/rtpExtension";
 export * from "./media/parameters";
+export * from "./media/rtpReceiver";
+export * from "./media/rtpSender";
 export * from "./media/rtpTransceiver";
 export * from "./media/track";
 export * from "./nonstandard/recorder";

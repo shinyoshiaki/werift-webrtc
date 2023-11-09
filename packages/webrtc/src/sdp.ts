@@ -669,6 +669,9 @@ export function codecParametersFromString(str: string) {
       } else {
         parameters[k] = v;
       }
+    } else if (param.includes(":")) {
+      const [k, v] = param.split(":");
+      parameters[k] = Number.isNaN(Number(v)) ? v : Number(v);
     } else {
       parameters[param] = undefined;
     }
@@ -676,11 +679,14 @@ export function codecParametersFromString(str: string) {
   return parameters;
 }
 
-export function codecParametersToString(parameters: {
-  [key: string]: string | number;
-}) {
+export function codecParametersToString(
+  parameters: {
+    [key: string]: string | number;
+  },
+  joint: string = "="
+) {
   const params = Object.entries(parameters).map(([k, v]) => {
-    if (v) return `${k}=${v}`;
+    if (v) return `${k}${joint}${v}`;
     else return k;
   });
   if (params.length > 0) {
