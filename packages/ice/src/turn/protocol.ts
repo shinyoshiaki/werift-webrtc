@@ -31,21 +31,25 @@ class TurnTransport implements Protocol {
   }
 
   private datagramReceived = (data: Buffer, addr: Address) => {
-    const message = parseMessage(data);
-    if (!message) {
-      this.receiver?.dataReceived(data, this.localCandidate.component);
-      return;
-    }
+    try {
+      const message = parseMessage(data);
+      if (!message) {
+        this.receiver?.dataReceived(data, this.localCandidate.component);
+        return;
+      }
 
-    if (
-      (message?.messageClass === classes.RESPONSE ||
-        message?.messageClass === classes.ERROR) &&
-      this.turn.transactions[message.transactionIdHex]
-    ) {
-      const transaction = this.turn.transactions[message.transactionIdHex];
-      transaction.responseReceived(message, addr);
-    } else if (message?.messageClass === classes.REQUEST) {
-      this.receiver?.requestReceived(message, addr, this, data);
+      if (
+        (message?.messageClass === classes.RESPONSE ||
+          message?.messageClass === classes.ERROR) &&
+        this.turn.transactions[message.transactionIdHex]
+      ) {
+        const transaction = this.turn.transactions[message.transactionIdHex];
+        transaction.responseReceived(message, addr);
+      } else if (message?.messageClass === classes.REQUEST) {
+        this.receiver?.requestReceived(message, addr, this, data);
+      }
+    } catch (error) {
+      log("datagramReceived error", error);
     }
   };
 
@@ -63,6 +67,8 @@ class TurnTransport implements Protocol {
 
     try {
       return await transaction.run();
+    } catch (e) {
+      throw e;
     } finally {
       delete this.turn.transactions[request.transactionIdHex];
     }
@@ -199,7 +205,7 @@ class TurnClient implements Protocol {
   }
 
   refresh = () =>
-    new PCancelable(async (r, f, onCancel) => {
+    new PCancelable(async (_, f, onCancel) => {
       let run = true;
       onCancel(() => {
         run = false;
@@ -235,6 +241,8 @@ class TurnClient implements Protocol {
 
     try {
       return await transaction.run();
+    } catch (e) {
+      throw e;
     } finally {
       delete this.transactions[request.transactionIdHex];
     }
@@ -272,7 +280,7 @@ class TurnClient implements Protocol {
       .setAttribute("XOR-PEER-ADDRESS", addr);
     const [response] = await this.request(request, this.server);
     if (response.messageMethod !== methods.CHANNEL_BIND) {
-      throw new Error();
+      throw new Error("should be CHANNEL_BIND");
     }
   }
 

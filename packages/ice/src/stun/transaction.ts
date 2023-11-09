@@ -40,6 +40,15 @@ export class Transaction {
     try {
       this.retry();
       return await this.onResponse.asPromise();
+    } catch (error) {
+      log(
+        "transaction run failed",
+        error,
+        this.protocol.type,
+        this.request.toJSON()
+      );
+
+      throw error;
     } finally {
       if (this.timeoutHandle) {
         clearTimeout(this.timeoutHandle);
