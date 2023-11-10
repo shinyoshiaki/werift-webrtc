@@ -633,7 +633,9 @@ export class Connection {
       .setAttribute("XOR-MAPPED-ADDRESS", addr)
       .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
       .addFingerprint();
-    protocol.sendStun(response, addr);
+    protocol.sendStun(response, addr).catch((e) => {
+      log("sendStun error", e);
+    });
 
     // todo fix
     // if (this.checkList.length === 0) {
@@ -996,7 +998,9 @@ export class Connection {
       .setAttribute("ERROR-CODE", errorCode)
       .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
       .addFingerprint();
-    protocol.sendStun(response, addr);
+    protocol.sendStun(response, addr).catch((e) => {
+      log("sendStun error", e);
+    });
   }
 }
 

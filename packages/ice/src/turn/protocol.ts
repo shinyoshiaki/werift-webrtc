@@ -266,7 +266,10 @@ class TurnClient implements Protocol {
       this.channel = { number: this.channelNumber++, address: addr };
 
       this.channelBinding = this.channelBind(this.channel.number, addr);
-      await this.channelBinding;
+      await this.channelBinding.catch((e) => {
+        log("channelBind error", e);
+        throw e;
+      });
       this.channelBinding = undefined;
       log("channelBind", this.channel);
     }
@@ -284,8 +287,8 @@ class TurnClient implements Protocol {
     }
   }
 
-  sendStun(message: Message, addr: Address) {
-    this.transport.send(message.bytes, addr);
+  async sendStun(message: Message, addr: Address) {
+    await this.transport.send(message.bytes, addr);
   }
 }
 
