@@ -9,6 +9,7 @@ import { Message } from "../../ice/src/stun/message";
 import { Protocol } from "../../ice/src/types/model";
 import {
   Address,
+  CandidatePair,
   deepMerge,
   InterfaceAddresses,
   Recvonly,
@@ -481,6 +482,7 @@ export class RTCPeerConnection extends EventTarget {
       interfaceAddresses: this.config.iceInterfaceAddresses,
       additionalHostAddresses: this.config.iceAdditionalHostAddresses,
       filterStunResponse: this.config.iceFilterStunResponse,
+      filterCandidatePair: this.config.iceFilterCandidatePair,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
     });
@@ -659,7 +661,7 @@ export class RTCPeerConnection extends EventTarget {
       // no need to gather ice candidates on an existing bundled connection
       await connected.iceGather.gather();
     } else {
-      await Promise.all(
+      await Promise.allSettled(
         this.iceTransports.map((iceTransport) =>
           iceTransport.iceGather.gather()
         )
@@ -753,7 +755,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.setConnectionState("connecting");
 
-    await Promise.all(
+    await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
         await iceTransport.start().catch((err) => {
@@ -835,10 +837,16 @@ export class RTCPeerConnection extends EventTarget {
     return bundle;
   }
 
-  async setRemoteDescription(sessionDescription: {
-    type: "offer" | "answer";
-    sdp: string;
-  }) {
+  async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
+    if (
+      !sessionDescription.sdp ||
+      !sessionDescription.type ||
+      sessionDescription.type === "rollback" ||
+      sessionDescription.type === "pranswer"
+    ) {
+      throw new Error("invalid sessionDescription");
+    }
+
     // # parse and validate description
     const remoteSdp = SessionDescription.parse(sessionDescription.sdp);
     remoteSdp.type = sessionDescription.type;
@@ -987,7 +995,7 @@ export class RTCPeerConnection extends EventTarget {
       // no need to gather ice candidates on an existing bundled connection
       await connected.iceGather.gather();
     } else {
-      await Promise.all(
+      await Promise.allSettled(
         transports.map((iceTransport) => iceTransport.iceGather.gather())
       );
     }
@@ -1646,6 +1654,7 @@ export interface PeerConfig {
   iceFilterStunResponse:
     | ((message: Message, addr: Address, protocol: Protocol) => boolean)
     | undefined;
+  iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -1715,6 +1724,7 @@ export const defaultPeerConfig: PeerConfig = {
   iceUseIpv4: true,
   iceUseIpv6: true,
   iceFilterStunResponse: undefined,
+  iceFilterCandidatePair: undefined,
   dtls: {},
   bundlePolicy: "max-compat",
   debug: {},
@@ -1737,3 +1747,9 @@ export interface RTCPeerConnectionIceEvent {
 }
 
 type Media = "audio" | "video";
+
+export interface RTCSessionDescriptionInit {
+  sdp?: string;
+  type: RTCSdpType;
+}
+export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";

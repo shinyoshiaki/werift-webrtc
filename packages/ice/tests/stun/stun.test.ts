@@ -122,7 +122,7 @@ describe("stun", () => {
   test(
     "test_timeout",
     async () => {
-      const DummyProtocol: any = { sendStun: () => {} };
+      const DummyProtocol: any = { sendStun: async () => {} };
       const request = new Message(methods.BINDING, classes.REQUEST);
       const transaction = new Transaction(
         request,

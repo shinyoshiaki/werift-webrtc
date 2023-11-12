@@ -55,23 +55,27 @@ export class StunProtocol implements Protocol {
   };
 
   private datagramReceived(data: Buffer, addr: Address) {
-    if (!this.localCandidate) throw new Error("not exist");
+    try {
+      if (!this.localCandidate) throw new Error("not exist");
 
-    const message = parseMessage(data);
-    if (!message) {
-      this.receiver.dataReceived(data, this.localCandidate.component);
-      return;
-    }
-    // log("parseMessage", addr, message);
-    if (
-      (message.messageClass === classes.RESPONSE ||
-        message.messageClass === classes.ERROR) &&
-      this.transactionsKeys.includes(message.transactionIdHex)
-    ) {
-      const transaction = this.transactions[message.transactionIdHex];
-      transaction.responseReceived(message, addr);
-    } else if (message.messageClass === classes.REQUEST) {
-      this.receiver.requestReceived(message, addr, this, data);
+      const message = parseMessage(data);
+      if (!message) {
+        this.receiver.dataReceived(data, this.localCandidate.component);
+        return;
+      }
+      // log("parseMessage", addr, message);
+      if (
+        (message.messageClass === classes.RESPONSE ||
+          message.messageClass === classes.ERROR) &&
+        this.transactionsKeys.includes(message.transactionIdHex)
+      ) {
+        const transaction = this.transactions[message.transactionIdHex];
+        transaction.responseReceived(message, addr);
+      } else if (message.messageClass === classes.REQUEST) {
+        this.receiver.requestReceived(message, addr, this, data);
+      }
+    } catch (error) {
+      log("datagramReceived error", error);
     }
   }
 
@@ -118,6 +122,8 @@ export class StunProtocol implements Protocol {
 
     try {
       return await transaction.run();
+    } catch (e) {
+      throw e;
     } finally {
       delete this.transactions[request.transactionIdHex];
     }

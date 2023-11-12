@@ -17,6 +17,6 @@ export interface Protocol {
   responseMessage?: string;
   close?: () => Promise<void>;
   connectionMade: (...args: any) => Promise<void>;
-  sendStun: (message: Message, addr: Address) => void;
+  sendStun: (message: Message, addr: Address) => Promise<void>;
   sendData: (data: Buffer, addr: Address) => Promise<void>;
 }

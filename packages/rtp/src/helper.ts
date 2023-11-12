@@ -25,3 +25,7 @@ export const timer = {
     return () => clearInterval(id);
   },
 };
+export function isMedia(buf: Buffer) {
+  const firstByte = buf[0];
+  return firstByte > 127 && firstByte < 192;
+}

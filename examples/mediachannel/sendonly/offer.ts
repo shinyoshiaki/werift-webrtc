@@ -38,7 +38,6 @@ server.on("connection", async (socket) => {
       "rtpvp8pay",
       `udpsink host=127.0.0.1 port=${port}`,
     ].join(" ! ");
-
     spawn("gst-launch-1.0", args.split(" "));
     udp.on("message", (data) => {
       const rtp = RtpPacket.deSerialize(data);
