@@ -4,7 +4,7 @@ import {
   WritableStream,
 } from "stream/web";
 
-import { SupportedCodec } from "../container/webm";
+import { SupportedCodec } from "../container/webm/container";
 import { WebmBase, WebmInput, WebmOption, WebmOutput } from "./webm";
 
 export type WebmStreamOutput = WebmOutput;

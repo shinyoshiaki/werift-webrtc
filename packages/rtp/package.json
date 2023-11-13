@@ -37,6 +37,7 @@
     "debug": "^4.3.4",
     "jspack": "^0.0.4",
     "lodash": "^4.17.21",
+    "mp4box": "^0.5.2",
     "rx.mini": "^1.2.2"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
 import { unlink } from "fs/promises";
 import { EventDisposer } from "rx.mini";
 
-import { SupportedCodec } from "../../../../../rtp/src/container/webm";
+import { SupportedCodec } from "../../../../../rtp/src/container/webm/container";
 import {
   DepacketizeCallback,
   JitterBufferCallback,
