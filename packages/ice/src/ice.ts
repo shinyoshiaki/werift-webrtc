@@ -141,7 +141,7 @@ export class Connection {
   ) {
     let candidates: Candidate[] = [];
 
-    await Promise.all(
+    await Promise.allSettled(
       addresses.map(async (address) => {
         // # create transport
         const protocol = new StunProtocol(this);
@@ -257,9 +257,16 @@ export class Connection {
       candidatePromises.push(turnCandidate);
     }
 
-    const extraCandidates = (await Promise.all(candidatePromises)).filter(
-      (v): v is Candidate => typeof v !== "undefined"
-    );
+    const extraCandidates = [...(await Promise.allSettled(candidatePromises))]
+      .filter(
+        (
+          v
+        ): v is PromiseFulfilledResult<
+          Awaited<typeof candidatePromises[number]>
+        > => v.status === "fulfilled"
+      )
+      .map((v) => v.value)
+      .filter((v): v is Candidate => typeof v !== "undefined");
 
     candidates.push(...extraCandidates);
 
@@ -626,7 +633,9 @@ export class Connection {
       .setAttribute("XOR-MAPPED-ADDRESS", addr)
       .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
       .addFingerprint();
-    protocol.sendStun(response, addr);
+    protocol.sendStun(response, addr).catch((e) => {
+      log("sendStun error", e);
+    });
 
     // todo fix
     // if (this.checkList.length === 0) {
@@ -989,7 +998,9 @@ export class Connection {
       .setAttribute("ERROR-CODE", errorCode)
       .addMessageIntegrity(Buffer.from(this.localPassword, "utf8"))
       .addFingerprint();
-    protocol.sendStun(response, addr);
+    protocol.sendStun(response, addr).catch((e) => {
+      log("sendStun error", e);
+    });
   }
 }
 

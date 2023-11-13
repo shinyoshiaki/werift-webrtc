@@ -4,7 +4,7 @@ import Event from "rx.mini";
 import { int, PromiseQueue } from "../../../common/src";
 import { RtpPacket } from "..";
 import { dePacketizeRtpPackets } from "../codec";
-import { SupportedCodec, WEBMBuilder } from "../container/webm";
+import { SupportedCodec, WEBMContainer } from "../container/webm/container";
 import { Output } from "./base";
 
 export interface FileIO {
@@ -14,7 +14,7 @@ export interface FileIO {
 }
 
 export class WebmOutput implements Output {
-  private builder: WEBMBuilder;
+  private builder: WEBMContainer;
   private queue = new PromiseQueue();
   private relativeTimestamp = 0;
   private timestamps: { [pt: number]: TimestampManager } = {};
@@ -39,7 +39,7 @@ export class WebmOutput implements Output {
       rtpStream?: Event<[RtpPacket]>;
     }
   ) {
-    this.builder = new WEBMBuilder(tracks);
+    this.builder = new WEBMContainer(tracks);
 
     tracks.forEach((t) => {
       this.timestamps[t.payloadType] = new TimestampManager(t.clockRate);
@@ -215,7 +215,7 @@ class CuePoint {
   blockNumber = 0;
 
   constructor(
-    private readonly builder: WEBMBuilder,
+    private readonly builder: WEBMContainer,
     private readonly trackNumber: number,
     private readonly relativeTimestamp: number,
     public position: number

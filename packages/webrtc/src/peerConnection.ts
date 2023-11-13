@@ -661,7 +661,7 @@ export class RTCPeerConnection extends EventTarget {
       // no need to gather ice candidates on an existing bundled connection
       await connected.iceGather.gather();
     } else {
-      await Promise.all(
+      await Promise.allSettled(
         this.iceTransports.map((iceTransport) =>
           iceTransport.iceGather.gather()
         )
@@ -755,7 +755,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.setConnectionState("connecting");
 
-    await Promise.all(
+    await Promise.allSettled(
       this.dtlsTransports.map(async (dtlsTransport) => {
         const { iceTransport } = dtlsTransport;
         await iceTransport.start().catch((err) => {
@@ -995,7 +995,7 @@ export class RTCPeerConnection extends EventTarget {
       // no need to gather ice candidates on an existing bundled connection
       await connected.iceGather.gather();
     } else {
-      await Promise.all(
+      await Promise.allSettled(
         transports.map((iceTransport) => iceTransport.iceGather.gather())
       );
     }

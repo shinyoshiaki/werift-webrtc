@@ -11,12 +11,16 @@
     "es6": true,
     "node": true
   },
-  "plugins": ["@typescript-eslint", "simple-import-sort"],
+  "plugins": [
+    "@typescript-eslint",
+    "simple-import-sort"
+  ],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "sourceType": "module"
   },
   "rules": {
+    "no-useless-catch": 0,
     "no-empty": 0,
     "@typescript-eslint/no-inferrable-types": 0,
     "@typescript-eslint/ban-ts-ignore": 0,

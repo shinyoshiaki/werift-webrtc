@@ -9,6 +9,8 @@ export * from "./jitterBufferCallback";
 export * from "./jitterBufferTransformer";
 export * from "./lipsync";
 export * from "./lipsyncCallback";
+export * from "./mp4";
+export * from "./mp4Callback";
 export * from "./mute";
 export * from "./muteCallback";
 export * from "./nack";

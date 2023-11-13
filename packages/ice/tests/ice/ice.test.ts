@@ -24,7 +24,7 @@ class ProtocolMock implements Protocol {
   request = async () => {
     return null as any;
   };
-  sendStun = (message: Message) => {
+  sendStun = async (message: Message) => {
     this.sentMessage = message;
   };
   async connectionMade() {}
