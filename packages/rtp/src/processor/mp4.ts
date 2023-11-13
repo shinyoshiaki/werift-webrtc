@@ -3,10 +3,9 @@ import Event from "rx.mini";
 import {
   annexb2avcc,
   buffer2ArrayBuffer,
-  MediaKind,
   Mp4Container,
-  OpusRtpPayload,
   Mp4SupportedCodec,
+  OpusRtpPayload,
 } from "..";
 import { AVProcessor } from "./interface";
 
