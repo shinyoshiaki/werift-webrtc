@@ -324,8 +324,8 @@ export class StatusVectorChunk {
         range(8, (i) => symbolList.push(getBit(data[1], i, 1)));
         break;
       case 1:
-        range(6, (i) => symbolList.push(getBit(data[0], 2 + i * 2, 2)));
-        range(6, (i) => symbolList.push(getBit(data[1], i * 2, 2)));
+        range(3, (i) => symbolList.push(getBit(data[0], 2 + i * 2, 2)));
+        range(4, (i) => symbolList.push(getBit(data[1], i * 2, 2)));
         break;
       default:
         symbolSize = (getBit(data[0], 2, 6) << 8) + data[1];
