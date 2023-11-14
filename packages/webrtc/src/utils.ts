@@ -2,6 +2,7 @@
 import { createHash } from "crypto";
 import debug from "debug";
 import { createSocket, RemoteInfo } from "dgram";
+import mergeWith from "lodash/mergeWith";
 import { performance } from "perf_hooks";
 
 import { bufferReader, bufferWriter, randomPort } from "../../common/src";
@@ -131,3 +132,11 @@ export class MediaStreamTrackFactory {
     return [track, port, dispose] as const;
   }
 }
+
+export const deepMerge = <T>(dst: T, src: T) =>
+  mergeWith(dst, src, (obj, src) => {
+    if (!(src == undefined)) {
+      return src;
+    }
+    return obj;
+  });
