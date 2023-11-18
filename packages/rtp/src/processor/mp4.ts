@@ -3,6 +3,7 @@ import Event from "rx.mini";
 import {
   annexb2avcc,
   buffer2ArrayBuffer,
+  DataType,
   Mp4Container,
   Mp4SupportedCodec,
   OpusRtpPayload,
@@ -20,7 +21,7 @@ export type Mp4Input = {
 };
 
 export interface Mp4Output {
-  type: string;
+  type: DataType;
   timestamp: number;
   duration: number;
   data: Uint8Array;

@@ -5,6 +5,8 @@ import * as MP4 from "./mp4box";
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
 type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
 
+export type DataType = "init" | "delta" | "key";
+
 export class Mp4Container {
   #mp4: MP4.ISOFile;
   #audioFrame?: EncodedAudioChunk | EncodedVideoChunk;
@@ -16,7 +18,7 @@ export class Mp4Container {
   onData = new Event<
     [
       {
-        type: "init" | "delta" | "key";
+        type: DataType;
         timestamp: number;
         duration: number;
         data: Uint8Array;
