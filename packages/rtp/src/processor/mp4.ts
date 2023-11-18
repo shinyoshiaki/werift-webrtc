@@ -26,6 +26,7 @@ export interface Mp4Output {
   duration: number;
   data: Uint8Array;
   eol?: boolean;
+  kind: "audio" | "video";
 }
 
 export interface MP4Option {
@@ -37,12 +38,7 @@ export interface MP4Option {
 
 export class MP4Base implements AVProcessor<Mp4Input> {
   private internalStats = {};
-  private container = new Mp4Container({
-    track: {
-      audio: !!this.tracks.find((t) => t.kind === "audio"),
-      video: !!this.tracks.find((t) => t.kind === "video"),
-    },
-  });
+  private container: Mp4Container;
   stopped = false;
   onStopped = new Event();
 
@@ -51,6 +47,12 @@ export class MP4Base implements AVProcessor<Mp4Input> {
     private output: (output: Mp4Output) => void,
     private options: MP4Option = {}
   ) {
+    this.container = new Mp4Container({
+      track: {
+        audio: !!this.tracks.find((t) => t.kind === "audio"),
+        video: !!this.tracks.find((t) => t.kind === "video"),
+      },
+    });
     this.container.onData.subscribe((data) => {
       this.output(data);
     });

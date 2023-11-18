@@ -7,6 +7,14 @@ type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
 
 export type DataType = "init" | "delta" | "key";
 
+export interface Mp4Data {
+  type: DataType;
+  timestamp: number;
+  duration: number;
+  data: Uint8Array;
+  kind: "audio" | "video";
+}
+
 export class Mp4Container {
   #mp4: MP4.ISOFile;
   #audioFrame?: EncodedAudioChunk | EncodedVideoChunk;
@@ -15,16 +23,7 @@ export class Mp4Container {
   videoTrack?: number;
   #audioSegment = 0;
   #videoSegment = 0;
-  onData = new Event<
-    [
-      {
-        type: DataType;
-        timestamp: number;
-        duration: number;
-        data: Uint8Array;
-      }
-    ]
-  >();
+  onData = new Event<[Mp4Data]>();
 
   constructor(
     private props: {
@@ -128,6 +127,7 @@ export class Mp4Container {
       timestamp: 0,
       duration: 0,
       data,
+      kind: frame.track,
     } as const;
     this.onData.execute(res);
   }
@@ -237,6 +237,7 @@ export class Mp4Container {
       timestamp: frame.timestamp,
       duration: frame.duration ?? 0,
       data,
+      kind: frame.track,
     };
     this.onData.execute(res);
   }

@@ -19,17 +19,21 @@
 // Exponential-Golomb buffer decoder
 class ExpGolomb {
   TAG = "ExpGolomb";
-  _buffer = this.uint8array;
+  _buffer: Uint8Array;
   _buffer_index = 0;
-  _total_bytes = this.uint8array.byteLength;
-  _total_bits = this.uint8array.byteLength * 8;
+  _total_bytes: number;
+  _total_bits: number;
   _current_word = 0;
   _current_word_bits_left = 0;
 
-  constructor(private uint8array) {}
+  constructor(private uint8array: Uint8Array) {
+    this._buffer = uint8array;
+    this._total_bytes = uint8array.byteLength;
+    this._total_bits = uint8array.byteLength * 8;
+  }
 
   destroy() {
-    this._buffer = null;
+    this._buffer = null as any;
   }
 
   _fillCurrentWord() {

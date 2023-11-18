@@ -20,9 +20,9 @@ export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
   private lastCommittedTime = 0;
   private lastExecutionTime = 0;
   /**ms */
-  private interval = this.props.interval;
-  private bufferDuration: number = this.interval / 2;
-  private bufferLength = this.props.bufferLength * 2;
+  private interval: number;
+  private bufferDuration: number;
+  private bufferLength: number;
   /**ms */
   private lastFrameReceivedAt = 0;
 
@@ -38,6 +38,9 @@ export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
       bufferLength: number;
     }
   ) {
+    this.interval = props.interval;
+    this.bufferDuration = this.interval / 2;
+    this.bufferLength = this.props.bufferLength * 2;
     this.buffer = [...new Array(this.bufferLength)].map(() => []);
   }
 
