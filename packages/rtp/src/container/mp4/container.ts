@@ -233,11 +233,11 @@ export class Mp4Container {
     }
 
     const res = {
-      type: frame.type,
-      timestamp: frame.timestamp,
-      duration: frame.duration ?? 0,
-      data,
+      type: bufferFrame.type,
+      timestamp: bufferFrame.timestamp,
       kind: frame.track,
+      duration,
+      data,
     };
     this.onData.execute(res);
   }
