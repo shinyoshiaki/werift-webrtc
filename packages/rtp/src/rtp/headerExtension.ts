@@ -28,21 +28,19 @@ export function rtpHeaderExtensionsParser(
         case RTP_EXTENSION_URI.sdesMid:
         case RTP_EXTENSION_URI.sdesRTPStreamID:
         case RTP_EXTENSION_URI.repairedRtpStreamId:
-          return { uri, value: extension.payload.toString() };
+          return { uri, value: deserializeString(extension.payload) };
         case RTP_EXTENSION_URI.transportWideCC:
-          return { uri, value: extension.payload.readUInt16BE() };
+          return { uri, value: deserializeUint16BE(extension.payload) };
         case RTP_EXTENSION_URI.absSendTime:
           return {
             uri,
-            value: bufferReader(extension.payload, [3])[0],
+            value: deserializeAbsSendTime(extension.payload),
           };
         case RTP_EXTENSION_URI.audioLevelIndication: {
-          const stream = new BitStream(extension.payload);
-          const value: AudioLevelIndicationPayload = {
-            v: stream.readBits(1) === 1,
-            level: stream.readBits(7),
+          return {
+            uri,
+            value: deserializeAudioLevelIndication(extension.payload),
           };
-          return { uri, value };
         }
         default:
           return { uri, value: 0 };
@@ -75,4 +73,25 @@ export function serializeAbsSendTime(ntpTime: bigint) {
   const time = (ntpTime >> 14n) & 0x00ffffffn;
   buf.writeUIntBE(Number(time), 0, 3);
   return buf;
+}
+
+export function deserializeString(buf: Buffer) {
+  return buf.toString();
+}
+
+export function deserializeUint16BE(buf: Buffer) {
+  return buf.readUInt16BE();
+}
+
+export function deserializeAbsSendTime(buf: Buffer) {
+  return bufferReader(buf, [3])[0];
+}
+
+export function deserializeAudioLevelIndication(buf: Buffer) {
+  const stream = new BitStream(buf);
+  const value: AudioLevelIndicationPayload = {
+    v: stream.readBits(1) === 1,
+    level: stream.readBits(7),
+  };
+  return value;
 }
