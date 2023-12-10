@@ -1,4 +1,5 @@
 export interface Page {
+  granulePosition: number;
   segments: Buffer[];
   segmentTable: number[];
 }
@@ -53,6 +54,9 @@ export class OggParser {
           }
         } else {
           const magic = buf.subarray(index, index + 4).toString();
+          if (magic !== "OggS") {
+            break;
+          }
           index += 4; // skip magic
           index += 1; // skip version
           const headerType = buf.readUInt8(index);
@@ -78,19 +82,9 @@ export class OggParser {
             segments.push(segmentData);
           }
 
-          console.log({
-            magic,
-            headerType,
-            granulePosition,
-            bitstreamSerialNumber,
-            pageSequenceNumber,
-            pageChecksum,
-            pageSegments,
-            segmentTable,
-          });
-
           this.pages.push({
             segments,
+            granulePosition: Number(granulePosition),
             segmentTable: [...segmentTable.map((s) => s)],
           });
         }
