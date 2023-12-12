@@ -21,9 +21,9 @@ export const timer = {
     const id = setInterval(
       () => {
         args[0]();
-        //@ts-ignore
       },
-      ...args.slice(1),
+      //@ts-ignore
+      ...args.slice(1)
     );
     return () => clearInterval(id);
   },
