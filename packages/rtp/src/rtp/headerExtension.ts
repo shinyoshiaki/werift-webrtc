@@ -75,6 +75,14 @@ export function serializeAbsSendTime(ntpTime: bigint) {
   return buf;
 }
 
+export function serializeAudioLevelIndication(level: number) {
+  const stream = new BitStream(Buffer.alloc(1));
+  stream.writeBits(1, 1);
+  stream.writeBits(level, 7);
+
+  return stream.uint8Array;
+}
+
 export function deserializeString(buf: Buffer) {
   return buf.toString();
 }
