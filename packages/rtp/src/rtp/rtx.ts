@@ -11,7 +11,7 @@ export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
       timestamp: rtx.header.timestamp,
       ssrc,
     }),
-    rtx.payload.subarray(2)
+    rtx.payload.subarray(2),
   );
   return packet;
 }
@@ -20,7 +20,7 @@ export function wrapRtx(
   packet: RtpPacket,
   payloadType: number,
   sequenceNumber: number,
-  ssrc: number
+  ssrc: number,
 ) {
   const rtx = new RtpPacket(
     new RtpHeader({
@@ -35,7 +35,7 @@ export function wrapRtx(
     Buffer.concat([
       Buffer.from(jspack.Pack("!H", [packet.header.sequenceNumber])),
       packet.payload,
-    ])
+    ]),
   );
   return rtx;
 }

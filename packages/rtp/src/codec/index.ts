@@ -16,7 +16,7 @@ export * from "./vp9";
 export function dePacketizeRtpPackets(
   codec: DepacketizerCodec,
   packets: RtpPacket[],
-  frameFragmentBuffer?: Buffer
+  frameFragmentBuffer?: Buffer,
 ): {
   isKeyframe: boolean;
   data: Buffer;
@@ -38,7 +38,7 @@ export function dePacketizeRtpPackets(
     }
     const isKeyframe = !!partitions.find((f) => f.isKeyframe);
     const data = Buffer.concat(
-      partitions.map((f) => f.payload).filter((p) => p)
+      partitions.map((f) => f.payload).filter((p) => p),
     );
 
     return {
@@ -83,5 +83,5 @@ export const depacketizerCodecs = [
   "AV1",
 ] as const;
 export type DepacketizerCodec =
-  | typeof depacketizerCodecs[number]
-  | Lowercase<typeof depacketizerCodecs[number]>;
+  | (typeof depacketizerCodecs)[number]
+  | Lowercase<(typeof depacketizerCodecs)[number]>;

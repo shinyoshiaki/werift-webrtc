@@ -1,6 +1,6 @@
 export const numberToByteArray = (
   num: number,
-  byteLength: number = getNumberByteLength(num)
+  byteLength: number = getNumberByteLength(num),
 ): Uint8Array => {
   let byteArray;
   if (byteLength === 1) {
@@ -40,7 +40,7 @@ export const numberToByteArray = (
     byteArray.setUint32(4, num % 0x100000000);
   } else {
     throw new Error(
-      "EBML.typedArrayUtils.numberToByteArray: byte length must be less than or equal to 8"
+      "EBML.typedArrayUtils.numberToByteArray: byte length must be less than or equal to 8",
     );
   }
   return new Uint8Array(byteArray.buffer);
@@ -53,7 +53,7 @@ export const stringToByteArray = (str: string): Uint8Array => {
 export function getNumberByteLength(num: number | bigint): number {
   if (num < 0) {
     throw new Error(
-      "EBML.typedArrayUtils.getNumberByteLength: negative number not implemented"
+      "EBML.typedArrayUtils.getNumberByteLength: negative number not implemented",
     );
   } else if (num < 0x100) {
     return 1;
@@ -71,7 +71,7 @@ export function getNumberByteLength(num: number | bigint): number {
     return 7;
   } else {
     throw new Error(
-      "EBML.typedArrayUtils.getNumberByteLength: number exceeds Number.MAX_SAFE_INTEGER"
+      "EBML.typedArrayUtils.getNumberByteLength: number exceeds Number.MAX_SAFE_INTEGER",
     );
   }
 }

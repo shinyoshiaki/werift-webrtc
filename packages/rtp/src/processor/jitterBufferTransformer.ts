@@ -16,7 +16,7 @@ export class JitterBufferTransformer extends JitterBufferBase {
 
   constructor(
     public clockRate: number,
-    options: Partial<JitterBufferOptions> = {}
+    options: Partial<JitterBufferOptions> = {},
   ) {
     super(clockRate, options);
 

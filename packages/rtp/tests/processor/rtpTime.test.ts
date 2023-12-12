@@ -10,7 +10,7 @@ describe("rtpTime", () => {
           timestamp: Max32Uint - time.clockRate / 2,
           sequenceNumber: sequenceNumber++,
         }),
-        Buffer.alloc(0)
+        Buffer.alloc(0),
       );
       const [res] = time.processInput({ rtp });
       expect(res.time).toBe(0);
@@ -22,7 +22,7 @@ describe("rtpTime", () => {
           timestamp: time.clockRate / 2,
           sequenceNumber: sequenceNumber++,
         }),
-        Buffer.alloc(0)
+        Buffer.alloc(0),
       );
       const [res] = time.processInput({ rtp });
       expect(res.time).toBe(1000);
@@ -33,7 +33,7 @@ describe("rtpTime", () => {
           timestamp: time.clockRate / 2 + time.clockRate,
           sequenceNumber: sequenceNumber++,
         }),
-        Buffer.alloc(0)
+        Buffer.alloc(0),
       );
       const [res] = time.processInput({ rtp });
       expect(res.time).toBe(2000);
@@ -44,7 +44,7 @@ describe("rtpTime", () => {
           timestamp: Max32Uint / 2,
           sequenceNumber: sequenceNumber++,
         }),
-        Buffer.alloc(0)
+        Buffer.alloc(0),
       );
       time.processInput({ rtp });
     }
@@ -56,7 +56,7 @@ describe("rtpTime", () => {
           timestamp: Max32Uint - time.clockRate / 2,
           sequenceNumber: sequenceNumber++,
         }),
-        Buffer.alloc(0)
+        Buffer.alloc(0),
       );
       const [res] = time.processInput({ rtp });
 
@@ -70,7 +70,7 @@ describe("rtpTime", () => {
           timestamp: time.clockRate / 2,
           sequenceNumber: sequenceNumber++,
         }),
-        Buffer.alloc(0)
+        Buffer.alloc(0),
       );
       const [res] = time.processInput({ rtp });
       const toBe = int((Max32Uint / time.clockRate) * 1000) + 1000;

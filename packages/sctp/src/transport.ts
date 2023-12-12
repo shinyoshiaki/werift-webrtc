@@ -7,7 +7,10 @@ export interface Transport {
 }
 
 export class UdpTransport implements Transport {
-  constructor(private upd: Socket, private rinfo: Partial<RemoteInfo>) {
+  constructor(
+    private upd: Socket,
+    private rinfo: Partial<RemoteInfo>,
+  ) {
     upd.on("message", (buf, target) => {
       this.rinfo = target;
       if (this.onData) this.onData(buf);
@@ -23,7 +26,7 @@ export class UdpTransport implements Transport {
         } else {
           r();
         }
-      })
+      }),
     );
 
   close() {
@@ -33,5 +36,5 @@ export class UdpTransport implements Transport {
 
 export const createUdpTransport = (
   socket: Socket,
-  rinfo: Partial<RemoteInfo> = {}
+  rinfo: Partial<RemoteInfo> = {},
 ) => new UdpTransport(socket, rinfo);

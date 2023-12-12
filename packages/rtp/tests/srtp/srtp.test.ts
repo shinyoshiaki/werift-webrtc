@@ -6,7 +6,7 @@ import { createMockTransportPair } from "../utils";
 
 function buildSessionSRTPPair(): [
   { session: SrtpSession; transport: Transport },
-  { session: SrtpSession; transport: Transport }
+  { session: SrtpSession; transport: Transport },
 ] {
   const config: Config = {
     profile: 0x0001,
@@ -53,7 +53,7 @@ describe("srtp", () => {
 
     const enc = aPair.session.encrypt(
       testPayload,
-      new RtpHeader({ ssrc: 5000 })
+      new RtpHeader({ ssrc: 5000 }),
     );
     aPair.transport.send(enc);
   });

@@ -37,7 +37,7 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     const ctx = new SrtpContext(
       masterKey,
       masterSalt,
-      ProtectionProfileAeadAes128Gcm
+      ProtectionProfileAeadAes128Gcm,
     );
 
     const rtp = RtpPacket.deSerialize(decryptedRTPPacket);
@@ -50,7 +50,7 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     const ctx = new SrtpContext(
       masterKey,
       masterSalt,
-      ProtectionProfileAeadAes128Gcm
+      ProtectionProfileAeadAes128Gcm,
     );
 
     const [dec] = ctx.decryptRtp(encryptedRTPPacket);
@@ -61,7 +61,7 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     const ctx = new SrtcpContext(
       masterKey,
       masterSalt,
-      ProtectionProfileAeadAes128Gcm
+      ProtectionProfileAeadAes128Gcm,
     );
 
     const encrypted = ctx.encryptRTCP(decryptedRtcpPacket);
@@ -72,7 +72,7 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     const ctx = new SrtcpContext(
       masterKey,
       masterSalt,
-      ProtectionProfileAeadAes128Gcm
+      ProtectionProfileAeadAes128Gcm,
     );
 
     const [dec] = ctx.decryptRTCP(encryptedRtcpPacket);

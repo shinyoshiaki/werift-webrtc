@@ -39,7 +39,7 @@ export class Chunk {
 
   constructor(
     public flags = 0,
-    private _body: Buffer | undefined = Buffer.from("")
+    private _body: Buffer | undefined = Buffer.from(""),
   ) {}
 
   get type() {
@@ -51,7 +51,7 @@ export class Chunk {
 
     const data = Buffer.concat([
       Buffer.from(
-        jspack.Pack("!BBH", [this.type, this.flags, this.body.length + 4])
+        jspack.Pack("!BBH", [this.type, this.flags, this.body.length + 4]),
       ),
       this.body,
       ...[...Array(padL(this.body.length))].map(() => Buffer.from("\x00")),
@@ -67,7 +67,10 @@ export class BaseInitChunk extends Chunk {
   inboundStreams: number;
   initialTsn: number;
   params: [number, Buffer][];
-  constructor(public flags = 0, body?: Buffer) {
+  constructor(
+    public flags = 0,
+    body?: Buffer,
+  ) {
     super(flags, body);
 
     if (body) {
@@ -97,7 +100,7 @@ export class BaseInitChunk extends Chunk {
         this.outboundStreams,
         this.inboundStreams,
         this.initialTsn,
-      ])
+      ]),
     );
     body = Buffer.concat([body, encodeParams(this.params)]);
     return body;
@@ -133,7 +136,10 @@ export class ForwardTsnChunk extends Chunk {
   streams: [number, number][] = [];
   cumulativeTsn: number;
 
-  constructor(public flags = 0, body: Buffer | undefined) {
+  constructor(
+    public flags = 0,
+    body: Buffer | undefined,
+  ) {
     super(flags, body);
 
     if (body) {
@@ -141,7 +147,7 @@ export class ForwardTsnChunk extends Chunk {
       let pos = 4;
       while (pos < body.length) {
         this.streams.push(
-          jspack.Unpack("!HH", body.slice(pos)) as [number, number]
+          jspack.Unpack("!HH", body.slice(pos)) as [number, number],
         );
         pos += 4;
       }
@@ -161,7 +167,7 @@ export class ForwardTsnChunk extends Chunk {
     return Buffer.concat([
       body,
       ...this.streams.map(([id, seq]) =>
-        Buffer.from(jspack.Pack("!HH", [id, seq]))
+        Buffer.from(jspack.Pack("!HH", [id, seq])),
       ),
     ]);
   }
@@ -187,7 +193,10 @@ export class DataChunk extends Chunk {
   maxRetransmits?: number;
   sentTime?: number;
 
-  constructor(public flags = 0, body: Buffer | undefined) {
+  constructor(
+    public flags = 0,
+    body: Buffer | undefined,
+  ) {
     super(flags, body);
     if (body) {
       [this.tsn, this.streamId, this.streamSeqNum, this.protocol] =
@@ -208,7 +217,7 @@ export class DataChunk extends Chunk {
           this.streamId,
           this.streamSeqNum,
           this.protocol,
-        ])
+        ]),
       ),
       this.userData,
     ]);
@@ -240,7 +249,10 @@ export class CookieAckChunk extends Chunk {
 
 export class BaseParamsChunk extends Chunk {
   params: [number, Buffer][] = [];
-  constructor(public flags = 0, body: Buffer | undefined = undefined) {
+  constructor(
+    public flags = 0,
+    body: Buffer | undefined = undefined,
+  ) {
     super(flags, body);
     if (body) {
       this.params = decodeParams(body);
@@ -285,7 +297,7 @@ export class ErrorChunk extends BaseParamsChunk {
   get descriptions() {
     return this.params.map(([code, body]) => {
       const name = (Object.entries(ErrorChunk.CODE).find(
-        ([, num]) => num === code
+        ([, num]) => num === code,
       ) || [])[0];
       return { name, body };
     });
@@ -343,7 +355,10 @@ export class SackChunk extends Chunk {
   cumulativeTsn = 0;
   advertisedRwnd = 0;
 
-  constructor(public flags = 0, body: Buffer | undefined) {
+  constructor(
+    public flags = 0,
+    body: Buffer | undefined,
+  ) {
     super(flags, body);
 
     if (body) {
@@ -356,7 +371,7 @@ export class SackChunk extends Chunk {
 
       [...Array(nbGaps)].forEach(() => {
         this.gaps.push(
-          jspack.Unpack("!HH", body.slice(pos)) as [number, number]
+          jspack.Unpack("!HH", body.slice(pos)) as [number, number],
         );
         pos += 4;
       });
@@ -379,7 +394,7 @@ export class SackChunk extends Chunk {
         this.advertisedRwnd,
         this.gaps.length,
         this.duplicates.length,
-      ])
+      ]),
     );
     data = Buffer.concat([
       data,
@@ -401,7 +416,10 @@ export class ShutdownChunk extends Chunk {
 
   cumulativeTsn = 0;
 
-  constructor(public flags = 0, body: Buffer | undefined) {
+  constructor(
+    public flags = 0,
+    body: Buffer | undefined,
+  ) {
     super(flags, body);
 
     if (body) {
@@ -428,7 +446,7 @@ export class ShutdownCompleteChunk extends Chunk {
   }
 }
 
-const CHUNK_CLASSES: typeof Chunk[] = [
+const CHUNK_CLASSES: (typeof Chunk)[] = [
   DataChunk,
   InitChunk,
   InitAckChunk,
@@ -451,7 +469,7 @@ export const CHUNK_BY_TYPE = CHUNK_CLASSES.reduce(
     acc[cur.type] = cur;
     return acc;
   },
-  {}
+  {},
 );
 
 function padL(l: number) {
@@ -471,7 +489,7 @@ function encodeParams(params: [number, Buffer][]) {
       value,
     ]);
     padding = Buffer.concat(
-      [...Array(padL(length))].map(() => Buffer.from("\x00"))
+      [...Array(padL(length))].map(() => Buffer.from("\x00")),
     );
   });
   return body;
@@ -494,7 +512,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
 
   const [sourcePort, destinationPort, verificationTag] = jspack.Unpack(
     "!HHL",
-    data
+    data,
   );
 
   const checkSum = data.readUInt32LE(8);
@@ -504,7 +522,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
       data.slice(0, 8),
       Buffer.from("\x00\x00\x00\x00"),
       data.slice(12),
-    ])
+    ]),
   );
 
   if (checkSum !== expect) throw new Error("SCTP packet has invalid checksum");
@@ -514,7 +532,7 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
   while (pos + 4 <= data.length) {
     const [chunkType, chunkFlags, chunkLength] = jspack.Unpack(
       "!BBH",
-      data.slice(pos)
+      data.slice(pos),
     );
     const chunkBody = data.slice(pos + 4, pos + chunkLength);
     const ChunkClass = CHUNK_BY_TYPE[chunkType.toString()];
@@ -532,15 +550,15 @@ export function serializePacket(
   sourcePort: number,
   destinationPort: number,
   verificationTag: number,
-  chunk: Chunk
+  chunk: Chunk,
 ) {
   const header = Buffer.from(
-    jspack.Pack("!HHL", [sourcePort, destinationPort, verificationTag])
+    jspack.Pack("!HHL", [sourcePort, destinationPort, verificationTag]),
   );
   const body = chunk.bytes;
 
   const checksum: number = crc32c(
-    Buffer.concat([header, Buffer.from("\x00\x00\x00\x00"), body])
+    Buffer.concat([header, Buffer.from("\x00\x00\x00\x00"), body]),
   );
   const checkSumBuf = Buffer.alloc(4);
   checkSumBuf.writeUInt32LE(checksum, 0);

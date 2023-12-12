@@ -57,7 +57,7 @@ abstract class MediaPlayer {
       loop?: boolean;
       width?: number;
       height?: number;
-    }
+    },
   ) {
     this.setupTrack(props.audioPort, this.audio);
     this.setupTrack(props.videoPort, this.video);

@@ -107,10 +107,10 @@ export const IceTransportStates = [
   "failed",
   "closed",
 ] as const;
-export type RTCIceConnectionState = typeof IceTransportStates[number];
+export type RTCIceConnectionState = (typeof IceTransportStates)[number];
 
 export const IceGathererStates = ["new", "gathering", "complete"] as const;
-export type IceGathererState = typeof IceGathererStates[number];
+export type IceGathererState = (typeof IceGathererStates)[number];
 
 export class RTCIceGatherer {
   onIceCandidate: (candidate: IceCandidate) => void = () => {};
@@ -127,7 +127,7 @@ export class RTCIceGatherer {
     if (this.gatheringState === "new") {
       this.setState("gathering");
       await this.connection.gatherCandidates((candidate) =>
-        this.onIceCandidate(candidateFromIce(candidate))
+        this.onIceCandidate(candidateFromIce(candidate)),
       );
       this.setState("complete");
     }
@@ -162,7 +162,7 @@ export function candidateFromIce(c: Candidate) {
     c.port,
     c.priority,
     c.transport,
-    c.type
+    c.type,
   );
   candidate.relatedAddress = c.relatedAddress;
   candidate.relatedPort = c.relatedPort;
@@ -181,7 +181,7 @@ export function candidateToIce(x: IceCandidate) {
     x.type,
     x.relatedAddress,
     x.relatedPort,
-    x.tcpType
+    x.tcpType,
   );
 }
 
@@ -226,7 +226,7 @@ export class IceCandidate {
     public port: number,
     public priority: number,
     public protocol: string,
-    public type: string
+    public type: string,
   ) {}
 
   toJSON(): RTCIceCandidate {

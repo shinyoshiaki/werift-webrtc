@@ -26,7 +26,7 @@ export class RTCRtpCodecParameters {
 
   constructor(
     props: Pick<RTCRtpCodecParameters, "mimeType" | "clockRate"> &
-      Partial<RTCRtpCodecParameters>
+      Partial<RTCRtpCodecParameters>,
   ) {
     Object.assign(this, props);
   }
@@ -52,7 +52,7 @@ export class RTCRtpHeaderExtensionParameters {
 
   constructor(
     props: Partial<RTCRtpHeaderExtensionParameters> &
-      Pick<RTCRtpHeaderExtensionParameters, "uri">
+      Pick<RTCRtpHeaderExtensionParameters, "uri">,
   ) {
     Object.assign(this, props);
   }
@@ -91,7 +91,7 @@ export class RTCRtpCodingParameters {
 
   constructor(
     props: Partial<RTCRtpCodingParameters> &
-      Pick<RTCRtpCodingParameters, "ssrc" | "payloadType">
+      Pick<RTCRtpCodingParameters, "ssrc" | "payloadType">,
   ) {
     Object.assign(this, props);
   }

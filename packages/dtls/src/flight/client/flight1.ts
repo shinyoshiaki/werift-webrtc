@@ -11,7 +11,7 @@ export class Flight1 extends Flight {
   constructor(
     udp: TransportContext,
     dtls: DtlsContext,
-    private cipher: CipherContext
+    private cipher: CipherContext,
   ) {
     super(udp, dtls, 1, 3);
   }
@@ -27,7 +27,7 @@ export class Flight1 extends Flight {
       Buffer.from([]),
       CipherSuiteList,
       [0], // don't compress
-      extensions
+      extensions,
     );
     this.dtls.version = hello.clientVersion;
     this.cipher.localRandom = DtlsRandom.from(hello.random);

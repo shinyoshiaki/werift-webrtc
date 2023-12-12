@@ -5,7 +5,7 @@ import { Address } from "./types/model";
 
 export async function getGlobalIp(
   stunServer?: Address,
-  interfaceAddresses?: InterfaceAddresses
+  interfaceAddresses?: InterfaceAddresses,
 ) {
   const connection = new Connection(true, {
     stunServer: stunServer ?? ["stun.l.google.com", 19302],

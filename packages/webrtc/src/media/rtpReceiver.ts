@@ -35,7 +35,7 @@ export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private get codecArray() {
     return Object.values(this.codecs).sort(
-      (a, b) => a.payloadType - b.payloadType
+      (a, b) => a.payloadType - b.payloadType,
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
@@ -73,7 +73,7 @@ export class RTCRtpReceiver {
   constructor(
     readonly config: PeerConfig,
     public kind: Kind,
-    public rtcpSsrc: number
+    public rtcpSsrc: number,
   ) {}
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
@@ -91,13 +91,13 @@ export class RTCRtpReceiver {
 
   get twccEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find(
-      (f) => f.type === useTWCC().type
+      (f) => f.type === useTWCC().type,
     );
   }
 
   get pliEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find(
-      (f) => f.type === usePLI().type
+      (f) => f.type === usePLI().type,
     );
   }
 
@@ -120,7 +120,7 @@ export class RTCRtpReceiver {
       this.receiverTWCC = new ReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
-        mediaSourceSsrc
+        mediaSourceSsrc,
       );
     }
   }
@@ -188,7 +188,7 @@ export class RTCRtpReceiver {
               lsr: lastSRtimestamp,
               dlsr: delaySinceLastSR,
             });
-          }
+          },
         );
 
         const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
@@ -240,7 +240,7 @@ export class RTCRtpReceiver {
         {
           const sr = packet as RtcpSrPacket;
           this.lastSRtimestamp[sr.ssrc] = compactNtp(
-            sr.senderInfo.ntpTimestamp
+            sr.senderInfo.ntpTimestamp,
           );
           this.receiveLastSRTimestamp[sr.ssrc] = timestampSeconds();
 
@@ -272,7 +272,7 @@ export class RTCRtpReceiver {
   private handleRTP(
     packet: RtpPacket,
     extensions: Extensions,
-    track?: MediaStreamTrack
+    track?: MediaStreamTrack,
   ) {
     if (this.stopped) {
       return;
@@ -318,7 +318,7 @@ export class RTCRtpReceiver {
       red = Red.deSerialize(packet.payload);
       if (
         !Object.keys(this.codecs).includes(
-          red.header.fields[0].blockPT.toString()
+          red.header.fields[0].blockPT.toString(),
         )
       ) {
         return;

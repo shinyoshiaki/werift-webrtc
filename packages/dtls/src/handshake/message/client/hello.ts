@@ -28,7 +28,7 @@ export class ClientHello {
     public cookie: Buffer,
     public cipherSuites: number[],
     public compressionMethods: number[],
-    public extensions: Extension[]
+    public extensions: Extension[],
   ) {}
 
   static createEmpty() {
@@ -39,14 +39,14 @@ export class ClientHello {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new ClientHello(
       //@ts-ignore
-      ...Object.values(decode(buf, ClientHello.spec))
+      ...Object.values(decode(buf, ClientHello.spec)),
     );
   }
 
@@ -63,7 +63,7 @@ export class ClientHello {
       this.messageSeq,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

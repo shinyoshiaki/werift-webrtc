@@ -105,7 +105,7 @@ class TurnClient implements Protocol {
     public username: string,
     public password: string,
     public lifetime: number,
-    public transport: Transport
+    public transport: Transport,
   ) {}
 
   async connectionMade() {
@@ -162,7 +162,7 @@ class TurnClient implements Protocol {
 
     const err: TransactionFailed = await this.request(
       withoutCred,
-      this.server
+      this.server,
     ).catch((e) => e);
 
     // resolve dns address
@@ -177,7 +177,7 @@ class TurnClient implements Protocol {
     this.integrityKey = makeIntegrityKey(
       this.username,
       this.realm!,
-      this.password
+      this.password,
     );
 
     const request = new Message(methods.ALLOCATE, classes.REQUEST);
@@ -254,7 +254,7 @@ class TurnClient implements Protocol {
     const header = jspack.Pack("!HH", [channel.number, data.length]);
     this.transport.send(
       Buffer.concat([Buffer.from(header), data]),
-      this.server
+      this.server,
     );
   }
 
@@ -306,7 +306,7 @@ export async function createTurnEndpoint(
     transport?: "udp";
     portRange?: [number, number];
     interfaceAddresses?: InterfaceAddresses;
-  }
+  },
 ) {
   if (lifetime == undefined) {
     lifetime = 600;
@@ -315,7 +315,7 @@ export async function createTurnEndpoint(
   const transport = await UdpTransport.init(
     "udp4",
     portRange,
-    interfaceAddresses
+    interfaceAddresses,
   );
 
   const turnClient = new TurnClient(
@@ -323,7 +323,7 @@ export async function createTurnEndpoint(
     username,
     password,
     lifetime,
-    transport
+    transport,
   );
 
   await turnClient.connectionMade();
@@ -336,7 +336,7 @@ export async function createTurnEndpoint(
 export function makeIntegrityKey(
   username: string,
   realm: string,
-  password: string
+  password: string,
 ) {
   return createHash("md5")
     .update(Buffer.from([username, realm, password].join(":")))

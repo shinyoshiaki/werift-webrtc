@@ -44,7 +44,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
     private videoOutput: (output: LipsyncOutput) => void,
-    private options: Partial<LipSyncOptions> = {}
+    private options: Partial<LipSyncOptions> = {},
   ) {
     this.interval = this.options.syncInterval ?? 500;
     this.bufferDuration = this.interval / 2;
@@ -67,7 +67,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
   private executeTask() {
     const audioBuffer = this.audioBuffer[this.index].sort(
-      (a, b) => a.frame.time - b.frame.time
+      (a, b) => a.frame.time - b.frame.time,
     );
 
     if (this.options.fillDummyAudioPacket) {
@@ -105,7 +105,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
     this.currentTimestamp += this.bufferDuration;
     const joined = [...audioBuffer, ...this.videoBuffer[this.index]].filter(
-      (b) => b.frame.time >= this.lastCommittedTime
+      (b) => b.frame.time >= this.lastCommittedTime,
     );
     const sorted = joined.sort((a, b) => a.frame.time - b.frame.time);
     this.audioBuffer[this.index] = [];
@@ -161,7 +161,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       frame: CodecFrame;
       kind: MediaKind;
     }[][],
-    kind: MediaKind
+    kind: MediaKind,
   ) => {
     if (this.stopped) {
       return;

@@ -126,4 +126,4 @@ export class WebmFactory extends MediaWriter {
 }
 
 const supportedVideoCodecs = ["h264", "vp8", "vp9", "av1x"] as const;
-type SupportedVideoCodec = typeof supportedVideoCodecs[number];
+type SupportedVideoCodec = (typeof supportedVideoCodecs)[number];

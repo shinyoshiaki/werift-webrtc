@@ -25,7 +25,7 @@ describe("rtp/red/handler", () => {
           138, 226, 52, 248, 74, 108, 191, 78, 129, 39, 28, 126, 74, 2, 192,
           250, 62, 90, 86, 65, 223, 156, 140, 92, 26, 132, 91, 30, 62, 254, 216,
           168, 3,
-        ])
+        ]),
       ),
       new RtpPacket(
         new RtpHeader({
@@ -49,7 +49,7 @@ describe("rtp/red/handler", () => {
           188, 87, 163, 158, 146, 145, 88, 23, 57, 145, 107, 27, 46, 68, 42,
           172, 97, 211, 142, 94, 50, 56, 62, 251, 237, 19, 96, 67, 103, 217, 28,
           86, 92, 235, 213, 189, 159, 5,
-        ])
+        ]),
       ),
     ];
     const present = new RtpPacket(
@@ -74,7 +74,7 @@ describe("rtp/red/handler", () => {
         89, 226, 50, 234, 148, 3, 163, 106, 29, 129, 53, 111, 40, 90, 45, 206,
         187, 243, 105, 41, 35, 81, 247, 129, 44, 165, 191, 41, 91, 159, 58, 239,
         0, 250, 4, 185, 2, 141, 255, 52, 11, 51, 142, 68, 124,
-      ])
+      ]),
     );
     const redEncoder = new RedEncoder(3);
     redundantPackets.forEach((p) =>
@@ -82,7 +82,7 @@ describe("rtp/red/handler", () => {
         block: p.payload,
         timestamp: p.header.timestamp,
         blockPT: p.header.payloadType,
-      })
+      }),
     );
     redEncoder.push({
       block: present.payload,

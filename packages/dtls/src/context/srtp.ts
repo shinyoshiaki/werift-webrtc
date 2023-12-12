@@ -16,4 +16,4 @@ export const Profiles = [
   ProtectionProfileAeadAes128Gcm,
 ] as const;
 
-export type Profile = typeof Profiles[number];
+export type Profile = (typeof Profiles)[number];

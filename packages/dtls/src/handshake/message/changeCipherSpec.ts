@@ -16,7 +16,7 @@ export class ChangeCipherSpec {
   static deSerialize(buf: Buffer) {
     return new ChangeCipherSpec(
       //@ts-ignore
-      ...Object.values(decode(buf, ChangeCipherSpec.spec))
+      ...Object.values(decode(buf, ChangeCipherSpec.spec)),
     );
   }
 

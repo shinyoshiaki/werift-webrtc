@@ -179,7 +179,7 @@ export class RTCRtpSender {
       }
       if (codec.name.toLowerCase() === "red") {
         this.redRedundantPayloadType = Number(
-          (codec.parameters ?? "").split("/")[0]
+          (codec.parameters ?? "").split("/")[0],
         );
       }
     });
@@ -273,7 +273,7 @@ export class RTCRtpSender {
                   ],
                 }),
               ],
-            })
+            }),
           );
         }
 
@@ -292,7 +292,7 @@ export class RTCRtpSender {
       sequenceNumber,
       timestamp,
     }: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
-    discontinuity = false
+    discontinuity = false,
   ) {
     if (this.sequenceNumber != undefined) {
       this.seqOffset = uint16Add(this.sequenceNumber, -sequenceNumber);
@@ -351,10 +351,10 @@ export class RTCRtpSender {
             case RTP_EXTENSION_URI.transportWideCC:
               this.dtlsTransport.transportSequenceNumber = uint16Add(
                 this.dtlsTransport.transportSequenceNumber,
-                1
+                1,
               );
               return serializeTransportWideCC(
-                this.dtlsTransport.transportSequenceNumber
+                this.dtlsTransport.transportSequenceNumber,
               );
             case RTP_EXTENSION_URI.absSendTime:
               return serializeAbsSendTime(ntpTimestamp);
@@ -447,16 +447,16 @@ export class RTCRtpSender {
                         packet,
                         this.rtxPayloadType,
                         this.rtxSequenceNumber,
-                        this.rtxSsrc
+                        this.rtxSsrc,
                       );
                       this.rtxSequenceNumber = uint16Add(
                         this.rtxSequenceNumber,
-                        1
+                        1,
                       );
                     }
                     await this.dtlsTransport.sendRtp(
                       packet.payload,
-                      packet.header
+                      packet.header,
                     );
                   }
                 });

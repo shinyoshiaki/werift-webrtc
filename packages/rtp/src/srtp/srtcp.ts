@@ -10,7 +10,7 @@ export class SrtcpSession extends Session<SrtcpContext> {
       config.keys.localMasterSalt,
       config.keys.remoteMasterKey,
       config.keys.remoteMasterSalt,
-      config.profile
+      config.profile,
     );
   }
 

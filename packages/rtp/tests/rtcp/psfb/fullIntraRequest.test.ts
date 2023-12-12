@@ -18,7 +18,7 @@ describe("fullIntraRequest", () => {
     ]);
 
     const [psfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpPayloadSpecificFeedback
+      RtcpPayloadSpecificFeedback,
     ];
     const fir = psfb.feedback as FullIntraRequest;
     expect(fir.senderSsrc).toBe(0);

@@ -35,19 +35,19 @@ export class StunProtocol implements Protocol {
   connectionMade = async (
     useIpv4: boolean,
     portRange?: [number, number],
-    interfaceAddresses?: InterfaceAddresses
+    interfaceAddresses?: InterfaceAddresses,
   ) => {
     if (useIpv4) {
       this.transport = await UdpTransport.init(
         "udp4",
         portRange,
-        interfaceAddresses
+        interfaceAddresses,
       );
     } else {
       this.transport = await UdpTransport.init(
         "udp6",
         portRange,
-        interfaceAddresses
+        interfaceAddresses,
       );
     }
 
@@ -99,7 +99,7 @@ export class StunProtocol implements Protocol {
     request: Message,
     addr: Address,
     integrityKey?: Buffer,
-    retransmissions?: number
+    retransmissions?: number,
   ) {
     // """
     // Execute a STUN transaction and return the response.
@@ -116,7 +116,7 @@ export class StunProtocol implements Protocol {
       request,
       addr,
       this,
-      retransmissions
+      retransmissions,
     );
     this.transactions[request.transactionIdHex] = transaction;
 

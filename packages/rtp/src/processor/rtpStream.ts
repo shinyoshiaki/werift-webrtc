@@ -12,7 +12,7 @@ export class RtpSourceStream {
     private options: {
       payloadType?: number;
       clearInvalidPTPacket?: boolean;
-    } = {}
+    } = {},
   ) {
     options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
 

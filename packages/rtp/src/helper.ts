@@ -18,10 +18,13 @@ export const timer = {
     return () => clearTimeout(id);
   },
   setInterval: (...args: Parameters<typeof setInterval>) => {
-    const id = setInterval(() => {
-      args[0]();
-      //@ts-ignore
-    }, ...args.slice(1));
+    const id = setInterval(
+      () => {
+        args[0]();
+        //@ts-ignore
+      },
+      ...args.slice(1),
+    );
     return () => clearInterval(id);
   },
 };

@@ -22,7 +22,7 @@ const AEADAdditionalData = {
 };
 
 const err = debug(
-  "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err"
+  "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err",
 );
 
 /**
@@ -59,7 +59,7 @@ export default class AEADCipher extends Cipher {
       this.keyLength,
       this.ivLength,
       this.nonceLength,
-      this.hashAlgorithm
+      this.hashAlgorithm,
     );
 
     this.clientWriteKey = keys.clientWriteKey;
@@ -98,7 +98,7 @@ export default class AEADCipher extends Cipher {
       iv,
       {
         authTagLength: this.authTagLength,
-      }
+      },
     );
 
     cipher.setAAD(additionalBuffer, {
@@ -145,7 +145,7 @@ export default class AEADCipher extends Cipher {
       iv,
       {
         authTagLength: this.authTagLength,
-      }
+      },
     );
 
     decipher.setAuthTag(authTag);
@@ -166,7 +166,7 @@ export default class AEADCipher extends Cipher {
         type,
         dumpBuffer(data),
         header,
-        this.summary
+        this.summary,
       );
       throw error;
     }

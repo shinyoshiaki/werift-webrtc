@@ -46,12 +46,12 @@ describe("srtp/context/srtcp", () => {
     const encryptContext = new SrtcpContext(
       rtcpTestMasterKey,
       rtcpTestMasterSalt,
-      1
+      1,
     );
     const decryptContext = new SrtcpContext(
       rtcpTestMasterKey,
       rtcpTestMasterSalt,
-      1
+      1,
     );
 
     const [decryptResult] = decryptContext.decryptRTCP(rtcpTestEncrypted);
@@ -66,13 +66,13 @@ describe("srtp/context/srtcp", () => {
     const encryptContext = new SrtcpContext(
       rtcpTestMasterKey,
       rtcpTestMasterSalt,
-      1
+      1,
     );
 
     const decryptContext = new SrtcpContext(
       rtcpTestMasterKey,
       rtcpTestMasterSalt,
-      1
+      1,
     );
 
     const decryptInput = Buffer.from(rtcpTestEncrypted);

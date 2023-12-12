@@ -63,7 +63,7 @@ export class GenericNack {
   serialize() {
     const ssrcPair = bufferWriter(
       [4, 4],
-      [this.senderSsrc, this.mediaSourceSsrc]
+      [this.senderSsrc, this.mediaSourceSsrc],
     );
 
     const fci: Buffer[] = [];

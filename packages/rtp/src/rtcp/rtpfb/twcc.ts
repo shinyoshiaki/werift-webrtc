@@ -84,19 +84,19 @@ export class TransportWideCC {
       const type = getBit(
         data.slice(packetStatusPos, packetStatusPos + 1)[0],
         0,
-        1
+        1,
       );
       let iPacketStatus: RunLengthChunk | StatusVectorChunk | undefined;
       switch (type) {
         case PacketChunk.TypeTCCRunLengthChunk:
           {
             const packetStatus = RunLengthChunk.deSerialize(
-              data.slice(packetStatusPos, packetStatusPos + 2)
+              data.slice(packetStatusPos, packetStatusPos + 2),
             );
             iPacketStatus = packetStatus;
             const packetNumberToProcess = Math.min(
               packetStatusCount - processedPacketNum,
-              packetStatus.runLength
+              packetStatus.runLength,
             );
             if (
               packetStatus.packetStatus ===
@@ -106,7 +106,7 @@ export class TransportWideCC {
             ) {
               for (let _ = 0; _ < packetNumberToProcess; _++) {
                 recvDeltas.push(
-                  new RecvDelta({ type: packetStatus.packetStatus as any })
+                  new RecvDelta({ type: packetStatus.packetStatus as any }),
                 );
               }
             }
@@ -116,7 +116,7 @@ export class TransportWideCC {
         case PacketChunk.TypeTCCStatusVectorChunk:
           {
             const packetStatus = StatusVectorChunk.deSerialize(
-              data.slice(packetStatusPos, packetStatusPos + 2)
+              data.slice(packetStatusPos, packetStatusPos + 2),
             );
             iPacketStatus = packetStatus;
             if (packetStatus.symbolSize === 0) {
@@ -125,7 +125,7 @@ export class TransportWideCC {
                   recvDeltas.push(
                     new RecvDelta({
                       type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
-                    })
+                    }),
                   );
                 }
               });
@@ -139,7 +139,7 @@ export class TransportWideCC {
                   recvDeltas.push(
                     new RecvDelta({
                       type: v,
-                    })
+                    }),
                   );
                 }
               });
@@ -188,11 +188,11 @@ export class TransportWideCC {
         this.packetStatusCount,
         this.referenceTime,
         this.fbPktCount,
-      ]
+      ],
     );
 
     const chunks = Buffer.concat(
-      this.packetChunks.map((chunk) => chunk.serialize())
+      this.packetChunks.map((chunk) => chunk.serialize()),
     );
 
     const deltas = Buffer.concat(
@@ -205,7 +205,7 @@ export class TransportWideCC {
             return undefined;
           }
         })
-        .filter((v) => v) as Buffer[]
+        .filter((v) => v) as Buffer[],
     );
 
     const buf = Buffer.concat([constBuf, chunks, deltas]);
@@ -287,7 +287,7 @@ export class RunLengthChunk {
     const results: PacketResult[] = [];
     for (let i = 0; i <= this.runLength; ++i) {
       results.push(
-        new PacketResult({ sequenceNumber: ++currentSequenceNumber, received })
+        new PacketResult({ sequenceNumber: ++currentSequenceNumber, received }),
       );
     }
     return results;

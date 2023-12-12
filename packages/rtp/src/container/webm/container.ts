@@ -14,7 +14,7 @@ export class WEBMContainer {
       EBML.element(EBML.ID.DocType, EBML.string("webm")),
       EBML.element(EBML.ID.DocTypeVersion, EBML.number(2)),
       EBML.element(EBML.ID.DocTypeReadVersion, EBML.number(2)),
-    ])
+    ]),
   );
   trackEntries: EBML.EBMLData[] = [];
   private trackIvs: { [trackNumber: number]: Uint32Array } = {};
@@ -30,7 +30,7 @@ export class WEBMContainer {
       codec: SupportedCodec;
       trackNumber: number;
     }[],
-    encryptionKey?: Buffer
+    encryptionKey?: Buffer,
   ) {
     this.encryptionKey = encryptionKey;
 
@@ -45,7 +45,7 @@ export class WEBMContainer {
         this.trackIvs[trackNumber] = ivCounter;
 
         return track;
-      }
+      },
     );
   }
 
@@ -60,7 +60,7 @@ export class WEBMContainer {
       kind: string;
       width: number;
       height: number;
-    }> = {}
+    }> = {},
   ) {
     const trackElements: EBML.EBMLData[] = [];
 
@@ -72,21 +72,21 @@ export class WEBMContainer {
         EBML.element(EBML.ID.Video, [
           EBML.element(EBML.ID.PixelWidth, EBML.number(width)),
           EBML.element(EBML.ID.PixelHeight, EBML.number(height)),
-        ])
+        ]),
       );
     } else {
       trackElements.push(
         EBML.element(EBML.ID.Audio, [
           EBML.element(EBML.ID.SamplingFrequency, EBML.float(48000.0)),
           EBML.element(EBML.ID.Channels, EBML.number(2)),
-        ])
+        ]),
       );
       // only support OPUS
       trackElements.push(
         EBML.element(
           EBML.ID.CodecPrivate,
-          EBML.bytes(OpusRtpPayload.createCodecPrivate())
-        )
+          EBML.bytes(OpusRtpPayload.createCodecPrivate()),
+        ),
       );
     }
 
@@ -105,15 +105,15 @@ export class WEBMContainer {
               EBML.element(EBML.ID.EncryptionAlgorithm, EBML.number(5)),
               EBML.element(
                 EBML.ID.EncryptionKeyID,
-                EBML.bytes(encryptionKeyID)
+                EBML.bytes(encryptionKeyID),
               ),
               EBML.element(
                 EBML.ID.ContentEncAESSettings,
-                EBML.element(EBML.ID.AESSettingsCipherMode, EBML.number(1))
+                EBML.element(EBML.ID.AESSettingsCipherMode, EBML.number(1)),
               ),
             ]),
-          ])
-        )
+          ]),
+        ),
       );
     }
 
@@ -124,7 +124,7 @@ export class WEBMContainer {
       EBML.element(EBML.ID.TrackType, EBML.number(kind === "video" ? 1 : 2)),
       EBML.element(
         EBML.ID.CodecID,
-        EBML.string(`${kind === "video" ? "V" : "A"}_${codec}`)
+        EBML.string(`${kind === "video" ? "V" : "A"}_${codec}`),
       ),
       ...trackElements,
     ]);
@@ -133,7 +133,7 @@ export class WEBMContainer {
 
   createSegment(
     /**ms */
-    duration?: number
+    duration?: number,
   ) {
     const elements = [
       EBML.element(EBML.ID.TimecodeScale, EBML.number(millisecond)),
@@ -148,13 +148,13 @@ export class WEBMContainer {
         EBML.element(EBML.ID.SeekHead, []),
         EBML.element(EBML.ID.Info, elements),
         EBML.element(EBML.ID.Tracks, this.trackEntries),
-      ])
+      ]),
     );
   }
 
   createDuration(
     /**ms */
-    duration: number
+    duration: number,
   ) {
     return EBML.build(EBML.element(EBML.ID.Duration, EBML.float(duration)));
   }
@@ -163,7 +163,7 @@ export class WEBMContainer {
     relativeTimestamp: number,
     trackNumber: number,
     clusterPosition: number,
-    blockNumber: number
+    blockNumber: number,
   ) {
     return EBML.element(EBML.ID.CuePoint, [
       EBML.element(EBML.ID.CueTime, EBML.number(relativeTimestamp)),
@@ -183,7 +183,7 @@ export class WEBMContainer {
     return EBML.build(
       EBML.unknownSizeElement(EBML.ID.Cluster, [
         EBML.element(EBML.ID.Timecode, EBML.number(timecode)),
-      ])
+      ]),
     );
   }
 
@@ -191,7 +191,7 @@ export class WEBMContainer {
     frame: Buffer,
     isKeyframe: boolean,
     trackNumber: number,
-    relativeTimestamp: number
+    relativeTimestamp: number,
   ) {
     const elementId = Buffer.from([0xa3]);
 
@@ -223,7 +223,7 @@ export class WEBMContainer {
     }
 
     const contentSize: Uint8Array = EBML.vintEncodedNumber(
-      1 + 2 + 1 + frame.length
+      1 + 2 + 1 + frame.length,
     ).bytes;
 
     const keyframe = isKeyframe ? 1 : 0;
@@ -253,5 +253,5 @@ export const supportedCodecs = [
   "AV1",
   "OPUS",
 ] as const;
-export type SupportedCodec = typeof supportedCodecs[number];
+export type SupportedCodec = (typeof supportedCodecs)[number];
 const millisecond = 1000000;

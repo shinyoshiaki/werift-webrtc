@@ -18,7 +18,7 @@ class ProtocolMock implements Protocol {
     1234,
     "1.2.3.4",
     1234,
-    "host"
+    "host",
   );
   sentMessage?: Message;
   request = async () => {
@@ -76,7 +76,7 @@ describe("ice", () => {
       request,
       ["2.3.4.5", 2345],
       protocol,
-      request.bytes
+      request.bytes,
     );
     expect(protocol.sentMessage).not.toBeNull();
     expect(protocol.sentMessage?.messageMethod).toBe(methods.ALLOCATE);
@@ -98,7 +98,7 @@ describe("ice", () => {
 
     const pair = new CandidatePair(
       protocol,
-      new Candidate("some-foundation", 1, "udp", 2345, "2.3.4.5", 2345, "host")
+      new Candidate("some-foundation", 1, "udp", 2345, "2.3.4.5", 2345, "host"),
     );
 
     await connection.checkStart(pair);
@@ -271,7 +271,7 @@ describe("ice", () => {
         setTimeout(1000).then(async () => {
           await a.connect();
           r();
-        })
+        }),
       ),
       b.connect(),
     ]);
@@ -349,7 +349,7 @@ describe("ice", () => {
       const conn = new Connection(true);
       conn.remoteCandidates = [
         Candidate.fromSdp(
-          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",
         ),
       ];
       conn.remoteUsername = "foo";
@@ -358,7 +358,7 @@ describe("ice", () => {
         await conn.connect();
       } catch (error: any) {
         expect(error.message).toBe(
-          "Local candidates gathering was not performed"
+          "Local candidates gathering was not performed",
         );
         await conn.close();
         done();
@@ -372,7 +372,7 @@ describe("ice", () => {
       conn._localCandidatesEnd = true;
       conn.remoteCandidates = [
         Candidate.fromSdp(
-          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",
         ),
       ];
       conn.remoteUsername = "foo";
@@ -410,7 +410,7 @@ describe("ice", () => {
       await conn.gatherCandidates();
       conn.remoteCandidates = [
         Candidate.fromSdp(
-          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+          "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",
         ),
       ];
       try {
@@ -442,7 +442,7 @@ describe("ice", () => {
       await a.close();
       await b.close();
     },
-    1000 * 60 * 60
+    1000 * 60 * 60,
   );
 
   test(
@@ -463,7 +463,7 @@ describe("ice", () => {
       await a.close();
       await b.close();
     },
-    1000 * 60 * 60
+    1000 * 60 * 60,
   );
 
   test("test_connect_with_stun_server", async () => {
@@ -534,7 +534,7 @@ describe("ice", () => {
       await a.close();
       await b.close();
     },
-    1000 * 60
+    1000 * 60,
   );
 
   test(
@@ -574,7 +574,7 @@ describe("ice", () => {
       await a.close();
       await b.close();
     },
-    60 * 1000
+    60 * 1000,
   );
 
   test("test_connect_to_ice_lite", async () => {

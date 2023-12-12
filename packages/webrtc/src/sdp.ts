@@ -66,7 +66,7 @@ export class SessionDescription {
           case "fingerprint":
             const [algorithm, fingerprint] = value?.split(" ") || [];
             session.dtlsFingerprints.push(
-              new RTCDtlsFingerprint(algorithm, fingerprint)
+              new RTCDtlsFingerprint(algorithm, fingerprint),
             );
             break;
           case "ice-lite":
@@ -117,11 +117,11 @@ export class SessionDescription {
         kind,
         parseInt(m[2]),
         m[3],
-        fmtInt || fmt
+        fmtInt || fmt,
       );
       currentMedia.dtlsParams = new RTCDtlsParameters(
         [...session.dtlsFingerprints],
-        session.dtlsRole
+        session.dtlsRole,
       );
 
       currentMedia.iceParams = new RTCIceParameters({
@@ -157,14 +157,14 @@ export class SessionDescription {
                 new RTCRtpHeaderExtensionParameters({
                   id: parseInt(extId),
                   uri: extUri,
-                })
+                }),
               );
               break;
             case "fingerprint":
               if (!value) throw new Error();
               const [algorithm, fingerprint] = value.split(" ");
               currentMedia.dtlsParams?.fingerprints.push(
-                new RTCDtlsFingerprint(algorithm, fingerprint)
+                new RTCDtlsFingerprint(algorithm, fingerprint),
               );
               break;
             case "ice-options":
@@ -181,7 +181,7 @@ export class SessionDescription {
               break;
             case "max-message-size":
               currentMedia.sctpCapabilities = new RTCSctpCapabilities(
-                parseInt(value, 10)
+                parseInt(value, 10),
               );
               break;
             case "mid":
@@ -258,7 +258,7 @@ export class SessionDescription {
                   new RTCRtpSimulcastParameters({
                     rid,
                     direction: direction as any,
-                  })
+                  }),
                 );
               }
               break;
@@ -314,7 +314,7 @@ export class SessionDescription {
                   new RTCRtcpFeedback({
                     type: feedbackType,
                     parameter: feedbackParam,
-                  })
+                  }),
                 );
               }
             });
@@ -352,7 +352,7 @@ export class SessionDescription {
       lines.push(`a=extmap-allow-mixed`);
     }
     this.msidSemantic.forEach((group) =>
-      lines.push(`a=msid-semantic:${group.str}`)
+      lines.push(`a=msid-semantic:${group.str}`),
     );
     const media = this.media.map((m) => m.toString()).join("");
     const sdp = lines.join("\r\n") + "\r\n" + media;
@@ -403,7 +403,7 @@ export class MediaDescription {
     public kind: Kind,
     public port: number,
     public profile: string,
-    public fmt: string[] | number[]
+    public fmt: string[] | number[],
   ) {}
 
   toString() {
@@ -411,7 +411,7 @@ export class MediaDescription {
     lines.push(
       `m=${this.kind} ${this.port} ${this.profile} ${(this.fmt as number[])
         .map((v) => v.toString())
-        .join(" ")}`
+        .join(" ")}`,
     );
     if (this.host) {
       lines.push(`c=${ipAddressToSdp(this.host)}`);
@@ -440,7 +440,7 @@ export class MediaDescription {
     if (this.dtlsParams) {
       this.dtlsParams.fingerprints.forEach((fingerprint) => {
         lines.push(
-          `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`
+          `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`,
         );
       });
       lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtlsParams.role]}`);
@@ -502,7 +502,7 @@ export class MediaDescription {
 
     // rtp extension
     this.rtp.headerExtensions.forEach((extension) =>
-      lines.push(`a=extmap:${extension.id} ${extension.uri}`)
+      lines.push(`a=extmap:${extension.id} ${extension.uri}`),
     );
 
     // simulcast
@@ -512,13 +512,13 @@ export class MediaDescription {
       });
       let line = `a=simulcast:`;
       const recv = this.simulcastParameters.filter(
-        (v) => v.direction === "recv"
+        (v) => v.direction === "recv",
       );
       if (recv.length) {
         line += `recv ${recv.map((v) => v.rid).join(";")} `;
       }
       const send = this.simulcastParameters.filter(
-        (v) => v.direction === "send"
+        (v) => v.direction === "send",
       );
       if (send.length) {
         line += `send ${send.map((v) => v.rid).join(";")}`;
@@ -532,7 +532,10 @@ export class MediaDescription {
 }
 
 export class GroupDescription {
-  constructor(public semantic: string, public items: string[]) {}
+  constructor(
+    public semantic: string,
+    public items: string[],
+  ) {}
 
   get str() {
     return `${this.semantic} ${this.items.join(" ")}`;
@@ -598,7 +601,7 @@ function parseAttr(line: string): [string, string] {
 export function parseGroup(
   dest: GroupDescription[],
   value: string,
-  type: (v: string) => any = (v) => v.toString()
+  type: (v: string) => any = (v) => v.toString(),
 ) {
   const bits = value.split(" ");
   if (bits.length > 0) {
@@ -619,7 +622,7 @@ export function candidateFromSdp(sdp: string) {
     parseInt(bits[5], 10),
     parseInt(bits[3], 10),
     bits[2],
-    bits[7]
+    bits[7],
   );
 
   range(8, bits.length - 1, 2).forEach((i) => {
@@ -640,7 +643,10 @@ export function candidateFromSdp(sdp: string) {
 }
 
 export class RTCSessionDescription {
-  constructor(public sdp: string, public type: "offer" | "answer") {}
+  constructor(
+    public sdp: string,
+    public type: "offer" | "answer",
+  ) {}
   static isThis(o: any) {
     if (typeof o?.sdp === "string") return true;
   }
@@ -648,7 +654,7 @@ export class RTCSessionDescription {
 
 export function addSDPHeader(
   type: "offer" | "answer",
-  description: SessionDescription
+  description: SessionDescription,
 ) {
   const username = "-";
   const sessionId = new Uint64BE(randomBytes(64)).toString().slice(0, 8);
@@ -683,7 +689,7 @@ export function codecParametersToString(
   parameters: {
     [key: string]: string | number;
   },
-  joint: string = "="
+  joint: string = "=",
 ) {
   const params = Object.entries(parameters).map(([k, v]) => {
     if (v) return `${k}${joint}${v}`;

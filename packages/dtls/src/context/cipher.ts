@@ -43,7 +43,7 @@ export class CipherContext {
     public sessionType: SessionTypes,
     public certPem?: string,
     public keyPem?: string,
-    signatureHashAlgorithm?: SignatureHash
+    signatureHashAlgorithm?: SignatureHash,
   ) {
     if (certPem && keyPem && signatureHashAlgorithm) {
       this.parseX509(certPem, keyPem, signatureHashAlgorithm);
@@ -57,7 +57,7 @@ export class CipherContext {
    */
   static createSelfSignedCertificateWithKey = async (
     signatureHash: SignatureHash,
-    namedCurveAlgorithm?: NamedCurveAlgorithms
+    namedCurveAlgorithm?: NamedCurveAlgorithms,
   ) => {
     const signatureAlgorithmName = (() => {
       switch (signatureHash.signature) {
@@ -117,7 +117,7 @@ export class CipherContext {
     const certPem = cert.toString("pem");
     const keyPem = x509.PemConverter.encode(
       await crypto.subtle.exportKey("pkcs8", keys.privateKey as any),
-      "private key"
+      "private key",
     );
 
     return { certPem, keyPem, signatureHash };
@@ -129,7 +129,7 @@ export class CipherContext {
       type: header.contentType,
       version: decode(
         Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
-        { version: types.uint16be }
+        { version: types.uint16be },
       ).version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
@@ -145,7 +145,7 @@ export class CipherContext {
       type: header.contentType,
       version: decode(
         Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
-        { version: types.uint16be }
+        { version: types.uint16be },
       ).version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
@@ -180,7 +180,7 @@ export class CipherContext {
       clientRandom.serialize(),
       serverRandom.serialize(),
       this.localKeyPair.publicKey,
-      this.namedCurve
+      this.namedCurve,
     );
 
     const enc = this.localPrivateKey.sign(sig, hashAlgorithm);
@@ -199,7 +199,7 @@ export class CipherContext {
     clientRandom: Buffer,
     serverRandom: Buffer,
     publicKey: Buffer,
-    namedCurve: number
+    namedCurve: number,
   ) {
     const serverParams = Buffer.from(
       encode(
@@ -208,8 +208,8 @@ export class CipherContext {
           curve: namedCurve,
           len: publicKey.length,
         },
-        { type: types.uint8, curve: types.uint16be, len: types.uint8 }
-      ).slice()
+        { type: types.uint8, curve: types.uint16be, len: types.uint8 },
+      ).slice(),
     );
     return Buffer.concat([clientRandom, serverRandom, serverParams, publicKey]);
   }

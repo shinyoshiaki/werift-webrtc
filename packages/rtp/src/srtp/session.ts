@@ -24,17 +24,17 @@ export class Session<T extends Context> {
     localMasterSalt: Buffer,
     remoteMasterKey: Buffer,
     remoteMasterSalt: Buffer,
-    profile: number
+    profile: number,
   ) {
     this.localContext = new this.ContextCls(
       localMasterKey,
       localMasterSalt,
-      profile
+      profile,
     );
     this.remoteContext = new this.ContextCls(
       remoteMasterKey,
       remoteMasterSalt,
-      profile
+      profile,
     );
   }
 }

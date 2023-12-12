@@ -33,7 +33,7 @@ export class WebmCallback extends WebmBase {
           await this.queue.push(() => cb(output));
         }
       },
-      options
+      options,
     );
   }
 
@@ -67,7 +67,7 @@ export const saveToFileSystem = (path: string) => async (value: WebmOutput) => {
       durationElement,
       0,
       durationElement.length,
-      DurationPosition
+      DurationPosition,
     );
 
     // set size

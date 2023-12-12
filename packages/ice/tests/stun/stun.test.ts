@@ -43,7 +43,7 @@ describe("stun", () => {
       parseMessage(data);
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN message fingerprint does not match"
+        "STUN message fingerprint does not match",
       );
     }
   });
@@ -54,7 +54,7 @@ describe("stun", () => {
       parseMessage(data, Buffer.from("bogus-key"));
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN message integrity does not match"
+        "STUN message integrity does not match",
       );
     }
   });
@@ -104,7 +104,7 @@ describe("stun", () => {
       parseMessage(data);
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN message length does not match"
+        "STUN message length does not match",
       );
     }
   });
@@ -114,7 +114,7 @@ describe("stun", () => {
       parseMessage(Buffer.from("123"));
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN message length is less than 20 bytes"
+        "STUN message length is less than 20 bytes",
       );
     }
   });
@@ -127,7 +127,7 @@ describe("stun", () => {
       const transaction = new Transaction(
         request,
         ["127.0.0.1", 1234],
-        DummyProtocol
+        DummyProtocol,
       );
 
       try {
@@ -139,7 +139,7 @@ describe("stun", () => {
       const response = new Message(methods.BINDING, classes.RESPONSE);
       transaction.responseReceived(response, ["127.0.0.1", 1234]);
     },
-    60 * 1000
+    60 * 1000,
   );
 
   test("test_bytes", () => {

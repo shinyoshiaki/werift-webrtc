@@ -19,7 +19,7 @@ export type AudioLevelIndicationPayload = { v: boolean; level: number };
 
 export function rtpHeaderExtensionsParser(
   extensions: Extension[],
-  extIdUriMap: { [id: number]: string }
+  extIdUriMap: { [id: number]: string },
 ): { [uri: string]: any } {
   return extensions
     .map((extension) => {

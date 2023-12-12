@@ -66,7 +66,7 @@ export function createCipher(cipher: number) {
         "TLS_RSA_WITH_AES_128_GCM_SHA256",
         "aes-128-gcm",
         RSA_KEY_EXCHANGE,
-        AEAD_AES_128_GCM
+        AEAD_AES_128_GCM,
       );
     case cipherSuites.TLS_RSA_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(
@@ -75,7 +75,7 @@ export function createCipher(cipher: number) {
         "aes-256-gcm",
         RSA_KEY_EXCHANGE,
         AEAD_AES_256_GCM,
-        "sha384"
+        "sha384",
       );
     case cipherSuites.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
       return createAEADCipher(
@@ -83,7 +83,7 @@ export function createCipher(cipher: number) {
         "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
         "aes-128-gcm",
         ECDHE_RSA_KEY_EXCHANGE,
-        AEAD_AES_128_GCM
+        AEAD_AES_128_GCM,
       );
     case cipherSuites.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(
@@ -92,7 +92,7 @@ export function createCipher(cipher: number) {
         "aes-256-gcm",
         ECDHE_RSA_KEY_EXCHANGE,
         AEAD_AES_256_GCM,
-        "sha384"
+        "sha384",
       );
     case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
       return createAEADCipher(
@@ -100,7 +100,7 @@ export function createCipher(cipher: number) {
         "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
         "aes-128-gcm",
         ECDHE_ECDSA_KEY_EXCHANGE,
-        AEAD_AES_128_GCM
+        AEAD_AES_128_GCM,
       );
     case cipherSuites.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(
@@ -109,7 +109,7 @@ export function createCipher(cipher: number) {
         "aes-256-gcm",
         ECDHE_ECDSA_KEY_EXCHANGE,
         AEAD_AES_256_GCM,
-        "sha384"
+        "sha384",
       );
     case cipherSuites.TLS_PSK_WITH_AES_128_GCM_SHA256:
       return createAEADCipher(
@@ -118,7 +118,7 @@ export function createCipher(cipher: number) {
         "aes-128-gcm",
         PSK_KEY_EXCHANGE,
         AEAD_AES_128_GCM,
-        "sha256"
+        "sha256",
       );
     case cipherSuites.TLS_PSK_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(
@@ -127,7 +127,7 @@ export function createCipher(cipher: number) {
         "aes-256-gcm",
         PSK_KEY_EXCHANGE,
         AEAD_AES_256_GCM,
-        "sha384"
+        "sha384",
       );
     case cipherSuites.TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256:
       return createAEADCipher(
@@ -136,7 +136,7 @@ export function createCipher(cipher: number) {
         "aes-128-gcm",
         ECDHE_PSK_KEY_EXCHANGE,
         AEAD_AES_128_GCM,
-        "sha256"
+        "sha256",
       );
     case cipherSuites.TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384:
       return createAEADCipher(
@@ -145,7 +145,7 @@ export function createCipher(cipher: number) {
         "aes-256-gcm",
         ECDHE_PSK_KEY_EXCHANGE,
         AEAD_AES_256_GCM,
-        "sha384"
+        "sha384",
       );
     default:
       break;
@@ -169,7 +169,7 @@ export function createAEADCipher(
   block: string,
   kx: KeyExchange,
   constants: { K_LEN: number; N_MAX: number },
-  hash = "sha256"
+  hash = "sha256",
 ) {
   const cipher = new AEADCipher();
 

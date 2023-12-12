@@ -18,7 +18,7 @@ export class ServerHelloDone implements Handshake {
   static deSerialize(buf: Buffer) {
     return new ServerHelloDone(
       //@ts-ignore
-      ...Object.values(decode(buf, ServerHelloDone.spec))
+      ...Object.values(decode(buf, ServerHelloDone.spec)),
     );
   }
 
@@ -35,7 +35,7 @@ export class ServerHelloDone implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

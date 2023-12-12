@@ -26,14 +26,14 @@ export class WebmStream extends WebmBase {
       clockRate: number;
       trackNumber: number;
     }[],
-    options: WebmStreamOption = {}
+    options: WebmStreamOption = {},
   ) {
     super(
       tracks,
       (output) => {
         this.controller.enqueue(output);
       },
-      options
+      options,
     );
 
     const audioTrack = tracks.find((t) => t.kind === "audio");

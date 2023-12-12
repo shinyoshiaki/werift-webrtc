@@ -80,10 +80,10 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   };
 
   const stunServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5)
+    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5),
   );
   const turnServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5)
+    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5),
   );
   const { credential, username } =
     iceServers.find(({ urls }) => urls.includes("turn:")) || {};

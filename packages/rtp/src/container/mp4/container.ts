@@ -28,7 +28,7 @@ export class Mp4Container {
   constructor(
     private props: {
       track: { audio: boolean; video: boolean };
-    }
+    },
   ) {
     this.#mp4 = new MP4.ISOFile();
     this.#mp4.init();
@@ -48,7 +48,7 @@ export class Mp4Container {
   write(
     frame: (DecoderConfig | EncodedChunk) & {
       track: "video" | "audio";
-    }
+    },
   ) {
     if (isDecoderConfig(frame)) {
       return this.#init(frame);
@@ -60,7 +60,7 @@ export class Mp4Container {
   #init(
     frame: DecoderConfig & {
       track: "video" | "audio";
-    }
+    },
   ) {
     let codec = frame.codec.substring(0, 4);
     if (codec == "opus") {
@@ -119,7 +119,7 @@ export class Mp4Container {
       this.#mp4.ftyp!,
       this.#mp4.moov!,
       0,
-      0
+      0,
     );
     const data = new Uint8Array(buffer);
     const res = {
@@ -139,7 +139,7 @@ export class Mp4Container {
   #enqueue(
     frame: EncodedChunk & {
       track: "video" | "audio";
-    }
+    },
   ) {
     this.frameBuffer.push(frame);
     if (!this.tracksReady) {
@@ -154,7 +154,7 @@ export class Mp4Container {
   private _enqueue(
     frame: EncodedChunk & {
       track: "video" | "audio";
-    }
+    },
   ) {
     const track = frame.track === "audio" ? this.audioTrack : this.videoTrack;
     if (!track) {
@@ -253,7 +253,7 @@ export class Mp4Container {
 }
 
 function isDecoderConfig(
-  frame: DecoderConfig | EncodedChunk
+  frame: DecoderConfig | EncodedChunk,
 ): frame is DecoderConfig {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   return (frame as DecoderConfig).codec !== undefined;
@@ -301,4 +301,4 @@ interface EncodedVideoChunk {
 type EncodedVideoChunkType = "delta" | "key";
 
 export const mp4SupportedCodecs = ["avc1", "opus"] as const;
-export type Mp4SupportedCodec = typeof mp4SupportedCodecs[number];
+export type Mp4SupportedCodec = (typeof mp4SupportedCodecs)[number];

@@ -11,7 +11,7 @@ describe("rtcp/rtpfb/nack", () => {
   test("test", () => {
     const data = load("rtcp_rtpfb.bin");
     const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpTransportLayerFeedback
+      RtcpTransportLayerFeedback,
     ];
     const nack = rtpfb.feedback as GenericNack;
     expect(nack.lost).toEqual([

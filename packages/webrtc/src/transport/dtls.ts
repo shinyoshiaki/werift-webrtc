@@ -59,7 +59,7 @@ export class RTCDtlsTransport {
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     readonly certificates: RTCCertificate[],
-    private readonly srtpProfiles: Profile[] = []
+    private readonly srtpProfiles: Profile[] = [],
   ) {
     this.localCertificate = this.certificates[0];
   }
@@ -67,7 +67,7 @@ export class RTCDtlsTransport {
   get localParameters() {
     return new RTCDtlsParameters(
       this.localCertificate ? this.localCertificate.getFingerprints() : [],
-      this.role
+      this.role,
     );
   }
 
@@ -79,12 +79,12 @@ export class RTCDtlsTransport {
             signature: SignatureAlgorithm.ecdsa_3,
             hash: HashAlgorithm.sha256_4,
           },
-          NamedCurveAlgorithm.secp256r1_23
+          NamedCurveAlgorithm.secp256r1_23,
         );
       this.localCertificate = new RTCCertificate(
         keyPem,
         certPem,
-        signatureHash
+        signatureHash,
       );
     }
     return this.localCertificate;
@@ -291,7 +291,7 @@ export const DtlsStates = [
   "closed",
   "failed",
 ] as const;
-export type DtlsState = typeof DtlsStates[number];
+export type DtlsState = (typeof DtlsStates)[number];
 
 export type DtlsRole = "auto" | "server" | "client";
 
@@ -302,7 +302,7 @@ export class RTCCertificate {
   constructor(
     privateKeyPem: string,
     public certPem: string,
-    public signatureHash: SignatureHash
+    public signatureHash: SignatureHash,
   ) {
     const cert = Certificate.fromPEM(Buffer.from(certPem));
     this.publicKey = cert.publicKey.toPEM();
@@ -315,8 +315,8 @@ export class RTCCertificate {
         "sha-256",
         fingerprint(
           Certificate.fromPEM(Buffer.from(this.certPem)).raw,
-          "sha256"
-        )
+          "sha256",
+        ),
       ),
     ];
   }
@@ -329,13 +329,16 @@ export type DtlsKeys = {
 };
 
 export class RTCDtlsFingerprint {
-  constructor(public algorithm: string, public value: string) {}
+  constructor(
+    public algorithm: string,
+    public value: string,
+  ) {}
 }
 
 export class RTCDtlsParameters {
   constructor(
     public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | "server"
+    public role: "auto" | "client" | "server",
   ) {}
 }
 

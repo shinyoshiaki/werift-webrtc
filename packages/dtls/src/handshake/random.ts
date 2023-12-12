@@ -10,13 +10,13 @@ export class DtlsRandom {
 
   constructor(
     public gmt_unix_time = Math.floor(Date.now() / 1000),
-    public random_bytes = randomBytes(28)
+    public random_bytes = randomBytes(28),
   ) {}
 
   static deSerialize(buf: Buffer) {
     return new DtlsRandom(
       //@ts-ignore
-      ...Object.values(decode(buf, DtlsRandom.spec))
+      ...Object.values(decode(buf, DtlsRandom.spec)),
     );
   }
 

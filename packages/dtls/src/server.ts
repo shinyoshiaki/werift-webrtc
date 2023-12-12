@@ -23,7 +23,7 @@ export class DtlsServer extends DtlsSocket {
     log(
       this.dtls.sessionId,
       "handleHandshakes",
-      assembled.map((a) => a.msg_type)
+      assembled.map((a) => a.msg_type),
     );
 
     for (const handshake of assembled) {
@@ -42,7 +42,7 @@ export class DtlsServer extends DtlsSocket {
                 this.transport,
                 this.dtls,
                 this.cipher,
-                this.srtp
+                this.srtp,
               )(clientHello);
             } else if (
               this.dtls.cookie &&
@@ -53,7 +53,7 @@ export class DtlsServer extends DtlsSocket {
                 this.transport,
                 this.dtls,
                 this.cipher,
-                this.srtp
+                this.srtp,
               ).exec(handshake, this.options.certificateRequest);
             } else {
               log("wrong state", {

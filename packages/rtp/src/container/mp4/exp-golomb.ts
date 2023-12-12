@@ -44,7 +44,10 @@ class ExpGolomb {
     const bytes_read = Math.min(4, buffer_bytes_left);
     const word = new Uint8Array(4);
     word.set(
-      this._buffer.subarray(this._buffer_index, this._buffer_index + bytes_read)
+      this._buffer.subarray(
+        this._buffer_index,
+        this._buffer_index + bytes_read,
+      ),
     );
     this._current_word = new DataView(word.buffer).getUint32(0, false);
 
@@ -70,7 +73,7 @@ class ExpGolomb {
     this._fillCurrentWord();
     const bits_read_next = Math.min(
       bits_need_left,
-      this._current_word_bits_left
+      this._current_word_bits_left,
     );
 
     const result2 = this._current_word >>> (32 - bits_read_next);

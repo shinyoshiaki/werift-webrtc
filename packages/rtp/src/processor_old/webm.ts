@@ -37,7 +37,7 @@ export class WebmOutput implements Output {
     }[],
     streams?: {
       rtpStream?: Event<[RtpPacket]>;
-    }
+    },
   ) {
     this.builder = new WEBMContainer(tracks);
 
@@ -66,7 +66,7 @@ export class WebmOutput implements Output {
     const video = this.tracks.find((t) => t.kind === "video");
     if (video) {
       this.cuePoints.push(
-        new CuePoint(this.builder, video.trackNumber, 0.0, this.position)
+        new CuePoint(this.builder, video.trackNumber, 0.0, this.position),
       );
     }
 
@@ -90,11 +90,11 @@ export class WebmOutput implements Output {
       this.builder.createSegment(),
     ]).length;
     const clusters = (await this.writer.readFile(this.path)).slice(
-      originStaticPartOffset
+      originStaticPartOffset,
     );
 
     const latestTimestamp = Object.values(this.timestamps).sort(
-      (a, b) => a.relativeTimestamp - b.relativeTimestamp
+      (a, b) => a.relativeTimestamp - b.relativeTimestamp,
     )[0].relativeTimestamp;
     const duration = this.relativeTimestamp + latestTimestamp;
     const staticPart = Buffer.concat([
@@ -130,7 +130,7 @@ export class WebmOutput implements Output {
 
   private async onRtpPackets(packets: RtpPacket[]) {
     const track = this.tracks.find(
-      (t) => t.payloadType === packets[0].header.payloadType
+      (t) => t.payloadType === packets[0].header.payloadType,
     );
     if (!track) {
       return;
@@ -158,8 +158,8 @@ export class WebmOutput implements Output {
           this.builder,
           track.trackNumber,
           this.relativeTimestamp,
-          this.position
-        )
+          this.position,
+        ),
       );
       this.position += cluster.length;
       Object.values(this.timestamps).forEach((t) => t.reset());
@@ -169,7 +169,7 @@ export class WebmOutput implements Output {
       data,
       isKeyframe,
       track.trackNumber,
-      timestampManager.relativeTimestamp
+      timestampManager.relativeTimestamp,
     );
     await this.writer.appendFile(this.path, block);
     this.position += block.length;
@@ -218,7 +218,7 @@ class CuePoint {
     private readonly builder: WEBMContainer,
     private readonly trackNumber: number,
     private readonly relativeTimestamp: number,
-    public position: number
+    public position: number,
   ) {}
 
   build() {
@@ -226,7 +226,7 @@ class CuePoint {
       this.relativeTimestamp,
       this.trackNumber,
       this.position - 48 + this.cuesLength,
-      this.blockNumber
+      this.blockNumber,
     );
   }
 }

@@ -12,7 +12,7 @@ const err = debug("werift-dtls : packages/dtls/src/flight/flight.ts : err");
 
 const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 
-type FlightType = typeof flightTypes[number];
+type FlightType = (typeof flightTypes)[number];
 
 export abstract class Flight {
   state: FlightType = "PREPARING";
@@ -22,7 +22,7 @@ export abstract class Flight {
     private transport: TransportContext,
     public dtls: DtlsContext,
     private flight: number,
-    private nextFlight?: number
+    private nextFlight?: number,
   ) {}
 
   protected createPacket(handshakes: Handshake[]) {
@@ -33,7 +33,7 @@ export abstract class Flight {
         type: ContentType.handshake,
         fragment: fragment.serialize(),
       })),
-      ++this.dtls.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber,
     );
     return packets;
   }
@@ -62,7 +62,7 @@ export abstract class Flight {
           this.dtls.sessionId,
           "retransmit",
           retransmitCount,
-          this.dtls.flight
+          this.dtls.flight,
         );
       }
     }
@@ -70,7 +70,7 @@ export abstract class Flight {
     if (retransmitCount > Flight.RetransmitCount) {
       err(this.dtls.sessionId, "retransmit failed", retransmitCount);
       throw new Error(
-        `over retransmitCount : ${this.flight} ${this.nextFlight}`
+        `over retransmitCount : ${this.flight} ${this.nextFlight}`,
       );
     }
   }

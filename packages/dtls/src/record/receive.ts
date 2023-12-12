@@ -80,7 +80,7 @@ export const parsePlainText =
           "flight",
           dtls.flight,
           "lastFlight",
-          dtls.lastFlight
+          dtls.lastFlight,
         );
         if (alert.level > 1) {
           throw new Error("alert fatal error");

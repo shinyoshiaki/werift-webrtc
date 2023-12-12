@@ -24,18 +24,18 @@ import {
 
 export function parseMessage(
   data: Buffer,
-  integrityKey?: Buffer
+  integrityKey?: Buffer,
 ): Message | undefined {
   if (data.length < HEADER_LENGTH) {
     return undefined;
   }
   const [messageType, length] = jspack.Unpack(
     "!HHI",
-    data.slice(0, HEADER_LENGTH)
+    data.slice(0, HEADER_LENGTH),
   );
 
   const transactionId = Buffer.from(
-    data.slice(HEADER_LENGTH - 12, HEADER_LENGTH)
+    data.slice(HEADER_LENGTH - 12, HEADER_LENGTH),
   );
 
   if (data.length !== HEADER_LENGTH + length) {
@@ -54,12 +54,12 @@ export function parseMessage(
       if (attrUnpack.name === unpackXorAddress.name) {
         attributeRepository.setAttribute(
           attrName as AttributeKey,
-          attrUnpack(payload, transactionId)
+          attrUnpack(payload, transactionId),
         );
       } else {
         attributeRepository.setAttribute(
           attrName as AttributeKey,
-          attrUnpack(payload)
+          attrUnpack(payload),
         );
       }
 
@@ -90,7 +90,7 @@ export function parseMessage(
     messageType & 0x3eef,
     messageType & 0x0110,
     transactionId,
-    attributes
+    attributes,
   );
 }
 
@@ -99,7 +99,7 @@ export class Message extends AttributeRepository {
     public messageMethod: methods,
     public messageClass: classes,
     public transactionId: Buffer = randomTransactionId(),
-    attributes: AttributePair[] = []
+    attributes: AttributePair[] = [],
   ) {
     super(attributes);
   }
@@ -138,7 +138,7 @@ export class Message extends AttributeRepository {
         this.messageMethod | this.messageClass,
         data.length,
         COOKIE,
-      ])
+      ]),
     );
 
     return Buffer.concat([buf, this.transactionId, data]);
@@ -152,11 +152,11 @@ export class Message extends AttributeRepository {
   messageIntegrity(key: Buffer) {
     const checkData = setBodyLength(
       this.bytes,
-      this.bytes.length - HEADER_LENGTH + INTEGRITY_LENGTH
+      this.bytes.length - HEADER_LENGTH + INTEGRITY_LENGTH,
     );
     return Buffer.from(
       createHmac("sha1", key).update(checkData).digest("hex"),
-      "hex"
+      "hex",
     );
   }
 
@@ -176,7 +176,7 @@ const setBodyLength = (data: Buffer, length: number) => {
 function messageFingerprint(data: Buffer) {
   const checkData = setBodyLength(
     data,
-    data.length - HEADER_LENGTH + FINGERPRINT_LENGTH
+    data.length - HEADER_LENGTH + FINGERPRINT_LENGTH,
   );
   const crc32Buf = crc32(checkData);
   const xorBuf = Buffer.alloc(4);
@@ -188,10 +188,10 @@ function messageFingerprint(data: Buffer) {
 function messageIntegrity(data: Buffer, key: Buffer) {
   const checkData = setBodyLength(
     data,
-    data.length - HEADER_LENGTH + INTEGRITY_LENGTH
+    data.length - HEADER_LENGTH + INTEGRITY_LENGTH,
   );
   return Buffer.from(
     createHmac("sha1", key).update(checkData).digest("hex"),
-    "hex"
+    "hex",
   );
 }

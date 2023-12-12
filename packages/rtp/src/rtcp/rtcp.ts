@@ -21,7 +21,7 @@ export class RtcpPacketConverter {
     type: number,
     count: number,
     payload: Buffer,
-    length: number
+    length: number,
   ) {
     const header = new RtcpHeader({
       type,
@@ -39,7 +39,7 @@ export class RtcpPacketConverter {
 
     while (pos < data.length) {
       const header = RtcpHeader.deSerialize(
-        data.subarray(pos, pos + RTCP_HEADER_SIZE)
+        data.subarray(pos, pos + RTCP_HEADER_SIZE),
       );
       pos += RTCP_HEADER_SIZE;
 
@@ -60,17 +60,17 @@ export class RtcpPacketConverter {
             break;
           case RtcpSourceDescriptionPacket.type:
             packets.push(
-              RtcpSourceDescriptionPacket.deSerialize(payload, header)
+              RtcpSourceDescriptionPacket.deSerialize(payload, header),
             );
             break;
           case RtcpTransportLayerFeedback.type:
             packets.push(
-              RtcpTransportLayerFeedback.deSerialize(payload, header)
+              RtcpTransportLayerFeedback.deSerialize(payload, header),
             );
             break;
           case RtcpPayloadSpecificFeedback.type:
             packets.push(
-              RtcpPayloadSpecificFeedback.deSerialize(payload, header)
+              RtcpPayloadSpecificFeedback.deSerialize(payload, header),
             );
             break;
           default:

@@ -21,7 +21,7 @@ export class RenegotiationIndication {
 
   static deSerialize(buf: Buffer) {
     return new RenegotiationIndication(
-      decode(buf, RenegotiationIndication.spec)
+      decode(buf, RenegotiationIndication.spec),
     );
   }
 

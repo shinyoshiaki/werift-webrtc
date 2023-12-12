@@ -29,7 +29,7 @@ export class Element implements EBMLData {
   constructor(
     private id: Uint8Array,
     private children: EBMLData[],
-    isSizeUnknown: boolean
+    isSizeUnknown: boolean,
   ) {
     const bodySize = this.children.reduce((p, c) => p + c.countSize(), 0);
     this.sizeMetaData = isSizeUnknown
@@ -43,7 +43,7 @@ export class Element implements EBMLData {
     buf.set(this.sizeMetaData, pos + this.id.length);
     return this.children.reduce(
       (p, c) => c.write(buf, p),
-      pos + this.id.length + this.sizeMetaData.length
+      pos + this.id.length + this.sizeMetaData.length,
     );
   }
 
@@ -72,14 +72,14 @@ export const string = (str: string): Value => {
 
 export const element = (
   id: Uint8Array,
-  child: EBMLData | EBMLData[]
+  child: EBMLData | EBMLData[],
 ): EBMLData => {
   return new Element(id, Array.isArray(child) ? child : [child], false);
 };
 
 export const unknownSizeElement = (
   id: Uint8Array,
-  child: EBMLData | EBMLData[]
+  child: EBMLData | EBMLData[],
 ): EBMLData => {
   return new Element(id, Array.isArray(child) ? child : [child], true);
 };
@@ -109,12 +109,12 @@ export const getEBMLByteLength = (num: number | bigint): number => {
     return 8;
   } else if (num < 0xffffffffffffffn) {
     throw new Error(
-      "EBMLgetEBMLByteLength: number exceeds Number.MAX_SAFE_INTEGER"
+      "EBMLgetEBMLByteLength: number exceeds Number.MAX_SAFE_INTEGER",
     );
   } else {
     throw new Error(
       "EBMLgetEBMLByteLength: data size must be less than or equal to " +
-        (Math.pow(2, 56) - 2)
+        (Math.pow(2, 56) - 2),
     );
   }
 };

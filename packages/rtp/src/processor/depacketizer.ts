@@ -54,7 +54,7 @@ export class DepacketizeBase
 
   constructor(
     private codec: DepacketizerCodec,
-    private options: DepacketizerOptions = {}
+    private options: DepacketizerOptions = {},
   ) {}
 
   toJSON(): Record<string, any> {
@@ -85,7 +85,7 @@ export class DepacketizeBase
             dePacketizeRtpPackets(
               this.codec,
               this.rtpBuffer.map((b) => b.rtp!),
-              this.frameFragmentBuffer
+              this.frameFragmentBuffer,
             );
           this.frameFragmentBuffer = frameFragmentBuffer;
 
@@ -131,7 +131,7 @@ export class DepacketizeBase
           dePacketizeRtpPackets(
             this.codec,
             [input.rtp],
-            this.frameFragmentBuffer
+            this.frameFragmentBuffer,
           );
         this.frameFragmentBuffer = frameFragmentBuffer;
         output.push({

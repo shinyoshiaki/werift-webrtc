@@ -9,7 +9,7 @@ export class Signature {
     data: types.array(
       { hash: types.uint8, signature: types.uint8 },
       types.uint16be,
-      "bytes"
+      "bytes",
     ),
   };
 

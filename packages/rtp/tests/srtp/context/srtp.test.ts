@@ -61,18 +61,18 @@ describe("srtp/context/srtp", () => {
 
       const decryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        rtpTestCaseDecrypted
+        rtpTestCaseDecrypted,
       );
       const decryptedRaw = decryptedPkt.serialize();
       const encryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        encrypted
+        encrypted,
       );
       const encryptedRaw = encryptedPkt.serialize();
 
       const actualEncrypted = encryptContext.encryptRtp(
         rtpTestCaseDecrypted,
-        decryptedPkt.header
+        decryptedPkt.header,
       );
       expect(actualEncrypted).toEqual(encryptedRaw);
 
@@ -89,19 +89,19 @@ describe("srtp/context/srtp", () => {
 
       const decryptPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        rtpTestCaseDecrypted
+        rtpTestCaseDecrypted,
       );
       const decryptedRaw = decryptPkt.serialize();
 
       const encryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        encrypted
+        encrypted,
       );
       const encryptedRaw = encryptedPkt.serialize();
 
       const actualEncrypted = encryptContext.encryptRtp(
         rtpTestCaseDecrypted,
-        decryptPkt.header
+        decryptPkt.header,
       );
       expect(actualEncrypted).toEqual(encryptedRaw);
 

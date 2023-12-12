@@ -16,7 +16,7 @@ export function randomTransactionId() {
 export function bufferXor(a: Buffer, b: Buffer): Buffer {
   if (a.length !== b.length) {
     throw new TypeError(
-      "[webrtc-stun] You can not XOR buffers which length are different"
+      "[webrtc-stun] You can not XOR buffers which length are different",
     );
   }
 

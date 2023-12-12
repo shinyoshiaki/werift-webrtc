@@ -72,7 +72,7 @@ declare module "mp4box" {
     setExtractionOptions(
       id: number,
       user: any,
-      options: ExtractionOptions
+      options: ExtractionOptions,
     ): void;
   }
 
@@ -114,7 +114,7 @@ declare module "mp4box" {
     constructor(
       buffer?: ArrayBuffer,
       byteOffset?: number,
-      endianness?: boolean
+      endianness?: boolean,
     );
     getPosition(): number;
 
@@ -168,7 +168,7 @@ declare module "mp4box" {
       dstOffset: number,
       src: ArrayBufferLike,
       srcOffset: number,
-      byteLength: number
+      byteLength: number,
     ): void;
 
     // TODO I got bored porting all functions
@@ -217,7 +217,7 @@ declare module "mp4box" {
       dstOffset: any,
       src: any,
       srcOffset: any,
-      byteLength: any
+      byteLength: any,
     ): void;
     static nativeToEndian(array: any, littleEndian: any): any;
   }
@@ -290,7 +290,7 @@ declare module "mp4box" {
     addSample(
       track: number,
       data: ArrayBuffer,
-      options?: SampleOptions
+      options?: SampleOptions,
     ): Sample;
 
     createSingleSampleMoof(sample: Sample): BoxParser.moofBox;
@@ -311,7 +311,7 @@ declare module "mp4box" {
       ftyp: BoxParser.ftypBox,
       moov: BoxParser.moovBox,
       total_duration: number,
-      sample_duration: number
+      sample_duration: number,
     ): ArrayBuffer;
 
     // TODO add correct types; these are exported by dts-gen
@@ -371,14 +371,14 @@ declare module "mp4box" {
       traf: any,
       sbgps: any,
       trak_sgpds: any,
-      traf_sgpds: any
+      traf_sgpds: any,
     ): void;
     static process_sdtp(sdtp: any, sample: any, number: any): void;
     static setSampleGroupProperties(
       trak: any,
       sample: any,
       sample_number: any,
-      sample_groups_info: any
+      sample_groups_info: any,
     ): void;
   }
 
@@ -1746,24 +1746,24 @@ declare module "mp4box" {
     export function createContainerBoxCtor(
       type: any,
       parseMethod: any,
-      subBoxNames: any
+      subBoxNames: any,
     ): void;
     export function createEncryptedSampleEntryCtor(
       mediaType: any,
       type: any,
-      parseMethod: any
+      parseMethod: any,
     ): void;
     export function createFullBoxCtor(type: any, parseMethod: any): void;
     export function createMediaSampleEntryCtor(
       mediaType: any,
       parseMethod: any,
-      subBoxNames: any
+      subBoxNames: any,
     ): void;
     export function createSampleEntryCtor(
       mediaType: any,
       type: any,
       parseMethod: any,
-      subBoxNames: any
+      subBoxNames: any,
     ): void;
     export function createSampleGroupCtor(type: any, parseMethod: any): void;
     export function createTrackGroupCtor(type: any, parseMethod: any): void;
@@ -1771,7 +1771,7 @@ declare module "mp4box" {
       uuid: any,
       isFullBox: any,
       isContainerBox: any,
-      parseMethod: any
+      parseMethod: any,
     ): void;
     export function decimalToHex(d: any, padding: any): any;
     export function initialize(): void;
@@ -1779,7 +1779,7 @@ declare module "mp4box" {
     export function parseOneBox(
       stream: any,
       headerOnly: any,
-      parentSize: any
+      parentSize: any,
     ): any;
     export function parseUUID(stream: any): any;
 

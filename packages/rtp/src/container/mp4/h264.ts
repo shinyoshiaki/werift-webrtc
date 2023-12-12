@@ -220,7 +220,7 @@ export function annexb2avcc(data: Buffer) {
   const avcc = new AVCDecoderConfigurationRecord(
     sps_without_header,
     pps_without_header,
-    details
+    details,
   );
   return avcc.getData();
 }

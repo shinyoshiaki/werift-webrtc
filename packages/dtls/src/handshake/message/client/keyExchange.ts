@@ -22,7 +22,7 @@ export class ClientKeyExchange implements Handshake {
     const res = decode(buf, ClientKeyExchange.spec);
     return new ClientKeyExchange(
       //@ts-ignore
-      ...Object.values(res)
+      ...Object.values(res),
     );
   }
 
@@ -39,7 +39,7 @@ export class ClientKeyExchange implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

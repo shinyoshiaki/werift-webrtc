@@ -43,7 +43,7 @@ export class RtpRouter {
 
   registerRtpReceiverBySsrc(
     transceiver: RTCRtpTransceiver,
-    params: RTCRtpReceiveParameters
+    params: RTCRtpReceiveParameters,
   ) {
     log("registerRtpReceiverBySsrc", params);
 
@@ -58,7 +58,7 @@ export class RtpRouter {
             id: transceiver.sender.trackId,
             remote: true,
             codec: params.codecs[i],
-          })
+          }),
         );
         if (encode.rtx) {
           this.registerRtpReceiver(transceiver.receiver, encode.rtx.ssrc);
@@ -73,7 +73,7 @@ export class RtpRouter {
   registerRtpReceiverByRid(
     transceiver: RTCRtpTransceiver,
     param: RTCRtpSimulcastParameters,
-    params: RTCRtpReceiveParameters
+    params: RTCRtpReceiveParameters,
   ) {
     // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
     const [codec] = params.codecs;
@@ -86,7 +86,7 @@ export class RtpRouter {
         id: transceiver.sender.trackId,
         remote: true,
         codec,
-      })
+      }),
     );
     this.ridTable[param.rid] = transceiver.receiver;
   }
@@ -94,7 +94,7 @@ export class RtpRouter {
   routeRtp = (packet: RtpPacket) => {
     const extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
-      this.extIdUriMap
+      this.extIdUriMap,
     );
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[

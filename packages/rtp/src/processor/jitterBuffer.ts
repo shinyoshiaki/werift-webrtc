@@ -29,7 +29,7 @@ export class JitterBufferBase
 
   constructor(
     public clockRate: number,
-    options: Partial<JitterBufferOptions> = {}
+    options: Partial<JitterBufferOptions> = {},
   ) {
     this.options = {
       latency: options.latency ?? 200,
@@ -234,7 +234,7 @@ export class JitterBufferBase
       packets.reduce((acc, cur) => {
         acc[cur.header.sequenceNumber] = cur;
         return acc;
-      }, {})
+      }, {}),
     );
 
     return { latestTimeoutSeqNum, sorted };

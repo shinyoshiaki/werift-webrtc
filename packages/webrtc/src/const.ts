@@ -37,7 +37,7 @@ export const DTLS_ROLE_SETUP = {
   server: "passive",
 };
 export const DTLS_SETUP_ROLE: { [key: string]: DtlsRole } = Object.keys(
-  DTLS_ROLE_SETUP
+  DTLS_ROLE_SETUP,
 ).reduce((acc, cur) => {
   const key = (DTLS_ROLE_SETUP as any)[cur];
   acc[key] = cur;

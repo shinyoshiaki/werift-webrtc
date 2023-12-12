@@ -22,7 +22,7 @@ export class LipsyncCallback extends LipsyncBase {
           this.videoCb(output);
         }
       },
-      options
+      options,
     );
   }
 

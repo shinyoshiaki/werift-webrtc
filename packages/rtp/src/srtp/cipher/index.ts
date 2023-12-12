@@ -6,13 +6,13 @@ export abstract class CipherAesBase {
     public srtpSessionKey: Buffer,
     public srtpSessionSalt: Buffer,
     public srtcpSessionKey: Buffer,
-    public srtcpSessionSalt: Buffer
+    public srtcpSessionSalt: Buffer,
   ) {}
 
   encryptRtp(
     header: RtpHeader,
     payload: Buffer,
-    rolloverCounter: number
+    rolloverCounter: number,
   ): Buffer {
     return Buffer.from([]);
   }

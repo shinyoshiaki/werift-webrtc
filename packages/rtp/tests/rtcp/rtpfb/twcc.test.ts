@@ -21,7 +21,7 @@ describe("rtcp/rtpfb/twcc", () => {
       const res = RunLengthChunk.deSerialize(Buffer.from([0x60, 0x18]));
       expect(res.type).toBe(PacketChunk.TypeTCCRunLengthChunk);
       expect(res.packetStatus).toBe(
-        PacketStatus.TypeTCCPacketReceivedWithoutDelta
+        PacketStatus.TypeTCCPacketReceivedWithoutDelta,
       );
       expect(res.runLength).toBe(24);
     }
@@ -124,7 +124,7 @@ describe("rtcp/rtpfb/twcc", () => {
         0x0, 0x99, 0x0, 0x1, 0x3d, 0xe8, 0x2, 0x17, 0x20, 0x1, 0x94, 0x1,
       ]);
       const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback
+        RtcpTransportLayerFeedback,
       ];
       const twcc = rtpfb.feedback as TransportWideCC;
       expect(twcc.header).toEqual(
@@ -133,7 +133,7 @@ describe("rtcp/rtpfb/twcc", () => {
           count: TransportWideCC.count,
           type: RtcpTransportLayerFeedback.type,
           length: 5,
-        })
+        }),
       );
       expect(twcc.senderSsrc).toBe(4195875351);
       expect(twcc.mediaSourceSsrc).toBe(1124282272);
@@ -165,7 +165,7 @@ describe("rtcp/rtpfb/twcc", () => {
         0xd0, 0x0, 0x0, 0x1,
       ]);
       const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback
+        RtcpTransportLayerFeedback,
       ];
       const twcc = rtpfb.feedback as TransportWideCC;
       expect(twcc.header).toEqual(
@@ -174,7 +174,7 @@ describe("rtcp/rtpfb/twcc", () => {
           count: TransportWideCC.count,
           type: RtcpTransportLayerFeedback.type,
           length: 6,
-        })
+        }),
       );
       expect(twcc.senderSsrc).toBe(4195875351);
       expect(twcc.mediaSourceSsrc).toBe(423483579);
@@ -231,7 +231,7 @@ describe("rtcp/rtpfb/twcc", () => {
         0x1f, 0xfe, 0x1f, 0x9a, 0xd0, 0x0, 0xd0, 0x0,
       ]);
       const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback
+        RtcpTransportLayerFeedback,
       ];
       const twcc = rtpfb.feedback as TransportWideCC;
       expect(twcc.header).toEqual(
@@ -240,7 +240,7 @@ describe("rtcp/rtpfb/twcc", () => {
           count: TransportWideCC.count,
           type: RtcpTransportLayerFeedback.type,
           length: 7,
-        })
+        }),
       );
       expect(twcc.senderSsrc).toBe(4195875351);
       expect(twcc.mediaSourceSsrc).toBe(423483579);
@@ -296,7 +296,7 @@ describe("rtcp/rtpfb/twcc", () => {
         0x10, 0xc, 0xc, 0x10, 0x0, 0x0, 0x3,
       ]);
       const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback
+        RtcpTransportLayerFeedback,
       ];
       const twcc = rtpfb.feedback as TransportWideCC;
       expect(twcc.header).toEqual(
@@ -305,7 +305,7 @@ describe("rtcp/rtpfb/twcc", () => {
           count: TransportWideCC.count,
           type: RtcpTransportLayerFeedback.type,
           length: 7,
-        })
+        }),
       );
       expect(twcc.senderSsrc).toBe(4195875351);
       expect(twcc.mediaSourceSsrc).toBe(423483579);
@@ -360,7 +360,7 @@ describe("rtcp/rtpfb/twcc", () => {
         0x10, 0x0, 0x2,
       ]);
       const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback
+        RtcpTransportLayerFeedback,
       ];
       const twcc = rtpfb.feedback as TransportWideCC;
       expect(twcc.header).toEqual(
@@ -369,7 +369,7 @@ describe("rtcp/rtpfb/twcc", () => {
           count: TransportWideCC.count,
           type: RtcpTransportLayerFeedback.type,
           length: 6,
-        })
+        }),
       );
       expect(twcc.senderSsrc).toBe(4195875351);
       expect(twcc.mediaSourceSsrc).toBe(423483579);
@@ -427,7 +427,7 @@ describe("rtcp/rtpfb/twcc", () => {
         0x9b, 0xaa, 0x6a, 0xaa, 0x7b, 0x1, 0x9, 0x1,
       ]);
       const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback
+        RtcpTransportLayerFeedback,
       ];
       const twcc = rtpfb.feedback as TransportWideCC;
       expect(twcc.header).toEqual(
@@ -436,7 +436,7 @@ describe("rtcp/rtpfb/twcc", () => {
           count: TransportWideCC.count,
           type: RtcpTransportLayerFeedback.type,
           length: 7,
-        })
+        }),
       );
       expect(twcc.senderSsrc).toBe(2608133663);
       expect(twcc.mediaSourceSsrc).toBe(2473712828);

@@ -25,7 +25,7 @@ export class RtcpSourceDescriptionPacket {
       this.type,
       this.chunks.length,
       payload,
-      payload.length / 4
+      payload.length / 4,
     );
   }
 

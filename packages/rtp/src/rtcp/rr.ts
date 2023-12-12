@@ -21,7 +21,7 @@ export class RtcpRrPacket {
       RtcpRrPacket.type,
       this.reports.length,
       payload,
-      Math.floor(payload.length / 4)
+      Math.floor(payload.length / 4),
     );
   }
 
@@ -75,7 +75,7 @@ export class RtcpReceiverInfo {
         this.jitter,
         this.lsr,
         this.dlsr,
-      ]
+      ],
     );
   }
 

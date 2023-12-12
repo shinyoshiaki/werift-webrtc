@@ -61,7 +61,7 @@ describe("rtcp/rtcp", () => {
       RtcpPayloadSpecificFeedback.type,
       PictureLossIndication.count,
       Buffer.from([0]),
-      2
+      2,
     );
     const packets = RtcpPacketConverter.deSerialize(rtcp);
     expect(packets.length).toBe(0);

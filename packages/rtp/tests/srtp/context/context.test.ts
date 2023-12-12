@@ -29,7 +29,7 @@ describe("srtp/context", () => {
     const c = new Context(
       masterKey,
       masterSalt,
-      ProtectionProfileAes128CmHmacSha1_80
+      ProtectionProfileAes128CmHmacSha1_80,
     );
 
     const sessionKey = c.generateSessionKey(0x00);
@@ -54,7 +54,7 @@ describe("srtp/context", () => {
     const c = new Context(
       masterKey,
       masterSalt,
-      ProtectionProfileAes128CmHmacSha1_80
+      ProtectionProfileAes128CmHmacSha1_80,
     );
     const expectedCounter = Buffer.from([
       0xcf, 0x90, 0x1e, 0xa5, 0xda, 0xd3, 0x2c, 0x15, 0x00, 0xa2, 0x24, 0xae,
@@ -65,7 +65,7 @@ describe("srtp/context", () => {
       32846,
       0,
       4160032510,
-      c.srtpSessionSalt
+      c.srtpSessionSalt,
     );
     expect(counter).toEqual(expectedCounter);
   });

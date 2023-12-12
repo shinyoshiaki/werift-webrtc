@@ -39,7 +39,7 @@ export class RTCRtpTransceiver {
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
-    private _direction: Direction
+    private _direction: Direction,
   ) {
     this.setDtlsTransport(dtlsTransport);
   }
@@ -99,7 +99,7 @@ export class RTCRtpTransceiver {
 
   getPayloadType(mimeType: string) {
     return this.codecs.find((codec) =>
-      codec.mimeType.toLowerCase().includes(mimeType.toLowerCase())
+      codec.mimeType.toLowerCase().includes(mimeType.toLowerCase()),
     )?.payloadType;
   }
 }
@@ -111,7 +111,7 @@ export const Sendrecv = "sendrecv";
 
 export const Directions = [Inactive, Sendonly, Recvonly, Sendrecv] as const;
 
-export type Direction = typeof Directions[number];
+export type Direction = (typeof Directions)[number];
 
 type SimulcastDirection = "send" | "recv";
 

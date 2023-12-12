@@ -30,7 +30,7 @@ export class Finished implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

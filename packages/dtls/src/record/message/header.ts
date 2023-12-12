@@ -16,7 +16,7 @@ export class DtlsPlaintextHeader {
     public protocolVersion: { major: number; minor: number },
     public epoch: number,
     public sequenceNumber: number,
-    public contentLen: number
+    public contentLen: number,
   ) {}
 
   static createEmpty() {
@@ -25,14 +25,14 @@ export class DtlsPlaintextHeader {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new DtlsPlaintextHeader(
       //@ts-ignore
-      ...Object.values(decode(buf, DtlsPlaintextHeader.spec))
+      ...Object.values(decode(buf, DtlsPlaintextHeader.spec)),
     );
   }
 
@@ -56,7 +56,7 @@ export class MACHeader {
     public sequenceNumber: number,
     public contentType: number,
     public protocolVersion: { major: number; minor: number },
-    public contentLen: number
+    public contentLen: number,
   ) {}
 
   static createEmpty() {
@@ -65,14 +65,14 @@ export class MACHeader {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new MACHeader(
       //@ts-ignore
-      ...Object.values(decode(buf, MACHeader.spec))
+      ...Object.values(decode(buf, MACHeader.spec)),
     );
   }
 

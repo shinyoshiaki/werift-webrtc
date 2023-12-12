@@ -27,21 +27,21 @@ export class ServerCertificateRequest implements Handshake {
       hash: HashAlgorithms;
       signature: SignatureAlgorithms;
     }[],
-    public authorities: number[]
+    public authorities: number[],
   ) {}
 
   static createEmpty() {
     return new ServerCertificateRequest(
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new ServerCertificateRequest(
       //@ts-ignore
-      ...Object.values(decode(buf, ServerCertificateRequest.spec))
+      ...Object.values(decode(buf, ServerCertificateRequest.spec)),
     );
   }
 
@@ -58,7 +58,7 @@ export class ServerCertificateRequest implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

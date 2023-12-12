@@ -7,7 +7,7 @@ export const ExtensionProfiles = {
   TwoByte: 0x1000, // 4096
 } as const;
 type ExtensionProfile =
-  typeof ExtensionProfiles[keyof typeof ExtensionProfiles];
+  (typeof ExtensionProfiles)[keyof typeof ExtensionProfiles];
 
 const seqNumOffset = 2;
 const timestampOffset = 4;
@@ -145,7 +145,7 @@ export class RtpHeader {
               id: 0,
               payload: rawPacket.subarray(
                 currOffset,
-                currOffset + extensionLength
+                currOffset + extensionLength,
               ),
             };
             h.extensions = [...h.extensions, extension];
@@ -229,7 +229,7 @@ export class RtpHeader {
           for (const extension of this.extensions) {
             buf.writeUInt8(
               (extension.id << 4) | (extension.payload.length - 1),
-              offset++
+              offset++,
             );
             extension.payload.copy(buf, offset);
             offset += extension.payload.length;
@@ -268,7 +268,10 @@ export class RtpHeader {
 }
 
 export class RtpPacket {
-  constructor(public header: RtpHeader, public payload: Buffer) {}
+  constructor(
+    public header: RtpHeader,
+    public payload: Buffer,
+  ) {}
 
   get serializeSize() {
     return this.header.serializeSize + this.payload.length;
@@ -280,7 +283,7 @@ export class RtpPacket {
 
   serialize() {
     let buf = this.header.serialize(
-      this.header.serializeSize + this.payload.length
+      this.header.serializeSize + this.payload.length,
     );
     const { payloadOffset } = this.header;
     this.payload.copy(buf, payloadOffset);
@@ -297,7 +300,7 @@ export class RtpPacket {
     const header = RtpHeader.deSerialize(buf);
     const p = new RtpPacket(
       header,
-      buf.subarray(header.payloadOffset, buf.length - header.paddingSize)
+      buf.subarray(header.payloadOffset, buf.length - header.paddingSize),
     );
     return p;
   }

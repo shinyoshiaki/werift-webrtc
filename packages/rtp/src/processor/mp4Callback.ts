@@ -16,7 +16,7 @@ export class MP4Callback extends MP4Base {
           await this.queue.push(() => cb(output));
         }
       },
-      options
+      options,
     );
   }
 

@@ -12,7 +12,7 @@ export class SampleBuilder extends Pipeline {
     streams?: {
       rtpStream?: Event<[RtpPacket]>;
       rtcpStream?: Event<[RtcpPacket]>;
-    }
+    },
   ) {
     super(streams);
   }

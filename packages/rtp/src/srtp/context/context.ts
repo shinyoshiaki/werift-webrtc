@@ -27,7 +27,7 @@ export class Context {
   constructor(
     public masterKey: Buffer,
     public masterSalt: Buffer,
-    public profile: Profile
+    public profile: Profile,
   ) {
     {
       // aes-js plaintext require 16byte
@@ -56,7 +56,7 @@ export class Context {
           this.srtcpSessionKey,
           this.srtcpSessionSalt,
           this.srtpSessionAuthTag,
-          this.srtcpSessionAuthTag
+          this.srtcpSessionAuthTag,
         );
         break;
       case ProtectionProfileAeadAes128Gcm:
@@ -64,7 +64,7 @@ export class Context {
           this.srtpSessionKey,
           this.srtpSessionSalt,
           this.srtcpSessionKey,
-          this.srtcpSessionSalt
+          this.srtcpSessionSalt,
         );
         break;
     }

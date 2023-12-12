@@ -16,7 +16,7 @@ export class Candidate {
     public relatedAddress?: string,
     public relatedPort?: number,
     public tcptype?: string,
-    public generation?: number
+    public generation?: number,
   ) {}
 
   static fromSdp(sdp: string) {
@@ -63,7 +63,7 @@ export class Candidate {
       (kwargs as any)["related_address"],
       (kwargs as any)["related_port"],
       (kwargs as any)["tcptype"],
-      (kwargs as any)["generation"]
+      (kwargs as any)["generation"],
     );
   }
 
@@ -97,7 +97,7 @@ export class Candidate {
 export function candidateFoundation(
   candidateType: string,
   candidateTransport: string,
-  baseAddress: string
+  baseAddress: string,
 ) {
   // """
   // See RFC 5245 - 4.1.1.3. Computing Foundations
@@ -111,7 +111,7 @@ export function candidateFoundation(
 export function candidatePriority(
   candidateComponent: number,
   candidateType: string,
-  localPref = 65535
+  localPref = 65535,
 ) {
   // See RFC 5245 - 4.1.2.1. Recommended Formula
   let typePref = 0;

@@ -40,7 +40,7 @@ export class LipSync extends Pipeline {
     streams?: {
       rtpStream?: Event<[RtpPacket]>;
       rtcpStream?: Event<[RtcpPacket]>;
-    }
+    },
   ) {
     super(streams);
   }

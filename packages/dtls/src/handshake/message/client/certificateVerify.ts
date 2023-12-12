@@ -14,7 +14,10 @@ export class CertificateVerify implements Handshake {
     signature: types.buffer(types.uint16be),
   };
 
-  constructor(public algorithm: SignatureSchemes, public signature: Buffer) {}
+  constructor(
+    public algorithm: SignatureSchemes,
+    public signature: Buffer,
+  ) {}
 
   static createEmpty() {
     return new CertificateVerify(undefined as any, undefined as any);
@@ -24,7 +27,7 @@ export class CertificateVerify implements Handshake {
     const res = decode(buf, CertificateVerify.spec);
     return new CertificateVerify(
       //@ts-ignore
-      ...Object.values(res)
+      ...Object.values(res),
     );
   }
 
@@ -41,7 +44,7 @@ export class CertificateVerify implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

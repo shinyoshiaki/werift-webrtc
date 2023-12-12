@@ -19,7 +19,7 @@ export class Transaction {
     private request: Message,
     private addr: Address,
     private protocol: Protocol,
-    private retransmissions?: number
+    private retransmissions?: number,
   ) {
     this.triesMax =
       1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
@@ -45,7 +45,7 @@ export class Transaction {
         "transaction run failed",
         error,
         this.protocol.type,
-        this.request.toJSON()
+        this.request.toJSON(),
       );
 
       throw error;

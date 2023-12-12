@@ -36,7 +36,7 @@ export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
        */
       interval: number;
       bufferLength: number;
-    }
+    },
   ) {
     this.interval = props.interval;
     this.bufferDuration = this.interval / 2;

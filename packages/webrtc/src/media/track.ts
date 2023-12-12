@@ -32,7 +32,7 @@ export class MediaStreamTrack extends EventTarget {
   muted = true;
 
   constructor(
-    props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">
+    props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">,
   ) {
     super();
     Object.assign(this, props);

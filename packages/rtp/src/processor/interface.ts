@@ -12,7 +12,7 @@ export interface AVProcessor<Input> {
 export interface SimpleProcessorCallback<Input = any, Output = any> {
   pipe: (
     cb: (o: Output) => void,
-    destructor?: () => void
+    destructor?: () => void,
   ) => SimpleProcessorCallback<Input, Output>;
   input: (input: Input) => void;
   destroy: () => void;
@@ -22,9 +22,9 @@ export interface SimpleProcessorCallback<Input = any, Output = any> {
 export const SimpleProcessorCallbackBase = <
   Input,
   Output,
-  TBase extends new (...args: any[]) => Processor<Input, Output>
+  TBase extends new (...args: any[]) => Processor<Input, Output>,
 >(
-  Base: TBase
+  Base: TBase,
 ) => {
   return class extends Base implements SimpleProcessorCallback<Input, Output> {
     cb?: (o: Output) => void;

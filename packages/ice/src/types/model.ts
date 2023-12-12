@@ -11,7 +11,7 @@ export interface Protocol {
     message: Message,
     addr: Address,
     integrityKey?: Buffer,
-    retransmissions?: any
+    retransmissions?: any,
   ) => Promise<[Message, Address]>;
   responseAddr?: Address;
   responseMessage?: string;

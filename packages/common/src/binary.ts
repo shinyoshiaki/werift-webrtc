@@ -12,7 +12,7 @@ export function random32() {
 export function bufferXor(a: Buffer, b: Buffer): Buffer {
   if (a.length !== b.length) {
     throw new TypeError(
-      "[webrtc-stun] You can not XOR buffers which length are different"
+      "[webrtc-stun] You can not XOR buffers which length are different",
     );
   }
 
@@ -71,7 +71,7 @@ export class BitWriter2 {
    */
   constructor(
     /**Max 32bit */
-    private bitLength: number
+    private bitLength: number,
   ) {
     if (bitLength > 32) {
       throw new Error();
@@ -116,7 +116,7 @@ export function paddingByte(bits: number) {
 export function paddingBits(bits: number, expectLength: number) {
   const dec = bits.toString(2);
   return [...[...Array(expectLength - dec.length)].map(() => "0"), ...dec].join(
-    ""
+    "",
   );
 }
 

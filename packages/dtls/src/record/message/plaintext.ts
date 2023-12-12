@@ -8,13 +8,13 @@ export class DtlsPlaintext {
   static readonly spec = {
     recordLayerHeader: DtlsPlaintextHeader.spec,
     fragment: types.buffer(
-      (context: any) => context.current.recordLayerHeader.contentLen
+      (context: any) => context.current.recordLayerHeader.contentLen,
     ),
   };
 
   constructor(
     public recordLayerHeader: typeof DtlsPlaintext.spec.recordLayerHeader,
-    public fragment: Buffer
+    public fragment: Buffer,
   ) {}
 
   get summary() {
@@ -31,7 +31,7 @@ export class DtlsPlaintext {
   static deSerialize(buf: Buffer) {
     const r = new DtlsPlaintext(
       //@ts-ignore
-      ...Object.values(decode(buf, DtlsPlaintext.spec))
+      ...Object.values(decode(buf, DtlsPlaintext.spec)),
     );
     return r;
   }
@@ -47,7 +47,7 @@ export class DtlsPlaintext {
       this.recordLayerHeader.sequenceNumber,
       this.recordLayerHeader.contentType,
       this.recordLayerHeader.protocolVersion,
-      this.recordLayerHeader.contentLen
+      this.recordLayerHeader.contentLen,
     ).serialize();
   }
 }

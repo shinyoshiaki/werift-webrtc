@@ -20,7 +20,7 @@ export class DtlsClient extends DtlsSocket {
 
   async connect() {
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
-      this.extensions
+      this.extensions,
     );
   }
 
@@ -29,7 +29,7 @@ export class DtlsClient extends DtlsSocket {
     log(
       this.dtls.sessionId,
       "handleHandshakes",
-      assembled.map((a) => a.msg_type)
+      assembled.map((a) => a.msg_type),
     );
 
     for (const handshake of assembled) {
@@ -38,7 +38,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.hello_verify_request_3:
           {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
-              handshake.fragment
+              handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
@@ -51,7 +51,7 @@ export class DtlsClient extends DtlsSocket {
               this.transport,
               this.dtls,
               this.cipher,
-              this.srtp
+              this.srtp,
             );
             this.flight5.handleHandshake(handshake);
           }
@@ -75,7 +75,7 @@ export class DtlsClient extends DtlsSocket {
               this.options.certificateRequest && 13,
             ].filter((n): n is number => typeof n === "number");
             await this.waitForReady(() =>
-              this.dtls.checkHandshakesExist(targets)
+              this.dtls.checkHandshakesExist(targets),
             );
             await this.flight5?.exec();
           }

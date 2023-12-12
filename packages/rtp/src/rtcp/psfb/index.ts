@@ -29,7 +29,7 @@ export class RtcpPayloadSpecificFeedback {
       this.type,
       this.feedback.count,
       payload,
-      this.feedback.length
+      this.feedback.length,
     );
   }
 

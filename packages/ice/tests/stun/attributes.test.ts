@@ -19,7 +19,7 @@ describe("stun", () => {
       unpackErrorCode(data);
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN error code is less than 4 bytes"
+        "STUN error code is less than 4 bytes",
       );
     }
   });
@@ -28,7 +28,7 @@ describe("stun", () => {
     const transactionId = Buffer.from("b7e7a701bc34d686fa87dfae", "hex");
     const [address, port] = unpackXorAddress(
       Buffer.from("0001a147e112a643", "hex"),
-      transactionId
+      transactionId,
     );
     expect(address).toBe("192.0.2.1");
     expect(port).toBe(32853);
@@ -40,7 +40,7 @@ describe("stun", () => {
       unpackXorAddress(Buffer.from("0001a147e112a6", "hex"), transactionId);
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN address has invalid length for IPv4"
+        "STUN address has invalid length for IPv4",
       );
     }
   });
@@ -49,7 +49,7 @@ describe("stun", () => {
     const transactionId = Buffer.from("b7e7a701bc34d686fa87dfae", "hex");
     const [address, port] = unpackXorAddress(
       Buffer.from("0002a1470113a9faa5d3f179bc25f4b5bed2b9d9", "hex"),
-      transactionId
+      transactionId,
     );
     expect(address).toBe("2001:db8:1234:5678:11:2233:4455:6677");
     expect(port).toBe(32853);
@@ -60,11 +60,11 @@ describe("stun", () => {
     try {
       unpackXorAddress(
         Buffer.from("0002a1470113a9faa5d3f179bc25f4b5bed2b9", "hex"),
-        transactionId
+        transactionId,
       );
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN address has invalid length for IPv6"
+        "STUN address has invalid length for IPv6",
       );
     }
   });
@@ -75,7 +75,7 @@ describe("stun", () => {
       unpackXorAddress(Buffer.from("0001", "hex"), transactionId);
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN address length is less than 4 bytes"
+        "STUN address length is less than 4 bytes",
       );
     }
   });
@@ -86,7 +86,7 @@ describe("stun", () => {
       unpackXorAddress(Buffer.from("0003a147e112a643", "hex"), transactionId);
     } catch (error) {
       expect((error as Error).message).toBe(
-        "STUN address has unknown protocol"
+        "STUN address has unknown protocol",
       );
     }
   });
@@ -94,7 +94,7 @@ describe("stun", () => {
   test("test_pack_error_code", () => {
     const data = packErrorCode([487, "Role Conflict"]);
     expect(data).toEqual(
-      Buffer.from("00000457526f6c6520436f6e666c696374", "hex")
+      Buffer.from("00000457526f6c6520436f6e666c696374", "hex"),
     );
   });
 
@@ -108,10 +108,10 @@ describe("stun", () => {
     const transactionId = Buffer.from("b7e7a701bc34d686fa87dfae", "hex");
     const data = packXorAddress(
       ["2001:db8:1234:5678:11:2233:4455:6677", 32853],
-      transactionId
+      transactionId,
     );
     expect(data).toEqual(
-      Buffer.from("0002a1470113a9faa5d3f179bc25f4b5bed2b9d9", "hex")
+      Buffer.from("0002a1470113a9faa5d3f179bc25f4b5bed2b9d9", "hex"),
     );
   });
 });

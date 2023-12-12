@@ -65,7 +65,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
       trackNumber: number;
     }[],
     private output: (output: WebmOutput) => void,
-    private options: WebmOption = {}
+    private options: WebmOption = {},
   ) {
     this.builder = new WEBMContainer(tracks, options.encryptionKey);
 
@@ -159,7 +159,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
     const video = this.tracks.find((t) => t.kind === "video");
     if (video) {
       this.cuePoints.push(
-        new CuePoint(this.builder, video.trackNumber, 0.0, this.position)
+        new CuePoint(this.builder, video.trackNumber, 0.0, this.position),
       );
     }
   }
@@ -200,8 +200,8 @@ export class WebmBase implements AVProcessor<WebmInput> {
             this.builder,
             track.trackNumber,
             this.relativeTimestamp,
-            this.position
-          )
+            this.position,
+          ),
         );
 
         this.createCluster(this.relativeTimestamp, elapsed);
@@ -229,7 +229,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
   private createCluster(
     timestamp: number,
     /**ms */
-    duration: number
+    duration: number,
   ) {
     const cluster = this.builder.createCluster(timestamp);
     this.clusterCounts++;
@@ -280,7 +280,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
       frame.data,
       frame.isKeyframe,
       trackNumber,
-      elapsed
+      elapsed,
     );
 
     this.internalStats["createSimpleBlock_trackNumber" + trackNumber] =
@@ -341,14 +341,14 @@ class ClusterTimestamp {
 
   shift(
     /**ms */
-    elapsed: number
+    elapsed: number,
   ) {
     this.offset += elapsed;
   }
 
   update(
     /**ms */
-    time: number
+    time: number,
   ) {
     if (this.baseTime == undefined) {
       throw new Error("baseTime not exist");
@@ -372,7 +372,7 @@ class CuePoint {
     private readonly builder: WEBMContainer,
     private readonly trackNumber: number,
     private readonly relativeTimestamp: number,
-    public position: number
+    public position: number,
   ) {}
 
   build() {
@@ -380,7 +380,7 @@ class CuePoint {
       this.relativeTimestamp,
       this.trackNumber,
       this.position - 48 + this.cuesLength,
-      this.blockNumber
+      this.blockNumber,
     );
   }
 }
@@ -404,7 +404,7 @@ export function replaceSegmentSize(totalFileSize: number) {
     resize.push(0xec);
     if (todoFill > 1) {
       const voidSize = vintEncode(
-        numberToByteArray(todoFill, getEBMLByteLength(todoFill))
+        numberToByteArray(todoFill, getEBMLByteLength(todoFill)),
       );
       [...voidSize].forEach((i) => resize.push(i));
     }

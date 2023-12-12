@@ -21,7 +21,7 @@ export class RedHandler {
     red.blocks.forEach(({ blockPT, timestampOffset, block }, i) => {
       const sequenceNumber = uint16Add(
         base.header.sequenceNumber,
-        -(red.blocks.length - (i + 1))
+        -(red.blocks.length - (i + 1)),
       );
       if (timestampOffset) {
         packets.push(
@@ -33,8 +33,8 @@ export class RedHandler {
               sequenceNumber,
               marker: true,
             }),
-            block
-          )
+            block,
+          ),
         );
       } else {
         packets.push(
@@ -46,8 +46,8 @@ export class RedHandler {
               sequenceNumber,
               marker: true,
             }),
-            block
-          )
+            block,
+          ),
         );
       }
     });

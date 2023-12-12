@@ -30,7 +30,7 @@ export const createPlaintext =
           sequenceNumber: recordSequenceNumber,
           contentLen: msg.fragment.length,
         },
-        msg.fragment
+        msg.fragment,
       );
       return plaintext;
     });

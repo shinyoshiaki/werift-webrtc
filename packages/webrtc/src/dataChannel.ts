@@ -29,7 +29,7 @@ export class RTCDataChannel extends EventTarget {
   constructor(
     private readonly transport: RTCSctpTransport,
     private readonly parameters: RTCDataChannelParameters,
-    public readonly sendOpen = true
+    public readonly sendOpen = true,
   ) {
     super();
 
@@ -38,7 +38,7 @@ export class RTCDataChannel extends EventTarget {
     if (parameters.negotiated) {
       if (this.id == undefined || this.id < 0 || this.id > 65534) {
         throw new Error(
-          "ID must be in range 0-65534 if data channel is negotiated out-of-band"
+          "ID must be in range 0-65534 if data channel is negotiated out-of-band",
         );
       }
       this.transport.dataChannelAddNegotiated(this);
@@ -81,7 +81,7 @@ export class RTCDataChannel extends EventTarget {
   set bufferedAmountLowThreshold(value: number) {
     if (value < 0 || value > 4294967295) {
       throw new Error(
-        "bufferedAmountLowThreshold must be in range 0 - 4294967295"
+        "bufferedAmountLowThreshold must be in range 0 - 4294967295",
       );
     }
     this._bufferedAmountLowThreshold = value;

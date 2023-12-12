@@ -10,7 +10,7 @@ export class SrtpSession extends Session<SrtpContext> {
       config.keys.localMasterSalt,
       config.keys.remoteMasterKey,
       config.keys.remoteMasterSalt,
-      config.profile
+      config.profile,
     );
   }
 

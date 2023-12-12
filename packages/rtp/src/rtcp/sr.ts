@@ -70,7 +70,7 @@ export class RtcpSrPacket {
       RtcpSrPacket.type,
       this.reports.length,
       payload,
-      Math.floor(payload.length / 4)
+      Math.floor(payload.length / 4),
     );
   }
 
@@ -81,7 +81,7 @@ export class RtcpSrPacket {
     const reports: RtcpReceiverInfo[] = [];
     for (let _ = 0; _ < count; _++) {
       reports.push(
-        RtcpReceiverInfo.deSerialize(payload.subarray(pos, pos + 24))
+        RtcpReceiverInfo.deSerialize(payload.subarray(pos, pos + 24)),
       );
       pos += 24;
     }
@@ -110,14 +110,14 @@ export class RtcpSenderInfo {
   serialize() {
     return bufferWriter(
       [8, 4, 4, 4],
-      [this.ntpTimestamp, this.rtpTimestamp, this.packetCount, this.octetCount]
+      [this.ntpTimestamp, this.rtpTimestamp, this.packetCount, this.octetCount],
     );
   }
 
   static deSerialize(data: Buffer) {
     const [ntpTimestamp, rtpTimestamp, packetCount, octetCount] = bufferReader(
       data,
-      [8, 4, 4, 4]
+      [8, 4, 4, 4],
     );
 
     return new RtcpSenderInfo({

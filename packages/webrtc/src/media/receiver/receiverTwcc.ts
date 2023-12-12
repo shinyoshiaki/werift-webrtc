@@ -29,7 +29,7 @@ export class ReceiverTWCC {
   constructor(
     private dtlsTransport: RTCDtlsTransport,
     private rtcpSsrc: number,
-    private mediaSourceSsrc: number
+    private mediaSourceSsrc: number,
   ) {
     this.runTWCC();
   }
@@ -55,7 +55,7 @@ export class ReceiverTWCC {
   private sendTWCC() {
     if (Object.keys(this.extensionInfo).length === 0) return;
     const extensionsArr = Object.values(this.extensionInfo).sort(
-      (a, b) => a.tsn - b.tsn
+      (a, b) => a.tsn - b.tsn,
     );
 
     const minTSN = extensionsArr[0].tsn;
@@ -99,7 +99,7 @@ export class ReceiverTWCC {
             new RunLengthChunk({
               packetStatus: lastPacketStatus.status,
               runLength: i - lastPacketStatus.minTSN,
-            })
+            }),
           );
           lastPacketStatus = { minTSN: i, status: recvDelta.type! };
         }
@@ -110,14 +110,14 @@ export class ReceiverTWCC {
               new RunLengthChunk({
                 packetStatus: lastPacketStatus.status,
                 runLength: i - lastPacketStatus.minTSN + 1,
-              })
+              }),
             );
           } else {
             packetChunks.push(
               new RunLengthChunk({
                 packetStatus: recvDelta.type,
                 runLength: 1,
-              })
+              }),
             );
           }
         }

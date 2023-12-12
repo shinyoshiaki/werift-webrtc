@@ -51,7 +51,7 @@ export class StreamStatistics {
         const diff = Math.abs(
           arrival -
             (this.last_arrival ?? 0) -
-            (packet.header.timestamp - (this.last_timestamp ?? 0))
+            (packet.header.timestamp - (this.last_timestamp ?? 0)),
         );
         this.jitter_q4 += diff - ((this.jitter_q4 + 8) >> 4);
       }

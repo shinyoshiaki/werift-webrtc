@@ -14,7 +14,7 @@ export class MediaRecorder {
   constructor(
     public path: string,
     public numOfTracks = 1,
-    public options: Partial<MediaRecorderOptions> = {}
+    public options: Partial<MediaRecorderOptions> = {},
   ) {
     this.ext = path.split(".").slice(-1)[0];
     this.writer = (() => {

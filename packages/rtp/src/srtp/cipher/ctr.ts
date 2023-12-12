@@ -13,7 +13,7 @@ export class CipherAesCtr extends CipherAesBase {
     srtcpSessionKey: Buffer,
     srtcpSessionSalt: Buffer,
     private srtpSessionAuthTag: Buffer,
-    private srtcpSessionAuthTag: Buffer
+    private srtcpSessionAuthTag: Buffer,
   ) {
     super(srtpSessionKey, srtpSessionSalt, srtcpSessionKey, srtcpSessionSalt);
   }
@@ -25,7 +25,7 @@ export class CipherAesCtr extends CipherAesBase {
       header.sequenceNumber,
       rolloverCounter,
       header.ssrc,
-      this.srtpSessionSalt
+      this.srtpSessionSalt,
     );
 
     const cipher = createCipheriv("aes-128-ctr", this.srtpSessionKey, counter);
@@ -34,7 +34,7 @@ export class CipherAesCtr extends CipherAesBase {
     const authTag = this.generateSrtpAuthTag(
       rolloverCounter,
       headerBuffer,
-      enc
+      enc,
     );
     return Buffer.concat([headerBuffer, enc, authTag]);
   }
@@ -50,12 +50,12 @@ export class CipherAesCtr extends CipherAesBase {
       header.sequenceNumber,
       rolloverCounter,
       header.ssrc,
-      this.srtpSessionSalt
+      this.srtpSessionSalt,
     );
     const cipher = createDecipheriv(
       "aes-128-ctr",
       this.srtpSessionKey,
-      counter
+      counter,
     );
     const payload = cipherText.subarray(header.payloadOffset);
     const buf = cipher.update(payload);
@@ -77,7 +77,7 @@ export class CipherAesCtr extends CipherAesBase {
       srtcpIndex & 0xffff,
       srtcpIndex >> 16,
       ssrc,
-      this.srtcpSessionSalt
+      this.srtcpSessionSalt,
     );
     const cipher = createCipheriv("aes-128-ctr", this.srtcpSessionKey, counter);
     // Encrypt everything after header
@@ -113,12 +113,12 @@ export class CipherAesCtr extends CipherAesBase {
       srtcpIndex & 0xffff,
       srtcpIndex >> 16,
       ssrc,
-      this.srtcpSessionSalt
+      this.srtcpSessionSalt,
     );
     const cipher = createDecipheriv(
       "aes-128-ctr",
       this.srtcpSessionKey,
-      counter
+      counter,
     );
     const buf = cipher.update(out.subarray(8));
     buf.copy(out, 8);
@@ -134,7 +134,7 @@ export class CipherAesCtr extends CipherAesBase {
     sequenceNumber: number,
     rolloverCounter: number,
     ssrc: number,
-    sessionSalt: Buffer
+    sessionSalt: Buffer,
   ) {
     const counter = Buffer.alloc(16);
     counter.writeUInt32BE(ssrc, 4);

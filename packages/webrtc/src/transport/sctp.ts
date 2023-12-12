@@ -103,7 +103,7 @@ export class RTCSctpTransport {
   private datachannelReceive = async (
     streamId: number,
     ppId: number,
-    data: Buffer
+    data: Buffer,
   ) => {
     if (ppId === WEBRTC_DCEP && data.length > 0) {
       log("DCEP", streamId, ppId, data);
@@ -228,7 +228,7 @@ export class RTCSctpTransport {
     if (channel.id) {
       if (this.dataChannels[channel.id])
         throw new Error(
-          `Data channel with ID ${channel.id} already registered`
+          `Data channel with ID ${channel.id} already registered`,
         );
       this.dataChannels[channel.id] = channel;
     }
@@ -316,7 +316,7 @@ export class RTCSctpTransport {
     this.dataChannelQueue.push(
       typeof data === "string"
         ? [channel, WEBRTC_STRING, Buffer.from(data)]
-        : [channel, WEBRTC_BINARY, data]
+        : [channel, WEBRTC_BINARY, data],
     );
 
     if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
@@ -361,7 +361,7 @@ export class RTCSctpTransport {
         }
       } else {
         this.dataChannelQueue = this.dataChannelQueue.filter(
-          (queueItem) => queueItem[0].id !== channel.id
+          (queueItem) => queueItem[0].id !== channel.id,
         );
         if (channel.id) {
           delete this.dataChannels[channel.id];

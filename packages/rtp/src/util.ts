@@ -9,7 +9,7 @@ export class RtpBuilder {
     private props: {
       between: number;
       clockRate: number;
-    }
+    },
   ) {}
 
   create(payload: Buffer) {

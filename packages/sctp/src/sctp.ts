@@ -165,7 +165,10 @@ export class SCTP {
   // etc
   private ssthresh?: number; // slow start threshold
 
-  constructor(public transport: Transport, public port = 5000) {
+  constructor(
+    public transport: Transport,
+    public port = 5000,
+  ) {
     this.localPort = this.port;
     this.transport.onData = (buf) => {
       this.handleData(buf);
@@ -264,11 +267,11 @@ export class SCTP {
 
           this._inboundStreamsCount = Math.min(
             init.outboundStreams,
-            this._inboundStreamsMax
+            this._inboundStreamsMax,
           );
           this._outboundStreamsCount = Math.min(
             this._outboundStreamsCount,
-            init.inboundStreams
+            init.inboundStreams,
           );
 
           const ack = new InitAckChunk();
@@ -306,11 +309,11 @@ export class SCTP {
 
           this._inboundStreamsCount = Math.min(
             initAck.outboundStreams,
-            this._inboundStreamsMax
+            this._inboundStreamsMax,
           );
           this._outboundStreamsCount = Math.min(
             this._outboundStreamsCount,
-            initAck.inboundStreams
+            initAck.inboundStreams,
           );
 
           const echo = new CookieEchoChunk();
@@ -458,7 +461,7 @@ export class SCTP {
           // # send response
           const response = new ReconfigResponseParam(
             p.requestSequence,
-            reconfigResult.ReconfigResultSuccessPerformed
+            reconfigResult.ReconfigResultSuccessPerformed,
           );
           this.reconfigResponseSeq = p.requestSequence;
           await this.sendReconfigParam(response);
@@ -471,7 +474,7 @@ export class SCTP {
                 this.reconfigQueue.push(streamId);
                 // await this.sendResetRequest(streamId);
               }
-            })
+            }),
           );
           await this.transmitReconfigRequest();
           // # close data channel
@@ -485,8 +488,8 @@ export class SCTP {
             log(
               "OutgoingSSNResetRequestParam failed",
               Object.keys(reconfigResult).find(
-                (key) => reconfigResult[key as never] === reset.result
-              )
+                (key) => reconfigResult[key as never] === reset.result,
+              ),
             );
           } else if (
             reset.responseSequence === this.reconfigRequest?.requestSequence
@@ -572,7 +575,7 @@ export class SCTP {
         range(gap[0], gap[1] + 1).forEach((pos) => {
           highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
           seen.add(highestSeenTsn);
-        })
+        }),
       );
 
       let highestNewlyAcked = chunk.cumulativeTsn;
@@ -624,7 +627,7 @@ export class SCTP {
       if (loss) {
         this.ssthresh = Math.max(
           Math.floor(this.cwnd / 2),
-          4 * USERDATA_MAX_LENGTH
+          4 * USERDATA_MAX_LENGTH,
         );
         this.cwnd = this.ssthresh;
         this.partialBytesAcked = 0;
@@ -700,7 +703,7 @@ export class SCTP {
     }
     this.rto = Math.max(
       SCTP_RTO_MIN,
-      Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX)
+      Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX),
     );
   }
 
@@ -750,7 +753,7 @@ export class SCTP {
       expiry?: number | undefined;
       maxRetransmits?: number | undefined;
       ordered?: boolean;
-    } = { expiry: undefined, maxRetransmits: undefined, ordered: true }
+    } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
   ) => {
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
@@ -880,7 +883,7 @@ export class SCTP {
         this.reconfigRequestSeq,
         this.reconfigResponseSeq,
         tsnMinusOne(this.localTsn),
-        streams
+        streams,
       );
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
@@ -1012,7 +1015,7 @@ export class SCTP {
 
     this.ssthresh = Math.max(
       Math.floor(this.cwnd / 2),
-      4 * USERDATA_MAX_LENGTH
+      4 * USERDATA_MAX_LENGTH,
     );
     this.cwnd = USERDATA_MAX_LENGTH;
 
@@ -1033,7 +1036,7 @@ export class SCTP {
     this.timerReconfigFailures = 0;
     this.timerReconfigHandle = setTimeout(
       this.timerReconfigHandleExpired,
-      this.rto * 1000
+      this.rto * 1000,
     );
   }
 
@@ -1053,7 +1056,7 @@ export class SCTP {
 
       this.timerReconfigHandle = setTimeout(
         this.timerReconfigHandleExpired,
-        this.rto * 1000
+        this.rto * 1000,
       );
     }
   };
@@ -1186,7 +1189,7 @@ export class SCTP {
       this.localPort,
       this.remotePort,
       this.remoteVerificationTag,
-      chunk
+      chunk,
     );
     await this.transport.send(packet);
   }

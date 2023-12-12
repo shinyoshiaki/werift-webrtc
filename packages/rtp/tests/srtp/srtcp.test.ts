@@ -7,7 +7,7 @@ import { createMockTransportPair } from "../utils";
 
 function buildSessionSRTCPPair(): [
   { session: SrtcpSession; transport: Transport },
-  { session: SrtcpSession; transport: Transport }
+  { session: SrtcpSession; transport: Transport },
 ] {
   const config: Config = {
     profile: 0x0001,

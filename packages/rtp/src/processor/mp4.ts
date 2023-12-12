@@ -45,7 +45,7 @@ export class MP4Base implements AVProcessor<Mp4Input> {
   constructor(
     public tracks: Track[],
     private output: (output: Mp4Output) => void,
-    private options: MP4Option = {}
+    private options: MP4Option = {},
   ) {
     this.container = new Mp4Container({
       track: {
@@ -101,7 +101,7 @@ export class MP4Base implements AVProcessor<Mp4Input> {
 
           const [displayAspectWidth, displayAspectHeight] = computeRatio(
             track.width!,
-            track.height!
+            track.height!,
           );
 
           this.container.write({

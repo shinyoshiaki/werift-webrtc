@@ -70,14 +70,14 @@ export class SenderBandwidthEstimator {
       this.cumulativeResult.addPacket(
         info.size,
         info.sendingAtMs,
-        result.receivedAtMs
+        result.receivedAtMs,
       );
     }
 
     if (elapsedMs >= 100 && this.cumulativeResult.numPackets >= 20) {
       this.availableBitrate = Math.min(
         this.cumulativeResult.sendBitrate,
-        this.cumulativeResult.receiveBitrate
+        this.cumulativeResult.receiveBitrate,
       );
       this.cumulativeResult.reset();
 

@@ -16,7 +16,7 @@ export class CipherAesGcm extends CipherAesBase {
     srtpSessionKey: Buffer,
     srtpSessionSalt: Buffer,
     srtcpSessionKey: Buffer,
-    srtcpSessionSalt: Buffer
+    srtcpSessionSalt: Buffer,
   ) {
     super(srtpSessionKey, srtpSessionSalt, srtcpSessionKey, srtcpSessionSalt);
   }
@@ -48,7 +48,7 @@ export class CipherAesGcm extends CipherAesBase {
 
     const enc = cipherText.slice(
       header.payloadOffset,
-      cipherText.length - this.aeadAuthTagLen
+      cipherText.length - this.aeadAuthTagLen,
     );
 
     const cipher = createDecipheriv("aes-128-gcm", this.srtpSessionKey, iv);
@@ -133,7 +133,7 @@ export class CipherAesGcm extends CipherAesBase {
   // https://datatracker.ietf.org/doc/html/rfc7714#section-17
   private rtcpAdditionalAuthenticatedData(
     rtcpPacket: Buffer,
-    srtcpIndex: number
+    srtcpIndex: number,
   ) {
     const aad = Buffer.concat([
       rtcpPacket.subarray(0, 8),

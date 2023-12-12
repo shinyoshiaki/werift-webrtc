@@ -26,7 +26,7 @@ export class Flight6 extends Flight {
   constructor(
     udp: TransportContext,
     dtls: DtlsContext,
-    private cipher: CipherContext
+    private cipher: CipherContext,
   ) {
     super(udp, dtls, 6);
   }
@@ -75,7 +75,7 @@ export class Flight6 extends Flight {
     const changeCipherSpec = ChangeCipherSpec.createEmpty().serialize();
     const packets = createPlaintext(this.dtls)(
       [{ type: ContentType.changeCipherSpec, fragment: changeCipherSpec }],
-      ++this.dtls.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber,
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     return buf;
@@ -83,7 +83,7 @@ export class Flight6 extends Flight {
 
   private sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize()),
     );
 
     const localVerifyData = this.cipher.verifyData(cache);
@@ -123,18 +123,18 @@ handlers[HandshakeType.client_key_exchange_16] =
     const preMasterSecret = prfPreMasterSecret(
       cipher.remoteKeyPair.publicKey,
       cipher.localKeyPair.privateKey,
-      cipher.localKeyPair.curve
+      cipher.localKeyPair.curve,
     );
 
     log(
       dtls.sessionId,
       "extendedMasterSecret",
       dtls.options.extendedMasterSecret,
-      dtls.remoteExtendedMasterSecret
+      dtls.remoteExtendedMasterSecret,
     );
 
     const handshakes = Buffer.concat(
-      dtls.sortedHandshakeCache.map((v) => v.serialize())
+      dtls.sortedHandshakeCache.map((v) => v.serialize()),
     );
     cipher.masterSecret =
       dtls.options.extendedMasterSecret && dtls.remoteExtendedMasterSecret
@@ -142,14 +142,14 @@ handlers[HandshakeType.client_key_exchange_16] =
         : prfMasterSecret(
             preMasterSecret,
             cipher.remoteRandom.serialize(),
-            cipher.localRandom.serialize()
+            cipher.localRandom.serialize(),
           );
 
     cipher.cipher = createCipher(cipher.cipherSuite!);
     cipher.cipher.init(
       cipher.masterSecret,
       cipher.localRandom.serialize(),
-      cipher.remoteRandom.serialize()
+      cipher.remoteRandom.serialize(),
     );
     log(dtls.sessionId, "setup cipher", cipher.cipher.summary);
   };

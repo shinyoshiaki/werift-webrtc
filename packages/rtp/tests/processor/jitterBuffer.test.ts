@@ -5,7 +5,7 @@ describe("test JitterBuffer", () => {
   const createRtpPacket = (sequenceNumber: number, timestamp: number) =>
     new RtpPacket(
       new RtpHeader({ sequenceNumber, timestamp }),
-      Buffer.from([1, 2, 3])
+      Buffer.from([1, 2, 3]),
     );
 
   it("handle continues packet", async () => {

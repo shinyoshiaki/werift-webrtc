@@ -66,7 +66,10 @@ export class Connection {
   private queryConsentHandle?: Future;
   private promiseGatherCandidates?: Event<[]>;
 
-  constructor(public iceControlling: boolean, options?: Partial<IceOptions>) {
+  constructor(
+    public iceControlling: boolean,
+    options?: Partial<IceOptions>,
+  ) {
     this.options = {
       ...defaultOptions,
       ...options,
@@ -105,7 +108,7 @@ export class Connection {
       const { interfaceAddresses } = this.options;
       if (interfaceAddresses) {
         const filteredAddresses = address.filter((check) =>
-          Object.values(interfaceAddresses).includes(check)
+          Object.values(interfaceAddresses).includes(check),
         );
         if (filteredAddresses.length) {
           address = filteredAddresses;
@@ -113,7 +116,7 @@ export class Connection {
       }
       if (this.options.additionalHostAddresses) {
         address = Array.from(
-          new Set([...this.options.additionalHostAddresses, ...address])
+          new Set([...this.options.additionalHostAddresses, ...address]),
         );
       }
 
@@ -122,7 +125,7 @@ export class Connection {
           component,
           address,
           5,
-          cb
+          cb,
         );
         this.localCandidates = [...this.localCandidates, ...candidates];
       }
@@ -137,7 +140,7 @@ export class Connection {
     component: number,
     addresses: string[],
     timeout = 5,
-    cb?: (candidate: Candidate) => void
+    cb?: (candidate: Candidate) => void,
   ) {
     let candidates: Candidate[] = [];
 
@@ -149,7 +152,7 @@ export class Connection {
           await protocol.connectionMade(
             isIPv4(address),
             this.options.portRange,
-            this.options.interfaceAddresses
+            this.options.interfaceAddresses,
           );
         } catch (error) {
           log("protocol STUN", error);
@@ -169,14 +172,14 @@ export class Connection {
           candidatePriority(component, "host"),
           candidateAddress[0],
           candidateAddress[1],
-          "host"
+          "host",
         );
 
         candidates.push(protocol.localCandidate);
         if (cb) {
           cb(protocol.localCandidate);
         }
-      })
+      }),
     );
 
     let candidatePromises: Promise<Candidate | void>[] = [];
@@ -193,7 +196,7 @@ export class Connection {
           ) {
             const candidate = await serverReflexiveCandidate(
               protocol,
-              stunServer
+              stunServer,
             ).catch((error) => log("error", error));
             if (candidate && cb) cb(candidate);
 
@@ -205,7 +208,7 @@ export class Connection {
           }
         }).catch((error) => {
           log("query STUN server", error);
-        })
+        }),
       );
       candidatePromises.push(...stunPromises);
     }
@@ -220,7 +223,7 @@ export class Connection {
           {
             portRange: this.options.portRange,
             interfaceAddresses: this.options.interfaceAddresses,
-          }
+          },
         );
         this.protocols.push(protocol);
 
@@ -238,7 +241,7 @@ export class Connection {
           candidateAddress[1],
           "relay",
           relatedAddress[0],
-          relatedAddress[1]
+          relatedAddress[1],
         );
         if (cb) {
           cb(protocol.localCandidate);
@@ -260,10 +263,10 @@ export class Connection {
     const extraCandidates = [...(await Promise.allSettled(candidatePromises))]
       .filter(
         (
-          v
+          v,
         ): v is PromiseFulfilledResult<
-          Awaited<typeof candidatePromises[number]>
-        > => v.status === "fulfilled"
+          Awaited<(typeof candidatePromises)[number]>
+        > => v.status === "fulfilled",
       )
       .map((v) => v.value)
       .filter((v): v is Candidate => typeof v !== "undefined");
@@ -331,7 +334,7 @@ export class Connection {
   private unfreezeInitial() {
     // # unfreeze first pair for the first component
     const firstPair = this.checkList.find(
-      (pair) => pair.component === Math.min(...[...this._components])
+      (pair) => pair.component === Math.min(...[...this._components]),
     );
     if (!firstPair) return;
     if (firstPair.state === CandidatePairState.FROZEN) {
@@ -373,7 +376,7 @@ export class Connection {
     {
       // # find the highest-priority pair that is in the frozen state
       const pair = this.checkList.find(
-        (pair) => pair.state === CandidatePairState.FROZEN
+        (pair) => pair.state === CandidatePairState.FROZEN,
       );
       if (pair) {
         pair.handle = future(this.checkStart(pair));
@@ -411,7 +414,7 @@ export class Connection {
           await timers.setTimeout(
             CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000,
             undefined,
-            { signal: cancelEvent.signal }
+            { signal: cancelEvent.signal },
           );
 
           for (const key of this.nominatedKeys) {
@@ -422,7 +425,7 @@ export class Connection {
                 request,
                 pair.remoteAddr,
                 Buffer.from(this.remotePassword, "utf8"),
-                0
+                0,
               );
               failures = 0;
               if (this.state === "disconnected") {
@@ -467,7 +470,7 @@ export class Connection {
       this.checkListState.put(
         new Promise((r) => {
           r(ICE_FAILED);
-        })
+        }),
       );
     }
 
@@ -561,10 +564,10 @@ export class Connection {
 
   getDefaultCandidate(component: number) {
     const candidates = this.localCandidates.sort(
-      (a, b) => a.priority - b.priority
+      (a, b) => a.priority - b.priority,
     );
     const candidate = candidates.find(
-      (candidate) => candidate.component === component
+      (candidate) => candidate.component === component,
     );
     return candidate;
   }
@@ -573,7 +576,7 @@ export class Connection {
     message: Message,
     addr: Address,
     protocol: Protocol,
-    rawData: Buffer
+    rawData: Buffer,
   ) {
     if (message.messageMethod !== methods.BINDING) {
       this.respondError(message, addr, protocol, [400, "Bad Request"]);
@@ -627,7 +630,7 @@ export class Connection {
     const response = new Message(
       methods.BINDING,
       classes.RESPONSE,
-      message.transactionId
+      message.transactionId,
     );
     response
       .setAttribute("XOR-MAPPED-ADDRESS", addr)
@@ -675,7 +678,7 @@ export class Connection {
 
   private pruneComponents() {
     const seenComponents = new Set(
-      this.remoteCandidates.map((v) => v.component)
+      this.remoteCandidates.map((v) => v.component),
     );
     const missingComponents = [...difference(this._components, seenComponents)];
     if (missingComponents.length > 0) {
@@ -691,7 +694,7 @@ export class Connection {
     const pair = this.checkList.find(
       (pair) =>
         isEqual(pair.protocol, protocol) &&
-        isEqual(pair.remoteCandidate, remoteCandidate)
+        isEqual(pair.remoteCandidate, remoteCandidate),
     );
     return pair;
   }
@@ -736,7 +739,7 @@ export class Connection {
           if (
             p.component === pair.component &&
             [CandidatePairState.WAITING, CandidatePairState.FROZEN].includes(
-              p.state
+              p.state,
             )
           ) {
             this.setPairState(p, CandidatePairState.FAILED);
@@ -786,7 +789,7 @@ export class Connection {
       this.checkListState.put(
         new Promise((r) => {
           r(ICE_FAILED);
-        })
+        }),
       );
     }
   }
@@ -813,7 +816,7 @@ export class Connection {
           request,
           pair.remoteAddr,
           Buffer.from(this.remotePassword, "utf8"),
-          4
+          4,
         );
         log("response", response, addr);
         result.response = response;
@@ -861,7 +864,7 @@ export class Connection {
           await pair.protocol.request(
             request,
             pair.remoteAddr,
-            Buffer.from(this.remotePassword, "utf8")
+            Buffer.from(this.remotePassword, "utf8"),
           );
         } catch (error) {
           this.setPairState(pair, CandidatePairState.FAILED);
@@ -909,7 +912,7 @@ export class Connection {
         message.getAttributeValue("PRIORITY"),
         host,
         port,
-        "prflx"
+        "prflx",
       );
       this.remoteCandidates.push(remoteCandidate);
     }
@@ -926,7 +929,7 @@ export class Connection {
     // 7.2.1.4.  Triggered Checks
     if (
       [CandidatePairState.WAITING, CandidatePairState.FAILED].includes(
-        pair.state
+        pair.state,
       )
     ) {
       pair.handle = future(this.checkStart(pair));
@@ -987,12 +990,12 @@ export class Connection {
     request: Message,
     addr: Address,
     protocol: Protocol,
-    errorCode: [number, string]
+    errorCode: [number, string],
   ) {
     const response = new Message(
       request.messageMethod,
       classes.ERROR,
-      request.transactionId
+      request.transactionId,
     );
     response
       .setAttribute("ERROR-CODE", errorCode)
@@ -1021,7 +1024,10 @@ export class CandidatePair {
     };
   }
 
-  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
+  constructor(
+    public protocol: Protocol,
+    public remoteCandidate: Candidate,
+  ) {}
 
   updateState(state: CandidatePairState) {
     this._state = state;
@@ -1075,7 +1081,7 @@ export interface IceOptions {
   filterStunResponse?: (
     message: Message,
     addr: Address,
-    protocol: Protocol
+    protocol: Protocol,
   ) => boolean;
   filterCandidatePair?: (pair: CandidatePair) => boolean;
 }
@@ -1099,16 +1105,20 @@ export function validateRemoteCandidate(candidate: Candidate) {
 
 export function sortCandidatePairs(
   pairs: CandidatePair[],
-  iceControlling: boolean
+  iceControlling: boolean,
 ) {
   pairs.sort(
     (a, b) =>
       candidatePairPriority(
         a.localCandidate,
         a.remoteCandidate,
-        iceControlling
+        iceControlling,
       ) -
-      candidatePairPriority(b.localCandidate, b.remoteCandidate, iceControlling)
+      candidatePairPriority(
+        b.localCandidate,
+        b.remoteCandidate,
+        iceControlling,
+      ),
   );
 }
 
@@ -1116,7 +1126,7 @@ export function sortCandidatePairs(
 export function candidatePairPriority(
   local: Candidate,
   remote: Candidate,
-  iceControlling: boolean
+  iceControlling: boolean,
 ) {
   const G = (iceControlling && local.priority) || remote.priority;
   const D = (iceControlling && remote.priority) || local.priority;
@@ -1151,7 +1161,7 @@ function nodeIpAddress(family: number): string[] {
         (details) =>
           normalizeFamilyNodeV18(details.family) === family &&
           !nodeIp.isLoopback(details.address) &&
-          !isAutoconfigurationAddress(details)
+          !isAutoconfigurationAddress(details),
       );
       return {
         nic,
@@ -1178,7 +1188,7 @@ export function getHostAddresses(useIpv4: boolean, useIpv6: boolean) {
 
 export async function serverReflexiveCandidate(
   protocol: Protocol,
-  stunServer: Address
+  stunServer: Address,
 ) {
   // """
   // Query STUN server to obtain a server-reflexive candidate.
@@ -1201,7 +1211,7 @@ export async function serverReflexiveCandidate(
       response.getAttributeValue("XOR-MAPPED-ADDRESS")[1],
       "srflx",
       localCandidate.host,
-      localCandidate.port
+      localCandidate.port,
     );
   } catch (error) {
     // todo fix

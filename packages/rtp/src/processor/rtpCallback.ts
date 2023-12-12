@@ -25,7 +25,7 @@ export class RtpSourceCallback
       payloadType?: number;
       clearInvalidPTPacket?: boolean;
       initialBufferLength?: number;
-    } = {}
+    } = {},
   ) {
     options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
   }

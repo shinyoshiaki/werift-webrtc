@@ -18,7 +18,7 @@ export class UdpTransport implements Transport {
   constructor(
     private type: SocketType,
     private portRange?: [number, number],
-    private interfaceAddresses?: InterfaceAddresses
+    private interfaceAddresses?: InterfaceAddresses,
   ) {
     this.socket = createSocket(this.type);
     this.socket.on("message", (data, info) => {
@@ -36,7 +36,7 @@ export class UdpTransport implements Transport {
   static async init(
     type: SocketType,
     portRange?: [number, number],
-    interfaceAddresses?: InterfaceAddresses
+    interfaceAddresses?: InterfaceAddresses,
   ) {
     const transport = new UdpTransport(type, portRange, interfaceAddresses);
     await transport.init();
@@ -50,7 +50,7 @@ export class UdpTransport implements Transport {
         this.portRange[0],
         this.portRange[1],
         this.type,
-        this.interfaceAddresses
+        this.interfaceAddresses,
       );
       this.socket.bind({ port, address });
     } else {

@@ -24,7 +24,7 @@ export class Certificate implements Handshake {
   static deSerialize(buf: Buffer) {
     return new Certificate(
       //@ts-ignore
-      ...Object.values(decode(buf, Certificate.spec))
+      ...Object.values(decode(buf, Certificate.spec)),
     );
   }
 
@@ -41,7 +41,7 @@ export class Certificate implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

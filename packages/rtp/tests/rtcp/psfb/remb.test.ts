@@ -9,7 +9,7 @@ describe("rtcp/psfb/remb", () => {
       72, 116, 237, 22,
     ]);
     const [psfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpPayloadSpecificFeedback
+      RtcpPayloadSpecificFeedback,
     ];
     const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
     expect(remb.senderSsrc).toBe(1);
