@@ -327,6 +327,7 @@ export class RTCRtpSender {
 
     const ntpTimestamp = ntpTime();
 
+    const originalHeaderExtensions = [...header.extensions];
     header.extensions = this.headerExtensions
       .map((extension) => {
         const payload = (() => {
@@ -364,6 +365,15 @@ export class RTCRtpSender {
         if (payload) return { id: extension.id, payload };
       })
       .filter((v) => v) as Extension[];
+    for (const ext of originalHeaderExtensions) {
+      const exist = header.extensions.find((v) => v.id === ext.id);
+      if (exist) {
+        exist.payload = ext.payload;
+      } else {
+        header.extensions.push(ext);
+      }
+    }
+    header.extensions = header.extensions.sort((a, b) => a.id - b.id);
 
     this.ntpTimestamp = ntpTimestamp;
     this.rtpTimestamp = header.timestamp;
