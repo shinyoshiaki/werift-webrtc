@@ -23,7 +23,7 @@ export const timer = {
         args[0]();
       },
       //@ts-ignore
-      ...args.slice(1)
+      ...args.slice(1),
     );
     return () => clearInterval(id);
   },

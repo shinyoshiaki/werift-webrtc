@@ -24,6 +24,9 @@ export function rtpHeaderExtensionsParser(
   return extensions
     .map((extension) => {
       const uri = extIdUriMap[extension.id];
+      if (!uri) {
+        return { uri: "unknown", value: extension.payload };
+      }
       switch (uri) {
         case RTP_EXTENSION_URI.sdesMid:
         case RTP_EXTENSION_URI.sdesRTPStreamID:
@@ -43,7 +46,7 @@ export function rtpHeaderExtensionsParser(
           };
         }
         default:
-          return { uri, value: 0 };
+          return { uri, value: extension.payload };
       }
     })
     .reduce((acc: { [uri: string]: any }, cur) => {
@@ -78,7 +81,7 @@ export function serializeAbsSendTime(ntpTime: bigint) {
 export function serializeAudioLevelIndication(level: number) {
   const stream = new BitStream(Buffer.alloc(1));
   stream.writeBits(1, 1);
-  stream.writeBits(level, 7);
+  stream.writeBits(7, level);
 
   return stream.uint8Array;
 }

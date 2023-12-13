@@ -1,4 +1,4 @@
-import { RtpPacket } from "../../src/rtp/rtp";
+import { ExtensionProfiles, RtpHeader, RtpPacket } from "../../src/rtp/rtp";
 import { load } from "../utils";
 
 describe("packet", () => {
@@ -124,5 +124,34 @@ describe("packet", () => {
     expect(p.payload.length).toBe(160);
     const buf = p.serialize();
     expect(buf).toEqual(data);
+  });
+
+  test("serialize_deserialize", () => {
+    const packet = new RtpPacket(
+      new RtpHeader({
+        csrc: [],
+        csrcLength: 0,
+        extension: true,
+        extensionProfile: ExtensionProfiles.OneByte,
+        extensions: [
+          { id: 1, payload: Buffer.from([48]) },
+          { id: 2, payload: Buffer.from([40, 1, 222]) },
+          { id: 10, payload: Buffer.from([128]) },
+        ],
+        marker: false,
+        padding: false,
+        paddingSize: 0,
+        payloadType: 109,
+        sequenceNumber: 15546,
+        ssrc: 2882400001,
+        timestamp: 144,
+        version: 2,
+      }),
+      Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+    );
+    const buf = packet.serialize();
+    const parsed = RtpPacket.deSerialize(buf);
+    const buf2 = parsed.serialize();
+    expect(buf2).toEqual(buf);
   });
 });
