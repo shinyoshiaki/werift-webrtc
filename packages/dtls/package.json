@@ -34,6 +34,7 @@
     "binary-data": "^0.6.0",
     "date-fns": "^2.29.3",
     "elliptic": "^6.5.4",
+    "@noble/curves": "^1.3.0",
     "lodash": "^4.17.21",
     "rx.mini": "^1.2.2",
     "tweetnacl": "^1.0.3"

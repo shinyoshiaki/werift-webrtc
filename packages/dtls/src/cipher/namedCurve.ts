@@ -1,7 +1,7 @@
-import { ec } from "elliptic";
-import * as nacl from "tweetnacl";
+import nacl from "tweetnacl";
 
 import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
+import { p256Keypair } from "./ec";
 
 export interface NamedCurveKeyPair {
   curve: NamedCurveAlgorithms;
@@ -10,14 +10,11 @@ export interface NamedCurveKeyPair {
 }
 
 export function generateKeyPair(
-  namedCurve: NamedCurveAlgorithms,
+  namedCurve: NamedCurveAlgorithms
 ): NamedCurveKeyPair {
   switch (namedCurve) {
     case NamedCurveAlgorithm.secp256r1_23: {
-      const elliptic = new ec("p256");
-      const key = elliptic.genKeyPair();
-      const privateKey = key.getPrivate().toBuffer("be");
-      const publicKey = Buffer.from(key.getPublic().encode("array", false));
+      const { privateKey, publicKey } = p256Keypair();
 
       return {
         curve: namedCurve,
