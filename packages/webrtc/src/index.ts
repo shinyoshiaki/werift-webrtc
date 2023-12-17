@@ -10,8 +10,6 @@ export * from "./media/rtpReceiver";
 export * from "./media/rtpSender";
 export * from "./media/rtpTransceiver";
 export * from "./media/track";
-export * from "./nonstandard/recorder";
-export * from "./nonstandard/userMedia";
 export * from "./peerConnection";
 export * from "./sdp";
 export * from "./transport/dtls";

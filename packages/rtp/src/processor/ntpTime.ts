@@ -1,13 +1,8 @@
 import { randomUUID } from "crypto";
 
-import {
-  Max32Uint,
-  ntpTime2Sec,
-  Processor,
-  RtcpPacket,
-  RtcpSrPacket,
-  RtpPacket,
-} from "..";
+import { ntpTime2Sec, RtcpPacket, RtcpSrPacket, RtpPacket } from "..";
+import { Processor } from "./interface";
+import { Max32Uint } from "./webm";
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;

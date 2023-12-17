@@ -16,6 +16,10 @@
     "name": "shinyoshiaki"
   },
   "main": "lib/webrtc/src/index.js",
+  "exports": {
+    ".": "./lib/webrtc/src/index.js",
+    "./nonstandard": "./lib/webrtc/src/nonstandard/index.js"
+  },
   "types": "lib/webrtc/src/index.d.ts",
   "files": [
     "lib",

@@ -6,14 +6,13 @@ import {
   DepacketizeCallback,
   JitterBufferCallback,
   LipsyncCallback,
-  MediaStreamTrack,
   NtpTimeCallback,
   RtcpSourceCallback,
   RtpSourceCallback,
   saveToFileSystem,
   WebmCallback,
-  WeriftError,
-} from "../../..";
+} from "../../../../../rtp/src/processor";
+import { MediaStreamTrack, WeriftError } from "../../..";
 import { MediaWriter } from ".";
 
 const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
