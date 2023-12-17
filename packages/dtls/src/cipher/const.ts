@@ -40,3 +40,13 @@ export const SignatureScheme = {
 } as const;
 export type SignatureSchemes =
   (typeof SignatureScheme)[keyof typeof SignatureScheme];
+
+export const certificateTypes = [
+  1, // clientCertificateTypeRSASign
+  64, // clientCertificateTypeECDSASign
+];
+
+export const signatures = [
+  { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
+  { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.ecdsa_3 },
+];

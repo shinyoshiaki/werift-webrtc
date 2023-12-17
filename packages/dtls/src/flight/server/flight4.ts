@@ -1,10 +1,6 @@
 import debug from "debug";
 
-import {
-  CurveType,
-  HashAlgorithm,
-  SignatureAlgorithm,
-} from "../../cipher/const";
+import { CurveType, certificateTypes, signatures } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
 import { SrtpContext } from "../../context/srtp";
@@ -28,14 +24,14 @@ export class Flight4 extends Flight {
     udp: TransportContext,
     dtls: DtlsContext,
     private cipher: CipherContext,
-    private srtp: SrtpContext,
+    private srtp: SrtpContext
   ) {
     super(udp, dtls, 4, 6);
   }
 
   async exec(
     clientHello: FragmentedHandshake,
-    certificateRequest: boolean = false,
+    certificateRequest: boolean = false
   ) {
     if (this.dtls.flight === 4) {
       log(this.dtls.sessionId, "flight4 twice");
@@ -63,7 +59,7 @@ export class Flight4 extends Flight {
     const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
       extensions.push(
-        UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension,
+        UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension
       );
     }
     if (this.dtls.options.extendedMasterSecret) {
@@ -81,7 +77,7 @@ export class Flight4 extends Flight {
       Buffer.from([0x00]),
       this.cipher.cipherSuite,
       0, // do not compression
-      extensions,
+      extensions
     );
     const packets = this.createPacket([serverHello]);
     return Buffer.concat(packets.map((v) => v.serialize()));
@@ -107,7 +103,7 @@ export class Flight4 extends Flight {
       this.cipher.signatureHashAlgorithm.hash,
       this.cipher.signatureHashAlgorithm.signature,
       signature.length,
-      signature,
+      signature
     );
 
     const packets = this.createPacket([keyExchange]);
@@ -117,15 +113,9 @@ export class Flight4 extends Flight {
   // 7.4.4.  Certificate Request
   private sendCertificateRequest() {
     const handshake = new ServerCertificateRequest(
-      [
-        1, // clientCertificateTypeRSASign
-        64, // clientCertificateTypeECDSASign
-      ],
-      [
-        { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
-        { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.ecdsa_3 },
-      ],
-      [],
+      certificateTypes,
+      signatures,
+      []
     );
     log(this.dtls.sessionId, "sendCertificateRequest", handshake);
     const packets = this.createPacket([handshake]);
