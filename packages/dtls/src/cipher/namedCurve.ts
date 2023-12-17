@@ -10,7 +10,7 @@ export interface NamedCurveKeyPair {
 }
 
 export function generateKeyPair(
-  namedCurve: NamedCurveAlgorithms
+  namedCurve: NamedCurveAlgorithms,
 ): NamedCurveKeyPair {
   switch (namedCurve) {
     case NamedCurveAlgorithm.secp256r1_23: {

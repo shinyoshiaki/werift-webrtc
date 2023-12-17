@@ -32,7 +32,7 @@ export const flight2 =
     udp: TransportContext,
     dtls: DtlsContext,
     cipher: CipherContext,
-    srtp: SrtpContext
+    srtp: SrtpContext,
   ) =>
   (clientHello: ClientHello) => {
     dtls.flight = 2;
@@ -55,7 +55,7 @@ export const flight2 =
             const curves = EllipticCurves.fromData(extension.data).data;
             log(dtls.sessionId, "curves", curves);
             const curve = curves.filter((curve) =>
-              NamedCurveAlgorithmList.includes(curve as any)
+              NamedCurveAlgorithmList.includes(curve as any),
             )[0] as NamedCurveAlgorithms;
             cipher.namedCurve = curve;
             log(dtls.sessionId, "curve selected", cipher.namedCurve);
@@ -69,10 +69,10 @@ export const flight2 =
             const signatureHash = Signature.fromData(extension.data).data;
             log(dtls.sessionId, "hash,signature", signatureHash);
             const signature = signatureHash.find(
-              (v) => v.signature === cipher.signatureHashAlgorithm?.signature
+              (v) => v.signature === cipher.signatureHashAlgorithm?.signature,
             )?.signature;
             const hash = signatureHash.find(
-              (v) => v.hash === cipher.signatureHashAlgorithm?.hash
+              (v) => v.hash === cipher.signatureHashAlgorithm?.hash,
             )?.hash;
             if (signature == undefined || hash == undefined) {
               throw new Error("invalid signatureHash");
@@ -88,7 +88,7 @@ export const flight2 =
             log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
             const profile = SrtpContext.findMatchingSRTPProfile(
               useSrtp.profiles as Profile[],
-              dtls.options?.srtpProfiles
+              dtls.options?.srtpProfiles,
             );
             if (!profile) {
               throw new Error();
@@ -137,7 +137,7 @@ export const flight2 =
         major: 255 - 1,
         minor: 255 - 2,
       },
-      dtls.cookie
+      dtls.cookie,
     );
     const fragments = createFragments(dtls)([helloVerifyReq]);
     const packets = createPlaintext(dtls)(
@@ -145,7 +145,7 @@ export const flight2 =
         type: ContentType.handshake,
         fragment: fragment.serialize(),
       })),
-      ++dtls.recordSequenceNumber
+      ++dtls.recordSequenceNumber,
     );
 
     const chunk = packets.map((v) => v.serialize());
