@@ -13,7 +13,7 @@
     "dev:server": "DEBUG=werift* ts-node-dev --project tsconfig.server.json ./server/main.ts",
     "prod:server": "DEBUG=werift* node lib/e2e/server/main.js",
     "prod:test": "karma start --single-run --browsers chrome_headless_with_fake_device && node stop.js",
-    "server": "npm run prod:server",
+    "server": "npm run dev:server",
     "test": "npm run prod:test",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json"
   },
