@@ -5,18 +5,29 @@ import {
   SignatureAlgorithm,
   PeerConfig,
 } from ".";
-import { BundlePolicy } from "../../packages/webrtc/src";
+import { BundlePolicy, NamedCurveAlgorithm } from "../../packages/webrtc/src";
 
 export class DtlsKeysContext {
-  static keys: DtlsKeys;
+  private static rsa: DtlsKeys;
+  private static ecdsa: DtlsKeys;
 
   static async get() {
-    if (this.keys) return this.keys;
+    if (this.rsa) {
+      return Math.random() > 0.5 ? this.rsa : this.ecdsa;
+    }
 
-    this.keys = await createSelfSignedCertificate({
+    this.rsa = await createSelfSignedCertificate({
       signature: SignatureAlgorithm.rsa_1,
       hash: HashAlgorithm.sha256_4,
     });
+
+    this.ecdsa = await createSelfSignedCertificate(
+      {
+        signature: SignatureAlgorithm.ecdsa_3,
+        hash: HashAlgorithm.sha256_4,
+      },
+      NamedCurveAlgorithm.secp256r1_23
+    );
   }
 }
 

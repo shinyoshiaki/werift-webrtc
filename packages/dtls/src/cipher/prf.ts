@@ -3,7 +3,7 @@ import { createHash, createHmac } from "crypto";
 import nacl from "tweetnacl";
 
 import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";
-import { old_p256PreMasterSecret, p256PreMasterSecret } from "./ec";
+import { p256PreMasterSecret } from "./ec";
 
 export function prfPreMasterSecret(
   publicKey: Buffer,
