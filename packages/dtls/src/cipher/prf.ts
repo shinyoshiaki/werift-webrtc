@@ -8,7 +8,7 @@ import { p256PreMasterSecret } from "./ec";
 export function prfPreMasterSecret(
   publicKey: Buffer,
   privateKey: Buffer,
-  curve: NamedCurveAlgorithms
+  curve: NamedCurveAlgorithms,
 ) {
   switch (curve) {
     case NamedCurveAlgorithm.secp256r1_23:
@@ -30,7 +30,7 @@ export function prfPHash(
   secret: Buffer,
   seed: Buffer,
   requestedLegth: number,
-  algorithm = "sha256"
+  algorithm = "sha256",
 ) {
   const totalLength = requestedLegth;
   const bufs: Buffer[] = [];
@@ -50,7 +50,7 @@ export function prfPHash(
 export function prfMasterSecret(
   preMasterSecret: Buffer,
   clientRandom: Buffer,
-  serverRandom: Buffer
+  serverRandom: Buffer,
 ) {
   const seed = Buffer.concat([
     Buffer.from("master secret"),
@@ -62,14 +62,14 @@ export function prfMasterSecret(
 
 export function prfExtendedMasterSecret(
   preMasterSecret: Buffer,
-  handshakes: Buffer
+  handshakes: Buffer,
 ) {
   const sessionHash = hash("sha256", handshakes);
   const label = "extended master secret";
   return prfPHash(
     preMasterSecret,
     Buffer.concat([Buffer.from(label), sessionHash]),
-    48
+    48,
   );
 }
 
@@ -79,7 +79,7 @@ export function exportKeyingMaterial(
   masterSecret: Buffer,
   localRandom: Buffer,
   remoteRandom: Buffer,
-  isClient: boolean
+  isClient: boolean,
 ) {
   const clientRandom = isClient ? localRandom : remoteRandom;
   const serverRandom = isClient ? remoteRandom : localRandom;
@@ -95,13 +95,13 @@ export function prfVerifyData(
   masterSecret: Buffer,
   handshakes: Buffer,
   label: string,
-  size = 12
+  size = 12,
 ) {
   const bytes = hash("sha256", handshakes);
   return prfPHash(
     masterSecret,
     Buffer.concat([Buffer.from(label), bytes]),
-    size
+    size,
   );
 }
 
@@ -120,7 +120,7 @@ export function prfEncryptionKeys(
   prfKeyLen: number,
   prfIvLen: number,
   prfNonceLen: number,
-  algorithm = "sha256"
+  algorithm = "sha256",
 ) {
   const size = prfKeyLen * 2 + prfIvLen * 2;
   const secret = masterSecret;
@@ -129,7 +129,7 @@ export function prfEncryptionKeys(
     secret,
     Buffer.concat([Buffer.from("key expansion"), seed]),
     size,
-    algorithm
+    algorithm,
   );
   const stream = createDecode(keyBlock);
 

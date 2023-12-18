@@ -47,14 +47,14 @@ export class DtlsSocket {
 
   constructor(
     public options: Options,
-    public sessionType: SessionTypes
+    public sessionType: SessionTypes,
   ) {
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.cipher = new CipherContext(
       this.sessionType,
       this.options.cert,
       this.options.key,
-      this.options.signatureHash
+      this.options.signatureHash,
     );
     this.transport = new TransportContext(this.options.transport);
     this.setupExtensions();
@@ -68,7 +68,7 @@ export class DtlsSocket {
       this.sessionType,
       this.options.cert,
       this.options.key,
-      this.options.signatureHash
+      this.options.signatureHash,
     );
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.srtp = new SrtpContext();
@@ -94,8 +94,8 @@ export class DtlsSocket {
                     acc[cur.msg_type].push(cur);
                     return acc;
                   },
-                  {}
-                )
+                  {},
+                ),
               )
                 .map((v) => FragmentedHandshake.assemble(v))
                 .sort((a, b) => a.msg_type - b.msg_type);
@@ -126,12 +126,12 @@ export class DtlsSocket {
       log(
         this.dtls.sessionId,
         "support srtpProfiles",
-        this.options.srtpProfiles
+        this.options.srtpProfiles,
       );
       if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
         const useSrtp = UseSRTP.create(
           this.options.srtpProfiles,
-          Buffer.from([0x00])
+          Buffer.from([0x00]),
         );
         this.extensions.push(useSrtp.extension);
       }
@@ -204,7 +204,7 @@ export class DtlsSocket {
   send = async (buf: Buffer) => {
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],
-      ++this.dtls.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber,
     )[0];
     await this.transport.send(this.cipher.encryptPacket(pkt).serialize());
   };
@@ -216,7 +216,7 @@ export class DtlsSocket {
   extractSessionKeys(keyLength: number, saltLength: number) {
     const keyingMaterial = this.exportKeyingMaterial(
       "EXTRACTOR-dtls_srtp",
-      keyLength * 2 + saltLength * 2
+      keyLength * 2 + saltLength * 2,
     );
 
     const { clientKey, serverKey, clientSalt, serverSalt } = decode(
@@ -226,7 +226,7 @@ export class DtlsSocket {
         serverKey: types.buffer(keyLength),
         clientSalt: types.buffer(saltLength),
         serverSalt: types.buffer(saltLength),
-      }
+      },
     );
 
     if (this.sessionType === SessionType.CLIENT) {
@@ -253,7 +253,7 @@ export class DtlsSocket {
       this.cipher.masterSecret,
       this.cipher.localRandom.serialize(),
       this.cipher.remoteRandom.serialize(),
-      this.sessionType === SessionType.CLIENT
+      this.sessionType === SessionType.CLIENT,
     );
   }
 }
