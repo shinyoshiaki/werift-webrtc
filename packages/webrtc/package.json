@@ -16,8 +16,14 @@
     "name": "shinyoshiaki"
   },
   "exports": {
-    ".": "./lib/webrtc/src/index.js",
-    "./nonstandard": "./lib/webrtc/src/nonstandard/index.js"
+    ".": {
+      "default": "./lib/webrtc/src/index.js",
+      "types": "./lib/webrtc/src/index.d.ts"
+    },
+    "./nonstandard": {
+      "default": "./lib/webrtc/src/nonstandard/index.js",
+      "types": "./lib/webrtc/src/nonstandard/index.d.ts"
+    }
   },
   "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
@@ -42,6 +48,7 @@
   "dependencies": {
     "@fidm/x509": "^1.2.1",
     "@minhducsun2002/leb128": "^1.0.0",
+    "@noble/curves": "^1.3.0",
     "@peculiar/webcrypto": "^1.4.1",
     "@peculiar/x509": "^1.9.2",
     "@shinyoshiaki/ebml-builder": "^0.0.1",
