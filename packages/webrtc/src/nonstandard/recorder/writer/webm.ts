@@ -1,7 +1,6 @@
 import { unlink } from "fs/promises";
 import { EventDisposer } from "rx.mini";
 
-import { SupportedCodec } from "../../../../../rtp/src/container/webm/container";
 import {
   DepacketizeCallback,
   JitterBufferCallback,
@@ -11,7 +10,8 @@ import {
   RtpSourceCallback,
   saveToFileSystem,
   WebmCallback,
-} from "../../../../../rtp/src/processor";
+  SupportedCodec,
+} from "../../../../../rtp/src/extra";
 import { MediaStreamTrack, WeriftError } from "../../..";
 import { MediaWriter } from ".";
 

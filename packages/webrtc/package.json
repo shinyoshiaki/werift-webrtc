@@ -15,11 +15,11 @@
   "author": {
     "name": "shinyoshiaki"
   },
-  "main": "lib/webrtc/src/index.js",
   "exports": {
     ".": "./lib/webrtc/src/index.js",
     "./nonstandard": "./lib/webrtc/src/nonstandard/index.js"
   },
+  "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
   "files": [
     "lib",
@@ -32,12 +32,12 @@
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
+    "knip": "knip",
     "lint": "eslint ./src --fix",
     "test": "npm run type && jest --runInBand --forceExit --coverage",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",
-    "upgrade-interactive": "npx npm-check-updates -i",
-    "knip": "knip"
+    "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
@@ -54,13 +54,13 @@
     "ip": "^1.1.8",
     "jspack": "^0.0.4",
     "lodash": "^4.17.21",
+    "mp4box": "^0.5.2",
     "nano-time": "^1.0.0",
     "p-cancelable": "^2.1.1",
     "rx.mini": "^1.2.2",
     "turbo-crc32": "^1.0.1",
     "tweetnacl": "^1.0.3",
-    "uuid": "^9.0.0",
-    "mp4box": "^0.5.2"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@types/aes-js": "^3.1.1",
