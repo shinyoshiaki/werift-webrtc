@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 
-import { ntpTime2Sec, RtcpPacket, RtcpSrPacket, RtpPacket } from "..";
+import { ntpTime2Sec, RtcpPacket, RtcpSrPacket, RtpPacket } from "../..";
 import { Processor } from "./interface";
 import { Max32Uint } from "./webm";
 

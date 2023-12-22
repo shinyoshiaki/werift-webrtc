@@ -11,6 +11,10 @@
   "author": {
     "name": "shinyoshiaki"
   },
+  "exports": {
+    ".": "./lib/rtp/src/index.js",
+    "./extra": "./lib/rtp/src/extra/index.js"
+  },
   "main": "lib/rtp/src/index.js",
   "types": "lib/rtp/src/index.d.ts",
   "files": [

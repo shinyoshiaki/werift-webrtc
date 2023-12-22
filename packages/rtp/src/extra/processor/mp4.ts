@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import { buffer2ArrayBuffer, OpusRtpPayload } from "..";
+import { buffer2ArrayBuffer, OpusRtpPayload } from "../..";
 import {
   annexb2avcc,
   DataType,

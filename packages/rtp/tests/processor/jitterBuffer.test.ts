@@ -1,5 +1,5 @@
 import { RtpHeader, RtpPacket } from "../../src";
-import { JitterBufferTransformer } from "../../src/processor/jitterBufferTransformer";
+import { JitterBufferTransformer } from "../../src/extra/processor/jitterBufferTransformer";
 
 describe("test JitterBuffer", () => {
   const createRtpPacket = (sequenceNumber: number, timestamp: number) =>

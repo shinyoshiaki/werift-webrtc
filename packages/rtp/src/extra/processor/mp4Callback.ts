@@ -1,6 +1,6 @@
 import { appendFile } from "fs/promises";
 
-import { PromiseQueue } from "..";
+import { PromiseQueue } from "../..";
 import { MP4Base, Mp4Input, Mp4Output, Track } from "./mp4";
 import { WebmOption } from "./webm";
 

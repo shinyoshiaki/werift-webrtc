@@ -7,7 +7,7 @@ import {
   RtpPacket,
   timer,
   uint16Add,
-} from "..";
+} from "../..";
 import { Processor } from "./interface";
 import { RtpOutput } from "./rtpCallback";
 

@@ -1,6 +1,6 @@
 import { TransformStream } from "stream/web";
 
-import { DepacketizerCodec } from "../codec";
+import { DepacketizerCodec } from "../../codec";
 import {
   DepacketizeBase,
   DepacketizerInput,

@@ -1,6 +1,6 @@
 import { appendFile, open, stat } from "fs/promises";
 
-import { PromiseQueue } from "..";
+import { PromiseQueue } from "../..";
 import { SupportedCodec } from "../container/webm";
 import {
   DurationPosition,
