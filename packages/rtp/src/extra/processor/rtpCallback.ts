@@ -1,6 +1,6 @@
 import Event from "rx.mini";
 
-import { RtpPacket } from "..";
+import { RtpPacket } from "../..";
 import { SimpleProcessorCallback } from "./interface";
 
 export type RtpInput = Buffer | RtpPacket;

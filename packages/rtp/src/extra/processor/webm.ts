@@ -5,7 +5,7 @@ import {
   numberToByteArray,
   vintEncode,
   WEBMContainer,
-} from "..";
+} from "../container";
 import { SupportedCodec } from "../container/webm";
 import { AVProcessor } from "./interface";
 

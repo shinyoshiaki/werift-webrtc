@@ -9,7 +9,7 @@ import {
   RtpPacket,
   uint16Add,
   uint16Gt,
-} from "..";
+} from "../..";
 import { Processor } from "./interface";
 
 const path = `werift-rtp : packages/rtp/src/processor/depacketizer.ts`;
