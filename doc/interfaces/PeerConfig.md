@@ -12,6 +12,7 @@
 - [dtls](PeerConfig.md#dtls)
 - [headerExtensions](PeerConfig.md#headerextensions)
 - [iceAdditionalHostAddresses](PeerConfig.md#iceadditionalhostaddresses)
+- [iceFilterCandidatePair](PeerConfig.md#icefiltercandidatepair)
 - [iceFilterStunResponse](PeerConfig.md#icefilterstunresponse)
 - [iceInterfaceAddresses](PeerConfig.md#iceinterfaceaddresses)
 - [icePortRange](PeerConfig.md#iceportrange)
@@ -19,6 +20,7 @@
 - [iceTransportPolicy](PeerConfig.md#icetransportpolicy)
 - [iceUseIpv4](PeerConfig.md#iceuseipv4)
 - [iceUseIpv6](PeerConfig.md#iceuseipv6)
+- [midSuffix](PeerConfig.md#midsuffix)
 
 ## Properties
 
@@ -30,25 +32,25 @@ ___
 
 ### codecs
 
-• **codecs**: `Partial`<{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] ; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]  }\>
+• **codecs**: `Partial`\<\{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] ; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]  }\>
 
 ___
 
 ### debug
 
-• **debug**: `Partial`<{ `disableRecvRetransmit`: `boolean` ; `disableSendNack`: `boolean` ; `inboundPacketLoss`: `number` ; `outboundPacketLoss`: `number` ; `receiverReportDelay`: `number`  }\>
+• **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean` ; `disableSendNack`: `boolean` ; `inboundPacketLoss`: `number` ; `outboundPacketLoss`: `number` ; `receiverReportDelay`: `number`  }\>
 
 ___
 
 ### dtls
 
-• **dtls**: `Partial`<{ `keys`: [`DtlsKeys`](../modules.md#dtlskeys)  }\>
+• **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../modules.md#dtlskeys)  }\>
 
 ___
 
 ### headerExtensions
 
-• **headerExtensions**: `Partial`<{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[] ; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]  }\>
+• **headerExtensions**: `Partial`\<\{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[] ; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]  }\>
 
 ___
 
@@ -61,9 +63,15 @@ Notably, you can include hosts that are normally excluded, such as loopback, tun
 
 ___
 
+### iceFilterCandidatePair
+
+• **iceFilterCandidatePair**: `undefined` \| (`pair`: [`CandidatePair`](../classes/CandidatePair.md)) => `boolean`
+
+___
+
 ### iceFilterStunResponse
 
-• **iceFilterStunResponse**: `undefined` \| (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: `Protocol`) => `boolean`
+• **iceFilterStunResponse**: `undefined` \| (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: [`Protocol`](Protocol.md)) => `boolean`
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
@@ -105,3 +113,9 @@ ___
 ### iceUseIpv6
 
 • **iceUseIpv6**: `boolean`
+
+___
+
+### midSuffix
+
+• **midSuffix**: `boolean`

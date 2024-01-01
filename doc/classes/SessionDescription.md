@@ -41,7 +41,11 @@
 
 ### constructor
 
-• **new SessionDescription**()
+• **new SessionDescription**(): [`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+[`SessionDescription`](SessionDescription.md)
 
 ## Properties
 
@@ -179,7 +183,7 @@ ___
 
 ### parse
 
-▸ `Static` **parse**(`sdp`): [`SessionDescription`](SessionDescription.md)
+▸ **parse**(`sdp`): [`SessionDescription`](SessionDescription.md)
 
 #### Parameters
 

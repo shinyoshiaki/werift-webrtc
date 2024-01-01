@@ -27,13 +27,17 @@
 
 ### constructor
 
-• **new RtcpSourceDescriptionPacket**(`props`)
+• **new RtcpSourceDescriptionPacket**(`props`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)\> |
+| `props` | `Partial`\<[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)\> |
+
+#### Returns
+
+[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
 
 ## Properties
 
@@ -77,7 +81,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`payload`, `header`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
+▸ **deSerialize**(`payload`, `header`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
 
 #### Parameters
 

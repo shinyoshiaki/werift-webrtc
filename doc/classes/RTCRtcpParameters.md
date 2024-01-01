@@ -18,13 +18,17 @@
 
 ### constructor
 
-• **new RTCRtcpParameters**(`props?`)
+• **new RTCRtcpParameters**(`props?`): [`RTCRtcpParameters`](RTCRtcpParameters.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCRtcpParameters`](RTCRtcpParameters.md)\> |
+| `props` | `Partial`\<[`RTCRtcpParameters`](RTCRtcpParameters.md)\> |
+
+#### Returns
+
+[`RTCRtcpParameters`](RTCRtcpParameters.md)
 
 ## Properties
 

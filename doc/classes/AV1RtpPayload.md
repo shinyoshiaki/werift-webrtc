@@ -30,7 +30,11 @@
 
 ### constructor
 
-• **new AV1RtpPayload**()
+• **new AV1RtpPayload**(): [`AV1RtpPayload`](AV1RtpPayload.md)
+
+#### Returns
+
+[`AV1RtpPayload`](AV1RtpPayload.md)
 
 ## Properties
 
@@ -45,7 +49,7 @@ ___
 
 ### obu\_or\_fragment
 
-• **obu\_or\_fragment**: { `data`: `Buffer` ; `isFragment`: `boolean`  }[] = `[]`
+• **obu\_or\_fragment**: \{ `data`: `Buffer` ; `isFragment`: `boolean`  }[] = `[]`
 
 ___
 
@@ -88,7 +92,7 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`AV1RtpPayload`](AV1RtpPayload.md)
+▸ **deSerialize**(`buf`): [`AV1RtpPayload`](AV1RtpPayload.md)
 
 #### Parameters
 
@@ -104,7 +108,7 @@ ___
 
 ### getFrame
 
-▸ `Static` **getFrame**(`payloads`): `Buffer`
+▸ **getFrame**(`payloads`): `Buffer`
 
 #### Parameters
 
@@ -120,7 +124,7 @@ ___
 
 ### isDetectedFinalPacketInSequence
 
-▸ `Static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 

@@ -46,7 +46,7 @@
 
 ### constructor
 
-• **new RTCDtlsTransport**(`config`, `iceTransport`, `router`, `certificates`, `srtpProfiles?`)
+• **new RTCDtlsTransport**(`config`, `iceTransport`, `router`, `certificates`, `srtpProfiles?`): [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Parameters
 
@@ -57,6 +57,10 @@
 | `router` | `RtpRouter` | `undefined` |
 | `certificates` | [`RTCCertificate`](RTCCertificate.md)[] | `undefined` |
 | `srtpProfiles` | (``1`` \| ``7``)[] | `[]` |
+
+#### Returns
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 ## Properties
 
@@ -118,7 +122,7 @@ ___
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: `Event`<[``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
+• `Readonly` **onStateChange**: `Event`\<[``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
 
 ___
 
@@ -176,7 +180,7 @@ ___
 
 ### sendData
 
-▸ `Readonly` **sendData**(`data`): `Promise`<`void`\>
+▸ **sendData**(`data`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -186,13 +190,13 @@ ___
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### sendRtcp
 
-▸ **sendRtcp**(`packets`): `Promise`<`undefined` \| `number`\>
+▸ **sendRtcp**(`packets`): `Promise`\<`undefined` \| `number`\>
 
 #### Parameters
 
@@ -202,13 +206,13 @@ ___
 
 #### Returns
 
-`Promise`<`undefined` \| `number`\>
+`Promise`\<`undefined` \| `number`\>
 
 ___
 
 ### sendRtp
 
-▸ **sendRtp**(`payload`, `header`): `Promise`<`number`\>
+▸ **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
 
 #### Parameters
 
@@ -219,7 +223,7 @@ ___
 
 #### Returns
 
-`Promise`<`number`\>
+`Promise`\<`number`\>
 
 ___
 
@@ -241,21 +245,21 @@ ___
 
 ### setupCertificate
 
-▸ **setupCertificate**(): `Promise`<[`RTCCertificate`](RTCCertificate.md)\>
+▸ **setupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 #### Returns
 
-`Promise`<[`RTCCertificate`](RTCCertificate.md)\>
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 ___
 
 ### start
 
-▸ **start**(): `Promise`<`void`\>
+▸ **start**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
@@ -271,11 +275,11 @@ ___
 
 ### stop
 
-▸ **stop**(): `Promise`<`void`\>
+▸ **stop**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 

@@ -18,19 +18,24 @@
 ### Methods
 
 - [serialize](RtcpSenderInfo.md#serialize)
+- [toJSON](RtcpSenderInfo.md#tojson)
 - [deSerialize](RtcpSenderInfo.md#deserialize)
 
 ## Constructors
 
 ### constructor
 
-• **new RtcpSenderInfo**(`props?`)
+• **new RtcpSenderInfo**(`props?`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> |
+| `props` | `Partial`\<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> |
+
+#### Returns
+
+[`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 ## Properties
 
@@ -68,9 +73,24 @@ ___
 
 ___
 
+### toJSON
+
+▸ **toJSON**(): `Object`
+
+#### Returns
+
+`Object`
+
+| Name | Type |
+| :------ | :------ |
+| `ntpTimestamp` | `number` |
+| `rtpTimestamp` | `number` |
+
+___
+
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
+▸ **deSerialize**(`data`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 #### Parameters
 

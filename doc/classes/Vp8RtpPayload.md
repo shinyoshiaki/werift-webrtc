@@ -48,7 +48,11 @@
 
 ### constructor
 
-• **new Vp8RtpPayload**()
+• **new Vp8RtpPayload**(): [`Vp8RtpPayload`](Vp8RtpPayload.md)
+
+#### Returns
+
+[`Vp8RtpPayload`](Vp8RtpPayload.md)
 
 ## Properties
 
@@ -204,7 +208,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`Vp8RtpPayload`](Vp8RtpPayload.md)
+▸ **deSerialize**(`buf`): [`Vp8RtpPayload`](Vp8RtpPayload.md)
 
 #### Parameters
 
@@ -220,7 +224,7 @@ ___
 
 ### isDetectedFinalPacketInSequence
 
-▸ `Static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 

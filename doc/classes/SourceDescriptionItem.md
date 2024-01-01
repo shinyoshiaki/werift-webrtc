@@ -26,13 +26,17 @@
 
 ### constructor
 
-• **new SourceDescriptionItem**(`props`)
+• **new SourceDescriptionItem**(`props`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`SourceDescriptionItem`](SourceDescriptionItem.md)\> |
+| `props` | `Partial`\<[`SourceDescriptionItem`](SourceDescriptionItem.md)\> |
+
+#### Returns
+
+[`SourceDescriptionItem`](SourceDescriptionItem.md)
 
 ## Properties
 
@@ -70,7 +74,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
+▸ **deSerialize**(`data`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
 
 #### Parameters
 

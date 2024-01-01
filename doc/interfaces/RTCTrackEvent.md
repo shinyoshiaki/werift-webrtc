@@ -15,7 +15,7 @@
 
 ### receiver
 
-• **receiver**: `RTCRtpReceiver`
+• **receiver**: [`RTCRtpReceiver`](../classes/RTCRtpReceiver.md)
 
 ___
 

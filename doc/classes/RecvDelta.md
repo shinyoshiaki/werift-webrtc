@@ -25,13 +25,17 @@
 
 ### constructor
 
-• **new RecvDelta**(`props?`)
+• **new RecvDelta**(`props?`): [`RecvDelta`](RecvDelta.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RecvDelta`](RecvDelta.md)\> |
+| `props` | `Partial`\<[`RecvDelta`](RecvDelta.md)\> |
+
+#### Returns
+
+[`RecvDelta`](RecvDelta.md)
 
 ## Properties
 
@@ -95,7 +99,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`RecvDelta`](RecvDelta.md)
+▸ **deSerialize**(`data`): [`RecvDelta`](RecvDelta.md)
 
 #### Parameters
 

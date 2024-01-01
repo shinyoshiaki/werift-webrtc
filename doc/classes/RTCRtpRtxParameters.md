@@ -16,13 +16,17 @@
 
 ### constructor
 
-• **new RTCRtpRtxParameters**(`props?`)
+• **new RTCRtpRtxParameters**(`props?`): [`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)\> |
+| `props` | `Partial`\<[`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)\> |
+
+#### Returns
+
+[`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
 
 ## Properties
 

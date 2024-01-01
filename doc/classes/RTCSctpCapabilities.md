@@ -16,13 +16,17 @@
 
 ### constructor
 
-• **new RTCSctpCapabilities**(`maxMessageSize`)
+• **new RTCSctpCapabilities**(`maxMessageSize`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `maxMessageSize` | `number` |
+
+#### Returns
+
+[`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 ## Properties
 

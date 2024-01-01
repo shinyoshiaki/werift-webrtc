@@ -51,6 +51,7 @@
 ### Accessors
 
 - [dtlsTransports](RTCPeerConnection.md#dtlstransports)
+- [extIdUriMap](RTCPeerConnection.md#extidurimap)
 - [iceTransports](RTCPeerConnection.md#icetransports)
 - [localDescription](RTCPeerConnection.md#localdescription)
 - [remoteDescription](RTCPeerConnection.md#remotedescription)
@@ -58,6 +59,7 @@
 
 ### Methods
 
+- [[captureRejectionSymbol]](RTCPeerConnection.md#[capturerejectionsymbol])
 - [addEventListener](RTCPeerConnection.md#addeventlistener)
 - [addIceCandidate](RTCPeerConnection.md#addicecandidate)
 - [addListener](RTCPeerConnection.md#addlistener)
@@ -89,7 +91,9 @@
 - [setLocalDescription](RTCPeerConnection.md#setlocaldescription)
 - [setMaxListeners](RTCPeerConnection.md#setmaxlisteners)
 - [setRemoteDescription](RTCPeerConnection.md#setremotedescription)
+- [addAbortListener](RTCPeerConnection.md#addabortlistener)
 - [getEventListeners](RTCPeerConnection.md#geteventlisteners)
+- [getMaxListeners](RTCPeerConnection.md#getmaxlisteners-1)
 - [listenerCount](RTCPeerConnection.md#listenercount-1)
 - [on](RTCPeerConnection.md#on-1)
 - [once](RTCPeerConnection.md#once-1)
@@ -99,13 +103,17 @@
 
 ### constructor
 
-• **new RTCPeerConnection**(`config?`)
+• **new RTCPeerConnection**(`config?`): [`RTCPeerConnection`](RTCPeerConnection.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `config` | `Partial`<[`PeerConfig`](../interfaces/PeerConfig.md)\> |
+| `config` | `Partial`\<[`PeerConfig`](../interfaces/PeerConfig.md)\> |
+
+#### Returns
+
+[`RTCPeerConnection`](RTCPeerConnection.md)
 
 #### Overrides
 
@@ -115,7 +123,7 @@ EventTarget.constructor
 
 ### candidatesSent
 
-• **candidatesSent**: `Set`<`string`\>
+• **candidatesSent**: `Set`\<`string`\>
 
 ___
 
@@ -127,7 +135,7 @@ ___
 
 ### config
 
-• **config**: `Required`<[`PeerConfig`](../interfaces/PeerConfig.md)\>
+• **config**: `Required`\<[`PeerConfig`](../interfaces/PeerConfig.md)\>
 
 ___
 
@@ -139,7 +147,7 @@ ___
 
 ### connectionStateChange
 
-• `Readonly` **connectionStateChange**: `Event`<[``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
+• `Readonly` **connectionStateChange**: `Event`\<[``"disconnected"`` \| ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
 
 ___
 
@@ -151,7 +159,7 @@ ___
 
 ### iceConnectionStateChange
 
-• `Readonly` **iceConnectionStateChange**: `Event`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
+• `Readonly` **iceConnectionStateChange**: `Event`\<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
 
 ___
 
@@ -163,7 +171,7 @@ ___
 
 ### iceGatheringStateChange
 
-• `Readonly` **iceGatheringStateChange**: `Event`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
+• `Readonly` **iceGatheringStateChange**: `Event`\<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
 
 ___
 
@@ -175,37 +183,37 @@ ___
 
 ### onDataChannel
 
-• `Readonly` **onDataChannel**: `Event`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
+• `Readonly` **onDataChannel**: `Event`\<[[`RTCDataChannel`](RTCDataChannel.md)]\>
 
 ___
 
 ### onIceCandidate
 
-• `Readonly` **onIceCandidate**: `Event`<[[`RTCIceCandidate`](RTCIceCandidate.md)]\>
+• `Readonly` **onIceCandidate**: `Event`\<[[`RTCIceCandidate`](RTCIceCandidate.md)]\>
 
 ___
 
 ### onNegotiationneeded
 
-• `Readonly` **onNegotiationneeded**: `Event`<[]\>
+• `Readonly` **onNegotiationneeded**: `Event`\<[]\>
 
 ___
 
 ### onRemoteTransceiverAdded
 
-• `Readonly` **onRemoteTransceiverAdded**: `Event`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+• `Readonly` **onRemoteTransceiverAdded**: `Event`\<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
 
 ___
 
 ### onTrack
 
-• `Readonly` **onTrack**: `Event`<[[`MediaStreamTrack`](MediaStreamTrack.md)]\>
+• `Readonly` **onTrack**: `Event`\<[[`MediaStreamTrack`](MediaStreamTrack.md)]\>
 
 ___
 
 ### onTransceiverAdded
 
-• `Readonly` **onTransceiverAdded**: `Event`<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+• `Readonly` **onTransceiverAdded**: `Event`\<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
 
 ___
 
@@ -217,31 +225,31 @@ ___
 
 ### ondatachannel
 
-• `Optional` **ondatachannel**: `CallbackWithValue`<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
+• `Optional` **ondatachannel**: `CallbackWithValue`\<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
 
 ___
 
 ### onicecandidate
 
-• `Optional` **onicecandidate**: `CallbackWithValue`<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
+• `Optional` **onicecandidate**: `CallbackWithValue`\<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
 
 ___
 
 ### onnegotiationneeded
 
-• `Optional` **onnegotiationneeded**: `CallbackWithValue`<`any`\>
+• `Optional` **onnegotiationneeded**: `CallbackWithValue`\<`any`\>
 
 ___
 
 ### onsignalingstatechange
 
-• `Optional` **onsignalingstatechange**: `CallbackWithValue`<`any`\>
+• `Optional` **onsignalingstatechange**: `CallbackWithValue`\<`any`\>
 
 ___
 
 ### ontrack
 
-• `Optional` **ontrack**: `CallbackWithValue`<[`RTCTrackEvent`](../interfaces/RTCTrackEvent.md)\>
+• `Optional` **ontrack**: `CallbackWithValue`\<[`RTCTrackEvent`](../interfaces/RTCTrackEvent.md)\>
 
 ___
 
@@ -265,7 +273,7 @@ ___
 
 ### signalingStateChange
 
-• `Readonly` **signalingStateChange**: `Event`<[``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"``]\>
+• `Readonly` **signalingStateChange**: `Event`\<[``"closed"`` \| ``"stable"`` \| ``"have-local-offer"`` \| ``"have-remote-offer"`` \| ``"have-local-pranswer"`` \| ``"have-remote-pranswer"``]\>
 
 ___
 
@@ -335,6 +343,16 @@ EventTarget.errorMonitor
 
 ___
 
+### extIdUriMap
+
+• `get` **extIdUriMap**(): `Object`
+
+#### Returns
+
+`Object`
+
+___
+
 ### iceTransports
 
 • `get` **iceTransports**(): [`RTCIceTransport`](RTCIceTransport.md)[]
@@ -375,6 +393,28 @@ ___
 
 ## Methods
 
+### [captureRejectionSymbol]
+
+▸ **[captureRejectionSymbol]**(`error`, `event`, `...args`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `error` | `Error` |
+| `event` | `string` |
+| `...args` | `any`[] |
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+EventTarget.[captureRejectionSymbol]
+
+___
+
 ### addEventListener
 
 ▸ **addEventListener**(`type`, `listener`): `void`
@@ -398,7 +438,7 @@ ___
 
 ### addIceCandidate
 
-▸ **addIceCandidate**(`candidateMessage`): `Promise`<`void`\>
+▸ **addIceCandidate**(`candidateMessage`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -408,19 +448,15 @@ ___
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### addListener
 
-▸ **addListener**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **addListener**(`eventName`, `listener`): `this`
 
 Alias for `emitter.on(eventName, listener)`.
-
-**`Since`**
-
-v0.1.26
 
 #### Parameters
 
@@ -431,7 +467,11 @@ v0.1.26
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v0.1.26
 
 #### Inherited from
 
@@ -441,7 +481,7 @@ ___
 
 ### addTrack
 
-▸ **addTrack**(`track`, `ms?`): `RTCRtpSender`
+▸ **addTrack**(`track`, `ms?`): [`RTCRtpSender`](RTCRtpSender.md)
 
 #### Parameters
 
@@ -452,7 +492,7 @@ ___
 
 #### Returns
 
-`RTCRtpSender`
+[`RTCRtpSender`](RTCRtpSender.md)
 
 ___
 
@@ -464,8 +504,8 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `trackOrKind` | [`Kind`](../modules.md#kind) \| [`MediaStreamTrack`](MediaStreamTrack.md) |
-| `options` | `Partial`<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> |
+| `trackOrKind` | ``"unknown"`` \| ``"audio"`` \| ``"video"`` \| ``"application"`` \| [`MediaStreamTrack`](MediaStreamTrack.md) |
+| `options` | `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> |
 
 #### Returns
 
@@ -485,21 +525,21 @@ ___
 
 ### close
 
-▸ **close**(): `Promise`<`void`\>
+▸ **close**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### createAnswer
 
-▸ **createAnswer**(): `Promise`<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+▸ **createAnswer**(): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
 
 #### Returns
 
-`Promise`<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+`Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
 
 ___
 
@@ -512,7 +552,7 @@ ___
 | Name | Type |
 | :------ | :------ |
 | `label` | `string` |
-| `options` | `Partial`<{ `id?`: `number` ; `maxPacketLifeTime?`: `number` ; `maxRetransmits?`: `number` ; `negotiated`: `boolean` ; `ordered`: `boolean` ; `protocol`: `string`  }\> |
+| `options` | `Partial`\<\{ `id?`: `number` ; `maxPacketLifeTime?`: `number` ; `maxRetransmits?`: `number` ; `negotiated`: `boolean` ; `ordered`: `boolean` ; `protocol`: `string`  }\> |
 
 #### Returns
 
@@ -522,11 +562,11 @@ ___
 
 ### createOffer
 
-▸ **createOffer**(): `Promise`<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+▸ **createOffer**(): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
 
 #### Returns
 
-`Promise`<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+`Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
 
 ___
 
@@ -572,10 +612,6 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 // event with parameters 1, 2, 3, 4, 5 in third listener
 ```
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
 | Name | Type |
@@ -586,6 +622,10 @@ v0.1.26
 #### Returns
 
 `boolean`
+
+**`Since`**
+
+v0.1.26
 
 #### Inherited from
 
@@ -613,13 +653,13 @@ console.log(myEE.eventNames());
 // Prints: [ 'foo', 'bar', Symbol(symbol) ]
 ```
 
-**`Since`**
-
-v6.0.0
-
 #### Returns
 
 (`string` \| `symbol`)[]
+
+**`Since`**
+
+v6.0.0
 
 #### Inherited from
 
@@ -634,13 +674,13 @@ ___
 Returns the current max listener value for the `EventEmitter` which is either
 set by `emitter.setMaxListeners(n)` or defaults to [defaultMaxListeners](RTCPeerConnection.md#defaultmaxlisteners).
 
-**`Since`**
-
-v1.0.0
-
 #### Returns
 
 `number`
+
+**`Since`**
+
+v1.0.0
 
 #### Inherited from
 
@@ -650,21 +690,21 @@ ___
 
 ### getReceivers
 
-▸ **getReceivers**(): `RTCRtpReceiver`[]
+▸ **getReceivers**(): [`RTCRtpReceiver`](RTCRtpReceiver.md)[]
 
 #### Returns
 
-`RTCRtpReceiver`[]
+[`RTCRtpReceiver`](RTCRtpReceiver.md)[]
 
 ___
 
 ### getSenders
 
-▸ **getSenders**(): `RTCRtpSender`[]
+▸ **getSenders**(): [`RTCRtpSender`](RTCRtpSender.md)[]
 
 #### Returns
 
-`RTCRtpSender`[]
+[`RTCRtpSender`](RTCRtpSender.md)[]
 
 ___
 
@@ -680,23 +720,27 @@ ___
 
 ### listenerCount
 
-▸ **listenerCount**(`eventName`): `number`
+▸ **listenerCount**(`eventName`, `listener?`): `number`
 
 Returns the number of listeners listening to the event named `eventName`.
 
-**`Since`**
-
-v3.2.0
+If `listener` is provided, it will return how many times the listener
+is found in the list of the listeners of the event.
 
 #### Parameters
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `eventName` | `string` \| `symbol` | The name of the event being listened for |
+| `listener?` | `Function` | The event handler function |
 
 #### Returns
 
 `number`
+
+**`Since`**
+
+v3.2.0
 
 #### Inherited from
 
@@ -718,10 +762,6 @@ console.log(util.inspect(server.listeners('connection')));
 // Prints: [ [Function] ]
 ```
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
 | Name | Type |
@@ -732,6 +772,10 @@ v0.1.26
 
 `Function`[]
 
+**`Since`**
+
+v0.1.26
+
 #### Inherited from
 
 EventTarget.listeners
@@ -740,13 +784,9 @@ ___
 
 ### off
 
-▸ **off**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **off**(`eventName`, `listener`): `this`
 
 Alias for `emitter.removeListener()`.
-
-**`Since`**
-
-v10.0.0
 
 #### Parameters
 
@@ -757,7 +797,11 @@ v10.0.0
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v10.0.0
 
 #### Inherited from
 
@@ -767,7 +811,7 @@ ___
 
 ### on
 
-▸ **on**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **on**(`eventName`, `listener`): `this`
 
 Adds the `listener` function to the end of the listeners array for the
 event named `eventName`. No checks are made to see if the `listener` has
@@ -795,10 +839,6 @@ myEE.emit('foo');
 //   a
 ```
 
-**`Since`**
-
-v0.1.101
-
 #### Parameters
 
 | Name | Type | Description |
@@ -808,7 +848,11 @@ v0.1.101
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v0.1.101
 
 #### Inherited from
 
@@ -818,7 +862,7 @@ ___
 
 ### once
 
-▸ **once**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **once**(`eventName`, `listener`): `this`
 
 Adds a **one-time**`listener` function for the event named `eventName`. The
 next time `eventName` is triggered, this listener is removed and then invoked.
@@ -844,10 +888,6 @@ myEE.emit('foo');
 //   a
 ```
 
-**`Since`**
-
-v0.3.0
-
 #### Parameters
 
 | Name | Type | Description |
@@ -857,7 +897,11 @@ v0.3.0
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v0.3.0
 
 #### Inherited from
 
@@ -867,7 +911,7 @@ ___
 
 ### prependListener
 
-▸ **prependListener**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **prependListener**(`eventName`, `listener`): `this`
 
 Adds the `listener` function to the _beginning_ of the listeners array for the
 event named `eventName`. No checks are made to see if the `listener` has
@@ -882,10 +926,6 @@ server.prependListener('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v6.0.0
-
 #### Parameters
 
 | Name | Type | Description |
@@ -895,7 +935,11 @@ v6.0.0
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v6.0.0
 
 #### Inherited from
 
@@ -905,7 +949,7 @@ ___
 
 ### prependOnceListener
 
-▸ **prependOnceListener**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **prependOnceListener**(`eventName`, `listener`): `this`
 
 Adds a **one-time**`listener` function for the event named `eventName` to the _beginning_ of the listeners array. The next time `eventName` is triggered, this
 listener is removed, and then invoked.
@@ -918,10 +962,6 @@ server.prependOnceListener('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v6.0.0
-
 #### Parameters
 
 | Name | Type | Description |
@@ -931,7 +971,11 @@ v6.0.0
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v6.0.0
 
 #### Inherited from
 
@@ -970,10 +1014,6 @@ newListeners[0]();
 emitter.emit('log');
 ```
 
-**`Since`**
-
-v9.4.0
-
 #### Parameters
 
 | Name | Type |
@@ -984,6 +1024,10 @@ v9.4.0
 
 `Function`[]
 
+**`Since`**
+
+v9.4.0
+
 #### Inherited from
 
 EventTarget.rawListeners
@@ -992,7 +1036,7 @@ ___
 
 ### removeAllListeners
 
-▸ **removeAllListeners**(`event?`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **removeAllListeners**(`event?`): `this`
 
 Removes all listeners, or those of the specified `eventName`.
 
@@ -1002,10 +1046,6 @@ component or module (e.g. sockets or file streams).
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
 | Name | Type |
@@ -1014,7 +1054,11 @@ v0.1.26
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v0.1.26
 
 #### Inherited from
 
@@ -1045,7 +1089,7 @@ ___
 
 ### removeListener
 
-▸ **removeListener**(`eventName`, `listener`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **removeListener**(`eventName`, `listener`): `this`
 
 Removes the specified `listener` from the listener array for the event named`eventName`.
 
@@ -1124,10 +1168,6 @@ ee.emit('ping');
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
 | Name | Type |
@@ -1137,7 +1177,11 @@ v0.1.26
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v0.1.26
 
 #### Inherited from
 
@@ -1153,7 +1197,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `sender` | `RTCRtpSender` |
+| `sender` | [`RTCRtpSender`](RTCRtpSender.md) |
 
 #### Returns
 
@@ -1163,7 +1207,7 @@ ___
 
 ### setLocalDescription
 
-▸ **setLocalDescription**(`sessionDescription`): `Promise`<[`SessionDescription`](SessionDescription.md)\>
+▸ **setLocalDescription**(`sessionDescription`): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
 
 #### Parameters
 
@@ -1175,13 +1219,13 @@ ___
 
 #### Returns
 
-`Promise`<[`SessionDescription`](SessionDescription.md)\>
+`Promise`\<[`SessionDescription`](SessionDescription.md)\>
 
 ___
 
 ### setMaxListeners
 
-▸ **setMaxListeners**(`n`): [`RTCPeerConnection`](RTCPeerConnection.md)
+▸ **setMaxListeners**(`n`): `this`
 
 By default `EventEmitter`s will print a warning if more than `10` listeners are
 added for a particular event. This is a useful default that helps finding
@@ -1189,10 +1233,6 @@ memory leaks. The `emitter.setMaxListeners()` method allows the limit to be
 modified for this specific `EventEmitter` instance. The value can be set to`Infinity` (or `0`) to indicate an unlimited number of listeners.
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
-
-**`Since`**
-
-v0.3.5
 
 #### Parameters
 
@@ -1202,7 +1242,11 @@ v0.3.5
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`this`
+
+**`Since`**
+
+v0.3.5
 
 #### Inherited from
 
@@ -1212,25 +1256,80 @@ ___
 
 ### setRemoteDescription
 
-▸ **setRemoteDescription**(`sessionDescription`): `Promise`<`void`\>
+▸ **setRemoteDescription**(`sessionDescription`): `Promise`\<`void`\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `sessionDescription` | `Object` |
-| `sessionDescription.sdp` | `string` |
-| `sessionDescription.type` | ``"offer"`` \| ``"answer"`` |
+| `sessionDescription` | [`RTCSessionDescriptionInit`](../interfaces/RTCSessionDescriptionInit.md) |
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
+
+___
+
+### addAbortListener
+
+▸ **addAbortListener**(`signal`, `resource`): `Disposable`
+
+Listens once to the `abort` event on the provided `signal`.
+
+Listening to the `abort` event on abort signals is unsafe and may
+lead to resource leaks since another third party with the signal can
+call `e.stopImmediatePropagation()`. Unfortunately Node.js cannot change
+this since it would violate the web standard. Additionally, the original
+API makes it easy to forget to remove listeners.
+
+This API allows safely using `AbortSignal`s in Node.js APIs by solving these
+two issues by listening to the event such that `stopImmediatePropagation` does
+not prevent the listener from running.
+
+Returns a disposable so that it may be unsubscribed from more easily.
+
+```js
+import { addAbortListener } from 'node:events';
+
+function example(signal) {
+  let disposable;
+  try {
+    signal.addEventListener('abort', (e) => e.stopImmediatePropagation());
+    disposable = addAbortListener(signal, (e) => {
+      // Do something when signal is aborted.
+    });
+  } finally {
+    disposable?.[Symbol.dispose]();
+  }
+}
+```
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `signal` | `AbortSignal` |
+| `resource` | (`event`: `Event`) => `void` |
+
+#### Returns
+
+`Disposable`
+
+Disposable that removes the `abort` listener.
+
+**`Since`**
+
+v18.18.0
+
+#### Inherited from
+
+EventTarget.addAbortListener
 
 ___
 
 ### getEventListeners
 
-▸ `Static` **getEventListeners**(`emitter`, `name`): `Function`[]
+▸ **getEventListeners**(`emitter`, `name`): `Function`[]
 
 Returns a copy of the array of listeners for the event named `eventName`.
 
@@ -1257,10 +1356,6 @@ const { getEventListeners, EventEmitter } = require('events');
 }
 ```
 
-**`Since`**
-
-v15.2.0, v14.17.0
-
 #### Parameters
 
 | Name | Type |
@@ -1272,15 +1367,69 @@ v15.2.0, v14.17.0
 
 `Function`[]
 
+**`Since`**
+
+v15.2.0, v14.17.0
+
 #### Inherited from
 
 EventTarget.getEventListeners
 
 ___
 
+### getMaxListeners
+
+▸ **getMaxListeners**(`emitter`): `number`
+
+Returns the currently set max amount of listeners.
+
+For `EventEmitter`s this behaves exactly the same as calling `.getMaxListeners` on
+the emitter.
+
+For `EventTarget`s this is the only way to get the max event listeners for the
+event target. If the number of event handlers on a single EventTarget exceeds
+the max set, the EventTarget will print a warning.
+
+```js
+import { getMaxListeners, setMaxListeners, EventEmitter } from 'node:events';
+
+{
+  const ee = new EventEmitter();
+  console.log(getMaxListeners(ee)); // 10
+  setMaxListeners(11, ee);
+  console.log(getMaxListeners(ee)); // 11
+}
+{
+  const et = new EventTarget();
+  console.log(getMaxListeners(et)); // 10
+  setMaxListeners(11, et);
+  console.log(getMaxListeners(et)); // 11
+}
+```
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `emitter` | `EventEmitter` \| `_DOMEventTarget` |
+
+#### Returns
+
+`number`
+
+**`Since`**
+
+v18.17.0
+
+#### Inherited from
+
+EventTarget.getMaxListeners
+
+___
+
 ### listenerCount
 
-▸ `Static` **listenerCount**(`emitter`, `eventName`): `number`
+▸ **listenerCount**(`emitter`, `eventName`): `number`
 
 A class method that returns the number of listeners for the given `eventName`registered on the given `emitter`.
 
@@ -1293,14 +1442,6 @@ console.log(listenerCount(myEmitter, 'event'));
 // Prints: 2
 ```
 
-**`Since`**
-
-v0.9.12
-
-**`Deprecated`**
-
-Since v3.2.0 - Use `listenerCount` instead.
-
 #### Parameters
 
 | Name | Type | Description |
@@ -1312,6 +1453,14 @@ Since v3.2.0 - Use `listenerCount` instead.
 
 `number`
 
+**`Since`**
+
+v0.9.12
+
+**`Deprecated`**
+
+Since v3.2.0 - Use `listenerCount` instead.
+
 #### Inherited from
 
 EventTarget.listenerCount
@@ -1320,7 +1469,7 @@ ___
 
 ### on
 
-▸ `Static` **on**(`emitter`, `eventName`, `options?`): `AsyncIterableIterator`<`any`\>
+▸ **on**(`emitter`, `eventName`, `options?`): `AsyncIterableIterator`\<`any`\>
 
 ```js
 const { on, EventEmitter } = require('events');
@@ -1376,10 +1525,6 @@ const ac = new AbortController();
 process.nextTick(() => ac.abort());
 ```
 
-**`Since`**
-
-v13.6.0, v12.16.0
-
 #### Parameters
 
 | Name | Type | Description |
@@ -1390,9 +1535,13 @@ v13.6.0, v12.16.0
 
 #### Returns
 
-`AsyncIterableIterator`<`any`\>
+`AsyncIterableIterator`\<`any`\>
 
 that iterates `eventName` events emitted by the `emitter`
+
+**`Since`**
+
+v13.6.0, v12.16.0
 
 #### Inherited from
 
@@ -1402,7 +1551,7 @@ ___
 
 ### once
 
-▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
+▸ **once**(`emitter`, `eventName`, `options?`): `Promise`\<`any`[]\>
 
 Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
 event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
@@ -1484,10 +1633,6 @@ ac.abort(); // Abort waiting for the event
 ee.emit('foo'); // Prints: Waiting for the event was canceled!
 ```
 
-**`Since`**
-
-v11.13.0, v10.16.0
-
 #### Parameters
 
 | Name | Type |
@@ -1498,13 +1643,17 @@ v11.13.0, v10.16.0
 
 #### Returns
 
-`Promise`<`any`[]\>
+`Promise`\<`any`[]\>
+
+**`Since`**
+
+v11.13.0, v10.16.0
 
 #### Inherited from
 
 EventTarget.once
 
-▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
+▸ **once**(`emitter`, `eventName`, `options?`): `Promise`\<`any`[]\>
 
 #### Parameters
 
@@ -1516,7 +1665,7 @@ EventTarget.once
 
 #### Returns
 
-`Promise`<`any`[]\>
+`Promise`\<`any`[]\>
 
 #### Inherited from
 
@@ -1526,7 +1675,7 @@ ___
 
 ### setMaxListeners
 
-▸ `Static` **setMaxListeners**(`n?`, `...eventTargets`): `void`
+▸ **setMaxListeners**(`n?`, `...eventTargets`): `void`
 
 ```js
 const {
@@ -1540,10 +1689,6 @@ const emitter = new EventEmitter();
 setMaxListeners(5, target, emitter);
 ```
 
-**`Since`**
-
-v15.4.0
-
 #### Parameters
 
 | Name | Type | Description |
@@ -1554,6 +1699,10 @@ v15.4.0
 #### Returns
 
 `void`
+
+**`Since`**
+
+v15.4.0
 
 #### Inherited from
 

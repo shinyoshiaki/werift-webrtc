@@ -19,19 +19,24 @@
 ### Methods
 
 - [serialize](RtcpSrPacket.md#serialize)
+- [toJSON](RtcpSrPacket.md#tojson)
 - [deSerialize](RtcpSrPacket.md#deserialize)
 
 ## Constructors
 
 ### constructor
 
-• **new RtcpSrPacket**(`props`)
+• **new RtcpSrPacket**(`props`): [`RtcpSrPacket`](RtcpSrPacket.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Pick`<[`RtcpSrPacket`](RtcpSrPacket.md), ``"senderInfo"``\> & `Partial`<[`RtcpSrPacket`](RtcpSrPacket.md)\> |
+| `props` | `Pick`\<[`RtcpSrPacket`](RtcpSrPacket.md), ``"senderInfo"``\> & `Partial`\<[`RtcpSrPacket`](RtcpSrPacket.md)\> |
+
+#### Returns
+
+[`RtcpSrPacket`](RtcpSrPacket.md)
 
 ## Properties
 
@@ -75,9 +80,27 @@ ___
 
 ___
 
+### toJSON
+
+▸ **toJSON**(): `Object`
+
+#### Returns
+
+`Object`
+
+| Name | Type |
+| :------ | :------ |
+| `reports` | \{ `dlsr`: `number` ; `fractionLost`: `number` ; `highestSequence`: `number` ; `jitter`: `number` ; `lsr`: `number` ; `packetsLost`: `number` ; `ssrc`: `number`  }[] |
+| `senderInfo` | \{ `ntpTimestamp`: `number` ; `rtpTimestamp`: `number`  } |
+| `senderInfo.ntpTimestamp` | `number` |
+| `senderInfo.rtpTimestamp` | `number` |
+| `ssrc` | `number` |
+
+___
+
 ### deSerialize
 
-▸ `Static` **deSerialize**(`payload`, `count`): [`RtcpSrPacket`](RtcpSrPacket.md)
+▸ **deSerialize**(`payload`, `count`): [`RtcpSrPacket`](RtcpSrPacket.md)
 
 #### Parameters
 

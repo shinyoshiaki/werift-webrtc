@@ -22,13 +22,17 @@
 
 ### constructor
 
-• **new MediaStream**(`props`)
+• **new MediaStream**(`props`): [`MediaStream`](MediaStream.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`MediaStream`](MediaStream.md)\> & `Pick`<[`MediaStream`](MediaStream.md), ``"id"``\> |
+| `props` | `Partial`\<[`MediaStream`](MediaStream.md)\> & `Pick`\<[`MediaStream`](MediaStream.md), ``"id"``\> |
+
+#### Returns
+
+[`MediaStream`](MediaStream.md)
 
 ## Properties
 

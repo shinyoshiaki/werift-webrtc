@@ -56,20 +56,24 @@
 
 ### constructor
 
-• **new Connection**(`iceControlling`, `options?`)
+• **new Connection**(`iceControlling`, `options?`): [`Connection`](Connection.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `iceControlling` | `boolean` |
-| `options?` | `Partial`<[`IceOptions`](../interfaces/IceOptions.md)\> |
+| `options?` | `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\> |
+
+#### Returns
+
+[`Connection`](Connection.md)
 
 ## Properties
 
 ### \_components
 
-• **\_components**: `Set`<`number`\>
+• **\_components**: `Set`\<`number`\>
 
 コンポーネントはデータストリームの一部です. データストリームには複数のコンポーネントが必要な場合があり、
 データストリーム全体が機能するには、それぞれが機能する必要があります.
@@ -92,7 +96,7 @@ ___
 
 ### checkList
 
-• **checkList**: `CandidatePair`[] = `[]`
+• **checkList**: [`CandidatePair`](CandidatePair.md)[] = `[]`
 
 ___
 
@@ -128,7 +132,7 @@ ___
 
 ### onData
 
-• `Readonly` **onData**: `Event`<[`Buffer`, `number`]\>
+• `Readonly` **onData**: `Event`\<[`Buffer`, `number`]\>
 
 ___
 
@@ -170,7 +174,7 @@ ___
 
 ### stateChanged
 
-• `Readonly` **stateChanged**: `Event`<[`IceState`]\>
+• `Readonly` **stateChanged**: `Event`\<[`IceState`]\>
 
 ___
 
@@ -232,7 +236,7 @@ ___
 
 ### addRemoteCandidate
 
-▸ **addRemoteCandidate**(`remoteCandidate`): `Promise`<`void`\>
+▸ **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -242,7 +246,7 @@ ___
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
@@ -256,7 +260,7 @@ ___
 | :------ | :------ |
 | `message` | `Message` |
 | `addr` | readonly [`string`, `number`] |
-| `protocol` | `Protocol` |
+| `protocol` | [`Protocol`](../interfaces/Protocol.md) |
 
 #### Returns
 
@@ -266,37 +270,37 @@ ___
 
 ### checkStart
 
-▸ **checkStart**(`pair`): `PCancelable`<`unknown`\>
+▸ **checkStart**(`pair`): `PCancelable`\<`unknown`\>
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `pair` | `CandidatePair` |
+| `pair` | [`CandidatePair`](CandidatePair.md) |
 
 #### Returns
 
-`PCancelable`<`unknown`\>
+`PCancelable`\<`unknown`\>
 
 ___
 
 ### close
 
-▸ **close**(): `Promise`<`void`\>
+▸ **close**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### connect
 
-▸ **connect**(): `Promise`<`void`\>
+▸ **connect**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
@@ -319,7 +323,7 @@ ___
 
 ### gatherCandidates
 
-▸ **gatherCandidates**(`cb?`): `Promise`<`void`\>
+▸ **gatherCandidates**(`cb?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -329,7 +333,7 @@ ___
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
@@ -359,7 +363,7 @@ ___
 | :------ | :------ |
 | `message` | `Message` |
 | `addr` | readonly [`string`, `number`] |
-| `protocol` | `Protocol` |
+| `protocol` | [`Protocol`](../interfaces/Protocol.md) |
 | `rawData` | `Buffer` |
 
 #### Returns
@@ -380,7 +384,7 @@ ___
 
 ### send
 
-▸ **send**(`data`): `Promise`<`void`\>
+▸ **send**(`data`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -390,7 +394,7 @@ ___
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 

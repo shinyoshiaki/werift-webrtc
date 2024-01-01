@@ -46,7 +46,7 @@
 
 ### constructor
 
-• **new RTCRtpTransceiver**(`kind`, `dtlsTransport`, `receiver`, `sender`, `_direction`)
+• **new RTCRtpTransceiver**(`kind`, `dtlsTransport`, `receiver`, `sender`, `_direction`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -54,9 +54,13 @@
 | :------ | :------ | :------ |
 | `kind` | [`Kind`](../modules.md#kind) | - |
 | `dtlsTransport` | [`RTCDtlsTransport`](RTCDtlsTransport.md) | - |
-| `receiver` | `RTCRtpReceiver` | - |
-| `sender` | `RTCRtpSender` | - |
+| `receiver` | [`RTCRtpReceiver`](RTCRtpReceiver.md) | - |
+| `sender` | [`RTCRtpSender`](RTCRtpSender.md) | - |
 | `_direction` | ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` | RFC 8829 4.2.4. direction the transceiver was initialized with |
+
+#### Returns
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 ## Properties
 
@@ -104,25 +108,25 @@ ___
 
 ### onTrack
 
-• `Readonly` **onTrack**: `Event`<[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+• `Readonly` **onTrack**: `Event`\<[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
 
 ___
 
 ### options
 
-• **options**: `Partial`<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+• **options**: `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
 
 ___
 
 ### receiver
 
-• **receiver**: `RTCRtpReceiver`
+• **receiver**: [`RTCRtpReceiver`](RTCRtpReceiver.md)
 
 ___
 
 ### sender
 
-• **sender**: `RTCRtpSender`
+• **sender**: [`RTCRtpSender`](RTCRtpSender.md)
 
 ___
 

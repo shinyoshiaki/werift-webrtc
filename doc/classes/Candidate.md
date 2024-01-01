@@ -32,7 +32,7 @@
 
 ### constructor
 
-• **new Candidate**(`foundation`, `component`, `transport`, `priority`, `host`, `port`, `type`, `relatedAddress?`, `relatedPort?`, `tcptype?`, `generation?`)
+• **new Candidate**(`foundation`, `component`, `transport`, `priority`, `host`, `port`, `type`, `relatedAddress?`, `relatedPort?`, `tcptype?`, `generation?`): [`Candidate`](Candidate.md)
 
 #### Parameters
 
@@ -49,6 +49,10 @@
 | `relatedPort?` | `number` |
 | `tcptype?` | `string` |
 | `generation?` | `number` |
+
+#### Returns
+
+[`Candidate`](Candidate.md)
 
 ## Properties
 
@@ -146,7 +150,7 @@ ___
 
 ### fromSdp
 
-▸ `Static` **fromSdp**(`sdp`): [`Candidate`](Candidate.md)
+▸ **fromSdp**(`sdp`): [`Candidate`](Candidate.md)
 
 #### Parameters
 

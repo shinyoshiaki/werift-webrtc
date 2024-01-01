@@ -17,13 +17,17 @@
 
 ### constructor
 
-• **new RTCRtpHeaderExtensionParameters**(`props`)
+• **new RTCRtpHeaderExtensionParameters**(`props`): [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)\> & `Pick`<[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md), ``"uri"``\> |
+| `props` | `Partial`\<[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)\> & `Pick`\<[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md), ``"uri"``\> |
+
+#### Returns
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)
 
 ## Properties
 

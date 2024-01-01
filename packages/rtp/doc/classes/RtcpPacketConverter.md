@@ -17,13 +17,17 @@
 
 ### constructor
 
-• **new RtcpPacketConverter**()
+• **new RtcpPacketConverter**(): [`RtcpPacketConverter`](RtcpPacketConverter.md)
+
+#### Returns
+
+[`RtcpPacketConverter`](RtcpPacketConverter.md)
 
 ## Methods
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`RtcpPacket`](../modules.md#rtcppacket)[]
+▸ **deSerialize**(`data`): [`RtcpPacket`](../modules.md#rtcppacket)[]
 
 #### Parameters
 
@@ -39,7 +43,7 @@ ___
 
 ### serialize
 
-▸ `Static` **serialize**(`type`, `count`, `payload`, `length`): `Buffer`
+▸ **serialize**(`type`, `count`, `payload`, `length`): `Buffer`
 
 #### Parameters
 

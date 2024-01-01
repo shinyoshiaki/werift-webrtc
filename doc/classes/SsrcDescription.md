@@ -20,13 +20,17 @@
 
 ### constructor
 
-• **new SsrcDescription**(`props`)
+• **new SsrcDescription**(`props`): [`SsrcDescription`](SsrcDescription.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`SsrcDescription`](SsrcDescription.md)\> |
+| `props` | `Partial`\<[`SsrcDescription`](SsrcDescription.md)\> |
+
+#### Returns
+
+[`SsrcDescription`](SsrcDescription.md)
 
 ## Properties
 

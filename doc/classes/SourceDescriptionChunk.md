@@ -26,13 +26,17 @@
 
 ### constructor
 
-• **new SourceDescriptionChunk**(`props?`)
+• **new SourceDescriptionChunk**(`props?`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> |
+| `props` | `Partial`\<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> |
+
+#### Returns
+
+[`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 ## Properties
 
@@ -70,7 +74,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
+▸ **deSerialize**(`data`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 #### Parameters
 

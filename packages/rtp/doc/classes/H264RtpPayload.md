@@ -16,6 +16,7 @@
 
 - [e](H264RtpPayload.md#e)
 - [f](H264RtpPayload.md#f)
+- [fragment](H264RtpPayload.md#fragment)
 - [nalUnitPayloadType](H264RtpPayload.md#nalunitpayloadtype)
 - [nalUnitType](H264RtpPayload.md#nalunittype)
 - [nri](H264RtpPayload.md#nri)
@@ -37,7 +38,11 @@
 
 ### constructor
 
-• **new H264RtpPayload**()
+• **new H264RtpPayload**(): [`H264RtpPayload`](H264RtpPayload.md)
+
+#### Returns
+
+[`H264RtpPayload`](H264RtpPayload.md)
 
 ## Properties
 
@@ -54,6 +59,16 @@ ___
 • **f**: `number`
 
 forbidden_zero_bit
+
+___
+
+### fragment
+
+• `Optional` **fragment**: `Buffer`
+
+#### Implementation of
+
+[DePacketizerBase](DePacketizerBase.md).[fragment](DePacketizerBase.md#fragment)
 
 ___
 
@@ -129,13 +144,14 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`H264RtpPayload`](H264RtpPayload.md)
+▸ **deSerialize**(`buf`, `fragment?`): [`H264RtpPayload`](H264RtpPayload.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `buf` | `Buffer` |
+| `fragment?` | `Buffer` |
 
 #### Returns
 
@@ -145,7 +161,7 @@ ___
 
 ### isDetectedFinalPacketInSequence
 
-▸ `Static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 

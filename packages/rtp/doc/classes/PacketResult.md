@@ -19,13 +19,17 @@
 
 ### constructor
 
-• **new PacketResult**(`props`)
+• **new PacketResult**(`props`): [`PacketResult`](PacketResult.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`PacketResult`](PacketResult.md)\> |
+| `props` | `Partial`\<[`PacketResult`](PacketResult.md)\> |
+
+#### Returns
+
+[`PacketResult`](PacketResult.md)
 
 ## Properties
 

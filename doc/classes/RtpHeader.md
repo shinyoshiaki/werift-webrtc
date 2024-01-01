@@ -39,13 +39,17 @@
 
 ### constructor
 
-• **new RtpHeader**(`props?`)
+• **new RtpHeader**(`props?`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RtpHeader`](RtpHeader.md)\> |
+| `props` | `Partial`\<[`RtpHeader`](RtpHeader.md)\> |
+
+#### Returns
+
+[`RtpHeader`](RtpHeader.md)
 
 ## Properties
 
@@ -121,7 +125,7 @@ ___
 
 • **sequenceNumber**: `number` = `0`
 
-16bit
+16bit, 初期値はランダムである必要があります
 
 ___
 
@@ -135,7 +139,7 @@ ___
 
 • **timestamp**: `number` = `0`
 
-32bit microsec (milli/1000)
+32bit microsec (milli/1000), 初期値はランダムである必要があります
 
 ___
 
@@ -173,7 +177,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`rawPacket`): [`RtpHeader`](RtpHeader.md)
+▸ **deSerialize**(`rawPacket`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 

@@ -32,7 +32,7 @@
 
 ### constructor
 
-• **new IceCandidate**(`component`, `foundation`, `ip`, `port`, `priority`, `protocol`, `type`)
+• **new IceCandidate**(`component`, `foundation`, `ip`, `port`, `priority`, `protocol`, `type`): [`IceCandidate`](IceCandidate.md)
 
 #### Parameters
 
@@ -45,6 +45,10 @@
 | `priority` | `number` |
 | `protocol` | `string` |
 | `type` | `string` |
+
+#### Returns
+
+[`IceCandidate`](IceCandidate.md)
 
 ## Properties
 
@@ -132,7 +136,7 @@ ___
 
 ### fromJSON
 
-▸ `Static` **fromJSON**(`data`): `undefined` \| [`IceCandidate`](IceCandidate.md)
+▸ **fromJSON**(`data`): `undefined` \| [`IceCandidate`](IceCandidate.md)
 
 #### Parameters
 

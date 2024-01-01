@@ -18,13 +18,17 @@
 
 ### constructor
 
-• **new RTCIceParameters**(`props?`)
+• **new RTCIceParameters**(`props?`): [`RTCIceParameters`](RTCIceParameters.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCIceParameters`](RTCIceParameters.md)\> |
+| `props` | `Partial`\<[`RTCIceParameters`](RTCIceParameters.md)\> |
+
+#### Returns
+
+[`RTCIceParameters`](RTCIceParameters.md)
 
 ## Properties
 

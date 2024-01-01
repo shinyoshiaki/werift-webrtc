@@ -17,7 +17,7 @@
 
 ### constructor
 
-• **new RTCRtpSimulcastParameters**(`props`)
+• **new RTCRtpSimulcastParameters**(`props`): [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
 
 #### Parameters
 
@@ -25,11 +25,15 @@
 | :------ | :------ |
 | `props` | [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md) |
 
+#### Returns
+
+[`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
+
 ## Properties
 
 ### direction
 
-• **direction**: ``"recv"`` \| ``"send"``
+• **direction**: ``"send"`` \| ``"recv"``
 
 ___
 

@@ -21,7 +21,11 @@
 
 ### constructor
 
-• **new RedHeader**()
+• **new RedHeader**(): [`RedHeader`](RedHeader.md)
+
+#### Returns
+
+[`RedHeader`](RedHeader.md)
 
 ## Properties
 
@@ -43,7 +47,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): readonly [[`RedHeader`](RedHeader.md), `number`]
+▸ **deSerialize**(`buf`): readonly [[`RedHeader`](RedHeader.md), `number`]
 
 #### Parameters
 

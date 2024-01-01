@@ -26,7 +26,11 @@
 
 ### constructor
 
-• **new AV1Obu**()
+• **new AV1Obu**(): [`AV1Obu`](AV1Obu.md)
+
+#### Returns
+
+[`AV1Obu`](AV1Obu.md)
 
 ## Properties
 
@@ -78,7 +82,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`AV1Obu`](AV1Obu.md)
+▸ **deSerialize**(`buf`): [`AV1Obu`](AV1Obu.md)
 
 #### Parameters
 

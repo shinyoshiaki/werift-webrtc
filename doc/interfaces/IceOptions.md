@@ -8,6 +8,7 @@
 
 - [additionalHostAddresses](IceOptions.md#additionalhostaddresses)
 - [components](IceOptions.md#components)
+- [filterCandidatePair](IceOptions.md#filtercandidatepair)
 - [filterStunResponse](IceOptions.md#filterstunresponse)
 - [forceTurn](IceOptions.md#forceturn)
 - [interfaceAddresses](IceOptions.md#interfaceaddresses)
@@ -35,9 +36,29 @@ ___
 
 ___
 
+### filterCandidatePair
+
+• `Optional` **filterCandidatePair**: (`pair`: [`CandidatePair`](../classes/CandidatePair.md)) => `boolean`
+
+#### Type declaration
+
+▸ (`pair`): `boolean`
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `pair` | [`CandidatePair`](../classes/CandidatePair.md) |
+
+##### Returns
+
+`boolean`
+
+___
+
 ### filterStunResponse
 
-• `Optional` **filterStunResponse**: (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: `Protocol`) => `boolean`
+• `Optional` **filterStunResponse**: (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: [`Protocol`](Protocol.md)) => `boolean`
 
 #### Type declaration
 
@@ -49,7 +70,7 @@ ___
 | :------ | :------ |
 | `message` | `Message` |
 | `addr` | readonly [`string`, `number`] |
-| `protocol` | `Protocol` |
+| `protocol` | [`Protocol`](Protocol.md) |
 
 ##### Returns
 

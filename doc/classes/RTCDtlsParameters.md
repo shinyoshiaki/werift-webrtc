@@ -17,7 +17,7 @@
 
 ### constructor
 
-• **new RTCDtlsParameters**(`fingerprints?`, `role`)
+• **new RTCDtlsParameters**(`fingerprints?`, `role`): [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 #### Parameters
 
@@ -25,6 +25,10 @@
 | :------ | :------ | :------ |
 | `fingerprints` | [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] | `[]` |
 | `role` | ``"auto"`` \| ``"server"`` \| ``"client"`` | `undefined` |
+
+#### Returns
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 ## Properties
 

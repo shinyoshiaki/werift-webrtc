@@ -4,7 +4,7 @@
 
 ## Hierarchy
 
-- `Session`<`SrtcpContext`\>
+- `Session`\<`SrtcpContext`\>
 
   ↳ **`SrtcpSession`**
 
@@ -31,7 +31,7 @@
 
 ### constructor
 
-• **new SrtcpSession**(`config`)
+• **new SrtcpSession**(`config`): [`SrtcpSession`](SrtcpSession.md)
 
 #### Parameters
 
@@ -39,9 +39,13 @@
 | :------ | :------ |
 | `config` | `Config` |
 
+#### Returns
+
+[`SrtcpSession`](SrtcpSession.md)
+
 #### Overrides
 
-Session&lt;SrtcpContext\&gt;.constructor
+Session\&lt;SrtcpContext\&gt;.constructor
 
 ## Properties
 

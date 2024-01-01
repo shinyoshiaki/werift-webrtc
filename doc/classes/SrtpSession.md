@@ -4,7 +4,7 @@
 
 ## Hierarchy
 
-- `Session`<`SrtpContext`\>
+- `Session`\<`SrtpContext`\>
 
   ↳ **`SrtpSession`**
 
@@ -31,7 +31,7 @@
 
 ### constructor
 
-• **new SrtpSession**(`config`)
+• **new SrtpSession**(`config`): [`SrtpSession`](SrtpSession.md)
 
 #### Parameters
 
@@ -39,9 +39,13 @@
 | :------ | :------ |
 | `config` | `Config` |
 
+#### Returns
+
+[`SrtpSession`](SrtpSession.md)
+
 #### Overrides
 
-Session&lt;SrtpContext\&gt;.constructor
+Session\&lt;SrtpContext\&gt;.constructor
 
 ## Properties
 

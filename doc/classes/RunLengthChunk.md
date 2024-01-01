@@ -24,13 +24,17 @@
 
 ### constructor
 
-• **new RunLengthChunk**(`props?`)
+• **new RunLengthChunk**(`props?`): [`RunLengthChunk`](RunLengthChunk.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RunLengthChunk`](RunLengthChunk.md)\> |
+| `props` | `Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> |
+
+#### Returns
+
+[`RunLengthChunk`](RunLengthChunk.md)
 
 ## Properties
 
@@ -82,7 +86,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`RunLengthChunk`](RunLengthChunk.md)
+▸ **deSerialize**(`data`): [`RunLengthChunk`](RunLengthChunk.md)
 
 #### Parameters
 

@@ -21,13 +21,17 @@
 
 ### constructor
 
-• **new BufferChain**(`size`)
+• **new BufferChain**(`size`): [`BufferChain`](BufferChain.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `size` | `number` |
+
+#### Returns
+
+[`BufferChain`](BufferChain.md)
 
 ## Properties
 

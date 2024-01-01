@@ -41,7 +41,7 @@
 
 ### constructor
 
-• **new MediaDescription**(`kind`, `port`, `profile`, `fmt`)
+• **new MediaDescription**(`kind`, `port`, `profile`, `fmt`): [`MediaDescription`](MediaDescription.md)
 
 #### Parameters
 
@@ -51,6 +51,10 @@
 | `port` | `number` |
 | `profile` | `string` |
 | `fmt` | `number`[] \| `string`[] |
+
+#### Returns
+
+[`MediaDescription`](MediaDescription.md)
 
 ## Properties
 

@@ -22,13 +22,17 @@
 
 ### constructor
 
-• **new BitStream**(`uint8Array`)
+• **new BitStream**(`uint8Array`): [`BitStream`](BitStream.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `uint8Array` | `Buffer` |
+
+#### Returns
+
+[`BitStream`](BitStream.md)
 
 ## Properties
 

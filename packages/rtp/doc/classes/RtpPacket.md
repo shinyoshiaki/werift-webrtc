@@ -28,7 +28,7 @@
 
 ### constructor
 
-• **new RtpPacket**(`header`, `payload`)
+• **new RtpPacket**(`header`, `payload`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
@@ -36,6 +36,10 @@
 | :------ | :------ |
 | `header` | [`RtpHeader`](RtpHeader.md) |
 | `payload` | `Buffer` |
+
+#### Returns
+
+[`RtpPacket`](RtpPacket.md)
 
 ## Properties
 
@@ -93,7 +97,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`RtpPacket`](RtpPacket.md)
+▸ **deSerialize**(`buf`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 

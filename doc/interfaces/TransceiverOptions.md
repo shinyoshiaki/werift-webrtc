@@ -19,4 +19,4 @@ ___
 
 ### simulcast
 
-• **simulcast**: { `direction`: `SimulcastDirection` ; `rid`: `string`  }[]
+• **simulcast**: \{ `direction`: `SimulcastDirection` ; `rid`: `string`  }[]

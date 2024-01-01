@@ -21,19 +21,24 @@
 ### Methods
 
 - [serialize](RtcpReceiverInfo.md#serialize)
+- [toJSON](RtcpReceiverInfo.md#tojson)
 - [deSerialize](RtcpReceiverInfo.md#deserialize)
 
 ## Constructors
 
 ### constructor
 
-• **new RtcpReceiverInfo**(`props?`)
+• **new RtcpReceiverInfo**(`props?`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> |
+| `props` | `Partial`\<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> |
+
+#### Returns
+
+[`RtcpReceiverInfo`](RtcpReceiverInfo.md)
 
 ## Properties
 
@@ -93,9 +98,29 @@ ___
 
 ___
 
+### toJSON
+
+▸ **toJSON**(): `Object`
+
+#### Returns
+
+`Object`
+
+| Name | Type |
+| :------ | :------ |
+| `dlsr` | `number` |
+| `fractionLost` | `number` |
+| `highestSequence` | `number` |
+| `jitter` | `number` |
+| `lsr` | `number` |
+| `packetsLost` | `number` |
+| `ssrc` | `number` |
+
+___
+
 ### deSerialize
 
-▸ `Static` **deSerialize**(`data`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+▸ **deSerialize**(`data`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
 
 #### Parameters
 

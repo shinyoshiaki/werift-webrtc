@@ -15,19 +15,24 @@
 
 ### Methods
 
+- [cancel](PromiseQueue.md#cancel)
 - [push](PromiseQueue.md#push)
 
 ## Constructors
 
 ### constructor
 
-• **new PromiseQueue**()
+• **new PromiseQueue**(): [`PromiseQueue`](PromiseQueue.md)
+
+#### Returns
+
+[`PromiseQueue`](PromiseQueue.md)
 
 ## Properties
 
 ### queue
 
-• **queue**: { `done`: (...`args`: `any`[]) => `void` ; `failed`: (...`args`: `any`[]) => `void` ; `promise`: () => `Promise`<`unknown`\>  }[] = `[]`
+• **queue**: \{ `done`: (...`args`: `any`[]) => `void` ; `failed`: (...`args`: `any`[]) => `void` ; `promise`: () => `Promise`\<`unknown`\>  }[] = `[]`
 
 ___
 
@@ -37,9 +42,19 @@ ___
 
 ## Methods
 
+### cancel
+
+▸ **cancel**(): `void`
+
+#### Returns
+
+`void`
+
+___
+
 ### push
 
-▸ **push**<`T`\>(`promise`): `Promise`<`T`\>
+▸ **push**\<`T`\>(`promise`): `Promise`\<`T`\>
 
 #### Type parameters
 
@@ -51,8 +66,8 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `promise` | () => `Promise`<`T`\> |
+| `promise` | () => `Promise`\<`T`\> |
 
 #### Returns
 
-`Promise`<`T`\>
+`Promise`\<`T`\>

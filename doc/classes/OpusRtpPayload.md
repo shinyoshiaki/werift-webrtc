@@ -30,7 +30,11 @@
 
 ### constructor
 
-• **new OpusRtpPayload**()
+• **new OpusRtpPayload**(): [`OpusRtpPayload`](OpusRtpPayload.md)
+
+#### Returns
+
+[`OpusRtpPayload`](OpusRtpPayload.md)
 
 ## Properties
 
@@ -60,7 +64,7 @@ DePacketizerBase.isKeyframe
 
 ### createCodecPrivate
 
-▸ `Static` **createCodecPrivate**(`samplingFrequency?`): `Buffer`
+▸ **createCodecPrivate**(`samplingFrequency?`): `Buffer`
 
 #### Parameters
 
@@ -76,7 +80,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`OpusRtpPayload`](OpusRtpPayload.md)
+▸ **deSerialize**(`buf`): [`OpusRtpPayload`](OpusRtpPayload.md)
 
 #### Parameters
 
@@ -92,7 +96,7 @@ ___
 
 ### isDetectedFinalPacketInSequence
 
-▸ `Static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 

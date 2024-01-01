@@ -34,13 +34,17 @@
 
 ### constructor
 
-• **new WeriftError**(`props`)
+• **new WeriftError**(`props`): [`WeriftError`](WeriftError.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Pick`<[`WeriftError`](WeriftError.md), ``"message"`` \| ``"payload"`` \| ``"path"``\> |
+| `props` | `Pick`\<[`WeriftError`](WeriftError.md), ``"message"`` \| ``"payload"`` \| ``"path"``\> |
+
+#### Returns
+
+[`WeriftError`](WeriftError.md)
 
 #### Overrides
 
@@ -104,15 +108,17 @@ ___
 
 ▪ `Static` `Optional` **prepareStackTrace**: (`err`: `Error`, `stackTraces`: `CallSite`[]) => `any`
 
-#### Type declaration
-
-▸ (`err`, `stackTraces`): `any`
-
 Optional override for formatting stack traces
 
 **`See`**
 
 https://v8.dev/docs/stack-trace-api#customizing-stack-traces
+
+#### Type declaration
+
+▸ (`err`, `stackTraces`): `any`
+
+Optional override for formatting stack traces
 
 ##### Parameters
 
@@ -124,6 +130,10 @@ https://v8.dev/docs/stack-trace-api#customizing-stack-traces
 ##### Returns
 
 `any`
+
+**`See`**
+
+https://v8.dev/docs/stack-trace-api#customizing-stack-traces
 
 #### Inherited from
 
@@ -159,7 +169,7 @@ ___
 
 ### captureStackTrace
 
-▸ `Static` **captureStackTrace**(`targetObject`, `constructorOpt?`): `void`
+▸ **captureStackTrace**(`targetObject`, `constructorOpt?`): `void`
 
 Create .stack property on a target object
 

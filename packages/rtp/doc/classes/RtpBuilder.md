@@ -1,4 +1,4 @@
-[werift](../README.md) / [Exports](../modules.md) / RtpBuilder
+[werift-rtp](../README.md) / [Exports](../modules.md) / RtpBuilder
 
 # Class: RtpBuilder
 
@@ -39,13 +39,13 @@
 
 ### sequenceNumber
 
-• **sequenceNumber**: `number`
+• **sequenceNumber**: `any`
 
 ___
 
 ### timestamp
 
-• **timestamp**: `number`
+• **timestamp**: `any`
 
 ## Methods
 

@@ -17,13 +17,17 @@
 
 ### constructor
 
-• **new RTCRtcpFeedback**(`props?`)
+• **new RTCRtcpFeedback**(`props?`): [`RTCRtcpFeedback`](RTCRtcpFeedback.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCRtcpFeedback`](RTCRtcpFeedback.md)\> |
+| `props` | `Partial`\<[`RTCRtcpFeedback`](RTCRtcpFeedback.md)\> |
+
+#### Returns
+
+[`RTCRtcpFeedback`](RTCRtcpFeedback.md)
 
 ## Properties
 

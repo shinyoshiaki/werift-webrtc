@@ -25,7 +25,7 @@
 
 ### constructor
 
-• **new BitWriter2**(`bitLength`)
+• **new BitWriter2**(`bitLength`): [`BitWriter2`](BitWriter2.md)
 
 各valueがオクテットを跨いではならない
 
@@ -34,6 +34,10 @@
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitLength` | `number` | Max 32bit |
+
+#### Returns
+
+[`BitWriter2`](BitWriter2.md)
 
 ## Properties
 

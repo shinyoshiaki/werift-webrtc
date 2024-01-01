@@ -18,13 +18,17 @@
 
 ### constructor
 
-• **new RTCRtpCodingParameters**(`props`)
+• **new RTCRtpCodingParameters**(`props`): [`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)\> & `Pick`<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md), ``"payloadType"`` \| ``"ssrc"``\> |
+| `props` | `Partial`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)\> & `Pick`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md), ``"payloadType"`` \| ``"ssrc"``\> |
+
+#### Returns
+
+[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)
 
 ## Properties
 

@@ -31,13 +31,17 @@
 
 ### constructor
 
-• **new RTCIceTransport**(`gather`)
+• **new RTCIceTransport**(`gather`): [`RTCIceTransport`](RTCIceTransport.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `gather` | [`RTCIceGatherer`](RTCIceGatherer.md) |
+
+#### Returns
+
+[`RTCIceTransport`](RTCIceTransport.md)
 
 ## Properties
 
@@ -55,7 +59,7 @@ ___
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: `Event`<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
+• `Readonly` **onStateChange**: `Event`\<[``"disconnected"`` \| ``"closed"`` \| ``"completed"`` \| ``"new"`` \| ``"connected"`` \| ``"failed"`` \| ``"checking"``]\>
 
 ___
 
@@ -87,7 +91,7 @@ ___
 
 ### addRemoteCandidate
 
-▸ **addRemoteCandidate**(`candidate?`): `undefined` \| `Promise`<`void`\>
+▸ **addRemoteCandidate**(`candidate?`): `undefined` \| `Promise`\<`void`\>
 
 #### Parameters
 
@@ -97,7 +101,7 @@ ___
 
 #### Returns
 
-`undefined` \| `Promise`<`void`\>
+`undefined` \| `Promise`\<`void`\>
 
 ___
 
@@ -119,18 +123,18 @@ ___
 
 ### start
 
-▸ **start**(): `Promise`<`void`\>
+▸ **start**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### stop
 
-▸ **stop**(): `Promise`<`void`\>
+▸ **stop**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>

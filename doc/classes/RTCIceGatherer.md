@@ -28,13 +28,17 @@
 
 ### constructor
 
-• **new RTCIceGatherer**(`options?`)
+• **new RTCIceGatherer**(`options?`): [`RTCIceGatherer`](RTCIceGatherer.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `options` | `Partial`<[`IceOptions`](../interfaces/IceOptions.md)\> |
+| `options` | `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\> |
+
+#### Returns
+
+[`RTCIceGatherer`](RTCIceGatherer.md)
 
 ## Properties
 
@@ -52,7 +56,7 @@ ___
 
 ### onGatheringStateChange
 
-• `Readonly` **onGatheringStateChange**: `Event`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
+• `Readonly` **onGatheringStateChange**: `Event`\<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
 
 ___
 
@@ -98,8 +102,8 @@ ___
 
 ### gather
 
-▸ **gather**(): `Promise`<`void`\>
+▸ **gather**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>

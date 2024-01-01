@@ -16,7 +16,11 @@
 
 ### constructor
 
-• **new RedHandler**()
+• **new RedHandler**(): [`RedHandler`](RedHandler.md)
+
+#### Returns
+
+[`RedHandler`](RedHandler.md)
 
 ## Methods
 

@@ -22,13 +22,17 @@
 
 ### constructor
 
-• **new Red**()
+• **new Red**(): [`Red`](Red.md)
+
+#### Returns
+
+[`Red`](Red.md)
 
 ## Properties
 
 ### blocks
 
-• **blocks**: { `block`: `Buffer` ; `blockPT`: `number` ; `timestampOffset?`: `number`  }[] = `[]`
+• **blocks**: \{ `block`: `Buffer` ; `blockPT`: `number` ; `timestampOffset?`: `number`  }[] = `[]`
 
 ___
 
@@ -50,7 +54,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`bufferOrArrayBuffer`): [`Red`](Red.md)
+▸ **deSerialize**(`bufferOrArrayBuffer`): [`Red`](Red.md)
 
 #### Parameters
 

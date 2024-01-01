@@ -22,13 +22,17 @@
 
 ### constructor
 
-• **new RedEncoder**(`distance?`)
+• **new RedEncoder**(`distance?`): [`RedEncoder`](RedEncoder.md)
 
 #### Parameters
 
 | Name | Type | Default value |
 | :------ | :------ | :------ |
 | `distance` | `number` | `1` |
+
+#### Returns
+
+[`RedEncoder`](RedEncoder.md)
 
 ## Properties
 

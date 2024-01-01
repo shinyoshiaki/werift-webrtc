@@ -21,7 +21,7 @@
 
 ### constructor
 
-• **new GroupDescription**(`semantic`, `items`)
+• **new GroupDescription**(`semantic`, `items`): [`GroupDescription`](GroupDescription.md)
 
 #### Parameters
 
@@ -29,6 +29,10 @@
 | :------ | :------ |
 | `semantic` | `string` |
 | `items` | `string`[] |
+
+#### Returns
+
+[`GroupDescription`](GroupDescription.md)
 
 ## Properties
 

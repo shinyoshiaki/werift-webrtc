@@ -22,13 +22,17 @@
 
 ### constructor
 
-• **new RTCDataChannelParameters**(`props?`)
+• **new RTCDataChannelParameters**(`props?`): [`RTCDataChannelParameters`](RTCDataChannelParameters.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> |
+| `props` | `Partial`\<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> |
+
+#### Returns
+
+[`RTCDataChannelParameters`](RTCDataChannelParameters.md)
 
 ## Properties
 

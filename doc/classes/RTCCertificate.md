@@ -23,7 +23,7 @@
 
 ### constructor
 
-• **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`)
+• **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`): [`RTCCertificate`](RTCCertificate.md)
 
 #### Parameters
 
@@ -32,6 +32,10 @@
 | `privateKeyPem` | `string` |
 | `certPem` | `string` |
 | `signatureHash` | [`SignatureHash`](../modules.md#signaturehash) |
+
+#### Returns
+
+[`RTCCertificate`](RTCCertificate.md)
 
 ## Properties
 

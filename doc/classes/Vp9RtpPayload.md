@@ -56,7 +56,11 @@
 
 ### constructor
 
-• **new Vp9RtpPayload**()
+• **new Vp9RtpPayload**(): [`Vp9RtpPayload`](Vp9RtpPayload.md)
+
+#### Returns
+
+[`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 ## Properties
 
@@ -262,7 +266,7 @@ ___
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`Vp9RtpPayload`](Vp9RtpPayload.md)
+▸ **deSerialize**(`buf`): [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 #### Parameters
 
@@ -278,7 +282,7 @@ ___
 
 ### isDetectedFinalPacketInSequence
 
-▸ `Static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 
@@ -294,7 +298,7 @@ ___
 
 ### parseRtpPayload
 
-▸ `Static` **parseRtpPayload**(`buf`): `Object`
+▸ **parseRtpPayload**(`buf`): `Object`
 
 #### Parameters
 

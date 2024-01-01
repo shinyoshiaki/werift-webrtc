@@ -24,13 +24,17 @@
 
 ### constructor
 
-• **new BitWriter**(`bitLength`)
+• **new BitWriter**(`bitLength`): [`BitWriter`](BitWriter.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `bitLength` | `number` |
+
+#### Returns
+
+[`BitWriter`](BitWriter.md)
 
 ## Properties
 

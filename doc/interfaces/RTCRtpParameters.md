@@ -8,8 +8,6 @@
 
   ↳ [`RTCRtpReceiveParameters`](RTCRtpReceiveParameters.md)
 
-  ↳ [`RTCRtpSendParameters`](RTCRtpSendParameters.md)
-
 ## Table of contents
 
 ### Properties

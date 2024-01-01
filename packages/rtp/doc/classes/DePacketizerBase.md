@@ -17,6 +17,7 @@
 
 ### Properties
 
+- [fragment](DePacketizerBase.md#fragment)
 - [payload](DePacketizerBase.md#payload)
 
 ### Accessors
@@ -32,9 +33,19 @@
 
 ### constructor
 
-• **new DePacketizerBase**()
+• **new DePacketizerBase**(): [`DePacketizerBase`](DePacketizerBase.md)
+
+#### Returns
+
+[`DePacketizerBase`](DePacketizerBase.md)
 
 ## Properties
+
+### fragment
+
+• `Optional` **fragment**: `Buffer`
+
+___
 
 ### payload
 
@@ -54,13 +65,14 @@
 
 ### deSerialize
 
-▸ `Static` **deSerialize**(`buf`): [`DePacketizerBase`](DePacketizerBase.md)
+▸ **deSerialize**(`buf`, `fragment?`): [`DePacketizerBase`](DePacketizerBase.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `buf` | `Buffer` |
+| `fragment?` | `Buffer` |
 
 #### Returns
 
@@ -70,7 +82,7 @@ ___
 
 ### isDetectedFinalPacketInSequence
 
-▸ `Static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 

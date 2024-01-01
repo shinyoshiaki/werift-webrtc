@@ -37,13 +37,17 @@
 
 ### constructor
 
-• **new RTCSctpTransport**(`port?`)
+• **new RTCSctpTransport**(`port?`): [`RTCSctpTransport`](RTCSctpTransport.md)
 
 #### Parameters
 
 | Name | Type | Default value |
 | :------ | :------ | :------ |
 | `port` | `number` | `5000` |
+
+#### Returns
+
+[`RTCSctpTransport`](RTCSctpTransport.md)
 
 ## Properties
 
@@ -89,7 +93,7 @@ ___
 
 ### onDataChannel
 
-• `Readonly` **onDataChannel**: `Event`<[[`RTCDataChannel`](RTCDataChannel.md)]\>
+• `Readonly` **onDataChannel**: `Event`\<[[`RTCDataChannel`](RTCDataChannel.md)]\>
 
 ___
 
@@ -220,7 +224,7 @@ ___
 
 ### start
 
-▸ **start**(`remotePort`): `Promise`<`void`\>
+▸ **start**(`remotePort`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -230,23 +234,23 @@ ___
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### stop
 
-▸ **stop**(): `Promise`<`void`\>
+▸ **stop**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
 ___
 
 ### getCapabilities
 
-▸ `Static` **getCapabilities**(): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+▸ **getCapabilities**(): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 #### Returns
 

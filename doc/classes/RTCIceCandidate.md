@@ -23,13 +23,17 @@
 
 ### constructor
 
-• **new RTCIceCandidate**(`props`)
+• **new RTCIceCandidate**(`props`): [`RTCIceCandidate`](RTCIceCandidate.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
-| `props` | `Partial`<[`RTCIceCandidate`](RTCIceCandidate.md)\> |
+| `props` | `Partial`\<[`RTCIceCandidate`](RTCIceCandidate.md)\> |
+
+#### Returns
+
+[`RTCIceCandidate`](RTCIceCandidate.md)
 
 ## Properties
 
@@ -69,7 +73,7 @@ ___
 
 ### isThis
 
-▸ `Static` **isThis**(`o`): `undefined` \| ``true``
+▸ **isThis**(`o`): `undefined` \| ``true``
 
 #### Parameters
 
