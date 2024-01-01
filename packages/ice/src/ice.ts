@@ -19,7 +19,7 @@ import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
-import { getHostAddresses, normalizeFamilyNodeV18 } from "./utils";
+import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
@@ -660,6 +660,12 @@ export class Connection {
     log("switch role", iceControlling);
     this.iceControlling = iceControlling;
     this.sortCheckList();
+  }
+
+  resetNominatedPair() {
+    log("resetNominatedPair");
+    this.nominated = undefined;
+    this.nominating = false;
   }
 
   private checkComplete(pair: CandidatePair) {

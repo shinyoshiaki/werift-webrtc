@@ -123,7 +123,7 @@ export class RtpRouter {
     }
 
     if (!rtpReceiver) {
-      log("ssrcReceiver not found");
+      // log("ssrcReceiver not found");
       return;
     }
 

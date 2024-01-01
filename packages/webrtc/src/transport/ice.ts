@@ -62,8 +62,9 @@ export class RTCIceTransport {
       (this.connection.remoteUsername !== remoteParameters.usernameFragment ||
         this.connection.remotePassword !== remoteParameters.password)
     ) {
-      log("restartIce", remoteParameters);
-      this.gather.restart();
+      log("resetNominatedPair", remoteParameters);
+      this.connection.resetNominatedPair();
+      // this.gather.restart();
     }
     this.connection.setRemoteParams(remoteParameters);
   }
@@ -76,7 +77,9 @@ export class RTCIceTransport {
       throw new Error("remoteParams missing");
     }
 
-    if (this.gather.waitStart) await this.gather.waitStart.asPromise();
+    if (this.gather.waitStart) {
+      await this.gather.waitStart.asPromise();
+    }
     this.gather.waitStart = new Event();
 
     this.setState("checking");
