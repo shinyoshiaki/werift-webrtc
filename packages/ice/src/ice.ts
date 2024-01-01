@@ -13,7 +13,7 @@ import { InterfaceAddresses } from "../../common/src/network";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { DnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
-import { Future, PQueue, difference, future, randomString } from "./helper";
+import { Future, PQueue, future, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -24,6 +24,13 @@ import { getHostAddresses, normalizeFamilyNodeV18 } from "./utils";
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 export class Connection {
+  readonly stunServer?: Address;
+  readonly turnServer?: Address;
+  readonly useIpv4: boolean;
+  readonly useIpv6: boolean;
+  readonly options: IceOptions;
+
+  iceControlling: boolean;
   localUserName = randomString(4);
   localPassword = randomString(22);
   remotePassword: string = "";
@@ -31,21 +38,15 @@ export class Connection {
   remoteIsLite = false;
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
-  stunServer?: Address;
-  turnServer?: Address;
-  useIpv4: boolean;
-  useIpv6: boolean;
-  options: IceOptions;
   remoteCandidatesEnd = false;
-  _localCandidatesEnd = false;
-  _tieBreaker: bigint = BigInt(new Uint64BE(randomBytes(64)).toString());
   state: IceState = "new";
-  dnsLookup?: DnsLookup;
-  restarted = false;
+  restarting = false;
 
-  readonly onData = new Event<[Buffer, number]>();
-  readonly stateChanged = new Event<[IceState]>();
-
+  /**@private */
+  _localCandidatesEnd = false;
+  /**@private */
+  _tieBreaker: bigint = BigInt(new Uint64BE(randomBytes(64)).toString());
+  private dnsLookup?: DnsLookup;
   private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
   private nominated?: CandidatePair;
@@ -58,7 +59,11 @@ export class Connection {
   private queryConsentHandle?: Future;
   private promiseGatherCandidates?: Event<[]>;
 
-  constructor(public iceControlling: boolean, options?: Partial<IceOptions>) {
+  readonly onData = new Event<[Buffer, number]>();
+  readonly stateChanged = new Event<[IceState]>();
+
+  constructor(iceControlling: boolean, options?: Partial<IceOptions>) {
+    this.iceControlling = iceControlling;
     this.options = {
       ...defaultOptions,
       ...options,
@@ -308,6 +313,7 @@ export class Connection {
     this.queryConsentHandle = future(this.queryConsent());
 
     this.setState("connected");
+    this.restarting = false;
   }
 
   private unfreezeInitial() {
@@ -511,25 +517,6 @@ export class Connection {
   }
 
   send = async (data: Buffer) => {
-    // """
-    // Send a datagram on the first component.
-
-    // If the connection is not established, a `ConnectionError` is raised.
-
-    // :param data: The data to be sent.
-    // """
-    await this.sendTo(data);
-  };
-
-  private async sendTo(data: Buffer) {
-    // """
-    // Send a datagram on the specified component.
-
-    // If the connection is not established, a `ConnectionError` is raised.
-
-    // :param data: The data to be sent.
-    // :param component: The component on which to send the data.
-    // """
     const activePair = this.nominated;
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
@@ -537,7 +524,7 @@ export class Connection {
       // log("Cannot send data, ice not connected");
       return;
     }
-  }
+  };
 
   getDefaultCandidate() {
     const candidates = this.localCandidates.sort(
@@ -673,12 +660,6 @@ export class Connection {
     log("switch role", iceControlling);
     this.iceControlling = iceControlling;
     this.sortCheckList();
-  }
-
-  resetNominatedPair() {
-    log("resetNominatedPair");
-    this.nominated = undefined;
-    this.nominating = false;
   }
 
   private checkComplete(pair: CandidatePair) {
@@ -962,6 +943,31 @@ export class Connection {
     protocol.sendStun(response, addr).catch((e) => {
       log("sendStun error", e);
     });
+  }
+
+  restart() {
+    this.restarting = true;
+
+    this.localUserName = randomString(4);
+    this.localPassword = randomString(22);
+    this.remotePassword = "";
+    this.remoteUsername = "";
+    this.remoteIsLite = false;
+    this.checkList = [];
+    this.localCandidates = [];
+    this.remoteCandidatesEnd = false;
+    this.state = "new";
+    this._localCandidatesEnd = false;
+    this._remoteCandidates = [];
+    this.nominated = undefined;
+    this.nominating = false;
+    this.checkListDone = false;
+    this.checkListState = new PQueue<number>();
+    this.earlyChecks = [];
+    this.localCandidatesStart = false;
+    this.protocols = [];
+    this.queryConsentHandle = undefined;
+    this.promiseGatherCandidates = undefined;
   }
 }
 

@@ -14,8 +14,6 @@ export class RTCIceTransport {
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
 
-  private waitStart?: Event<[]>;
-
   constructor(private gather: RTCIceGatherer) {
     this.connection = this.gather.connection;
     this.connection.stateChanged.subscribe((state) => {
@@ -65,18 +63,21 @@ export class RTCIceTransport {
         this.connection.remotePassword !== remoteParameters.password)
     ) {
       log("restartIce", remoteParameters);
-      this.connection.resetNominatedPair();
+      this.gather.restart();
     }
     this.connection.setRemoteParams(remoteParameters);
   }
 
   async start() {
-    if (this.state === "closed") throw new Error("RTCIceTransport is closed");
-    if (!this.connection.remotePassword || !this.connection.remoteUsername)
+    if (this.state === "closed") {
+      throw new Error("RTCIceTransport is closed");
+    }
+    if (!this.connection.remotePassword || !this.connection.remoteUsername) {
       throw new Error("remoteParams missing");
+    }
 
-    if (this.waitStart) await this.waitStart.asPromise();
-    this.waitStart = new Event();
+    if (this.gather.waitStart) await this.gather.waitStart.asPromise();
+    this.gather.waitStart = new Event();
 
     this.setState("checking");
 
@@ -87,7 +88,11 @@ export class RTCIceTransport {
       throw error;
     }
 
-    this.waitStart.complete();
+    this.gather.waitStart.complete();
+  }
+
+  restart() {
+    this.gather.restart();
   }
 
   async stop() {
@@ -113,8 +118,10 @@ export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = (typeof IceGathererStates)[number];
 
 export class RTCIceGatherer {
+  candidatesSent = new Set<string>();
   onIceCandidate: (candidate: IceCandidate) => void = () => {};
   gatheringState: IceGathererState = "new";
+  waitStart?: Event<[]>;
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
   readonly connection: Connection;
@@ -126,9 +133,18 @@ export class RTCIceGatherer {
   async gather() {
     if (this.gatheringState === "new") {
       this.setState("gathering");
-      await this.connection.gatherCandidates((candidate) =>
-        this.onIceCandidate(candidateFromIce(candidate)),
-      );
+      await this.connection.gatherCandidates((candidate) => {
+        // prevent ice candidates that have already been sent from being being resent
+        // when the connection is renegotiated during a later setLocalDescription call.
+
+        const candidateKey = candidate.foundation;
+        if (this.candidatesSent.has(candidateKey)) {
+          return;
+        }
+
+        this.candidatesSent.add(candidateKey);
+        this.onIceCandidate(candidateFromIce(candidate));
+      });
       this.setState("complete");
     }
   }
@@ -146,7 +162,15 @@ export class RTCIceGatherer {
     return params;
   }
 
-  private setState(state: IceGathererState) {
+  restart() {
+    this.setState("new");
+    this.candidatesSent.clear();
+    this.waitStart = undefined;
+
+    this.connection.restart();
+  }
+
+  setState(state: IceGathererState) {
     if (state !== this.gatheringState) {
       this.gatheringState = state;
       this.onGatheringStateChange.execute(state);

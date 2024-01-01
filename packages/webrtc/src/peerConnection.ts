@@ -96,8 +96,6 @@ export class RTCPeerConnection extends EventTarget {
     this.transceivers[index] = t;
   }
 
-  candidatesSent = new Set<string>();
-
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
   readonly signalingStateChange = new Event<[RTCSignalingState]>();
@@ -145,6 +143,12 @@ export class RTCPeerConnection extends EventTarget {
 
   get extIdUriMap() {
     return this.router.extIdUriMap;
+  }
+
+  get dataChannels() {
+    const channels =
+      Object.values(this.sctpTransport?.dataChannels ?? {}) ?? [];
+    return channels;
   }
 
   constructor(config: Partial<PeerConfig> = {}) {
@@ -419,6 +423,7 @@ export class RTCPeerConnection extends EventTarget {
     });
 
     const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    this.sctpTransport.dataChannels[channel.id] = channel;
     return channel;
   }
 
@@ -528,16 +533,6 @@ export class RTCPeerConnection extends EventTarget {
 
       candidate.foundation = "candidate:" + candidate.foundation;
 
-      // prevent ice candidates that have already been sent from being being resent
-      // when the connection is renegotiated during a later setLocalDescription call.
-      if (candidate.sdpMid) {
-        const candidateKey = `${candidate.foundation}:${candidate.sdpMid}`;
-        if (this.candidatesSent.has(candidateKey)) {
-          return;
-        }
-        this.candidatesSent.add(candidateKey);
-      }
-
       this.onIceCandidate.execute(candidate.toJSON());
       if (this.onicecandidate) {
         this.onicecandidate({ candidate: candidate.toJSON() });
@@ -595,8 +590,7 @@ export class RTCPeerConnection extends EventTarget {
       this.setSignalingState("stable");
     }
 
-    // # assign MID
-    description.media.forEach((media, i) => {
+    for (const [i, media] of enumerate(description.media)) {
       const mid = media.rtp.muxId!;
       this.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
@@ -608,10 +602,13 @@ export class RTCPeerConnection extends EventTarget {
       if (media.kind === "application" && this.sctpTransport) {
         this.sctpTransport.mid = mid;
       }
-    });
+    }
 
     const setupRole = (dtlsTransport: RTCDtlsTransport) => {
       const iceTransport = dtlsTransport.iceTransport;
+      if (iceTransport.connection.restarting) {
+        return;
+      }
 
       // # set ICE role
       if (description.type === "offer") {
@@ -634,14 +631,17 @@ export class RTCPeerConnection extends EventTarget {
         }
       }
     };
-    this.dtlsTransports.forEach((d) => setupRole(d));
+
+    for (const d of this.dtlsTransports) {
+      setupRole(d);
+    }
 
     // # configure direction
     if (["answer", "pranswer"].includes(description.type)) {
-      this.transceivers.forEach((t) => {
+      for (const t of this.transceivers) {
         const direction = andDirection(t.direction, t.offerDirection);
         t.setCurrentDirection(direction);
-      });
+      }
     }
 
     // for trickle ice
@@ -670,11 +670,12 @@ export class RTCPeerConnection extends EventTarget {
       );
     }
 
-    description.media
-      .filter((m) => ["audio", "video"].includes(m.kind))
-      .forEach((m, i) => {
-        addTransportDescription(m, this.transceivers[i].dtlsTransport);
-      });
+    for (const [i, m] of enumerate(
+      description.media.filter((m) => ["audio", "video"].includes(m.kind)),
+    )) {
+      addTransportDescription(m, this.transceivers[i].dtlsTransport);
+    }
+
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (this.sctpTransport && sctpMedia) {
       addTransportDescription(sctpMedia, this.sctpTransport.dtlsTransport);
@@ -751,6 +752,18 @@ export class RTCPeerConnection extends EventTarget {
 
   private async connect() {
     if (this.transportEstablished) {
+      await Promise.allSettled(
+        this.dtlsTransports.map(async (dtlsTransport) => {
+          const { iceTransport } = dtlsTransport;
+          if (iceTransport.connection.restarting) {
+            await iceTransport.start().catch((err) => {
+              log("iceTransport.start failed", err);
+              throw err;
+            });
+          }
+        }),
+      );
+
       return;
     }
     log("start connect");
@@ -782,6 +795,13 @@ export class RTCPeerConnection extends EventTarget {
 
     this.transportEstablished = true;
     this.setConnectionState("connected");
+  }
+
+  restartIce() {
+    for (const ice of this.iceTransports) {
+      ice.restart();
+    }
+    this.needNegotiation();
   }
 
   private getLocalRtpParams(transceiver: RTCRtpTransceiver): RTCRtpParameters {
