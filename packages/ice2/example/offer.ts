@@ -1,7 +1,5 @@
 import readline from "readline";
-
-import { Connection } from "../src";
-import { Candidate } from "../src/candidate";
+import {IceAgent} from '../src'
 
 const reader = readline.createInterface({
   input: process.stdin,
@@ -9,9 +7,7 @@ const reader = readline.createInterface({
 });
 
 (async () => {
-  const connection = new Connection(true, {
-    stunServer: ["stun.l.google.com", 19302],
-  });
+  const connection = new IceAgent("controlling");
   await connection.gatherCandidates();
 
   const candidates = connection.localCandidates.map((v) => v.toSdp());

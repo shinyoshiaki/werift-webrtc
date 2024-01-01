@@ -83,19 +83,20 @@ export class IceAgent {
     return "running";
   }
 
-  constructor(options: Partial<IceAgentOptions> = {}) {
+  constructor(role:IceRole, options: Partial<IceAgentOptions> = {}) {
     options.useIpv4 ??= true;
     options.isLite ??= false;
     this.options = options as IceAgentOptions;
 
     this.isLite = options.isLite;
+    this.role = role;
 
     this.onIceCandidate.subscribe((candidate) => {
       this.localCandidates.push(candidate);
     });
   }
 
-  async gatheringCandidates() {
+  async gatherCandidates() {
     const candidates = await this.gatheringHost();
     if (this.options.isLite) {
       return [candidates[0]];

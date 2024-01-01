@@ -10,11 +10,10 @@ const reader = readline.createInterface({
 (async () => {
   const connection = new Connection(true, {
     stunServer: ["stun.l.google.com", 19302],
-    log: false,
   });
 
   // set offer; send answer
-  await new Promise((r) => {
+  await new Promise<void>((r) => {
     const listen = async (line: string) => {
       let { candidates, name, pass } = JSON.parse(line);
       connection.remoteCandidates = candidates.map((v: any) =>
@@ -43,12 +42,14 @@ const reader = readline.createInterface({
   });
 
   // connect
-  await new Promise((r) => {
+  await new Promise<void>((r) => {
     const listen = async (line: string) => {
       if (line.length === 0) {
+        console.log("start connect")
+
         await connection.connect();
         await connection.send(Buffer.from("answer"));
-        console.log((await connection.recv()).toString());
+        console.log( (await connection.onData.asPromise()).toString());
         reader.prompt();
         reader.removeListener("line", listen);
         r();

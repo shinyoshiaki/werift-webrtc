@@ -3,6 +3,7 @@ import { Address } from "../model";
 import { StunAgent } from "../stun/agent";
 import { address2Str } from "../util";
 import { IceRole } from "./agent";
+import {write,SessionDescription,MediaAttributes,} from "sdp-transform"
 
 // ベース: ICEエージェントが特定の候補のために送信するトランスポートアドレス。
 // ホスト候補、サーバー反射候補、ピア反射候補の場合、ベースはホスト候補と同じである。
@@ -53,6 +54,24 @@ export class IceCandidateImpl implements IceCandidate {
       relatedAddress: this.relatedAddress,
     };
   }
+}
+
+type SdpIceCandidate=NonNullable<MediaAttributes["candidates"]>[0]
+
+export const toSdp = (candidate: IceCandidate) => {
+  const ice:SdpIceCandidate={
+    foundation: candidate.foundation,
+    component: candidate.componentId,
+    transport: candidate.transport,
+    priority: candidate.priority,
+    ip: candidate.address[0],
+    port: candidate.address[1],
+    type: candidate.type,
+    raddr: candidate.relatedAddress?.[0],
+    rport: candidate.relatedAddress?.[1],
+  }
+  const sdp=write(ice as any)
+  return sdp
 }
 
 /**6.1.2.6. Computing Candidate Pair States */

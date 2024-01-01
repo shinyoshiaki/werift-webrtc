@@ -33,13 +33,15 @@
     "jspack": "^0.0.4",
     "lodash": "^4.17.21",
     "p-cancelable": "^2.1.1",
-    "rx.mini": "^1.2.2"
+    "rx.mini": "^1.2.2",
+    "sdp-transform": "^2.14.1"
   },
   "devDependencies": {
     "@types/buffer-crc32": "^0.2.2",
     "@types/debug": "^4.1.7",
     "@types/ip": "^1.1.0",
     "@types/lodash": "^4.14.191",
+    "@types/sdp-transform": "^2.4.6",
     "@types/utf8": "^3.0.1",
     "@types/ws": "^8.5.3",
     "ws": "^8.11.0"

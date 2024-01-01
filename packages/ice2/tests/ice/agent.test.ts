@@ -4,7 +4,7 @@ describe("ice/agent", () => {
   describe("gatheringCandidates", () => {
     it("should return candidates", async () => {
       const agent = new IceAgent();
-      const candidates = await agent.gatheringCandidates();
+      const candidates = await agent.gatherCandidates();
       console.log(candidates);
       expect(candidates.length).toBeGreaterThan(1);
       for (const candidate of candidates) {
@@ -15,7 +15,7 @@ describe("ice/agent", () => {
 
     it("should return a candidate with isLite", async () => {
       const agent = new IceAgent({ isLite: true });
-      const candidates = await agent.gatheringCandidates();
+      const candidates = await agent.gatherCandidates();
       console.log(candidates);
       expect(candidates.length).toBe(1);
       const candidate = candidates[0];
