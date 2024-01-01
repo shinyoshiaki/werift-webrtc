@@ -38,7 +38,10 @@ export class ice_restart_answer {
         const offer = await this.pc.createOffer();
         this.pc.setLocalDescription(offer);
         accept(this.pc.localDescription);
+        await this.pc.iceConnectionStateChange.watch((e) => e === "connected");
+        this.pc.dataChannels[0].send("ping" + "pong" + "pang");
       }
+      break;
     }
   }
 }
