@@ -1,11 +1,10 @@
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-import os from "os";
+
 import debug from "debug";
 import { Uint64BE } from "int64-buffer";
-import * as nodeIp from "ip";
+
 import isEqual from "lodash/isEqual";
-import range from "lodash/range";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import timers from "timers/promises";
@@ -20,7 +19,7 @@ import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { createTurnEndpoint } from "./turn/protocol";
 import { Address, Protocol } from "./types/model";
-import { normalizeFamilyNodeV18 } from "./utils";
+import { getHostAddresses, normalizeFamilyNodeV18 } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
@@ -38,26 +37,19 @@ export class Connection {
   useIpv6: boolean;
   options: IceOptions;
   remoteCandidatesEnd = false;
-  /**コンポーネントはデータストリームの一部です. データストリームには複数のコンポーネントが必要な場合があり、
-   * データストリーム全体が機能するには、それぞれが機能する必要があります.
-   *  RTP / RTCPデータストリームの場合、RTPとRTCPが同じポートで多重化されていない限り、データストリームごとに2つのコンポーネントがあります.
-   * 1つはRTP用、もう1つはRTCP用です. コンポーネントには候補ペアがあり、他のコンポーネントでは使用できません.  */
-  _components: Set<number>;
   _localCandidatesEnd = false;
   _tieBreaker: bigint = BigInt(new Uint64BE(randomBytes(64)).toString());
   state: IceState = "new";
   dnsLookup?: DnsLookup;
+  restarted = false;
 
   readonly onData = new Event<[Buffer, number]>();
   readonly stateChanged = new Event<[IceState]>();
 
   private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
-  private nominated: { [componentId: number]: CandidatePair } = {};
-  get nominatedKeys() {
-    return Object.keys(this.nominated).map((v) => v.toString());
-  }
-  private nominating = new Set<number>();
+  private nominated?: CandidatePair;
+  private nominating = false;
   private checkListDone = false;
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
@@ -71,13 +63,11 @@ export class Connection {
       ...defaultOptions,
       ...options,
     };
-    const { components, stunServer, turnServer, useIpv4, useIpv6 } =
-      this.options;
+    const { stunServer, turnServer, useIpv4, useIpv6 } = this.options;
     this.stunServer = validateAddress(stunServer);
     this.turnServer = validateAddress(turnServer);
     this.useIpv4 = useIpv4;
     this.useIpv6 = useIpv6;
-    this._components = new Set(range(1, components + 1));
   }
 
   setRemoteParams({
@@ -117,15 +107,8 @@ export class Connection {
         );
       }
 
-      for (const component of this._components) {
-        const candidates = await this.getComponentCandidates(
-          component,
-          address,
-          5,
-          cb,
-        );
-        this.localCandidates = [...this.localCandidates, ...candidates];
-      }
+      const candidates = await this.getCandidates(address, 5, cb);
+      this.localCandidates = [...this.localCandidates, ...candidates];
 
       this._localCandidatesEnd = true;
       this.promiseGatherCandidates.execute();
@@ -133,8 +116,7 @@ export class Connection {
     this.setState("completed");
   }
 
-  private async getComponentCandidates(
-    component: number,
+  private async getCandidates(
     addresses: string[],
     timeout = 5,
     cb?: (candidate: Candidate) => void,
@@ -164,9 +146,9 @@ export class Connection {
 
         protocol.localCandidate = new Candidate(
           candidateFoundation("host", "udp", candidateAddress[0]),
-          component,
+          1,
           "udp",
-          candidatePriority(component, "host"),
+          candidatePriority(1, "host"),
           candidateAddress[0],
           candidateAddress[1],
           "host",
@@ -231,9 +213,9 @@ export class Connection {
 
         protocol.localCandidate = new Candidate(
           candidateFoundation("relay", "udp", candidateAddress[0]),
-          component,
+          1,
           "udp",
-          candidatePriority(component, "relay"),
+          candidatePriority(1, "relay"),
           candidateAddress[0],
           candidateAddress[1],
           "relay",
@@ -330,9 +312,7 @@ export class Connection {
 
   private unfreezeInitial() {
     // # unfreeze first pair for the first component
-    const firstPair = this.checkList.find(
-      (pair) => pair.component === Math.min(...[...this._components]),
-    );
+    const [firstPair] = this.checkList;
     if (!firstPair) return;
     if (firstPair.state === CandidatePairState.FROZEN) {
       this.setPairState(firstPair, CandidatePairState.WAITING);
@@ -414,32 +394,33 @@ export class Connection {
             { signal: cancelEvent.signal },
           );
 
-          for (const key of this.nominatedKeys) {
-            const pair = this.nominated[Number(key)];
-            const request = this.buildRequest(pair, false);
-            try {
-              const [msg, addr] = await pair.protocol.request(
-                request,
-                pair.remoteAddr,
-                Buffer.from(this.remotePassword, "utf8"),
-                0,
-              );
-              failures = 0;
-              if (this.state === "disconnected") {
-                this.setState("connected");
-              }
-            } catch (error) {
-              log("no stun response");
-              failures++;
-              this.setState("disconnected");
+          const pair = this.nominated;
+          if (!pair) {
+            break;
+          }
+          const request = this.buildRequest(pair, false);
+          try {
+            const [msg, addr] = await pair.protocol.request(
+              request,
+              pair.remoteAddr,
+              Buffer.from(this.remotePassword, "utf8"),
+              0,
+            );
+            failures = 0;
+            if (this.state === "disconnected") {
+              this.setState("connected");
             }
-            if (failures >= CONSENT_FAILURES) {
-              log("Consent to send expired");
-              this.queryConsentHandle = undefined;
-              // 切断検知
-              r(await this.close());
-              return;
-            }
+          } catch (error) {
+            log("no stun response");
+            failures++;
+            this.setState("disconnected");
+          }
+          if (failures >= CONSENT_FAILURES) {
+            log("Consent to send expired");
+            this.queryConsentHandle = undefined;
+            // 切断検知
+            r(await this.close());
+            return;
           }
         }
       } catch (error) {}
@@ -471,7 +452,7 @@ export class Connection {
       );
     }
 
-    this.nominated = {};
+    this.nominated = undefined;
     for (const protocol of this.protocols) {
       if (protocol.close) {
         await protocol.close();
@@ -499,7 +480,6 @@ export class Connection {
     // """
 
     if (!remoteCandidate) {
-      this.pruneComponents();
       this.remoteCandidatesEnd = true;
       return;
     }
@@ -538,10 +518,10 @@ export class Connection {
 
     // :param data: The data to be sent.
     // """
-    await this.sendTo(data, 1);
+    await this.sendTo(data);
   };
 
-  private async sendTo(data: Buffer, component: number) {
+  private async sendTo(data: Buffer) {
     // """
     // Send a datagram on the specified component.
 
@@ -550,7 +530,7 @@ export class Connection {
     // :param data: The data to be sent.
     // :param component: The component on which to send the data.
     // """
-    const activePair = this.nominated[component];
+    const activePair = this.nominated;
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
     } else {
@@ -559,13 +539,11 @@ export class Connection {
     }
   }
 
-  getDefaultCandidate(component: number) {
+  getDefaultCandidate() {
     const candidates = this.localCandidates.sort(
       (a, b) => a.priority - b.priority,
     );
-    const candidate = candidates.find(
-      (candidate) => candidate.component === component,
-    );
+    const [candidate] = candidates;
     return candidate;
   }
 
@@ -666,21 +644,11 @@ export class Connection {
       }
       this.remoteCandidates.push(remoteCandidate);
     }
-    this.pruneComponents();
+
     this.remoteCandidatesEnd = true;
   }
   get remoteCandidates() {
     return this._remoteCandidates;
-  }
-
-  private pruneComponents() {
-    const seenComponents = new Set(
-      this.remoteCandidates.map((v) => v.component),
-    );
-    const missingComponents = [...difference(this._components, seenComponents)];
-    if (missingComponents.length > 0) {
-      this._components = seenComponents;
-    }
   }
 
   private sortCheckList() {
@@ -709,8 +677,8 @@ export class Connection {
 
   resetNominatedPair() {
     log("resetNominatedPair");
-    this.nominated = {};
-    this.nominating.clear();
+    this.nominated = undefined;
+    this.nominating = false;
   }
 
   private checkComplete(pair: CandidatePair) {
@@ -722,10 +690,10 @@ export class Connection {
       // Once the nominated flag is set for a component of a data stream, it
       // concludes the ICE processing for that component.  See Section 8.
       // So disallow overwriting of the pair nominated for that component
-      if (pair.nominated && this.nominated[pair.component] == undefined) {
+      if (pair.nominated && this.nominated == undefined) {
         log("nominated", pair.toJSON());
-        this.nominated[pair.component] = pair;
-        this.nominating.delete(pair.component);
+        this.nominated = pair;
+        this.nominating = false;
 
         // 8.1.2.  Updating States
 
@@ -747,7 +715,7 @@ export class Connection {
       // Once there is at least one nominated pair in the valid list for
       // every component of at least one media stream and the state of the
       // check list is Running:
-      if (this.nominatedKeys.length === this._components.size) {
+      if (this.nominated) {
         if (!this.checkListDone) {
           log("ICE completed");
           this.checkListState.put(new Promise((r) => r(ICE_COMPLETED)));
@@ -853,9 +821,9 @@ export class Connection {
       if (nominate || pair.remoteNominated) {
         // # nominated by agressive nomination or the remote party
         pair.nominated = true;
-      } else if (this.iceControlling && !this.nominating.has(pair.component)) {
+      } else if (this.iceControlling && !this.nominating) {
         // # perform regular nomination
-        this.nominating.add(pair.component);
+        this.nominating = true;
         const request = this.buildRequest(pair, true);
         try {
           await pair.protocol.request(
@@ -883,10 +851,6 @@ export class Connection {
     // """
     // Handle a successful incoming check.
     // """
-    const component = protocol.localCandidate?.component;
-    if (component == undefined) {
-      throw new Error("component not exist");
-    }
 
     // find remote candidate
     let remoteCandidate: Candidate | undefined;
@@ -894,9 +858,6 @@ export class Connection {
     for (const c of this.remoteCandidates) {
       if (c.host === host && c.port === port) {
         remoteCandidate = c;
-        if (remoteCandidate.component !== component) {
-          throw new Error("checkIncoming");
-        }
         break;
       }
     }
@@ -904,7 +865,7 @@ export class Connection {
       // 7.2.1.3.  Learning Peer Reflexive Candidates
       remoteCandidate = new Candidate(
         randomString(10),
-        component,
+        1,
         "udp",
         message.getAttributeValue("PRIORITY"),
         host,
@@ -1059,7 +1020,6 @@ export enum CandidatePairState {
 type IceState = "disconnected" | "closed" | "completed" | "new" | "connected";
 
 export interface IceOptions {
-  components: number;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
@@ -1081,7 +1041,6 @@ export interface IceOptions {
 }
 
 const defaultOptions: IceOptions = {
-  components: 1,
   useIpv4: true,
   useIpv6: true,
 };
@@ -1125,57 +1084,6 @@ export function candidatePairPriority(
   const G = (iceControlling && local.priority) || remote.priority;
   const D = (iceControlling && remote.priority) || local.priority;
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
-}
-
-function isAutoconfigurationAddress(info: os.NetworkInterfaceInfo) {
-  return (
-    normalizeFamilyNodeV18(info.family) === 4 &&
-    info.address?.startsWith("169.254.")
-  );
-}
-
-function nodeIpAddress(family: number): string[] {
-  // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
-  const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
-  const banNetworks = ["vmnet", "veth"];
-
-  const interfaces = os.networkInterfaces();
-
-  const all = Object.keys(interfaces)
-    .map((nic) => {
-      for (const word of [...costlyNetworks, ...banNetworks]) {
-        if (nic.startsWith(word)) {
-          return {
-            nic,
-            addresses: [],
-          };
-        }
-      }
-      const addresses = interfaces[nic]!.filter(
-        (details) =>
-          normalizeFamilyNodeV18(details.family) === family &&
-          !nodeIp.isLoopback(details.address) &&
-          !isAutoconfigurationAddress(details),
-      );
-      return {
-        nic,
-        addresses: addresses.map((address) => address.address),
-      };
-    })
-    .filter((address) => !!address);
-
-  // os.networkInterfaces doesn't actually return addresses in a good order.
-  // have seen instances where en0 (ethernet) is after en1 (wlan), etc.
-  // eth0 > eth1
-  all.sort((a, b) => a.nic.localeCompare(b.nic));
-  return Object.values(all).flatMap((entry) => entry.addresses);
-}
-
-export function getHostAddresses(useIpv4: boolean, useIpv6: boolean) {
-  const address: string[] = [];
-  if (useIpv4) address.push(...nodeIpAddress(4));
-  if (useIpv6) address.push(...nodeIpAddress(6));
-  return address;
 }
 
 export async function serverReflexiveCandidate(

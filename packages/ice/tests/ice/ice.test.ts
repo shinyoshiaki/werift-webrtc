@@ -114,12 +114,9 @@ describe("ice", () => {
     assertCandidateTypes(a, ["host"]);
     assertCandidateTypes(b, ["host"]);
 
-    let candidate = a.getDefaultCandidate(1);
+    const candidate = a.getDefaultCandidate();
     expect(candidate).not.toBeUndefined();
     expect(candidate?.type).toBe("host");
-
-    candidate = a.getDefaultCandidate(2);
-    expect(candidate).toBeUndefined();
 
     await Promise.all([a.connect(), b.connect()]);
 
@@ -481,7 +478,7 @@ describe("ice", () => {
     assertCandidateTypes(a, ["host", "srflx"]);
     assertCandidateTypes(b, ["host", "srflx"]);
 
-    const candidate = a.getDefaultCandidate(1)!;
+    const candidate = a.getDefaultCandidate()!;
     expect(candidate).not.toBeUndefined();
     expect(candidate.type).toBe("srflx");
     expect(candidate.relatedAddress).not.toBeUndefined();
@@ -589,11 +586,9 @@ describe("ice", () => {
     assertCandidateTypes(a, ["host"]);
     assertCandidateTypes(b, ["host"]);
 
-    const candidate = a.getDefaultCandidate(1)!;
+    const candidate = a.getDefaultCandidate()!;
     expect(candidate).not.toBeUndefined();
     expect(candidate.type).toBe("host");
-
-    expect(a.getDefaultCandidate(2)).toBeUndefined();
 
     // # connect
     await Promise.all([a.connect(), b.connect()]);

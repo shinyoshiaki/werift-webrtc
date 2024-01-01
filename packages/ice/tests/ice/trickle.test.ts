@@ -19,12 +19,9 @@ describe("IceTrickleTest", () => {
     assertCandidateTypes(a, ["host"]);
     assertCandidateTypes(b, ["host"]);
 
-    let candidate = a.getDefaultCandidate(1)!;
+    const candidate = a.getDefaultCandidate()!;
     expect(candidate).not.toBeUndefined();
     expect(candidate.type).toBe("host");
-
-    candidate = a.getDefaultCandidate(2)!;
-    expect(candidate).toBeUndefined();
 
     const addCandidatesLater = async (a: Connection, b: Connection) => {
       await setTimeout(100);
