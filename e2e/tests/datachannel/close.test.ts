@@ -43,7 +43,7 @@ describe("datachannel/close", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -94,7 +94,7 @@ describe("datachannel/close", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -143,7 +143,7 @@ describe("datachannel/close", () => {
           done();
         });
       }),
-    30 * 1000
+    30 * 1000,
   );
 
   it(
@@ -180,6 +180,6 @@ describe("datachannel/close", () => {
         });
         pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

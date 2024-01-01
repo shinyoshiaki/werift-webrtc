@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep, Counter } from "../fixture";
+import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("bundle_disable", () => {
   it(
@@ -75,7 +75,7 @@ describe("bundle_disable", () => {
           })
           .catch(() => {});
       }),
-    20 * 1000
+    20 * 1000,
   );
 
   it(
@@ -145,6 +145,6 @@ describe("bundle_disable", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    20 * 1000
+    20 * 1000,
   );
 });

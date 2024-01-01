@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture";
 
 const mediachannel_removetrack_addtrack = "mediachannel_removetrack_addtrack";
 const mediachannel_addtrack_removefirst_addtrack =
@@ -43,7 +43,7 @@ describe("mediachannel_removeTrack", () => {
 
         answer();
         let track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -58,7 +58,7 @@ describe("mediachannel_removeTrack", () => {
         });
         answer();
         track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -68,7 +68,7 @@ describe("mediachannel_removeTrack", () => {
         pc.close();
         done();
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -82,7 +82,7 @@ describe("mediachannel_removeTrack", () => {
           mediachannel_addtrack_removefirst_addtrack,
           {
             type: "init",
-          }
+          },
         );
 
         const pc = new RTCPeerConnection({
@@ -110,7 +110,7 @@ describe("mediachannel_removeTrack", () => {
 
         answer();
         let track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -119,7 +119,7 @@ describe("mediachannel_removeTrack", () => {
         });
         answer();
         track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -134,7 +134,7 @@ describe("mediachannel_removeTrack", () => {
         });
         answer();
         track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -144,7 +144,7 @@ describe("mediachannel_removeTrack", () => {
         pc.close();
         done();
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -251,6 +251,6 @@ describe("mediachannel_removeTrack", () => {
         pc.close();
         done();
       }),
-    6000 * 1000
+    6000 * 1000,
   );
 });

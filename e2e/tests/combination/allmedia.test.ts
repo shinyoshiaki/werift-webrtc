@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep, Counter } from "../fixture";
+import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("combination_all_media", () => {
   it(
@@ -68,7 +68,7 @@ describe("combination_all_media", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -123,6 +123,6 @@ describe("combination_all_media", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("mediachannel_sendrecv", () => {
   it(
@@ -46,7 +46,7 @@ describe("mediachannel_sendrecv", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -84,6 +84,6 @@ describe("mediachannel_sendrecv", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

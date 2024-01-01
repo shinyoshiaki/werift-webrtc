@@ -42,7 +42,7 @@ describe("datachannel", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -79,6 +79,6 @@ describe("datachannel", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

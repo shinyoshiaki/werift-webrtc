@@ -1,9 +1,9 @@
 import {
-  createSelfSignedCertificate,
   DtlsKeys,
   HashAlgorithm,
-  SignatureAlgorithm,
   PeerConfig,
+  SignatureAlgorithm,
+  createSelfSignedCertificate,
 } from ".";
 import { BundlePolicy, NamedCurveAlgorithm } from "../../packages/webrtc/src";
 
@@ -26,7 +26,7 @@ export class DtlsKeysContext {
         signature: SignatureAlgorithm.ecdsa_3,
         hash: HashAlgorithm.sha256_4,
       },
-      NamedCurveAlgorithm.secp256r1_23
+      NamedCurveAlgorithm.secp256r1_23,
     );
   }
 }

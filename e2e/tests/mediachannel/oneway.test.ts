@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("mediachannel_oneway", () => {
   it(
@@ -44,7 +44,7 @@ describe("mediachannel_oneway", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -84,6 +84,6 @@ describe("mediachannel_oneway", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

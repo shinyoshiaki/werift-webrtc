@@ -54,7 +54,7 @@ describe("ice/trickle", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   it(
@@ -100,6 +100,6 @@ describe("ice/trickle", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

@@ -7,7 +7,7 @@ describe("mediachannel_red", () => {
   const receiverTransform = (
     receiver: RTCRtpReceiver,
     expectPT: number,
-    done: () => void
+    done: () => void,
   ) => {
     const receiverStreams = (receiver as any).createEncodedStreams();
     const readableStream = receiverStreams.readable;
@@ -76,7 +76,7 @@ describe("mediachannel_red", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000
+    10 * 1000,
   );
 
   const mediachannel_red_client_offer = "mediachannel_red_client_offer";
@@ -127,6 +127,6 @@ describe("mediachannel_red", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

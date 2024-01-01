@@ -2,11 +2,11 @@ import { ChildProcess, spawn } from "child_process";
 import { createSocket } from "dgram";
 import { AcceptFn } from "protoo-server";
 import {
-  RTCPeerConnection,
   MediaStreamTrack,
+  MediaStreamTrackFactory,
+  RTCPeerConnection,
   RtpPacket,
   randomPort,
-  MediaStreamTrackFactory,
 } from "../../";
 import { peerConfig } from "../../fixture";
 
@@ -17,49 +17,46 @@ export class mediachannel_addTrack_answer {
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
-      case "init":
-        {
-          const [track, port, disposer] =
-            await MediaStreamTrackFactory.rtpSource({ kind: "video" });
-          this.disposer = disposer;
+      case "init": {
+        const [track, port, disposer] = await MediaStreamTrackFactory.rtpSource(
+          { kind: "video" },
+        );
+        this.disposer = disposer;
 
-          this.pc = new RTCPeerConnection(await peerConfig);
-          this.pc.addTrack(track);
-          await this.pc.setLocalDescription(await this.pc.createOffer());
-          accept(this.pc.localDescription);
+        this.pc = new RTCPeerConnection(await peerConfig);
+        this.pc.addTrack(track);
+        await this.pc.setLocalDescription(await this.pc.createOffer());
+        accept(this.pc.localDescription);
 
-          const args = [
-            `videotestsrc`,
-            "video/x-raw,width=640,height=480,format=I420",
-            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
-            "rtpvp8pay",
-            `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
-        }
-        break;
-      case "candidate":
-        {
-          await this.pc.addIceCandidate(payload);
-          accept({});
-        }
-        break;
-      case "answer":
-        {
-          await this.pc.setRemoteDescription(payload);
-          accept({});
-        }
-        break;
-      case "done":
-        {
-          this.disposer();
-          this.pc.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
-          accept({});
-        }
-        break;
+        const args = [
+          `videotestsrc`,
+          "video/x-raw,width=640,height=480,format=I420",
+          "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+          "rtpvp8pay",
+          `udpsink host=127.0.0.1 port=${port}`,
+        ].join(" ! ");
+        this.process = spawn("gst-launch-1.0", args.split(" "));
+      }
+      break;
+      case "candidate": {
+        await this.pc.addIceCandidate(payload);
+        accept({});
+      }
+      break;
+      case "answer": {
+        await this.pc.setRemoteDescription(payload);
+        accept({});
+      }
+      break;
+      case "done": {
+        this.disposer();
+        this.pc.close();
+        try {
+          this.process.kill("SIGINT");
+        } catch (error) {}
+        accept({});
+      }
+      break;
     }
   }
 }
@@ -71,55 +68,51 @@ export class mediachannel_addTrack_offer {
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
-      case "init":
-        {
-          this.pc = new RTCPeerConnection(await peerConfig);
-          accept({});
-        }
-        break;
-      case "offer":
-        {
-          const port = await randomPort();
-          this.udp.bind(port);
+      case "init": {
+        this.pc = new RTCPeerConnection(await peerConfig);
+        accept({});
+      }
+      break;
+      case "offer": {
+        const port = await randomPort();
+        this.udp.bind(port);
 
-          const track = new MediaStreamTrack({ kind: "video" });
-          this.pc.addTrack(track);
+        const track = new MediaStreamTrack({ kind: "video" });
+        this.pc.addTrack(track);
 
-          await this.pc.setRemoteDescription(payload);
-          await this.pc.setLocalDescription(await this.pc.createAnswer());
-          accept(this.pc.localDescription);
+        await this.pc.setRemoteDescription(payload);
+        await this.pc.setLocalDescription(await this.pc.createAnswer());
+        accept(this.pc.localDescription);
 
-          this.udp.on("message", (data) => {
-            const rtp = RtpPacket.deSerialize(data);
-            track.writeRtp(rtp);
-          });
+        this.udp.on("message", (data) => {
+          const rtp = RtpPacket.deSerialize(data);
+          track.writeRtp(rtp);
+        });
 
-          const args = [
-            `videotestsrc`,
-            "video/x-raw,width=640,height=480,format=I420",
-            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
-            "rtpvp8pay",
-            `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
-        }
-        break;
-      case "candidate":
-        {
-          await this.pc.addIceCandidate(payload);
-          accept({});
-        }
-        break;
-      case "done":
-        {
-          this.udp.close();
-          this.pc.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
-          accept({});
-        }
-        break;
+        const args = [
+          `videotestsrc`,
+          "video/x-raw,width=640,height=480,format=I420",
+          "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+          "rtpvp8pay",
+          `udpsink host=127.0.0.1 port=${port}`,
+        ].join(" ! ");
+        this.process = spawn("gst-launch-1.0", args.split(" "));
+      }
+      break;
+      case "candidate": {
+        await this.pc.addIceCandidate(payload);
+        accept({});
+      }
+      break;
+      case "done": {
+        this.udp.close();
+        this.pc.close();
+        try {
+          this.process.kill("SIGINT");
+        } catch (error) {}
+        accept({});
+      }
+      break;
     }
   }
 }

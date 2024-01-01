@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("mediachannel_simulcast", () => {
   it(
@@ -84,7 +84,7 @@ describe("mediachannel_simulcast", () => {
           })
           .catch(() => {});
       }),
-    15_000
+    15_000,
   );
 
   it(
@@ -165,6 +165,6 @@ describe("mediachannel_simulcast", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    15_000
+    15_000,
   );
 });

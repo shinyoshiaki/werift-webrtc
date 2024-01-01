@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep, Counter } from "../fixture";
+import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("bundle_max_compat", () => {
   it(
@@ -69,7 +69,7 @@ describe("bundle_max_compat", () => {
           })
           .catch(() => {});
       }),
-    6000 * 1000
+    6000 * 1000,
   );
 
   it(
@@ -133,6 +133,6 @@ describe("bundle_max_compat", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000
+    10 * 1000,
   );
 });

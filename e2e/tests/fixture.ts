@@ -1,4 +1,4 @@
-import { WebSocketTransport, Peer } from "protoo-client";
+import { Peer, WebSocketTransport } from "protoo-client";
 
 const transport = new WebSocketTransport("ws://localhost:8886");
 export const peer = new Peer(transport);
@@ -19,14 +19,14 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
   canvas.height = video.height;
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
   const snapshot = await digestMessage(
-    context.getImageData(0, 0, canvas.width, canvas.height).data
+    context.getImageData(0, 0, canvas.width, canvas.height).data,
   );
 
   for (;;) {
     await new Promise((r) => setTimeout(r, 100));
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const data = await digestMessage(
-      context.getImageData(0, 0, canvas.width, canvas.height).data
+      context.getImageData(0, 0, canvas.width, canvas.height).data,
     );
 
     if (snapshot !== data) break;
