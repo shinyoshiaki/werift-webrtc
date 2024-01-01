@@ -1,10 +1,10 @@
 import {
-  deserializeAudioLevelIndication,
-  isMedia,
   MediaStreamTrack,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
+  deserializeAudioLevelIndication,
+  isMedia,
   serializeAudioLevelIndication,
   useSdesMid,
 } from "../../src";
@@ -22,7 +22,7 @@ describe("media", () => {
         .then(() => {
           const rtpPacket = new RtpPacket(
             new RtpHeader(),
-            Buffer.from("test")
+            Buffer.from("test"),
           ).serialize();
           expect(isMedia(rtpPacket)).toBe(true);
           track.writeRtp(rtpPacket);
@@ -64,7 +64,7 @@ describe("media", () => {
             transceiver.sender.onReady.subscribe(() => {
               const rtpPacket = new RtpPacket(
                 new RtpHeader(),
-                Buffer.from("pc1")
+                Buffer.from("pc1"),
               ).serialize();
               expect(isMedia(rtpPacket)).toBe(true);
               track.writeRtp(rtpPacket);
@@ -76,7 +76,7 @@ describe("media", () => {
             transceiver.sender.onReady.subscribe(() => {
               const rtpPacket = new RtpPacket(
                 new RtpHeader(),
-                Buffer.from("pc2")
+                Buffer.from("pc2"),
               ).serialize();
               expect(isMedia(rtpPacket)).toBe(true);
               track.writeRtp(rtpPacket);
@@ -113,14 +113,14 @@ describe("media", () => {
     //@ts-expect-error
     const pc1Local = pc1._localDescription!;
     expect(pc1Local.media[0].rtp.headerExtensions[0].uri).toBe(
-      useSdesMid().uri
+      useSdesMid().uri,
     );
     await pc2.setRemoteDescription(pc1.localDescription!);
     await pc2.setLocalDescription(await pc2.createAnswer());
     //@ts-expect-error
     const pc2Local = pc2._localDescription!;
     expect(pc2Local.media[0].rtp.headerExtensions[0].uri).toBe(
-      useSdesMid().uri
+      useSdesMid().uri,
     );
     await pc1.setRemoteDescription(pc2.localDescription!);
   });
@@ -139,7 +139,7 @@ describe("media", () => {
                 { id: 10, payload: serializeAudioLevelIndication(25) },
               ],
             }),
-            Buffer.from("test")
+            Buffer.from("test"),
           ).serialize();
           expect(isMedia(rtpPacket)).toBe(true);
           track.writeRtp(rtpPacket);
@@ -152,7 +152,7 @@ describe("media", () => {
             expect(rtp.header.extensions[0].id).toBe(10);
             expect(
               deserializeAudioLevelIndication(rtp.header.extensions[0].payload)
-                .level
+                .level,
             ).toEqual(25);
             expect(rtp.payload).toEqual(Buffer.from("test"));
             await Promise.all([sendonly.close(), recvonly.close()]);

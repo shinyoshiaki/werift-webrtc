@@ -40,7 +40,7 @@ import { RtcpPacketConverter } from "./rtcp";
 //        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 export class RtcpSrPacket {
-  ssrc: number = 0;
+  ssrc = 0;
   senderInfo!: RtcpSenderInfo;
   reports: RtcpReceiverInfo[] = [];
   static readonly type = 200;

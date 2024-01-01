@@ -66,7 +66,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
   g?: number;
   width: number[] = [];
   height: number[] = [];
-  n_g: number = 0;
+  n_g = 0;
   pgT: number[] = [];
   pgU: number[] = [];
   pgP_Diff: number[][] = [];

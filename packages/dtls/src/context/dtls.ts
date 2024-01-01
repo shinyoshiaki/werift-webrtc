@@ -32,10 +32,7 @@ export class DtlsContext {
   }[] = [];
   remoteExtendedMasterSecret = false;
 
-  constructor(
-    public options: Options,
-    public sessionType: SessionTypes,
-  ) {}
+  constructor(public options: Options, public sessionType: SessionTypes) {}
 
   get sessionId() {
     return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";

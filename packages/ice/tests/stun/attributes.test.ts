@@ -1,8 +1,8 @@
 import {
-  unpackErrorCode,
-  unpackXorAddress,
   packErrorCode,
   packXorAddress,
+  unpackErrorCode,
+  unpackXorAddress,
 } from "../../src/stun/attributes";
 
 describe("stun", () => {

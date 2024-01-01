@@ -1,6 +1,7 @@
 import debug from "debug";
 
 import {
+  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
   RtcpPacket,
   RtcpPayloadSpecificFeedback,
@@ -8,9 +9,8 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
-  RTP_EXTENSION_URI,
-  rtpHeaderExtensionsParser,
   RtpPacket,
+  rtpHeaderExtensionsParser,
 } from "../../../rtp/src";
 import {
   RTCRtpReceiveParameters,
@@ -144,47 +144,42 @@ export class RtpRouter {
     const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
 
     switch (packet.type) {
-      case RtcpSrPacket.type:
-        {
-          packet = packet as RtcpSrPacket;
-          recipients.push(this.ssrcTable[packet.ssrc]);
+      case RtcpSrPacket.type: {
+        packet = packet as RtcpSrPacket;
+        recipients.push(this.ssrcTable[packet.ssrc]);
+      }
+      break;
+      case RtcpRrPacket.type: {
+        packet = packet as RtcpRrPacket;
+        packet.reports.forEach((report) => {
+          recipients.push(this.ssrcTable[report.ssrc]);
+        });
+      }
+      break;
+      case RtcpSourceDescriptionPacket.type: {
+        const sdes = packet as RtcpSourceDescriptionPacket;
+        // log("sdes", JSON.stringify(sdes.chunks));
+      }
+      break;
+      case RtcpTransportLayerFeedback.type: {
+        const rtpfb = packet as RtcpTransportLayerFeedback;
+        if (rtpfb.feedback) {
+          recipients.push(this.ssrcTable[rtpfb.feedback.mediaSourceSsrc]);
         }
-        break;
-      case RtcpRrPacket.type:
-        {
-          packet = packet as RtcpRrPacket;
-          packet.reports.forEach((report) => {
-            recipients.push(this.ssrcTable[report.ssrc]);
-          });
+      }
+      break;
+      case RtcpPayloadSpecificFeedback.type: {
+        const psfb = packet as RtcpPayloadSpecificFeedback;
+        switch (psfb.feedback.count) {
+          case ReceiverEstimatedMaxBitrate.count:
+            const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
+            recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
+            break;
+          default:
+            recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
         }
-        break;
-      case RtcpSourceDescriptionPacket.type:
-        {
-          const sdes = packet as RtcpSourceDescriptionPacket;
-          // log("sdes", JSON.stringify(sdes.chunks));
-        }
-        break;
-      case RtcpTransportLayerFeedback.type:
-        {
-          const rtpfb = packet as RtcpTransportLayerFeedback;
-          if (rtpfb.feedback) {
-            recipients.push(this.ssrcTable[rtpfb.feedback.mediaSourceSsrc]);
-          }
-        }
-        break;
-      case RtcpPayloadSpecificFeedback.type:
-        {
-          const psfb = packet as RtcpPayloadSpecificFeedback;
-          switch (psfb.feedback.count) {
-            case ReceiverEstimatedMaxBitrate.count:
-              const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
-              recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
-              break;
-            default:
-              recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
-          }
-        }
-        break;
+      }
+      break;
     }
     recipients
       .filter((v) => v) // todo simulcast

@@ -45,7 +45,7 @@ describe("codec negotiation", () => {
       caller.addTrack(track);
 
       const offer = await caller.setLocalDescription(
-        await caller.createOffer()
+        await caller.createOffer(),
       );
       expect(offer.media.length).toBe(1);
 
@@ -53,7 +53,7 @@ describe("codec negotiation", () => {
         expect(media.rtp.codecs.length).toBe(2);
         expect(media.rtp.codecs[0].name).toBe("red");
         expect(media.rtp.codecs[0].parameters).toBe(
-          `${media.rtp.codecs[1].payloadType}/${media.rtp.codecs[1].payloadType}`
+          `${media.rtp.codecs[1].payloadType}/${media.rtp.codecs[1].payloadType}`,
         );
         expect(media.rtp.codecs[1].name).toBe("opus");
       };
@@ -61,7 +61,7 @@ describe("codec negotiation", () => {
 
       await callee.setRemoteDescription(offer.toJSON());
       const answer = await callee.setLocalDescription(
-        await callee.createAnswer()
+        await callee.createAnswer(),
       );
       checkMedia(answer.media[0]);
       await caller.setRemoteDescription(answer.toJSON());
@@ -105,7 +105,7 @@ describe("codec negotiation", () => {
       caller.addTrack(track);
 
       const offer = await caller.setLocalDescription(
-        await caller.createOffer()
+        await caller.createOffer(),
       );
       expect(offer.media.length).toBe(1);
 
@@ -114,14 +114,14 @@ describe("codec negotiation", () => {
         expect(media.rtp.codecs.length).toBe(2);
         expect(media.rtp.codecs[0].name).toBe("red");
         expect(media.rtp.codecs[0].parameters).toBe(
-          `${media.rtp.codecs[1].payloadType}/${media.rtp.codecs[1].payloadType}`
+          `${media.rtp.codecs[1].payloadType}/${media.rtp.codecs[1].payloadType}`,
         );
         expect(media.rtp.codecs[1].name).toBe("opus");
       }
 
       await callee.setRemoteDescription(offer.toJSON());
       const answer = await callee.setLocalDescription(
-        await callee.createAnswer()
+        await callee.createAnswer(),
       );
       {
         const [media] = answer.media;

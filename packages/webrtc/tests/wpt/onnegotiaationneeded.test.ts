@@ -165,7 +165,7 @@ describe("onnegotiationneeded", () => {
 function awaitNegotiation(pc: RTCPeerConnection) {
   if (pc.onnegotiationneeded) {
     throw new Error(
-      "connection is already attached with onnegotiationneeded event handler"
+      "connection is already attached with onnegotiationneeded event handler",
     );
   }
 

@@ -2,10 +2,7 @@
   "name": "werift",
   "version": "0.19.0",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
-  "keywords": [
-    "WebRTC",
-    "node.js"
-  ],
+  "keywords": ["WebRTC", "node.js"],
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
@@ -27,19 +24,15 @@
   },
   "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
-  "files": [
-    "lib",
-    "src"
-  ],
+  "files": ["lib", "src"],
   "scripts": {
     "build": "npm i && rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
     "deploy": "npm run build && npm publish",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
-    "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
+    "format": "npx @biomejs/biome check --apply src/**/*ts tests/**/*ts",
     "knip": "knip",
-    "lint": "eslint ./src --fix",
     "test": "npm run type && jest --runInBand --forceExit --coverage",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",

@@ -60,7 +60,7 @@ export class RTCRtpHeaderExtensionParameters {
 
 export class RTCRtcpParameters {
   cname?: string;
-  mux: boolean = false;
+  mux = false;
   ssrc?: number;
 
   constructor(props: Partial<RTCRtcpParameters> = {}) {
@@ -101,7 +101,7 @@ export interface RTCRtpReceiveParameters extends RTCRtpParameters {
   encodings: RTCRtpCodingParameters[];
 }
 
-export interface RTCRtpSendParameters extends RTCRtpParameters {}
+export type RTCRtpSendParameters = RTCRtpParameters;
 
 export class RTCRtpSimulcastParameters {
   rid!: string;

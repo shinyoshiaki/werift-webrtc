@@ -9,13 +9,13 @@ describe("media/nack", () => {
     const nack = new NackHandler(new MockRTCRtpReceiver() as any);
     var packet = new RtpPacket(
       new RtpHeader({ sequenceNumber: 65535, ssrc: 1 }),
-      Buffer.from("")
+      Buffer.from(""),
     );
     nack.addPacket(packet);
 
     var packet = new RtpPacket(
       new RtpHeader({ sequenceNumber: 3, ssrc: 1 }),
-      Buffer.from("")
+      Buffer.from(""),
     );
     nack.addPacket(packet);
 
@@ -24,11 +24,11 @@ describe("media/nack", () => {
 });
 
 class MockRTCRtpReceiver {
-  rtcpSsrc: number = 0;
+  rtcpSsrc = 0;
   dtlsTransport = {
     sendRtcp: (packets: RtcpPacket[]) => {
       const payload = Buffer.concat(
-        packets.map((packet) => packet.serialize())
+        packets.map((packet) => packet.serialize()),
       );
     },
   };

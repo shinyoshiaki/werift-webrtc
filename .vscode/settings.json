@@ -76,6 +76,13 @@
     "**"
   ],
   "typescript.tsdk": "node_modules/typescript/lib",
-  "python.formatting.provider": "black",
-  "commentTranslate.source": "intellsmi.deepl-translate-deepl"
+  "[json]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
 }

@@ -1,9 +1,9 @@
 import {
-  defaultPeerConfig,
   MediaStreamTrack,
   RTCRtpTransceiver,
   RtpHeader,
   RtpPacket,
+  defaultPeerConfig,
 } from "../../src";
 import {
   RTCRtpCodecParameters,
@@ -23,7 +23,7 @@ describe("media/router", () => {
       dtls,
       new RTCRtpReceiver(defaultPeerConfig, "audio", 0),
       new RTCRtpSender("audio"),
-      "recvonly"
+      "recvonly",
     );
     const ssrc = 123;
     const track = new MediaStreamTrack({ kind: "audio", ssrc });
@@ -49,7 +49,7 @@ describe("media/router", () => {
 
     const packet = new RtpPacket(
       new RtpHeader({ ssrc, payloadType: 0 }),
-      Buffer.from("hello")
+      Buffer.from("hello"),
     );
     track.onReceiveRtp.once((rtp) => {
       expect(rtp.payload.toString()).toBe("hello");

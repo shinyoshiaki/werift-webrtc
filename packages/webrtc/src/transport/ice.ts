@@ -248,7 +248,7 @@ export class IceCandidate {
 }
 
 export class RTCIceParameters {
-  iceLite: boolean = false;
+  iceLite = false;
   usernameFragment!: string;
   password!: string;
 

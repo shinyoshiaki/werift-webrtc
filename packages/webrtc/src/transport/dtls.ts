@@ -20,14 +20,14 @@ import { CipherContext } from "../../../dtls/src/context/cipher";
 import { Profile } from "../../../dtls/src/context/srtp";
 import { Connection } from "../../../ice/src";
 import {
-  isMedia,
-  isRtcp,
   RtcpPacket,
   RtcpPacketConverter,
   RtpHeader,
   RtpPacket,
   SrtcpSession,
   SrtpSession,
+  isMedia,
+  isRtcp,
 } from "../../../rtp/src";
 import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
 import { RtpRouter } from "../media/router";
@@ -329,10 +329,7 @@ export type DtlsKeys = {
 };
 
 export class RTCDtlsFingerprint {
-  constructor(
-    public algorithm: string,
-    public value: string,
-  ) {}
+  constructor(public algorithm: string, public value: string) {}
 }
 
 export class RTCDtlsParameters {

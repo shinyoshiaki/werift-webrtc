@@ -2,7 +2,7 @@ import { bufferReader, bufferWriter } from "../../../common/src";
 import { RtcpPacketConverter } from "./rtcp";
 
 export class RtcpRrPacket {
-  ssrc: number = 0;
+  ssrc = 0;
   reports: RtcpReceiverInfo[] = [];
   static readonly type = 201;
   readonly type = RtcpRrPacket.type;

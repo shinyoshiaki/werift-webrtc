@@ -58,5 +58,5 @@ test(
         dtlsClient.connect();
       }
     }),
-  10_000
+  10_000,
 );

@@ -134,9 +134,7 @@ export class MediaPlayerWebm extends MediaPlayer {
     const run = async () => {
       if (payloadType > 100) payloadType = 96;
 
-      const cmd = `gst-launch-1.0 filesrc location=${
-        this.props.path
-      } ! matroskademux name=d \
+      const cmd = `gst-launch-1.0 filesrc location=${this.props.path} ! matroskademux name=d \
 d.video_0 ! queue ! rtpvp8pay pt=${payloadType++} ! \
 udpsink host=127.0.0.1 port=${this.props.videoPort} \
 d.audio_0 ! queue ! rtpopuspay pt=${payloadType++} ! \

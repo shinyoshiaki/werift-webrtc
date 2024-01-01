@@ -60,5 +60,5 @@ describe.each([{}, { negotiated: true, id: 0 }])(
           channel1.send(helloBuffer);
         });
       }));
-  }
+  },
 );

@@ -1,0 +1,43 @@
+{
+  "formatter": {
+    "indentStyle": "space"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "style": {
+        "noUnusedTemplateLiteral": "off",
+        "noNonNullAssertion": "off",
+        "useTemplate": "off",
+        "noUselessElse": "off",
+        "noParameterAssign": "off",
+        "useSingleVarDeclarator": "off",
+        "useDefaultParameterLast": "off",
+        "noVar": "off"
+      },
+      "complexity": {
+        "noStaticOnlyClass": "off",
+        "noUselessCatch": "off",
+        "noForEach": "off",
+        "noThisInStatic": "off",
+        "useLiteralKeys": "off",
+        "noUselessConstructor": "off"
+      },
+      "a11y": {
+        "useButtonType": "off",
+        "useMediaCaption": "off"
+      },
+      "suspicious": {
+        "noAsyncPromiseExecutor": "off",
+        "noExplicitAny": "off",
+        "noDoubleEquals": "off",
+        "noFallthroughSwitchClause": "off",
+        "noAssignInExpressions": "off",
+        "noRedeclare": "off"
+      },
+      "correctness": {
+        "noSwitchDeclarations": "off"
+      }
+    }
+  }
+}

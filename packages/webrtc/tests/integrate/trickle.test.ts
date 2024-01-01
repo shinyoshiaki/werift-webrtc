@@ -39,7 +39,7 @@ describe("trickle", () => {
 
         await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
       }),
-    15 * 1000
+    15 * 1000,
   );
 
   test(
@@ -81,6 +81,6 @@ describe("trickle", () => {
         pcAnswer.setLocalDescription(answer);
         await pcOffer.setRemoteDescription(answer);
       }),
-    15 * 1000
+    15 * 1000,
   );
 });

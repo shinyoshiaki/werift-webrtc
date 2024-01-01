@@ -48,12 +48,12 @@ export class Vp8RtpPayload implements DePacketizerBase {
   mBit?: number;
   pictureId?: number;
   payload!: Buffer;
-  size0: number = 0;
+  size0 = 0;
   hBit?: number;
   ver?: number;
   pBit?: number;
-  size1: number = 0;
-  size2: number = 0;
+  size1 = 0;
+  size2 = 0;
 
   static deSerialize(buf: Buffer) {
     const p = new Vp8RtpPayload();

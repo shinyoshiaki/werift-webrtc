@@ -1,6 +1,6 @@
+import { randomBytes } from "crypto";
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { decode, encode, types } from "binary-data";
-import { randomBytes } from "crypto";
 
 export class DtlsRandom {
   static readonly spec = {

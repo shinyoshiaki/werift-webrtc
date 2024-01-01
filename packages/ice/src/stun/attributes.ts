@@ -86,7 +86,7 @@ const packUnsignedShort = (value: number) =>
 const unpackUnsignedShort = (data: Buffer) =>
   jspack.Unpack("!H", data.slice(0, 2))[0];
 
-const packUnsigned64 = (value: BigInt) => {
+const packUnsigned64 = (value: bigint) => {
   return new Int64BE(value.toString()).toBuffer();
 };
 const unpackUnsigned64 = (data: Buffer) => {
@@ -175,18 +175,12 @@ export type AttributeKey = (typeof AttributeKeys)[number];
 
 export type AttributePair = [AttributeKey, any];
 
-export const ATTRIBUTES_BY_TYPE = ATTRIBUTES.reduce(
-  (acc, cur) => {
-    acc[cur[0]] = cur;
-    return acc;
-  },
-  {} as { [key: string]: ATTRIBUTE },
-);
+export const ATTRIBUTES_BY_TYPE = ATTRIBUTES.reduce((acc, cur) => {
+  acc[cur[0]] = cur;
+  return acc;
+}, {} as { [key: string]: ATTRIBUTE });
 
-export const ATTRIBUTES_BY_NAME = ATTRIBUTES.reduce(
-  (acc, cur) => {
-    acc[cur[1]] = cur;
-    return acc;
-  },
-  {} as { [key: string]: ATTRIBUTE },
-);
+export const ATTRIBUTES_BY_NAME = ATTRIBUTES.reduce((acc, cur) => {
+  acc[cur[1]] = cur;
+  return acc;
+}, {} as { [key: string]: ATTRIBUTE });

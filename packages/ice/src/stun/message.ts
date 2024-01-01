@@ -1,24 +1,24 @@
-import crc32 from "buffer-crc32";
 import { createHmac } from "crypto";
+import crc32 from "buffer-crc32";
 import { jspack } from "jspack";
 
 import { bufferXor, randomTransactionId } from "../helper";
 import {
+  ATTRIBUTES_BY_NAME,
+  ATTRIBUTES_BY_TYPE,
   AttributeKey,
   AttributePair,
   AttributeRepository,
-  ATTRIBUTES_BY_NAME,
-  ATTRIBUTES_BY_TYPE,
   packXorAddress,
   unpackXorAddress,
 } from "./attributes";
 import {
-  classes,
   COOKIE,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
+  classes,
   methods,
 } from "./const";
 

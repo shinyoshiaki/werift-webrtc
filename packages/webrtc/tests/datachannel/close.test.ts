@@ -22,5 +22,5 @@ describe.each([{}, { negotiated: true, id: 0 }])(
       expect(channel2.readyState).toBe("closed");
       expect(closingSeen).toBeTruthy();
     });
-  }
+  },
 );

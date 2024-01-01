@@ -1,5 +1,5 @@
-import { createDecode } from "binary-data";
 import { createHash, createHmac } from "crypto";
+import { createDecode } from "binary-data";
 import nacl from "tweetnacl";
 
 import { NamedCurveAlgorithm, NamedCurveAlgorithms } from "./const";

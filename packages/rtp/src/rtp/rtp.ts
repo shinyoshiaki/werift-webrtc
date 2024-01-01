@@ -31,18 +31,18 @@ const csrcSize = 4;
  */
 
 export class RtpHeader {
-  version: number = 2;
-  padding: boolean = false;
-  paddingSize: number = 0;
-  extension: boolean = false;
-  marker: boolean = false;
-  payloadOffset: number = 0;
-  payloadType: number = 0;
+  version = 2;
+  padding = false;
+  paddingSize = 0;
+  extension = false;
+  marker = false;
+  payloadOffset = 0;
+  payloadType = 0;
   /**16bit, 初期値はランダムである必要があります*/
-  sequenceNumber: number = 0;
+  sequenceNumber = 0;
   /**32bit microsec (milli/1000), 初期値はランダムである必要があります*/
-  timestamp: number = 0;
-  ssrc: number = 0;
+  timestamp = 0;
+  ssrc = 0;
   csrcLength = 0;
   csrc: number[] = [];
   extensionProfile: ExtensionProfile = ExtensionProfiles.OneByte;
@@ -91,67 +91,64 @@ export class RtpHeader {
 
       switch (h.extensionProfile) {
         // RFC 8285 RTP One Byte Header Extension
-        case ExtensionProfiles.OneByte:
-          {
-            const end = currOffset + extensionLength;
-            while (currOffset < end) {
-              if (rawPacket[currOffset] === 0x00) {
-                currOffset++;
-                continue;
-              }
-
-              const extId = rawPacket[currOffset] >> 4;
-              const len =
-                (rawPacket[currOffset] & (rawPacket[currOffset] ^ 0xf0)) + 1; // and not &^
+        case ExtensionProfiles.OneByte: {
+          const end = currOffset + extensionLength;
+          while (currOffset < end) {
+            if (rawPacket[currOffset] === 0x00) {
               currOffset++;
-              if (extId === 0xf) {
-                break;
-              }
-              const extension: Extension = {
-                id: extId,
-                payload: rawPacket.subarray(currOffset, currOffset + len),
-              };
-              h.extensions = [...h.extensions, extension];
-              currOffset += len;
+              continue;
             }
-          }
-          break;
-        // RFC 8285 RTP Two Byte Header Extension
-        case ExtensionProfiles.TwoByte:
-          {
-            const end = currOffset + extensionLength;
-            while (currOffset < end) {
-              if (rawPacket[currOffset] === 0x00) {
-                currOffset++;
-                continue;
-              }
-              const extId = rawPacket[currOffset];
-              currOffset++;
-              const len = rawPacket[currOffset];
-              currOffset++;
 
-              const extension: Extension = {
-                id: extId,
-                payload: rawPacket.subarray(currOffset, currOffset + len),
-              };
-              h.extensions = [...h.extensions, extension];
-              currOffset += len;
+            const extId = rawPacket[currOffset] >> 4;
+            const len =
+              (rawPacket[currOffset] & (rawPacket[currOffset] ^ 0xf0)) + 1; // and not &^
+            currOffset++;
+            if (extId === 0xf) {
+              break;
             }
-          }
-          break;
-        default:
-          {
             const extension: Extension = {
-              id: 0,
-              payload: rawPacket.subarray(
-                currOffset,
-                currOffset + extensionLength,
-              ),
+              id: extId,
+              payload: rawPacket.subarray(currOffset, currOffset + len),
             };
             h.extensions = [...h.extensions, extension];
-            currOffset += h.extensions[0].payload.length;
+            currOffset += len;
           }
-          break;
+        }
+        break;
+        // RFC 8285 RTP Two Byte Header Extension
+        case ExtensionProfiles.TwoByte: {
+          const end = currOffset + extensionLength;
+          while (currOffset < end) {
+            if (rawPacket[currOffset] === 0x00) {
+              currOffset++;
+              continue;
+            }
+            const extId = rawPacket[currOffset];
+            currOffset++;
+            const len = rawPacket[currOffset];
+            currOffset++;
+
+            const extension: Extension = {
+              id: extId,
+              payload: rawPacket.subarray(currOffset, currOffset + len),
+            };
+            h.extensions = [...h.extensions, extension];
+            currOffset += len;
+          }
+        }
+        break;
+        default: {
+          const extension: Extension = {
+            id: 0,
+            payload: rawPacket.subarray(
+              currOffset,
+              currOffset + extensionLength,
+            ),
+          };
+          h.extensions = [...h.extensions, extension];
+          currOffset += h.extensions[0].payload.length;
+        }
+        break;
       }
     }
     h.payloadOffset = currOffset;
@@ -268,10 +265,7 @@ export class RtpHeader {
 }
 
 export class RtpPacket {
-  constructor(
-    public header: RtpHeader,
-    public payload: Buffer,
-  ) {}
+  constructor(public header: RtpHeader, public payload: Buffer) {}
 
   get serializeSize() {
     return this.header.serializeSize + this.payload.length;

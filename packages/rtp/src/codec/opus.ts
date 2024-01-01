@@ -19,7 +19,7 @@ export class OpusRtpPayload implements DePacketizerBase {
     return true;
   }
 
-  static createCodecPrivate(samplingFrequency: number = 48000) {
+  static createCodecPrivate(samplingFrequency = 48000) {
     return Buffer.concat([
       Buffer.from("OpusHead"),
       bufferWriter([1, 1], [1, 2]),

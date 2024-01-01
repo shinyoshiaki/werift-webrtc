@@ -9,7 +9,7 @@ export class AntiReplayWindow {
   //  v- upper end                    lower end --v
   // [111011 ... window_n]...[11111101 ... window_0]
   private window: number[] = [];
-  private ceiling: number = 0; // upper end of the window bitmap / highest received seq_num
+  private ceiling = 0; // upper end of the window bitmap / highest received seq_num
 
   constructor() {
     this.reset();

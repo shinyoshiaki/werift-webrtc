@@ -16,12 +16,12 @@ export const RTCP_HEADER_SIZE = 4;
  */
 
 export class RtcpHeader {
-  version: number = 2;
-  padding: boolean = false;
-  count: number = 0;
-  type: number = 0;
+  version = 2;
+  padding = false;
+  count = 0;
+  type = 0;
   /**このパケットの長さは、ヘッダーと任意のパディングを含む32ビットワードから 1を引いたものである */
-  length: number = 0;
+  length = 0;
 
   constructor(props: Partial<RtcpHeader> = {}) {
     Object.assign(this, props);

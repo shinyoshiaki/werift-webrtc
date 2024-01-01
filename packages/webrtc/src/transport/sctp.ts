@@ -108,71 +108,64 @@ export class RTCSctpTransport {
     if (ppId === WEBRTC_DCEP && data.length > 0) {
       log("DCEP", streamId, ppId, data);
       switch (data[0]) {
-        case DATA_CHANNEL_OPEN:
-          {
-            if (data.length < 12) {
-              log("DATA_CHANNEL_OPEN data.length not enough");
-              return;
-            }
-
-            if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
-              const [
-                ,
-                channelType,
-                ,
-                reliability,
-                labelLength,
-                protocolLength,
-              ] = jspack.Unpack("!BBHLHH", data);
-
-              let pos = 12;
-              const label = data.slice(pos, pos + labelLength).toString("utf8");
-              pos += labelLength;
-              const protocol = data
-                .slice(pos, pos + protocolLength)
-                .toString("utf8");
-
-              log("DATA_CHANNEL_OPEN", {
-                channelType,
-                reliability,
-                streamId,
-                label,
-                protocol,
-              });
-
-              const maxRetransmits =
-                (channelType & 0x03) === 1 ? reliability : undefined;
-              const maxPacketLifeTime =
-                (channelType & 0x03) === 2 ? reliability : undefined;
-
-              // # register channel
-              const parameters = new RTCDataChannelParameters({
-                label,
-                ordered: (channelType & 0x80) === 0,
-                maxPacketLifeTime,
-                maxRetransmits,
-                protocol,
-                id: streamId,
-              });
-              const channel = new RTCDataChannel(this, parameters, false);
-              channel.isCreatedByRemote = true;
-              this.dataChannels[streamId] = channel;
-
-              this.onDataChannel.execute(channel);
-              channel.setReadyState("open");
-            } else {
-              log("datachannel already opened", "retransmit ack");
-            }
-
-            const channel = this.dataChannels[streamId];
-            this.dataChannelQueue.push([
-              channel,
-              WEBRTC_DCEP,
-              Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
-            ]);
-            await this.dataChannelFlush();
+        case DATA_CHANNEL_OPEN: {
+          if (data.length < 12) {
+            log("DATA_CHANNEL_OPEN data.length not enough");
+            return;
           }
-          break;
+
+          if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
+            const [, channelType, , reliability, labelLength, protocolLength] =
+              jspack.Unpack("!BBHLHH", data);
+
+            let pos = 12;
+            const label = data.slice(pos, pos + labelLength).toString("utf8");
+            pos += labelLength;
+            const protocol = data
+              .slice(pos, pos + protocolLength)
+              .toString("utf8");
+
+            log("DATA_CHANNEL_OPEN", {
+              channelType,
+              reliability,
+              streamId,
+              label,
+              protocol,
+            });
+
+            const maxRetransmits =
+              (channelType & 0x03) === 1 ? reliability : undefined;
+            const maxPacketLifeTime =
+              (channelType & 0x03) === 2 ? reliability : undefined;
+
+            // # register channel
+            const parameters = new RTCDataChannelParameters({
+              label,
+              ordered: (channelType & 0x80) === 0,
+              maxPacketLifeTime,
+              maxRetransmits,
+              protocol,
+              id: streamId,
+            });
+            const channel = new RTCDataChannel(this, parameters, false);
+            channel.isCreatedByRemote = true;
+            this.dataChannels[streamId] = channel;
+
+            this.onDataChannel.execute(channel);
+            channel.setReadyState("open");
+          } else {
+            log("datachannel already opened", "retransmit ack");
+          }
+
+          const channel = this.dataChannels[streamId];
+          this.dataChannelQueue.push([
+            channel,
+            WEBRTC_DCEP,
+            Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
+          ]);
+          await this.dataChannelFlush();
+        }
+        break;
         case DATA_CHANNEL_ACK:
           log("DATA_CHANNEL_ACK", streamId, ppId);
           const channel = this.dataChannels[streamId];

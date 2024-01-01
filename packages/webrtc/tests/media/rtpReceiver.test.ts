@@ -2,13 +2,13 @@ import { setTimeout } from "timers/promises";
 
 import { wrapRtx } from "../../../rtp/src";
 import {
-  codecParametersToString,
-  defaultPeerConfig,
   MediaStreamTrack,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RtpHeader,
   RtpPacket,
+  codecParametersToString,
+  defaultPeerConfig,
 } from "../../src";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { createDtlsTransport } from "../fixture";
@@ -76,13 +76,13 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
         wrapRtx(
           new RtpPacket(
             new RtpHeader({ ssrc: 777, payloadType: 96 }),
-            Buffer.from([1, 2, 3, 4])
+            Buffer.from([1, 2, 3, 4]),
           ),
           97,
           0,
-          666
+          666,
         ),
-        {}
+        {},
       );
     });
     const [rtp] = await track.onReceiveRtp.asPromise();

@@ -17,7 +17,7 @@ describe("RTCSctpTransportTest", () => {
 
   async function waitForOutcome(
     client: RTCSctpTransport,
-    server: RTCSctpTransport
+    server: RTCSctpTransport,
   ) {
     await Promise.all([
       client.sctp.stateChanged.connected.asPromise(),
@@ -50,7 +50,7 @@ describe("RTCSctpTransportTest", () => {
 
       const channel = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "chat", id: 1 })
+        new RTCDataChannelParameters({ label: "chat", id: 1 }),
       );
       channel.message.subscribe((data) => {
         expect(data.toString()).toBe("ping");

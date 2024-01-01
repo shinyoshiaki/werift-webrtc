@@ -2,9 +2,9 @@ import inRange from "lodash/inRange";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
-  createSelfSignedCertificate,
   RTCDataChannel,
   RTCPeerConnection,
+  createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
 
@@ -50,7 +50,7 @@ describe("peerConnection", () => {
 
       expect(pc1.localDescription!.sdp.includes("m=application ")).toBeTruthy();
       expect(
-        pc1.localDescription!.sdp.includes("a=sctp-port:5000")
+        pc1.localDescription!.sdp.includes("a=sctp-port:5000"),
       ).toBeTruthy();
       assertHasIceCandidate(pc1.localDescription!.sdp);
       assertHasDtls(pc1.localDescription!.sdp, "actpass");
@@ -70,7 +70,7 @@ describe("peerConnection", () => {
       // expect(pc2.iceGatheringState).toBe("complete");
       expect(pc2.localDescription!.sdp.includes("m=application ")).toBeTruthy();
       expect(
-        pc2.localDescription!.sdp.includes("a=sctp-port:5000")
+        pc2.localDescription!.sdp.includes("a=sctp-port:5000"),
       ).toBeTruthy();
       assertHasIceCandidate(pc2.localDescription!.sdp);
       assertHasDtls(pc2.localDescription!.sdp, "active");
@@ -282,7 +282,7 @@ function assertHasDtls(sdp: string, setup: string) {
 
 async function assertIceCompleted(
   pc1: RTCPeerConnection,
-  pc2: RTCPeerConnection
+  pc2: RTCPeerConnection,
 ) {
   const wait = (pc: RTCPeerConnection) =>
     new Promise<void>((r) => {
