@@ -6,9 +6,9 @@ import {
   findPort,
   interfaceAddress,
   InterfaceAddresses,
-} from "../../../common/src";
-import { Address } from "../model";
-import { normalizeFamilyNodeV18 } from "../util";
+} from "../../common/src";
+import { Address } from "./model";
+import { normalizeFamilyNodeV18 } from "./util";
 
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 
@@ -19,8 +19,8 @@ export class UdpTransport implements Transport {
 
   constructor(
     private type: SocketType,
-    private portRange?: [number, number],
-    private interfaceAddresses?: InterfaceAddresses
+    private host?: string,
+    private port?: number
   ) {
     this.socket = createSocket(this.type);
     this.socket.on("message", (data, info) => {
@@ -35,28 +35,21 @@ export class UdpTransport implements Transport {
     });
   }
 
-  static async init(
-    type: SocketType,
-    portRange?: [number, number],
-    interfaceAddresses?: InterfaceAddresses
-  ) {
-    const transport = new UdpTransport(type, portRange, interfaceAddresses);
+  static async init(type: SocketType, host?: string, port?: number) {
+    const transport = new UdpTransport(type, host, port);
     await transport.init();
     return transport;
   }
 
   private async init() {
-    const address = interfaceAddress(this.type, this.interfaceAddresses);
-    if (this.portRange) {
-      const port = await findPort(
-        this.portRange[0],
-        this.portRange[1],
-        this.type,
-        this.interfaceAddresses
-      );
-      this.socket.bind({ port, address });
+    if (this.host) {
+      if (this.port) {
+        this.socket.bind(this.port, this.host);
+      } else {
+        this.socket.bind(await findPort(0, Infinity), this.host);
+      }
     } else {
-      this.socket.bind({ address });
+      this.socket.bind();
     }
     await new Promise((r) => this.socket.once("listening", r));
   }
@@ -73,8 +66,9 @@ export class UdpTransport implements Transport {
       });
     });
 
-  address() {
-    return this.socket.address();
+  get address() {
+    const info = this.socket.address();
+    return [info.address, info.port] as Address;
   }
 
   close = () =>

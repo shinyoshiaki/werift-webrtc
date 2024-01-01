@@ -21,15 +21,13 @@ import {
   StunMessageType,
   SuccessResponse,
 } from "./message";
-import { UdpTransport } from "./udp";
+import { UdpTransport } from "../udp";
 
 export class StunAgent {
-  transport!: UdpTransport;
   onResponse = new Event<[StunMessage]>();
-  constructor(private stunServer: Address) {}
+  constructor(private stunServer: Address, readonly transport: UdpTransport) {}
 
   async setup() {
-    this.transport = await UdpTransport.init("udp4");
     this.transport.onData.subscribe((data, address) => {
       try {
         const message = StunMessage.Deserialize(data);
