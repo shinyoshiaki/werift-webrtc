@@ -13,6 +13,7 @@
   "author": "shinyoshiaki <shinyoshiaki2012@gmail.com>",
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
+    "#add-package": "npm init -w packages/something",
     "build": "npm run build --workspaces --if-present",
     "ci": "npm run type:all && npm run build && npm run test && npm run e2e && npm run doc",
     "clean": "rm -rf packages/*/node_modules",
