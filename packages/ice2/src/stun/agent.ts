@@ -7,7 +7,7 @@ import {
   IPv4,
   xorIPv4Address,
   xorIPv6Address,
-  XorMappedAddress,
+  XorAddressAttribute,
   xorPort,
 } from "./attributes";
 import {
@@ -24,7 +24,10 @@ import {
 import { UdpTransport } from "../udp";
 
 export class StunAgent {
-  onResponse = new Event<[StunMessage]>();
+  onResponse = new Event<[{ message: StunMessage; address: Address }]>();
+  onRequest = new Event<[{ message: StunMessage; address: Address }]>();
+  private ongoingTransaction: { [transactionId: string]: boolean } = {};
+
   constructor(private stunServer: Address, readonly transport: UdpTransport) {}
 
   async setup() {
@@ -35,18 +38,19 @@ export class StunAgent {
         switch (message.header.messageType.stunClass) {
           case SuccessResponse:
             {
-              this.onResponse.execute(message);
+              this.onResponse.execute({ message, address });
             }
             break;
           case Request:
             {
-              switch (message.header.messageType.stunMethod) {
-                case Binding:
-                  {
-                    this.onBinding(message, address);
-                  }
-                  break;
-              }
+              this.onRequest.execute({ message, address });
+              // switch (message.header.messageType.stunMethod) {
+              //   case Binding:
+              //     {
+              //       this.onBinding(message, address);
+              //     }
+              //     break;
+              // }
             }
             break;
         }
@@ -58,13 +62,13 @@ export class StunAgent {
 
   private onBinding(message: StunMessage, sourceAddress: Address) {
     const messageIntegrity = message.attributes.find(
-      (a) => a.type === Attributes.messageIntegrity
+      (a) => a.type === Attributes.messageIntegrity.type
     );
     if (!messageIntegrity) {
       throw new Error();
     }
 
-    const xorMappedAddress = new XorMappedAddress({
+    const xorMappedAddress = new XorAddressAttribute({
       family: isIPv4(sourceAddress[0]) ? 1 : 2,
     });
   }
@@ -75,9 +79,10 @@ export class StunAgent {
       stunMethod: Binding,
       attributes: [],
     });
-    const response = await this.request(message);
-    const [attr] = response.attributes;
-    const xorMappedAddress = XorMappedAddress.Deserialize(attr.value);
+    const { message: response } = await this.request(message);
+    const xorMappedAddress = Attributes.xorMappedAddress.deserialize(
+      response.attributes
+    )!;
     const address =
       xorMappedAddress.family === IPv4
         ? xorIPv4Address(xorMappedAddress.xAddress)
@@ -112,30 +117,47 @@ export class StunAgent {
     return message;
   }
 
-  request = async (message: StunMessage): Promise<StunMessage> => {
+  request = async (
+    message: StunMessage
+  ): Promise<{ message: StunMessage; address: Address }> => {
+    const transactionId = message.header.transactionId;
+    this.ongoingTransaction[transactionId.toString("hex")] = true;
+
     let rto = 500;
     for (let i = 0; i < 7; i++) {
+      if (!this.ongoingTransaction[transactionId.toString("hex")]) {
+        throw new Error("transaction canceled");
+      }
+
       const buf = message.serialize();
       this.transport.send(buf, this.stunServer).catch((e) => e);
 
-      const res = await new Promise<StunMessage>((r, f) => {
-        const { unSubscribe } = this.onResponse.subscribe((m) => {
-          if (m.header.transactionId.equals(message.header.transactionId)) {
-            r(m);
-            unSubscribe();
-          }
-        });
-        setTimeout(() => {
-          rto *= 2;
-          f(new Error("timeout"));
-        }, rto);
-      }).catch((e) => {
+      const res = await new Promise<{ message: StunMessage; address: Address }>(
+        (r, f) => {
+          const { unSubscribe } = this.onResponse.subscribe(
+            ({ message, address }) => {
+              if (transactionId.equals(message.header.transactionId)) {
+                r({ message, address });
+                unSubscribe();
+              }
+            }
+          );
+          setTimeout(() => {
+            rto *= 2;
+            f(new Error("timeout"));
+          }, rto);
+        }
+      ).catch((e) => {
         console.warn(e);
       });
       if (res) {
         return res;
       }
     }
-    throw new Error();
+    throw new Error("timeout");
   };
+
+  cancelAllTransaction() {
+    this.ongoingTransaction = {};
+  }
 }

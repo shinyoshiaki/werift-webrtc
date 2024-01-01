@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { Address } from "./model";
 
 export function normalizeFamilyNodeV18(family: string | number): 4 | 6 {
@@ -15,3 +16,6 @@ export const str2Address = (str: string): Address => {
 export const address2Str = (address: Address): string => {
   return address.join(":");
 };
+export function randomString(length: number) {
+  return randomBytes(length).toString("hex").substring(0, length);
+}

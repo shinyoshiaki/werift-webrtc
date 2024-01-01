@@ -5,6 +5,7 @@ import {
   bufferWriter,
   getBit,
 } from "../../../common/src";
+import { AttributeClasses } from "./attributes";
 
 // 0                   1                   2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -148,6 +149,7 @@ export class StunMessageType {
 
 export class StunAttribute {
   type!: number;
+  /**Lengthフィールドの値は、パディング前の属性のValue部分の長さを、バイト単位で含まなければならない */
   length!: number;
   value!: Buffer;
 
@@ -155,6 +157,15 @@ export class StunAttribute {
 
   constructor(props: Pick<StunAttribute, "type" | "length" | "value">) {
     Object.assign(this, props);
+  }
+
+  static FromAttribute(attribute: AttributeClasses) {
+    const buf = attribute.serialize();
+    return new StunAttribute({
+      type: attribute.type,
+      length: buf.length,
+      value: buf,
+    });
   }
 
   serialize() {
