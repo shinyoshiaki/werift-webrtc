@@ -17,7 +17,7 @@ describe("peerConnection", () => {
       const pc2 = new RTCPeerConnection({});
 
       pc2.onDataChannel.subscribe((channel) => {
-        channel.message.subscribe((data) => {
+        channel.onMessage.subscribe((data) => {
           expect(data.toString()).toBe("hello");
           done();
         });
@@ -94,7 +94,7 @@ describe("peerConnection", () => {
       const dc = pcOffer.createDataChannel("chat");
 
       pcAnswer.onDataChannel.subscribe((channel) => {
-        channel.message.subscribe(async (data) => {
+        channel.onMessage.subscribe(async (data) => {
           expect(data.toString()).toBe("hello");
           channel.close();
           await Promise.all([
@@ -189,7 +189,7 @@ describe("initial config", () => {
         };
 
         callee.onDataChannel.subscribe((channel) => {
-          channel.message.once(() => {
+          channel.onMessage.once(() => {
             caller.close();
             callee.close();
             done();
@@ -222,7 +222,7 @@ describe("initial config", () => {
         };
 
         callee.onDataChannel.subscribe((channel) => {
-          channel.message.once(() => {
+          channel.onMessage.once(() => {
             caller.close();
             callee.close();
             done();
@@ -255,7 +255,7 @@ describe("initial config", () => {
         };
 
         callee.onDataChannel.subscribe((channel) => {
-          channel.message.once(() => {
+          channel.onMessage.once(() => {
             caller.close();
             callee.close();
             done();

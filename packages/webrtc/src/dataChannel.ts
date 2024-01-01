@@ -9,7 +9,7 @@ const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
 export class RTCDataChannel extends EventTarget {
   readonly stateChanged = new Event<[DCState]>();
-  readonly message = new Event<[string | Buffer]>();
+  readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
   readonly error = new Event<[Error]>();
   readonly bufferedAmountLow = new Event();

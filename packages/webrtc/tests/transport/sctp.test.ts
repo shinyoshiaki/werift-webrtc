@@ -42,7 +42,7 @@ describe("RTCSctpTransportTest", () => {
       const serverChannels = trackChannels(server);
       serverChannels.event.subscribe((channel) => {
         channel.send(Buffer.from("ping"));
-        channel.message.subscribe((data) => {
+        channel.onMessage.subscribe((data) => {
           expect(data.toString()).toBe("pong");
           done();
         });
@@ -52,7 +52,7 @@ describe("RTCSctpTransportTest", () => {
         client,
         new RTCDataChannelParameters({ label: "chat", id: 1 }),
       );
-      channel.message.subscribe((data) => {
+      channel.onMessage.subscribe((data) => {
         expect(data.toString()).toBe("ping");
         channel.send(Buffer.from("pong"));
       });

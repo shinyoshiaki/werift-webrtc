@@ -53,7 +53,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
         };
 
         createDataChannelPair(options).then(([channel1, channel2]) => {
-          channel2.message.subscribe(onMessage);
+          channel2.onMessage.subscribe(onMessage);
 
           channel1.send(helloBuffer);
           channel1.send(unicodeString);

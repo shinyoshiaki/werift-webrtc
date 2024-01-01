@@ -116,7 +116,7 @@ export function awaitMessage(channel: RTCDataChannel) {
           r(e.data);
         }),
       ),
-      channel.message.asPromise(),
+      channel.onMessage.asPromise(),
     ]).then(([msg]) => resolve(msg));
 
     channel.error.once(reject);

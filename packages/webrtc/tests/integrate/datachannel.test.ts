@@ -10,9 +10,9 @@ describe("datachannel", () => {
 
       pc2.onDataChannel.subscribe((channel) => {
         Promise.all([
-          channel.message.watch((v) => v === "1"),
-          channel.message.watch((v) => v === "2"),
-          channel.message.watch((v) => v === "3"),
+          channel.onMessage.watch((v) => v === "1"),
+          channel.onMessage.watch((v) => v === "2"),
+          channel.onMessage.watch((v) => v === "3"),
         ]).then(async () => {
           await pc1.close();
           await pc2.close();

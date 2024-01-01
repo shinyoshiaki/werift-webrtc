@@ -14,7 +14,7 @@ describe("trickle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pcAnswer.onDataChannel.subscribe((dc) => {
-          dc.message.subscribe((data) => {
+          dc.onMessage.subscribe((data) => {
             expect(data.toString()).toBe("hello");
             done();
           });
@@ -53,7 +53,7 @@ describe("trickle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pcAnswer.onDataChannel.subscribe((dc) => {
-          dc.message.subscribe((data) => {
+          dc.onMessage.subscribe((data) => {
             expect(data.toString()).toBe("hello");
             done();
           });
