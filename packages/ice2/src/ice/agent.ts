@@ -1,28 +1,28 @@
-import * as nodeIp from "ip";
-import os from "os";
-import { StunAgent } from "../stun/agent";
-import { isIPv4 } from "net";
-import {
-  IceCandidate,
-  IceCandidateImpl,
-  IceCandidatePair,
-  IceParameters,
-  candidateFoundation,
-  candidatePriority,
-} from "./candidate";
-import { UdpTransport } from "../udp";
-import Event from "rx.mini";
-import { randomString } from "../util";
 import { randomBytes } from "crypto";
-import { Binding, Request, StunAttribute, StunMessage } from "../stun/message";
+import * as nodeIp from "ip";
+import { isEqual } from "lodash";
+import { isIPv4 } from "net";
+import os from "os";
+import Event from "rx.mini";
+import { Address } from "../model";
+import { StunAgent } from "../stun/agent";
 import {
   Attributes,
   IPv4,
   xorIPv4Address,
   xorIPv6Address,
 } from "../stun/attributes";
-import { isEqual } from "lodash";
-import { Address } from "../model";
+import { Binding, Request, StunAttribute, StunMessage } from "../stun/message";
+import { UdpTransport } from "../udp";
+import { randomString } from "../util";
+import {
+  candidateFoundation,
+  candidatePriority,
+  IceCandidate,
+  IceCandidateImpl,
+  IceCandidatePair,
+  IceParameters,
+} from "./candidate";
 
 //    5.  ICE Candidate Gathering and Exchange  . . . . . . . . . . . .  17
 //      5.1.  Full Implementation . . . . . . . . . . . . . . . . . . .  17
@@ -83,7 +83,7 @@ export class IceAgent {
     return "running";
   }
 
-  constructor(role:IceRole, options: Partial<IceAgentOptions> = {}) {
+  constructor(role: IceRole, options: Partial<IceAgentOptions> = {}) {
     options.useIpv4 ??= true;
     options.isLite ??= false;
     this.options = options as IceAgentOptions;
@@ -113,7 +113,7 @@ export class IceAgent {
       addr.map(async (addr) => {
         const transport = await UdpTransport.init(
           isIPv4(addr) ? "udp4" : "udp6",
-          addr
+          addr,
         );
         const stun = new StunAgent(["stun.l.google.com", 19302], transport);
         stun.onRequest.subscribe(({ message, address }) => {
@@ -131,7 +131,7 @@ export class IceAgent {
         });
         this.onIceCandidate.execute(candidate);
         return candidate;
-      })
+      }),
     );
   }
 
@@ -153,7 +153,7 @@ export class IceAgent {
     // 7.3.1.フル実装のための追加手続き
     // 7.3.1.1.roleの衝突の検出と修復
     const controlling = Attributes.iceControlling.deserialize(
-      message.attributes
+      message.attributes,
     );
     if (this.role === "controlling" && controlling) {
       if (this.tieBreaker >= controlling.value) {
@@ -176,7 +176,7 @@ export class IceAgent {
 
     // 7.3.1.3.ピアリフレ候補の学習
     let remoteCandidate = this.remoteCandidates.find((c) =>
-      isEqual(c.address, remoteAddr)
+      isEqual(c.address, remoteAddr),
     );
     if (!remoteCandidate) {
       const priority = Attributes.priority.deserialize(message.attributes)!;
@@ -197,7 +197,7 @@ export class IceAgent {
 
     // 7.3.1.5.指名フラグを更新する
     const useCandidate = Attributes.useCandidate.deserialize(
-      message.attributes
+      message.attributes,
     );
     if (this.role === "controlled" && useCandidate) {
       if (pair.state === "succeeded") {
@@ -210,15 +210,15 @@ export class IceAgent {
   // 7.3.1.4.トリガーチェック
   private triggerCheck(
     stun: StunAgent,
-    remoteCandidate: IceCandidate
+    remoteCandidate: IceCandidate,
   ): IceCandidatePair {
     const localCandidate = this.localCandidates.find((c) =>
-      isEqual(c.address, stun.transport.address)
+      isEqual(c.address, stun.transport.address),
     )!;
-    let pair = this.checkList.find(
+    const pair = this.checkList.find(
       (p) =>
         p.localCandidate.address === localCandidate.address &&
-        p.remoteCandidate.address === remoteCandidate.address
+        p.remoteCandidate.address === remoteCandidate.address,
     );
 
     // o ペアがすでにチェックリストに入っている場合。
@@ -285,7 +285,7 @@ export class IceAgent {
         });
         this.onIceCandidate.execute(srflxCandidate);
         return srflxCandidate;
-      })
+      }),
     );
   }
 
@@ -485,7 +485,7 @@ export class IceAgent {
     // 7.2.5.3.1.ピアリフレックス候補の発見
     {
       const xorMappedAddress = Attributes.xorMappedAddress.deserialize(
-        response.attributes
+        response.attributes,
       )!;
       const address =
         xorMappedAddress.family === IPv4
@@ -503,7 +503,7 @@ export class IceAgent {
     const frozen = this.checkList.filter(
       (p) =>
         p.localCandidate.foundation === pair.localCandidate.foundation &&
-        p.state === "frozen"
+        p.state === "frozen",
     );
     for (const p of frozen) {
       p.state = "waiting";
@@ -523,7 +523,7 @@ export class IceAgent {
 
     // 7.2.5.4.チェックリストの状態更新
     const succeededOrFailed = this.checkList.filter(
-      (p) => p.state === "succeeded" || p.state === "failed"
+      (p) => p.state === "succeeded" || p.state === "failed",
     );
     if (succeededOrFailed.length === this.checkList.length) {
       if (this.validList.length === 0) {
@@ -563,7 +563,7 @@ function nodeIpAddress(family: number): string[] {
         (details) =>
           normalizeFamilyNodeV18(details.family) === family &&
           !nodeIp.isLoopback(details.address) &&
-          !isAutoConfigurationAddress(details)
+          !isAutoConfigurationAddress(details),
       );
       return {
         nic,

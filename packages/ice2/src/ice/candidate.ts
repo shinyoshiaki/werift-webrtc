@@ -1,9 +1,9 @@
 import { createHash } from "crypto";
+import { MediaAttributes, write } from "sdp-transform";
 import { Address } from "../model";
 import { StunAgent } from "../stun/agent";
 import { address2Str } from "../util";
 import { IceRole } from "./agent";
-import {write,SessionDescription,MediaAttributes,} from "sdp-transform"
 
 // ベース: ICEエージェントが特定の候補のために送信するトランスポートアドレス。
 // ホスト候補、サーバー反射候補、ピア反射候補の場合、ベースはホスト候補と同じである。
@@ -56,10 +56,10 @@ export class IceCandidateImpl implements IceCandidate {
   }
 }
 
-type SdpIceCandidate=NonNullable<MediaAttributes["candidates"]>[0]
+type SdpIceCandidate = NonNullable<MediaAttributes["candidates"]>[0];
 
 export const toSdp = (candidate: IceCandidate) => {
-  const ice:SdpIceCandidate={
+  const ice: SdpIceCandidate = {
     foundation: candidate.foundation,
     component: candidate.componentId,
     transport: candidate.transport,
@@ -69,10 +69,10 @@ export const toSdp = (candidate: IceCandidate) => {
     type: candidate.type,
     raddr: candidate.relatedAddress?.[0],
     rport: candidate.relatedAddress?.[1],
-  }
-  const sdp=write(ice as any)
-  return sdp
-}
+  };
+  const sdp = write(ice as any);
+  return sdp;
+};
 
 /**6.1.2.6. Computing Candidate Pair States */
 export type IceCandidatePairState =
@@ -97,7 +97,7 @@ export class IceCandidatePair {
       role: IceRole;
       local: IceCandidateImpl;
       remote: IceCandidate;
-    }
+    },
   ) {}
 
   shouldPrune(pair: IceCandidatePair) {
@@ -131,7 +131,7 @@ export interface IceParameters {
 export function candidateFoundation(
   candidateType: CandidateType,
   candidateTransportType: TransportType,
-  baseAddress: string
+  baseAddress: string,
 ) {
   // """
   // See RFC 5245 - 4.1.1.3. Computing Foundations
@@ -143,7 +143,7 @@ export function candidateFoundation(
 
 export function candidatePriority(
   candidateType: CandidateType,
-  localPref = 65535
+  localPref = 65535,
 ) {
   // See RFC 5245 - 4.1.2.1. Recommended Formula
   let typePref = 0;

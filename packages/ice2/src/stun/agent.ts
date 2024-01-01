@@ -2,12 +2,13 @@ import * as nodeIp from "ip";
 import { isIPv4 } from "net";
 import Event from "rx.mini";
 import { Address } from "../model";
+import { UdpTransport } from "../udp";
 import {
   Attributes,
   IPv4,
+  XorAddressAttribute,
   xorIPv4Address,
   xorIPv6Address,
-  XorAddressAttribute,
   xorPort,
 } from "./attributes";
 import {
@@ -21,14 +22,16 @@ import {
   StunMessageType,
   SuccessResponse,
 } from "./message";
-import { UdpTransport } from "../udp";
 
 export class StunAgent {
   onResponse = new Event<[{ message: StunMessage; address: Address }]>();
   onRequest = new Event<[{ message: StunMessage; address: Address }]>();
   private ongoingTransaction: { [transactionId: string]: boolean } = {};
 
-  constructor(private stunServer: Address, readonly transport: UdpTransport) {}
+  constructor(
+    private stunServer: Address,
+    readonly transport: UdpTransport,
+  ) {}
 
   async setup() {
     this.transport.onData.subscribe((data, address) => {
@@ -62,7 +65,7 @@ export class StunAgent {
 
   private onBinding(message: StunMessage, sourceAddress: Address) {
     const messageIntegrity = message.attributes.find(
-      (a) => a.type === Attributes.messageIntegrity.type
+      (a) => a.type === Attributes.messageIntegrity.type,
     );
     if (!messageIntegrity) {
       throw new Error();
@@ -81,7 +84,7 @@ export class StunAgent {
     });
     const { message: response } = await this.request(message);
     const xorMappedAddress = Attributes.xorMappedAddress.deserialize(
-      response.attributes
+      response.attributes,
     )!;
     const address =
       xorMappedAddress.family === IPv4
@@ -118,7 +121,7 @@ export class StunAgent {
   }
 
   request = async (
-    message: StunMessage
+    message: StunMessage,
   ): Promise<{ message: StunMessage; address: Address }> => {
     const transactionId = message.header.transactionId;
     this.ongoingTransaction[transactionId.toString("hex")] = true;
@@ -140,13 +143,13 @@ export class StunAgent {
                 r({ message, address });
                 unSubscribe();
               }
-            }
+            },
           );
           setTimeout(() => {
             rto *= 2;
             f(new Error("timeout"));
           }, rto);
-        }
+        },
       ).catch((e) => {
         console.warn(e);
       });

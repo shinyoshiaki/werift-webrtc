@@ -14,6 +14,6 @@ describe("stun/client", () => {
       expect(address).toMatch(/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/);
       expect(port).toBeGreaterThan(0);
     },
-    60_000 * 60
+    60_000 * 60,
   );
 });

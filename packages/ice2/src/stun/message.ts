@@ -34,7 +34,7 @@ export class StunMessageHeader {
     props: Pick<
       StunMessageHeader,
       "messageType" | "messageLength" | "transactionId"
-    >
+    >,
   ) {
     Object.assign(this, props);
   }
@@ -61,11 +61,11 @@ export class StunMessageHeader {
 
     const [first2bytes, messageLength, magicCookie] = bufferReader(
       buf,
-      [2, 2, 4]
+      [2, 2, 4],
     );
     const transactionId = buf.subarray(8, 20);
     const messageType = StunMessageType.Deserialize(
-      first2bytes & 0b0011111111111111
+      first2bytes & 0b0011111111111111,
     );
 
     if (this.magicCookie !== magicCookie) {
@@ -187,7 +187,7 @@ export class StunAttribute {
 export class StunMessage {
   constructor(
     readonly header: StunMessageHeader,
-    readonly attributes: StunAttribute[]
+    readonly attributes: StunAttribute[],
   ) {}
 
   serialize() {

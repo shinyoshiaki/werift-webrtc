@@ -20,7 +20,7 @@ export class UdpTransport implements Transport {
   constructor(
     private type: SocketType,
     private host?: string,
-    private port?: number
+    private port?: number,
   ) {
     this.socket = createSocket(this.type);
     this.socket.on("message", (data, info) => {

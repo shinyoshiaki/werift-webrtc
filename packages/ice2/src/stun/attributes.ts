@@ -54,7 +54,7 @@ export class XorAddressAttribute {
 export function xorPort(xPort: number) {
   const xor = bufferXor(
     bufferWriter([2, 2], [xPort, 0]),
-    bufferWriter([4], [StunMessageHeader.magicCookie])
+    bufferWriter([4], [StunMessageHeader.magicCookie]),
   );
   return xor.readUint16BE();
 }
@@ -62,7 +62,7 @@ export function xorPort(xPort: number) {
 export function xorAddress(xAddress: number) {
   const xor = bufferXor(
     bufferWriter([4], [xAddress]),
-    bufferWriter([4], [StunMessageHeader.magicCookie])
+    bufferWriter([4], [StunMessageHeader.magicCookie]),
   );
   return xor;
 }
@@ -70,7 +70,7 @@ export function xorAddress(xAddress: number) {
 export function xorIPv4Address(xAddress: number) {
   const xor = bufferXor(
     bufferWriter([4], [xAddress]),
-    bufferWriter([4], [StunMessageHeader.magicCookie])
+    bufferWriter([4], [StunMessageHeader.magicCookie]),
   );
   return xor;
 }
@@ -78,7 +78,7 @@ export function xorIPv4Address(xAddress: number) {
 export function xorIPv6Address(xAddress: number) {
   const xor = bufferXor(
     bufferWriter([16], [xAddress]),
-    bufferWriter([16], [StunMessageHeader.magicCookie])
+    bufferWriter([16], [StunMessageHeader.magicCookie]),
   );
   return xor;
 }
@@ -221,7 +221,7 @@ export const Attributes = {
     type: 0x0006,
     serialize: (s: string) =>
       StunAttribute.FromAttribute(
-        new StringAttribute({ value: s, type: Attributes.username.type })
+        new StringAttribute({ value: s, type: Attributes.username.type }),
       ),
   },
   messageIntegrity: { type: 0x0008, attr: BytesAttribute },
@@ -229,11 +229,11 @@ export const Attributes = {
     type: 0x0009,
     serialize: (code: number, reason: string) =>
       StunAttribute.FromAttribute(
-        new ErrorAttribute({ code, reason, type: Attributes.errorCode.type })
+        new ErrorAttribute({ code, reason, type: Attributes.errorCode.type }),
       ),
     deserialize: (attr: StunAttribute[]) =>
       ErrorAttribute.Deserialize(
-        attr.find((a) => a.type === Attributes.errorCode.type)?.value
+        attr.find((a) => a.type === Attributes.errorCode.type)?.value,
       ),
   },
   xorMappedAddress: {
@@ -241,7 +241,7 @@ export const Attributes = {
     attr: XorAddressAttribute,
     deserialize: (attr: StunAttribute[]) =>
       XorAddressAttribute.Deserialize(
-        attr.find((a) => a.type === Attributes.xorMappedAddress.type)?.value
+        attr.find((a) => a.type === Attributes.xorMappedAddress.type)?.value,
       ),
   },
   priority: {
@@ -251,18 +251,18 @@ export const Attributes = {
         new UInt32Attribute({
           value: p,
           type: Attributes.priority.type,
-        })
+        }),
       ),
     deserialize: (attr: StunAttribute[]) =>
       UInt32Attribute.Deserialize(
-        attr.find((a) => a.type === Attributes.priority.type)?.value
+        attr.find((a) => a.type === Attributes.priority.type)?.value,
       ),
   },
   useCandidate: {
     type: 0x0025,
     serialize: () =>
       StunAttribute.FromAttribute(
-        new NullAttribute({ type: Attributes.useCandidate.type })
+        new NullAttribute({ type: Attributes.useCandidate.type }),
       ),
     deserialize: (attr: StunAttribute[]) =>
       attr.find((a) => a.type === Attributes.useCandidate.type)?.value
@@ -273,22 +273,22 @@ export const Attributes = {
     type: 0x8029,
     serialize: (n: bigint) =>
       StunAttribute.FromAttribute(
-        new UInt64Attribute({ value: n, type: Attributes.iceControlled.type })
+        new UInt64Attribute({ value: n, type: Attributes.iceControlled.type }),
       ),
     deserialize: (attr: StunAttribute[]) =>
       UInt64Attribute.Deserialize(
-        attr.find((a) => a.type === Attributes.iceControlled.type)?.value
+        attr.find((a) => a.type === Attributes.iceControlled.type)?.value,
       ),
   },
   iceControlling: {
     type: 0x802a,
     serialize: (n: bigint) =>
       StunAttribute.FromAttribute(
-        new UInt64Attribute({ value: n, type: Attributes.iceControlling.type })
+        new UInt64Attribute({ value: n, type: Attributes.iceControlling.type }),
       ),
     deserialize: (attr: StunAttribute[]) =>
       UInt64Attribute.Deserialize(
-        attr.find((a) => a.type === Attributes.iceControlling.type)?.value
+        attr.find((a) => a.type === Attributes.iceControlling.type)?.value,
       ),
   },
 } as const;
