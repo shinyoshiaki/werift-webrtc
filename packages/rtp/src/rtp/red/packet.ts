@@ -124,7 +124,6 @@ export class RedHeader {
         }
       } catch (error: any) {
         log(error?.message);
-        continue;
       }
     }
     return buf;

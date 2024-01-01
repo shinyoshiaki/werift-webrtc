@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 
-import { createUdpTransport, DtlsClient } from "../../../src";
+import { DtlsClient, createUdpTransport } from "../../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
 import { certPem, keyPem } from "../../fixture";
 

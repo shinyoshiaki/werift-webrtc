@@ -50,63 +50,58 @@ export const flight2 =
 
     clientHello.extensions.forEach((extension) => {
       switch (extension.type) {
-        case EllipticCurves.type:
-          {
-            const curves = EllipticCurves.fromData(extension.data).data;
-            log(dtls.sessionId, "curves", curves);
-            const curve = curves.filter((curve) =>
-              NamedCurveAlgorithmList.includes(curve as any),
-            )[0] as NamedCurveAlgorithms;
-            cipher.namedCurve = curve;
-            log(dtls.sessionId, "curve selected", cipher.namedCurve);
-          }
-          break;
-        case Signature.type:
-          {
-            if (!cipher.signatureHashAlgorithm)
-              throw new Error("need to set certificate");
+        case EllipticCurves.type: {
+          const curves = EllipticCurves.fromData(extension.data).data;
+          log(dtls.sessionId, "curves", curves);
+          const curve = curves.filter((curve) =>
+            NamedCurveAlgorithmList.includes(curve as any),
+          )[0] as NamedCurveAlgorithms;
+          cipher.namedCurve = curve;
+          log(dtls.sessionId, "curve selected", cipher.namedCurve);
+        }
+        break;
+        case Signature.type: {
+          if (!cipher.signatureHashAlgorithm)
+            throw new Error("need to set certificate");
 
-            const signatureHash = Signature.fromData(extension.data).data;
-            log(dtls.sessionId, "hash,signature", signatureHash);
-            const signature = signatureHash.find(
-              (v) => v.signature === cipher.signatureHashAlgorithm?.signature,
-            )?.signature;
-            const hash = signatureHash.find(
-              (v) => v.hash === cipher.signatureHashAlgorithm?.hash,
-            )?.hash;
-            if (signature == undefined || hash == undefined) {
-              throw new Error("invalid signatureHash");
-            }
+          const signatureHash = Signature.fromData(extension.data).data;
+          log(dtls.sessionId, "hash,signature", signatureHash);
+          const signature = signatureHash.find(
+            (v) => v.signature === cipher.signatureHashAlgorithm?.signature,
+          )?.signature;
+          const hash = signatureHash.find(
+            (v) => v.hash === cipher.signatureHashAlgorithm?.hash,
+          )?.hash;
+          if (signature == undefined || hash == undefined) {
+            throw new Error("invalid signatureHash");
           }
-          break;
-        case UseSRTP.type:
-          {
-            if (!dtls.options?.srtpProfiles) return;
-            if (dtls.options.srtpProfiles.length === 0) return;
+        }
+        break;
+        case UseSRTP.type: {
+          if (!dtls.options?.srtpProfiles) return;
+          if (dtls.options.srtpProfiles.length === 0) return;
 
-            const useSrtp = UseSRTP.fromData(extension.data);
-            log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
-            const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles as Profile[],
-              dtls.options?.srtpProfiles,
-            );
-            if (!profile) {
-              throw new Error();
-            }
-            srtp.srtpProfile = profile;
-            log(dtls.sessionId, "srtp profile selected", srtp.srtpProfile);
+          const useSrtp = UseSRTP.fromData(extension.data);
+          log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
+          const profile = SrtpContext.findMatchingSRTPProfile(
+            useSrtp.profiles as Profile[],
+            dtls.options?.srtpProfiles,
+          );
+          if (!profile) {
+            throw new Error();
           }
-          break;
-        case ExtendedMasterSecret.type:
-          {
-            dtls.remoteExtendedMasterSecret = true;
-          }
-          break;
-        case RenegotiationIndication.type:
-          {
-            log(dtls.sessionId, "RenegotiationIndication", extension.data);
-          }
-          break;
+          srtp.srtpProfile = profile;
+          log(dtls.sessionId, "srtp profile selected", srtp.srtpProfile);
+        }
+        break;
+        case ExtendedMasterSecret.type: {
+          dtls.remoteExtendedMasterSecret = true;
+        }
+        break;
+        case RenegotiationIndication.type: {
+          log(dtls.sessionId, "RenegotiationIndication", extension.data);
+        }
+        break;
       }
     });
 

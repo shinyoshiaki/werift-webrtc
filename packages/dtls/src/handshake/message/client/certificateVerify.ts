@@ -14,10 +14,7 @@ export class CertificateVerify implements Handshake {
     signature: types.buffer(types.uint16be),
   };
 
-  constructor(
-    public algorithm: SignatureSchemes,
-    public signature: Buffer,
-  ) {}
+  constructor(public algorithm: SignatureSchemes, public signature: Buffer) {}
 
   static createEmpty() {
     return new CertificateVerify(undefined as any, undefined as any);

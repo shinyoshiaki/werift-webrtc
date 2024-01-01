@@ -1,7 +1,7 @@
 import {
+  LipSyncOptions,
   LipsyncBase,
   LipsyncInput,
-  LipSyncOptions,
   LipsyncOutput,
 } from "./lipsync";
 

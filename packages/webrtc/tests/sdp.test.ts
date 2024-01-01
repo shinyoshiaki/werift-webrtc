@@ -1,8 +1,8 @@
 import {
-  codecParametersFromString,
   GroupDescription,
   MediaDescription,
   SessionDescription,
+  codecParametersFromString,
 } from "../src";
 
 describe("sdp", () => {
@@ -21,7 +21,7 @@ describe("sdp", () => {
   describe("codecParametersFromString", () => {
     test("h264 parameters", () => {
       const params = codecParametersFromString(
-        "packetization-mode:0;profile-level-id:42001f;level-asymmetry-allowed:0"
+        "packetization-mode:0;profile-level-id:42001f;level-asymmetry-allowed:0",
       );
       expect(params).toEqual({
         "level-asymmetry-allowed": 0,

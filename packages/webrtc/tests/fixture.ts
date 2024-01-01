@@ -1,7 +1,6 @@
 import { setTimeout } from "timers/promises";
 
 import {
-  defaultPeerConfig,
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
@@ -9,6 +8,7 @@ import {
   RTCSessionDescription,
   RtpHeader,
   RtpPacket,
+  defaultPeerConfig,
 } from "../src";
 import { RtpRouter } from "../src/media/router";
 
@@ -31,7 +31,7 @@ export const createDtlsTransport = () => {
     defaultPeerConfig,
     new RTCIceTransport(new RTCIceGatherer()),
     new RtpRouter(),
-    []
+    [],
   );
   return dtls;
 };
@@ -61,7 +61,7 @@ export async function dtlsTransportPair() {
     defaultPeerConfig,
     transport1,
     new RtpRouter(),
-    []
+    [],
   );
   await session1.setupCertificate();
 
@@ -69,7 +69,7 @@ export async function dtlsTransportPair() {
     defaultPeerConfig,
     transport2,
     new RtpRouter(),
-    []
+    [],
   );
   await session2.setupCertificate();
 

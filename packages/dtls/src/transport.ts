@@ -1,5 +1,5 @@
-import debug from "debug";
 import { RemoteInfo, Socket } from "dgram";
+import debug from "debug";
 
 const log = debug("werift-dtls : packages/dtls/src/transport.ts");
 
@@ -10,10 +10,7 @@ export interface Transport {
 }
 
 export class UdpTransport implements Transport {
-  constructor(
-    private upd: Socket,
-    private rinfo: Partial<RemoteInfo>,
-  ) {
+  constructor(private upd: Socket, private rinfo: Partial<RemoteInfo>) {
     upd.on("message", (buf, target) => {
       this.rinfo = target;
       if (this.onData) this.onData(buf);

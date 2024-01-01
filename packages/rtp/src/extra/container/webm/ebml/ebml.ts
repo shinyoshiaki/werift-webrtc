@@ -114,7 +114,7 @@ export const getEBMLByteLength = (num: number | bigint): number => {
   } else {
     throw new Error(
       "EBMLgetEBMLByteLength: data size must be less than or equal to " +
-        (Math.pow(2, 56) - 2),
+        (2 ** 56 - 2),
     );
   }
 };

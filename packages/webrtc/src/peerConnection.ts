@@ -4,34 +4,34 @@ import isEqual from "lodash/isEqual";
 import Event from "rx.mini";
 import * as uuid from "uuid";
 
-import { Profile } from "../../dtls/src/context/srtp";
-import { Message } from "../../ice/src/stun/message";
-import { Protocol } from "../../ice/src/types/model";
 import {
   Address,
   CandidatePair,
-  deepMerge,
   InterfaceAddresses,
   Recvonly,
   Sendonly,
   Sendrecv,
+  deepMerge,
 } from ".";
 import {
-  codecParametersFromString,
   DtlsKeys,
+  codecParametersFromString,
   useNACK,
   usePLI,
   useREMB,
 } from ".";
+import { Profile } from "../../dtls/src/context/srtp";
+import { Message } from "../../ice/src/stun/message";
+import { Protocol } from "../../ice/src/types/model";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
   ReceiverDirection,
-  SenderDirections,
   SRTP_PROFILE,
+  SenderDirections,
 } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
-import { enumerate, EventTarget } from "./helper";
+import { EventTarget, enumerate } from "./helper";
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -51,11 +51,11 @@ import {
 } from "./media/rtpTransceiver";
 import { MediaStream, MediaStreamTrack } from "./media/track";
 import {
-  addSDPHeader,
   GroupDescription,
   MediaDescription,
   SessionDescription,
   SsrcDescription,
+  addSDPHeader,
 } from "./sdp";
 import { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
 import {
@@ -168,20 +168,18 @@ export class RTCPeerConnection extends EventTarget {
 
       codecParams.payloadType = 96 + i;
       switch (codecParams.name.toLowerCase()) {
-        case "rtx":
-          {
-            codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
+        case "rtx": {
+          codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
+        }
+        break;
+        case "red": {
+          if (codecParams.contentType === "audio") {
+            const redundant = codecParams.payloadType + 1;
+            codecParams.parameters = `${redundant}/${redundant}`;
+            codecParams.payloadType = 63;
           }
-          break;
-        case "red":
-          {
-            if (codecParams.contentType === "audio") {
-              const redundant = codecParams.payloadType + 1;
-              codecParams.parameters = `${redundant}/${redundant}`;
-              codecParams.payloadType = 63;
-            }
-          }
-          break;
+        }
+        break;
       }
     }
 
@@ -214,12 +212,16 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get localDescription() {
-    if (!this._localDescription) return;
+    if (!this._localDescription) {
+      return undefined;
+    }
     return this._localDescription.toJSON();
   }
 
   get remoteDescription() {
-    if (!this._remoteDescription) return;
+    if (!this._remoteDescription) {
+      return undefined;
+    }
     return this._remoteDescription.toJSON();
   }
 
@@ -830,7 +832,9 @@ export class RTCPeerConnection extends EventTarget {
 
   get remoteIsBundled() {
     const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) return;
+    if (!remoteSdp) {
+      return undefined;
+    }
     const bundle = remoteSdp.group.find(
       (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
     );

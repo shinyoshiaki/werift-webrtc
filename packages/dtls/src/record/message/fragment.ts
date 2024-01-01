@@ -104,7 +104,7 @@ export class FragmentedHandshake {
 
   static assemble(messages: FragmentedHandshake[]): FragmentedHandshake {
     // cannot reassemble empty arrays
-    if (!(messages && messages.length)) {
+    if (!messages?.length) {
       throw new Error("cannot reassemble handshake from empty array");
     }
 
@@ -135,7 +135,7 @@ export class FragmentedHandshake {
     if (!reference) return [];
 
     // ignore empty arrays
-    if (!(fragments && fragments.length)) return [];
+    if (!fragments?.length) return [];
 
     // return all fragments with matching msg_type, message_seq and total length
     return fragments.filter((f) => {

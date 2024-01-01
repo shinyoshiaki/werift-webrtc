@@ -1,10 +1,10 @@
+import { Socket, SocketType, createSocket } from "dgram";
 import debug from "debug";
-import { createSocket, Socket, SocketType } from "dgram";
 
 import {
+  InterfaceAddresses,
   findPort,
   interfaceAddress,
-  InterfaceAddresses,
 } from "../../common/src";
 import { Address } from "./types/model";
 import { normalizeFamilyNodeV18 } from "./utils";

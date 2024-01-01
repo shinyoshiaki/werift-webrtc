@@ -7,10 +7,7 @@ export class TransactionError extends Error {
 }
 
 export class TransactionFailed extends TransactionError {
-  constructor(
-    public response: Message,
-    public addr: Address,
-  ) {
+  constructor(public response: Message, public addr: Address) {
     super();
   }
 

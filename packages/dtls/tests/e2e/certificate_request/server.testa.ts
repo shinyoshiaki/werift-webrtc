@@ -1,8 +1,8 @@
 import { spawn } from "child_process";
 
-import { readFileSync } from "fs";
 import { createSocket } from "dgram";
-import { createUdpTransport, DtlsServer } from "../../../src";
+import { readFileSync } from "fs";
+import { DtlsServer, createUdpTransport } from "../../../src";
 
 describe("e2e/certificate_request/server", () => {
   test("openssl", (done) => {

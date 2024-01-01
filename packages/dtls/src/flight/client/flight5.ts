@@ -235,7 +235,7 @@ handlers[HandshakeType.server_hello_2] =
     if (message.extensions) {
       message.extensions.forEach((extension) => {
         switch (extension.type) {
-          case UseSRTP.type:
+          case UseSRTP.type: {
             const useSrtp = UseSRTP.fromData(extension.data);
             const profile = SrtpContext.findMatchingSRTPProfile(
               useSrtp.profiles as Profile[],
@@ -244,7 +244,8 @@ handlers[HandshakeType.server_hello_2] =
             log(dtls.sessionId, "selected srtp profile", profile);
             if (profile == undefined) return;
             srtp.srtpProfile = profile;
-            break;
+          }
+          break;
           case ExtendedMasterSecret.type:
             dtls.remoteExtendedMasterSecret = true;
             break;

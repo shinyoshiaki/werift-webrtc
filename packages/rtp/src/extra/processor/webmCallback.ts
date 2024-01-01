@@ -4,12 +4,12 @@ import { PromiseQueue } from "../..";
 import { SupportedCodec } from "../container/webm";
 import {
   DurationPosition,
-  replaceSegmentSize,
   SegmentSizePosition,
   WebmBase,
   WebmInput,
   WebmOption,
   WebmOutput,
+  replaceSegmentSize,
 } from "./webm";
 
 export interface WebmTrack {

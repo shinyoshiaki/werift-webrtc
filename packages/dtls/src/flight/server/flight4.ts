@@ -1,6 +1,6 @@
 import debug from "debug";
 
-import { certificateTypes, CurveType, signatures } from "../../cipher/const";
+import { CurveType, certificateTypes, signatures } from "../../cipher/const";
 import { CipherContext } from "../../context/cipher";
 import { DtlsContext } from "../../context/dtls";
 import { SrtpContext } from "../../context/srtp";

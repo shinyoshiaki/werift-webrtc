@@ -1,7 +1,7 @@
 /* eslint-disable prefer-const */
 import { createHash } from "crypto";
+import { RemoteInfo, createSocket } from "dgram";
 import debug from "debug";
-import { createSocket, RemoteInfo } from "dgram";
 import mergeWith from "lodash/mergeWith";
 import { performance } from "perf_hooks";
 

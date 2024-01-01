@@ -13,7 +13,8 @@
         "noParameterAssign": "off",
         "useSingleVarDeclarator": "off",
         "useDefaultParameterLast": "off",
-        "noVar": "off"
+        "noVar": "off",
+        "noInferrableTypes": "off"
       },
       "complexity": {
         "noStaticOnlyClass": "off",
@@ -33,7 +34,8 @@
         "noDoubleEquals": "off",
         "noFallthroughSwitchClause": "off",
         "noAssignInExpressions": "off",
-        "noRedeclare": "off"
+        "noRedeclare": "off",
+        "noConfusingVoidType": "off"
       },
       "correctness": {
         "noSwitchDeclarations": "error"

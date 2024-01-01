@@ -31,7 +31,7 @@
     "deploy": "npm run build && npm publish",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
-    "format": "npx @biomejs/biome check --apply src/**/*ts tests/**/*ts",
+    "format": "npx @biomejs/biome check --apply src tests",
     "knip": "knip",
     "test": "npm run type && jest --runInBand --forceExit --coverage",
     "type": "tsc --noEmit --project ./tsconfig.json",

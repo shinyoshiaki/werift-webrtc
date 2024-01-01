@@ -22,7 +22,9 @@ export interface SimpleProcessorCallback<Input = any, Output = any> {
 export const SimpleProcessorCallbackBase = <
   Input,
   Output,
-  TBase extends new (...args: any[]) => Processor<Input, Output>,
+  TBase extends new (
+    ...args: any[]
+  ) => Processor<Input, Output>,
 >(
   Base: TBase,
 ) => {

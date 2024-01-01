@@ -1,11 +1,11 @@
 import { randomBytes } from "crypto";
+import { isIPv4 } from "net";
+import os from "os";
 import debug from "debug";
 import { Uint64BE } from "int64-buffer";
 import * as nodeIp from "ip";
 import isEqual from "lodash/isEqual";
 import range from "lodash/range";
-import { isIPv4 } from "net";
-import os from "os";
 import PCancelable from "p-cancelable";
 import { Event } from "rx.mini";
 import timers from "timers/promises";
@@ -14,7 +14,7 @@ import { InterfaceAddresses } from "../../common/src/network";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import { DnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
-import { difference, Future, future, PQueue, randomString } from "./helper";
+import { Future, PQueue, difference, future, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -44,7 +44,7 @@ export class Connection {
    * 1つはRTP用、もう1つはRTCP用です. コンポーネントには候補ペアがあり、他のコンポーネントでは使用できません.  */
   _components: Set<number>;
   _localCandidatesEnd = false;
-  _tieBreaker: BigInt = BigInt(new Uint64BE(randomBytes(64)).toString());
+  _tieBreaker: bigint = BigInt(new Uint64BE(randomBytes(64)).toString());
   state: IceState = "new";
   dnsLookup?: DnsLookup;
 
@@ -66,10 +66,7 @@ export class Connection {
   private queryConsentHandle?: Future;
   private promiseGatherCandidates?: Event<[]>;
 
-  constructor(
-    public iceControlling: boolean,
-    options?: Partial<IceOptions>,
-  ) {
+  constructor(public iceControlling: boolean, options?: Partial<IceOptions>) {
     this.options = {
       ...defaultOptions,
       ...options,
@@ -1024,10 +1021,7 @@ export class CandidatePair {
     };
   }
 
-  constructor(
-    public protocol: Protocol,
-    public remoteCandidate: Candidate,
-  ) {}
+  constructor(public protocol: Protocol, public remoteCandidate: Candidate) {}
 
   updateState(state: CandidatePairState) {
     this._state = state;
@@ -1174,9 +1168,7 @@ function nodeIpAddress(family: number): string[] {
   // have seen instances where en0 (ethernet) is after en1 (wlan), etc.
   // eth0 > eth1
   all.sort((a, b) => a.nic.localeCompare(b.nic));
-  return Object.values(all)
-    .map((entry) => entry.addresses)
-    .flat();
+  return Object.values(all).flatMap((entry) => entry.addresses);
 }
 
 export function getHostAddresses(useIpv4: boolean, useIpv6: boolean) {
@@ -1220,7 +1212,7 @@ export async function serverReflexiveCandidate(
 }
 
 export function validateAddress(addr?: Address): Address | undefined {
-  if (addr && isNaN(addr[1])) {
+  if (addr && Number.isNaN(addr[1])) {
     return [addr[0], 443];
   }
   return addr;

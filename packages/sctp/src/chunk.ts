@@ -67,10 +67,7 @@ export class BaseInitChunk extends Chunk {
   inboundStreams: number;
   initialTsn: number;
   params: [number, Buffer][];
-  constructor(
-    public flags = 0,
-    body?: Buffer,
-  ) {
+  constructor(public flags = 0, body?: Buffer) {
     super(flags, body);
 
     if (body) {
@@ -136,10 +133,7 @@ export class ForwardTsnChunk extends Chunk {
   streams: [number, number][] = [];
   cumulativeTsn: number;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
 
     if (body) {
@@ -193,10 +187,7 @@ export class DataChunk extends Chunk {
   maxRetransmits?: number;
   sentTime?: number;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
     if (body) {
       [this.tsn, this.streamId, this.streamSeqNum, this.protocol] =
@@ -249,10 +240,7 @@ export class CookieAckChunk extends Chunk {
 
 export class BaseParamsChunk extends Chunk {
   params: [number, Buffer][] = [];
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined = undefined,
-  ) {
+  constructor(public flags = 0, body: Buffer | undefined = undefined) {
     super(flags, body);
     if (body) {
       this.params = decodeParams(body);
@@ -355,10 +343,7 @@ export class SackChunk extends Chunk {
   cumulativeTsn = 0;
   advertisedRwnd = 0;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
 
     if (body) {
@@ -416,10 +401,7 @@ export class ShutdownChunk extends Chunk {
 
   cumulativeTsn = 0;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(public flags = 0, body: Buffer | undefined) {
     super(flags, body);
 
     if (body) {

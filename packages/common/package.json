@@ -18,7 +18,7 @@
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "deploy": "npm run build && npm publish",
-    "format": "npx @biomejs/biome check --apply src/**/*ts",
+    "format": "npx @biomejs/biome check --apply src",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },

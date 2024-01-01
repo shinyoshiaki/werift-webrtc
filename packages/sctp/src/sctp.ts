@@ -23,24 +23,24 @@ import {
   HeartbeatChunk,
   InitAckChunk,
   InitChunk,
-  parsePacket,
   ReConfigChunk,
   ReconfigChunk,
   SackChunk,
-  serializePacket,
   ShutdownAckChunk,
   ShutdownChunk,
   ShutdownCompleteChunk,
+  parsePacket,
+  serializePacket,
 } from "./chunk";
 import { SCTP_STATE } from "./const";
-import { createEventsFromList, enumerate, Unpacked } from "./helper";
+import { Unpacked, createEventsFromList, enumerate } from "./helper";
 import {
   OutgoingSSNResetRequestParam,
   RECONFIG_PARAM_BY_TYPES,
   ReconfigResponseParam,
-  reconfigResult,
   StreamAddOutgoingParam,
   StreamParam,
+  reconfigResult,
 } from "./param";
 import { Transport } from "./transport";
 
@@ -165,10 +165,7 @@ export class SCTP {
   // etc
   private ssthresh?: number; // slow start threshold
 
-  constructor(
-    public transport: Transport,
-    public port = 5000,
-  ) {
+  constructor(public transport: Transport, public port = 5000) {
     this.localPort = this.port;
     this.transport.onData = (buf) => {
       this.handleData(buf);
@@ -176,8 +173,10 @@ export class SCTP {
   }
 
   get maxChannels() {
-    if (this._inboundStreamsCount > 0)
+    if (this._inboundStreamsCount > 0) {
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
+    }
+    return undefined;
   }
 
   static client(transport: Transport, port = 5000) {
@@ -248,196 +247,183 @@ export class SCTP {
 
   private async receiveChunk(chunk: Chunk) {
     switch (chunk.type) {
-      case DataChunk.type:
-        {
-          this.receiveDataChunk(chunk as DataChunk);
+      case DataChunk.type: {
+        this.receiveDataChunk(chunk as DataChunk);
+      }
+      break;
+      case InitChunk.type: {
+        if (!this.isServer) return;
+        const init = chunk as InitChunk;
+
+        log("receive init", init);
+        this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
+        this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+        this.remoteVerificationTag = init.initiateTag;
+        this.ssthresh = init.advertisedRwnd;
+        this.getExtensions(init.params);
+
+        this._inboundStreamsCount = Math.min(
+          init.outboundStreams,
+          this._inboundStreamsMax,
+        );
+        this._outboundStreamsCount = Math.min(
+          this._outboundStreamsCount,
+          init.inboundStreams,
+        );
+
+        const ack = new InitAckChunk();
+        ack.initiateTag = this.localVerificationTag;
+        ack.advertisedRwnd = this.advertisedRwnd;
+        ack.outboundStreams = this._outboundStreamsCount;
+        ack.inboundStreams = this._inboundStreamsCount;
+        ack.initialTsn = this.localTsn;
+        this.setExtensions(ack.params);
+
+        const time = Date.now() / 1000;
+        let cookie = Buffer.from(jspack.Pack("!L", [time]));
+        cookie = Buffer.concat([
+          cookie,
+          createHmac("sha1", this.hmacKey).update(cookie).digest(),
+        ]);
+        ack.params.push([SCTP_STATE_COOKIE, cookie]);
+        log("send initAck", ack);
+        await this.sendChunk(ack).catch((err: Error) => {
+          log("send initAck failed", err.message);
+        });
+      }
+      break;
+      case InitAckChunk.type: {
+        if (this.associationState != SCTP_STATE.COOKIE_WAIT) return;
+
+        const initAck = chunk as InitAckChunk;
+        this.timer1Cancel();
+        this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
+        this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
+        this.remoteVerificationTag = initAck.initiateTag;
+        this.ssthresh = initAck.advertisedRwnd;
+        this.getExtensions(initAck.params);
+
+        this._inboundStreamsCount = Math.min(
+          initAck.outboundStreams,
+          this._inboundStreamsMax,
+        );
+        this._outboundStreamsCount = Math.min(
+          this._outboundStreamsCount,
+          initAck.inboundStreams,
+        );
+
+        const echo = new CookieEchoChunk();
+        for (const [k, v] of initAck.params) {
+          if (k === SCTP_STATE_COOKIE) {
+            echo.body = v;
+            break;
+          }
         }
-        break;
-      case InitChunk.type:
-        {
-          if (!this.isServer) return;
-          const init = chunk as InitChunk;
+        await this.sendChunk(echo).catch((err: Error) => {
+          log("send echo failed", err.message);
+        });
 
-          log("receive init", init);
-          this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
-          this.remoteVerificationTag = init.initiateTag;
-          this.ssthresh = init.advertisedRwnd;
-          this.getExtensions(init.params);
-
-          this._inboundStreamsCount = Math.min(
-            init.outboundStreams,
-            this._inboundStreamsMax,
-          );
-          this._outboundStreamsCount = Math.min(
-            this._outboundStreamsCount,
-            init.inboundStreams,
-          );
-
-          const ack = new InitAckChunk();
-          ack.initiateTag = this.localVerificationTag;
-          ack.advertisedRwnd = this.advertisedRwnd;
-          ack.outboundStreams = this._outboundStreamsCount;
-          ack.inboundStreams = this._inboundStreamsCount;
-          ack.initialTsn = this.localTsn;
-          this.setExtensions(ack.params);
-
-          const time = Date.now() / 1000;
-          let cookie = Buffer.from(jspack.Pack("!L", [time]));
-          cookie = Buffer.concat([
-            cookie,
-            createHmac("sha1", this.hmacKey).update(cookie).digest(),
+        this.timer1Start(echo);
+        this.setState(SCTP_STATE.COOKIE_ECHOED);
+      }
+      break;
+      case SackChunk.type: {
+        await this.receiveSackChunk(chunk as SackChunk);
+      }
+      break;
+      case HeartbeatChunk.type: {
+        const ack = new HeartbeatAckChunk();
+        ack.params = (chunk as HeartbeatChunk).params;
+        await this.sendChunk(ack).catch((err: Error) => {
+          log("send heartbeat ack failed", err.message);
+        });
+      }
+      break;
+      case AbortChunk.type: {
+        this.setState(SCTP_STATE.CLOSED);
+      }
+      break;
+      case ShutdownChunk.type: {
+        this.timer2Cancel();
+        this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
+        const ack = new ShutdownAckChunk();
+        await this.sendChunk(ack).catch((err: Error) => {
+          log("send shutdown ack failed", err.message);
+        });
+        this.t2Start(ack);
+        this.setState(SCTP_STATE.SHUTDOWN_SENT);
+      }
+      break;
+      case ErrorChunk.type: {
+        // 3.3.10.  Operation Error (ERROR) (9)
+        // An Operation Error is not considered fatal in and of itself, but may be
+        // used with an ABORT chunk to report a fatal condition.  It has the
+        // following parameters:
+        log("ErrorChunk", (chunk as ErrorChunk).descriptions);
+      }
+      break;
+      case CookieEchoChunk.type: {
+        if (!this.isServer) return;
+        const data = chunk as CookieEchoChunk;
+        const cookie = data.body!;
+        const digest = createHmac("sha1", this.hmacKey)
+          .update(cookie.slice(0, 4))
+          .digest();
+        if (
+          cookie?.length != COOKIE_LENGTH ||
+          !cookie.slice(4).equals(digest)
+        ) {
+          log("x State cookie is invalid");
+          return;
+        }
+        const now = Date.now() / 1000;
+        const stamp = jspack.Unpack("!L", cookie)[0];
+        if (stamp < now - COOKIE_LIFETIME || stamp > now) {
+          const error = new ErrorChunk(0, undefined);
+          error.params.push([
+            ErrorChunk.CODE.StaleCookieError,
+            Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
           ]);
-          ack.params.push([SCTP_STATE_COOKIE, cookie]);
-          log("send initAck", ack);
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send initAck failed", err.message);
+          await this.sendChunk(error).catch((err: Error) => {
+            log("send errorChunk failed", err.message);
           });
+          return;
         }
-        break;
-      case InitAckChunk.type:
-        {
-          if (this.associationState != SCTP_STATE.COOKIE_WAIT) return;
-
-          const initAck = chunk as InitAckChunk;
-          this.timer1Cancel();
-          this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
-          this.remoteVerificationTag = initAck.initiateTag;
-          this.ssthresh = initAck.advertisedRwnd;
-          this.getExtensions(initAck.params);
-
-          this._inboundStreamsCount = Math.min(
-            initAck.outboundStreams,
-            this._inboundStreamsMax,
-          );
-          this._outboundStreamsCount = Math.min(
-            this._outboundStreamsCount,
-            initAck.inboundStreams,
-          );
-
-          const echo = new CookieEchoChunk();
-          for (const [k, v] of initAck.params) {
-            if (k === SCTP_STATE_COOKIE) {
-              echo.body = v;
-              break;
-            }
-          }
-          await this.sendChunk(echo).catch((err: Error) => {
-            log("send echo failed", err.message);
-          });
-
-          this.timer1Start(echo);
-          this.setState(SCTP_STATE.COOKIE_ECHOED);
-        }
-        break;
-      case SackChunk.type:
-        {
-          await this.receiveSackChunk(chunk as SackChunk);
-        }
-        break;
-      case HeartbeatChunk.type:
-        {
-          const ack = new HeartbeatAckChunk();
-          ack.params = (chunk as HeartbeatChunk).params;
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send heartbeat ack failed", err.message);
-          });
-        }
-        break;
-      case AbortChunk.type:
-        {
-          this.setState(SCTP_STATE.CLOSED);
-        }
-        break;
-      case ShutdownChunk.type:
-        {
-          this.timer2Cancel();
-          this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
-          const ack = new ShutdownAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send shutdown ack failed", err.message);
-          });
-          this.t2Start(ack);
-          this.setState(SCTP_STATE.SHUTDOWN_SENT);
-        }
-        break;
-      case ErrorChunk.type:
-        {
-          // 3.3.10.  Operation Error (ERROR) (9)
-          // An Operation Error is not considered fatal in and of itself, but may be
-          // used with an ABORT chunk to report a fatal condition.  It has the
-          // following parameters:
-          log("ErrorChunk", (chunk as ErrorChunk).descriptions);
-        }
-        break;
-      case CookieEchoChunk.type:
-        {
-          if (!this.isServer) return;
-          const data = chunk as CookieEchoChunk;
-          const cookie = data.body!;
-          const digest = createHmac("sha1", this.hmacKey)
-            .update(cookie.slice(0, 4))
-            .digest();
-          if (
-            cookie?.length != COOKIE_LENGTH ||
-            !cookie.slice(4).equals(digest)
-          ) {
-            log("x State cookie is invalid");
-            return;
-          }
-          const now = Date.now() / 1000;
-          const stamp = jspack.Unpack("!L", cookie)[0];
-          if (stamp < now - COOKIE_LIFETIME || stamp > now) {
-            const error = new ErrorChunk(0, undefined);
-            error.params.push([
-              ErrorChunk.CODE.StaleCookieError,
-              Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
-            ]);
-            await this.sendChunk(error).catch((err: Error) => {
-              log("send errorChunk failed", err.message);
-            });
-            return;
-          }
-          const ack = new CookieAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send cookieAck failed", err.message);
-          });
-          this.setState(SCTP_STATE.ESTABLISHED);
-        }
-        break;
-      case CookieAckChunk.type:
-        {
-          if (this.associationState != SCTP_STATE.COOKIE_ECHOED) return;
-          this.timer1Cancel();
-          this.setState(SCTP_STATE.ESTABLISHED);
-        }
-        break;
-      case ShutdownCompleteChunk.type:
-        {
-          if (this.associationState != SCTP_STATE.SHUTDOWN_ACK_SENT) return;
-          this.timer2Cancel();
-          this.setState(SCTP_STATE.CLOSED);
-        }
-        break;
+        const ack = new CookieAckChunk();
+        await this.sendChunk(ack).catch((err: Error) => {
+          log("send cookieAck failed", err.message);
+        });
+        this.setState(SCTP_STATE.ESTABLISHED);
+      }
+      break;
+      case CookieAckChunk.type: {
+        if (this.associationState != SCTP_STATE.COOKIE_ECHOED) return;
+        this.timer1Cancel();
+        this.setState(SCTP_STATE.ESTABLISHED);
+      }
+      break;
+      case ShutdownCompleteChunk.type: {
+        if (this.associationState != SCTP_STATE.SHUTDOWN_ACK_SENT) return;
+        this.timer2Cancel();
+        this.setState(SCTP_STATE.CLOSED);
+      }
+      break;
       // extensions
-      case ReconfigChunk.type:
-        {
-          if (this.associationState != SCTP_STATE.ESTABLISHED) return;
-          const reconfig = chunk as ReConfigChunk;
-          for (const [type, body] of reconfig.params) {
-            const target = RECONFIG_PARAM_BY_TYPES[type];
-            if (target) {
-              await this.receiveReconfigParam(target.parse(body));
-            }
+      case ReconfigChunk.type: {
+        if (this.associationState != SCTP_STATE.ESTABLISHED) return;
+        const reconfig = chunk as ReConfigChunk;
+        for (const [type, body] of reconfig.params) {
+          const target = RECONFIG_PARAM_BY_TYPES[type];
+          if (target) {
+            await this.receiveReconfigParam(target.parse(body));
           }
         }
-        break;
-      case ForwardTsnChunk.type:
-        {
-          this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
-        }
-        break;
+      }
+      break;
+      case ForwardTsnChunk.type: {
+        this.receiveForwardTsnChunk(chunk as ForwardTsnChunk);
+      }
+      break;
     }
   }
 
@@ -454,70 +440,67 @@ export class SCTP {
   private async receiveReconfigParam(param: StreamParam) {
     log("receiveReconfigParam", RECONFIG_PARAM_BY_TYPES[param.type]);
     switch (param.type) {
-      case OutgoingSSNResetRequestParam.type:
-        {
-          const p = param as OutgoingSSNResetRequestParam;
+      case OutgoingSSNResetRequestParam.type: {
+        const p = param as OutgoingSSNResetRequestParam;
 
-          // # send response
-          const response = new ReconfigResponseParam(
-            p.requestSequence,
-            reconfigResult.ReconfigResultSuccessPerformed,
-          );
-          this.reconfigResponseSeq = p.requestSequence;
-          await this.sendReconfigParam(response);
+        // # send response
+        const response = new ReconfigResponseParam(
+          p.requestSequence,
+          reconfigResult.ReconfigResultSuccessPerformed,
+        );
+        this.reconfigResponseSeq = p.requestSequence;
+        await this.sendReconfigParam(response);
 
-          // # mark closed inbound streams
-          await Promise.all(
-            p.streams.map(async (streamId) => {
-              delete this.inboundStreams[streamId];
-              if (this.outboundStreamSeq[streamId]) {
-                this.reconfigQueue.push(streamId);
-                // await this.sendResetRequest(streamId);
-              }
-            }),
-          );
-          await this.transmitReconfigRequest();
-          // # close data channel
-          this.onReconfigStreams.execute(p.streams);
-        }
-        break;
-      case ReconfigResponseParam.type:
-        {
-          const reset = param as ReconfigResponseParam;
-          if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
-            log(
-              "OutgoingSSNResetRequestParam failed",
-              Object.keys(reconfigResult).find(
-                (key) => reconfigResult[key as never] === reset.result,
-              ),
-            );
-          } else if (
-            reset.responseSequence === this.reconfigRequest?.requestSequence
-          ) {
-            const streamIds = this.reconfigRequest.streams.map((streamId) => {
-              delete this.outboundStreamSeq[streamId];
-              return streamId;
-            });
-
-            this.onReconfigStreams.execute(streamIds);
-
-            this.reconfigRequest = undefined;
-            this.timerReconfigCancel();
-            if (this.reconfigQueue.length > 0) {
-              await this.transmitReconfigRequest();
+        // # mark closed inbound streams
+        await Promise.all(
+          p.streams.map(async (streamId) => {
+            delete this.inboundStreams[streamId];
+            if (this.outboundStreamSeq[streamId]) {
+              this.reconfigQueue.push(streamId);
+              // await this.sendResetRequest(streamId);
             }
+          }),
+        );
+        await this.transmitReconfigRequest();
+        // # close data channel
+        this.onReconfigStreams.execute(p.streams);
+      }
+      break;
+      case ReconfigResponseParam.type: {
+        const reset = param as ReconfigResponseParam;
+        if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
+          log(
+            "OutgoingSSNResetRequestParam failed",
+            Object.keys(reconfigResult).find(
+              (key) => reconfigResult[key as never] === reset.result,
+            ),
+          );
+        } else if (
+          reset.responseSequence === this.reconfigRequest?.requestSequence
+        ) {
+          const streamIds = this.reconfigRequest.streams.map((streamId) => {
+            delete this.outboundStreamSeq[streamId];
+            return streamId;
+          });
+
+          this.onReconfigStreams.execute(streamIds);
+
+          this.reconfigRequest = undefined;
+          this.timerReconfigCancel();
+          if (this.reconfigQueue.length > 0) {
+            await this.transmitReconfigRequest();
           }
         }
-        break;
-      case StreamAddOutgoingParam.type:
-        {
-          const add = param as StreamAddOutgoingParam;
-          this._inboundStreamsCount += add.newStreams;
-          const res = new ReconfigResponseParam(add.requestSequence, 1);
-          this.reconfigResponseSeq = add.requestSequence;
-          await this.sendReconfigParam(res);
-        }
-        break;
+      }
+      break;
+      case StreamAddOutgoingParam.type: {
+        const add = param as StreamAddOutgoingParam;
+        this._inboundStreamsCount += add.newStreams;
+        const res = new ReconfigResponseParam(add.requestSequence, 1);
+        this.reconfigResponseSeq = add.requestSequence;
+        await this.sendReconfigParam(res);
+      }
+      break;
     }
   }
 
@@ -1301,11 +1284,14 @@ export class InboundStream {
         const arr = this.reassembly
           .slice(startPos, pos + 1)
           .map((c) => c.userData)
-          .reduce((acc, cur) => {
-            acc.push(cur);
-            acc.push(Buffer.from(""));
-            return acc;
-          }, [] as Buffer[]);
+          .reduce(
+            (acc, cur) => {
+              acc.push(cur);
+              acc.push(Buffer.from(""));
+              return acc;
+            },
+            [] as Buffer[],
+          );
         arr.pop();
         const userData = Buffer.concat(arr);
 
