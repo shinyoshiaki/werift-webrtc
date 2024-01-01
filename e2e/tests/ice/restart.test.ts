@@ -54,7 +54,7 @@ describe("ice/restart", () => {
         peer.on("request", async (request, accept) => {
           if (request.method !== label) return;
           const candidate = request.data;
-          await pc.addIceCandidate(candidate);
+          await pc.addIceCandidate(candidate).catch(() => {});
           accept();
         });
 
@@ -106,7 +106,7 @@ describe("ice/restart", () => {
         peer.on("request", async (request, accept) => {
           if (request.method !== label) return;
           const candidate = request.data;
-          await pc.addIceCandidate(candidate);
+          await pc.addIceCandidate(candidate).catch(() => {});
           accept();
         });
 
