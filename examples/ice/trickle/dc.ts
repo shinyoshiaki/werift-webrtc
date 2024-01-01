@@ -8,7 +8,7 @@ app.use((_, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
     "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
+    "Origin, X-Requested-With, Content-Type, Accept",
   );
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   next();
@@ -27,7 +27,7 @@ dc.stateChanged.subscribe((v) => {
 });
 
 let index = 0;
-dc.message.subscribe((data) => {
+dc.onMessage.subscribe((data) => {
   console.log("message", data.toString());
   dc.send(Buffer.from("pong" + index++));
 });

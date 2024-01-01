@@ -12,7 +12,7 @@ server.on("connection", async (socket) => {
   socket.send(JSON.stringify(pc.localDescription));
 
   const answer = JSON.parse(
-    await new Promise((r) => socket.on("message", (data) => r(data as string)))
+    await new Promise((r) => socket.on("message", (data) => r(data as string))),
   );
   console.log(answer);
 
@@ -29,11 +29,11 @@ server.on("connection", async (socket) => {
       }, 1000);
     }
   });
-  channel.message.subscribe((data) => {
+  channel.onMessage.subscribe((data) => {
     console.log("message", data.toString());
   });
   pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("iceConnectionStateChange", v)
+    console.log("iceConnectionStateChange", v),
   );
   channel.stateChanged.subscribe((v) => console.log("dc.state", v));
 });

@@ -13,7 +13,7 @@ server.on("connection", (socket) => {
 
     const pc = new RTCPeerConnection({});
     pc.iceConnectionStateChange.subscribe((v) =>
-      console.log("pc.iceConnectionStateChange", v)
+      console.log("pc.iceConnectionStateChange", v),
     );
     pc.onDataChannel.subscribe((channel) => {
       let index = 0;
@@ -21,11 +21,11 @@ server.on("connection", (socket) => {
         channel.send(Buffer.from("ping" + index++));
       }, 1000);
 
-      channel.message.subscribe((data) => {
+      channel.onMessage.subscribe((data) => {
         console.log("answer message", data.toString());
       });
       channel.stateChanged.subscribe((v) =>
-        console.log("channel.stateChanged", v)
+        console.log("channel.stateChanged", v),
       );
     });
 

@@ -16,7 +16,7 @@ server.on("connection", async (socket) => {
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
+    console.log("pc.iceConnectionStateChange", v),
   );
 
   const transceiver = pc.addTransceiver("video", {
@@ -44,7 +44,7 @@ server.on("connection", async (socket) => {
     });
   });
 
-  pc.createDataChannel("dc").message.subscribe(async (msg) => {
+  pc.createDataChannel("dc").onMessage.subscribe(async (msg) => {
     pc.removeTrack(sender.sender);
     sender = pc.addTransceiver("video", { direction: "sendonly" });
     const source = msg.toString();

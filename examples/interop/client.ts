@@ -54,7 +54,7 @@ new Promise<void>(async (done, failed) => {
     dc.onopen = () => {
       dc.send(pseudo);
     };
-    dc.message.subscribe((msg) => {
+    dc.onMessage.subscribe((msg) => {
       console.log("data channel onmessage");
       if (msg === pseudo) {
         console.log("Data channel echo test success.");
@@ -94,7 +94,7 @@ new Promise<void>(async (done, failed) => {
     });
 
     exec(
-      `gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=${port}`
+      `gst-launch-1.0 videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1 ! rtpvp8pay ! udpsink host=127.0.0.1 port=${port}`,
     );
   }
 })

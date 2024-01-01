@@ -17,7 +17,7 @@ server.on("connection", (socket) => {
 
     pc.onDataChannel.subscribe((channel) => {
       let index = 0;
-      channel.message.subscribe((data) => {
+      channel.onMessage.subscribe((data) => {
         console.log("answer message", data.toString());
         channel.send(Buffer.from("pong" + index++));
       });
@@ -25,7 +25,7 @@ server.on("connection", (socket) => {
     });
 
     pc.iceConnectionStateChange.subscribe((v) =>
-      console.log("iceConnectionStateChange", v)
+      console.log("iceConnectionStateChange", v),
     );
   });
 });
