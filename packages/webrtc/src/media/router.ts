@@ -171,10 +171,11 @@ export class RtpRouter {
       case RtcpPayloadSpecificFeedback.type: {
         const psfb = packet as RtcpPayloadSpecificFeedback;
         switch (psfb.feedback.count) {
-          case ReceiverEstimatedMaxBitrate.count:
+          case ReceiverEstimatedMaxBitrate.count: {
             const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
             recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
-            break;
+          }
+          break;
           default:
             recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
         }

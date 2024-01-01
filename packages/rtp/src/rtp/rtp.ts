@@ -240,13 +240,14 @@ export class RtpHeader {
             offset += extension.payload.length;
           }
           break;
-        default:
+        default: {
           const extLen = this.extensions[0].payload.length;
           if (extLen % 4 != 0) {
             throw new Error();
           }
           this.extensions[0].payload.copy(buf, offset);
           offset += extLen;
+        }
       }
 
       const extSize = offset - startExtensionsPos;

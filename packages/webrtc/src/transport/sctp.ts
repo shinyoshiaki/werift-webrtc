@@ -166,14 +166,15 @@ export class RTCSctpTransport {
           await this.dataChannelFlush();
         }
         break;
-        case DATA_CHANNEL_ACK:
+        case DATA_CHANNEL_ACK: {
           log("DATA_CHANNEL_ACK", streamId, ppId);
           const channel = this.dataChannels[streamId];
           if (!channel) {
             throw new Error("channel not found");
           }
           channel.setReadyState("open");
-          break;
+        }
+        break;
       }
     } else {
       const channel = this.dataChannels[streamId];
