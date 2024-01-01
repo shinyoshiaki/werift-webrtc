@@ -73,6 +73,8 @@ class TurnTransport implements Protocol {
       delete this.turn.transactions[request.transactionIdHex];
     }
   }
+  // todo
+  async close() {}
   async connectionMade() {}
   async sendData(data: Buffer, addr: Address) {
     await this.turn.sendData(data, addr);
@@ -247,6 +249,9 @@ class TurnClient implements Protocol {
       delete this.transactions[request.transactionIdHex];
     }
   }
+
+  // todo
+  async close() {}
 
   async sendData(data: Buffer, addr: Address) {
     const channel = await this.getChannel(addr);

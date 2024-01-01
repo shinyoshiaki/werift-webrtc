@@ -353,6 +353,7 @@ export class Connection {
         })
         .find((pair) => pair.state === CandidatePairState.WAITING);
       if (pair) {
+        log("checkStart waiting", this.remoteUsername);
         pair.handle = future(this.checkStart(pair));
         return true;
       }
@@ -364,6 +365,7 @@ export class Connection {
         (pair) => pair.state === CandidatePairState.FROZEN,
       );
       if (pair) {
+        log("checkStart frozen", this.remoteUsername);
         pair.handle = future(this.checkStart(pair));
         return true;
       }
@@ -666,6 +668,7 @@ export class Connection {
 
   resetNominatedPair() {
     log("resetNominatedPair");
+
     this.nominated = undefined;
     this.nominating = false;
   }
@@ -787,6 +790,7 @@ export class Connection {
           } else if (request.attributesKeys.includes("ICE-CONTROLLING")) {
             this.switchRole(false);
           }
+          log("checkStart resolve conflict", this.remoteUsername);
           await this.checkStart(pair);
           r();
           return;
@@ -838,7 +842,7 @@ export class Connection {
   // 7.2.  STUN Server Procedures
   // 7.2.1.3、7.2.1.4、および7.2.1.5
   checkIncoming(message: Message, addr: Address, protocol: Protocol) {
-    // log("checkIncoming", message.toJSON(), addr);
+    log("checkIncoming", message.toJSON());
     // """
     // Handle a successful incoming check.
     // """
@@ -869,6 +873,7 @@ export class Connection {
     // find pair
     let pair = this.findPair(protocol, remoteCandidate);
     if (!pair) {
+      log("checkIncoming new pair", this.remoteUsername);
       pair = new CandidatePair(protocol, remoteCandidate);
       this.setPairState(pair, CandidatePairState.WAITING);
       this.checkList.push(pair);
@@ -881,6 +886,7 @@ export class Connection {
         pair.state,
       )
     ) {
+      log("checkStart triggered", this.remoteUsername);
       pair.handle = future(this.checkStart(pair));
     } else {
       pair;
@@ -969,6 +975,7 @@ export class Connection {
     this.state = "new";
     this._localCandidatesEnd = false;
     this._remoteCandidates = [];
+
     this.nominated = undefined;
     this.nominating = false;
     this.checkListDone = false;

@@ -92,6 +92,10 @@ describe("ice/restart", () => {
         };
         channel.onmessage = async ({ data }) => {
           if (data === "ping" + "pong") {
+            await new Promise((r) => setTimeout(r, 5000));
+
+            console.log("restartIce");
+
             pc.restartIce();
             await pc.setLocalDescription(await pc.createOffer());
             const answer = await peer.request(label, {
@@ -126,6 +130,6 @@ describe("ice/restart", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    60_000 * 60,
+    15_000,
   );
 });
