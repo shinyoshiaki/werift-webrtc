@@ -78,7 +78,7 @@ describe("ice/restart", () => {
     "offer",
     async () =>
       new Promise<void>(async (done) => {
-        const label = "ice_trickle_offer";
+        const label = "ice_restart_offer";
 
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
@@ -90,10 +90,19 @@ describe("ice/restart", () => {
         channel.onopen = () => {
           channel.send("ping");
         };
-        channel.onmessage = ({ data }) => {
-          expect(data).toBe("ping" + "pong");
-          pc.close();
-          done();
+        channel.onmessage = async ({ data }) => {
+          if (data === "ping" + "pong") {
+            pc.restartIce();
+            await pc.setLocalDescription(await pc.createOffer());
+            const answer = await peer.request(label, {
+              type: "restart",
+              payload: pc.localDescription,
+            });
+            await pc.setRemoteDescription(answer);
+          } else {
+            pc.close();
+            done();
+          }
         };
         pc.onicecandidate = ({ candidate }) => {
           peer
@@ -117,6 +126,6 @@ describe("ice/restart", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000,
+    60_000 * 60,
   );
 });

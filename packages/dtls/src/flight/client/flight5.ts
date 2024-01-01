@@ -201,12 +201,12 @@ export class Flight5 extends Flight {
     const finish = new Finished(localVerifyData);
     this.dtls.epoch = 1;
     const [packet] = this.createPacket([finish]);
-    log(
-      this.dtls.sessionId,
-      "raw finish packet",
-      packet.summary,
-      this.dtls.sortedHandshakeCache.map((h) => h.summary),
-    );
+    // log(
+    //   this.dtls.sessionId,
+    //   "raw finish packet",
+    //   packet.summary,
+    //   this.dtls.sortedHandshakeCache.map((h) => h.summary),
+    // );
 
     this.dtls.recordSequenceNumber = 0;
 

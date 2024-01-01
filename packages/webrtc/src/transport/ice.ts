@@ -64,6 +64,7 @@ export class RTCIceTransport {
     ) {
       log("resetNominatedPair", remoteParameters);
       this.connection.resetNominatedPair();
+      this.gather.setState("new");
       // this.gather.restart();
     }
     this.connection.setRemoteParams(remoteParameters);

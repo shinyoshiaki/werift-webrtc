@@ -105,7 +105,7 @@
         "${workspaceRoot}/e2e/server/main.ts"
       ],
       "env": {
-        "DEBUG": "werift*"
+        "DEBUG": "*ice*"
       },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen"

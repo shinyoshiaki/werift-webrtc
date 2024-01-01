@@ -285,7 +285,9 @@ export class Connection {
     this.unfreezeInitial();
 
     // # handle early checks
-    this.earlyChecks.forEach((earlyCheck) => this.checkIncoming(...earlyCheck));
+    for (const earlyCheck of this.earlyChecks) {
+      this.checkIncoming(...earlyCheck);
+    }
     this.earlyChecks = [];
 
     // # perform checks
@@ -678,7 +680,7 @@ export class Connection {
       // concludes the ICE processing for that component.  See Section 8.
       // So disallow overwriting of the pair nominated for that component
       if (pair.nominated && this.nominated == undefined) {
-        log("nominated", pair.toJSON());
+        log("pair nominated", this.remoteUsername, pair.toJSON());
         this.nominated = pair;
         this.nominating = false;
 
@@ -749,7 +751,9 @@ export class Connection {
   // 3.  Terminology : Check
   checkStart = (pair: CandidatePair) =>
     new PCancelable(async (r, f, onCancel) => {
-      onCancel(() => f("cancel"));
+      onCancel(() => {
+        f("cancel");
+      });
 
       // """
       // Starts a check.
@@ -770,7 +774,7 @@ export class Connection {
           Buffer.from(this.remotePassword, "utf8"),
           4,
         );
-        log("response", response, addr);
+        log("response", this.remoteUsername, response, addr);
         result.response = response;
         result.addr = addr;
       } catch (error: any) {
