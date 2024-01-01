@@ -1,7 +1,9 @@
 import * as nodeIp from "ip";
+import { isIPv4 } from "net";
 import Event from "rx.mini";
 import { Address } from "../model";
 import {
+  Attributes,
   IPv4,
   xorIPv4Address,
   xorIPv6Address,
@@ -21,14 +23,14 @@ import {
 } from "./message";
 import { UdpTransport } from "./udp";
 
-export class StunClient {
+export class StunAgent {
   transport!: UdpTransport;
   onResponse = new Event<[StunMessage]>();
   constructor(private stunServer: Address) {}
 
-  async connect() {
+  async setup() {
     this.transport = await UdpTransport.init("udp4");
-    this.transport.onData.subscribe((data) => {
+    this.transport.onData.subscribe((data, address) => {
       try {
         const message = StunMessage.Deserialize(data);
         console.log(message);
@@ -38,10 +40,34 @@ export class StunClient {
               this.onResponse.execute(message);
             }
             break;
+          case Request:
+            {
+              switch (message.header.messageType.stunMethod) {
+                case Binding:
+                  {
+                    this.onBinding(message, address);
+                  }
+                  break;
+              }
+            }
+            break;
         }
       } catch (error) {
         console.error(error);
       }
+    });
+  }
+
+  private onBinding(message: StunMessage, sourceAddress: Address) {
+    const messageIntegrity = message.attributes.find(
+      (a) => a.type === Attributes.messageIntegrity
+    );
+    if (!messageIntegrity) {
+      throw new Error();
+    }
+
+    const xorMappedAddress = new XorMappedAddress({
+      family: isIPv4(sourceAddress[0]) ? 1 : 2,
     });
   }
 
