@@ -97,6 +97,7 @@ see console & chrome://webrtc-internals/
 - [ ] Documentation
 - [x] Compatibility
   - [x] Chrome
+  - [x] Safari
   - [x] FireFox
   - [x] Pion
   - [x] aiortc
