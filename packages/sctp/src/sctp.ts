@@ -1187,6 +1187,7 @@ export class SCTP {
       this.timer1Cancel();
       this.timer2Cancel();
       this.timer3Cancel();
+      this.timerReconfigCancel();
       this.setConnectionState("closed");
       this.removeAllListeners();
     }
@@ -1206,6 +1207,7 @@ export class SCTP {
     clearTimeout(this.timer1Handle);
     clearTimeout(this.timer2Handle);
     clearTimeout(this.timer3Handle);
+    clearTimeout(this.timerReconfigHandle);
   }
 
   async abort() {
