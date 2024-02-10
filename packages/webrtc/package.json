@@ -47,7 +47,7 @@
     "@shinyoshiaki/ebml-builder": "^0.0.1",
     "aes-js": "^3.1.2",
     "binary-data": "^0.6.0",
-    "buffer-crc32": "^0.2.13",
+    "buffer-crc32": "^1.0.0",
     "date-fns": "^2.29.3",
     "debug": "^4.3.4",
     "int64-buffer": "^1.0.1",
