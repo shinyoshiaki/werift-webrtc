@@ -1,6 +1,6 @@
 {
   "name": "werift-rtp",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
@@ -30,7 +30,7 @@
     "deploy": "npm run build && npm publish",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
-    "format": "npx @biomejs/biome check --apply src tests",
+    "format": "biome check --apply src tests",
     "test": "npm run type && jest --forceExit",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli src/**/*.ts",
