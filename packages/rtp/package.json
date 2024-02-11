@@ -13,12 +13,12 @@
   },
   "exports": {
     ".": {
-      "default": "./lib/rtp/src/index.js",
-      "types": "./lib/rtp/src/index.d.ts"
+      "types": "./lib/rtp/src/index.d.ts",
+      "default": "./lib/rtp/src/index.js"
     },
     "./extra": {
-      "default": "./lib/rtp/src/extra/index.js",
-      "types": "./lib/rtp/src/extra/index.d.ts"
+      "types": "./lib/rtp/src/extra/index.d.ts",
+      "default": "./lib/rtp/src/extra/index.js"
     }
   },
   "main": "lib/rtp/src/index.js",

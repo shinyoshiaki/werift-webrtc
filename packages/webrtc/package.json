@@ -14,12 +14,12 @@
   },
   "exports": {
     ".": {
-      "default": "./lib/webrtc/src/index.js",
-      "types": "./lib/webrtc/src/index.d.ts"
+      "types": "./lib/webrtc/src/index.d.ts",     
+       "default": "./lib/webrtc/src/index.js"
     },
     "./nonstandard": {
-      "default": "./lib/webrtc/src/nonstandard/index.js",
-      "types": "./lib/webrtc/src/nonstandard/index.d.ts"
+      "types": "./lib/webrtc/src/nonstandard/index.d.ts",
+      "default": "./lib/webrtc/src/nonstandard/index.js"
     }
   },
   "main": "lib/webrtc/src/index.js",
