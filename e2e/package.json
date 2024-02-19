@@ -10,9 +10,9 @@
     "dev": "npm run dev:chrome",
     "dev:chrome": "vitest ./tests",
     "dev:server": "DEBUG=werift* ts-node-dev --project tsconfig.server.json ./server/main.ts",
-    "format": "npx @biomejs/biome check --apply server tests",
+    "format": "biome check --apply server tests",
     "prod:server": "DEBUG=werift* node lib/e2e/server/main.js",
-    "prod:test": "vitest run ./tests --browser.headless && node stop.js",
+    "prod:test": "vitest run ./tests --browser.headless --reporter=basic && node stop.js",
     "server": "npm run dev:server",
     "test": "npm run prod:test",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json"

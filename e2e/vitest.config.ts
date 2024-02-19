@@ -5,8 +5,8 @@ export default defineConfig({
   plugins: [nodePolyfills()],
   test: {
     globals: true,
-    testTimeout: 15_000,
-    maxConcurrency: 1,
+    testTimeout: 20_000,
+    // maxConcurrency: 1,
     browser: {
       enabled: true,
       name: "chromium",

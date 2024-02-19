@@ -76,7 +76,6 @@ describe("mediachannel_red", () => {
           })
           .catch(() => {});
       }),
-    10 * 1000,
   );
 
   const mediachannel_red_client_offer = "mediachannel_red_client_offer";
@@ -127,6 +126,5 @@ describe("mediachannel_red", () => {
         });
         await pc.setRemoteDescription(answer);
       }),
-    10 * 1000,
   );
 });

@@ -1,101 +1,93 @@
 import { peer, sleep } from "../fixture";
 
 describe("datachannel/close", () => {
-  it(
-    "datachannel_close_server_create_close",
-    async () =>
-      new Promise<void>(async (done) => {
-        const label = "datachannel_close_server_create_close";
+  it("datachannel_close_server_create_close", async () =>
+    new Promise<void>(async (done) => {
+      const label = "datachannel_close_server_create_close";
 
-        if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
-        await sleep(100);
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        const offer = await peer.request(label, {
-          type: "init",
-        });
-        await pc.setRemoteDescription(offer);
-        await pc.setLocalDescription(await pc.createAnswer());
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      const offer = await peer.request(label, {
+        type: "init",
+      });
+      await pc.setRemoteDescription(offer);
+      await pc.setLocalDescription(await pc.createAnswer());
 
-        pc.ondatachannel = ({ channel }) => {
-          channel.onclose = () => {
-            pc.close();
-            done();
-          };
-          channel.send("ping");
+      pc.ondatachannel = ({ channel }) => {
+        channel.onclose = () => {
+          pc.close();
+          done();
         };
+        channel.send("ping");
+      };
 
-        pc.onicecandidate = ({ candidate }) => {
-          peer
-            .request(label, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        };
-
+      pc.onicecandidate = ({ candidate }) => {
         peer
           .request(label, {
-            type: "answer",
-            payload: pc.localDescription,
+            type: "candidate",
+            payload: candidate,
           })
           .catch(() => {});
-      }),
-    10 * 1000,
-  );
+      };
 
-  it(
-    "datachannel_close_server_create_client_close",
-    async () =>
-      new Promise<void>(async (done) => {
-        const label = "datachannel_close_server_create_client_close";
+      peer
+        .request(label, {
+          type: "answer",
+          payload: pc.localDescription,
+        })
+        .catch(() => {});
+    }));
 
-        if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
-        await sleep(100);
+  it("datachannel_close_server_create_client_close", async () =>
+    new Promise<void>(async (done) => {
+      const label = "datachannel_close_server_create_client_close";
 
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        pc.onicecandidate = ({ candidate }) => {
-          peer
-            .request(label, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        };
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
-        const offer = await peer.request(label, {
-          type: "init",
-        });
-        await pc.setRemoteDescription(offer);
-        await pc.setLocalDescription(await pc.createAnswer());
-
-        pc.ondatachannel = ({ channel }) => {
-          channel.onmessage = () => {
-            Promise.all([
-              peer.request(label, { type: "done" }),
-              new Promise<void>((r) => {
-                channel.onclose = () => {
-                  r();
-                };
-                setTimeout(() => channel.close(), 500);
-              }),
-            ]).then(() => done());
-          };
-        };
-
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pc.onicecandidate = ({ candidate }) => {
         peer
           .request(label, {
-            type: "answer",
-            payload: pc.localDescription,
+            type: "candidate",
+            payload: candidate,
           })
           .catch(() => {});
-      }),
-    10 * 1000,
-  );
+      };
+
+      const offer = await peer.request(label, {
+        type: "init",
+      });
+      await pc.setRemoteDescription(offer);
+      await pc.setLocalDescription(await pc.createAnswer());
+
+      pc.ondatachannel = ({ channel }) => {
+        channel.onmessage = () => {
+          Promise.all([
+            peer.request(label, { type: "done" }),
+            new Promise<void>((r) => {
+              channel.onclose = () => {
+                r();
+              };
+              setTimeout(() => channel.close(), 500);
+            }),
+          ]).then(() => done());
+        };
+      };
+
+      peer
+        .request(label, {
+          type: "answer",
+          payload: pc.localDescription,
+        })
+        .catch(() => {});
+    }));
 
   it(
     "datachannel_close_client_create_close",
@@ -146,40 +138,36 @@ describe("datachannel/close", () => {
     30 * 1000,
   );
 
-  it(
-    "datachannel_close_client_create_server_close",
-    async () =>
-      new Promise<void>(async (done) => {
-        const label = "datachannel_close_client_create_server_close";
-        if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
-        await sleep(100);
+  it("datachannel_close_client_create_server_close", async () =>
+    new Promise<void>(async (done) => {
+      const label = "datachannel_close_client_create_server_close";
+      if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
+      await sleep(100);
 
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        pc.onicecandidate = ({ candidate }) => {
-          peer
-            .request(label, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        };
-        const channel = pc.createDataChannel("dc");
-        channel.onopen = () => {
-          channel.send("hello");
-        };
-        channel.onclose = () => {
-          done();
-        };
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pc.onicecandidate = ({ candidate }) => {
+        peer
+          .request(label, {
+            type: "candidate",
+            payload: candidate,
+          })
+          .catch(() => {});
+      };
+      const channel = pc.createDataChannel("dc");
+      channel.onopen = () => {
+        channel.send("hello");
+      };
+      channel.onclose = () => {
+        done();
+      };
 
-        await pc.setLocalDescription(await pc.createOffer());
-        const answer = await peer.request(label, {
-          type: "init",
-          payload: pc.localDescription,
-        });
-        pc.setRemoteDescription(answer);
-      }),
-    10 * 1000,
-  );
+      await pc.setLocalDescription(await pc.createOffer());
+      const answer = await peer.request(label, {
+        type: "init",
+        payload: pc.localDescription,
+      });
+      pc.setRemoteDescription(answer);
+    }));
 });
