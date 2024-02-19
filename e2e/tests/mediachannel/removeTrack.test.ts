@@ -68,7 +68,6 @@ describe("mediachannel_removeTrack", () => {
         pc.close();
         done();
       }),
-    10 * 1000,
   );
 
   it(
@@ -144,7 +143,6 @@ describe("mediachannel_removeTrack", () => {
         pc.close();
         done();
       }),
-    10 * 1000,
   );
 
   it(

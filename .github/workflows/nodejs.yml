@@ -18,18 +18,14 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16.x, 18.x]
+        node-version: [18.x]
 
     steps:
       - uses: actions/checkout@v1
-      - uses: browser-actions/setup-chrome@latest
-        with:
-          chrome-version: dev
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v1
         with:
           node-version: ${{ matrix.node-version }}
-
       - name: prepare
         run: |
           sudo apt-get update
@@ -37,6 +33,7 @@ jobs:
           npm i
           cd e2e
           npm i
+          npx playwright install
           cd ../
       - name: test
         env:
