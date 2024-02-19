@@ -8,7 +8,7 @@ import { setTimeout } from "timers/promises";
 import { InterfaceAddresses } from "../../../common/src/network";
 import { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
-import { Future, future } from "../helper";
+import { Future, future, randomTransactionId } from "../helper";
 import { Connection } from "../ice";
 import { classes, methods } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
@@ -18,6 +18,7 @@ import { Address, Protocol } from "../types/model";
 
 const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 
+const DEFAULT_ALLOCATION_LIFETIME = 600;
 const TCP_TRANSPORT = 0x06000000;
 const UDP_TRANSPORT = 0x11000000;
 
@@ -155,39 +156,17 @@ class TurnClient implements Protocol {
   }
 
   async connect() {
-    const withoutCred = new Message(methods.ALLOCATE, classes.REQUEST);
-    withoutCred
+    const request = new Message(methods.ALLOCATE, classes.REQUEST);
+    request
       .setAttribute("LIFETIME", this.lifetime)
       .setAttribute("REQUESTED-TRANSPORT", UDP_TRANSPORT);
 
-    const err: TransactionFailed = await this.request(
-      withoutCred,
-      this.server,
-    ).catch((e) => e);
-
-    // resolve dns address
-    this.server = err.addr;
-
-    if (err.response.getAttributeValue("NONCE")) {
-      this.nonce = err.response.getAttributeValue("NONCE");
-    }
-    if (err.response.getAttributeValue("REALM")) {
-      this.realm = err.response.getAttributeValue("REALM");
-    }
-    this.integrityKey = makeIntegrityKey(
-      this.username,
-      this.realm!,
-      this.password,
-    );
-
-    const request = new Message(methods.ALLOCATE, classes.REQUEST);
-    request.setAttribute("REQUESTED-TRANSPORT", UDP_TRANSPORT);
-
-    const [response] = await this.request(request, this.server);
+    const [response] = await this.requestWithRetry(request, this.server);
     this.relayedAddress = response.getAttributeValue("XOR-RELAYED-ADDRESS");
     this.mappedAddress = response.getAttributeValue("XOR-MAPPED-ADDRESS");
+    const exp = response.getAttributeValue("LIFETIME");
 
-    this.refreshHandle = future(this.refresh());
+    this.refreshHandle = future(this.refresh(exp));
   }
 
   async createPermission(peerAddress: Address) {
@@ -204,7 +183,7 @@ class TurnClient implements Protocol {
     return response;
   }
 
-  refresh = () =>
+  refresh = (exp: number) =>
     new PCancelable(async (_, f, onCancel) => {
       let run = true;
       onCancel(() => {
@@ -214,12 +193,12 @@ class TurnClient implements Protocol {
 
       while (run) {
         // refresh before expire
-        await setTimeout((5 / 6) * this.lifetime * 1000);
+        await setTimeout((5 / 6) * exp * 1000);
 
         const request = new Message(methods.REFRESH, classes.REQUEST);
-        request.setAttribute("LIFETIME", this.lifetime);
+        request.setAttribute("LIFETIME", exp);
 
-        await this.request(request, this.server);
+        await this.requestWithRetry(request, this.server);
       }
     });
 
@@ -246,6 +225,46 @@ class TurnClient implements Protocol {
     } finally {
       delete this.transactions[request.transactionIdHex];
     }
+  }
+
+  async requestWithRetry(
+    request: Message,
+    addr: Address,
+  ): Promise<[Message, Address]> {
+    let message: Message, address: Address;
+    try {
+      [message, address] = await this.request(request, addr);
+    } catch (error) {
+      if (error instanceof TransactionFailed == false) {
+        throw error;
+      }
+
+      // resolve dns address
+      this.server = error.addr;
+
+      const errorCode = error.response.getAttributeValue("ERROR-CODE");
+      const nonce = error.response.getAttributeValue("NONCE");
+      const realm = error.response.getAttributeValue("REALM");
+      if (
+        nonce &&
+        ((errorCode === 401 && realm) || (errorCode === 438 && this.realm))
+      ) {
+        this.nonce = nonce;
+        if (errorCode === 401) {
+          this.realm = realm;
+        }
+        this.integrityKey = makeIntegrityKey(
+          this.username,
+          this.realm!,
+          this.password,
+        );
+        request.transactionId = randomTransactionId();
+        [message, address] = await this.request(request, addr);
+      } else {
+        throw error;
+      }
+    }
+    return [message!, address!];
   }
 
   async sendData(data: Buffer, addr: Address) {
@@ -309,7 +328,7 @@ export async function createTurnEndpoint(
   },
 ) {
   if (lifetime == undefined) {
-    lifetime = 600;
+    lifetime = DEFAULT_ALLOCATION_LIFETIME;
   }
 
   const transport = await UdpTransport.init(
