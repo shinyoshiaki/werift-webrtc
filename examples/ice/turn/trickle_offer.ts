@@ -12,9 +12,9 @@ server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
     iceServers: [
       {
-        urls: "turn:relay.backups.cz:3478",
-        credential: "webrtc",
-        username: "webrtc",
+        urls: "",
+        credential: "",
+        username: "",
       },
     ],
     iceTransportPolicy: "relay",
@@ -34,6 +34,7 @@ server.on("connection", async (socket) => {
   await pc.setLocalDescription(offer);
   const sdp = JSON.stringify(pc.localDescription);
   socket.send(sdp);
+  console.log("offer", sdp);
 
   socket.on("message", async (data: any) => {
     const msg = JSON.parse(data);
@@ -41,6 +42,7 @@ server.on("connection", async (socket) => {
       await pc.addIceCandidate(msg);
     } else if (RTCSessionDescription.isThis(msg)) {
       await pc.setRemoteDescription(msg);
+      console.log("answer", msg);
     }
   });
 });
