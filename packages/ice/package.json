@@ -33,7 +33,7 @@
     "debug": "^4.3.4",
     "int64-buffer": "^1.0.1",
     "ip": "^1.1.9",
-    "jspack": "^0.0.4",
+    "@shinyoshiaki/jspack": "^0.0.6",
     "lodash": "^4.17.21",
     "multicast-dns": "^7.2.5",
     "p-cancelable": "^2.1.1",

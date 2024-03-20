@@ -1,4 +1,4 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 import { FragmentedHandshake } from "../../record/message/fragment";
 import { Handshake } from "../../typings/domain";

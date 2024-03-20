@@ -660,7 +660,7 @@ export function addSDPHeader(
 }
 
 export function codecParametersFromString(str: string) {
-  const parameters = {};
+  const parameters: any = {};
   str.split(";").forEach((param) => {
     if (param.includes("=")) {
       const [k, v] = divide(param, "=");

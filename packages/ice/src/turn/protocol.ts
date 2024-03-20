@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
+import { jspack } from "@shinyoshiaki/jspack";
 import debug from "debug";
-import { jspack } from "jspack";
 import PCancelable from "p-cancelable";
 import Event from "rx.mini";
 import { setTimeout } from "timers/promises";

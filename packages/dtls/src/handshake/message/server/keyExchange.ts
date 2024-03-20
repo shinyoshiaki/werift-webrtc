@@ -1,4 +1,4 @@
-import { decode, types } from "binary-data";
+import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";

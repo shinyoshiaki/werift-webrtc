@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { jspack } from "jspack";
+import { jspack } from "@shinyoshiaki/jspack";
 
 export function random16() {
   return jspack.Unpack("!H", randomBytes(2))[0];

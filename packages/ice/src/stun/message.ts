@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
+import { jspack } from "@shinyoshiaki/jspack";
 import crc32 from "buffer-crc32";
-import { jspack } from "jspack";
 
 import { bufferXor, randomTransactionId } from "../helper";
 import {

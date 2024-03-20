@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 import { dumpBuffer } from "../../helper";
 import { DtlsPlaintextHeader, MACHeader } from "./header";

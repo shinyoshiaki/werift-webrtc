@@ -1,4 +1,4 @@
-import { jspack } from "jspack";
+import { jspack } from "@shinyoshiaki/jspack";
 
 import { RtpHeader, RtpPacket } from "./rtp";
 

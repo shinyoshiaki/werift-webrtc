@@ -1,4 +1,4 @@
-import mdns from 'multicast-dns';
+import mdns from "multicast-dns";
 import worker_thread from "worker_threads";
 
 interface DnsLookupRequest {
@@ -18,18 +18,18 @@ export class MdnsLookup {
   lookup(host: string): Promise<string> {
     return new Promise((r, f) => {
       const cleanup = () => {
-        this.mdnsInstance.removeListener('response', l);
+        this.mdnsInstance.removeListener("response", l);
         clearTimeout(timeout);
       };
 
       const timeout = setTimeout(() => {
         cleanup();
-        f(new Error('No mDNS response'));
+        f(new Error("No mDNS response"));
       }, 10000);
 
       const l = (response: mdns.ResponsePacket) => {
         const a = response.answers?.[0];
-        if (a?.type !== 'A') {
+        if (a?.type !== "A") {
           return;
         }
         if (a.name !== host) {
@@ -39,9 +39,9 @@ export class MdnsLookup {
         cleanup();
         r(a.data);
       };
-      this.mdnsInstance.on('response', l);
+      this.mdnsInstance.on("response", l);
 
-      this.mdnsInstance.query(host, 'A');
+      this.mdnsInstance.query(host, "A");
     });
   }
 

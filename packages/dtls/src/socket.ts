@@ -1,4 +1,4 @@
-import { decode, types } from "binary-data";
+import { decode, types } from "@shinyoshiaki/binary-data";
 import debug from "debug";
 import { Event } from "rx.mini";
 import { setTimeout } from "timers/promises";

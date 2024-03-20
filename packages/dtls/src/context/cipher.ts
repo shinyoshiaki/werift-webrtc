@@ -2,7 +2,7 @@ import nodeCrypto, { createSign } from "crypto";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import { Crypto } from "@peculiar/webcrypto";
 import * as x509 from "@peculiar/x509";
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 import addYears from "date-fns/addYears";
 
 import {

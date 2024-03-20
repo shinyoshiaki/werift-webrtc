@@ -1,6 +1,6 @@
-import { InterfaceAddresses } from "../../common/src/network";
-import * as nodeIp from "ip";
 import os from "os";
+import * as nodeIp from "ip";
+import { InterfaceAddresses } from "../../common/src/network";
 import { Connection, serverReflexiveCandidate } from "./ice";
 import { StunProtocol } from "./stun/protocol";
 import { Address } from "./types/model";

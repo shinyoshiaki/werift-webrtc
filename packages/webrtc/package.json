@@ -2,7 +2,10 @@
   "name": "werift",
   "version": "0.19.1",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
-  "keywords": ["WebRTC", "node.js"],
+  "keywords": [
+    "WebRTC",
+    "node.js"
+  ],
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
@@ -14,8 +17,8 @@
   },
   "exports": {
     ".": {
-      "types": "./lib/webrtc/src/index.d.ts",     
-       "default": "./lib/webrtc/src/index.js"
+      "types": "./lib/webrtc/src/index.d.ts",
+      "default": "./lib/webrtc/src/index.js"
     },
     "./nonstandard": {
       "types": "./lib/webrtc/src/nonstandard/index.d.ts",
@@ -24,7 +27,10 @@
   },
   "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
-  "files": ["lib", "src"],
+  "files": [
+    "lib",
+    "src"
+  ],
   "scripts": {
     "build": "npm i && rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
@@ -42,17 +48,17 @@
     "@fidm/x509": "^1.2.1",
     "@minhducsun2002/leb128": "^1.0.0",
     "@noble/curves": "^1.3.0",
-    "@peculiar/webcrypto": "^1.4.1",
+    "@peculiar/webcrypto": "^1.4.5",
     "@peculiar/x509": "^1.9.2",
     "@shinyoshiaki/ebml-builder": "^0.0.1",
     "aes-js": "^3.1.2",
-    "binary-data": "^0.6.0",
+    "@shinyoshiaki/binary-data": "^0.6.0",
     "buffer-crc32": "^1.0.0",
     "date-fns": "^2.29.3",
     "debug": "^4.3.4",
     "int64-buffer": "^1.0.1",
     "ip": "^1.1.9",
-    "jspack": "^0.0.4",
+    "@shinyoshiaki/jspack": "^0.0.6",
     "lodash": "^4.17.21",
     "mp4box": "^0.5.2",
     "nano-time": "^1.0.0",
