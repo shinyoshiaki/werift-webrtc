@@ -11,9 +11,9 @@ import timers from "timers/promises";
 
 import { InterfaceAddresses } from "../../common/src/network";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
-import { DnsLookup } from "./dns/lookup";
+import { MdnsLookup } from "./dns/lookup";
 import { TransactionError } from "./exceptions";
-import { Future, PQueue, difference, future, randomString } from "./helper";
+import { Future, PQueue, future, randomString } from "./helper";
 import { classes, methods } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -40,7 +40,7 @@ export class Connection {
   _localCandidatesEnd = false;
   _tieBreaker: bigint = BigInt(new Uint64BE(randomBytes(64)).toString());
   state: IceState = "new";
-  dnsLookup?: DnsLookup;
+  lookup?: MdnsLookup;
   restarted = false;
 
   readonly onData = new Event<[Buffer, number]>();
@@ -462,7 +462,7 @@ export class Connection {
     this.protocols = [];
     this.localCandidates = [];
 
-    await this.dnsLookup?.close();
+    await this.lookup?.close();
   }
 
   private setState(state: IceState) {
@@ -487,10 +487,10 @@ export class Connection {
     if (remoteCandidate.host.includes(".local")) {
       try {
         if (this.state === "closed") return;
-        if (!this.dnsLookup) {
-          this.dnsLookup = new DnsLookup();
+        if (!this.lookup) {
+          this.lookup = new MdnsLookup();
         }
-        const host = await this.dnsLookup.lookup(remoteCandidate.host);
+        const host = await this.lookup.lookup(remoteCandidate.host);
         remoteCandidate.host = host;
       } catch (error) {
         return;

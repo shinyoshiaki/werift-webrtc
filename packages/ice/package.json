@@ -13,7 +13,10 @@
   "license": "MIT",
   "author": "shinyoshiaki <shinyoshiaki2012@gmail.com>",
   "main": "lib/ice/src/index.js",
-  "files": ["src", "lib"],
+  "files": [
+    "src",
+    "lib"
+  ],
   "scripts": {
     "build": "npm run format && tsc -p ./tsconfig.production.json",
     "deploy": "npm run build && npm publish",
@@ -32,6 +35,7 @@
     "ip": "^1.1.9",
     "jspack": "^0.0.4",
     "lodash": "^4.17.21",
+    "multicast-dns": "^7.2.5",
     "p-cancelable": "^2.1.1",
     "rx.mini": "^1.2.2"
   },
@@ -39,6 +43,7 @@
     "@types/debug": "^4.1.7",
     "@types/ip": "^1.1.0",
     "@types/lodash": "^4.14.191",
+    "@types/multicast-dns": "^7.2.4",
     "@types/utf8": "^3.0.1",
     "@types/ws": "^8.5.3",
     "ws": "^8.11.0"
