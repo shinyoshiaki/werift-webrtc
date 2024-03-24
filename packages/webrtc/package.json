@@ -2,10 +2,7 @@
   "name": "werift",
   "version": "0.19.1",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
-  "keywords": [
-    "WebRTC",
-    "node.js"
-  ],
+  "keywords": ["WebRTC", "node.js"],
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
@@ -27,10 +24,7 @@
   },
   "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
-  "files": [
-    "lib",
-    "src"
-  ],
+  "files": ["lib", "src"],
   "scripts": {
     "build": "npm i && rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
@@ -52,7 +46,7 @@
     "@peculiar/x509": "^1.9.2",
     "@shinyoshiaki/ebml-builder": "^0.0.1",
     "aes-js": "^3.1.2",
-    "@shinyoshiaki/binary-data": "^0.6.0",
+    "@shinyoshiaki/binary-data": "^0.6.1",
     "buffer-crc32": "^1.0.0",
     "date-fns": "^2.29.3",
     "debug": "^4.3.4",

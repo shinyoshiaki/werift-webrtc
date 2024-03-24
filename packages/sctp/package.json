@@ -26,7 +26,7 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@shinyoshiaki/binary-data": "^0.6.0",
+    "@shinyoshiaki/binary-data": "^0.6.1",
     "@shinyoshiaki/jspack": "^0.0.6",
     "lodash": "^4.17.21",
     "rx.mini": "^1.2.2",

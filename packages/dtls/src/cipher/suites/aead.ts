@@ -4,11 +4,9 @@ import debug from "debug";
 import { dumpBuffer, getObjectSummary } from "../../helper";
 import { prfEncryptionKeys } from "../prf";
 import Cipher, { CipherHeader, SessionType, SessionTypes } from "./abstract";
-const {
-  createDecode,
-  encode,
-  types: { uint8, uint16be, uint48be },
-} = require("binary-data");
+import { createDecode, encode, types } from "@shinyoshiaki/binary-data";
+
+const { uint8, uint16be, uint48be } = types;
 
 const ContentType = uint8;
 const ProtocolVersion = uint16be;

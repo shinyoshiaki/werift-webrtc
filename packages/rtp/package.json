@@ -23,10 +23,7 @@
   },
   "main": "lib/rtp/src/index.js",
   "types": "lib/rtp/src/index.d.ts",
-  "files": [
-    "lib",
-    "src"
-  ],
+  "files": ["lib", "src"],
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "ci": "npm run type && npm run lint && npm run test",
@@ -42,7 +39,7 @@
   "dependencies": {
     "@minhducsun2002/leb128": "^1.0.0",
     "aes-js": "^3.1.2",
-    "@shinyoshiaki/binary-data": "^0.6.0",
+    "@shinyoshiaki/binary-data": "^0.6.1",
     "buffer": "^6.0.3",
     "debug": "^4.3.4",
     "@shinyoshiaki/jspack": "^0.0.6",
