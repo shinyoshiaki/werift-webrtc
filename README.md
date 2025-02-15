@@ -28,7 +28,7 @@ https://github.com/shinyoshiaki/node-sfu
 ## MediaChannel
 
 ```sh
-yarn media
+npm run media
 ```
 
 open
@@ -41,7 +41,7 @@ see console & chrome://webrtc-internals/
 run
 
 ```sh
-yarn datachannel
+npm run datachannel
 ```
 
 open

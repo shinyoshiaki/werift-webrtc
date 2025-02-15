@@ -8,6 +8,9 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
+  pc.oniceconnectionstatechange = () => {
+    console.log("oniceconnectionstatechange", pc.iceConnectionState);
+  };
 
   const dc = pc.createDataChannel("chat");
   dc.stateChanged.subscribe((v) => {
@@ -20,7 +23,7 @@ server.on("connection", async (socket) => {
   let index = 0;
   dc.onMessage.subscribe((data) => {
     console.log("message", data.toString());
-    dc.send(Buffer.from("pong" + index++));
+    dc.send("pong" + index++);
   });
 
   await pc.setLocalDescription(await pc.createOffer());
