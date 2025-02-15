@@ -70,7 +70,9 @@ export class MP4Base implements AVProcessor<Mp4Input> {
       if (!this.container.audioTrack) {
         this.container.write({
           codec: track.codec,
-          description: buffer2ArrayBuffer(OpusRtpPayload.createCodecPrivate()),
+          description: buffer2ArrayBuffer(
+            OpusRtpPayload.createCodecPrivate(),
+          ) as ArrayBuffer,
           numberOfChannels: 2,
           sampleRate: track.clockRate,
           track: "audio",
@@ -81,7 +83,8 @@ export class MP4Base implements AVProcessor<Mp4Input> {
           duration: null,
           timestamp: frame.time * 1000,
           type: "key",
-          copyTo: (destination: Uint8Array) => {
+          copyTo: (destination) => {
+            //@ts-expect-error
             frame.data.copy(destination);
           },
           track: "audio",
@@ -107,7 +110,7 @@ export class MP4Base implements AVProcessor<Mp4Input> {
             codec: track.codec,
             codedWidth: track.width,
             codedHeight: track.height,
-            description: avcc.buffer,
+            description: avcc.buffer as ArrayBuffer,
             displayAspectWidth,
             displayAspectHeight,
             track: "video",
@@ -117,7 +120,8 @@ export class MP4Base implements AVProcessor<Mp4Input> {
             duration: null,
             timestamp: frame.time * 1000,
             type: "key",
-            copyTo: (destination: Uint8Array) => {
+            copyTo: (destination) => {
+              //@ts-expect-error
               frame.data.copy(destination);
             },
             track: "video",
@@ -129,7 +133,8 @@ export class MP4Base implements AVProcessor<Mp4Input> {
           duration: null,
           timestamp: frame.time * 1000,
           type: frame.isKeyframe ? "key" : "delta",
-          copyTo: (destination: Uint8Array) => {
+          copyTo: (destination) => {
+            //@ts-expect-error
             frame.data.copy(destination);
           },
           track: "video",

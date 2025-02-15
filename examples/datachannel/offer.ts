@@ -27,7 +27,9 @@ server.on("connection", async (socket) => {
   socket.send(JSON.stringify(pc.localDescription));
 
   const answer = JSON.parse(
-    await new Promise((r) => socket.on("message", (data) => r(data as string))),
+    await new Promise((r) =>
+      socket.on("message", (data) => r(data as unknown as string)),
+    ),
   );
   await pc.setRemoteDescription(answer);
 });

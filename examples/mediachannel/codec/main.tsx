@@ -1,5 +1,5 @@
 import React, { type FC, useEffect, useRef } from "react";
-import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { createTestTrack } from "./util";
 
 const App: FC = () => {
@@ -35,4 +35,5 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);

@@ -96,7 +96,7 @@ export class Context {
   }
 
   generateSessionSalt(label: number) {
-    let sessionSalt = Buffer.from(this.masterSalt);
+    let sessionSalt: Buffer = Buffer.from(this.masterSalt);
     const labelAndIndexOverKdr = Buffer.from([
       label,
       0x00,
@@ -116,7 +116,7 @@ export class Context {
     sessionSalt = Buffer.concat([sessionSalt, Buffer.from([0x00, 0x00])]);
     const block = new AES.AES(this.masterKey);
     sessionSalt = Buffer.from(block.encrypt(sessionSalt) as ArrayBuffer);
-    return sessionSalt.slice(0, 14);
+    return sessionSalt.subarray(0, 14);
   }
 
   generateSessionAuthTag(label: number) {
@@ -137,12 +137,18 @@ export class Context {
     ) {
       sessionAuthTag[j] = sessionAuthTag[j] ^ labelAndIndexOverKdr[i];
     }
-    let firstRun = Buffer.concat([sessionAuthTag, Buffer.from([0x00, 0x00])]);
-    let secondRun = Buffer.concat([sessionAuthTag, Buffer.from([0x00, 0x01])]);
+    let firstRun: Buffer = Buffer.concat([
+      sessionAuthTag,
+      Buffer.from([0x00, 0x00]),
+    ]);
+    let secondRun: Buffer = Buffer.concat([
+      sessionAuthTag,
+      Buffer.from([0x00, 0x01]),
+    ]);
     const block = new AES.AES(this.masterKey);
     firstRun = Buffer.from(block.encrypt(firstRun) as ArrayBuffer);
     secondRun = Buffer.from(block.encrypt(secondRun) as ArrayBuffer);
-    return Buffer.concat([firstRun, secondRun.slice(0, 4)]);
+    return Buffer.concat([firstRun, secondRun.subarray(0, 4)]);
   }
 
   getSrtpSsrcState(ssrc: number) {

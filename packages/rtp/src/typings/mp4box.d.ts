@@ -112,7 +112,7 @@ declare module "mp4box" {
   export class DataStream {
     // WARNING, the default is little endian, which is not what MP4 uses.
     constructor(
-      buffer?: ArrayBuffer,
+      buffer?: ArrayBufferLike,
       byteOffset?: number,
       endianness?: boolean,
     );

@@ -4,7 +4,6 @@
     "module": "commonjs",
     "lib": [
       "esnext",
-      "ES2020"
     ],
     "declaration": true,
     "outDir": "lib",

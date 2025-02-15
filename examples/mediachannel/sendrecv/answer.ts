@@ -31,7 +31,7 @@ server.on("connection", (socket) => {
   });
 
   socket.on("message", async (data) => {
-    const msg = JSON.parse(data as string);
+    const msg = JSON.parse(data as unknown as string);
     if (msg.candidate) {
       pc.addIceCandidate(msg);
     } else {

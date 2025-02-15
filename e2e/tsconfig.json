@@ -12,7 +12,7 @@
     "importHelpers": true,
     "skipLibCheck": true,
     "types": [
-      "vitest/globals"
+      "vitest/globals",
     ]
   },
   "include": [
