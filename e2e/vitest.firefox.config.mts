@@ -5,7 +5,6 @@ export default defineConfig({
   plugins: [nodePolyfills()],
   test: {
     globals: true,
-    retry: 1,
     testTimeout: 10_000,
     browser: {
       enabled: true,
@@ -14,8 +13,8 @@ export default defineConfig({
       providerOptions: {
         launch: {
           firefoxUserPrefs: {
-            "media.navigator.permission.disabled": true,
-            "media.navigator.streams.fake": true,
+            'media.navigator.permission.disabled': true,
+            'media.navigator.streams.fake': true,
           },
         },
       },

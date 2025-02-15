@@ -33,12 +33,10 @@ describe("ice/trickle", () => {
         }
       };
       peer.on("request", async (request, accept) => {
-        try {
-          if (request.method !== label) return;
-          const candidate = request.data;
-          await pc.addIceCandidate(candidate);
-          accept();
-        } catch (error) {}
+        if (request.method !== label) return;
+        const candidate = request.data;
+        await pc.addIceCandidate(candidate);
+        accept();
       });
 
       const offer = await peer.request(label, {
