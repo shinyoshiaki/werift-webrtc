@@ -34,7 +34,7 @@ jobs:
           npm i
           cd e2e
           npm i
-          npx playwright install chromium
+          npx playwright install chromium firefox
           cd ../
       # - name: Setup tmate session
       #   uses: mxschmitt/action-tmate@v3    

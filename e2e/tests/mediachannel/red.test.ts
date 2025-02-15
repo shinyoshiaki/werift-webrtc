@@ -5,6 +5,7 @@ import { Counter, browserName, peer, sleep } from "../fixture";
 
 describe("mediachannel_red", () => {
   if (browserName === "Firefox") {
+    it.skip("Skipping test for Firefox", () => {});
     return;
   }
 
