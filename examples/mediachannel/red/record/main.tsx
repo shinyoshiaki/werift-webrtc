@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import {
   Red,
   RedEncoder,
@@ -15,7 +16,7 @@ const peer = new RTCPeerConnection({
 });
 
 const App: FC = () => {
-  const remoteRef = useRef<HTMLAudioElement>();
+  const remoteRef = useRef<HTMLAudioElement>(null);
 
   const onFile = async (file: File) => {
     const socket = new WebSocket("ws://127.0.0.1:8888");
@@ -66,7 +67,8 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);
 
 const redEncoder = new RedEncoder(3);
 

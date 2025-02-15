@@ -2,6 +2,7 @@
 import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
+import { createRoot } from "react-dom/client";
 import { Red } from "../../../../packages/rtp/src";
 import { getAudioStream, uint32Add } from "./util";
 
@@ -13,7 +14,7 @@ const peer = new RTCPeerConnection({
 let interval: any;
 
 const App: FC = () => {
-  const remoteRef = useRef<HTMLAudioElement>();
+  const remoteRef = useRef<HTMLAudioElement>(null);
 
   const onFile = async (file: File) => {
     const socket = new WebSocket("ws://127.0.0.1:8888");
@@ -82,7 +83,8 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);
 
 class RedSender {
   cache: { buffer: Buffer; timestamp: number }[] = [];

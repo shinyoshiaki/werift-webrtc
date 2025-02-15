@@ -1,3 +1,5 @@
+/// <reference types="@vitest/browser/providers/playwright" />
+
 import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
@@ -9,17 +11,19 @@ export default defineConfig({
     // fileParallelism: false,
     retry: 1,
     browser: {
-      enabled: true,
-      name: "chromium",
       provider: "playwright",
-      providerOptions: {
-        launch: {
-          args: [
-            "--use-fake-ui-for-media-stream",
-            "--use-fake-device-for-media-stream",
-          ],
+      enabled: true,
+      instances: [
+        {
+          browser: "chromium",
+          launch: {
+            args: [
+              "--use-fake-ui-for-media-stream",
+              "--use-fake-device-for-media-stream",
+            ],
+          },
         },
-      },
+      ],
     },
   },
 });

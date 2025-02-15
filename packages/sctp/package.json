@@ -29,14 +29,12 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@shinyoshiaki/binary-data": "^0.6.1",
     "@shinyoshiaki/jspack": "^0.0.6",
     "lodash": "^4.17.21",
-    "rx.mini": "^1.2.2",
     "turbo-crc32": "^1.0.1"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.191"
+    "@types/lodash": "^4.17.15"
   },
   "engines": {
     "node": ">=10"

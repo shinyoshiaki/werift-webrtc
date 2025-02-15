@@ -18,7 +18,6 @@ server.on("connection", async (socket) => {
     numOfTracks: 1,
     width: 640,
     height: 360,
-    jitterBufferLatency: 50,
   });
 
   const pc = new RTCPeerConnection({

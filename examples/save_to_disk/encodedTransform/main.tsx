@@ -2,6 +2,7 @@
 import React, { type FC, useEffect } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
+import { createRoot } from "react-dom/client";
 import { uint16Add } from "../../../packages/common/src";
 import { RtpHeader, RtpPacket } from "../../../packages/rtp/src";
 
@@ -83,4 +84,6 @@ const App: FC = () => {
   return <div />;
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const container = document.getElementById("root");
+const root = createRoot(container!);
+root.render(<App />);
