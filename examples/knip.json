@@ -1,0 +1,8 @@
+{
+    "entry": [
+        "**/*.{ts,cts,mts,tsx}"
+    ],
+    "project": [
+        "**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"
+    ]
+}

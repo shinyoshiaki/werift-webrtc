@@ -41,20 +41,12 @@
   "dependencies": {
     "@minhducsun2002/leb128": "^1.0.0",
     "aes-js": "^3.1.2",
-    "@shinyoshiaki/binary-data": "^0.6.1",
     "buffer": "^6.0.3",
-    "debug": "^4.3.4",
     "@shinyoshiaki/jspack": "^0.0.6",
-    "mp4box": "^0.5.2",
-    "rx.mini": "^1.2.2"
+    "mp4box": "^0.5.3"
   },
   "devDependencies": {
-    "@types/aes-js": "^3.1.1",
-    "@types/debug": "^4.1.7",
-    "@types/react": "^18.0.26",
-    "@types/react-dom": "^18.0.10",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@types/aes-js": "^3.1.4"
   },
   "engines": {
     "node": ">=10"

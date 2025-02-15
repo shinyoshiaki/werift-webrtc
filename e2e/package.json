@@ -19,12 +19,13 @@
     "server:prod": "DEBUG=werift* node lib/e2e/server/main.js",
     "server:silent": "node lib/e2e/server/main.js",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json",
-    "upgrade-interactive": "npx npm-check-updates -i"
+    "upgrade-interactive": "npx npm-check-updates -i",
+    "knip": "npx knip --config ./knip.json"
   },
   "dependencies": {
     "bowser": "^2.11.0",
-    "werift": "^0.21.9",
-    "werift-rtp": "^0.8.2"
+    "werift": "^0.22.1",
+    "werift-rtp": "^0.8.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
@@ -32,13 +33,11 @@
     "@types/protoo-server": "^4.0.6",
     "@vitest/browser": "2.1.9",
     "axios": "^1.7.9",
-    "babel-preset-env": "^1.7.0",
     "express": "^4.21.2",
-    "jsonc-parser": "^3.3.1",
     "npm-run-all2": "^7.0.2",
-    "playwright": "^1.49.1",
+    "playwright": "^1.50.1",
     "protoo-client": "^4.0.6",
     "protoo-server": "^4.0.6",
-    "vite-plugin-node-polyfills": "^0.22.0"
+    "vite-plugin-node-polyfills": "^0.23.0"
   }
 }
