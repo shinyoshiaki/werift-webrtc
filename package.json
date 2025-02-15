@@ -33,7 +33,7 @@
     "format:examples": "cd examples && cp ../biome.json ./ && npm run format",
     "knip": "npx knip --config ./knip.json --dependencies --fix",
     "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
-    "test": "run-s test:small e2e:verbose",
+    "test": "run-s test:small e2e",
     "test:small": "npm run test --workspaces --if-present",
     "type": "run-s type:packages type:extra",
     "type:extra": "tsc --noEmit -p ./tsconfig.json",
