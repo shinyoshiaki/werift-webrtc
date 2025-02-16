@@ -19,8 +19,8 @@ export class RTCRtpTransceiver {
   mLineIndex?: number;
   /**should not be reused because it has been used for sending before. */
   usedForSender = false;
-  private _currentDirection?: Direction;
-  offerDirection!: Direction;
+  private _currentDirection?: MediaDirection;
+  offerDirection!: MediaDirection;
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
@@ -39,7 +39,7 @@ export class RTCRtpTransceiver {
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
-    private _direction: Direction,
+    private _direction: MediaDirection,
   ) {
     this.setDtlsTransport(dtlsTransport);
   }
@@ -53,7 +53,7 @@ export class RTCRtpTransceiver {
     return this._direction;
   }
 
-  setDirection(direction: Direction) {
+  setDirection(direction: MediaDirection) {
     this._direction = direction;
     if (SenderDirections.includes(this._currentDirection ?? "")) {
       this.usedForSender = true;
@@ -61,11 +61,11 @@ export class RTCRtpTransceiver {
   }
 
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): Direction | undefined {
+  get currentDirection(): MediaDirection | undefined {
     return this._currentDirection;
   }
 
-  setCurrentDirection(direction: Direction | undefined) {
+  setCurrentDirection(direction: MediaDirection | undefined) {
     this._currentDirection = direction;
   }
 
@@ -111,11 +111,11 @@ export const Sendrecv = "sendrecv";
 
 export const Directions = [Inactive, Sendonly, Recvonly, Sendrecv] as const;
 
-export type Direction = (typeof Directions)[number];
+export type MediaDirection = (typeof Directions)[number];
 
 type SimulcastDirection = "send" | "recv";
 
 export interface TransceiverOptions {
-  direction: Direction;
+  direction: MediaDirection;
   simulcast: { direction: SimulcastDirection; rid: string }[];
 }
