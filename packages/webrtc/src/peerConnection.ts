@@ -79,21 +79,25 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
-  sctpTransport?: RTCSctpTransport;
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
-  private readonly transceivers: RTCRtpTransceiver[] = [];
-  private pushTransceiver(t: RTCRtpTransceiver) {
-    this.transceivers.push(t);
-  }
-  private replaceTransceiver(t: RTCRtpTransceiver, index: number) {
-    this.transceivers[index] = t;
-  }
   needRestart = false;
+  sctpRemotePort?: number;
+  sctpTransport?: RTCSctpTransport;
+  private readonly transceivers: RTCRtpTransceiver[] = [];
+  private readonly router = new RtpRouter();
+  private certificate?: RTCCertificate;
+  private seenMid = new Set<string>();
+  private currentLocalDescription?: SessionDescription;
+  private currentRemoteDescription?: SessionDescription;
+  private pendingLocalDescription?: SessionDescription;
+  private pendingRemoteDescription?: SessionDescription;
+  private isClosed = false;
+  private shouldNegotiationneeded = false;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -114,16 +118,22 @@ export class RTCPeerConnection extends EventTarget {
   onconnectionstatechange?: Callback;
   oniceconnectionstatechange?: Callback;
 
-  private readonly router = new RtpRouter();
-  private certificate?: RTCCertificate;
-  sctpRemotePort?: number;
-  private seenMid = new Set<string>();
-  private currentLocalDescription?: SessionDescription;
-  private currentRemoteDescription?: SessionDescription;
-  private pendingLocalDescription?: SessionDescription;
-  private pendingRemoteDescription?: SessionDescription;
-  private isClosed = false;
-  private shouldNegotiationneeded = false;
+  constructor(config: Partial<PeerConfig> = {}) {
+    super();
+
+    this.setConfiguration(config);
+
+    this.iceConnectionStateChange.subscribe((state) => {
+      switch (state) {
+        case "disconnected":
+          this.setConnectionState("disconnected");
+          break;
+        case "closed":
+          this.close();
+          break;
+      }
+    });
+  }
 
   get dtlsTransports() {
     const transports = this.transceivers.map((t) => t.dtlsTransport);
@@ -149,21 +159,35 @@ export class RTCPeerConnection extends EventTarget {
     return this.iceTransports[0].connection.generation;
   }
 
-  constructor(config: Partial<PeerConfig> = {}) {
-    super();
+  get localDescription() {
+    if (!this._localDescription) {
+      return undefined;
+    }
+    return this._localDescription.toJSON();
+  }
 
-    this.setConfiguration(config);
+  get remoteDescription() {
+    if (!this._remoteDescription) {
+      return undefined;
+    }
+    return this._remoteDescription.toJSON();
+  }
 
-    this.iceConnectionStateChange.subscribe((state) => {
-      switch (state) {
-        case "disconnected":
-          this.setConnectionState("disconnected");
-          break;
-        case "closed":
-          this.close();
-          break;
-      }
-    });
+  /**@private */
+  get _localDescription() {
+    return this.pendingLocalDescription || this.currentLocalDescription;
+  }
+
+  /**@private */
+  get _remoteDescription() {
+    return this.pendingRemoteDescription || this.currentRemoteDescription;
+  }
+
+  private pushTransceiver(t: RTCRtpTransceiver) {
+    this.transceivers.push(t);
+  }
+  private replaceTransceiver(t: RTCRtpTransceiver, index: number) {
+    this.transceivers[index] = t;
   }
 
   setConfiguration(config: Partial<PeerConfig>) {
@@ -220,30 +244,6 @@ export class RTCPeerConnection extends EventTarget {
         );
       }
     }
-  }
-
-  get localDescription() {
-    if (!this._localDescription) {
-      return undefined;
-    }
-    return this._localDescription.toJSON();
-  }
-
-  get remoteDescription() {
-    if (!this._remoteDescription) {
-      return undefined;
-    }
-    return this._remoteDescription.toJSON();
-  }
-
-  /**@private */
-  get _localDescription() {
-    return this.pendingLocalDescription || this.currentLocalDescription;
-  }
-
-  /**@private */
-  get _remoteDescription() {
-    return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
   private getTransceiverByMid(mid: string) {
