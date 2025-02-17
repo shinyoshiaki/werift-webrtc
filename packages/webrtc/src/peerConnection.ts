@@ -11,11 +11,7 @@ import {
   MediaStream,
   type MediaStreamTrack,
   type RTCRtpCodecParameters,
-  RTCRtpCodingParameters,
-  type RTCRtpParameters,
-  type RTCRtpReceiveParameters,
   RTCRtpReceiver,
-  RTCRtpRtxParameters,
   RTCRtpSender,
   RTCRtpTransceiver,
   RtpRouter,
@@ -28,11 +24,14 @@ import {
   type PeerConfig,
   addTransportDescription,
   allocateMid,
+  assertDescription,
   assertSignalingState,
   assignTransceiverCodecs,
   createMediaDescriptionForSctp,
   createMediaDescriptionForTransceiver,
   findCodecByMimeType,
+  getLocalRtpParams,
+  getRemoteRtpParams,
   setConfiguration,
   updateIceConnectionState,
   updateIceGatheringState,
@@ -546,7 +545,7 @@ export class RTCPeerConnection extends EventTarget {
     // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
-    this.validateDescription(description, true);
+    this.assertDescription(description, true);
 
     // # update signaling state
     if (description.type === "offer") {
@@ -757,52 +756,6 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private getLocalRtpParams(transceiver: RTCRtpTransceiver): RTCRtpParameters {
-    if (transceiver.mid == undefined) throw new Error("mid not assigned");
-
-    const rtp: RTCRtpParameters = {
-      codecs: transceiver.codecs,
-      muxId: transceiver.mid,
-      headerExtensions: transceiver.headerExtensions,
-      rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
-    };
-    return rtp;
-  }
-
-  private getRemoteRtpParams(
-    media: MediaDescription,
-    transceiver: RTCRtpTransceiver,
-  ): RTCRtpReceiveParameters {
-    const receiveParameters: RTCRtpReceiveParameters = {
-      muxId: media.rtp.muxId,
-      rtcp: media.rtp.rtcp,
-      codecs: transceiver.codecs,
-      headerExtensions: transceiver.headerExtensions,
-      encodings: Object.values(
-        transceiver.codecs.reduce(
-          (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
-            if (codec.name.toLowerCase() === "rtx") {
-              const params = codecParametersFromString(codec.parameters ?? "");
-              const apt = acc[params["apt"]];
-              if (apt && media.ssrc.length === 2) {
-                apt.rtx = new RTCRtpRtxParameters({ ssrc: media.ssrc[1].ssrc });
-              }
-              return acc;
-            }
-            acc[codec.payloadType] = new RTCRtpCodingParameters({
-              ssrc: media.ssrc[0]?.ssrc,
-              payloadType: codec.payloadType,
-            });
-            return acc;
-          },
-          {},
-        ),
-      ),
-    };
-
-    return receiveParameters;
-  }
-
   get remoteIsBundled() {
     const remoteSdp = this._remoteDescription;
     if (!remoteSdp) {
@@ -832,7 +785,7 @@ export class RTCPeerConnection extends EventTarget {
     // # parse and validate description
     const remoteSdp = SessionDescription.parse(sessionDescription.sdp);
     remoteSdp.type = sessionDescription.type;
-    this.validateDescription(remoteSdp, false);
+    this.assertDescription(remoteSdp, false);
 
     if (remoteSdp.type === "answer") {
       this.currentRemoteDescription = remoteSdp;
@@ -860,7 +813,7 @@ export class RTCPeerConnection extends EventTarget {
           );
           if (!transceiver) {
             // create remote transceiver
-            transceiver = this._addTransceiver(remoteMedia.kind, {
+            transceiver = this.addTransceiver(remoteMedia.kind, {
               direction: "recvonly",
             });
             transceiver.mid = remoteMedia.rtp.muxId;
@@ -1047,11 +1000,11 @@ export class RTCPeerConnection extends EventTarget {
     } else {
       transceiver.offerDirection = direction;
     }
-    const localParams = this.getLocalRtpParams(transceiver);
+    const localParams = getLocalRtpParams(transceiver, this.cname);
     transceiver.sender.prepareSend(localParams);
 
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-      const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
+      const remotePrams = getRemoteRtpParams(remoteMedia, transceiver);
 
       // register simulcast receiver
       remoteMedia.simulcastParameters.forEach((param) => {
@@ -1102,35 +1055,13 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private validateDescription(
-    description: SessionDescription,
-    isLocal: boolean,
-  ) {
+  private assertDescription(description: SessionDescription, isLocal: boolean) {
     assertSignalingState(description, this.signalingState, isLocal);
-
-    description.media.forEach((media) => {
-      if (media.direction === "inactive") return;
-      if (
-        !media.iceParams ||
-        !media.iceParams.usernameFragment ||
-        !media.iceParams.password
-      ) {
-        throw new Error("ICE username fragment or password is missing");
-      }
+    const offer = isLocal ? this._remoteDescription : this._localDescription;
+    assertDescription({
+      description,
+      offer,
     });
-
-    if (["answer", "pranswer"].includes(description.type || "")) {
-      const offer = isLocal ? this._remoteDescription : this._localDescription;
-      if (!offer) {
-        throw new Error();
-      }
-
-      const answerMedia = description.media.map((v, i) => [v.kind, i]);
-      const offerMedia = offer.media.map((v, i) => [v.kind, i]);
-      if (!isEqual(offerMedia, answerMedia)) {
-        throw new Error("Media sections in answer do not match offer");
-      }
-    }
   }
 
   private fireOnTrack(
@@ -1152,13 +1083,6 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   addTransceiver(
-    trackOrKind: Kind | MediaStreamTrack,
-    options: Partial<TransceiverOptions> = {},
-  ) {
-    return this._addTransceiver(trackOrKind, options);
-  }
-
-  private _addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {},
   ) {
@@ -1264,7 +1188,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
       return sender;
     } else {
-      const transceiver = this._addTransceiver(track, {
+      const transceiver = this.addTransceiver(track, {
         direction: "sendrecv",
       });
       this.needNegotiation();
