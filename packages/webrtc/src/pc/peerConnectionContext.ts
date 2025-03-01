@@ -1,6 +1,6 @@
 import type { RtpRouter } from "../media";
-import type { RTCCertificate } from "../transport/dtls";
 import type { SessionDescription } from "../sdp";
+import type { RTCCertificate } from "../transport/dtls";
 import type { RTCPeerConnection } from "./pc";
 import type { PeerConnectionContext } from "./types/peerConnectionContext";
 import type { PeerConfig } from "./util";

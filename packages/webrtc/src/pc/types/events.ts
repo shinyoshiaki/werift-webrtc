@@ -1,11 +1,11 @@
 import type { MediaStreamTrack } from "../../media";
-import type { RTCDataChannel } from "../dataChannel/rtcDataChannel";
-import type { RTCIceCandidate } from "../../transport/ice";
 import type {
+  MediaStream,
   RTCRtpReceiver,
   RTCRtpTransceiver,
-  MediaStream,
 } from "../../media";
+import type { RTCIceCandidate } from "../../transport/ice";
+import type { RTCDataChannel } from "../dataChannel/rtcDataChannel";
 
 export interface RTCTrackEvent {
   track: MediaStreamTrack;

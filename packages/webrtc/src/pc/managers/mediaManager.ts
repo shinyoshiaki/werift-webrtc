@@ -1,9 +1,7 @@
+import { SenderDirections } from "../../const";
 import { debug } from "../../imports/common";
-import type { Kind, RTCSignalingState } from "../../types/domain";
-import type { BaseManager } from "../types/manager";
-import type { PeerConnectionContext } from "../types/peerConnectionContext";
 import {
-  MediaStream,
+  type MediaStream,
   type MediaStreamTrack,
   RTCRtpReceiver,
   RTCRtpSender,
@@ -13,7 +11,9 @@ import {
   usePCMU,
   useVP8,
 } from "../../media";
-import { SenderDirections } from "../../const";
+import type { Kind, RTCSignalingState } from "../../types/domain";
+import type { BaseManager } from "../types/manager";
+import type { PeerConnectionContext } from "../types/peerConnectionContext";
 
 const log = debug("werift:webrtc/mediaManager");
 

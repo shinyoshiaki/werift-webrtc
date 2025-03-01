@@ -1,45 +1,87 @@
-import { debug } from "../../imports/common";
-import type { ConnectionState, RTCSignalingState } from "../../types/domain";
-import type { BaseManager } from "../types/manager";
-import { ManagerError } from "../types/manager";
-import type { PeerConnectionContext } from "../types/peerConnectionContext";
+import { EventTarget } from "../../helper";
+import { Event, debug } from "../../imports/common";
+import type {
+  IceGathererState,
+  RTCIceConnectionState,
+} from "../../transport/ice";
+import type { Callback, CallbackWithValue } from "../../types/util";
 
 const log = debug("werift:webrtc/stateManager");
 
-export class StateManager implements BaseManager {
-  constructor(public readonly context: PeerConnectionContext) {}
+export class StateManager extends EventTarget {
+  connectionState: ConnectionState = "new";
+  iceConnectionState: RTCIceConnectionState = "new";
+  iceGatheringState: IceGathererState = "new";
+  signalingState: RTCSignalingState = "stable";
+  onsignalingstatechange?: CallbackWithValue<any>;
+  onconnectionstatechange?: Callback;
+  oniceconnectionstatechange?: Callback;
+  readonly signalingStateChange = new Event<[RTCSignalingState]>();
+  readonly connectionStateChange = new Event<[ConnectionState]>();
+  readonly iceGatheringStateChange = new Event<[IceGathererState]>();
+  readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
 
-  updateSignalingState(state: RTCSignalingState) {
-    if (this.context.connection.signalingState === state) return;
-
-    log("signalingStateChange", state);
-    this.context.connection.signalingState = state;
-
-    this.context.connection.signalingStateChange.execute(state);
-    this.context.connection.onsignalingstatechange?.({});
-  }
-
-  updateConnectionState(state: ConnectionState) {
-    if (this.context.connection.connectionState === state) return;
-
-    log("connectionStateChange", state);
-    this.context.connection.connectionState = state;
-
-    this.context.connection.connectionStateChange.execute(state);
-    this.context.connection.onconnectionstatechange?.();
-    this.context.connection.emit("connectionstatechange");
-  }
-
-  validateState(action: string) {
-    if (this.context.connection.isClosed) {
-      throw new ManagerError(
-        "StateManager",
-        `Cannot ${action}: RTCPeerConnection is closed`,
-      );
+  updateIceGatheringState(newState: IceGathererState) {
+    if (this.iceGatheringState === newState) {
+      return;
     }
+
+    log("iceGatheringStateChange", newState);
+    this.iceGatheringState = newState;
+
+    this.iceGatheringStateChange.execute(newState);
+    this.emit("icegatheringstatechange", newState);
   }
 
-  dispose() {
-    // Cleanup any state-specific resources if needed
+  updateIceConnectionState(newState: RTCIceConnectionState) {
+    if (this.iceConnectionState === newState) {
+      return;
+    }
+
+    log("iceConnectionStateChange", newState);
+    this.iceConnectionState = newState;
+
+    this.iceConnectionStateChange.execute(newState);
+    this.emit("iceconnectionstatechange", newState);
+    this.oniceconnectionstatechange?.();
+  }
+
+  setSignalingState(state: RTCSignalingState) {
+    log("signalingStateChange", state);
+    this.signalingState = state;
+
+    this.signalingStateChange.execute(state);
+    this.onsignalingstatechange?.({});
+  }
+
+  setConnectionState(state: ConnectionState) {
+    log("connectionStateChange", state);
+    this.connectionState = state;
+
+    this.connectionStateChange.execute(state);
+    this.onconnectionstatechange?.();
+    this.emit("connectionstatechange");
   }
 }
+
+export const SignalingStates = [
+  "stable",
+  "have-local-offer",
+  "have-remote-offer",
+  "have-local-pranswer",
+  "have-remote-pranswer",
+  "closed",
+] as const;
+
+export type RTCSignalingState = (typeof SignalingStates)[number];
+
+export const ConnectionStates = [
+  "closed",
+  "failed",
+  "disconnected",
+  "new",
+  "connecting",
+  "connected",
+] as const;
+
+export type ConnectionState = (typeof ConnectionStates)[number];

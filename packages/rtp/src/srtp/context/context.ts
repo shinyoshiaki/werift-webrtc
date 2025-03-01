@@ -5,9 +5,9 @@ import type { CipherAesBase } from "../cipher";
 import { CipherAesCtr } from "../cipher/ctr";
 import { CipherAesGcm } from "../cipher/gcm";
 import {
-  type SrtpProfile,
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
+  type SrtpProfile,
 } from "../const";
 
 export class Context {

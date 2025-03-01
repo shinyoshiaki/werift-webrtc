@@ -1,5 +1,5 @@
-import { debug } from "../../imports/common";
 import { RTCDataChannel, RTCDataChannelParameters } from "../../dataChannel";
+import { debug } from "../../imports/common";
 import type { BaseManager } from "../types/manager";
 import type { PeerConnectionContext } from "../types/peerConnectionContext";
 

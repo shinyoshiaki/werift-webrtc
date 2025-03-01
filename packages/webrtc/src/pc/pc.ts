@@ -28,10 +28,8 @@ import {
 import { RTCCertificate, RTCDtlsTransport } from "../transport/dtls";
 import {
   IceCandidate,
-  type IceGathererState,
   type RTCIceCandidate,
   type RTCIceCandidateInit,
-  type RTCIceConnectionState,
   RTCIceGatherer,
   RTCIceTransport,
 } from "../transport/ice";
@@ -60,16 +58,13 @@ import {
   updateIceConnectionState,
   updateIceGatheringState,
 } from "./util";
+import { StateManager } from "./managers/stateManager";
 
 const log = debug("werift:submodules/werift/packages/webrtc/src/pc/pc.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = randomUUID();
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
-  connectionState: ConnectionState = "new";
-  iceConnectionState: RTCIceConnectionState = "new";
-  iceGatheringState: IceGathererState = "new";
-  signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   needRestart = false;
   sctpRemotePort?: number;
@@ -85,10 +80,13 @@ export class RTCPeerConnection extends EventTarget {
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
-  readonly iceGatheringStateChange = new Event<[IceGathererState]>();
-  readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
-  readonly signalingStateChange = new Event<[RTCSignalingState]>();
-  readonly connectionStateChange = new Event<[ConnectionState]>();
+  readonly stateManager = new StateManager();
+
+  readonly iceGatheringStateChange = this.stateManager.iceGatheringStateChange;
+  readonly iceConnectionStateChange =
+    this.stateManager.iceConnectionStateChange;
+  readonly signalingStateChange = this.stateManager.signalingStateChange;
+  readonly connectionStateChange = this.stateManager.connectionStateChange;
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
@@ -99,10 +97,17 @@ export class RTCPeerConnection extends EventTarget {
   ondatachannel?: CallbackWithValue<RTCDataChannelEvent>;
   onicecandidate?: CallbackWithValue<RTCPeerConnectionIceEvent>;
   onnegotiationneeded?: CallbackWithValue<any>;
-  onsignalingstatechange?: CallbackWithValue<any>;
   ontrack?: CallbackWithValue<RTCTrackEvent>;
-  onconnectionstatechange?: Callback;
-  oniceconnectionstatechange?: Callback;
+
+  set onsignalingstatechange(callback: CallbackWithValue<any>) {
+    this.stateManager.onsignalingstatechange = callback;
+  }
+  set onconnectionstatechange(callback: Callback) {
+    this.stateManager.onconnectionstatechange = callback;
+  }
+  set oniceconnectionstatechange(callback: Callback) {
+    this.stateManager.oniceconnectionstatechange = callback;
+  }
 
   get dtlsTransports() {
     const transports = this.transceivers.map((t) => t.dtlsTransport);
@@ -139,6 +144,22 @@ export class RTCPeerConnection extends EventTarget {
       (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
     );
     return bundle;
+  }
+
+  get connectionState() {
+    return this.stateManager.connectionState;
+  }
+
+  get iceConnectionState() {
+    return this.stateManager.iceConnectionState;
+  }
+
+  get iceGatheringState() {
+    return this.stateManager.iceGatheringState;
+  }
+
+  get signalingState() {
+    return this.stateManager.signalingState;
   }
 
   constructor(config: Partial<PeerConfig> = {}) {
@@ -1283,15 +1304,8 @@ export class RTCPeerConnection extends EventTarget {
     const all = this.iceTransports;
 
     const newState = updateIceGatheringState(all.map((t) => t.gatheringState));
-    if (this.iceGatheringState === newState) {
-      return;
-    }
 
-    log("iceGatheringStateChange", newState);
-    this.iceGatheringState = newState;
-
-    this.iceGatheringStateChange.execute(newState);
-    this.emit("icegatheringstatechange", newState);
+    this.stateManager.updateIceGatheringState(newState);
   }
 
   private updateIceConnectionState() {
@@ -1302,33 +1316,15 @@ export class RTCPeerConnection extends EventTarget {
             iceStates: this.iceTransports.map((t) => t.state),
           });
 
-    if (this.iceConnectionState === newState) {
-      return;
-    }
-
-    log("iceConnectionStateChange", newState);
-    this.iceConnectionState = newState;
-
-    this.iceConnectionStateChange.execute(newState);
-    this.emit("iceconnectionstatechange", newState);
-    this.oniceconnectionstatechange?.();
+    this.stateManager.updateIceConnectionState(newState);
   }
 
   private setSignalingState(state: RTCSignalingState) {
-    log("signalingStateChange", state);
-    this.signalingState = state;
-
-    this.signalingStateChange.execute(state);
-    this.onsignalingstatechange?.({});
+    this.stateManager.setSignalingState(state);
   }
 
   private setConnectionState(state: ConnectionState) {
-    log("connectionStateChange", state);
-    this.connectionState = state;
-
-    this.connectionStateChange.execute(state);
-    this.onconnectionstatechange?.();
-    this.emit("connectionstatechange");
+    this.stateManager.setConnectionState(state);
   }
 
   private dispose() {

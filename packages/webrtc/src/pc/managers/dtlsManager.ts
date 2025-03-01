@@ -2,10 +2,9 @@ import { debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
 import { RTCDtlsTransport } from "../../transport/dtls";
 import { RTCIceGatherer, RTCIceTransport } from "../../transport/ice";
-import type { BaseManager } from "../types/manager";
-import { ManagerError } from "../types/manager";
-import type { PeerConnectionContext } from "../types/peerConnectionContext";
 import { parseIceServers } from "../../utils";
+import type { BaseManager } from "../types/manager";
+import type { PeerConnectionContext } from "../types/peerConnectionContext";
 
 const log = debug("werift:webrtc/dtlsManager");
 
