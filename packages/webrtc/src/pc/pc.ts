@@ -1,11 +1,10 @@
+import { randomUUID } from "node:crypto";
 import cloneDeep from "lodash/cloneDeep.js";
-import * as uuid from "uuid";
-
-import { SRTP_PROFILE, SenderDirections } from "./const";
-import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
-import { EventTarget, enumerate } from "./helper";
-import { Event, debug } from "./imports/common";
-import type { SrtpProfile } from "./imports/rtp";
+import { SRTP_PROFILE, SenderDirections } from "../const";
+import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
+import { EventTarget } from "../helper";
+import { Event, debug } from "../imports/common";
+import { type SrtpProfile, enumerate } from "../imports/rtp";
 import {
   MediaStream,
   type MediaStreamTrack,
@@ -18,7 +17,33 @@ import {
   useOPUS,
   usePCMU,
   useVP8,
-} from "./media";
+} from "../media";
+import {
+  GroupDescription,
+  type MediaDescription,
+  SessionDescription,
+  addSDPHeader,
+  codecParametersFromString,
+} from "../sdp";
+import { RTCCertificate, RTCDtlsTransport } from "../transport/dtls";
+import {
+  IceCandidate,
+  type IceGathererState,
+  type RTCIceCandidate,
+  type RTCIceCandidateInit,
+  type RTCIceConnectionState,
+  RTCIceGatherer,
+  RTCIceTransport,
+} from "../transport/ice";
+import { RTCSctpTransport } from "../transport/sctp";
+import type { ConnectionState, Kind, RTCSignalingState } from "../types/domain";
+import type { Callback, CallbackWithValue } from "../types/util";
+import {
+  andDirection,
+  parseIceServers,
+  reverseDirection,
+  reverseSimulcastDirection,
+} from "../utils";
 import {
   type PeerConfig,
   addTransportDescription,
@@ -34,38 +59,12 @@ import {
   setConfiguration,
   updateIceConnectionState,
   updateIceGatheringState,
-} from "./pc/util";
-import {
-  GroupDescription,
-  type MediaDescription,
-  SessionDescription,
-  addSDPHeader,
-  codecParametersFromString,
-} from "./sdp";
-import { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
-import {
-  IceCandidate,
-  type IceGathererState,
-  type RTCIceCandidate,
-  type RTCIceCandidateInit,
-  type RTCIceConnectionState,
-  RTCIceGatherer,
-  RTCIceTransport,
-} from "./transport/ice";
-import { RTCSctpTransport } from "./transport/sctp";
-import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
-import type { Callback, CallbackWithValue } from "./types/util";
-import {
-  andDirection,
-  parseIceServers,
-  reverseDirection,
-  reverseSimulcastDirection,
-} from "./utils";
+} from "./util";
 
-const log = debug("werift:packages/webrtc/src/peerConnection.ts");
+const log = debug("werift:submodules/werift/packages/webrtc/src/pc/pc.ts");
 
 export class RTCPeerConnection extends EventTarget {
-  readonly cname = uuid.v4();
+  readonly cname = randomUUID();
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
@@ -105,23 +104,6 @@ export class RTCPeerConnection extends EventTarget {
   onconnectionstatechange?: Callback;
   oniceconnectionstatechange?: Callback;
 
-  constructor(config: Partial<PeerConfig> = {}) {
-    super();
-
-    this.setConfiguration(config);
-
-    this.iceConnectionStateChange.subscribe((state) => {
-      switch (state) {
-        case "disconnected":
-          this.setConnectionState("disconnected");
-          break;
-        case "closed":
-          this.close();
-          break;
-      }
-    });
-  }
-
   get dtlsTransports() {
     const transports = this.transceivers.map((t) => t.dtlsTransport);
     if (this.sctpTransport) {
@@ -138,28 +120,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
 
-  get extIdUriMap() {
-    return this.router.extIdUriMap;
-  }
-
-  get iceGeneration() {
-    return this.iceTransports[0].connection.generation;
-  }
-
-  get localDescription() {
-    if (!this._localDescription) {
-      return undefined;
-    }
-    return this._localDescription.toJSON();
-  }
-
-  get remoteDescription() {
-    if (!this._remoteDescription) {
-      return undefined;
-    }
-    return this._remoteDescription.toJSON();
-  }
-
   /**@private */
   get _localDescription() {
     return this.pendingLocalDescription || this.currentLocalDescription;
@@ -168,6 +128,34 @@ export class RTCPeerConnection extends EventTarget {
   /**@private */
   get _remoteDescription() {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
+  }
+
+  get remoteIsBundled() {
+    const remoteSdp = this._remoteDescription;
+    if (!remoteSdp) {
+      return undefined;
+    }
+    const bundle = remoteSdp.group.find(
+      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
+    );
+    return bundle;
+  }
+
+  constructor(config: Partial<PeerConfig> = {}) {
+    super();
+
+    this.setConfiguration(config);
+
+    this.iceConnectionStateChange.subscribe((state) => {
+      switch (state) {
+        case "disconnected":
+          this.setConnectionState("disconnected");
+          break;
+        case "closed":
+          this.close();
+          break;
+      }
+    });
   }
 
   private pushTransceiver(t: RTCRtpTransceiver) {
@@ -201,10 +189,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.transceivers.find(
       (transceiver) => transceiver.mLineIndex === index,
     );
-  }
-
-  getConfiguration() {
-    return this.config;
   }
 
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
@@ -371,7 +355,11 @@ export class RTCPeerConnection extends EventTarget {
 
   removeTrack(sender: RTCRtpSender) {
     if (this.isClosed) throw new Error("peer closed");
-    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
+    if (
+      !this.transceivers
+        .map((t) => t.sender)
+        .find(({ ssrc }) => sender.ssrc === ssrc)
+    ) {
       throw new Error("unExist");
     }
 
@@ -404,7 +392,7 @@ export class RTCPeerConnection extends EventTarget {
     this.needNegotiation();
   }
 
-  private needNegotiation = async () => {
+  private needNegotiation() {
     this.shouldNegotiationneeded = true;
     if (this.negotiationneeded || this.signalingState !== "stable") {
       return;
@@ -415,7 +403,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onNegotiationneeded.execute();
       if (this.onnegotiationneeded) this.onnegotiationneeded({});
     });
-  };
+  }
 
   private createTransport(srtpProfiles: SrtpProfile[] = []) {
     const [existing] = this.iceTransports;
@@ -458,7 +446,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
-      if (!this.localDescription) {
+      if (!this._localDescription) {
         log("localDescription not found when ice candidate was gathered");
         return;
       }
@@ -753,17 +741,6 @@ export class RTCPeerConnection extends EventTarget {
     } else {
       this.setConnectionState("connected");
     }
-  }
-
-  get remoteIsBundled() {
-    const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) {
-      return undefined;
-    }
-    const bundle = remoteSdp.group.find(
-      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
-    );
-    return bundle;
   }
 
   restartIce() {
@@ -1129,18 +1106,6 @@ export class RTCPeerConnection extends EventTarget {
     return newTransceiver;
   }
 
-  getTransceivers() {
-    return this.transceivers;
-  }
-
-  getSenders(): RTCRtpSender[] {
-    return this.getTransceivers().map((t) => t.sender);
-  }
-
-  getReceivers() {
-    return this.getTransceivers().map((t) => t.receiver);
-  }
-
   addTrack(
     track: MediaStreamTrack,
     /**todo impl */
@@ -1149,7 +1114,11 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw new Error("is closed");
     }
-    if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
+    if (
+      this.transceivers
+        .map((t) => t.sender)
+        .find((sender) => sender.track?.uuid === track.uuid)
+    ) {
       throw new Error("track exist");
     }
 

@@ -24,7 +24,7 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
-import { type Profile, debug } from "../../imports/rtp";
+import { type SrtpProfile, debug } from "../../imports/rtp";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import type { FragmentedHandshake } from "../../record/message/fragment";
@@ -237,7 +237,7 @@ handlers[HandshakeType.server_hello_2] =
             {
               const useSrtp = UseSRTP.fromData(extension.data);
               const profile = SrtpContext.findMatchingSRTPProfile(
-                useSrtp.profiles as Profile[],
+                useSrtp.profiles as SrtpProfile[],
                 dtls.options.srtpProfiles || [],
               );
               log(dtls.sessionId, "selected srtp profile", profile);

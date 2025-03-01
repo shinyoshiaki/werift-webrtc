@@ -19,7 +19,7 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
-import type { Profile } from "./imports/rtp";
+import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -251,7 +251,7 @@ export class DtlsSocket {
 
 export interface Options {
   transport: Transport;
-  srtpProfiles?: Profile[];
+  srtpProfiles?: SrtpProfile[];
   cert?: string;
   key?: string;
   signatureHash?: SignatureHash;

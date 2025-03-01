@@ -17,12 +17,12 @@ import {
 } from "../imports/dtls";
 import type { IceConnection } from "../imports/ice";
 import {
-  type Profile,
   type RtcpPacket,
   RtcpPacketConverter,
   type RtpHeader,
   RtpPacket,
   SrtcpSession,
+  type SrtpProfile,
   SrtpSession,
   debug,
   isMedia,
@@ -61,7 +61,7 @@ export class RTCDtlsTransport {
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
     public localCertificate?: RTCCertificate,
-    private readonly srtpProfiles: Profile[] = [],
+    private readonly srtpProfiles: SrtpProfile[] = [],
   ) {
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
   }

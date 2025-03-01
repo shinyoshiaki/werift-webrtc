@@ -19,7 +19,7 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "../../handshake/random";
-import { type Profile, debug } from "../../imports/rtp";
+import { type SrtpProfile, debug } from "../../imports/rtp";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 
@@ -89,7 +89,7 @@ export const flight2 =
             const useSrtp = UseSRTP.fromData(extension.data);
             log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
             const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles as Profile[],
+              useSrtp.profiles as SrtpProfile[],
               dtls.options?.srtpProfiles,
             );
             if (!profile) {
