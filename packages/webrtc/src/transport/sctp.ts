@@ -310,6 +310,7 @@ export class RTCSctpTransport {
         channel.addBufferedAmount(-userData.length);
       }
     }
+    this.dataChannelQueue = [];
   }
 
   datachannelSend = (channel: RTCDataChannel, data: Buffer | string) => {
