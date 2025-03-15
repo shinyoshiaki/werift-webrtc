@@ -6,9 +6,9 @@ export const Profiles = [
   ProtectionProfileAeadAes128Gcm,
 ] as const;
 
-export type Profile = (typeof Profiles)[number];
+export type SrtpProfile = (typeof Profiles)[number];
 
-export const keyLength = (profile: Profile) => {
+export const keyLength = (profile: SrtpProfile) => {
   switch (profile) {
     case ProtectionProfileAes128CmHmacSha1_80:
     case ProtectionProfileAeadAes128Gcm:
@@ -16,7 +16,7 @@ export const keyLength = (profile: Profile) => {
   }
 };
 
-export const saltLength = (profile: Profile) => {
+export const saltLength = (profile: SrtpProfile) => {
   switch (profile) {
     case ProtectionProfileAes128CmHmacSha1_80:
       return 14;

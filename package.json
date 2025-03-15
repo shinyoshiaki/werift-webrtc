@@ -21,7 +21,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "ci": "run-s type:all build test doc",
-    "clean": "rm -rf packages/*/node_modules",
+    "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
     "doc": "npm run doc --workspaces --if-present && rm -rf doc && cd packages/webrtc && mv doc ../..",

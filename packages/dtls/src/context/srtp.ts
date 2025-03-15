@@ -1,9 +1,9 @@
-import type { Profile } from "../imports/rtp";
+import type { SrtpProfile } from "../imports/rtp";
 
 export class SrtpContext {
-  srtpProfile?: Profile;
+  srtpProfile?: SrtpProfile;
 
-  static findMatchingSRTPProfile(remote: Profile[], local: Profile[]) {
+  static findMatchingSRTPProfile(remote: SrtpProfile[], local: SrtpProfile[]) {
     for (const v of local) {
       if (remote.includes(v)) return v;
     }

@@ -5,9 +5,9 @@ import type { CipherAesBase } from "../cipher";
 import { CipherAesCtr } from "../cipher/ctr";
 import { CipherAesGcm } from "../cipher/gcm";
 import {
-  type Profile,
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
+  type SrtpProfile,
 } from "../const";
 
 export class Context {
@@ -27,7 +27,7 @@ export class Context {
   constructor(
     public masterKey: Buffer,
     public masterSalt: Buffer,
-    public profile: Profile,
+    public profile: SrtpProfile,
   ) {
     {
       // aes-js plaintext require 16byte

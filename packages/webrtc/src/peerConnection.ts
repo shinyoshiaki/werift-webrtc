@@ -18,7 +18,7 @@ import {
   debug,
 } from "./imports/common";
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
-import type { Profile } from "./imports/rtp";
+import type { SrtpProfile } from "./imports/rtp";
 import {
   type Direction,
   MediaStream,
@@ -493,7 +493,7 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(srtpProfiles: Profile[] = []) {
+  private createTransport(srtpProfiles: SrtpProfile[] = []) {
     const [existing] = this.iceTransports;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
