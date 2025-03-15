@@ -568,6 +568,7 @@ export class SCTP {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
+    // Furthermore, this exposed an issue I've seen in v8 in other projects: using an array as a queue seems to result in long calls to shift (it does an array copy under the hood?). The problem seems to get worse the more times it shifts. Resetting the queue to empty array mitigates this.
     if (!this.sentQueue.length) {
       this.sentQueue = [];
     }
@@ -879,6 +880,7 @@ export class SCTP {
         this.timer3Start();
       }
     }
+    // Resetting the queue to empty array mitigates this.
     this.outboundQueue = [];
     this.flush.execute();
   }
@@ -1097,6 +1099,7 @@ export class SCTP {
         streams[chunk.streamId] = chunk.streamSeqNum;
       }
     }
+    // Resetting the queue to empty array mitigates this.
     if (!this.sentQueue.length) {
       this.sentQueue = [];
     }
