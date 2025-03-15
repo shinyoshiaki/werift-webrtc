@@ -84,6 +84,7 @@ const SCTPConnectionStates = [
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
+  flush = new Event<[void]>();
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
@@ -567,6 +568,10 @@ export class SCTP {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
+    // Furthermore, this exposed an issue I've seen in v8 in other projects: using an array as a queue seems to result in long calls to shift (it does an array copy under the hood?). The problem seems to get worse the more times it shifts. Resetting the queue to empty array mitigates this.
+    if (!this.sentQueue.length) {
+      this.sentQueue = [];
+    }
 
     // # handle gap blocks
     let loss = false;
@@ -799,7 +804,12 @@ export class SCTP {
     if (!this.timer3Handle) {
       await this.transmit();
     } else {
-      await new Promise((r) => setImmediate(r));
+      if (this.outboundQueue.length) {
+        await this.flush.asPromise();
+      } else {
+        // unreachable?
+        await new Promise((r) => setImmediate(r));
+      }
     }
   };
 
@@ -870,6 +880,9 @@ export class SCTP {
         this.timer3Start();
       }
     }
+    // Resetting the queue to empty array mitigates this.
+    this.outboundQueue = [];
+    this.flush.execute();
   }
 
   async transmitReconfigRequest() {
@@ -1085,6 +1098,10 @@ export class SCTP {
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
         streams[chunk.streamId] = chunk.streamSeqNum;
       }
+    }
+    // Resetting the queue to empty array mitigates this.
+    if (!this.sentQueue.length) {
+      this.sentQueue = [];
     }
 
     if (done) {
