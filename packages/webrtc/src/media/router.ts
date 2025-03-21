@@ -181,7 +181,7 @@ export class RtpRouter {
               }
               break;
             default:
-              recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
+              recipients.push(this.ssrcTable[psfb.feedback.senderSsrc] || this.ssrcTable[psfb.feedback.mediaSsrc]);
           }
         }
         break;
