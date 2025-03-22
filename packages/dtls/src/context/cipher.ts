@@ -1,7 +1,7 @@
 import nodeCrypto, { createSign } from "crypto";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import * as x509 from "@peculiar/x509";
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { encode, types } from "@shinyoshiaki/binary-data";
 import { addYears } from "date-fns";
 
 import {
@@ -127,12 +127,11 @@ export class CipherContext {
 
   encryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;
+    const version =
+      (header.protocolVersion.major << 8) | header.protocolVersion.minor;
     const enc = this.cipher.encrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
-      version: decode(
-        Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
-        { version: types.uint16be },
-      ).version,
+      version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
     });
@@ -143,12 +142,11 @@ export class CipherContext {
 
   decryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;
+    const version =
+      (header.protocolVersion.major << 8) | header.protocolVersion.minor;
     const dec = this.cipher.decrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
-      version: decode(
-        Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
-        { version: types.uint16be },
-      ).version,
+      version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
     });
