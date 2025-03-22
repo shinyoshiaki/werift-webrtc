@@ -1,3 +1,4 @@
+import { jspack } from "@shinyoshiaki/jspack";
 import * as Int64 from "int64-buffer";
 import nodeIp from "ip";
 import range from "lodash/range.js";
@@ -52,16 +53,16 @@ function unpackAddress(data: Buffer): Address {
 }
 
 function xorAddress(data: Buffer, transactionId: Buffer) {
-  const xPad = Buffer.alloc(16);
-  xPad.writeUInt16BE(COOKIE >> 16, 0);
-  xPad.writeUInt32BE(COOKIE, 2);
-  transactionId.copy(xPad, 6);
+  const xPad = [
+    ...jspack.Pack("!HI", [COOKIE >> 16, COOKIE]),
+    ...transactionId,
+  ];
   let xData = data.slice(0, 2);
 
   for (const i of range(2, data.length)) {
     const num = data[i] ^ xPad[i - 2];
     const buf = Buffer.alloc(1);
-    buf.writeUInt8(num, 0);
+    buf.writeUIntBE(num, 0, 1);
     xData = Buffer.concat([xData, buf]);
   }
   return xData;
