@@ -79,18 +79,10 @@ export class UdpTransport implements Transport {
     await new Promise((r) => this.socket.once("listening", r));
   }
 
-  send = (data: Buffer, addr?: Address) =>
-    new Promise<void>((r, f) => {
-      addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
-      this.socket.send(data, addr[1], addr[0], (error) => {
-        if (error) {
-          log("send error", addr, data);
-          f(error);
-        } else {
-          r();
-        }
-      });
-    });
+  send = async (data: Buffer, addr?: Address) => {
+    addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
+    this.socket.send(data, addr[1], addr[0]);
+  };
 
   get address() {
     return this.socket.address();
