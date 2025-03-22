@@ -51,10 +51,11 @@ function unpackAddress(data: Buffer): Address {
   }
 }
 
+const cookieBuffer = Buffer.alloc(6);
+cookieBuffer.writeUInt16BE(COOKIE >> 16, 0);
+cookieBuffer.writeUInt32BE(COOKIE, 2);
+
 function xorAddress(data: Buffer, transactionId: Buffer) {
-  const cookieBuffer = Buffer.alloc(6);
-  cookieBuffer.writeUInt16BE(COOKIE >> 16, 0);
-  cookieBuffer.writeUInt32BE(COOKIE, 2);
   const xPad = [...cookieBuffer, ...transactionId];
   let xData = data.slice(0, 2);
 
