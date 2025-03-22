@@ -1,7 +1,6 @@
-import debug from "debug";
 import { setTimeout } from "timers/promises";
 
-import { uint8Add, uint16Add, uint24 } from "../../../../common/src";
+import { uint8Add, uint16Add, uint24 } from "../../imports/common";
 import {
   type PacketStatus,
   RecvDelta,
@@ -9,7 +8,8 @@ import {
   RunLengthChunk,
   type StatusVectorChunk,
   TransportWideCC,
-} from "../../../../rtp/src";
+  debug,
+} from "../../imports/rtp";
 import type { RTCDtlsTransport } from "../../transport/dtls";
 import { microTime } from "../../utils";
 

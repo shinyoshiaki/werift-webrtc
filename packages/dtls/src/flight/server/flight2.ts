@@ -1,5 +1,4 @@
 import { randomBytes } from "crypto";
-import debug from "debug";
 
 import {
   CipherSuite,
@@ -10,7 +9,7 @@ import {
 import { generateKeyPair } from "../../cipher/namedCurve";
 import type { CipherContext } from "../../context/cipher";
 import type { DtlsContext } from "../../context/dtls";
-import { type Profile, SrtpContext } from "../../context/srtp";
+import { SrtpContext } from "../../context/srtp";
 import type { TransportContext } from "../../context/transport";
 import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
@@ -20,6 +19,7 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "../../handshake/random";
+import { type SrtpProfile, debug } from "../../imports/rtp";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 
@@ -89,7 +89,7 @@ export const flight2 =
             const useSrtp = UseSRTP.fromData(extension.data);
             log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
             const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles as Profile[],
+              useSrtp.profiles as SrtpProfile[],
               dtls.options?.srtpProfiles,
             );
             if (!profile) {
@@ -104,9 +104,11 @@ export const flight2 =
             dtls.remoteExtendedMasterSecret = true;
           }
           break;
-        case RenegotiationIndication.type: {
-          log(dtls.sessionId, "RenegotiationIndication", extension.data);
-        }
+        case RenegotiationIndication.type:
+          {
+            log(dtls.sessionId, "RenegotiationIndication", extension.data);
+          }
+          break;
         case 43:
           {
             // todo dtls1.3

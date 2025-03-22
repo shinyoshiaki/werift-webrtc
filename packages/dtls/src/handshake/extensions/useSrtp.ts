@@ -1,5 +1,5 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
-import times from "lodash/times";
+import times from "lodash/times.js";
 
 import type { Extension } from "../../typings/domain";
 

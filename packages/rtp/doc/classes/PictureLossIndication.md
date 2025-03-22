@@ -1,37 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / PictureLossIndication
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / PictureLossIndication
 
 # Class: PictureLossIndication
 
-## Table of contents
-
-### Constructors
-
-- [constructor](PictureLossIndication.md#constructor)
-
-### Properties
-
-- [count](PictureLossIndication.md#count)
-- [length](PictureLossIndication.md#length)
-- [mediaSsrc](PictureLossIndication.md#mediassrc)
-- [senderSsrc](PictureLossIndication.md#senderssrc)
-- [count](PictureLossIndication.md#count-1)
-
-### Methods
-
-- [serialize](PictureLossIndication.md#serialize)
-- [deSerialize](PictureLossIndication.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new PictureLossIndication()
 
-• **new PictureLossIndication**(`props?`): [`PictureLossIndication`](PictureLossIndication.md)
+> **new PictureLossIndication**(`props`): [`PictureLossIndication`](PictureLossIndication.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`PictureLossIndication`](PictureLossIndication.md)\> |
+• **props**: `Partial`\<[`PictureLossIndication`](PictureLossIndication.md)\> = `{}`
 
 #### Returns
 
@@ -41,53 +24,51 @@
 
 ### count
 
-• **count**: `number` = `PictureLossIndication.count`
+> **count**: `number` = `PictureLossIndication.count`
 
-___
+***
 
 ### length
 
-• **length**: `number` = `2`
+> **length**: `number` = `2`
 
-___
+***
 
 ### mediaSsrc
 
-• **mediaSsrc**: `number`
+> **mediaSsrc**: `number`
 
-___
+***
 
 ### senderSsrc
 
-• **senderSsrc**: `number`
+> **senderSsrc**: `number`
 
-___
+***
 
 ### count
 
-▪ `Static` **count**: `number` = `1`
+> `static` **count**: `number` = `1`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`PictureLossIndication`](PictureLossIndication.md)
+> `static` **deSerialize**(`data`): [`PictureLossIndication`](PictureLossIndication.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

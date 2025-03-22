@@ -1,8 +1,8 @@
 import { Server } from "ws";
 import {
   RTCPeerConnection,
-  RTCRtpCodecParameters,
   Vp9RtpPayload,
+  useVP9,
 } from "../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
@@ -13,24 +13,13 @@ console.log("start");
     console.log("new peer");
     const pc = new RTCPeerConnection({
       codecs: {
-        video: [
-          new RTCRtpCodecParameters({
-            mimeType: "video/VP9",
-            clockRate: 90000,
-            rtcpFeedback: [
-              { type: "ccm", parameter: "fir" },
-              { type: "nack" },
-              { type: "nack", parameter: "pli" },
-              { type: "goog-remb" },
-            ],
-          }),
-        ],
+        video: [useVP9()],
       },
     });
 
     pc.ontrack = ({ track, transceiver }) => {
       setInterval(() => {
-        // transceiver.receiver.sendRtcpPLI(track.ssrc);
+        transceiver.receiver.sendRtcpPLI(track.ssrc);
       }, 3000);
 
       track.onReceiveRtp.subscribe(async (rtp) => {

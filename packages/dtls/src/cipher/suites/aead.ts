@@ -1,8 +1,8 @@
 import * as crypto from "crypto";
-import debug from "debug";
 
 import { createDecode, encode, types } from "@shinyoshiaki/binary-data";
 import { dumpBuffer, getObjectSummary } from "../../helper";
+import { debug } from "../../imports/common";
 import { prfEncryptionKeys } from "../prf";
 import Cipher, {
   type CipherHeader,

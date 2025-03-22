@@ -1,56 +1,26 @@
-[werift](../README.md) / [Exports](../modules.md) / MediaDescription
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / MediaDescription
 
 # Class: MediaDescription
 
-## Table of contents
-
-### Constructors
-
-- [constructor](MediaDescription.md#constructor)
-
-### Properties
-
-- [direction](MediaDescription.md#direction)
-- [dtlsParams](MediaDescription.md#dtlsparams)
-- [fmt](MediaDescription.md#fmt)
-- [host](MediaDescription.md#host)
-- [iceCandidates](MediaDescription.md#icecandidates)
-- [iceCandidatesComplete](MediaDescription.md#icecandidatescomplete)
-- [iceOptions](MediaDescription.md#iceoptions)
-- [iceParams](MediaDescription.md#iceparams)
-- [kind](MediaDescription.md#kind)
-- [msid](MediaDescription.md#msid)
-- [port](MediaDescription.md#port)
-- [profile](MediaDescription.md#profile)
-- [rtcpHost](MediaDescription.md#rtcphost)
-- [rtcpMux](MediaDescription.md#rtcpmux)
-- [rtcpPort](MediaDescription.md#rtcpport)
-- [rtp](MediaDescription.md#rtp)
-- [sctpCapabilities](MediaDescription.md#sctpcapabilities)
-- [sctpMap](MediaDescription.md#sctpmap)
-- [sctpPort](MediaDescription.md#sctpport)
-- [simulcastParameters](MediaDescription.md#simulcastparameters)
-- [ssrc](MediaDescription.md#ssrc)
-- [ssrcGroup](MediaDescription.md#ssrcgroup)
-
-### Methods
-
-- [toString](MediaDescription.md#tostring)
-
 ## Constructors
 
-### constructor
+### new MediaDescription()
 
-• **new MediaDescription**(`kind`, `port`, `profile`, `fmt`): [`MediaDescription`](MediaDescription.md)
+> **new MediaDescription**(`kind`, `port`, `profile`, `fmt`): [`MediaDescription`](MediaDescription.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `kind` | [`Kind`](../modules.md#kind) |
-| `port` | `number` |
-| `profile` | `string` |
-| `fmt` | `number`[] \| `string`[] |
+• **kind**: [`Kind`](../type-aliases/Kind.md)
+
+• **port**: `number`
+
+• **profile**: `string`
+
+• **fmt**: `number`[] \| `string`[]
 
 #### Returns
 
@@ -58,145 +28,145 @@
 
 ## Properties
 
-### direction
+### direction?
 
-• `Optional` **direction**: ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"``
+> `optional` **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
-___
+***
 
-### dtlsParams
+### dtlsParams?
 
-• `Optional` **dtlsParams**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
+> `optional` **dtlsParams**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
-___
+***
 
 ### fmt
 
-• **fmt**: `number`[] \| `string`[]
+> **fmt**: `number`[] \| `string`[]
 
-___
+***
 
-### host
+### host?
 
-• `Optional` **host**: `string`
+> `optional` **host**: `string`
 
-___
+***
 
 ### iceCandidates
 
-• **iceCandidates**: [`IceCandidate`](IceCandidate.md)[] = `[]`
+> **iceCandidates**: [`IceCandidate`](IceCandidate.md)[] = `[]`
 
-___
+***
 
 ### iceCandidatesComplete
 
-• **iceCandidatesComplete**: `boolean` = `false`
+> **iceCandidatesComplete**: `boolean` = `false`
 
-___
+***
 
-### iceOptions
+### iceOptions?
 
-• `Optional` **iceOptions**: `string`
+> `optional` **iceOptions**: `string`
 
-___
+***
 
-### iceParams
+### iceParams?
 
-• `Optional` **iceParams**: [`RTCIceParameters`](RTCIceParameters.md)
+> `optional` **iceParams**: [`RTCIceParameters`](RTCIceParameters.md)
 
-___
+***
 
 ### kind
 
-• **kind**: [`Kind`](../modules.md#kind)
+> **kind**: [`Kind`](../type-aliases/Kind.md)
 
-___
+***
 
-### msid
+### msid?
 
-• `Optional` **msid**: `string`
+> `optional` **msid**: `string`
 
-___
+***
 
 ### port
 
-• **port**: `number`
+> **port**: `number`
 
-___
+***
 
 ### profile
 
-• **profile**: `string`
+> **profile**: `string`
 
-___
+***
 
-### rtcpHost
+### rtcpHost?
 
-• `Optional` **rtcpHost**: `string`
+> `optional` **rtcpHost**: `string`
 
-___
+***
 
 ### rtcpMux
 
-• **rtcpMux**: `boolean` = `false`
+> **rtcpMux**: `boolean` = `false`
 
-___
+***
 
-### rtcpPort
+### rtcpPort?
 
-• `Optional` **rtcpPort**: `number`
+> `optional` **rtcpPort**: `number`
 
-___
+***
 
 ### rtp
 
-• **rtp**: [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
+> **rtp**: [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
 
-___
+***
 
-### sctpCapabilities
+### sctpCapabilities?
 
-• `Optional` **sctpCapabilities**: [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+> `optional` **sctpCapabilities**: [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
-___
+***
 
 ### sctpMap
 
-• **sctpMap**: `Object` = `{}`
+> **sctpMap**: `object` = `{}`
 
-#### Index signature
+#### Index Signature
 
-▪ [key: `number`]: `string`
+ \[`key`: `number`\]: `string`
 
-___
+***
 
-### sctpPort
+### sctpPort?
 
-• `Optional` **sctpPort**: `number`
+> `optional` **sctpPort**: `number`
 
-___
+***
 
 ### simulcastParameters
 
-• **simulcastParameters**: [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)[] = `[]`
+> **simulcastParameters**: [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)[] = `[]`
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: [`SsrcDescription`](SsrcDescription.md)[] = `[]`
+> **ssrc**: [`SsrcDescription`](SsrcDescription.md)[] = `[]`
 
-___
+***
 
 ### ssrcGroup
 
-• **ssrcGroup**: [`GroupDescription`](GroupDescription.md)[] = `[]`
+> **ssrcGroup**: [`GroupDescription`](GroupDescription.md)[] = `[]`
 
 ## Methods
 
-### toString
+### toString()
 
-▸ **toString**(): `string`
+> **toString**(): `string`
 
 #### Returns
 

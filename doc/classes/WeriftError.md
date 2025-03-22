@@ -1,46 +1,24 @@
-[werift](../README.md) / [Exports](../modules.md) / WeriftError
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / WeriftError
 
 # Class: WeriftError
 
-## Hierarchy
+## Extends
 
 - `Error`
 
-  ↳ **`WeriftError`**
-
-## Table of contents
-
-### Constructors
-
-- [constructor](WeriftError.md#constructor)
-
-### Properties
-
-- [cause](WeriftError.md#cause)
-- [message](WeriftError.md#message)
-- [name](WeriftError.md#name)
-- [path](WeriftError.md#path)
-- [payload](WeriftError.md#payload)
-- [stack](WeriftError.md#stack)
-- [prepareStackTrace](WeriftError.md#preparestacktrace)
-- [stackTraceLimit](WeriftError.md#stacktracelimit)
-
-### Methods
-
-- [toJSON](WeriftError.md#tojson)
-- [captureStackTrace](WeriftError.md#capturestacktrace)
-
 ## Constructors
 
-### constructor
+### new WeriftError()
 
-• **new WeriftError**(`props`): [`WeriftError`](WeriftError.md)
+> **new WeriftError**(`props`): [`WeriftError`](WeriftError.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Pick`\<[`WeriftError`](WeriftError.md), ``"message"`` \| ``"payload"`` \| ``"path"``\> |
+• **props**: `Pick`\<[`WeriftError`](WeriftError.md), `"message"` \| `"payload"` \| `"path"`\>
 
 #### Returns
 
@@ -48,137 +26,131 @@
 
 #### Overrides
 
-Error.constructor
+`Error.constructor`
 
 ## Properties
 
-### cause
+### cause?
 
-• `Optional` **cause**: `unknown`
+> `optional` **cause**: `unknown`
 
 #### Inherited from
 
-Error.cause
+`Error.cause`
 
-___
+***
 
 ### message
 
-• **message**: `string`
+> **message**: `string`
 
 #### Overrides
 
-Error.message
+`Error.message`
 
-___
+***
 
 ### name
 
-• **name**: `string`
+> **name**: `string`
 
 #### Inherited from
 
-Error.name
+`Error.name`
 
-___
+***
 
-### path
+### path?
 
-• `Optional` **path**: `string`
+> `optional` **path**: `string`
 
-___
+***
 
-### payload
+### payload?
 
-• `Optional` **payload**: `object`
+> `optional` **payload**: `object`
 
-___
+***
 
-### stack
+### stack?
 
-• `Optional` **stack**: `string`
+> `optional` **stack**: `string`
 
 #### Inherited from
 
-Error.stack
+`Error.stack`
 
-___
+***
 
-### prepareStackTrace
+### prepareStackTrace()?
 
-▪ `Static` `Optional` **prepareStackTrace**: (`err`: `Error`, `stackTraces`: `CallSite`[]) => `any`
+> `static` `optional` **prepareStackTrace**: (`err`, `stackTraces`) => `any`
 
 Optional override for formatting stack traces
 
-**`See`**
+#### Parameters
 
-https://v8.dev/docs/stack-trace-api#customizing-stack-traces
+• **err**: `Error`
 
-#### Type declaration
-
-▸ (`err`, `stackTraces`): `any`
-
-Optional override for formatting stack traces
-
-##### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `err` | `Error` |
-| `stackTraces` | `CallSite`[] |
-
-##### Returns
-
-`any`
-
-**`See`**
-
-https://v8.dev/docs/stack-trace-api#customizing-stack-traces
-
-#### Inherited from
-
-Error.prepareStackTrace
-
-___
-
-### stackTraceLimit
-
-▪ `Static` **stackTraceLimit**: `number`
-
-#### Inherited from
-
-Error.stackTraceLimit
-
-## Methods
-
-### toJSON
-
-▸ **toJSON**(): `Object`
+• **stackTraces**: `CallSite`[]
 
 #### Returns
 
-`Object`
+`any`
 
-| Name | Type |
-| :------ | :------ |
-| `message` | `string` |
-| `path` | `undefined` \| `string` |
-| `payload` | `any` |
+#### See
 
-___
+https://v8.dev/docs/stack-trace-api#customizing-stack-traces
 
-### captureStackTrace
+#### Inherited from
 
-▸ **captureStackTrace**(`targetObject`, `constructorOpt?`): `void`
+`Error.prepareStackTrace`
+
+***
+
+### stackTraceLimit
+
+> `static` **stackTraceLimit**: `number`
+
+#### Inherited from
+
+`Error.stackTraceLimit`
+
+## Methods
+
+### toJSON()
+
+> **toJSON**(): `object`
+
+#### Returns
+
+`object`
+
+##### message
+
+> **message**: `string`
+
+##### path
+
+> **path**: `undefined` \| `string`
+
+##### payload
+
+> **payload**: `any`
+
+***
+
+### captureStackTrace()
+
+> `static` **captureStackTrace**(`targetObject`, `constructorOpt`?): `void`
 
 Create .stack property on a target object
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `targetObject` | `object` |
-| `constructorOpt?` | `Function` |
+• **targetObject**: `object`
+
+• **constructorOpt?**: `Function`
 
 #### Returns
 
@@ -186,4 +158,4 @@ Create .stack property on a target object
 
 #### Inherited from
 
-Error.captureStackTrace
+`Error.captureStackTrace`

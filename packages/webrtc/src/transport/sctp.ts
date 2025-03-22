@@ -1,7 +1,7 @@
 import { jspack } from "@shinyoshiaki/jspack";
-import debug from "debug";
-import { Event } from "rx.mini";
+
 import * as uuid from "uuid";
+import { Event, debug } from "../imports/common";
 
 import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
 import {
@@ -310,6 +310,7 @@ export class RTCSctpTransport {
         channel.addBufferedAmount(-userData.length);
       }
     }
+    // Resetting the queue to empty array mitigates this.
     this.dataChannelQueue = [];
   }
 

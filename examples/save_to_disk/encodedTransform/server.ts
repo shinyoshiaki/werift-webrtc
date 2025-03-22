@@ -1,8 +1,5 @@
 import { appendFile, open } from "fs/promises";
-import {
-  type ReadableStreamDefaultReadResult,
-  TransformStream,
-} from "stream/web";
+import { type ReadableStreamReadResult, TransformStream } from "stream/web";
 import { Server } from "ws";
 import { RTCPeerConnection, RtpPacket } from "../../../packages/webrtc/src";
 import {
@@ -79,7 +76,7 @@ const reader = webm.webmStream.getReader();
 const readChunk = async ({
   value,
   done,
-}: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
+}: ReadableStreamReadResult<WebmStreamOutput>) => {
   if (done) return;
   if (value.saveToFile) {
     await appendFile(path, value.saveToFile);

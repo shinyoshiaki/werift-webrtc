@@ -1,4 +1,8 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / OpusRtpPayload
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / OpusRtpPayload
 
 # Class: OpusRtpPayload
 
@@ -6,31 +10,11 @@
 
 - [`DePacketizerBase`](DePacketizerBase.md)
 
-## Table of contents
-
-### Constructors
-
-- [constructor](OpusRtpPayload.md#constructor)
-
-### Properties
-
-- [payload](OpusRtpPayload.md#payload)
-
-### Accessors
-
-- [isKeyframe](OpusRtpPayload.md#iskeyframe)
-
-### Methods
-
-- [createCodecPrivate](OpusRtpPayload.md#createcodecprivate)
-- [deSerialize](OpusRtpPayload.md#deserialize)
-- [isDetectedFinalPacketInSequence](OpusRtpPayload.md#isdetectedfinalpacketinsequence)
-
 ## Constructors
 
-### constructor
+### new OpusRtpPayload()
 
-• **new OpusRtpPayload**(): [`OpusRtpPayload`](OpusRtpPayload.md)
+> **new OpusRtpPayload**(): [`OpusRtpPayload`](OpusRtpPayload.md)
 
 #### Returns
 
@@ -40,17 +24,17 @@
 
 ### payload
 
-• **payload**: `Buffer`
+> **payload**: `Buffer`
 
 #### Implementation of
 
-[DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
+[`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
 
 ## Accessors
 
 ### isKeyframe
 
-• `get` **isKeyframe**(): `boolean`
+> `get` **isKeyframe**(): `boolean`
 
 #### Returns
 
@@ -58,51 +42,45 @@
 
 #### Implementation of
 
-DePacketizerBase.isKeyframe
+[`DePacketizerBase`](DePacketizerBase.md).[`isKeyframe`](DePacketizerBase.md#iskeyframe)
 
 ## Methods
 
-### createCodecPrivate
+### createCodecPrivate()
 
-▸ **createCodecPrivate**(`samplingFrequency?`): `Buffer`
+> `static` **createCodecPrivate**(`samplingFrequency`): `Buffer`
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `samplingFrequency` | `number` | `48000` |
+• **samplingFrequency**: `number` = `48000`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`): [`OpusRtpPayload`](OpusRtpPayload.md)
+> `static` **deSerialize**(`buf`): [`OpusRtpPayload`](OpusRtpPayload.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 
 [`OpusRtpPayload`](OpusRtpPayload.md)
 
-___
+***
 
-### isDetectedFinalPacketInSequence
+### isDetectedFinalPacketInSequence()
 
-▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
+> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

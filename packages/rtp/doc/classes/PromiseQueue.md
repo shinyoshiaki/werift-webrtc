@@ -1,28 +1,16 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / PromiseQueue
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / PromiseQueue
 
 # Class: PromiseQueue
 
-## Table of contents
-
-### Constructors
-
-- [constructor](PromiseQueue.md#constructor)
-
-### Properties
-
-- [queue](PromiseQueue.md#queue)
-- [running](PromiseQueue.md#running)
-
-### Methods
-
-- [cancel](PromiseQueue.md#cancel)
-- [push](PromiseQueue.md#push)
-
 ## Constructors
 
-### constructor
+### new PromiseQueue()
 
-• **new PromiseQueue**(): [`PromiseQueue`](PromiseQueue.md)
+> **new PromiseQueue**(): [`PromiseQueue`](PromiseQueue.md)
 
 #### Returns
 
@@ -32,41 +20,37 @@
 
 ### queue
 
-• **queue**: \{ `done`: (...`args`: `any`[]) => `void` ; `failed`: (...`args`: `any`[]) => `void` ; `promise`: () => `Promise`\<`unknown`\>  }[] = `[]`
+> **queue**: `object`[] = `[]`
 
-___
+***
 
 ### running
 
-• **running**: `boolean` = `false`
+> **running**: `boolean` = `false`
 
 ## Methods
 
-### cancel
+### cancel()
 
-▸ **cancel**(): `void`
+> **cancel**(): `void`
 
 #### Returns
 
 `void`
 
-___
+***
 
-### push
+### push()
 
-▸ **push**\<`T`\>(`promise`): `Promise`\<`T`\>
+> **push**\<`T`\>(`promise`): `Promise`\<`T`\>
 
-#### Type parameters
+#### Type Parameters
 
-| Name |
-| :------ |
-| `T` |
+• **T**
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `promise` | () => `Promise`\<`T`\> |
+• **promise**
 
 #### Returns
 

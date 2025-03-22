@@ -1,4 +1,6 @@
-werift-rtp / [Exports](modules.md)
+**werift-rtp** • [**Docs**](globals.md)
+
+***
 
 # werift-rtp
 

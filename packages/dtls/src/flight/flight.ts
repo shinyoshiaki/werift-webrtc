@@ -1,8 +1,8 @@
-import debug from "debug";
 import { setTimeout } from "timers/promises";
 
 import type { DtlsContext } from "../context/dtls";
 import type { TransportContext } from "../context/transport";
+import { debug } from "../imports/common";
 import { createFragments, createPlaintext } from "../record/builder";
 import { ContentType } from "../record/const";
 import type { Handshake } from "../typings/domain";

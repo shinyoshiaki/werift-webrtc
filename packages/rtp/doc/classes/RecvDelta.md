@@ -1,37 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RecvDelta
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RecvDelta
 
 # Class: RecvDelta
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RecvDelta.md#constructor)
-
-### Properties
-
-- [delta](RecvDelta.md#delta)
-- [parsed](RecvDelta.md#parsed)
-- [type](RecvDelta.md#type)
-
-### Methods
-
-- [deSerialize](RecvDelta.md#deserialize)
-- [parseDelta](RecvDelta.md#parsedelta)
-- [serialize](RecvDelta.md#serialize)
-- [deSerialize](RecvDelta.md#deserialize-1)
-
 ## Constructors
 
-### constructor
+### new RecvDelta()
 
-• **new RecvDelta**(`props?`): [`RecvDelta`](RecvDelta.md)
+> **new RecvDelta**(`props`): [`RecvDelta`](RecvDelta.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RecvDelta`](RecvDelta.md)\> |
+• **props**: `Partial`\<[`RecvDelta`](RecvDelta.md)\> = `{}`
 
 #### Returns
 
@@ -41,71 +24,67 @@
 
 ### delta
 
-• **delta**: `number`
+> **delta**: `number`
 
 micro sec
 
-___
+***
 
 ### parsed
 
-• **parsed**: `boolean` = `false`
+> **parsed**: `boolean` = `false`
 
-___
+***
 
-### type
+### type?
 
-• `Optional` **type**: [`TypeTCCPacketReceivedSmallDelta`](../enums/PacketStatus.md#typetccpacketreceivedsmalldelta) \| [`TypeTCCPacketReceivedLargeDelta`](../enums/PacketStatus.md#typetccpacketreceivedlargedelta)
+> `optional` **type**: [`TypeTCCPacketReceivedSmallDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedsmalldelta) \| [`TypeTCCPacketReceivedLargeDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedlargedelta)
 
 optional (If undefined, it will be set automatically.)
 
 ## Methods
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): `void`
+> **deSerialize**(`data`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 
 `void`
 
-___
+***
 
-### parseDelta
+### parseDelta()
 
-▸ **parseDelta**(): `void`
+> **parseDelta**(): `void`
 
 #### Returns
 
 `void`
 
-___
+***
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`RecvDelta`](RecvDelta.md)
+> `static` **deSerialize**(`data`): [`RecvDelta`](RecvDelta.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

@@ -1,37 +1,24 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCCertificate
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCCertificate
 
 # Class: RTCCertificate
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCCertificate.md#constructor)
-
-### Properties
-
-- [certPem](RTCCertificate.md#certpem)
-- [privateKey](RTCCertificate.md#privatekey)
-- [publicKey](RTCCertificate.md#publickey)
-- [signatureHash](RTCCertificate.md#signaturehash)
-
-### Methods
-
-- [getFingerprints](RTCCertificate.md#getfingerprints)
-
 ## Constructors
 
-### constructor
+### new RTCCertificate()
 
-• **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`): [`RTCCertificate`](RTCCertificate.md)
+> **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`): [`RTCCertificate`](RTCCertificate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `privateKeyPem` | `string` |
-| `certPem` | `string` |
-| `signatureHash` | [`SignatureHash`](../modules.md#signaturehash) |
+• **privateKeyPem**: `string`
+
+• **certPem**: `string`
+
+• **signatureHash**: [`SignatureHash`](../type-aliases/SignatureHash.md)
 
 #### Returns
 
@@ -41,31 +28,31 @@
 
 ### certPem
 
-• **certPem**: `string`
+> **certPem**: `string`
 
-___
+***
 
 ### privateKey
 
-• **privateKey**: `string`
+> **privateKey**: `string`
 
-___
+***
 
 ### publicKey
 
-• **publicKey**: `string`
+> **publicKey**: `string`
 
-___
+***
 
 ### signatureHash
 
-• **signatureHash**: [`SignatureHash`](../modules.md#signaturehash)
+> **signatureHash**: [`SignatureHash`](../type-aliases/SignatureHash.md)
 
 ## Methods
 
-### getFingerprints
+### getFingerprints()
 
-▸ **getFingerprints**(): [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[]
+> **getFingerprints**(): [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[]
 
 #### Returns
 

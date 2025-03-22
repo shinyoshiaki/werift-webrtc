@@ -1,28 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCSctpCapabilities
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCSctpCapabilities
 
 # Class: RTCSctpCapabilities
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCSctpCapabilities.md#constructor)
-
-### Properties
-
-- [maxMessageSize](RTCSctpCapabilities.md#maxmessagesize)
-
 ## Constructors
 
-### constructor
+### new RTCSctpCapabilities()
 
-• **new RTCSctpCapabilities**(`maxMessageSize`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+> **new RTCSctpCapabilities**(`maxMessageSize`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `maxMessageSize` | `number` |
+• **maxMessageSize**: `number`
 
 #### Returns
 
@@ -32,4 +24,4 @@
 
 ### maxMessageSize
 
-• **maxMessageSize**: `number`
+> **maxMessageSize**: `number`

@@ -1,36 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RtcpRrPacket
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RtcpRrPacket
 
 # Class: RtcpRrPacket
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpRrPacket.md#constructor)
-
-### Properties
-
-- [reports](RtcpRrPacket.md#reports)
-- [ssrc](RtcpRrPacket.md#ssrc)
-- [type](RtcpRrPacket.md#type)
-- [type](RtcpRrPacket.md#type-1)
-
-### Methods
-
-- [serialize](RtcpRrPacket.md#serialize)
-- [deSerialize](RtcpRrPacket.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpRrPacket()
 
-• **new RtcpRrPacket**(`props?`): [`RtcpRrPacket`](RtcpRrPacket.md)
+> **new RtcpRrPacket**(`props`): [`RtcpRrPacket`](RtcpRrPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RtcpRrPacket`](RtcpRrPacket.md)\> |
+• **props**: `Partial`\<[`RtcpRrPacket`](RtcpRrPacket.md)\> = `{}`
 
 #### Returns
 
@@ -40,48 +24,47 @@
 
 ### reports
 
-• **reports**: [`RtcpReceiverInfo`](RtcpReceiverInfo.md)[] = `[]`
+> **reports**: [`RtcpReceiverInfo`](RtcpReceiverInfo.md)[] = `[]`
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: `number` = `0`
+> **ssrc**: `number` = `0`
 
-___
-
-### type
-
-• `Readonly` **type**: ``201``
-
-___
+***
 
 ### type
 
-▪ `Static` `Readonly` **type**: ``201``
+> `readonly` **type**: `201` = `RtcpRrPacket.type`
+
+***
+
+### type
+
+> `readonly` `static` **type**: `201` = `201`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`, `count`): [`RtcpRrPacket`](RtcpRrPacket.md)
+> `static` **deSerialize**(`data`, `count`): [`RtcpRrPacket`](RtcpRrPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `count` | `number` |
+• **data**: `Buffer`
+
+• **count**: `number`
 
 #### Returns
 

@@ -19,6 +19,10 @@ describe("trickle", () => {
         });
 
         pcOffer.onIceCandidate.subscribe((candidate) => {
+          if (!candidate) {
+            expect(pcOffer._localDescription?.media.length).toBe(1);
+            return;
+          }
           pcAnswer.addIceCandidate(candidate);
         });
 
@@ -30,7 +34,9 @@ describe("trickle", () => {
         });
 
         const offer = await pcOffer.createOffer();
-        pcOffer.setLocalDescription(offer);
+        pcOffer.setLocalDescription(offer).then(() => {
+          expect(pcOffer._localDescription?.media.length).toBe(1);
+        });
 
         await pcAnswer.setRemoteDescription(offer);
         await pcAnswer.setLocalDescription(await pcAnswer.createAnswer());
@@ -58,9 +64,15 @@ describe("trickle", () => {
         });
 
         pcOffer.onIceCandidate.subscribe((candidate) => {
+          if (!candidate) {
+            return;
+          }
           pcAnswer.addIceCandidate(candidate);
         });
         pcAnswer.onIceCandidate.subscribe((candidate) => {
+          if (!candidate) {
+            return;
+          }
           pcOffer.addIceCandidate(candidate);
         });
 

@@ -1,8 +1,8 @@
-import { Int64BE } from "int64-buffer";
-import * as nodeIp from "ip";
-import range from "lodash/range";
+import * as Int64 from "int64-buffer";
+import nodeIp from "ip";
+import range from "lodash/range.js";
 
-import type { Address } from "../types/model";
+import type { Address } from "../imports/common";
 import {
   type AttributeKeys,
   COOKIE,
@@ -101,10 +101,10 @@ const packUnsignedShort = (value: number) => {
 const unpackUnsignedShort = (data: Buffer) => data.readUInt16BE(0);
 
 const packUnsigned64 = (value: bigint) => {
-  return new Int64BE(value.toString()).toBuffer();
+  return new Int64.Int64BE(value.toString()).toBuffer();
 };
 const unpackUnsigned64 = (data: Buffer) => {
-  const int = new Int64BE(data);
+  const int = new Int64.Int64BE(data);
   return BigInt(int.toString());
 };
 

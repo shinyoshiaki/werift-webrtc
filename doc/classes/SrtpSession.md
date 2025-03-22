@@ -1,43 +1,24 @@
-[werift](../README.md) / [Exports](../modules.md) / SrtpSession
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / SrtpSession
 
 # Class: SrtpSession
 
-## Hierarchy
+## Extends
 
 - `Session`\<`SrtpContext`\>
 
-  ↳ **`SrtpSession`**
-
-## Table of contents
-
-### Constructors
-
-- [constructor](SrtpSession.md#constructor)
-
-### Properties
-
-- [config](SrtpSession.md#config)
-- [localContext](SrtpSession.md#localcontext)
-- [onData](SrtpSession.md#ondata)
-- [remoteContext](SrtpSession.md#remotecontext)
-
-### Methods
-
-- [decrypt](SrtpSession.md#decrypt)
-- [encrypt](SrtpSession.md#encrypt)
-- [start](SrtpSession.md#start)
-
 ## Constructors
 
-### constructor
+### new SrtpSession()
 
-• **new SrtpSession**(`config`): [`SrtpSession`](SrtpSession.md)
+> **new SrtpSession**(`config`): [`SrtpSession`](SrtpSession.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `config` | `Config` |
+• **config**: `Config`
 
 #### Returns
 
@@ -45,106 +26,99 @@
 
 #### Overrides
 
-Session\&lt;SrtpContext\&gt;.constructor
+`Session<SrtpContext>.constructor`
 
 ## Properties
 
 ### config
 
-• **config**: `Config`
+> **config**: `Config`
 
-___
+***
 
 ### localContext
 
-• **localContext**: `SrtpContext`
+> **localContext**: `SrtpContext`
 
 #### Inherited from
 
-Session.localContext
+`Session.localContext`
 
-___
+***
 
-### onData
+### onData()?
 
-• `Optional` **onData**: (`buf`: `Buffer`) => `void`
+> `optional` **onData**: (`buf`) => `void`
 
-#### Type declaration
+#### Parameters
 
-▸ (`buf`): `void`
+• **buf**: `Buffer`
 
-##### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
-
-##### Returns
+#### Returns
 
 `void`
 
 #### Inherited from
 
-Session.onData
+`Session.onData`
 
-___
+***
 
 ### remoteContext
 
-• **remoteContext**: `SrtpContext`
+> **remoteContext**: `SrtpContext`
 
 #### Inherited from
 
-Session.remoteContext
+`Session.remoteContext`
 
 ## Methods
 
-### decrypt
+### decrypt()
 
-▸ **decrypt**(`buf`): `Buffer`
+> **decrypt**(`buf`): `Buffer`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### encrypt
+### encrypt()
 
-▸ **encrypt**(`payload`, `header`): `Buffer`
+> **encrypt**(`payload`, `header`): `Buffer`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `payload` | `Buffer` |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **payload**: `Buffer`
+
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### start
+### start()
 
-▸ **start**(`localMasterKey`, `localMasterSalt`, `remoteMasterKey`, `remoteMasterSalt`, `profile`): `void`
+> **start**(`localMasterKey`, `localMasterSalt`, `remoteMasterKey`, `remoteMasterSalt`, `profile`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `localMasterKey` | `Buffer` |
-| `localMasterSalt` | `Buffer` |
-| `remoteMasterKey` | `Buffer` |
-| `remoteMasterSalt` | `Buffer` |
-| `profile` | `number` |
+• **localMasterKey**: `Buffer`
+
+• **localMasterSalt**: `Buffer`
+
+• **remoteMasterKey**: `Buffer`
+
+• **remoteMasterSalt**: `Buffer`
+
+• **profile**: `number`
 
 #### Returns
 
@@ -152,4 +126,4 @@ ___
 
 #### Inherited from
 
-Session.start
+`Session.start`

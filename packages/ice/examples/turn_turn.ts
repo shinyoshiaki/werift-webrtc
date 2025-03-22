@@ -1,45 +1,40 @@
-import { validateAddress } from "../src/ice";
-import { createTurnEndpoint } from "../src/turn/protocol";
+import { createTurnClient } from "../src/turn/protocol";
 import type { Address } from "../src/types/model";
+import { url2Address } from "../src/utils";
 
-const url2Address = (url?: string) => {
-  if (!url) return;
-  const [address, port] = url.split(":");
-  return [address, Number.parseInt(port)] as Address;
-};
-const address: Address = url2Address("turn.werift.com:443")!;
-const username = "";
-const password = "";
+const address: Address = url2Address("127.0.0.1:3478")!;
+const username = "username";
+const password = "password";
 
 (async () => {
-  console.log("address", validateAddress(address)!);
-  const turn1 = await createTurnEndpoint(
-    validateAddress(address)!,
-    username,
-    password,
-    {},
+  const receiver = await createTurnClient(
+    { address, username, password },
+    { transport: "udp" },
   );
 
-  const turn2 = await createTurnEndpoint(address, username, password, {});
-  await turn2.turn.getChannel(turn1.turn.relayedAddress);
+  const sender = await createTurnClient(
+    { address, username, password },
+    { transport: "udp" },
+  );
 
-  await turn1.turn.getChannel(turn2.turn.relayedAddress);
+  await sender.getChannel(receiver.relayedAddress).catch((e) => e);
+  await receiver.getChannel(sender.relayedAddress).catch((e) => e);
 
-  turn1.turn.onData.subscribe((data, addr) => {
-    console.log("turn1 onData", data.toString(), addr);
-    turn1.sendData(
+  receiver.onData.subscribe((data, addr) => {
+    console.log("receiver onData", data.toString(), addr);
+    receiver.sendData(
       Buffer.from("pong " + new Date().toISOString()),
-      turn2.turn.relayedAddress,
+      sender.relayedAddress,
     );
   });
-  turn2.turn.onData.subscribe((data, addr) => {
-    console.log("turn2 onData", data.toString(), addr);
+  sender.onData.subscribe((data, addr) => {
+    console.log("sender onData", data.toString(), addr);
   });
 
-  setInterval(() => {
-    turn2.sendData(
+  setInterval(async () => {
+    await sender.sendData(
       Buffer.from("ping " + new Date().toISOString()),
-      turn1.turn.relayedAddress,
+      receiver.relayedAddress,
     );
-  }, 3000);
+  }, 2000);
 })();

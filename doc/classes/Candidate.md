@@ -1,54 +1,42 @@
-[werift](../README.md) / [Exports](../modules.md) / Candidate
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / Candidate
 
 # Class: Candidate
 
-## Table of contents
-
-### Constructors
-
-- [constructor](Candidate.md#constructor)
-
-### Properties
-
-- [component](Candidate.md#component)
-- [foundation](Candidate.md#foundation)
-- [generation](Candidate.md#generation)
-- [host](Candidate.md#host)
-- [port](Candidate.md#port)
-- [priority](Candidate.md#priority)
-- [relatedAddress](Candidate.md#relatedaddress)
-- [relatedPort](Candidate.md#relatedport)
-- [tcptype](Candidate.md#tcptype)
-- [transport](Candidate.md#transport)
-- [type](Candidate.md#type)
-
-### Methods
-
-- [canPairWith](Candidate.md#canpairwith)
-- [toSdp](Candidate.md#tosdp)
-- [fromSdp](Candidate.md#fromsdp)
-
 ## Constructors
 
-### constructor
+### new Candidate()
 
-• **new Candidate**(`foundation`, `component`, `transport`, `priority`, `host`, `port`, `type`, `relatedAddress?`, `relatedPort?`, `tcptype?`, `generation?`): [`Candidate`](Candidate.md)
+> **new Candidate**(`foundation`, `component`, `transport`, `priority`, `host`, `port`, `type`, `relatedAddress`?, `relatedPort`?, `tcptype`?, `generation`?, `ufrag`?): [`Candidate`](Candidate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `foundation` | `string` |
-| `component` | `number` |
-| `transport` | `string` |
-| `priority` | `number` |
-| `host` | `string` |
-| `port` | `number` |
-| `type` | `string` |
-| `relatedAddress?` | `string` |
-| `relatedPort?` | `number` |
-| `tcptype?` | `string` |
-| `generation?` | `number` |
+• **foundation**: `string`
+
+• **component**: `number`
+
+• **transport**: `string`
+
+• **priority**: `number`
+
+• **host**: `string`
+
+• **port**: `number`
+
+• **type**: `string`
+
+• **relatedAddress?**: `string`
+
+• **relatedPort?**: `number`
+
+• **tcptype?**: `string`
+
+• **generation?**: `number`
+
+• **ufrag?**: `string`
 
 #### Returns
 
@@ -58,105 +46,107 @@
 
 ### component
 
-• **component**: `number`
+> **component**: `number`
 
-___
+***
 
 ### foundation
 
-• **foundation**: `string`
+> **foundation**: `string`
 
-___
+***
 
-### generation
+### generation?
 
-• `Optional` **generation**: `number`
+> `optional` **generation**: `number`
 
-___
+***
 
 ### host
 
-• **host**: `string`
+> **host**: `string`
 
-___
+***
 
 ### port
 
-• **port**: `number`
+> **port**: `number`
 
-___
+***
 
 ### priority
 
-• **priority**: `number`
+> **priority**: `number`
 
-___
+***
 
-### relatedAddress
+### relatedAddress?
 
-• `Optional` **relatedAddress**: `string`
+> `optional` **relatedAddress**: `string`
 
-___
+***
 
-### relatedPort
+### relatedPort?
 
-• `Optional` **relatedPort**: `number`
+> `optional` **relatedPort**: `number`
 
-___
+***
 
-### tcptype
+### tcptype?
 
-• `Optional` **tcptype**: `string`
+> `optional` **tcptype**: `string`
 
-___
+***
 
 ### transport
 
-• **transport**: `string`
+> **transport**: `string`
 
-___
+***
 
 ### type
 
-• **type**: `string`
+> **type**: `string`
+
+***
+
+### ufrag?
+
+> `optional` **ufrag**: `string`
 
 ## Methods
 
-### canPairWith
+### canPairWith()
 
-▸ **canPairWith**(`other`): `boolean`
+> **canPairWith**(`other`): `boolean`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `other` | [`Candidate`](Candidate.md) |
+• **other**: [`Candidate`](Candidate.md)
 
 #### Returns
 
 `boolean`
 
-___
+***
 
-### toSdp
+### toSdp()
 
-▸ **toSdp**(): `string`
+> **toSdp**(): `string`
 
 #### Returns
 
 `string`
 
-___
+***
 
-### fromSdp
+### fromSdp()
 
-▸ **fromSdp**(`sdp`): [`Candidate`](Candidate.md)
+> `static` **fromSdp**(`sdp`): [`Candidate`](Candidate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `sdp` | `string` |
+• **sdp**: `string`
 
 #### Returns
 

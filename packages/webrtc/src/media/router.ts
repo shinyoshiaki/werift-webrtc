@@ -1,6 +1,5 @@
-import debug from "debug";
-
 import {
+  type Extensions,
   RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
   type RtcpPacket,
@@ -10,8 +9,9 @@ import {
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
   type RtpPacket,
+  debug,
   rtpHeaderExtensionsParser,
-} from "../../../rtp/src";
+} from "../imports/rtp";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -22,8 +22,6 @@ import type { RTCRtpTransceiver } from "./rtpTransceiver";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
-
-export type Extensions = { [uri: string]: number | string };
 
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
@@ -92,7 +90,7 @@ export class RtpRouter {
   }
 
   routeRtp = (packet: RtpPacket) => {
-    const extensions = rtpHeaderExtensionsParser(
+    const extensions: Extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
       this.extIdUriMap,
     );
@@ -183,7 +181,10 @@ export class RtpRouter {
               }
               break;
             default:
-              recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
+              recipients.push(
+                this.ssrcTable[psfb.feedback.senderSsrc] ||
+                  this.ssrcTable[psfb.feedback.mediaSsrc],
+              );
           }
         }
         break;

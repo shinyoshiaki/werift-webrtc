@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Offer</title>
+  <script crossorigin src="https://unpkg.com/react@16/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+</head>
+
+<body>
+  <div class="main">
+    <div class="section" id="app1"></div>
+  </div>
+  <script type="text/babel">
+    let rtc;
+    const App = () => {
+      const videoRef = React.useRef();
+      const videoRef2 = React.useRef();
+      const videoRef3 = React.useRef();
+
+      const main = async () => {
+        const socket = new WebSocket("ws://localhost:8888");
+        await new Promise((r) => (socket.onopen = r));
+        console.log("open websocket");
+
+        const peer = (rtc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        }));
+
+        socket.onmessage = async (ev) => {
+          const answer = JSON.parse(ev.data);
+          console.log("answer", answer.sdp);
+          await peer.setRemoteDescription(answer);
+        };
+
+        peer.oniceconnectionstatechange = () => {
+          console.log("oniceconnectionstatechange", peer.iceConnectionState);
+        };
+        peer.onicecandidate = (ev) => {
+          if (ev.candidate) {
+            socket.send(JSON.stringify(ev.candidate));
+          }
+        };
+
+        peer.ontrack = (e) => {
+          console.log("ontrack", e);
+          videoRef.current.srcObject = new MediaStream([e.track]);
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+
+        peer.addTrack(stream.getVideoTracks()[0]);
+
+        await peer.setLocalDescription(await peer.createOffer());
+        socket.send(JSON.stringify(peer.localDescription));
+
+      };
+
+      React.useEffect(() => {
+        main();
+      }, []);
+
+      return (
+        <div>
+          offer
+          <video ref={videoRef} autoPlay muted />
+          <video ref={videoRef2} autoPlay muted />
+          <video ref={videoRef3} autoPlay muted />
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById("app1"));
+  </script>
+</body>
+
+</html>

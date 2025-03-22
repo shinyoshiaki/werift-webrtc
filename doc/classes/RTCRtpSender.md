@@ -1,63 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCRtpSender
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCRtpSender
 
 # Class: RTCRtpSender
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCRtpSender.md#constructor)
-
-### Properties
-
-- [codec](RTCRtpSender.md#codec)
-- [dtlsTransport](RTCRtpSender.md#dtlstransport)
-- [kind](RTCRtpSender.md#kind)
-- [onGenericNack](RTCRtpSender.md#ongenericnack)
-- [onPictureLossIndication](RTCRtpSender.md#onpicturelossindication)
-- [onReady](RTCRtpSender.md#onready)
-- [onRtcp](RTCRtpSender.md#onrtcp)
-- [receiverEstimatedMaxBitrate](RTCRtpSender.md#receiverestimatedmaxbitrate)
-- [redEncoder](RTCRtpSender.md#redencoder)
-- [redRedundantPayloadType](RTCRtpSender.md#redredundantpayloadtype)
-- [rtcpRunning](RTCRtpSender.md#rtcprunning)
-- [rtxSsrc](RTCRtpSender.md#rtxssrc)
-- [senderBWE](RTCRtpSender.md#senderbwe)
-- [ssrc](RTCRtpSender.md#ssrc)
-- [stopped](RTCRtpSender.md#stopped)
-- [streamId](RTCRtpSender.md#streamid)
-- [track](RTCRtpSender.md#track)
-- [trackId](RTCRtpSender.md#trackid)
-- [trackOrKind](RTCRtpSender.md#trackorkind)
-- [type](RTCRtpSender.md#type)
-
-### Accessors
-
-- [redDistance](RTCRtpSender.md#reddistance)
-
-### Methods
-
-- [handleRtcpPacket](RTCRtpSender.md#handlertcppacket)
-- [prepareSend](RTCRtpSender.md#preparesend)
-- [registerTrack](RTCRtpSender.md#registertrack)
-- [replaceRTP](RTCRtpSender.md#replacertp)
-- [replaceTrack](RTCRtpSender.md#replacetrack)
-- [runRtcp](RTCRtpSender.md#runrtcp)
-- [sendRtp](RTCRtpSender.md#sendrtp)
-- [setDtlsTransport](RTCRtpSender.md#setdtlstransport)
-- [stop](RTCRtpSender.md#stop)
-
 ## Constructors
 
-### constructor
+### new RTCRtpSender()
 
-• **new RTCRtpSender**(`trackOrKind`): [`RTCRtpSender`](RTCRtpSender.md)
+> **new RTCRtpSender**(`trackOrKind`): [`RTCRtpSender`](RTCRtpSender.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `trackOrKind` | ``"unknown"`` \| ``"audio"`` \| ``"video"`` \| ``"application"`` \| [`MediaStreamTrack`](MediaStreamTrack.md) |
+• **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
@@ -65,274 +22,255 @@
 
 ## Properties
 
-### codec
+### codec?
 
-• `Optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> `optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
-___
+***
 
 ### dtlsTransport
 
-• **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+> **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
-___
+***
 
 ### kind
 
-• `Readonly` **kind**: [`Kind`](../modules.md#kind)
+> `readonly` **kind**: [`Kind`](../type-aliases/Kind.md)
 
-___
+***
 
 ### onGenericNack
 
-• `Readonly` **onGenericNack**: `Event`\<[[`GenericNack`](GenericNack.md)]\>
+> `readonly` **onGenericNack**: [`Event`](Event.md)\<[[`GenericNack`](GenericNack.md)]\>
 
-___
+***
 
 ### onPictureLossIndication
 
-• `Readonly` **onPictureLossIndication**: `Event`\<[]\>
+> `readonly` **onPictureLossIndication**: [`Event`](Event.md)\<[]\>
 
-___
+***
 
 ### onReady
 
-• `Readonly` **onReady**: `Event`\<`any`[]\>
+> `readonly` **onReady**: [`Event`](Event.md)\<`any`[]\>
 
-___
+***
 
 ### onRtcp
 
-• `Readonly` **onRtcp**: `Event`\<[[`RtcpPacket`](../modules.md#rtcppacket)]\>
+> `readonly` **onRtcp**: [`Event`](Event.md)\<[[`RtcpPacket`](../type-aliases/RtcpPacket.md)]\>
 
-___
+***
 
 ### receiverEstimatedMaxBitrate
 
-• **receiverEstimatedMaxBitrate**: `bigint`
+> **receiverEstimatedMaxBitrate**: `bigint`
 
-___
+***
 
 ### redEncoder
 
-• **redEncoder**: [`RedEncoder`](RedEncoder.md)
+> **redEncoder**: [`RedEncoder`](RedEncoder.md)
 
-___
+***
 
-### redRedundantPayloadType
+### redRedundantPayloadType?
 
-• `Optional` **redRedundantPayloadType**: `number`
+> `optional` **redRedundantPayloadType**: `number`
 
-___
+***
 
 ### rtcpRunning
 
-• **rtcpRunning**: `boolean` = `false`
+> **rtcpRunning**: `boolean` = `false`
 
-___
+***
 
 ### rtxSsrc
 
-• `Readonly` **rtxSsrc**: `number`
+> `readonly` **rtxSsrc**: `number`
 
-___
+***
 
 ### senderBWE
 
-• `Readonly` **senderBWE**: `SenderBandwidthEstimator`
+> `readonly` **senderBWE**: `SenderBandwidthEstimator`
 
-___
+***
 
 ### ssrc
 
-• `Readonly` **ssrc**: `number`
+> `readonly` **ssrc**: `number`
 
-___
+***
 
 ### stopped
 
-• **stopped**: `boolean` = `false`
+> **stopped**: `boolean` = `false`
 
-___
+***
 
 ### streamId
 
-• **streamId**: `string`
+> **streamId**: `string`
 
-___
+***
 
-### track
+### track?
 
-• `Optional` **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+> `optional` **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
 
-___
+***
 
 ### trackId
 
-• `Readonly` **trackId**: `string`
+> `readonly` **trackId**: `string`
 
-___
+***
 
 ### trackOrKind
 
-• **trackOrKind**: ``"unknown"`` \| ``"audio"`` \| ``"video"`` \| ``"application"`` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+> **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
-___
+***
 
 ### type
 
-• `Readonly` **type**: ``"sender"``
+> `readonly` **type**: `"sender"` = `"sender"`
 
 ## Accessors
 
 ### redDistance
 
-• `get` **redDistance**(): `number`
+> `get` **redDistance**(): `number`
+
+> `set` **redDistance**(`n`): `void`
+
+#### Parameters
+
+• **n**: `number`
 
 #### Returns
 
 `number`
 
-• `set` **redDistance**(`n`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `n` | `number` |
-
-#### Returns
-
-`void`
-
 ## Methods
 
-### handleRtcpPacket
+### handleRtcpPacket()
 
-▸ **handleRtcpPacket**(`rtcpPacket`): `void`
+> **handleRtcpPacket**(`rtcpPacket`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `rtcpPacket` | [`RtcpPacket`](../modules.md#rtcppacket) |
+• **rtcpPacket**: [`RtcpPacket`](../type-aliases/RtcpPacket.md)
 
 #### Returns
 
 `void`
 
-___
+***
 
-### prepareSend
+### prepareSend()
 
-▸ **prepareSend**(`params`): `void`
+> **prepareSend**(`params`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `params` | [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md) |
+• **params**: [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
 
 #### Returns
 
 `void`
 
-___
+***
 
-### registerTrack
+### registerTrack()
 
-▸ **registerTrack**(`track`): `void`
+> **registerTrack**(`track`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `track` | [`MediaStreamTrack`](MediaStreamTrack.md) |
+• **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
 `void`
 
-___
+***
 
-### replaceRTP
+### replaceRTP()
 
-▸ **replaceRTP**(`«destructured»`, `discontinuity?`): `void`
+> **replaceRTP**(`__namedParameters`, `discontinuity`): `void`
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `«destructured»` | `Pick`\<[`RtpHeader`](RtpHeader.md), ``"sequenceNumber"`` \| ``"timestamp"``\> | `undefined` |
-| `discontinuity` | `boolean` | `false` |
+• **\_\_namedParameters**: `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
+
+• **discontinuity**: `boolean` = `false`
 
 #### Returns
 
 `void`
 
-___
+***
 
-### replaceTrack
+### replaceTrack()
 
-▸ **replaceTrack**(`track`): `Promise`\<`void`\>
+> **replaceTrack**(`track`): `Promise`\<`void`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `track` | ``null`` \| [`MediaStreamTrack`](MediaStreamTrack.md) |
+• **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
 `Promise`\<`void`\>
 
-___
+***
 
-### runRtcp
+### runRtcp()
 
-▸ **runRtcp**(): `Promise`\<`void`\>
-
-#### Returns
-
-`Promise`\<`void`\>
-
-___
-
-### sendRtp
-
-▸ **sendRtp**(`rtp`): `Promise`\<`void`\>
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `rtp` | `Buffer` \| [`RtpPacket`](RtpPacket.md) |
+> **runRtcp**(): `Promise`\<`void`\>
 
 #### Returns
 
 `Promise`\<`void`\>
 
-___
+***
 
-### setDtlsTransport
+### sendRtp()
 
-▸ **setDtlsTransport**(`dtlsTransport`): `void`
+> **sendRtp**(`rtp`): `Promise`\<`void`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `dtlsTransport` | [`RTCDtlsTransport`](RTCDtlsTransport.md) |
+• **rtp**: `Buffer` \| [`RtpPacket`](RtpPacket.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### setDtlsTransport()
+
+> **setDtlsTransport**(`dtlsTransport`): `void`
+
+#### Parameters
+
+• **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 
 `void`
 
-___
+***
 
-### stop
+### stop()
 
-▸ **stop**(): `void`
+> **stop**(): `void`
 
 #### Returns
 

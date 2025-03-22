@@ -1,39 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / GenericNack
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / GenericNack
 
 # Class: GenericNack
 
-## Table of contents
-
-### Constructors
-
-- [constructor](GenericNack.md#constructor)
-
-### Properties
-
-- [count](GenericNack.md#count)
-- [header](GenericNack.md#header)
-- [lost](GenericNack.md#lost)
-- [mediaSourceSsrc](GenericNack.md#mediasourcessrc)
-- [senderSsrc](GenericNack.md#senderssrc)
-- [count](GenericNack.md#count-1)
-
-### Methods
-
-- [serialize](GenericNack.md#serialize)
-- [toJSON](GenericNack.md#tojson)
-- [deSerialize](GenericNack.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new GenericNack()
 
-• **new GenericNack**(`props?`): [`GenericNack`](GenericNack.md)
+> **new GenericNack**(`props`): [`GenericNack`](GenericNack.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`GenericNack`](GenericNack.md)\> |
+• **props**: `Partial`\<[`GenericNack`](GenericNack.md)\> = `{}`
 
 #### Returns
 
@@ -43,76 +24,81 @@
 
 ### count
 
-• `Readonly` **count**: `number` = `GenericNack.count`
+> `readonly` **count**: `number` = `GenericNack.count`
 
-___
+***
 
 ### header
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+> **header**: [`RtcpHeader`](RtcpHeader.md)
 
-___
+***
 
 ### lost
 
-• **lost**: `number`[] = `[]`
+> **lost**: `number`[] = `[]`
 
-___
+***
 
 ### mediaSourceSsrc
 
-• **mediaSourceSsrc**: `number`
+> **mediaSourceSsrc**: `number`
 
-___
+***
 
 ### senderSsrc
 
-• **senderSsrc**: `number`
+> **senderSsrc**: `number`
 
-___
+***
 
 ### count
 
-▪ `Static` **count**: `number` = `1`
+> `static` **count**: `number` = `1`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### toJSON
+### toJSON()
 
-▸ **toJSON**(): `Object`
+> **toJSON**(): `object`
 
 #### Returns
 
-`Object`
+`object`
 
-| Name | Type |
-| :------ | :------ |
-| `lost` | `number`[] |
-| `mediaSourceSsrc` | `number` |
-| `senderSsrc` | `number` |
+##### lost
 
-___
+> **lost**: `number`[]
 
-### deSerialize
+##### mediaSourceSsrc
 
-▸ **deSerialize**(`data`, `header`): [`GenericNack`](GenericNack.md)
+> **mediaSourceSsrc**: `number`
+
+##### senderSsrc
+
+> **senderSsrc**: `number`
+
+***
+
+### deSerialize()
+
+> `static` **deSerialize**(`data`, `header`): [`GenericNack`](GenericNack.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `header` | [`RtcpHeader`](RtcpHeader.md) |
+• **data**: `Buffer`
+
+• **header**: [`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

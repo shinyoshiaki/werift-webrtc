@@ -1,55 +1,69 @@
 import { createHash } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
-import debug from "debug";
-import PCancelable from "p-cancelable";
-import Event from "rx.mini";
+
 import { setTimeout } from "timers/promises";
 
-import { int } from "../../../common/src";
-import type { InterfaceAddresses } from "../../../common/src/network";
 import type { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
-import { type Future, future, randomTransactionId } from "../helper";
-import type { Connection } from "../ice";
+import { type Cancelable, cancelable, randomTransactionId } from "../helper";
+import {
+  type Address,
+  Event,
+  EventDisposer,
+  type InterfaceAddresses,
+  TcpTransport,
+  type Transport,
+  UdpTransport,
+  bufferReader,
+  debug,
+  int,
+} from "../imports/common";
 import { classes, methods } from "../stun/const";
-import { Message, parseMessage } from "../stun/message";
+import { Message, paddingLength, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
-import { type Transport, UdpTransport } from "../transport";
-import type { Address, Protocol } from "../types/model";
+
+import type { Protocol } from "../types/model";
 
 const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 
 const DEFAULT_CHANNEL_REFRESH_TIME = 500;
 const DEFAULT_ALLOCATION_LIFETIME = 600;
-const TCP_TRANSPORT = 0x06000000;
 const UDP_TRANSPORT = 0x11000000;
 
-class TurnTransport implements Protocol {
-  readonly type = "turn";
+export class StunOverTurnProtocol implements Protocol {
+  static type = "turn";
+  readonly type = StunOverTurnProtocol.type;
   localCandidate!: Candidate;
-  receiver?: Connection;
+  private disposer = new EventDisposer();
+  onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
+  onDataReceived: Event<[Buffer]> = new Event();
 
-  constructor(public turn: TurnClient) {
-    turn.onDatagramReceived = this.datagramReceived;
+  constructor(public turn: TurnProtocol) {
+    turn.onData
+      .subscribe((data, addr) => {
+        this.handleStunMessage(data, addr);
+      })
+      .disposer(this.disposer);
   }
 
-  private datagramReceived = (data: Buffer, addr: Address) => {
+  private handleStunMessage = (data: Buffer, addr: Address) => {
     try {
       const message = parseMessage(data);
       if (!message) {
-        this.receiver?.dataReceived(data, this.localCandidate.component);
+        this.onDataReceived.execute(data);
         return;
       }
 
       if (
-        (message?.messageClass === classes.RESPONSE ||
-          message?.messageClass === classes.ERROR) &&
-        this.turn.transactions[message.transactionIdHex]
+        message.messageClass === classes.RESPONSE ||
+        message.messageClass === classes.ERROR
       ) {
         const transaction = this.turn.transactions[message.transactionIdHex];
-        transaction.responseReceived(message, addr);
-      } else if (message?.messageClass === classes.REQUEST) {
-        this.receiver?.requestReceived(message, addr, this, data);
+        if (transaction) {
+          transaction.responseReceived(message, addr);
+        }
+      } else if (message.messageClass === classes.REQUEST) {
+        this.onRequestReceived.execute(message, addr, data);
       }
     } catch (error) {
       log("datagramReceived error", error);
@@ -57,8 +71,9 @@ class TurnTransport implements Protocol {
   };
 
   async request(request: Message, addr: Address, integrityKey?: Buffer) {
-    if (this.turn.transactions[request.transactionIdHex])
+    if (this.turn.transactions[request.transactionIdHex]) {
       throw new Error("exist");
+    }
 
     if (integrityKey) {
       request.addMessageIntegrity(integrityKey);
@@ -83,30 +98,38 @@ class TurnTransport implements Protocol {
   async sendStun(message: Message, addr: Address) {
     await this.turn.sendData(message.bytes, addr);
   }
+  async close() {
+    this.disposer.dispose();
+    return this.turn.close();
+  }
 }
 
-class TurnClient implements Protocol {
-  type = "inner_turn";
+export class TurnProtocol implements Protocol {
+  static type = "turn";
+  readonly type = TurnProtocol.type;
   readonly onData = new Event<[Buffer, Address]>();
-  transactions: { [hexId: string]: Transaction } = {};
+  onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
+  onDataReceived: Event<[Buffer]> = new Event();
   integrityKey?: Buffer;
   nonce?: Buffer;
   realm?: string;
   relayedAddress!: Address;
   mappedAddress!: Address;
-  refreshHandle?: Future;
-  channelNumber = 0x4000;
-  channelByAddr: { [addr: string]: { number: number; address: Address } } = {};
-  addrByChannel: { [channel: number]: Address } = {};
   localCandidate!: Candidate;
+  transactions: { [hexId: string]: Transaction } = {};
+  private refreshHandle?: Cancelable<void>;
+  private channelNumber = 0x4000;
+  private channelByAddr: {
+    [addr: string]: { number: number; address: Address };
+  } = {};
+  private addrByChannel: { [channel: number]: Address } = {};
   /**sec */
-  channelRefreshTime =
-    this.options.channelRefreshTime ?? DEFAULT_CHANNEL_REFRESH_TIME;
-
-  onDatagramReceived: (data: Buffer, addr: Address) => void = () => {};
-
+  private channelRefreshTime: number;
   private channelBinding?: Promise<void>;
-  channelRefreshAt = 0;
+  private channelRefreshAt = 0;
+  private tcpBuffer: Buffer = Buffer.alloc(0);
+  private permissionByAddr: { [addr: string]: boolean } = {};
+  private creatingPermission: Promise<void> = Promise.resolve();
 
   constructor(
     public server: Address,
@@ -118,60 +141,16 @@ class TurnClient implements Protocol {
       /**sec */
       channelRefreshTime?: number;
     } = {},
-  ) {}
+  ) {
+    this.channelRefreshTime =
+      this.options.channelRefreshTime ?? DEFAULT_CHANNEL_REFRESH_TIME;
+  }
 
   async connectionMade() {
     this.transport.onData = (data, addr) => {
-      this.datagramReceived(data, addr);
+      this.dataReceived(data, addr);
     };
-  }
 
-  private handleChannelData(data: Buffer) {
-    const [channel, length] = jspack.Unpack("!HH", data.slice(0, 4));
-    const addr = this.addrByChannel[channel];
-
-    if (addr) {
-      const payload = data.subarray(4, 4 + length);
-      this.onDatagramReceived(payload, addr);
-      this.onData.execute(payload, addr);
-    }
-  }
-
-  private handleSTUNMessage(data: Buffer, addr: Address) {
-    try {
-      const message = parseMessage(data);
-      if (!message) throw new Error("not stun message");
-      if (
-        message.messageClass === classes.RESPONSE ||
-        message.messageClass === classes.ERROR
-      ) {
-        const transaction = this.transactions[message.transactionIdHex];
-        if (transaction) {
-          transaction.responseReceived(message, addr);
-        }
-      } else if (message.messageClass === classes.REQUEST) {
-        this.onDatagramReceived(data, addr);
-      }
-
-      if (message.getAttributeValue("DATA")) {
-        const buf: Buffer = message.getAttributeValue("DATA");
-        this.onDatagramReceived(buf, addr);
-        this.onData.execute(buf, addr);
-      }
-    } catch (error) {
-      log("parse error", data.toString());
-    }
-  }
-
-  private datagramReceived(data: Buffer, addr: Address) {
-    if (data.length >= 4 && isChannelData(data)) {
-      this.handleChannelData(data);
-    } else {
-      this.handleSTUNMessage(data, addr);
-    }
-  }
-
-  async connect() {
     const request = new Message(methods.ALLOCATE, classes.REQUEST);
     request
       .setAttribute("LIFETIME", this.lifetime)
@@ -188,29 +167,106 @@ class TurnClient implements Protocol {
     const exp = response.getAttributeValue("LIFETIME");
     log("connect", this.relayedAddress, this.mappedAddress, { exp });
 
-    this.refreshHandle = future(this.refresh(exp));
+    this.refresh(exp);
   }
 
-  async createPermission(peerAddress: Address) {
+  private handleChannelData(data: Buffer) {
+    const [channel, length] = jspack.Unpack("!HH", data.slice(0, 4));
+    const addr = this.addrByChannel[channel];
+
+    if (addr) {
+      const payload = data.subarray(4, 4 + length);
+      this.onData.execute(payload, addr);
+    }
+  }
+
+  private handleSTUNMessage(data: Buffer, addr: Address) {
+    try {
+      const message = parseMessage(data);
+      if (!message) {
+        throw new Error("not stun message");
+      }
+
+      if (
+        message.messageClass === classes.RESPONSE ||
+        message.messageClass === classes.ERROR
+      ) {
+        const transaction = this.transactions[message.transactionIdHex];
+        if (transaction) {
+          transaction.responseReceived(message, addr);
+        }
+      } else if (message.messageClass === classes.REQUEST) {
+        this.onData.execute(data, addr);
+      }
+
+      if (message.getAttributeValue("DATA")) {
+        const buf: Buffer = message.getAttributeValue("DATA");
+        this.onData.execute(buf, addr);
+      }
+    } catch (error) {
+      log("parse error", data.toString());
+    }
+  }
+
+  private dataReceived(data: Buffer, addr: Address) {
+    const datagramReceived = (data: Buffer, addr: Address) => {
+      if (data.length >= 4 && isChannelData(data)) {
+        this.handleChannelData(data);
+      } else {
+        this.handleSTUNMessage(data, addr);
+      }
+    };
+
+    if (this.transport.type === "tcp") {
+      this.tcpBuffer = Buffer.concat([this.tcpBuffer, data]);
+      while (this.tcpBuffer.length >= 4) {
+        let [, length] = bufferReader(this.tcpBuffer.subarray(0, 4), [2, 2]);
+        length += paddingLength(length);
+        const fullLength = isChannelData(this.tcpBuffer)
+          ? 4 + length
+          : 20 + length;
+        if (this.tcpBuffer.length < fullLength) {
+          break;
+        }
+
+        datagramReceived(this.tcpBuffer.subarray(0, fullLength), addr);
+        this.tcpBuffer = this.tcpBuffer.subarray(fullLength);
+      }
+    } else {
+      datagramReceived(data, addr);
+    }
+  }
+
+  private async send(data: Buffer, addr: Address) {
+    if (this.transport.type === "tcp") {
+      const padding = paddingLength(data.length);
+      await this.transport.send(
+        padding > 0 ? Buffer.concat([data, Buffer.alloc(padding)]) : data,
+        addr,
+      );
+    } else {
+      await this.transport.send(data, addr);
+    }
+  }
+
+  private async createPermission(peerAddress: Address) {
     const request = new Message(methods.CREATE_PERMISSION, classes.REQUEST);
     request
       .setAttribute("XOR-PEER-ADDRESS", peerAddress)
       .setAttribute("USERNAME", this.username)
       .setAttribute("REALM", this.realm)
       .setAttribute("NONCE", this.nonce);
-    const [response] = await this.request(request, this.server).catch((e) => {
+    await this.request(request, this.server).catch((e) => {
       request;
       throw e;
     });
-    return response;
   }
 
-  refresh = (exp: number) =>
-    new PCancelable(async (_, f, onCancel) => {
+  private refresh = (exp: number) => {
+    this.refreshHandle = cancelable<void>(async (_, __, onCancel) => {
       let run = true;
-      onCancel(() => {
+      onCancel.once(() => {
         run = false;
-        f("cancel");
       });
 
       while (run) {
@@ -231,6 +287,7 @@ class TurnClient implements Protocol {
         }
       }
     });
+  };
 
   async request(request: Message, addr: Address): Promise<[Message, Address]> {
     if (this.transactions[request.transactionIdHex]) {
@@ -303,13 +360,36 @@ class TurnClient implements Protocol {
   }
 
   async sendData(data: Buffer, addr: Address) {
-    const channel = await this.getChannel(addr);
+    const channel = await this.getChannel(addr).catch((e) => {
+      return new Error("channelBind error");
+    });
+
+    if (channel instanceof Error) {
+      await this.getPermission(addr);
+      const indicate = new Message(methods.SEND, classes.INDICATION)
+        .setAttribute("DATA", data)
+        .setAttribute("XOR-PEER-ADDRESS", addr);
+
+      await this.sendStun(indicate, this.server);
+      return;
+    }
 
     const header = jspack.Pack("!HH", [channel.number, data.length]);
-    this.transport.send(
-      Buffer.concat([Buffer.from(header), data]),
-      this.server,
-    );
+    await this.send(Buffer.concat([Buffer.from(header), data]), this.server);
+  }
+
+  async getPermission(addr: Address) {
+    await this.creatingPermission;
+
+    const permitted = this.permissionByAddr[addr.join(":")];
+    if (!permitted) {
+      this.creatingPermission = this.createPermission(addr);
+      this.permissionByAddr[addr.join(":")] = true;
+      await this.creatingPermission.catch((e) => {
+        log("createPermission error", e);
+        throw e;
+      });
+    }
   }
 
   async getChannel(addr: Address) {
@@ -317,14 +397,14 @@ class TurnClient implements Protocol {
       await this.channelBinding;
     }
 
-    let channel = this.channelByAddr[addr.join("")];
+    let channel = this.channelByAddr[addr.join(":")];
 
     if (!channel) {
-      this.channelByAddr[addr.join("")] = {
+      this.channelByAddr[addr.join(":")] = {
         number: this.channelNumber++,
         address: addr,
       };
-      channel = this.channelByAddr[addr.join("")];
+      channel = this.channelByAddr[addr.join(":")];
       this.addrByChannel[channel.number] = addr;
 
       this.channelBinding = this.channelBind(channel.number, addr);
@@ -360,48 +440,94 @@ class TurnClient implements Protocol {
   }
 
   async sendStun(message: Message, addr: Address) {
-    await this.transport.send(message.bytes, addr);
+    await this.send(message.bytes, addr);
+  }
+
+  async close() {
+    this.refreshHandle?.resolve?.();
+    await this.transport.close();
   }
 }
 
-export async function createTurnEndpoint(
-  serverAddr: Address,
-  username: string,
-  password: string,
+export interface TurnClientConfig {
+  address: Address;
+  username: string;
+  password: string;
+}
+export interface TurnClientOptions {
+  lifetime?: number;
+  ssl?: boolean;
+  transport?: "udp" | "tcp";
+  portRange?: [number, number];
+  interfaceAddresses?: InterfaceAddresses;
+}
+
+export async function createTurnClient(
+  { address, username, password }: TurnClientConfig,
   {
     lifetime,
     portRange,
     interfaceAddresses,
-  }: {
-    lifetime?: number;
-    ssl?: boolean;
-    transport?: "udp";
-    portRange?: [number, number];
-    interfaceAddresses?: InterfaceAddresses;
-  },
+    transport: transportType,
+  }: TurnClientOptions = {},
 ) {
-  if (lifetime == undefined) {
-    lifetime = DEFAULT_ALLOCATION_LIFETIME;
-  }
+  lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
+  transportType ??= "udp";
 
-  const transport = await UdpTransport.init(
-    "udp4",
-    portRange,
-    interfaceAddresses,
-  );
+  const transport =
+    transportType === "udp"
+      ? await UdpTransport.init("udp4", { portRange, interfaceAddresses })
+      : await TcpTransport.init(address);
 
-  const turnClient = new TurnClient(
-    serverAddr,
+  const turn = new TurnProtocol(
+    address,
     username,
     password,
     lifetime,
     transport,
   );
 
-  await turnClient.connectionMade();
-  await turnClient.connect();
-  const turnTransport = new TurnTransport(turnClient);
+  await turn.connectionMade();
+  return turn;
+}
 
+export async function createStunOverTurnClient(
+  {
+    address,
+    username,
+    password,
+  }: {
+    address: Address;
+    username: string;
+    password: string;
+  },
+  {
+    lifetime,
+    portRange,
+    interfaceAddresses,
+    transport: transportType,
+  }: {
+    lifetime?: number;
+    ssl?: boolean;
+    transport?: "udp" | "tcp";
+    portRange?: [number, number];
+    interfaceAddresses?: InterfaceAddresses;
+  } = {},
+) {
+  const turn = await createTurnClient(
+    {
+      address,
+      username,
+      password,
+    },
+    {
+      lifetime,
+      portRange,
+      interfaceAddresses,
+      transport: transportType,
+    },
+  );
+  const turnTransport = new StunOverTurnProtocol(turn);
   return turnTransport;
 }
 

@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-import { Uint64BE } from "int64-buffer";
-import range from "lodash/range";
+import * as Int64 from "int64-buffer";
 
 import {
   DTLS_ROLE_SETUP,
@@ -10,6 +9,7 @@ import {
   SSRC_INFO_ATTRS,
 } from "./const";
 import { divide } from "./helper";
+import { Candidate } from "./imports/ice";
 import {
   RTCRtcpFeedback,
   RTCRtpCodecParameters,
@@ -23,7 +23,11 @@ import {
   RTCDtlsFingerprint,
   RTCDtlsParameters,
 } from "./transport/dtls";
-import { IceCandidate, RTCIceParameters } from "./transport/ice";
+import {
+  type IceCandidate,
+  RTCIceParameters,
+  candidateFromIce,
+} from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
 import type { Kind } from "./types/domain";
 
@@ -370,6 +374,13 @@ export class SessionDescription {
   toJSON() {
     return new RTCSessionDescription(this.string, this.type);
   }
+
+  toSdp() {
+    return {
+      type: this.type,
+      sdp: this.string,
+    };
+  }
 }
 
 export class MediaDescription {
@@ -563,15 +574,22 @@ function ipAddressToSdp(addr: string) {
 
 export function candidateToSdp(c: IceCandidate) {
   let sdp = `${c.foundation} ${c.component} ${c.protocol} ${c.priority} ${c.ip} ${c.port} typ ${c.type}`;
-  if (c.relatedAddress) {
+  if (c.relatedAddress != undefined) {
     sdp += ` raddr ${c.relatedAddress}`;
   }
-  if (c.relatedPort) {
+  if (c.relatedPort != undefined) {
     sdp += ` rport ${c.relatedPort}`;
   }
-  if (c.tcpType) {
+  if (c.tcpType != undefined) {
     sdp += ` tcptype ${c.tcpType}`;
   }
+  if (c.generation != undefined) {
+    sdp += ` generation ${c.generation}`;
+  }
+  if (c.ufrag != undefined) {
+    sdp += ` ufrag ${c.ufrag}`;
+  }
+
   return sdp;
 }
 
@@ -618,35 +636,8 @@ export function parseGroup(
 }
 
 export function candidateFromSdp(sdp: string) {
-  const bits = sdp.split(" ");
-  if (bits.length < 8) {
-    throw new Error();
-  }
-
-  const candidate = new IceCandidate(
-    Number.parseInt(bits[1], 10),
-    bits[0],
-    bits[4],
-    Number.parseInt(bits[5], 10),
-    Number.parseInt(bits[3], 10),
-    bits[2],
-    bits[7],
-  );
-
-  range(8, bits.length - 1, 2).forEach((i) => {
-    switch (bits[i]) {
-      case "raddr":
-        candidate.relatedAddress = bits[i + 1];
-        break;
-      case "rport":
-        candidate.relatedPort = Number.parseInt(bits[i + 1]);
-        break;
-      case "tcptype":
-        candidate.tcpType = bits[i + 1];
-        break;
-    }
-  });
-
+  const ice = Candidate.fromSdp(sdp);
+  const candidate = candidateFromIce(ice);
   return candidate;
 }
 
@@ -655,8 +646,16 @@ export class RTCSessionDescription {
     public sdp: string,
     public type: "offer" | "answer",
   ) {}
+
   static isThis(o: any) {
     if (typeof o?.sdp === "string") return true;
+  }
+
+  toSdp() {
+    return {
+      sdp: this.sdp,
+      type: this.type,
+    };
   }
 }
 
@@ -665,7 +664,7 @@ export function addSDPHeader(
   description: SessionDescription,
 ) {
   const username = "-";
-  const sessionId = new Uint64BE(randomBytes(64)).toString().slice(0, 8);
+  const sessionId = new Int64.Uint64BE(randomBytes(64)).toString().slice(0, 8);
   const sessionVersion = 0;
 
   description.origin = `${username} ${sessionId} ${sessionVersion} IN IP4 0.0.0.0`;

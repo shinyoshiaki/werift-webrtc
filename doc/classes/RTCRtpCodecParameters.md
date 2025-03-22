@@ -1,40 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCRtpCodecParameters
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCRtpCodecParameters
 
 # Class: RTCRtpCodecParameters
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCRtpCodecParameters.md#constructor)
-
-### Properties
-
-- [channels](RTCRtpCodecParameters.md#channels)
-- [clockRate](RTCRtpCodecParameters.md#clockrate)
-- [direction](RTCRtpCodecParameters.md#direction)
-- [mimeType](RTCRtpCodecParameters.md#mimetype)
-- [parameters](RTCRtpCodecParameters.md#parameters)
-- [payloadType](RTCRtpCodecParameters.md#payloadtype)
-- [rtcpFeedback](RTCRtpCodecParameters.md#rtcpfeedback)
-
-### Accessors
-
-- [contentType](RTCRtpCodecParameters.md#contenttype)
-- [name](RTCRtpCodecParameters.md#name)
-- [str](RTCRtpCodecParameters.md#str)
-
 ## Constructors
 
-### constructor
+### new RTCRtpCodecParameters()
 
-• **new RTCRtpCodecParameters**(`props`): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **new RTCRtpCodecParameters**(`props`): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Pick`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), ``"mimeType"`` \| ``"clockRate"``\> & `Partial`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\> |
+• **props**: `Pick`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), `"mimeType"` \| `"clockRate"`\> & `Partial`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\>
 
 #### Returns
 
@@ -42,74 +22,74 @@
 
 ## Properties
 
-### channels
+### channels?
 
-• `Optional` **channels**: `number`
+> `optional` **channels**: `number`
 
-___
+***
 
 ### clockRate
 
-• **clockRate**: `number`
+> **clockRate**: `number`
 
-___
+***
 
 ### direction
 
-• **direction**: ``"inactive"`` \| ``"sendonly"`` \| ``"recvonly"`` \| ``"sendrecv"`` \| ``"all"`` = `"all"`
+> **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"all"` = `"all"`
 
-___
+***
 
 ### mimeType
 
-• **mimeType**: `string`
+> **mimeType**: `string`
 
-___
+***
 
-### parameters
+### parameters?
 
-• `Optional` **parameters**: `string`
+> `optional` **parameters**: `string`
 
-___
+***
 
 ### payloadType
 
-• **payloadType**: `number`
+> **payloadType**: `number`
 
 When specifying a codec with a fixed payloadType such as PCMU,
 it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
 
-___
+***
 
 ### rtcpFeedback
 
-• **rtcpFeedback**: [`RTCPFB`](../modules.md#rtcpfb)[] = `[]`
+> **rtcpFeedback**: [`RTCPFB`](../type-aliases/RTCPFB.md)[] = `[]`
 
 ## Accessors
 
 ### contentType
 
-• `get` **contentType**(): `string`
+> `get` **contentType**(): `string`
 
 #### Returns
 
 `string`
 
-___
+***
 
 ### name
 
-• `get` **name**(): `string`
+> `get` **name**(): `string`
 
 #### Returns
 
 `string`
 
-___
+***
 
 ### str
 
-• `get` **str**(): `string`
+> `get` **str**(): `string`
 
 #### Returns
 

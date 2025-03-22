@@ -1,35 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCIceCandidate
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCIceCandidate
 
 # Class: RTCIceCandidate
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCIceCandidate.md#constructor)
-
-### Properties
-
-- [candidate](RTCIceCandidate.md#candidate)
-- [sdpMLineIndex](RTCIceCandidate.md#sdpmlineindex)
-- [sdpMid](RTCIceCandidate.md#sdpmid)
-
-### Methods
-
-- [toJSON](RTCIceCandidate.md#tojson)
-- [isThis](RTCIceCandidate.md#isthis)
-
 ## Constructors
 
-### constructor
+### new RTCIceCandidate()
 
-• **new RTCIceCandidate**(`props`): [`RTCIceCandidate`](RTCIceCandidate.md)
+> **new RTCIceCandidate**(`props`): [`RTCIceCandidate`](RTCIceCandidate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RTCIceCandidate`](RTCIceCandidate.md)\> |
+• **props**: `Partial`\<[`RTCIceCandidate`](RTCIceCandidate.md)\>
 
 #### Returns
 
@@ -39,48 +24,62 @@
 
 ### candidate
 
-• **candidate**: `string`
+> **candidate**: `string`
 
-___
+***
 
-### sdpMLineIndex
+### sdpMLineIndex?
 
-• `Optional` **sdpMLineIndex**: `number`
+> `optional` **sdpMLineIndex**: `number`
 
-___
+***
 
-### sdpMid
+### sdpMid?
 
-• `Optional` **sdpMid**: `string`
+> `optional` **sdpMid**: `string`
+
+***
+
+### usernameFragment?
+
+> `optional` **usernameFragment**: `string`
 
 ## Methods
 
-### toJSON
+### toJSON()
 
-▸ **toJSON**(): `Object`
+> **toJSON**(): `object`
 
 #### Returns
 
-`Object`
+`object`
 
-| Name | Type |
-| :------ | :------ |
-| `candidate` | `string` |
-| `sdpMLineIndex` | `undefined` \| `number` |
-| `sdpMid` | `undefined` \| `string` |
+##### candidate
 
-___
+> **candidate**: `string`
 
-### isThis
+##### sdpMLineIndex
 
-▸ **isThis**(`o`): `undefined` \| ``true``
+> **sdpMLineIndex**: `undefined` \| `number`
+
+##### sdpMid
+
+> **sdpMid**: `undefined` \| `string`
+
+##### usernameFragment
+
+> **usernameFragment**: `undefined` \| `string`
+
+***
+
+### isThis()
+
+> `static` **isThis**(`o`): `undefined` \| `true`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `o` | `any` |
+• **o**: `any`
 
 #### Returns
 
-`undefined` \| ``true``
+`undefined` \| `true`

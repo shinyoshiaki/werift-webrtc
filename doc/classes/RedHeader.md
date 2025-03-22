@@ -1,27 +1,16 @@
-[werift](../README.md) / [Exports](../modules.md) / RedHeader
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RedHeader
 
 # Class: RedHeader
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RedHeader.md#constructor)
-
-### Properties
-
-- [fields](RedHeader.md#fields)
-
-### Methods
-
-- [serialize](RedHeader.md#serialize)
-- [deSerialize](RedHeader.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RedHeader()
 
-• **new RedHeader**(): [`RedHeader`](RedHeader.md)
+> **new RedHeader**(): [`RedHeader`](RedHeader.md)
 
 #### Returns
 
@@ -31,29 +20,27 @@
 
 ### fields
 
-• **fields**: `RedHeaderField`[] = `[]`
+> **fields**: `RedHeaderField`[] = `[]`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`): readonly [[`RedHeader`](RedHeader.md), `number`]
+> `static` **deSerialize**(`buf`): readonly [[`RedHeader`](RedHeader.md), `number`]
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 

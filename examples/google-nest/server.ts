@@ -66,10 +66,10 @@ const session = async (
         ],
       },
     });
-    const recorder = new MediaRecorder(
-      `./${device.name.split("/").at(-1)}.webm`,
-      2,
-    );
+    const recorder = new MediaRecorder({
+      path: `./${device.name.split("/").at(-1)}.webm`,
+      numOfTracks: 2,
+    });
 
     const audioTransceiver = pc.addTransceiver("audio", {
       direction: "recvonly",

@@ -1,22 +1,16 @@
-[werift](../README.md) / [Exports](../modules.md) / MediaStreamTrackFactory
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / MediaStreamTrackFactory
 
 # Class: MediaStreamTrackFactory
 
-## Table of contents
-
-### Constructors
-
-- [constructor](MediaStreamTrackFactory.md#constructor)
-
-### Methods
-
-- [rtpSource](MediaStreamTrackFactory.md#rtpsource)
-
 ## Constructors
 
-### constructor
+### new MediaStreamTrackFactory()
 
-• **new MediaStreamTrackFactory**(): [`MediaStreamTrackFactory`](MediaStreamTrackFactory.md)
+> **new MediaStreamTrackFactory**(): [`MediaStreamTrackFactory`](MediaStreamTrackFactory.md)
 
 #### Returns
 
@@ -24,17 +18,19 @@
 
 ## Methods
 
-### rtpSource
+### rtpSource()
 
-▸ **rtpSource**(`«destructured»`): `Promise`\<readonly [[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`]\>
+> `static` **rtpSource**(`__namedParameters`): `Promise`\<readonly [[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`]\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `«destructured»` | `Object` |
-| › `kind` | ``"audio"`` \| ``"video"`` |
-| › `port?` | `number` |
+• **\_\_namedParameters**
+
+• **\_\_namedParameters.cb?**
+
+• **\_\_namedParameters.kind**: `"audio"` \| `"video"`
+
+• **\_\_namedParameters.port?**: `number`
 
 #### Returns
 

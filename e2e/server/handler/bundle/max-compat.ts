@@ -1,4 +1,4 @@
-import { AcceptFn } from "protoo-server";
+import type { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 

@@ -108,14 +108,12 @@ describe("media", () => {
     });
 
     await pc1.setLocalDescription(await pc1.createOffer());
-    //@ts-expect-error
     const pc1Local = pc1._localDescription!;
     expect(pc1Local.media[0].rtp.headerExtensions[0].uri).toBe(
       useSdesMid().uri,
     );
     await pc2.setRemoteDescription(pc1.localDescription!);
     await pc2.setLocalDescription(await pc2.createAnswer());
-    //@ts-expect-error
     const pc2Local = pc2._localDescription!;
     expect(pc2Local.media[0].rtp.headerExtensions[0].uri).toBe(
       useSdesMid().uri,

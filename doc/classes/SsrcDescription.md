@@ -1,32 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / SsrcDescription
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / SsrcDescription
 
 # Class: SsrcDescription
 
-## Table of contents
-
-### Constructors
-
-- [constructor](SsrcDescription.md#constructor)
-
-### Properties
-
-- [cname](SsrcDescription.md#cname)
-- [label](SsrcDescription.md#label)
-- [msLabel](SsrcDescription.md#mslabel)
-- [msid](SsrcDescription.md#msid)
-- [ssrc](SsrcDescription.md#ssrc)
-
 ## Constructors
 
-### constructor
+### new SsrcDescription()
 
-• **new SsrcDescription**(`props`): [`SsrcDescription`](SsrcDescription.md)
+> **new SsrcDescription**(`props`): [`SsrcDescription`](SsrcDescription.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`SsrcDescription`](SsrcDescription.md)\> |
+• **props**: `Partial`\<[`SsrcDescription`](SsrcDescription.md)\>
 
 #### Returns
 
@@ -34,30 +22,30 @@
 
 ## Properties
 
-### cname
+### cname?
 
-• `Optional` **cname**: `string`
+> `optional` **cname**: `string`
 
-___
+***
 
-### label
+### label?
 
-• `Optional` **label**: `string`
+> `optional` **label**: `string`
 
-___
+***
 
-### msLabel
+### msLabel?
 
-• `Optional` **msLabel**: `string`
+> `optional` **msLabel**: `string`
 
-___
+***
 
-### msid
+### msid?
 
-• `Optional` **msid**: `string`
+> `optional` **msid**: `string`
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: `number`
+> **ssrc**: `number`

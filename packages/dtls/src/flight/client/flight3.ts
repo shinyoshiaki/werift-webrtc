@@ -1,8 +1,8 @@
-import debug from "debug";
 import type { DtlsContext } from "../../context/dtls";
 import type { TransportContext } from "../../context/transport";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import type { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
+import { debug } from "../../imports/common";
 import { Flight } from "../flight";
 
 const log = debug(

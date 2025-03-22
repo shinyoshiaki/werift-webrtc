@@ -23,6 +23,7 @@
     "length",
     "lipsync",
     "max",
+    "Mdns",
     "mediachannel",
     "milli",
     "misorder",
@@ -76,6 +77,6 @@
     "**"
   ],
   "typescript.tsdk": "node_modules/typescript/lib",
-  "biome.lspBin": "node_modules/@biomejs/biome/bin/biome",
+  "biome.lsp.bin": "node_modules/@biomejs/biome/bin/biome",
   "prettier.enable": false
 }

@@ -1,9 +1,9 @@
 import { RtpHeader } from "../../rtp/rtp";
-import type { Profile } from "../const";
+import type { SrtpProfile } from "../const";
 import { Context } from "./context";
 
 export class SrtpContext extends Context {
-  constructor(masterKey: Buffer, masterSalt: Buffer, profile: Profile) {
+  constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {
     super(masterKey, masterSalt, profile);
   }
 

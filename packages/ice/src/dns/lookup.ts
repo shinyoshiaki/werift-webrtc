@@ -15,6 +15,10 @@ export class MdnsLookup {
   cache = new Map<string, Promise<string>>();
   mdnsInstance = mdns();
 
+  constructor() {
+    this.mdnsInstance.setMaxListeners(50);
+  }
+
   lookup(host: string): Promise<string> {
     return new Promise((r, f) => {
       const cleanup = () => {

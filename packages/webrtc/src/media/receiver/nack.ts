@@ -1,13 +1,13 @@
-import debug from "debug";
-import range from "lodash/range";
-import Event from "rx.mini";
+import range from "lodash/range.js";
+import { Event } from "../../imports/common";
 
-import { uint16Add } from "../../../../common/src";
+import { uint16Add } from "../../imports/common";
 import {
   GenericNack,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-} from "../../../../rtp/src";
+  debug,
+} from "../../imports/rtp";
 import type { RTCRtpReceiver } from "../rtpReceiver";
 
 const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");

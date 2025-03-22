@@ -1,51 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RtpHeader
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RtpHeader
 
 # Class: RtpHeader
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtpHeader.md#constructor)
-
-### Properties
-
-- [csrc](RtpHeader.md#csrc)
-- [csrcLength](RtpHeader.md#csrclength)
-- [extension](RtpHeader.md#extension)
-- [extensionLength](RtpHeader.md#extensionlength)
-- [extensionProfile](RtpHeader.md#extensionprofile)
-- [extensions](RtpHeader.md#extensions)
-- [marker](RtpHeader.md#marker)
-- [padding](RtpHeader.md#padding)
-- [paddingSize](RtpHeader.md#paddingsize)
-- [payloadOffset](RtpHeader.md#payloadoffset)
-- [payloadType](RtpHeader.md#payloadtype)
-- [sequenceNumber](RtpHeader.md#sequencenumber)
-- [ssrc](RtpHeader.md#ssrc)
-- [timestamp](RtpHeader.md#timestamp)
-- [version](RtpHeader.md#version)
-
-### Accessors
-
-- [serializeSize](RtpHeader.md#serializesize)
-
-### Methods
-
-- [serialize](RtpHeader.md#serialize)
-- [deSerialize](RtpHeader.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtpHeader()
 
-• **new RtpHeader**(`props?`): [`RtpHeader`](RtpHeader.md)
+> **new RtpHeader**(`props`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RtpHeader`](RtpHeader.md)\> |
+• **props**: `Partial`\<[`RtpHeader`](RtpHeader.md)\> = `{}`
 
 #### Returns
 
@@ -55,103 +24,103 @@
 
 ### csrc
 
-• **csrc**: `number`[] = `[]`
+> **csrc**: `number`[] = `[]`
 
-___
+***
 
 ### csrcLength
 
-• **csrcLength**: `number` = `0`
+> **csrcLength**: `number` = `0`
 
-___
+***
 
 ### extension
 
-• **extension**: `boolean` = `false`
+> **extension**: `boolean` = `false`
 
-___
+***
 
-### extensionLength
+### extensionLength?
 
-• `Optional` **extensionLength**: `number`
+> `optional` **extensionLength**: `number`
 
 deserialize only
 
-___
+***
 
 ### extensionProfile
 
-• **extensionProfile**: `ExtensionProfile` = `ExtensionProfiles.OneByte`
+> **extensionProfile**: `ExtensionProfile` = `ExtensionProfiles.OneByte`
 
-___
+***
 
 ### extensions
 
-• **extensions**: [`Extension`](../modules.md#extension)[] = `[]`
+> **extensions**: [`Extension`](../type-aliases/Extension.md)[] = `[]`
 
-___
+***
 
 ### marker
 
-• **marker**: `boolean` = `false`
+> **marker**: `boolean` = `false`
 
-___
+***
 
 ### padding
 
-• **padding**: `boolean` = `false`
+> **padding**: `boolean` = `false`
 
-___
+***
 
 ### paddingSize
 
-• **paddingSize**: `number` = `0`
+> **paddingSize**: `number` = `0`
 
-___
+***
 
 ### payloadOffset
 
-• **payloadOffset**: `number` = `0`
+> **payloadOffset**: `number` = `0`
 
-___
+***
 
 ### payloadType
 
-• **payloadType**: `number` = `0`
+> **payloadType**: `number` = `0`
 
-___
+***
 
 ### sequenceNumber
 
-• **sequenceNumber**: `number` = `0`
+> **sequenceNumber**: `number` = `0`
 
 16bit, 初期値はランダムである必要があります
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: `number` = `0`
+> **ssrc**: `number` = `0`
 
-___
+***
 
 ### timestamp
 
-• **timestamp**: `number` = `0`
+> **timestamp**: `number` = `0`
 
 32bit microsec (milli/1000), 初期値はランダムである必要があります
 
-___
+***
 
 ### version
 
-• **version**: `number` = `2`
+> **version**: `number` = `2`
 
 ## Accessors
 
 ### serializeSize
 
-• `get` **serializeSize**(): `number`
+> `get` **serializeSize**(): `number`
 
 #### Returns
 
@@ -159,31 +128,27 @@ ___
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(`size`): `Buffer`
+> **serialize**(`size`): `Buffer`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `size` | `number` |
+• **size**: `number`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`rawPacket`): [`RtpHeader`](RtpHeader.md)
+> `static` **deSerialize**(`rawPacket`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `rawPacket` | `Buffer` |
+• **rawPacket**: `Buffer`
 
 #### Returns
 

@@ -1,28 +1,16 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / Red
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / Red
 
 # Class: Red
 
-## Table of contents
-
-### Constructors
-
-- [constructor](Red.md#constructor)
-
-### Properties
-
-- [blocks](Red.md#blocks)
-- [header](Red.md#header)
-
-### Methods
-
-- [serialize](Red.md#serialize)
-- [deSerialize](Red.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new Red()
 
-• **new Red**(): [`Red`](Red.md)
+> **new Red**(): [`Red`](Red.md)
 
 #### Returns
 
@@ -32,35 +20,33 @@
 
 ### blocks
 
-• **blocks**: \{ `block`: `Buffer` ; `blockPT`: `number` ; `timestampOffset?`: `number`  }[] = `[]`
+> **blocks**: `object`[] = `[]`
 
-___
+***
 
 ### header
 
-• **header**: [`RedHeader`](RedHeader.md)
+> **header**: [`RedHeader`](RedHeader.md)
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`bufferOrArrayBuffer`): [`Red`](Red.md)
+> `static` **deSerialize**(`bufferOrArrayBuffer`): [`Red`](Red.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `bufferOrArrayBuffer` | `Buffer` \| `ArrayBuffer` |
+• **bufferOrArrayBuffer**: `Buffer` \| `ArrayBuffer`
 
 #### Returns
 

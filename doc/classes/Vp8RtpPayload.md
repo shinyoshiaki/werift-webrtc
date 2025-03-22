@@ -1,4 +1,8 @@
-[werift](../README.md) / [Exports](../modules.md) / Vp8RtpPayload
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / Vp8RtpPayload
 
 # Class: Vp8RtpPayload
 
@@ -6,49 +10,11 @@
 
 - [`DePacketizerBase`](DePacketizerBase.md)
 
-## Table of contents
-
-### Constructors
-
-- [constructor](Vp8RtpPayload.md#constructor)
-
-### Properties
-
-- [hBit](Vp8RtpPayload.md#hbit)
-- [iBit](Vp8RtpPayload.md#ibit)
-- [kBit](Vp8RtpPayload.md#kbit)
-- [lBit](Vp8RtpPayload.md#lbit)
-- [mBit](Vp8RtpPayload.md#mbit)
-- [nBit](Vp8RtpPayload.md#nbit)
-- [pBit](Vp8RtpPayload.md#pbit)
-- [payload](Vp8RtpPayload.md#payload)
-- [pictureId](Vp8RtpPayload.md#pictureid)
-- [pid](Vp8RtpPayload.md#pid)
-- [sBit](Vp8RtpPayload.md#sbit)
-- [size0](Vp8RtpPayload.md#size0)
-- [size1](Vp8RtpPayload.md#size1)
-- [size2](Vp8RtpPayload.md#size2)
-- [tBit](Vp8RtpPayload.md#tbit)
-- [ver](Vp8RtpPayload.md#ver)
-- [xBit](Vp8RtpPayload.md#xbit)
-
-### Accessors
-
-- [isKeyframe](Vp8RtpPayload.md#iskeyframe)
-- [isPartitionHead](Vp8RtpPayload.md#ispartitionhead)
-- [payloadHeaderExist](Vp8RtpPayload.md#payloadheaderexist)
-- [size](Vp8RtpPayload.md#size)
-
-### Methods
-
-- [deSerialize](Vp8RtpPayload.md#deserialize)
-- [isDetectedFinalPacketInSequence](Vp8RtpPayload.md#isdetectedfinalpacketinsequence)
-
 ## Constructors
 
-### constructor
+### new Vp8RtpPayload()
 
-• **new Vp8RtpPayload**(): [`Vp8RtpPayload`](Vp8RtpPayload.md)
+> **new Vp8RtpPayload**(): [`Vp8RtpPayload`](Vp8RtpPayload.md)
 
 #### Returns
 
@@ -56,115 +22,115 @@
 
 ## Properties
 
-### hBit
+### hBit?
 
-• `Optional` **hBit**: `number`
+> `optional` **hBit**: `number`
 
-___
+***
 
-### iBit
+### iBit?
 
-• `Optional` **iBit**: `number`
+> `optional` **iBit**: `number`
 
-___
+***
 
-### kBit
+### kBit?
 
-• `Optional` **kBit**: `number`
+> `optional` **kBit**: `number`
 
-___
+***
 
-### lBit
+### lBit?
 
-• `Optional` **lBit**: `number`
+> `optional` **lBit**: `number`
 
-___
+***
 
-### mBit
+### mBit?
 
-• `Optional` **mBit**: `number`
+> `optional` **mBit**: `number`
 
-___
+***
 
 ### nBit
 
-• **nBit**: `number`
+> **nBit**: `number`
 
-___
+***
 
-### pBit
+### pBit?
 
-• `Optional` **pBit**: `number`
+> `optional` **pBit**: `number`
 
-___
+***
 
 ### payload
 
-• **payload**: `Buffer`
+> **payload**: `Buffer`
 
 #### Implementation of
 
-[DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
+[`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
 
-___
+***
 
-### pictureId
+### pictureId?
 
-• `Optional` **pictureId**: `number`
+> `optional` **pictureId**: `number`
 
-___
+***
 
 ### pid
 
-• **pid**: `number`
+> **pid**: `number`
 
-___
+***
 
 ### sBit
 
-• **sBit**: `number`
+> **sBit**: `number`
 
-___
+***
 
 ### size0
 
-• **size0**: `number` = `0`
+> **size0**: `number` = `0`
 
-___
+***
 
 ### size1
 
-• **size1**: `number` = `0`
+> **size1**: `number` = `0`
 
-___
+***
 
 ### size2
 
-• **size2**: `number` = `0`
+> **size2**: `number` = `0`
 
-___
+***
 
-### tBit
+### tBit?
 
-• `Optional` **tBit**: `number`
+> `optional` **tBit**: `number`
 
-___
+***
 
-### ver
+### ver?
 
-• `Optional` **ver**: `number`
+> `optional` **ver**: `number`
 
-___
+***
 
 ### xBit
 
-• **xBit**: `number`
+> **xBit**: `number`
 
 ## Accessors
 
 ### isKeyframe
 
-• `get` **isKeyframe**(): `boolean`
+> `get` **isKeyframe**(): `boolean`
 
 #### Returns
 
@@ -172,33 +138,33 @@ ___
 
 #### Implementation of
 
-DePacketizerBase.isKeyframe
+[`DePacketizerBase`](DePacketizerBase.md).[`isKeyframe`](DePacketizerBase.md#iskeyframe)
 
-___
+***
 
 ### isPartitionHead
 
-• `get` **isPartitionHead**(): `boolean`
+> `get` **isPartitionHead**(): `boolean`
 
 #### Returns
 
 `boolean`
 
-___
+***
 
 ### payloadHeaderExist
 
-• `get` **payloadHeaderExist**(): `boolean`
+> `get` **payloadHeaderExist**(): `boolean`
 
 #### Returns
 
 `boolean`
 
-___
+***
 
 ### size
 
-• `get` **size**(): `number`
+> `get` **size**(): `number`
 
 #### Returns
 
@@ -206,31 +172,27 @@ ___
 
 ## Methods
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`): [`Vp8RtpPayload`](Vp8RtpPayload.md)
+> `static` **deSerialize**(`buf`): [`Vp8RtpPayload`](Vp8RtpPayload.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 
 [`Vp8RtpPayload`](Vp8RtpPayload.md)
 
-___
+***
 
-### isDetectedFinalPacketInSequence
+### isDetectedFinalPacketInSequence()
 
-▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
+> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

@@ -18,7 +18,7 @@ const reader = readline.createInterface({
   const candidates = connection.localCandidates.map((v) => v.toSdp());
   const sdp = {
     candidates,
-    name: connection.localUserName,
+    name: connection.localUsername,
     pass: connection.localPassword,
   };
 
@@ -32,7 +32,7 @@ const reader = readline.createInterface({
       console.log("set answer");
       const { candidates, name, pass } = JSON.parse(line);
       connection.remoteCandidates = candidates.map((v: any) =>
-        Candidate.fromSdp(v)
+        Candidate.fromSdp(v),
       );
       connection.remoteUsername = name;
       connection.remotePassword = pass;

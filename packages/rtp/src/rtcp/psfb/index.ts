@@ -1,12 +1,11 @@
-import debug from "debug";
-
+import { debug } from "../../imports/common";
 import type { RtcpHeader } from "../header";
 import { RtcpPacketConverter } from "../rtcp";
 import { FullIntraRequest } from "./fullIntraRequest";
 import { PictureLossIndication } from "./pictureLossIndication";
 import { ReceiverEstimatedMaxBitrate } from "./remb";
 
-const log = debug("werift/rtp/rtcp/psfb/index");
+const log = debug("werift-rtp: /rtcp/psfb/index");
 
 type Feedback =
   | FullIntraRequest

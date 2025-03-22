@@ -1,37 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RtcpSenderInfo
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtcpSenderInfo
 
 # Class: RtcpSenderInfo
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpSenderInfo.md#constructor)
-
-### Properties
-
-- [ntpTimestamp](RtcpSenderInfo.md#ntptimestamp)
-- [octetCount](RtcpSenderInfo.md#octetcount)
-- [packetCount](RtcpSenderInfo.md#packetcount)
-- [rtpTimestamp](RtcpSenderInfo.md#rtptimestamp)
-
-### Methods
-
-- [serialize](RtcpSenderInfo.md#serialize)
-- [toJSON](RtcpSenderInfo.md#tojson)
-- [deSerialize](RtcpSenderInfo.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpSenderInfo()
 
-• **new RtcpSenderInfo**(`props?`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
+> **new RtcpSenderInfo**(`props`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> |
+• **props**: `Partial`\<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> = `{}`
 
 #### Returns
 
@@ -41,62 +24,63 @@
 
 ### ntpTimestamp
 
-• **ntpTimestamp**: `bigint`
+> **ntpTimestamp**: `bigint`
 
-___
+***
 
 ### octetCount
 
-• **octetCount**: `number`
+> **octetCount**: `number`
 
-___
+***
 
 ### packetCount
 
-• **packetCount**: `number`
+> **packetCount**: `number`
 
-___
+***
 
 ### rtpTimestamp
 
-• **rtpTimestamp**: `number`
+> **rtpTimestamp**: `number`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### toJSON
+### toJSON()
 
-▸ **toJSON**(): `Object`
+> **toJSON**(): `object`
 
 #### Returns
 
-`Object`
+`object`
 
-| Name | Type |
-| :------ | :------ |
-| `ntpTimestamp` | `number` |
-| `rtpTimestamp` | `number` |
+##### ntpTimestamp
 
-___
+> **ntpTimestamp**: `number`
 
-### deSerialize
+##### rtpTimestamp
 
-▸ **deSerialize**(`data`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
+> **rtpTimestamp**: `number`
+
+***
+
+### deSerialize()
+
+> `static` **deSerialize**(`data`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

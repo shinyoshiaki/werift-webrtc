@@ -1,38 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / SourceDescriptionItem
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / SourceDescriptionItem
 
 # Class: SourceDescriptionItem
 
-## Table of contents
-
-### Constructors
-
-- [constructor](SourceDescriptionItem.md#constructor)
-
-### Properties
-
-- [text](SourceDescriptionItem.md#text)
-- [type](SourceDescriptionItem.md#type)
-
-### Accessors
-
-- [length](SourceDescriptionItem.md#length)
-
-### Methods
-
-- [serialize](SourceDescriptionItem.md#serialize)
-- [deSerialize](SourceDescriptionItem.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new SourceDescriptionItem()
 
-• **new SourceDescriptionItem**(`props`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
+> **new SourceDescriptionItem**(`props`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`SourceDescriptionItem`](SourceDescriptionItem.md)\> |
+• **props**: `Partial`\<[`SourceDescriptionItem`](SourceDescriptionItem.md)\>
 
 #### Returns
 
@@ -42,19 +24,19 @@
 
 ### text
 
-• **text**: `string`
+> **text**: `string`
 
-___
+***
 
 ### type
 
-• **type**: `number`
+> **type**: `number`
 
 ## Accessors
 
 ### length
 
-• `get` **length**(): `number`
+> `get` **length**(): `number`
 
 #### Returns
 
@@ -62,25 +44,23 @@ ___
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
+> `static` **deSerialize**(`data`): [`SourceDescriptionItem`](SourceDescriptionItem.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

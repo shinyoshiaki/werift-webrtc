@@ -1,5 +1,4 @@
-import debug from "debug";
-
+import { debug } from "../../imports/common";
 import type { RtcpHeader } from "../header";
 import { GenericNack } from "./nack";
 import { TransportWideCC } from "./twcc";

@@ -1,4 +1,8 @@
-[werift](../README.md) / [Exports](../modules.md) / Vp9RtpPayload
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / Vp9RtpPayload
 
 # Class: Vp9RtpPayload
 
@@ -6,57 +10,11 @@
 
 - [`DePacketizerBase`](DePacketizerBase.md)
 
-## Table of contents
-
-### Constructors
-
-- [constructor](Vp9RtpPayload.md#constructor)
-
-### Properties
-
-- [bBit](Vp9RtpPayload.md#bbit)
-- [d](Vp9RtpPayload.md#d)
-- [eBit](Vp9RtpPayload.md#ebit)
-- [fBit](Vp9RtpPayload.md#fbit)
-- [g](Vp9RtpPayload.md#g)
-- [height](Vp9RtpPayload.md#height)
-- [iBit](Vp9RtpPayload.md#ibit)
-- [lBit](Vp9RtpPayload.md#lbit)
-- [m](Vp9RtpPayload.md#m)
-- [n\_g](Vp9RtpPayload.md#n_g)
-- [n\_s](Vp9RtpPayload.md#n_s)
-- [pBit](Vp9RtpPayload.md#pbit)
-- [pDiff](Vp9RtpPayload.md#pdiff)
-- [payload](Vp9RtpPayload.md#payload)
-- [pgP\_Diff](Vp9RtpPayload.md#pgp_diff)
-- [pgT](Vp9RtpPayload.md#pgt)
-- [pgU](Vp9RtpPayload.md#pgu)
-- [pictureId](Vp9RtpPayload.md#pictureid)
-- [sid](Vp9RtpPayload.md#sid)
-- [tid](Vp9RtpPayload.md#tid)
-- [tl0PicIdx](Vp9RtpPayload.md#tl0picidx)
-- [u](Vp9RtpPayload.md#u)
-- [vBit](Vp9RtpPayload.md#vbit)
-- [width](Vp9RtpPayload.md#width)
-- [y](Vp9RtpPayload.md#y)
-- [zBit](Vp9RtpPayload.md#zbit)
-
-### Accessors
-
-- [isKeyframe](Vp9RtpPayload.md#iskeyframe)
-- [isPartitionHead](Vp9RtpPayload.md#ispartitionhead)
-
-### Methods
-
-- [deSerialize](Vp9RtpPayload.md#deserialize)
-- [isDetectedFinalPacketInSequence](Vp9RtpPayload.md#isdetectedfinalpacketinsequence)
-- [parseRtpPayload](Vp9RtpPayload.md#parsertppayload)
-
 ## Constructors
 
-### constructor
+### new Vp9RtpPayload()
 
-• **new Vp9RtpPayload**(): [`Vp9RtpPayload`](Vp9RtpPayload.md)
+> **new Vp9RtpPayload**(): [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 #### Returns
 
@@ -66,183 +24,183 @@
 
 ### bBit
 
-• **bBit**: `number`
+> **bBit**: `number`
 
 Start of a frame
 
-___
+***
 
-### d
+### d?
 
-• `Optional` **d**: `number`
+> `optional` **d**: `number`
 
 inter_layer_predicted
 
-___
+***
 
 ### eBit
 
-• **eBit**: `number`
+> **eBit**: `number`
 
 End of a frame
 
-___
+***
 
 ### fBit
 
-• **fBit**: `number`
+> **fBit**: `number`
 
 Flexible mode
 
-___
+***
 
-### g
+### g?
 
-• `Optional` **g**: `number`
+> `optional` **g**: `number`
 
-___
+***
 
 ### height
 
-• **height**: `number`[] = `[]`
+> **height**: `number`[] = `[]`
 
-___
+***
 
 ### iBit
 
-• **iBit**: `number`
+> **iBit**: `number`
 
 Picture ID (PID) present
 
-___
+***
 
 ### lBit
 
-• **lBit**: `number`
+> **lBit**: `number`
 
 Layer indices present
 
-___
+***
 
-### m
+### m?
 
-• `Optional` **m**: `number`
+> `optional` **m**: `number`
 
-___
+***
 
 ### n\_g
 
-• **n\_g**: `number` = `0`
+> **n\_g**: `number` = `0`
 
-___
+***
 
-### n\_s
+### n\_s?
 
-• `Optional` **n\_s**: `number`
+> `optional` **n\_s**: `number`
 
-___
+***
 
 ### pBit
 
-• **pBit**: `number`
+> **pBit**: `number`
 
 Inter-picture predicted frame
 
-___
+***
 
 ### pDiff
 
-• **pDiff**: `number`[] = `[]`
+> **pDiff**: `number`[] = `[]`
 
-___
+***
 
 ### payload
 
-• **payload**: `Buffer`
+> **payload**: `Buffer`
 
 #### Implementation of
 
-[DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
+[`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
 
-___
+***
 
 ### pgP\_Diff
 
-• **pgP\_Diff**: `number`[][] = `[]`
+> **pgP\_Diff**: `number`[][] = `[]`
 
-___
+***
 
 ### pgT
 
-• **pgT**: `number`[] = `[]`
+> **pgT**: `number`[] = `[]`
 
-___
+***
 
 ### pgU
 
-• **pgU**: `number`[] = `[]`
+> **pgU**: `number`[] = `[]`
 
-___
+***
 
-### pictureId
+### pictureId?
 
-• `Optional` **pictureId**: `number`
+> `optional` **pictureId**: `number`
 
-___
+***
 
-### sid
+### sid?
 
-• `Optional` **sid**: `number`
+> `optional` **sid**: `number`
 
-___
+***
 
-### tid
+### tid?
 
-• `Optional` **tid**: `number`
+> `optional` **tid**: `number`
 
-___
+***
 
-### tl0PicIdx
+### tl0PicIdx?
 
-• `Optional` **tl0PicIdx**: `number`
+> `optional` **tl0PicIdx**: `number`
 
-___
+***
 
-### u
+### u?
 
-• `Optional` **u**: `number`
+> `optional` **u**: `number`
 
-___
+***
 
 ### vBit
 
-• **vBit**: `number`
+> **vBit**: `number`
 
 Scalability structure
 
-___
+***
 
 ### width
 
-• **width**: `number`[] = `[]`
+> **width**: `number`[] = `[]`
 
-___
+***
 
-### y
+### y?
 
-• `Optional` **y**: `number`
+> `optional` **y**: `number`
 
-___
+***
 
 ### zBit
 
-• **zBit**: `number`
+> **zBit**: `number`
 
 ## Accessors
 
 ### isKeyframe
 
-• `get` **isKeyframe**(): `boolean`
+> `get` **isKeyframe**(): `boolean`
 
 #### Returns
 
@@ -250,67 +208,64 @@ ___
 
 #### Implementation of
 
-DePacketizerBase.isKeyframe
+[`DePacketizerBase`](DePacketizerBase.md).[`isKeyframe`](DePacketizerBase.md#iskeyframe)
 
-___
+***
 
 ### isPartitionHead
 
-• `get` **isPartitionHead**(): `boolean` \| ``0``
+> `get` **isPartitionHead**(): `boolean` \| `0`
 
 #### Returns
 
-`boolean` \| ``0``
+`boolean` \| `0`
 
 ## Methods
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`): [`Vp9RtpPayload`](Vp9RtpPayload.md)
+> `static` **deSerialize**(`buf`): [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 
 [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
-___
+***
 
-### isDetectedFinalPacketInSequence
+### isDetectedFinalPacketInSequence()
 
-▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
+> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 
 `boolean`
 
-___
+***
 
-### parseRtpPayload
+### parseRtpPayload()
 
-▸ **parseRtpPayload**(`buf`): `Object`
+> `static` **parseRtpPayload**(`buf`): `object`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 
-`Object`
+`object`
 
-| Name | Type |
-| :------ | :------ |
-| `offset` | `number` |
-| `p` | [`Vp9RtpPayload`](Vp9RtpPayload.md) |
+##### offset
+
+> **offset**: `number`
+
+##### p
+
+> **p**: [`Vp9RtpPayload`](Vp9RtpPayload.md)

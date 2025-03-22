@@ -1,4 +1,8 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / H264RtpPayload
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / H264RtpPayload
 
 # Class: H264RtpPayload
 
@@ -6,39 +10,11 @@
 
 - [`DePacketizerBase`](DePacketizerBase.md)
 
-## Table of contents
-
-### Constructors
-
-- [constructor](H264RtpPayload.md#constructor)
-
-### Properties
-
-- [e](H264RtpPayload.md#e)
-- [f](H264RtpPayload.md#f)
-- [fragment](H264RtpPayload.md#fragment)
-- [nalUnitPayloadType](H264RtpPayload.md#nalunitpayloadtype)
-- [nalUnitType](H264RtpPayload.md#nalunittype)
-- [nri](H264RtpPayload.md#nri)
-- [payload](H264RtpPayload.md#payload)
-- [r](H264RtpPayload.md#r)
-- [s](H264RtpPayload.md#s)
-
-### Accessors
-
-- [isKeyframe](H264RtpPayload.md#iskeyframe)
-- [isPartitionHead](H264RtpPayload.md#ispartitionhead)
-
-### Methods
-
-- [deSerialize](H264RtpPayload.md#deserialize)
-- [isDetectedFinalPacketInSequence](H264RtpPayload.md#isdetectedfinalpacketinsequence)
-
 ## Constructors
 
-### constructor
+### new H264RtpPayload()
 
-• **new H264RtpPayload**(): [`H264RtpPayload`](H264RtpPayload.md)
+> **new H264RtpPayload**(): [`H264RtpPayload`](H264RtpPayload.md)
 
 #### Returns
 
@@ -48,71 +24,71 @@
 
 ### e
 
-• **e**: `number`
+> **e**: `number`
 
 end of a fragmented NAL unit
 
-___
+***
 
 ### f
 
-• **f**: `number`
+> **f**: `number`
 
 forbidden_zero_bit
 
-___
+***
 
-### fragment
+### fragment?
 
-• `Optional` **fragment**: `Buffer`
+> `optional` **fragment**: `Buffer`
 
 #### Implementation of
 
-[DePacketizerBase](DePacketizerBase.md).[fragment](DePacketizerBase.md#fragment)
+[`DePacketizerBase`](DePacketizerBase.md).[`fragment`](DePacketizerBase.md#fragment)
 
-___
+***
 
 ### nalUnitPayloadType
 
-• **nalUnitPayloadType**: `number`
+> **nalUnitPayloadType**: `number`
 
-___
+***
 
 ### nalUnitType
 
-• **nalUnitType**: `number`
+> **nalUnitType**: `number`
 
 nal_unit_types
 
-___
+***
 
 ### nri
 
-• **nri**: `number`
+> **nri**: `number`
 
 nal_ref_idc
 
-___
+***
 
 ### payload
 
-• **payload**: `Buffer`
+> **payload**: `Buffer`
 
 #### Implementation of
 
-[DePacketizerBase](DePacketizerBase.md).[payload](DePacketizerBase.md#payload)
+[`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
 
-___
+***
 
 ### r
 
-• **r**: `number`
+> **r**: `number`
 
-___
+***
 
 ### s
 
-• **s**: `number`
+> **s**: `number`
 
 start of a fragmented NAL unit
 
@@ -120,7 +96,7 @@ start of a fragmented NAL unit
 
 ### isKeyframe
 
-• `get` **isKeyframe**(): `boolean`
+> `get` **isKeyframe**(): `boolean`
 
 #### Returns
 
@@ -128,13 +104,13 @@ start of a fragmented NAL unit
 
 #### Implementation of
 
-DePacketizerBase.isKeyframe
+[`DePacketizerBase`](DePacketizerBase.md).[`isKeyframe`](DePacketizerBase.md#iskeyframe)
 
-___
+***
 
 ### isPartitionHead
 
-• `get` **isPartitionHead**(): `boolean`
+> `get` **isPartitionHead**(): `boolean`
 
 #### Returns
 
@@ -142,32 +118,29 @@ ___
 
 ## Methods
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`, `fragment?`): [`H264RtpPayload`](H264RtpPayload.md)
+> `static` **deSerialize**(`buf`, `fragment`?): [`H264RtpPayload`](H264RtpPayload.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
-| `fragment?` | `Buffer` |
+• **buf**: `Buffer`
+
+• **fragment?**: `Buffer`
 
 #### Returns
 
 [`H264RtpPayload`](H264RtpPayload.md)
 
-___
+***
 
-### isDetectedFinalPacketInSequence
+### isDetectedFinalPacketInSequence()
 
-▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
+> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

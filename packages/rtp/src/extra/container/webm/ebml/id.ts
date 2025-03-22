@@ -218,4 +218,10 @@ export const ID = {
   TagDefault: Uint8Array.of(0x44, 0x84),
   TagString: Uint8Array.of(0x44, 0x87),
   TagBinary: Uint8Array.of(0x44, 0x85),
+  Projection: Uint8Array.of(0x76, 0x70),
+  ProjectionType: Uint8Array.of(0x76, 0x71),
+  ProjectionPrivate: Uint8Array.of(0x76, 0x72),
+  ProjectionPoseYaw: Uint8Array.of(0x76, 0x73),
+  ProjectionPosePitch: Uint8Array.of(0x76, 0x74),
+  ProjectionPoseRoll: Uint8Array.of(0x76, 0x75),
 };

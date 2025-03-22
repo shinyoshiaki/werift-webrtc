@@ -1,39 +1,24 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / BitWriter2
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / BitWriter2
 
 # Class: BitWriter2
 
-## Table of contents
-
-### Constructors
-
-- [constructor](BitWriter2.md#constructor)
-
-### Properties
-
-- [offset](BitWriter2.md#offset)
-
-### Accessors
-
-- [buffer](BitWriter2.md#buffer)
-- [value](BitWriter2.md#value)
-
-### Methods
-
-- [set](BitWriter2.md#set)
-
 ## Constructors
 
-### constructor
+### new BitWriter2()
 
-• **new BitWriter2**(`bitLength`): [`BitWriter2`](BitWriter2.md)
+> **new BitWriter2**(`bitLength`): [`BitWriter2`](BitWriter2.md)
 
 各valueがオクテットを跨いではならない
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `bitLength` | `number` | Max 32bit |
+• **bitLength**: `number`
+
+Max 32bit
 
 #### Returns
 
@@ -43,23 +28,23 @@
 
 ### offset
 
-• **offset**: `bigint`
+> **offset**: `bigint`
 
 ## Accessors
 
 ### buffer
 
-• `get` **buffer**(): `Buffer`
+> `get` **buffer**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
 ### value
 
-• `get` **value**(): `number`
+> `get` **value**(): `number`
 
 #### Returns
 
@@ -67,16 +52,15 @@ ___
 
 ## Methods
 
-### set
+### set()
 
-▸ **set**(`value`, `size?`): [`BitWriter2`](BitWriter2.md)
+> **set**(`value`, `size`): [`BitWriter2`](BitWriter2.md)
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `value` | `number` | `undefined` |
-| `size` | `number` | `1` |
+• **value**: `number`
+
+• **size**: `number` = `1`
 
 #### Returns
 

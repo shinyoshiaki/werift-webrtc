@@ -1,5 +1,4 @@
-import debug from "debug";
-
+import { debug } from "../imports/common";
 import { RTCP_HEADER_SIZE, RtcpHeader } from "./header";
 import { RtcpPayloadSpecificFeedback } from "./psfb";
 import { RtcpRrPacket } from "./rr";

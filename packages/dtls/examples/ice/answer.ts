@@ -19,7 +19,7 @@ const reader = readline.createInterface({
       console.log("set offer");
       const { candidates, name, pass } = JSON.parse(line);
       connection.remoteCandidates = candidates.map((v: any) =>
-        Candidate.fromSdp(v)
+        Candidate.fromSdp(v),
       );
       connection.remoteUsername = name;
       connection.remotePassword = pass;
@@ -29,7 +29,7 @@ const reader = readline.createInterface({
 
       const sdp = {
         candidates: connection.localCandidates.map((v) => v.toSdp()),
-        name: connection.localUserName,
+        name: connection.localUsername,
         pass: connection.localPassword,
       };
 

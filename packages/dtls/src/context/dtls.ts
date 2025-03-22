@@ -1,7 +1,6 @@
-import { debug } from "debug";
-
 import type { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
 import type { SessionTypes } from "../cipher/suites/abstract";
+import { debug } from "../imports/common";
 import type { FragmentedHandshake } from "../record/message/fragment";
 import type { Options } from "../socket";
 import type { Handshake } from "../typings/domain";

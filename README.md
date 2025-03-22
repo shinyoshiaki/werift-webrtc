@@ -28,7 +28,7 @@ https://github.com/shinyoshiaki/node-sfu
 ## MediaChannel
 
 ```sh
-yarn media
+npm run media
 ```
 
 open
@@ -41,7 +41,7 @@ see console & chrome://webrtc-internals/
 run
 
 ```sh
-yarn datachannel
+npm run datachannel
 ```
 
 open
@@ -61,6 +61,7 @@ see console & chrome://webrtc-internals/
   - [x] Trickle ICE
   - [x] ICE-Lite Client Side
   - [ ] ICE-Lite Server Side
+  - [x] ICE restart
 - [x] DTLS
   - [x] DTLS-SRTP
   - [x] Curve25519
@@ -89,6 +90,7 @@ see console & chrome://webrtc-internals/
 - [x] SRTP
 - [x] SRTCP
 - [x] SDP
+  - [x] reuse inactive m-line
 - [x] PeerConnection
 - [x] Simulcast
   - [x] recv
@@ -122,10 +124,6 @@ see console & chrome://webrtc-internals/
 ## Road Map Towards 2.0
 
 - [ ] API compatible with browser RTCPeerConnection
-- [ ] ICE
-  - [ ] ICE restart
-- [ ] SDP
-  - [ ] reuse inactive m-line
 - [ ] Simulcast
   - [ ] send
 - [ ] support more cipher suites

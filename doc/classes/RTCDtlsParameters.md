@@ -1,30 +1,22 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCDtlsParameters
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCDtlsParameters
 
 # Class: RTCDtlsParameters
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCDtlsParameters.md#constructor)
-
-### Properties
-
-- [fingerprints](RTCDtlsParameters.md#fingerprints)
-- [role](RTCDtlsParameters.md#role)
-
 ## Constructors
 
-### constructor
+### new RTCDtlsParameters()
 
-• **new RTCDtlsParameters**(`fingerprints?`, `role`): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+> **new RTCDtlsParameters**(`fingerprints`, `role`): [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `fingerprints` | [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] | `[]` |
-| `role` | ``"auto"`` \| ``"server"`` \| ``"client"`` | `undefined` |
+• **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
+
+• **role**: `"auto"` \| `"server"` \| `"client"`
 
 #### Returns
 
@@ -34,10 +26,10 @@
 
 ### fingerprints
 
-• **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
+> **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
 
-___
+***
 
 ### role
 
-• **role**: ``"auto"`` \| ``"server"`` \| ``"client"``
+> **role**: `"auto"` \| `"server"` \| `"client"`

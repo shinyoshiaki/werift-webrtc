@@ -1,11 +1,8 @@
-import {
-  HashAlgorithms,
-  SignatureAlgorithm,
-} from "../../dtls/src/cipher/const";
+import { type HashAlgorithms, SignatureAlgorithm } from "./imports/dtls";
 import {
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
-} from "../../dtls/src/context/srtp";
+} from "./imports/rtp";
 import type { DtlsRole } from "./transport/dtls";
 
 // data channel export constants
@@ -63,4 +60,4 @@ export const SRTP_PROFILE = {
 export const SenderDirections = ["sendonly", "sendrecv"];
 export const ReceiverDirection = ["sendrecv", "recvonly"];
 
-export { HashAlgorithms, SignatureAlgorithm };
+export { type HashAlgorithms, SignatureAlgorithm };

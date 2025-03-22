@@ -1,5 +1,3 @@
-import debug from "debug";
-
 import { createCipher } from "../../cipher/create";
 import {
   prfExtendedMasterSecret,
@@ -15,6 +13,7 @@ import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
 import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
 import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
 import { Finished } from "../../handshake/message/finished";
+import { debug } from "../../imports/common";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import type { FragmentedHandshake } from "../../record/message/fragment";

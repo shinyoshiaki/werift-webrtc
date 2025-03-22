@@ -1,35 +1,24 @@
-[werift](../README.md) / [Exports](../modules.md) / RtpBuilder
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtpBuilder
 
 # Class: RtpBuilder
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtpBuilder.md#constructor)
-
-### Properties
-
-- [sequenceNumber](RtpBuilder.md#sequencenumber)
-- [timestamp](RtpBuilder.md#timestamp)
-
-### Methods
-
-- [create](RtpBuilder.md#create)
-
 ## Constructors
 
-### constructor
+### new RtpBuilder()
 
-• **new RtpBuilder**(`props`): [`RtpBuilder`](RtpBuilder.md)
+> **new RtpBuilder**(`props`): [`RtpBuilder`](RtpBuilder.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Object` |
-| `props.between` | `number` |
-| `props.clockRate` | `number` |
+• **props**
+
+• **props.between**: `number`
+
+• **props.clockRate**: `number`
 
 #### Returns
 
@@ -39,25 +28,23 @@
 
 ### sequenceNumber
 
-• **sequenceNumber**: `number`
+> **sequenceNumber**: `number`
 
-___
+***
 
 ### timestamp
 
-• **timestamp**: `number`
+> **timestamp**: `number`
 
 ## Methods
 
-### create
+### create()
 
-▸ **create**(`payload`): [`RtpPacket`](RtpPacket.md)
+> **create**(`payload`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `payload` | `Buffer` |
+• **payload**: `Buffer`
 
 #### Returns
 

@@ -1,5 +1,5 @@
-import Event from "rx.mini";
 import * as uuid from "uuid";
+import { Event } from "../imports/common";
 
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";

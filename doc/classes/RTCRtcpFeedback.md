@@ -1,29 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCRtcpFeedback
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCRtcpFeedback
 
 # Class: RTCRtcpFeedback
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCRtcpFeedback.md#constructor)
-
-### Properties
-
-- [parameter](RTCRtcpFeedback.md#parameter)
-- [type](RTCRtcpFeedback.md#type)
-
 ## Constructors
 
-### constructor
+### new RTCRtcpFeedback()
 
-• **new RTCRtcpFeedback**(`props?`): [`RTCRtcpFeedback`](RTCRtcpFeedback.md)
+> **new RTCRtcpFeedback**(`props`): [`RTCRtcpFeedback`](RTCRtcpFeedback.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RTCRtcpFeedback`](RTCRtcpFeedback.md)\> |
+• **props**: `Partial`\<[`RTCRtcpFeedback`](RTCRtcpFeedback.md)\> = `{}`
 
 #### Returns
 
@@ -31,12 +22,12 @@
 
 ## Properties
 
-### parameter
+### parameter?
 
-• `Optional` **parameter**: `string`
+> `optional` **parameter**: `string`
 
-___
+***
 
 ### type
 
-• **type**: `string`
+> **type**: `string`

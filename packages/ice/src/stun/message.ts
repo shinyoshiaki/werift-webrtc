@@ -30,13 +30,13 @@ export function parseMessage(
     return undefined;
   }
 
-  const messageType = data.readUint16BE(0);
   const length = data.readUint16BE(2);
 
   if (data.length !== HEADER_LENGTH + length) {
     return undefined;
   }
 
+  const messageType = data.readUint16BE(0);
   const transactionId = Buffer.from(
     data.slice(HEADER_LENGTH - 12, HEADER_LENGTH),
   );
@@ -105,9 +105,14 @@ export class Message extends AttributeRepository {
   }
 
   toJSON() {
+    return this.json;
+  }
+
+  get json() {
     return {
       messageMethod: methods[this.messageMethod],
       messageClass: classes[this.messageClass],
+      attributes: this.attributes,
     };
   }
 
@@ -189,4 +194,13 @@ function messageIntegrity(data: Buffer, key: Buffer) {
     createHmac("sha1", key).update(checkData).digest("hex"),
     "hex",
   );
+}
+
+export function paddingLength(length: number) {
+  const rest = length % 4;
+  if (rest === 0) {
+    return 0;
+  } else {
+    return 4 - rest;
+  }
 }

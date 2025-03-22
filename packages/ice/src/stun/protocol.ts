@@ -1,19 +1,18 @@
-import debug from "debug";
-import { Event } from "rx.mini";
+import { Event, UdpTransport, debug } from "../imports/common";
 
-import type { InterfaceAddresses } from "../../../common/src/network";
+import type { Address, InterfaceAddresses } from "../../../common/src/network";
 import type { Candidate } from "../candidate";
-import type { Connection } from "../ice";
-import { UdpTransport } from "../transport";
-import type { Address, Protocol } from "../types/model";
+
+import type { Protocol } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
 
-const log = debug("packages/ice/src/stun/protocol.ts");
+const log = debug("werift-ice : packages/ice/src/stun/protocol.ts");
 
 export class StunProtocol implements Protocol {
-  readonly type = "stun";
+  static readonly type = "stun";
+  readonly type = StunProtocol.type;
   transport!: UdpTransport;
   transactions: { [key: string]: Transaction } = {};
   get transactionsKeys() {
@@ -21,16 +20,12 @@ export class StunProtocol implements Protocol {
   }
   localCandidate?: Candidate;
   sentMessage?: Message;
-  localAddress?: string;
+  localIp?: string;
 
-  private readonly closed = new Event();
+  readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
+  readonly onDataReceived = new Event<[Buffer]>();
 
-  constructor(public receiver: Connection) {}
-
-  connectionLost() {
-    this.closed.execute();
-    this.closed.complete();
-  }
+  constructor() {}
 
   connectionMade = async (
     useIpv4: boolean,
@@ -38,32 +33,32 @@ export class StunProtocol implements Protocol {
     interfaceAddresses?: InterfaceAddresses,
   ) => {
     if (useIpv4) {
-      this.transport = await UdpTransport.init(
-        "udp4",
+      this.transport = await UdpTransport.init("udp4", {
         portRange,
         interfaceAddresses,
-      );
+      });
     } else {
-      this.transport = await UdpTransport.init(
-        "udp6",
+      this.transport = await UdpTransport.init("udp6", {
         portRange,
         interfaceAddresses,
-      );
+      });
     }
 
-    this.transport.onData = (data, addr) => this.datagramReceived(data, addr);
+    this.transport.onData = (data, addr) => {
+      this.datagramReceived(data, addr);
+    };
   };
 
   private datagramReceived(data: Buffer, addr: Address) {
     try {
-      if (!this.localCandidate) throw new Error("not exist");
-
       const message = parseMessage(data);
       if (!message) {
-        this.receiver.dataReceived(data, this.localCandidate.component);
+        if (this.localCandidate) {
+          this.onDataReceived.execute(data);
+        }
         return;
       }
-      // log("parseMessage", addr, message);
+      // log("parseMessage", addr, message.toJSON());
       if (
         (message.messageClass === classes.RESPONSE ||
           message.messageClass === classes.ERROR) &&
@@ -72,7 +67,7 @@ export class StunProtocol implements Protocol {
         const transaction = this.transactions[message.transactionIdHex];
         transaction.responseReceived(message, addr);
       } else if (message.messageClass === classes.REQUEST) {
-        this.receiver.requestReceived(message, addr, this, data);
+        this.onRequestReceived.execute(message, addr, data);
       }
     } catch (error) {
       log("datagramReceived error", error);
@@ -80,7 +75,7 @@ export class StunProtocol implements Protocol {
   }
 
   getExtraInfo(): Address {
-    const { address: host, port } = this.transport.address();
+    const { address: host, port } = this.transport.address;
     return [host, port];
   }
 
@@ -134,5 +129,7 @@ export class StunProtocol implements Protocol {
       transaction.cancel();
     });
     await this.transport.close();
+    this.onRequestReceived.complete();
+    this.onDataReceived.complete();
   }
 }

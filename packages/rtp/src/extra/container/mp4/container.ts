@@ -1,4 +1,4 @@
-import Event from "rx.mini";
+import { Event } from "../../../imports/common";
 
 import * as MP4 from "./mp4box";
 
@@ -196,7 +196,8 @@ export class Mp4Container {
 
     // TODO avoid this extra copy by writing to the mdat directly
     // ...which means changing mp4box.js to take an offset instead of ArrayBuffer
-    const buffer = new Uint8Array(bufferFrame.byteLength);
+
+    const buffer = new ArrayBuffer(bufferFrame.byteLength);
     bufferFrame.copyTo(buffer);
 
     // Add the sample to the container

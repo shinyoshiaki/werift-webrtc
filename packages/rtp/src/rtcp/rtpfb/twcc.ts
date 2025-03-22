@@ -1,11 +1,10 @@
-import debug from "debug";
-
 import {
   BitWriter2,
   bufferReader,
   bufferWriter,
+  debug,
   getBit,
-} from "../../../../common/src";
+} from "../../imports/common";
 import { RtcpHeader } from "../header";
 
 const log = debug("werift/rtp/rtcp/rtpfb/twcc");

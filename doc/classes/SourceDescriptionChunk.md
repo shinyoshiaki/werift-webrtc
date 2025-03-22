@@ -1,38 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / SourceDescriptionChunk
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / SourceDescriptionChunk
 
 # Class: SourceDescriptionChunk
 
-## Table of contents
-
-### Constructors
-
-- [constructor](SourceDescriptionChunk.md#constructor)
-
-### Properties
-
-- [items](SourceDescriptionChunk.md#items)
-- [source](SourceDescriptionChunk.md#source)
-
-### Accessors
-
-- [length](SourceDescriptionChunk.md#length)
-
-### Methods
-
-- [serialize](SourceDescriptionChunk.md#serialize)
-- [deSerialize](SourceDescriptionChunk.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new SourceDescriptionChunk()
 
-• **new SourceDescriptionChunk**(`props?`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
+> **new SourceDescriptionChunk**(`props`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> |
+• **props**: `Partial`\<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> = `{}`
 
 #### Returns
 
@@ -42,19 +24,19 @@
 
 ### items
 
-• **items**: [`SourceDescriptionItem`](SourceDescriptionItem.md)[] = `[]`
+> **items**: [`SourceDescriptionItem`](SourceDescriptionItem.md)[] = `[]`
 
-___
+***
 
 ### source
 
-• **source**: `number`
+> **source**: `number`
 
 ## Accessors
 
 ### length
 
-• `get` **length**(): `number`
+> `get` **length**(): `number`
 
 #### Returns
 
@@ -62,25 +44,23 @@ ___
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
+> `static` **deSerialize**(`data`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

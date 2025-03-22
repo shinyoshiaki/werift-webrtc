@@ -1,4 +1,4 @@
-import Event from "rx.mini";
+import { Event } from "../../imports/common";
 
 import {
   WEBMContainer,
@@ -6,8 +6,18 @@ import {
   numberToByteArray,
   vintEncode,
 } from "../container";
-import type { SupportedCodec } from "../container/webm";
+import type { ContainerSupportedCodec } from "../container/webm";
 import type { AVProcessor } from "./interface";
+
+export interface WebmTrack {
+  width?: number;
+  height?: number;
+  roll?: number;
+  kind: MediaKind;
+  codec: ContainerSupportedCodec;
+  clockRate: number;
+  trackNumber: number;
+}
 
 export type WebmInput = {
   frame?: {
@@ -56,14 +66,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
   onStopped = new Event();
 
   constructor(
-    public tracks: {
-      width?: number;
-      height?: number;
-      kind: MediaKind;
-      codec: SupportedCodec;
-      clockRate: number;
-      trackNumber: number;
-    }[],
+    public tracks: WebmTrack[],
     private output: (output: WebmOutput) => void,
     private options: WebmOption = {},
   ) {

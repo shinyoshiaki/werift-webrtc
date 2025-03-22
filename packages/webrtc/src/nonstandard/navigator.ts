@@ -1,5 +1,7 @@
 import { randomBytes } from "crypto";
+import { createSocket } from "dgram";
 import { jspack } from "@shinyoshiaki/jspack";
+import { RTCRtpCodecParameters } from "..";
 import { MediaStream, MediaStreamTrack } from "../media/track";
 
 export class Navigator {
@@ -14,7 +16,9 @@ export class MediaDevices extends EventTarget {
   video?: MediaStreamTrack;
   audio?: MediaStreamTrack;
 
-  constructor(props: { video?: MediaStreamTrack; audio?: MediaStreamTrack }) {
+  constructor(
+    readonly props: { video?: MediaStreamTrack; audio?: MediaStreamTrack },
+  ) {
     super();
     this.video = props.video;
     this.audio = props.audio;
@@ -56,6 +60,34 @@ export class MediaDevices extends EventTarget {
   };
 
   readonly getDisplayMedia = this.getUserMedia;
+
+  readonly getUdpMedia = ({
+    port,
+    codec,
+  }: {
+    port: number;
+    codec: ConstructorParameters<typeof RTCRtpCodecParameters>[0];
+  }) => {
+    const kind = codec.mimeType.toLowerCase().includes("video")
+      ? "video"
+      : "audio";
+    const track = new MediaStreamTrack({
+      kind,
+      codec: new RTCRtpCodecParameters(codec),
+    });
+
+    const udp = createSocket("udp4");
+    udp.bind(port);
+    udp.on("message", (data) => {
+      track.writeRtp(data);
+    });
+
+    const disposer = () => {
+      udp.close();
+    };
+
+    return { track, disposer };
+  };
 }
 
 interface MediaStreamConstraints {
@@ -114,3 +146,5 @@ interface DoubleRange {
   max?: number;
   min?: number;
 }
+
+export const navigator = new Navigator();

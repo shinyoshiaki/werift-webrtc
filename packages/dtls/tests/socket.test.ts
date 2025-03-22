@@ -1,11 +1,11 @@
-import { createSocket } from "dgram";
-import { DtlsSocket, createUdpTransport } from "../src";
+import { UdpTransport } from "../../common/src";
+import { DtlsSocket } from "../src";
 import { SessionType } from "../src/cipher/suites/abstract";
 import { DtlsRandom } from "../src/handshake/random";
 import { certPem, keyPem } from "./fixture";
 
 describe("socket", () => {
-  test("TestExportKeyingMaterial", () => {
+  test("TestExportKeyingMaterial", async () => {
     const exportLabel = "EXTRACTOR-dtls_srtp";
 
     const expectedServerKey = Buffer.from([
@@ -18,7 +18,7 @@ describe("socket", () => {
 
     const socket = new DtlsSocket(
       {
-        transport: createUdpTransport(createSocket("udp4")),
+        transport: await UdpTransport.init("udp4"),
         key: keyPem,
         cert: certPem,
       },

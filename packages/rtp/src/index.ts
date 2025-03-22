@@ -1,4 +1,5 @@
 import "buffer";
+export * from "./srtp/const";
 export * from "../../common/src";
 export * from "./codec";
 export * from "./helper";

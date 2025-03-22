@@ -1,5 +1,4 @@
-import debug from "debug";
-import Event from "rx.mini";
+import { Event, debug } from "../../imports/common";
 
 import {
   type DepacketizerCodec,

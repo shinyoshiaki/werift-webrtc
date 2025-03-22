@@ -1,5 +1,3 @@
-import debug from "debug";
-
 import { CurveType, certificateTypes, signatures } from "../../cipher/const";
 import type { CipherContext } from "../../context/cipher";
 import type { DtlsContext } from "../../context/dtls";
@@ -13,6 +11,7 @@ import { ServerCertificateRequest } from "../../handshake/message/server/certifi
 import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
+import { debug } from "../../imports/common";
 import type { FragmentedHandshake } from "../../record/message/fragment";
 import type { Extension } from "../../typings/domain";
 import { Flight } from "../flight";

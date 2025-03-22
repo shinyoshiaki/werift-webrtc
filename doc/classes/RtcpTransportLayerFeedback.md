@@ -1,36 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RtcpTransportLayerFeedback
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtcpTransportLayerFeedback
 
 # Class: RtcpTransportLayerFeedback
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpTransportLayerFeedback.md#constructor)
-
-### Properties
-
-- [feedback](RtcpTransportLayerFeedback.md#feedback)
-- [header](RtcpTransportLayerFeedback.md#header)
-- [type](RtcpTransportLayerFeedback.md#type)
-- [type](RtcpTransportLayerFeedback.md#type-1)
-
-### Methods
-
-- [serialize](RtcpTransportLayerFeedback.md#serialize)
-- [deSerialize](RtcpTransportLayerFeedback.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpTransportLayerFeedback()
 
-• **new RtcpTransportLayerFeedback**(`props?`): [`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
+> **new RtcpTransportLayerFeedback**(`props`): [`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)\> |
+• **props**: `Partial`\<[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)\> = `{}`
 
 #### Returns
 
@@ -40,48 +24,47 @@
 
 ### feedback
 
-• **feedback**: `Feedback`
+> **feedback**: `Feedback`
 
-___
+***
 
 ### header
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+> **header**: [`RtcpHeader`](RtcpHeader.md)
 
-___
-
-### type
-
-• `Readonly` **type**: ``205``
-
-___
+***
 
 ### type
 
-▪ `Static` `Readonly` **type**: ``205``
+> `readonly` **type**: `205` = `RtcpTransportLayerFeedback.type`
+
+***
+
+### type
+
+> `readonly` `static` **type**: `205` = `205`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`, `header`): [`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
+> `static` **deSerialize**(`data`, `header`): [`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `header` | [`RtcpHeader`](RtcpHeader.md) |
+• **data**: `Buffer`
+
+• **header**: [`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

@@ -1,14 +1,13 @@
-import { createSocket } from "dgram";
-
-import { DtlsServer, createUdpTransport } from "../src";
+import { UdpTransport } from "../../common/src";
+import { DtlsServer } from "../src";
 import { CipherSuite } from "../src/cipher/const";
 import { ClientHello } from "../src/handshake/message/client/hello";
 import { DtlsRandom } from "../src/handshake/random";
 
 describe("server", () => {
-  test("handleFragmentHandshake", () => {
+  test("handleFragmentHandshake", async () => {
     const server = new DtlsServer({
-      transport: createUdpTransport(createSocket("udp4")),
+      transport: await UdpTransport.init("udp4"),
       cert: "",
       key: "",
     });

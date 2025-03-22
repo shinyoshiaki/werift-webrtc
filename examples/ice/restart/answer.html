@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React with JSX and Babel</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        let pc;
+        let socket;
+
+        const App = () => {
+            const videoRef = React.useRef();
+
+            React.useEffect(() => {
+                (async () => {
+                    pc = new RTCPeerConnection({
+                        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+                    });
+                    pc.onicecandidate = ({ candidate }) => {
+                        if (candidate) {
+                            socket.send(JSON.stringify(candidate));
+                        }
+                    };
+                    pc.oniceconnectionstatechange = () => {
+                        console.log(
+                            "oniceconnectionstatechange",
+                            pc.iceConnectionState
+                        );
+                    };
+                    pc.ontrack = (e) => {
+                        console.log("ontrack")
+                        videoRef.current.srcObject = e.streams[0];
+                    };
+
+                    console.log(pc);
+
+                    const localStream = await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: false,
+                    });
+                    console.log(localStream);
+                    localStream
+                        .getVideoTracks()
+                        .forEach((track) => pc.addTrack(track, localStream));
+
+                    await connect();
+                    socket.send(JSON.stringify({ type: "connect" }));
+                })();
+            }, []);
+
+            const connect = async () => {
+                if (socket) {
+                    socket.close();
+                }
+                socket = new WebSocket("wss://e410-240d-f-b88-6800-6aa2-4c0c-4726-9284.ngrok-free.app");
+                socket.onmessage = async (ev) => {
+                    const msg = JSON.parse(ev.data);
+                    console.log("message", msg);
+                    if (msg.candidate) {
+                        await pc.addIceCandidate(msg);
+                    } else {
+                        if (msg.type === "offer") {
+                            await pc.setRemoteDescription(msg);
+                            const answer = await pc.createAnswer();
+                            await pc.setLocalDescription(answer);
+                            const sdp = JSON.stringify(pc.localDescription);
+                            socket.send(sdp);
+                        } else {
+                            await pc.setRemoteDescription(msg);
+                        }
+                    }
+                };
+                await new Promise((resolve) => (socket.onopen = resolve));
+            }
+
+            const restart = async () => {
+                await connect();
+                const offer = await pc.createOffer({ iceRestart: true });
+                await pc.setLocalDescription(offer);
+                const sdp = JSON.stringify(pc.localDescription);
+                socket.send(sdp);
+            }
+
+            const requestRestart = async () => {
+                await connect();
+                socket.send(JSON.stringify({ type: "restart" }));
+            }
+
+            return (
+                <div>
+                    answer
+                    <video ref={videoRef} autoPlay muted />
+                    <button onClick={restart}>restart</button>
+                    <button onClick={requestRestart}>request restart</button>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>

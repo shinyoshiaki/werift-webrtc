@@ -1,6 +1,6 @@
 {
   "name": "werift-dtls",
-  "version": "0.5.4",
+  "version": "0.5.7",
   "description": "DTLS protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-dtls",
   "repository": {
@@ -13,6 +13,9 @@
   },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "ci": "npm run type && npm run test",
@@ -28,16 +31,15 @@
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",
-    "@peculiar/x509": "^1.9.2",
+    "@noble/curves": "^1.8.1",
+    "@peculiar/x509": "^1.12.3",
     "@shinyoshiaki/binary-data": "^0.6.1",
-    "date-fns": "^2.29.3",
-    "@noble/curves": "^1.3.0",
+    "date-fns": "^4.1.0",
     "lodash": "^4.17.21",
-    "rx.mini": "^1.2.2",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.191"
+    "@types/lodash": "^4.17.15"
   },
   "engines": {
     "node": ">=16"

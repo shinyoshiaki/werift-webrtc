@@ -1,23 +1,16 @@
-[werift](../README.md) / [Exports](../modules.md) / RtcpPacketConverter
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtcpPacketConverter
 
 # Class: RtcpPacketConverter
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpPacketConverter.md#constructor)
-
-### Methods
-
-- [deSerialize](RtcpPacketConverter.md#deserialize)
-- [serialize](RtcpPacketConverter.md#serialize)
-
 ## Constructors
 
-### constructor
+### new RtcpPacketConverter()
 
-• **new RtcpPacketConverter**(): [`RtcpPacketConverter`](RtcpPacketConverter.md)
+> **new RtcpPacketConverter**(): [`RtcpPacketConverter`](RtcpPacketConverter.md)
 
 #### Returns
 
@@ -25,34 +18,33 @@
 
 ## Methods
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`RtcpPacket`](../modules.md#rtcppacket)[]
+> `static` **deSerialize**(`data`): [`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 
-[`RtcpPacket`](../modules.md#rtcppacket)[]
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
 
-___
+***
 
-### serialize
+### serialize()
 
-▸ **serialize**(`type`, `count`, `payload`, `length`): `Buffer`
+> `static` **serialize**(`type`, `count`, `payload`, `length`): `Buffer`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `type` | `number` |
-| `count` | `number` |
-| `payload` | `Buffer` |
-| `length` | `number` |
+• **type**: `number`
+
+• **count**: `number`
+
+• **payload**: `Buffer`
+
+• **length**: `number`
 
 #### Returns
 

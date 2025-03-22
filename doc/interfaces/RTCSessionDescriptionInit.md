@@ -1,22 +1,19 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCSessionDescriptionInit
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCSessionDescriptionInit
 
 # Interface: RTCSessionDescriptionInit
 
-## Table of contents
-
-### Properties
-
-- [sdp](RTCSessionDescriptionInit.md#sdp)
-- [type](RTCSessionDescriptionInit.md#type)
-
 ## Properties
 
-### sdp
+### sdp?
 
-• `Optional` **sdp**: `string`
+> `optional` **sdp**: `string`
 
-___
+***
 
 ### type
 
-• **type**: [`RTCSdpType`](../modules.md#rtcsdptype)
+> **type**: [`RTCSdpType`](../type-aliases/RTCSdpType.md)

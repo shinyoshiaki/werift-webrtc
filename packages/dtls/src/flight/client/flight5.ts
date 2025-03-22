@@ -1,5 +1,3 @@
-import debug from "debug";
-
 import { SignatureAlgorithm, SignatureScheme } from "../../cipher/const";
 import { createCipher } from "../../cipher/create";
 import { generateKeyPair } from "../../cipher/namedCurve";
@@ -10,7 +8,7 @@ import {
 } from "../../cipher/prf";
 import type { CipherContext } from "../../context/cipher";
 import type { DtlsContext } from "../../context/dtls";
-import { type Profile, SrtpContext } from "../../context/srtp";
+import { SrtpContext } from "../../context/srtp";
 import type { TransportContext } from "../../context/transport";
 import { HandshakeType } from "../../handshake/const";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
@@ -26,7 +24,7 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
-import { dumpBuffer } from "../../helper";
+import { type SrtpProfile, debug } from "../../imports/rtp";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import type { FragmentedHandshake } from "../../record/message/fragment";
@@ -201,12 +199,12 @@ export class Flight5 extends Flight {
     const finish = new Finished(localVerifyData);
     this.dtls.epoch = 1;
     const [packet] = this.createPacket([finish]);
-    log(
-      this.dtls.sessionId,
-      "raw finish packet",
-      packet.summary,
-      this.dtls.sortedHandshakeCache.map((h) => h.summary),
-    );
+    // log(
+    //   this.dtls.sessionId,
+    //   "raw finish packet",
+    //   packet.summary,
+    //   this.dtls.sortedHandshakeCache.map((h) => h.summary),
+    // );
 
     this.dtls.recordSequenceNumber = 0;
 
@@ -239,7 +237,7 @@ handlers[HandshakeType.server_hello_2] =
             {
               const useSrtp = UseSRTP.fromData(extension.data);
               const profile = SrtpContext.findMatchingSRTPProfile(
-                useSrtp.profiles as Profile[],
+                useSrtp.profiles as SrtpProfile[],
                 dtls.options.srtpProfiles || [],
               );
               log(dtls.sessionId, "selected srtp profile", profile);

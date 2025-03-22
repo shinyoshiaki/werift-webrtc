@@ -1,4 +1,4 @@
-import { AcceptFn, Peer } from "protoo-server";
+import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 
@@ -55,7 +55,7 @@ export class ice_trickle_offer {
           this.pc.onIceCandidate.subscribe((candidate) => {
             peer.request("ice_trickle_offer", candidate).catch(() => {});
           });
-          this.pc.setRemoteDescription(payload);
+          await this.pc.setRemoteDescription(payload);
           this.pc.setLocalDescription(await this.pc.createAnswer());
 
           accept(this.pc.localDescription);

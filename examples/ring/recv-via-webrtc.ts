@@ -9,12 +9,12 @@ import { CustomPeerConnection } from "./peer";
 
 const example = async () => {
   const ringApi = new RingApi({
-      // Replace with your refresh token
-      refreshToken: process.env.RING_REFRESH_TOKEN!,
-      debug: true,
-    }),
-    cameras = await ringApi.getCameras(),
-    camera = cameras[0];
+    // Replace with your refresh token
+    refreshToken: process.env.RING_REFRESH_TOKEN!,
+    debug: true,
+  });
+  const cameras = await ringApi.getCameras();
+  const camera = cameras[0];
 
   if (!camera) {
     console.log("No cameras found");
@@ -22,12 +22,12 @@ const example = async () => {
   }
 
   const track = new MediaStreamTrack({ kind: "video" });
-  const receiver = new CustomPeerConnection() as any;
-  receiver.onVideoRtp.subscribe((rtp) => {
+  const ring = new CustomPeerConnection();
+  ring.onVideoRtp.subscribe((rtp) => {
     track.writeRtp(rtp);
   });
   await camera.startLiveCall({
-    createPeerConnection: () => receiver,
+    createPeerConnection: () => ring,
   });
   const server = new Server({ port: 8888 });
 

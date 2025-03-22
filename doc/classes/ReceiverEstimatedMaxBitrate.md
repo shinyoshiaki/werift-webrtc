@@ -1,43 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / ReceiverEstimatedMaxBitrate
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / ReceiverEstimatedMaxBitrate
 
 # Class: ReceiverEstimatedMaxBitrate
 
-## Table of contents
-
-### Constructors
-
-- [constructor](ReceiverEstimatedMaxBitrate.md#constructor)
-
-### Properties
-
-- [bitrate](ReceiverEstimatedMaxBitrate.md#bitrate)
-- [brExp](ReceiverEstimatedMaxBitrate.md#brexp)
-- [brMantissa](ReceiverEstimatedMaxBitrate.md#brmantissa)
-- [count](ReceiverEstimatedMaxBitrate.md#count)
-- [length](ReceiverEstimatedMaxBitrate.md#length)
-- [mediaSsrc](ReceiverEstimatedMaxBitrate.md#mediassrc)
-- [senderSsrc](ReceiverEstimatedMaxBitrate.md#senderssrc)
-- [ssrcFeedbacks](ReceiverEstimatedMaxBitrate.md#ssrcfeedbacks)
-- [ssrcNum](ReceiverEstimatedMaxBitrate.md#ssrcnum)
-- [uniqueID](ReceiverEstimatedMaxBitrate.md#uniqueid)
-- [count](ReceiverEstimatedMaxBitrate.md#count-1)
-
-### Methods
-
-- [serialize](ReceiverEstimatedMaxBitrate.md#serialize)
-- [deSerialize](ReceiverEstimatedMaxBitrate.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new ReceiverEstimatedMaxBitrate()
 
-• **new ReceiverEstimatedMaxBitrate**(`props?`): [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
+> **new ReceiverEstimatedMaxBitrate**(`props`): [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)\> |
+• **props**: `Partial`\<[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)\> = `{}`
 
 #### Returns
 
@@ -47,89 +24,87 @@
 
 ### bitrate
 
-• **bitrate**: `bigint`
+> **bitrate**: `bigint`
 
-___
+***
 
 ### brExp
 
-• **brExp**: `number`
+> **brExp**: `number`
 
-___
+***
 
 ### brMantissa
 
-• **brMantissa**: `number`
+> **brMantissa**: `number`
 
-___
+***
 
 ### count
 
-• **count**: `number` = `ReceiverEstimatedMaxBitrate.count`
+> **count**: `number` = `ReceiverEstimatedMaxBitrate.count`
 
-___
+***
 
 ### length
 
-• **length**: `number`
+> **length**: `number`
 
-___
+***
 
 ### mediaSsrc
 
-• **mediaSsrc**: `number`
+> **mediaSsrc**: `number`
 
-___
+***
 
 ### senderSsrc
 
-• **senderSsrc**: `number`
+> **senderSsrc**: `number`
 
-___
+***
 
 ### ssrcFeedbacks
 
-• **ssrcFeedbacks**: `number`[] = `[]`
+> **ssrcFeedbacks**: `number`[] = `[]`
 
-___
+***
 
 ### ssrcNum
 
-• **ssrcNum**: `number` = `0`
+> **ssrcNum**: `number` = `0`
 
-___
+***
 
 ### uniqueID
 
-• `Readonly` **uniqueID**: `string` = `"REMB"`
+> `readonly` **uniqueID**: `string` = `"REMB"`
 
-___
+***
 
 ### count
 
-▪ `Static` **count**: `number` = `15`
+> `static` **count**: `number` = `15`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
+> `static` **deSerialize**(`data`): [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

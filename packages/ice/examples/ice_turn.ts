@@ -1,14 +1,9 @@
 import { setTimeout } from "timers/promises";
-import { type Address, Connection } from "../src";
+import { type Address, Connection, url2Address } from "../src";
 
-const url2Address = (url?: string) => {
-  if (!url) return;
-  const [address, port] = url.split(":");
-  return [address, Number.parseInt(port)] as Address;
-};
-const address: Address = url2Address("turn.werift.com:443")!;
-const username = "";
-const password = "";
+const address: Address = url2Address("127.0.0.1:3478")!;
+const username = "username";
+const password = "password";
 
 (async () => {
   const a = new Connection(true, {

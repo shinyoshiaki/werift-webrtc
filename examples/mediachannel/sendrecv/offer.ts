@@ -14,6 +14,12 @@ server.on("connection", async (socket) => {
       video: [useSdesMid(), useAbsSendTime()],
     },
   });
+  pc.onconnectionstatechange = () => {
+    console.log("connection state", pc.connectionState);
+  };
+  pc.oniceconnectionstatechange = () => {
+    console.log("ice connection state", pc.iceConnectionState);
+  };
 
   const video = pc.addTransceiver("video");
   video.onTrack.subscribe((track) => {

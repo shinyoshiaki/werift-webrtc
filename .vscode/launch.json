@@ -13,7 +13,7 @@
       "args": [
         "--project",
         "${workspaceRoot}/tsconfig.json",
-        "${workspaceRoot}/examples/mediachannel/sendrecv/offer.ts"
+        "${workspaceRoot}/packages/ice/examples/turn_turn.ts"
       ],
       "env": {
         "DEBUG": "werift*"

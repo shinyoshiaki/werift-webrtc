@@ -3,8 +3,8 @@ import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
 import { v4 } from "uuid";
 
-import { randomPort } from "../../../common/src";
-import { RtpPacket } from "../../../rtp/src";
+import { randomPort } from "../imports/common";
+import { RtpPacket } from "../imports/rtp";
 import { MediaStreamTrack } from "../media/track";
 
 export const getUserMedia = async ({

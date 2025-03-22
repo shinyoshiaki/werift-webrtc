@@ -1,15 +1,13 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCDataChannelEvent
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCDataChannelEvent
 
 # Interface: RTCDataChannelEvent
-
-## Table of contents
-
-### Properties
-
-- [channel](RTCDataChannelEvent.md#channel)
 
 ## Properties
 
 ### channel
 
-• **channel**: [`RTCDataChannel`](../classes/RTCDataChannel.md)
+> **channel**: [`RTCDataChannel`](../classes/RTCDataChannel.md)

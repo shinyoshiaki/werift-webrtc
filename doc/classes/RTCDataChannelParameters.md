@@ -1,34 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCDataChannelParameters
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCDataChannelParameters
 
 # Class: RTCDataChannelParameters
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCDataChannelParameters.md#constructor)
-
-### Properties
-
-- [id](RTCDataChannelParameters.md#id)
-- [label](RTCDataChannelParameters.md#label)
-- [maxPacketLifeTime](RTCDataChannelParameters.md#maxpacketlifetime)
-- [maxRetransmits](RTCDataChannelParameters.md#maxretransmits)
-- [negotiated](RTCDataChannelParameters.md#negotiated)
-- [ordered](RTCDataChannelParameters.md#ordered)
-- [protocol](RTCDataChannelParameters.md#protocol)
-
 ## Constructors
 
-### constructor
+### new RTCDataChannelParameters()
 
-• **new RTCDataChannelParameters**(`props?`): [`RTCDataChannelParameters`](RTCDataChannelParameters.md)
+> **new RTCDataChannelParameters**(`props`): [`RTCDataChannelParameters`](RTCDataChannelParameters.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> |
+• **props**: `Partial`\<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> = `{}`
 
 #### Returns
 
@@ -38,40 +24,40 @@
 
 ### id
 
-• **id**: `number`
+> **id**: `number`
 
-___
+***
 
 ### label
 
-• **label**: `string` = `""`
+> **label**: `string` = `""`
 
-___
+***
 
-### maxPacketLifeTime
+### maxPacketLifeTime?
 
-• `Optional` **maxPacketLifeTime**: `number`
+> `optional` **maxPacketLifeTime**: `number`
 
-___
+***
 
-### maxRetransmits
+### maxRetransmits?
 
-• `Optional` **maxRetransmits**: `number`
+> `optional` **maxRetransmits**: `number`
 
-___
+***
 
 ### negotiated
 
-• **negotiated**: `boolean` = `false`
+> **negotiated**: `boolean` = `false`
 
-___
+***
 
 ### ordered
 
-• **ordered**: `boolean` = `true`
+> **ordered**: `boolean` = `true`
 
-___
+***
 
 ### protocol
 
-• **protocol**: `string` = `""`
+> **protocol**: `string` = `""`

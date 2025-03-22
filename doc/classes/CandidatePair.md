@@ -1,45 +1,24 @@
-[werift](../README.md) / [Exports](../modules.md) / CandidatePair
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / CandidatePair
 
 # Class: CandidatePair
 
-## Table of contents
-
-### Constructors
-
-- [constructor](CandidatePair.md#constructor)
-
-### Properties
-
-- [handle](CandidatePair.md#handle)
-- [nominated](CandidatePair.md#nominated)
-- [protocol](CandidatePair.md#protocol)
-- [remoteCandidate](CandidatePair.md#remotecandidate)
-- [remoteNominated](CandidatePair.md#remotenominated)
-
-### Accessors
-
-- [component](CandidatePair.md#component)
-- [localCandidate](CandidatePair.md#localcandidate)
-- [remoteAddr](CandidatePair.md#remoteaddr)
-- [state](CandidatePair.md#state)
-
-### Methods
-
-- [toJSON](CandidatePair.md#tojson)
-- [updateState](CandidatePair.md#updatestate)
-
 ## Constructors
 
-### constructor
+### new CandidatePair()
 
-• **new CandidatePair**(`protocol`, `remoteCandidate`): [`CandidatePair`](CandidatePair.md)
+> **new CandidatePair**(`protocol`, `remoteCandidate`, `iceControlling`): [`CandidatePair`](CandidatePair.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `protocol` | [`Protocol`](../interfaces/Protocol.md) |
-| `remoteCandidate` | [`Candidate`](Candidate.md) |
+• **protocol**: [`Protocol`](../interfaces/Protocol.md)
+
+• **remoteCandidate**: [`Candidate`](Candidate.md)
+
+• **iceControlling**: `boolean`
 
 #### Returns
 
@@ -47,108 +26,149 @@
 
 ## Properties
 
-### handle
+### handle?
 
-• `Optional` **handle**: `Object`
+> `optional` **handle**: `Cancelable`\<`void`\>
 
-#### Type declaration
+***
 
-| Name | Type |
-| :------ | :------ |
-| `cancel` | () => `void` |
-| `done` | () => `boolean` |
-| `promise` | `PCancelable`\<`any`\> |
+### iceControlling
 
-___
+> **iceControlling**: `boolean`
+
+***
+
+### id
+
+> `readonly` **id**: \`$\{string\}-$\{string\}-$\{string\}-$\{string\}-$\{string\}\`
+
+***
 
 ### nominated
 
-• **nominated**: `boolean` = `false`
+> **nominated**: `boolean` = `false`
 
-___
+***
 
 ### protocol
 
-• **protocol**: [`Protocol`](../interfaces/Protocol.md)
+> **protocol**: [`Protocol`](../interfaces/Protocol.md)
 
-___
+***
 
 ### remoteCandidate
 
-• **remoteCandidate**: [`Candidate`](Candidate.md)
+> **remoteCandidate**: [`Candidate`](Candidate.md)
 
-___
+***
 
 ### remoteNominated
 
-• **remoteNominated**: `boolean` = `false`
+> **remoteNominated**: `boolean` = `false`
 
 ## Accessors
 
 ### component
 
-• `get` **component**(): `number`
+> `get` **component**(): `number`
 
 #### Returns
 
 `number`
 
-___
+***
+
+### json
+
+> `get` **json**(): `object`
+
+#### Returns
+
+`object`
+
+##### localCandidate
+
+> **localCandidate**: `string`
+
+##### protocol
+
+> **protocol**: `string`
+
+##### remoteCandidate
+
+> **remoteCandidate**: `string`
+
+***
 
 ### localCandidate
 
-• `get` **localCandidate**(): [`Candidate`](Candidate.md)
+> `get` **localCandidate**(): [`Candidate`](Candidate.md)
 
 #### Returns
 
 [`Candidate`](Candidate.md)
 
-___
+***
+
+### priority
+
+> `get` **priority**(): `number`
+
+#### Returns
+
+`number`
+
+***
 
 ### remoteAddr
 
-• `get` **remoteAddr**(): readonly [`string`, `number`]
+> `get` **remoteAddr**(): readonly [`string`, `number`]
 
 #### Returns
 
 readonly [`string`, `number`]
 
-___
+***
 
 ### state
 
-• `get` **state**(): [`CandidatePairState`](../enums/CandidatePairState.md)
+> `get` **state**(): [`CandidatePairState`](../enumerations/CandidatePairState.md)
 
 #### Returns
 
-[`CandidatePairState`](../enums/CandidatePairState.md)
+[`CandidatePairState`](../enumerations/CandidatePairState.md)
 
 ## Methods
 
-### toJSON
+### toJSON()
 
-▸ **toJSON**(): `Object`
+> **toJSON**(): `object`
 
 #### Returns
 
-`Object`
+`object`
 
-| Name | Type |
-| :------ | :------ |
-| `protocol` | `string` |
-| `remoteAddr` | readonly [`string`, `number`] |
+##### localCandidate
 
-___
+> **localCandidate**: `string`
 
-### updateState
+##### protocol
 
-▸ **updateState**(`state`): `void`
+> **protocol**: `string`
+
+##### remoteCandidate
+
+> **remoteCandidate**: `string`
+
+***
+
+### updateState()
+
+> **updateState**(`state`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `state` | [`CandidatePairState`](../enums/CandidatePairState.md) |
+• **state**: [`CandidatePairState`](../enumerations/CandidatePairState.md)
 
 #### Returns
 

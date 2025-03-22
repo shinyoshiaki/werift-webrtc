@@ -6,14 +6,16 @@ import { assertCandidateTypes } from "../utils";
 describe("IceTrickleTest", () => {
   test("test_trickle_connect", async () => {
     const a = new Connection(true);
+    a.stunServer = undefined;
     const b = new Connection(false);
+    b.stunServer = undefined;
 
     await a.gatherCandidates();
-    b.remoteUsername = a.localUserName;
+    b.remoteUsername = a.localUsername;
     b.remotePassword = a.localPassword;
 
     await b.gatherCandidates();
-    a.remoteUsername = b.localUserName;
+    a.remoteUsername = b.localUsername;
     a.remotePassword = b.localPassword;
 
     assertCandidateTypes(a, ["host"]);

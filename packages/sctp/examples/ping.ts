@@ -1,9 +1,8 @@
 import { createSocket } from "dgram";
-import range from "lodash/range";
+import range from "lodash/range.js";
 import { setTimeout } from "timers/promises";
 import { SCTP, SCTP_STATE, WEBRTC_PPID } from "../src";
 import { createUdpTransport } from "../src/transport";
-
 
 (async () => {
   const transport = createUdpTransport(createSocket("udp4"), {
@@ -21,7 +20,7 @@ import { createUdpTransport } from "../src/transport";
   let sec = 0;
   setInterval(
     () => sctp.send(0, WEBRTC_PPID.STRING, Buffer.from("ping " + sec++)),
-    1000
+    1000,
   );
 })();
 

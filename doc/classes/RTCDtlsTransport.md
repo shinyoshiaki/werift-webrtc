@@ -1,62 +1,28 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCDtlsTransport
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCDtlsTransport
 
 # Class: RTCDtlsTransport
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCDtlsTransport.md#constructor)
-
-### Properties
-
-- [certificates](RTCDtlsTransport.md#certificates)
-- [config](RTCDtlsTransport.md#config)
-- [dataReceiver](RTCDtlsTransport.md#datareceiver)
-- [dtls](RTCDtlsTransport.md#dtls)
-- [iceTransport](RTCDtlsTransport.md#icetransport)
-- [id](RTCDtlsTransport.md#id)
-- [localCertificate](RTCDtlsTransport.md#localcertificate)
-- [onStateChange](RTCDtlsTransport.md#onstatechange)
-- [role](RTCDtlsTransport.md#role)
-- [router](RTCDtlsTransport.md#router)
-- [srtcp](RTCDtlsTransport.md#srtcp)
-- [srtp](RTCDtlsTransport.md#srtp)
-- [srtpStarted](RTCDtlsTransport.md#srtpstarted)
-- [state](RTCDtlsTransport.md#state)
-- [transportSequenceNumber](RTCDtlsTransport.md#transportsequencenumber)
-
-### Accessors
-
-- [localParameters](RTCDtlsTransport.md#localparameters)
-
-### Methods
-
-- [sendData](RTCDtlsTransport.md#senddata)
-- [sendRtcp](RTCDtlsTransport.md#sendrtcp)
-- [sendRtp](RTCDtlsTransport.md#sendrtp)
-- [setRemoteParams](RTCDtlsTransport.md#setremoteparams)
-- [setupCertificate](RTCDtlsTransport.md#setupcertificate)
-- [start](RTCDtlsTransport.md#start)
-- [startSrtp](RTCDtlsTransport.md#startsrtp)
-- [stop](RTCDtlsTransport.md#stop)
-- [updateSrtpSession](RTCDtlsTransport.md#updatesrtpsession)
-
 ## Constructors
 
-### constructor
+### new RTCDtlsTransport()
 
-• **new RTCDtlsTransport**(`config`, `iceTransport`, `router`, `certificates`, `srtpProfiles?`): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+> **new RTCDtlsTransport**(`config`, `iceTransport`, `router`, `localCertificate`?, `srtpProfiles`?): [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `config` | [`PeerConfig`](../interfaces/PeerConfig.md) | `undefined` |
-| `iceTransport` | [`RTCIceTransport`](RTCIceTransport.md) | `undefined` |
-| `router` | `RtpRouter` | `undefined` |
-| `certificates` | [`RTCCertificate`](RTCCertificate.md)[] | `undefined` |
-| `srtpProfiles` | (``1`` \| ``7``)[] | `[]` |
+• **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
+
+• **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
+
+• **router**: `RtpRouter`
+
+• **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+
+• **srtpProfiles?**: (`1` \| `7`)[] = `[]`
 
 #### Returns
 
@@ -64,113 +30,113 @@
 
 ## Properties
 
-### certificates
-
-• `Readonly` **certificates**: [`RTCCertificate`](RTCCertificate.md)[]
-
-___
-
 ### config
 
-• `Readonly` **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
+> `readonly` **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
 
-___
+***
 
-### dataReceiver
+### dataReceiver()
 
-• **dataReceiver**: (`buf`: `Buffer`) => `void`
+> **dataReceiver**: (`buf`) => `void`
 
-#### Type declaration
+#### Parameters
 
-▸ (`buf`): `void`
+• **buf**: `Buffer`
 
-##### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
-
-##### Returns
+#### Returns
 
 `void`
 
-___
+***
 
-### dtls
+### dtls?
 
-• `Optional` **dtls**: `DtlsSocket`
+> `optional` **dtls**: `DtlsSocket`
 
-___
+***
 
 ### iceTransport
 
-• `Readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
+> `readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
 
-___
+***
 
 ### id
 
-• **id**: `string`
+> **id**: `string`
 
-___
+***
 
-### localCertificate
+### localCertificate?
 
-• `Optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
+> `optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
 
-___
+***
 
 ### onStateChange
 
-• `Readonly` **onStateChange**: `Event`\<[``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"``]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`]\>
 
-___
+***
 
 ### role
 
-• **role**: [`DtlsRole`](../modules.md#dtlsrole) = `"auto"`
+> **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
 
-___
+***
 
 ### router
 
-• `Readonly` **router**: `RtpRouter`
+> `readonly` **router**: `RtpRouter`
 
-___
+***
 
 ### srtcp
 
-• **srtcp**: [`SrtcpSession`](SrtcpSession.md)
+> **srtcp**: [`SrtcpSession`](SrtcpSession.md)
 
-___
+***
 
 ### srtp
 
-• **srtp**: [`SrtpSession`](SrtpSession.md)
+> **srtp**: [`SrtpSession`](SrtpSession.md)
 
-___
+***
 
 ### srtpStarted
 
-• **srtpStarted**: `boolean` = `false`
+> **srtpStarted**: `boolean` = `false`
 
-___
+***
 
 ### state
 
-• **state**: ``"closed"`` \| ``"new"`` \| ``"connected"`` \| ``"connecting"`` \| ``"failed"`` = `"new"`
+> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` = `"new"`
 
-___
+***
 
 ### transportSequenceNumber
 
-• **transportSequenceNumber**: `number` = `0`
+> **transportSequenceNumber**: `number` = `0`
+
+***
+
+### localCertificate?
+
+> `static` `optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
+
+***
+
+### localCertificatePromise?
+
+> `static` `optional` **localCertificatePromise**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 ## Accessors
 
 ### localParameters
 
-• `get` **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+> `get` **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 #### Returns
 
@@ -178,115 +144,108 @@ ___
 
 ## Methods
 
-### sendData
+### sendData()
 
-▸ **sendData**(`data`): `Promise`\<`void`\>
+> `readonly` **sendData**(`data`): `Promise`\<`void`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 
 `Promise`\<`void`\>
 
-___
+***
 
-### sendRtcp
+### sendRtcp()
 
-▸ **sendRtcp**(`packets`): `Promise`\<`undefined` \| `number`\>
+> **sendRtcp**(`packets`): `Promise`\<`undefined` \| `number`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `packets` | [`RtcpPacket`](../modules.md#rtcppacket)[] |
+• **packets**: [`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
 
 #### Returns
 
 `Promise`\<`undefined` \| `number`\>
 
-___
+***
 
-### sendRtp
+### sendRtp()
 
-▸ **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
+> **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `payload` | `Buffer` |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **payload**: `Buffer`
+
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 
 `Promise`\<`number`\>
 
-___
+***
 
-### setRemoteParams
+### setRemoteParams()
 
-▸ **setRemoteParams**(`remoteParameters`): `void`
+> **setRemoteParams**(`remoteParameters`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `remoteParameters` | [`RTCDtlsParameters`](RTCDtlsParameters.md) |
+• **remoteParameters**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 #### Returns
 
 `void`
 
-___
+***
 
-### setupCertificate
+### start()
 
-▸ **setupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+> **start**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### startSrtp()
+
+> **startSrtp**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### stop()
+
+> **stop**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### updateSrtpSession()
+
+> **updateSrtpSession**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### SetupCertificate()
+
+> `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 #### Returns
 
 `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
-
-___
-
-### start
-
-▸ **start**(): `Promise`\<`void`\>
-
-#### Returns
-
-`Promise`\<`void`\>
-
-___
-
-### startSrtp
-
-▸ **startSrtp**(): `void`
-
-#### Returns
-
-`void`
-
-___
-
-### stop
-
-▸ **stop**(): `Promise`\<`void`\>
-
-#### Returns
-
-`Promise`\<`void`\>
-
-___
-
-### updateSrtpSession
-
-▸ **updateSrtpSession**(): `void`
-
-#### Returns
-
-`void`

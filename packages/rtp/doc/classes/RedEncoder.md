@@ -1,34 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RedEncoder
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RedEncoder
 
 # Class: RedEncoder
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RedEncoder.md#constructor)
-
-### Properties
-
-- [cacheSize](RedEncoder.md#cachesize)
-- [distance](RedEncoder.md#distance)
-
-### Methods
-
-- [build](RedEncoder.md#build)
-- [push](RedEncoder.md#push)
-
 ## Constructors
 
-### constructor
+### new RedEncoder()
 
-• **new RedEncoder**(`distance?`): [`RedEncoder`](RedEncoder.md)
+> **new RedEncoder**(`distance`): [`RedEncoder`](RedEncoder.md)
 
 #### Parameters
 
-| Name | Type | Default value |
-| :------ | :------ | :------ |
-| `distance` | `number` | `1` |
+• **distance**: `number` = `1`
 
 #### Returns
 
@@ -38,38 +24,39 @@
 
 ### cacheSize
 
-• **cacheSize**: `number` = `10`
+> **cacheSize**: `number` = `10`
 
-___
+***
 
 ### distance
 
-• **distance**: `number` = `1`
+> **distance**: `number` = `1`
 
 ## Methods
 
-### build
+### build()
 
-▸ **build**(): [`Red`](Red.md)
+> **build**(): [`Red`](Red.md)
 
 #### Returns
 
 [`Red`](Red.md)
 
-___
+***
 
-### push
+### push()
 
-▸ **push**(`payload`): `void`
+> **push**(`payload`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `payload` | `Object` |
-| `payload.block` | `Buffer` |
-| `payload.blockPT` | `number` |
-| `payload.timestamp` | `number` |
+• **payload**
+
+• **payload.block**: `Buffer`
+
+• **payload.blockPT**: `number`
+
+• **payload.timestamp**: `number`
 
 #### Returns
 

@@ -1,11 +1,12 @@
 import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { getVideoStream } from "../../util";
 
 const peer = new RTCPeerConnection({});
 
 const App: FC = () => {
-  const videoRef = useRef<HTMLVideoElement>();
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const onFile = async (file: File) => {
     const socket = new WebSocket("ws://127.0.0.1:8888");
@@ -49,4 +50,6 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const container = document.getElementById("root");
+const root = createRoot(container!);
+root.render(<App />);

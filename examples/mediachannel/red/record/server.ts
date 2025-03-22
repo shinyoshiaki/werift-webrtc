@@ -29,7 +29,10 @@ server.on("connection", async (socket) => {
   const audio = pc.addTransceiver("audio");
   audio.onTrack.subscribe((track) => {
     audio.sender.replaceTrack(track);
-    const recorder = new MediaRecorder("./audio.webm", 1, { tracks: [track] });
+    const recorder = new MediaRecorder({
+      path: "./audio.webm",
+      tracks: [track],
+    });
     setTimeout(() => {
       recorder.stop();
       console.log("stop");

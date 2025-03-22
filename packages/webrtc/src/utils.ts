@@ -1,17 +1,23 @@
 /* eslint-disable prefer-const */
 import { createHash } from "crypto";
-import { RemoteInfo, createSocket } from "dgram";
-import debug from "debug";
-import mergeWith from "lodash/mergeWith";
+import { createSocket } from "dgram";
+
+import mergeWith from "lodash/mergeWith.js";
 import { performance } from "perf_hooks";
 
-import { bufferReader, bufferWriter, randomPort } from "../../common/src";
-import { CipherContext } from "../../dtls/src/context/cipher";
-import type { Address } from "../../ice/src";
+import {
+  type Address,
+  bufferReader,
+  bufferWriter,
+  debug,
+  randomPort,
+} from "./imports/common";
+import { CipherContext } from "./imports/dtls";
+
+import now from "nano-time";
 import { type Direction, Directions } from "./media/rtpTransceiver";
 import { MediaStreamTrack } from "./media/track";
 import type { RTCIceServer } from "./peerConnection";
-const now = require("nano-time");
 
 const log = debug("werift:packages/webrtc/src/utils.ts");
 

@@ -11,8 +11,7 @@ export const peer = new Peer(transport);
 
 export async function waitVideoPlay(track: MediaStreamTrack) {
   const video = document.createElement("video");
-  const media = new MediaStream();
-  media.addTrack(track);
+  const media = new MediaStream([track]);
   video.srcObject = media;
   video.autoplay = true;
   video.muted = true;

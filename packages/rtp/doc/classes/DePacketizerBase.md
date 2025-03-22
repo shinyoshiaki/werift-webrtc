@@ -1,39 +1,16 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / DePacketizerBase
+[**werift-rtp**](../README.md) • **Docs**
 
-# Class: DePacketizerBase
+***
 
-## Implemented by
+[werift-rtp](../globals.md) / DePacketizerBase
 
-- [`H264RtpPayload`](H264RtpPayload.md)
-- [`OpusRtpPayload`](OpusRtpPayload.md)
-- [`Vp8RtpPayload`](Vp8RtpPayload.md)
-- [`Vp9RtpPayload`](Vp9RtpPayload.md)
-
-## Table of contents
-
-### Constructors
-
-- [constructor](DePacketizerBase.md#constructor)
-
-### Properties
-
-- [fragment](DePacketizerBase.md#fragment)
-- [payload](DePacketizerBase.md#payload)
-
-### Accessors
-
-- [isKeyframe](DePacketizerBase.md#iskeyframe)
-
-### Methods
-
-- [deSerialize](DePacketizerBase.md#deserialize)
-- [isDetectedFinalPacketInSequence](DePacketizerBase.md#isdetectedfinalpacketinsequence)
+# Class: `abstract` DePacketizerBase
 
 ## Constructors
 
-### constructor
+### new DePacketizerBase()
 
-• **new DePacketizerBase**(): [`DePacketizerBase`](DePacketizerBase.md)
+> **new DePacketizerBase**(): [`DePacketizerBase`](DePacketizerBase.md)
 
 #### Returns
 
@@ -41,21 +18,21 @@
 
 ## Properties
 
-### fragment
+### fragment?
 
-• `Optional` **fragment**: `Buffer`
+> `optional` **fragment**: `Buffer`
 
-___
+***
 
 ### payload
 
-• **payload**: `Buffer`
+> **payload**: `Buffer`
 
 ## Accessors
 
 ### isKeyframe
 
-• `get` **isKeyframe**(): `boolean`
+> `get` **isKeyframe**(): `boolean`
 
 #### Returns
 
@@ -63,32 +40,29 @@ ___
 
 ## Methods
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`, `fragment?`): [`DePacketizerBase`](DePacketizerBase.md)
+> `static` **deSerialize**(`buf`, `fragment`?): [`DePacketizerBase`](DePacketizerBase.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
-| `fragment?` | `Buffer` |
+• **buf**: `Buffer`
+
+• **fragment?**: `Buffer`
 
 #### Returns
 
 [`DePacketizerBase`](DePacketizerBase.md)
 
-___
+***
 
-### isDetectedFinalPacketInSequence
+### isDetectedFinalPacketInSequence()
 
-▸ **isDetectedFinalPacketInSequence**(`header`): `boolean`
+> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `header` | [`RtpHeader`](RtpHeader.md) |
+• **header**: [`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

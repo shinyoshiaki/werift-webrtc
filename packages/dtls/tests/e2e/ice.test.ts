@@ -19,13 +19,13 @@ test(
         answer.remoteCandidates = offer.localCandidates
           .map((v) => v.toSdp())
           .map((v) => Candidate.fromSdp(v));
-        answer.remoteUsername = offer.localUserName;
+        answer.remoteUsername = offer.localUsername;
         answer.remotePassword = offer.localPassword;
         await answer.gatherCandidates();
         offer.remoteCandidates = answer.localCandidates
           .map((v) => v.toSdp())
           .map((v) => Candidate.fromSdp(v));
-        offer.remoteUsername = answer.localUserName;
+        offer.remoteUsername = answer.localUsername;
         offer.remotePassword = answer.localPassword;
 
         await Promise.all([offer.connect(), answer.connect()]);

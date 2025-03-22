@@ -1,36 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / BitWriter
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / BitWriter
 
 # Class: BitWriter
 
-## Table of contents
-
-### Constructors
-
-- [constructor](BitWriter.md#constructor)
-
-### Properties
-
-- [value](BitWriter.md#value)
-
-### Accessors
-
-- [buffer](BitWriter.md#buffer)
-
-### Methods
-
-- [set](BitWriter.md#set)
-
 ## Constructors
 
-### constructor
+### new BitWriter()
 
-• **new BitWriter**(`bitLength`): [`BitWriter`](BitWriter.md)
+> **new BitWriter**(`bitLength`): [`BitWriter`](BitWriter.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `bitLength` | `number` |
+• **bitLength**: `number`
 
 #### Returns
 
@@ -40,13 +24,13 @@
 
 ### value
 
-• **value**: `number` = `0`
+> **value**: `number` = `0`
 
 ## Accessors
 
 ### buffer
 
-• `get` **buffer**(): `Buffer`
+> `get` **buffer**(): `Buffer`
 
 #### Returns
 
@@ -54,17 +38,17 @@
 
 ## Methods
 
-### set
+### set()
 
-▸ **set**(`size`, `startIndex`, `value`): [`BitWriter`](BitWriter.md)
+> **set**(`size`, `startIndex`, `value`): [`BitWriter`](BitWriter.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `size` | `number` |
-| `startIndex` | `number` |
-| `value` | `number` |
+• **size**: `number`
+
+• **startIndex**: `number`
+
+• **value**: `number`
 
 #### Returns
 

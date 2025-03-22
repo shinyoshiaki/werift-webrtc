@@ -1,36 +1,20 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RunLengthChunk
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RunLengthChunk
 
 # Class: RunLengthChunk
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RunLengthChunk.md#constructor)
-
-### Properties
-
-- [packetStatus](RunLengthChunk.md#packetstatus)
-- [runLength](RunLengthChunk.md#runlength)
-- [type](RunLengthChunk.md#type)
-
-### Methods
-
-- [results](RunLengthChunk.md#results)
-- [serialize](RunLengthChunk.md#serialize)
-- [deSerialize](RunLengthChunk.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RunLengthChunk()
 
-• **new RunLengthChunk**(`props?`): [`RunLengthChunk`](RunLengthChunk.md)
+> **new RunLengthChunk**(`props`): [`RunLengthChunk`](RunLengthChunk.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> |
+• **props**: `Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> = `{}`
 
 #### Returns
 
@@ -40,59 +24,55 @@
 
 ### packetStatus
 
-• **packetStatus**: [`PacketStatus`](../enums/PacketStatus.md)
+> **packetStatus**: [`PacketStatus`](../enumerations/PacketStatus.md)
 
-___
+***
 
 ### runLength
 
-• **runLength**: `number`
+> **runLength**: `number`
 
 13bit
 
-___
+***
 
 ### type
 
-• **type**: [`TypeTCCRunLengthChunk`](../enums/PacketChunk.md#typetccrunlengthchunk)
+> **type**: [`TypeTCCRunLengthChunk`](../enumerations/PacketChunk.md#typetccrunlengthchunk)
 
 ## Methods
 
-### results
+### results()
 
-▸ **results**(`currentSequenceNumber`): [`PacketResult`](PacketResult.md)[]
+> **results**(`currentSequenceNumber`): [`PacketResult`](PacketResult.md)[]
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `currentSequenceNumber` | `number` |
+• **currentSequenceNumber**: `number`
 
 #### Returns
 
 [`PacketResult`](PacketResult.md)[]
 
-___
+***
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`): [`RunLengthChunk`](RunLengthChunk.md)
+> `static` **deSerialize**(`data`): [`RunLengthChunk`](RunLengthChunk.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

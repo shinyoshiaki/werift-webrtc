@@ -1,16 +1,9 @@
-import { debug } from "debug";
-import Event from "rx.mini";
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
+import { Event, int } from "../imports/common";
 
 import {
-  type PeerConfig,
-  codecParametersFromString,
-  usePLI,
-  useTWCC,
-} from "..";
-import { int } from "../../../common/src";
-import {
+  type Extensions,
   PictureLossIndication,
   RTP_EXTENSION_URI,
   Red,
@@ -22,8 +15,10 @@ import {
   RtcpSrPacket,
   type RtpPacket,
   type TransportWideCCPayload,
+  debug,
   unwrapRtx,
-} from "../../../rtp/src";
+} from "../imports/rtp";
+import type { PeerConfig } from "../peerConnection";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, timestampSeconds } from "../utils";
@@ -34,8 +29,10 @@ import type {
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
-import type { Extensions } from "./router";
-import type { MediaStreamTrack } from "./track";
+
+import { codecParametersFromString } from "../sdp";
+import { usePLI, useTWCC } from "./extension/rtcpFeedback";
+import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
@@ -90,7 +87,7 @@ export class RTCRtpReceiver {
 
   // todo fix
   get track() {
-    return this.tracks[0];
+    return this.tracks[0] ?? new MediaStreamTrack({ kind: this.kind });
   }
 
   get nackEnabled() {
@@ -342,12 +339,12 @@ export class RTCRtpReceiver {
         if (track.kind === "audio") {
           const payloads = this.audioRedHandler.push(red, packet);
           for (const packet of payloads) {
-            track.onReceiveRtp.execute(packet.clone());
+            track.onReceiveRtp.execute(packet.clone(), extensions);
           }
         } else {
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone());
+        track.onReceiveRtp.execute(packet.clone(), extensions);
       }
     }
 

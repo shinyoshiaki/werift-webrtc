@@ -1,11 +1,10 @@
-import debug from "debug";
-
 import { SessionType } from "./cipher/suites/abstract";
 import { flight2 } from "./flight/server/flight2";
 import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { HandshakeType } from "./handshake/const";
 import { ClientHello } from "./handshake/message/client/hello";
+import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
 

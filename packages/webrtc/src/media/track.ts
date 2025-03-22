@@ -1,8 +1,13 @@
-import Event from "rx.mini";
 import { v4 } from "uuid";
+import { Event } from "../imports/common";
 
-import { type RtcpPacket, type RtpHeader, RtpPacket } from "../../../rtp/src";
 import { EventTarget } from "../helper";
+import {
+  type Extensions,
+  type RtcpPacket,
+  type RtpHeader,
+  RtpPacket,
+} from "../imports/rtp";
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
@@ -22,7 +27,7 @@ export class MediaStreamTrack extends EventTarget {
   /**todo impl */
   enabled = true;
 
-  readonly onReceiveRtp = new Event<[RtpPacket]>();
+  readonly onReceiveRtp = new Event<[RtpPacket, Extensions?]>();
   readonly onReceiveRtcp = new Event<[RtcpPacket]>();
   readonly onSourceChanged = new Event<
     [Pick<RtpHeader, "sequenceNumber" | "timestamp">]

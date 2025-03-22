@@ -31,7 +31,6 @@ export const createDtlsTransport = () => {
     defaultPeerConfig,
     new RTCIceTransport(new RTCIceGatherer()),
     new RtpRouter(),
-    [],
   );
   return dtls;
 };
@@ -57,21 +56,19 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
+  await RTCDtlsTransport.SetupCertificate();
+
   const session1 = new RTCDtlsTransport(
     defaultPeerConfig,
     transport1,
     new RtpRouter(),
-    [],
   );
-  await session1.setupCertificate();
 
   const session2 = new RTCDtlsTransport(
     defaultPeerConfig,
     transport2,
     new RtpRouter(),
-    [],
   );
-  await session2.setupCertificate();
 
   session1.setRemoteParams(session2.localParameters);
   session2.setRemoteParams(session1.localParameters);

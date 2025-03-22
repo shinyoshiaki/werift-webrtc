@@ -1,5 +1,5 @@
+import type { Address } from "./imports/common";
 import type { Message } from "./stun/message";
-import type { Address } from "./types/model";
 
 export class TransactionError extends Error {
   response?: Message;

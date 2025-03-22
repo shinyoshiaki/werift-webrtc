@@ -13,10 +13,11 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const recorder = new MediaRecorder("./werift.webm", 1, {
+  const recorder = new MediaRecorder({
+    path: "./werift.webm",
+    numOfTracks: 1,
     width: 640,
     height: 360,
-    jitterBufferLatency: 50,
   });
 
   const pc = new RTCPeerConnection({

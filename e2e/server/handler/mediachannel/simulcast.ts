@@ -1,4 +1,4 @@
-import { AcceptFn } from "protoo-server";
+import type { AcceptFn } from "protoo-server";
 import { RTCPeerConnection, useSdesRTPStreamId } from "../../";
 import { DtlsKeysContext } from "../../fixture";
 

@@ -1,16 +1,7 @@
 import { createHmac, randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
-import debug from "debug";
-import range from "lodash/range";
-import { Event } from "rx.mini";
 
-import {
-  random32,
-  uint16Add,
-  uint16Gt,
-  uint32Gt,
-  uint32Gte,
-} from "../../common/src";
+import range from "lodash/range.js";
 import {
   AbortChunk,
   type Chunk,
@@ -34,6 +25,15 @@ import {
 } from "./chunk";
 import { SCTP_STATE } from "./const";
 import { type Unpacked, createEventsFromList, enumerate } from "./helper";
+import {
+  Event,
+  debug,
+  random32,
+  uint16Add,
+  uint16Gt,
+  uint32Gt,
+  uint32Gte,
+} from "./imports/common";
 import {
   OutgoingSSNResetRequestParam,
   RECONFIG_PARAM_BY_TYPES,
@@ -568,6 +568,7 @@ export class SCTP {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
+    // Furthermore, this exposed an issue I've seen in v8 in other projects: using an array as a queue seems to result in long calls to shift (it does an array copy under the hood?). The problem seems to get worse the more times it shifts. Resetting the queue to empty array mitigates this.
     if (!this.sentQueue.length) {
       this.sentQueue = [];
     }
@@ -879,6 +880,7 @@ export class SCTP {
         this.timer3Start();
       }
     }
+    // Resetting the queue to empty array mitigates this.
     this.outboundQueue = [];
     this.flush.execute();
   }
@@ -1097,6 +1099,7 @@ export class SCTP {
         streams[chunk.streamId] = chunk.streamSeqNum;
       }
     }
+    // Resetting the queue to empty array mitigates this.
     if (!this.sentQueue.length) {
       this.sentQueue = [];
     }

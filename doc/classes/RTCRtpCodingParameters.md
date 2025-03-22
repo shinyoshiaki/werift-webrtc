@@ -1,30 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCRtpCodingParameters
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCRtpCodingParameters
 
 # Class: RTCRtpCodingParameters
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCRtpCodingParameters.md#constructor)
-
-### Properties
-
-- [payloadType](RTCRtpCodingParameters.md#payloadtype)
-- [rtx](RTCRtpCodingParameters.md#rtx)
-- [ssrc](RTCRtpCodingParameters.md#ssrc)
-
 ## Constructors
 
-### constructor
+### new RTCRtpCodingParameters()
 
-• **new RTCRtpCodingParameters**(`props`): [`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)
+> **new RTCRtpCodingParameters**(`props`): [`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)\> & `Pick`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md), ``"payloadType"`` \| ``"ssrc"``\> |
+• **props**: `Partial`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)\> & `Pick`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md), `"payloadType"` \| `"ssrc"`\>
 
 #### Returns
 
@@ -34,16 +24,16 @@
 
 ### payloadType
 
-• **payloadType**: `number`
+> **payloadType**: `number`
 
-___
+***
 
-### rtx
+### rtx?
 
-• `Optional` **rtx**: [`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
+> `optional` **rtx**: [`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: `number`
+> **ssrc**: `number`

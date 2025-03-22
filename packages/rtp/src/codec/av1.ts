@@ -1,10 +1,9 @@
 // RTP Payload Format For AV1 https://aomediacodec.github.io/av1-rtp-spec/
 
 import { LEB128 } from "@minhducsun2002/leb128";
-import { debug } from "debug";
 
 import type { RtpHeader } from "..";
-import { BitWriter2, getBit } from "../../../common/src";
+import { BitWriter2, debug, getBit } from "../imports/common";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
 

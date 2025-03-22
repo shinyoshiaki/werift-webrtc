@@ -1,147 +1,131 @@
-[werift](../README.md) / [Exports](../modules.md) / Protocol
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / Protocol
 
 # Interface: Protocol
 
-## Table of contents
-
-### Properties
-
-- [close](Protocol.md#close)
-- [connectionMade](Protocol.md#connectionmade)
-- [localCandidate](Protocol.md#localcandidate)
-- [request](Protocol.md#request)
-- [responseAddr](Protocol.md#responseaddr)
-- [responseMessage](Protocol.md#responsemessage)
-- [sendData](Protocol.md#senddata)
-- [sendStun](Protocol.md#sendstun)
-- [sentMessage](Protocol.md#sentmessage)
-- [type](Protocol.md#type)
-
 ## Properties
 
-### close
+### close()
 
-• `Optional` **close**: () => `Promise`\<`void`\>
+> **close**: () => `Promise`\<`void`\>
 
-#### Type declaration
-
-▸ (): `Promise`\<`void`\>
-
-##### Returns
+#### Returns
 
 `Promise`\<`void`\>
 
-___
+***
 
-### connectionMade
+### connectionMade()
 
-• **connectionMade**: (...`args`: `any`) => `Promise`\<`void`\>
+> **connectionMade**: (...`args`) => `Promise`\<`void`\>
 
-#### Type declaration
+#### Parameters
 
-▸ (`...args`): `Promise`\<`void`\>
+• ...**args**: `any`
 
-##### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `...args` | `any` |
-
-##### Returns
+#### Returns
 
 `Promise`\<`void`\>
 
-___
+***
 
-### localCandidate
+### localCandidate?
 
-• `Optional` **localCandidate**: [`Candidate`](../classes/Candidate.md)
+> `optional` **localCandidate**: [`Candidate`](../classes/Candidate.md)
 
-___
+***
 
-### request
+### localIp?
 
-• **request**: (`message`: `Message`, `addr`: readonly [`string`, `number`], `integrityKey?`: `Buffer`, `retransmissions?`: `any`) => `Promise`\<[`Message`, readonly [`string`, `number`]]\>
+> `optional` **localIp**: `string`
 
-#### Type declaration
+***
 
-▸ (`message`, `addr`, `integrityKey?`, `retransmissions?`): `Promise`\<[`Message`, readonly [`string`, `number`]]\>
+### onDataReceived
 
-##### Parameters
+> **onDataReceived**: [`Event`](../classes/Event.md)\<[`Buffer`]\>
 
-| Name | Type |
-| :------ | :------ |
-| `message` | `Message` |
-| `addr` | readonly [`string`, `number`] |
-| `integrityKey?` | `Buffer` |
-| `retransmissions?` | `any` |
+***
 
-##### Returns
+### onRequestReceived
 
-`Promise`\<[`Message`, readonly [`string`, `number`]]\>
+> **onRequestReceived**: [`Event`](../classes/Event.md)\<[[`Message`](../classes/Message.md), readonly [`string`, `number`], `Buffer`]\>
 
-___
+***
 
-### responseAddr
+### request()
 
-• `Optional` **responseAddr**: readonly [`string`, `number`]
+> **request**: (`message`, `addr`, `integrityKey`?, `retransmissions`?) => `Promise`\<[[`Message`](../classes/Message.md), readonly [`string`, `number`]]\>
 
-___
+#### Parameters
 
-### responseMessage
+• **message**: [`Message`](../classes/Message.md)
 
-• `Optional` **responseMessage**: `string`
+• **addr**: readonly [`string`, `number`]
 
-___
+• **integrityKey?**: `Buffer`
 
-### sendData
+• **retransmissions?**: `any`
 
-• **sendData**: (`data`: `Buffer`, `addr`: readonly [`string`, `number`]) => `Promise`\<`void`\>
+#### Returns
 
-#### Type declaration
+`Promise`\<[[`Message`](../classes/Message.md), readonly [`string`, `number`]]\>
 
-▸ (`data`, `addr`): `Promise`\<`void`\>
+***
 
-##### Parameters
+### responseAddr?
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `addr` | readonly [`string`, `number`] |
+> `optional` **responseAddr**: readonly [`string`, `number`]
 
-##### Returns
+***
 
-`Promise`\<`void`\>
+### responseMessage?
 
-___
+> `optional` **responseMessage**: `string`
 
-### sendStun
+***
 
-• **sendStun**: (`message`: `Message`, `addr`: readonly [`string`, `number`]) => `Promise`\<`void`\>
+### sendData()
 
-#### Type declaration
+> **sendData**: (`data`, `addr`) => `Promise`\<`void`\>
 
-▸ (`message`, `addr`): `Promise`\<`void`\>
+#### Parameters
 
-##### Parameters
+• **data**: `Buffer`
 
-| Name | Type |
-| :------ | :------ |
-| `message` | `Message` |
-| `addr` | readonly [`string`, `number`] |
+• **addr**: readonly [`string`, `number`]
 
-##### Returns
+#### Returns
 
 `Promise`\<`void`\>
 
-___
+***
 
-### sentMessage
+### sendStun()
 
-• `Optional` **sentMessage**: `Message`
+> **sendStun**: (`message`, `addr`) => `Promise`\<`void`\>
 
-___
+#### Parameters
+
+• **message**: [`Message`](../classes/Message.md)
+
+• **addr**: readonly [`string`, `number`]
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### sentMessage?
+
+> `optional` **sentMessage**: [`Message`](../classes/Message.md)
+
+***
 
 ### type
 
-• **type**: `string`
+> **type**: `string`

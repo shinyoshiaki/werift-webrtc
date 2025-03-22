@@ -1,35 +1,35 @@
 import { Certificate, PrivateKey } from "@fidm/x509";
-import debug from "debug";
-import Event from "rx.mini";
+
 import { setTimeout } from "timers/promises";
 import { v4 } from "uuid";
+import { Event, type Transport } from "../imports/common";
 
+import type { AddressInfo } from "net";
 import {
+  CipherContext,
   DtlsClient,
   DtlsServer,
   type DtlsSocket,
-  type Transport,
-} from "../../../dtls/src";
-import {
   HashAlgorithm,
   NamedCurveAlgorithm,
   SignatureAlgorithm,
   type SignatureHash,
-} from "../../../dtls/src/cipher/const";
-import { CipherContext } from "../../../dtls/src/context/cipher";
-import type { Profile } from "../../../dtls/src/context/srtp";
-import type { Connection } from "../../../ice/src";
+} from "../imports/dtls";
+import type { IceConnection } from "../imports/ice";
 import {
   type RtcpPacket,
   RtcpPacketConverter,
   type RtpHeader,
   RtpPacket,
   SrtcpSession,
+  type SrtpProfile,
   SrtpSession,
+  debug,
   isMedia,
   isRtcp,
-} from "../../../rtp/src";
-import { keyLength, saltLength } from "../../../rtp/src/srtp/const";
+  keyLength,
+  saltLength,
+} from "../imports/rtp";
 import type { RtpRouter } from "../media/router";
 import type { PeerConfig } from "../peerConnection";
 import { fingerprint, isDtls } from "../utils";
@@ -51,17 +51,18 @@ export class RTCDtlsTransport {
 
   readonly onStateChange = new Event<[DtlsState]>();
 
-  localCertificate?: RTCCertificate;
+  static localCertificate?: RTCCertificate;
+  static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
     readonly config: PeerConfig,
     readonly iceTransport: RTCIceTransport,
     readonly router: RtpRouter,
-    readonly certificates: RTCCertificate[],
-    private readonly srtpProfiles: Profile[] = [],
+    public localCertificate?: RTCCertificate,
+    private readonly srtpProfiles: SrtpProfile[] = [],
   ) {
-    this.localCertificate = this.certificates[0];
+    this.localCertificate ??= RTCDtlsTransport.localCertificate;
   }
 
   get localParameters() {
@@ -71,8 +72,16 @@ export class RTCDtlsTransport {
     );
   }
 
-  async setupCertificate() {
-    if (!this.localCertificate) {
+  static async SetupCertificate() {
+    if (this.localCertificate) {
+      return this.localCertificate;
+    }
+
+    if (this.localCertificatePromise) {
+      return this.localCertificatePromise;
+    }
+
+    this.localCertificatePromise = (async () => {
       const { certPem, keyPem, signatureHash } =
         await CipherContext.createSelfSignedCertificateWithKey(
           {
@@ -86,8 +95,10 @@ export class RTCDtlsTransport {
         certPem,
         signatureHash,
       );
-    }
-    return this.localCertificate;
+      return this.localCertificate;
+    })();
+
+    return this.localCertificatePromise;
   }
 
   setRemoteParams(remoteParameters: RTCDtlsParameters) {
@@ -95,8 +106,12 @@ export class RTCDtlsTransport {
   }
 
   async start() {
-    if (this.state !== "new") throw new Error();
-    if (this.remoteParameters?.fingerprints.length === 0) throw new Error();
+    if (this.state !== "new") {
+      throw new Error("state must be new");
+    }
+    if (this.remoteParameters?.fingerprints.length === 0) {
+      throw new Error("remote fingerprint not exist");
+    }
 
     if (this.role === "auto") {
       if (this.iceTransport.role === "controlling") {
@@ -108,7 +123,7 @@ export class RTCDtlsTransport {
 
     this.setState("connecting");
 
-    await new Promise<void>(async (r) => {
+    await new Promise<void>(async (r, f) => {
       if (this.role === "server") {
         this.dtls = new DtlsServer({
           cert: this.localCertificate?.certPem,
@@ -142,9 +157,10 @@ export class RTCDtlsTransport {
         this.setState("closed");
       });
       this.dtls.onConnect.once(r);
-      this.dtls.onError.subscribe((error) => {
+      this.dtls.onError.once((error) => {
         this.setState("failed");
         log("dtls failed", error);
+        f(error);
       });
 
       if (this.dtls instanceof DtlsClient) {
@@ -152,6 +168,7 @@ export class RTCDtlsTransport {
         this.dtls.connect().catch((error) => {
           this.setState("failed");
           log("dtls connect failed", error);
+          f(error);
         });
       }
     });
@@ -343,22 +360,30 @@ export class RTCDtlsParameters {
 }
 
 class IceTransport implements Transport {
-  constructor(private ice: Connection) {
+  constructor(private ice: IceConnection) {
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
-        if (this.onData) this.onData(buf);
+        if (this.onData) {
+          this.onData(buf);
+        }
       }
     });
   }
-  onData?: (buf: Buffer) => void;
+  onData: (buf: Buffer) => void = () => {};
+
+  get address() {
+    return {} as AddressInfo;
+  }
+
+  type: string = "ice";
 
   readonly send = (data: Buffer) => {
     return this.ice.send(data);
   };
 
-  close() {
+  async close() {
     this.ice.close();
   }
 }
 
-const createIceTransport = (ice: Connection) => new IceTransport(ice);
+const createIceTransport = (ice: IceConnection) => new IceTransport(ice);

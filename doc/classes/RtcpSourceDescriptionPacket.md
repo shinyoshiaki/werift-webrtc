@@ -1,39 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RtcpSourceDescriptionPacket
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtcpSourceDescriptionPacket
 
 # Class: RtcpSourceDescriptionPacket
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpSourceDescriptionPacket.md#constructor)
-
-### Properties
-
-- [chunks](RtcpSourceDescriptionPacket.md#chunks)
-- [type](RtcpSourceDescriptionPacket.md#type)
-- [type](RtcpSourceDescriptionPacket.md#type-1)
-
-### Accessors
-
-- [length](RtcpSourceDescriptionPacket.md#length)
-
-### Methods
-
-- [serialize](RtcpSourceDescriptionPacket.md#serialize)
-- [deSerialize](RtcpSourceDescriptionPacket.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpSourceDescriptionPacket()
 
-• **new RtcpSourceDescriptionPacket**(`props`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
+> **new RtcpSourceDescriptionPacket**(`props`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)\> |
+• **props**: `Partial`\<[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)\>
 
 #### Returns
 
@@ -43,25 +24,25 @@
 
 ### chunks
 
-• **chunks**: [`SourceDescriptionChunk`](SourceDescriptionChunk.md)[] = `[]`
+> **chunks**: [`SourceDescriptionChunk`](SourceDescriptionChunk.md)[] = `[]`
 
-___
-
-### type
-
-• `Readonly` **type**: ``202``
-
-___
+***
 
 ### type
 
-▪ `Static` `Readonly` **type**: ``202``
+> `readonly` **type**: `202` = `RtcpSourceDescriptionPacket.type`
+
+***
+
+### type
+
+> `readonly` `static` **type**: `202` = `202`
 
 ## Accessors
 
 ### length
 
-• `get` **length**(): `number`
+> `get` **length**(): `number`
 
 #### Returns
 
@@ -69,26 +50,25 @@ ___
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`payload`, `header`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
+> `static` **deSerialize**(`payload`, `header`): [`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `payload` | `Buffer` |
-| `header` | [`RtcpHeader`](RtcpHeader.md) |
+• **payload**: `Buffer`
+
+• **header**: [`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

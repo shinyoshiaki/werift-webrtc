@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 
-import { createUdpTransport } from "../../src";
+import { UdpTransport } from "../../../common/src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { DtlsClient } from "../../src/client";
 import { certPem, keyPem } from "../fixture";
@@ -25,12 +25,11 @@ describe("e2e/client", () => {
         const server = spawn("openssl", args);
         server.stdout.setEncoding("ascii");
 
-        setTimeout(() => {
+        setTimeout(async () => {
+          const transport = await UdpTransport.init("udp4");
+          transport.rinfo = { address: "127.0.0.1", port: 55555 };
           const client = new DtlsClient({
-            transport: createUdpTransport(createSocket("udp4"), {
-              address: "127.0.0.1",
-              port: 55555,
-            }),
+            transport,
             cert: certPem,
             key: keyPem,
             signatureHash: {

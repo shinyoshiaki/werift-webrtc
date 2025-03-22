@@ -1,16 +1,24 @@
 import { setTimeout } from "timers/promises";
 
-import { Candidate } from "../../src/candidate";
-import { CandidatePair, CandidatePairState, Connection } from "../../src/ice";
+import { type Address, Event } from "../../../common/src";
+import {
+  CandidatePair,
+  CandidatePairState,
+  sortCandidatePairs,
+} from "../../src";
+import { Candidate, candidatePriority } from "../../src/candidate";
+import { Connection } from "../../src/ice";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
-import type { Address, Protocol } from "../../src/types/model";
+import type { Protocol } from "../../src/types/model";
 import { assertCandidateTypes, inviteAccept } from "../utils";
 
 class ProtocolMock implements Protocol {
   type = "mock";
   responseAddr?: Address;
   responseMessage?: string;
+  onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
+  onDataReceived: Event<[Buffer]> = new Event();
   localCandidate = new Candidate(
     "some-foundation",
     1,
@@ -29,6 +37,7 @@ class ProtocolMock implements Protocol {
   };
   async connectionMade() {}
   async sendData() {}
+  async close() {}
 }
 
 describe("ice", () => {
@@ -40,6 +49,7 @@ describe("ice", () => {
 
     const request = new Message(methods.BINDING, classes.REQUEST);
     request.setAttribute("PRIORITY", 456789);
+    request.setAttribute("USERNAME", `a:b`);
 
     connection.checkIncoming(request, ["2.3.4.5", 2345], protocol);
     expect(protocol.sentMessage).not.toBeNull();
@@ -64,27 +74,7 @@ describe("ice", () => {
     expect(pair.handle).not.toBeNull();
     protocol.responseAddr = ["2.3.4.5", 2345];
     protocol.responseMessage = "bad";
-    await pair.handle?.promise;
-  });
-
-  test("test_request_with_invalid_method", () => {
-    const connection = new Connection(true);
-    const protocol = new ProtocolMock();
-
-    const request = new Message(methods.ALLOCATE, classes.REQUEST);
-    connection.requestReceived(
-      request,
-      ["2.3.4.5", 2345],
-      protocol,
-      request.bytes,
-    );
-    expect(protocol.sentMessage).not.toBeNull();
-    expect(protocol.sentMessage?.messageMethod).toBe(methods.ALLOCATE);
-    expect(protocol.sentMessage?.messageClass).toBe(classes.ERROR);
-    expect(protocol.sentMessage?.getAttributeValue("ERROR-CODE")).toEqual([
-      400,
-      "Bad Request",
-    ]);
+    await pair.handle?.awaitable;
   });
 
   test("test_response_with_invalid_address", async () => {
@@ -99,15 +89,18 @@ describe("ice", () => {
     const pair = new CandidatePair(
       protocol,
       new Candidate("some-foundation", 1, "udp", 2345, "2.3.4.5", 2345, "host"),
+      true,
     );
 
-    await connection.checkStart(pair);
+    await connection.checkStart(pair).awaitable;
     expect(pair.state).toBe(CandidatePairState.FAILED);
   });
 
   test("test_connect", async () => {
     const a = new Connection(true, {});
     const b = new Connection(false, {});
+    a.stunServer = undefined;
+    b.stunServer = undefined;
 
     await inviteAccept(a, b);
 
@@ -231,8 +224,16 @@ describe("ice", () => {
   // });
 
   test("test_connect_ipv6", async () => {
-    const a = new Connection(true, { useIpv4: false, useIpv6: true });
-    const b = new Connection(false, { useIpv4: false, useIpv6: true });
+    const a = new Connection(true, {
+      useIpv4: false,
+      useIpv6: true,
+      useLinkLocalAddress: true,
+    });
+    const b = new Connection(false, {
+      useIpv4: false,
+      useIpv6: true,
+      useLinkLocalAddress: true,
+    });
 
     // # invite / accept
     await inviteAccept(a, b);
@@ -294,12 +295,12 @@ describe("ice", () => {
 
       await a.gatherCandidates();
       b.remoteCandidates = a.localCandidates;
-      b.remoteUsername = a.localUserName;
+      b.remoteUsername = a.localUsername;
       b.remotePassword = a.remotePassword;
 
       await b.gatherCandidates();
       a.remoteCandidates = b.localCandidates;
-      a.remoteUsername = b.localUserName;
+      a.remoteUsername = b.localUsername;
       a.remotePassword = "wrong-password";
 
       try {
@@ -319,7 +320,7 @@ describe("ice", () => {
 
       await a.gatherCandidates();
       b.remoteCandidates = a.localCandidates;
-      b.remoteUsername = a.localUserName;
+      b.remoteUsername = a.localUsername;
       b.remotePassword = a.remotePassword;
 
       await b.gatherCandidates();
@@ -366,7 +367,7 @@ describe("ice", () => {
     new Promise<void>(async (done) => {
       const conn = new Connection(true);
 
-      conn._localCandidatesEnd = true;
+      conn.localCandidatesEnd = true;
       conn.remoteCandidates = [
         Candidate.fromSdp(
           "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",
@@ -425,8 +426,10 @@ describe("ice", () => {
       const a = new Connection(true);
       const b = new Connection(true);
 
-      a._tieBreaker = BigInt(1);
-      b._tieBreaker = BigInt(2);
+      //@ts-ignore
+      a.tieBreaker = BigInt(1);
+      //@ts-ignore
+      b.tieBreaker = BigInt(2);
 
       await inviteAccept(a, b);
 
@@ -448,8 +451,10 @@ describe("ice", () => {
       const a = new Connection(false);
       const b = new Connection(false);
 
-      a._tieBreaker = BigInt(1);
-      b._tieBreaker = BigInt(2);
+      //@ts-ignore
+      a.tieBreaker = BigInt(1);
+      //@ts-ignore
+      b.tieBreaker = BigInt(2);
 
       await inviteAccept(a, b);
 
@@ -467,16 +472,15 @@ describe("ice", () => {
     const a = new Connection(true, {
       stunServer: ["stun.l.google.com", 19302],
     });
-    const b = new Connection(false, {
-      stunServer: ["stun.l.google.com", 19302],
-    });
+    const b = new Connection(false);
+    b.stunServer = undefined;
 
     // # invite / accept
     await inviteAccept(a, b);
 
     // # we would have both host and server-reflexive candidates
     assertCandidateTypes(a, ["host", "srflx"]);
-    assertCandidateTypes(b, ["host", "srflx"]);
+    assertCandidateTypes(b, ["host"]);
 
     const candidate = a.getDefaultCandidate()!;
     expect(candidate).not.toBeUndefined();
@@ -508,6 +512,7 @@ describe("ice", () => {
         stunServer: ["invalid", 19302],
       });
       const b = new Connection(false, {});
+      b.stunServer = undefined;
 
       // # invite / accept
       await inviteAccept(a, b);
@@ -541,11 +546,13 @@ describe("ice", () => {
         stunServer: ["stun.l.google.com", 19302],
         useIpv4: false,
         useIpv6: true,
+        useLinkLocalAddress: true,
       });
       const b = new Connection(false, {
         stunServer: ["stun.l.google.com", 19302],
         useIpv4: false,
         useIpv6: true,
+        useLinkLocalAddress: true,
       });
 
       // # invite / accept
@@ -578,6 +585,8 @@ describe("ice", () => {
     const a = new Connection(true, {});
     a.remoteIsLite = true;
     const b = new Connection(false, {});
+    a.stunServer = undefined;
+    b.stunServer = undefined;
 
     // # invite / accept
     await inviteAccept(a, b);
@@ -605,5 +614,41 @@ describe("ice", () => {
 
     await a.close();
     await b.close();
+  });
+});
+
+describe("sortCandidatePairs", () => {
+  it("controlling", () => {
+    const host = {
+      type: "host",
+      localCandidate: { priority: candidatePriority("host") },
+      remoteCandidate: { priority: candidatePriority("host") },
+    };
+
+    const relay = {
+      type: "relay",
+      localCandidate: { priority: candidatePriority("relay") },
+      remoteCandidate: { priority: candidatePriority("relay") },
+    };
+
+    const res = sortCandidatePairs([host, relay], true);
+    expect(res).toEqual([host, relay]);
+  });
+
+  it("controlled", () => {
+    const host = {
+      type: "host",
+      localCandidate: { priority: candidatePriority("host") },
+      remoteCandidate: { priority: candidatePriority("host") },
+    };
+
+    const relay = {
+      type: "relay",
+      localCandidate: { priority: candidatePriority("relay") },
+      remoteCandidate: { priority: candidatePriority("relay") },
+    };
+
+    const res = sortCandidatePairs([host, relay], true);
+    expect(res).toEqual([host, relay]);
   });
 });

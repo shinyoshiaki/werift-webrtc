@@ -1,41 +1,22 @@
-[werift](../README.md) / [Exports](../modules.md) / RtpPacket
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtpPacket
 
 # Class: RtpPacket
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtpPacket.md#constructor)
-
-### Properties
-
-- [header](RtpPacket.md#header)
-- [payload](RtpPacket.md#payload)
-
-### Accessors
-
-- [serializeSize](RtpPacket.md#serializesize)
-
-### Methods
-
-- [clear](RtpPacket.md#clear)
-- [clone](RtpPacket.md#clone)
-- [serialize](RtpPacket.md#serialize)
-- [deSerialize](RtpPacket.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtpPacket()
 
-• **new RtpPacket**(`header`, `payload`): [`RtpPacket`](RtpPacket.md)
+> **new RtpPacket**(`header`, `payload`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `header` | [`RtpHeader`](RtpHeader.md) |
-| `payload` | `Buffer` |
+• **header**: [`RtpHeader`](RtpHeader.md)
+
+• **payload**: `Buffer`
 
 #### Returns
 
@@ -45,19 +26,19 @@
 
 ### header
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+> **header**: [`RtpHeader`](RtpHeader.md)
 
-___
+***
 
 ### payload
 
-• **payload**: `Buffer`
+> **payload**: `Buffer`
 
 ## Accessors
 
 ### serializeSize
 
-• `get` **serializeSize**(): `number`
+> `get` **serializeSize**(): `number`
 
 #### Returns
 
@@ -65,45 +46,43 @@ ___
 
 ## Methods
 
-### clear
+### clear()
 
-▸ **clear**(): `void`
+> **clear**(): `void`
 
 #### Returns
 
 `void`
 
-___
+***
 
-### clone
+### clone()
 
-▸ **clone**(): [`RtpPacket`](RtpPacket.md)
+> **clone**(): [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
 [`RtpPacket`](RtpPacket.md)
 
-___
+***
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`buf`): [`RtpPacket`](RtpPacket.md)
+> `static` **deSerialize**(`buf`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `buf` | `Buffer` |
+• **buf**: `Buffer`
 
 #### Returns
 

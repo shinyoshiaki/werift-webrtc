@@ -1,40 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / RtcpReceiverInfo
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RtcpReceiverInfo
 
 # Class: RtcpReceiverInfo
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpReceiverInfo.md#constructor)
-
-### Properties
-
-- [dlsr](RtcpReceiverInfo.md#dlsr)
-- [fractionLost](RtcpReceiverInfo.md#fractionlost)
-- [highestSequence](RtcpReceiverInfo.md#highestsequence)
-- [jitter](RtcpReceiverInfo.md#jitter)
-- [lsr](RtcpReceiverInfo.md#lsr)
-- [packetsLost](RtcpReceiverInfo.md#packetslost)
-- [ssrc](RtcpReceiverInfo.md#ssrc)
-
-### Methods
-
-- [serialize](RtcpReceiverInfo.md#serialize)
-- [toJSON](RtcpReceiverInfo.md#tojson)
-- [deSerialize](RtcpReceiverInfo.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpReceiverInfo()
 
-• **new RtcpReceiverInfo**(`props?`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+> **new RtcpReceiverInfo**(`props`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> |
+• **props**: `Partial`\<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> = `{}`
 
 #### Returns
 
@@ -44,89 +24,105 @@
 
 ### dlsr
 
-• **dlsr**: `number`
+> **dlsr**: `number`
 
 delay since last SR
 
-___
+***
 
 ### fractionLost
 
-• **fractionLost**: `number`
+> **fractionLost**: `number`
 
-___
+***
 
 ### highestSequence
 
-• **highestSequence**: `number`
+> **highestSequence**: `number`
 
-___
+***
 
 ### jitter
 
-• **jitter**: `number`
+> **jitter**: `number`
 
-___
+***
 
 ### lsr
 
-• **lsr**: `number`
+> **lsr**: `number`
 
 last SR
 
-___
+***
 
 ### packetsLost
 
-• **packetsLost**: `number`
+> **packetsLost**: `number`
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: `number`
+> **ssrc**: `number`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### toJSON
+### toJSON()
 
-▸ **toJSON**(): `Object`
+> **toJSON**(): `object`
 
 #### Returns
 
-`Object`
+`object`
 
-| Name | Type |
-| :------ | :------ |
-| `dlsr` | `number` |
-| `fractionLost` | `number` |
-| `highestSequence` | `number` |
-| `jitter` | `number` |
-| `lsr` | `number` |
-| `packetsLost` | `number` |
-| `ssrc` | `number` |
+##### dlsr
 
-___
+> **dlsr**: `number`
 
-### deSerialize
+##### fractionLost
 
-▸ **deSerialize**(`data`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+> **fractionLost**: `number`
+
+##### highestSequence
+
+> **highestSequence**: `number`
+
+##### jitter
+
+> **jitter**: `number`
+
+##### lsr
+
+> **lsr**: `number`
+
+##### packetsLost
+
+> **packetsLost**: `number`
+
+##### ssrc
+
+> **ssrc**: `number`
+
+***
+
+### deSerialize()
+
+> `static` **deSerialize**(`data`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

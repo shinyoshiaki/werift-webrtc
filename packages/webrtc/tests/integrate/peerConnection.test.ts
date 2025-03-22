@@ -139,7 +139,7 @@ describe("peerConnection", () => {
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
 
-    const candidates = peer.iceTransports[0].iceGather.localCandidates;
+    const candidates = peer.iceTransports[0].localCandidates;
     for (const candidate of candidates) {
       expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
     }

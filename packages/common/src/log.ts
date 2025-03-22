@@ -1,3 +1,5 @@
+import Debug from "debug";
+
 export class WeriftError extends Error {
   message!: string;
   payload?: object;
@@ -15,3 +17,5 @@ export class WeriftError extends Error {
     };
   }
 }
+
+export const debug = Debug.debug;

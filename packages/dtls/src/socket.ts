@@ -1,7 +1,7 @@
 import { decode, types } from "@shinyoshiaki/binary-data";
-import debug from "debug";
-import { Event } from "rx.mini";
+
 import { setTimeout } from "timers/promises";
+import { Event, type Transport, debug } from "./imports/common";
 
 import {
   NamedCurveAlgorithmList,
@@ -12,18 +12,18 @@ import { exportKeyingMaterial } from "./cipher/prf";
 import { SessionType, type SessionTypes } from "./cipher/suites/abstract";
 import { CipherContext } from "./context/cipher";
 import { DtlsContext } from "./context/dtls";
-import { type Profile, SrtpContext } from "./context/srtp";
+import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
-import type { Transport } from "./transport";
 import type { Extension } from "./typings/domain";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
@@ -81,39 +81,41 @@ export class DtlsSocket {
 
     for (const packet of packets) {
       try {
-        const message = parsePlainText(this.dtls, this.cipher)(packet);
-        switch (message.type) {
-          case ContentType.handshake:
-            {
-              const handshake = message.data as FragmentedHandshake;
-              const handshakes = this.handleFragmentHandshake([handshake]);
-              const assembled = Object.values(
-                handshakes.reduce(
-                  (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
-                    if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
-                    acc[cur.msg_type].push(cur);
-                    return acc;
-                  },
-                  {},
-                ),
-              )
-                .map((v) => FragmentedHandshake.assemble(v))
-                .sort((a, b) => a.msg_type - b.msg_type);
+        const messages = parsePlainText(this.dtls, this.cipher)(packet);
+        for (const message of messages) {
+          switch (message.type) {
+            case ContentType.handshake:
+              {
+                const handshake = message.data as FragmentedHandshake;
+                const handshakes = this.handleFragmentHandshake([handshake]);
+                const assembled = Object.values(
+                  handshakes.reduce(
+                    (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
+                      if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
+                      acc[cur.msg_type].push(cur);
+                      return acc;
+                    },
+                    {},
+                  ),
+                )
+                  .map((v) => FragmentedHandshake.assemble(v))
+                  .sort((a, b) => a.msg_type - b.msg_type);
 
-              this.onHandleHandshakes(assembled).catch((error) => {
-                err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                this.onError.execute(error);
-              });
-            }
-            break;
-          case ContentType.applicationData:
-            {
-              this.onData.execute(message.data as Buffer);
-            }
-            break;
-          case ContentType.alert:
-            this.onClose.execute();
-            break;
+                this.onHandleHandshakes(assembled).catch((error) => {
+                  err(this.dtls.sessionId, "onHandleHandshakes error", error);
+                  this.onError.execute(error);
+                });
+              }
+              break;
+            case ContentType.applicationData:
+              {
+                this.onData.execute(message.data as Buffer);
+              }
+              break;
+            case ContentType.alert:
+              this.onClose.execute();
+              break;
+          }
         }
       } catch (error) {
         err(this.dtls.sessionId, "catch udpOnMessage error", error);
@@ -249,7 +251,7 @@ export class DtlsSocket {
 
 export interface Options {
   transport: Transport;
-  srtpProfiles?: Profile[];
+  srtpProfiles?: SrtpProfile[];
   cert?: string;
   key?: string;
   signatureHash?: SignatureHash;

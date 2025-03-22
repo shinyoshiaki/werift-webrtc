@@ -1,6 +1,6 @@
 {
   "name": "werift-rtp",
-  "version": "0.8.1",
+  "version": "0.8.4",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
@@ -24,8 +24,7 @@
   "main": "lib/rtp/src/index.js",
   "types": "lib/rtp/src/index.d.ts",
   "files": [
-    "lib",
-    "src"
+    "lib"
   ],
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
@@ -42,19 +41,12 @@
   "dependencies": {
     "@minhducsun2002/leb128": "^1.0.0",
     "aes-js": "^3.1.2",
-    "@shinyoshiaki/binary-data": "^0.6.1",
-    "debug": "^4.3.4",
+    "buffer": "^6.0.3",
     "@shinyoshiaki/jspack": "^0.0.6",
-    "mp4box": "^0.5.2",
-    "rx.mini": "^1.2.2"
+    "mp4box": "^0.5.3"
   },
   "devDependencies": {
-    "@types/aes-js": "^3.1.1",
-    "@types/debug": "^4.1.7",
-    "@types/react": "^18.0.26",
-    "@types/react-dom": "^18.0.10",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@types/aes-js": "^3.1.4"
   },
   "engines": {
     "node": ">=10"

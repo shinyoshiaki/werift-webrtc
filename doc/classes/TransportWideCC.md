@@ -1,48 +1,20 @@
-[werift](../README.md) / [Exports](../modules.md) / TransportWideCC
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / TransportWideCC
 
 # Class: TransportWideCC
 
-## Table of contents
-
-### Constructors
-
-- [constructor](TransportWideCC.md#constructor)
-
-### Properties
-
-- [baseSequenceNumber](TransportWideCC.md#basesequencenumber)
-- [count](TransportWideCC.md#count)
-- [fbPktCount](TransportWideCC.md#fbpktcount)
-- [header](TransportWideCC.md#header)
-- [length](TransportWideCC.md#length)
-- [mediaSourceSsrc](TransportWideCC.md#mediasourcessrc)
-- [packetChunks](TransportWideCC.md#packetchunks)
-- [packetStatusCount](TransportWideCC.md#packetstatuscount)
-- [recvDeltas](TransportWideCC.md#recvdeltas)
-- [referenceTime](TransportWideCC.md#referencetime)
-- [senderSsrc](TransportWideCC.md#senderssrc)
-- [count](TransportWideCC.md#count-1)
-
-### Accessors
-
-- [packetResults](TransportWideCC.md#packetresults)
-
-### Methods
-
-- [serialize](TransportWideCC.md#serialize)
-- [deSerialize](TransportWideCC.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new TransportWideCC()
 
-• **new TransportWideCC**(`props?`): [`TransportWideCC`](TransportWideCC.md)
+> **new TransportWideCC**(`props`): [`TransportWideCC`](TransportWideCC.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`\<[`TransportWideCC`](TransportWideCC.md)\> |
+• **props**: `Partial`\<[`TransportWideCC`](TransportWideCC.md)\> = `{}`
 
 #### Returns
 
@@ -52,81 +24,81 @@
 
 ### baseSequenceNumber
 
-• **baseSequenceNumber**: `number`
+> **baseSequenceNumber**: `number`
 
-___
+***
 
 ### count
 
-• **count**: `number` = `TransportWideCC.count`
+> **count**: `number` = `TransportWideCC.count`
 
-___
+***
 
 ### fbPktCount
 
-• **fbPktCount**: `number`
+> **fbPktCount**: `number`
 
-___
+***
 
 ### header
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+> **header**: [`RtcpHeader`](RtcpHeader.md)
 
-___
+***
 
 ### length
 
-• **length**: `number` = `2`
+> **length**: `number` = `2`
 
-___
+***
 
 ### mediaSourceSsrc
 
-• **mediaSourceSsrc**: `number`
+> **mediaSourceSsrc**: `number`
 
-___
+***
 
 ### packetChunks
 
-• **packetChunks**: ([`RunLengthChunk`](RunLengthChunk.md) \| [`StatusVectorChunk`](StatusVectorChunk.md))[] = `[]`
+> **packetChunks**: ([`RunLengthChunk`](RunLengthChunk.md) \| [`StatusVectorChunk`](StatusVectorChunk.md))[] = `[]`
 
-___
+***
 
 ### packetStatusCount
 
-• **packetStatusCount**: `number`
+> **packetStatusCount**: `number`
 
-___
+***
 
 ### recvDeltas
 
-• **recvDeltas**: [`RecvDelta`](RecvDelta.md)[] = `[]`
+> **recvDeltas**: [`RecvDelta`](RecvDelta.md)[] = `[]`
 
-___
+***
 
 ### referenceTime
 
-• **referenceTime**: `number`
+> **referenceTime**: `number`
 
 24bit multiples of 64ms
 
-___
+***
 
 ### senderSsrc
 
-• **senderSsrc**: `number`
+> **senderSsrc**: `number`
 
-___
+***
 
 ### count
 
-▪ `Static` **count**: `number` = `15`
+> `static` **count**: `number` = `15`
 
 ## Accessors
 
 ### packetResults
 
-• `get` **packetResults**(): [`PacketResult`](PacketResult.md)[]
+> `get` **packetResults**(): [`PacketResult`](PacketResult.md)[]
 
 #### Returns
 
@@ -134,26 +106,25 @@ ___
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ **deSerialize**(`data`, `header`): [`TransportWideCC`](TransportWideCC.md)
+> `static` **deSerialize**(`data`, `header`): [`TransportWideCC`](TransportWideCC.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `header` | [`RtcpHeader`](RtcpHeader.md) |
+• **data**: `Buffer`
+
+• **header**: [`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

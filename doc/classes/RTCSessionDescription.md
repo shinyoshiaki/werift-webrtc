@@ -1,34 +1,22 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCSessionDescription
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCSessionDescription
 
 # Class: RTCSessionDescription
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCSessionDescription.md#constructor)
-
-### Properties
-
-- [sdp](RTCSessionDescription.md#sdp)
-- [type](RTCSessionDescription.md#type)
-
-### Methods
-
-- [isThis](RTCSessionDescription.md#isthis)
-
 ## Constructors
 
-### constructor
+### new RTCSessionDescription()
 
-• **new RTCSessionDescription**(`sdp`, `type`): [`RTCSessionDescription`](RTCSessionDescription.md)
+> **new RTCSessionDescription**(`sdp`, `type`): [`RTCSessionDescription`](RTCSessionDescription.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `sdp` | `string` |
-| `type` | ``"offer"`` \| ``"answer"`` |
+• **sdp**: `string`
+
+• **type**: `"offer"` \| `"answer"`
 
 #### Returns
 
@@ -38,26 +26,24 @@
 
 ### sdp
 
-• **sdp**: `string`
+> **sdp**: `string`
 
-___
+***
 
 ### type
 
-• **type**: ``"offer"`` \| ``"answer"``
+> **type**: `"offer"` \| `"answer"`
 
 ## Methods
 
-### isThis
+### isThis()
 
-▸ **isThis**(`o`): `undefined` \| ``true``
+> `static` **isThis**(`o`): `undefined` \| `true`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `o` | `any` |
+• **o**: `any`
 
 #### Returns
 
-`undefined` \| ``true``
+`undefined` \| `true`

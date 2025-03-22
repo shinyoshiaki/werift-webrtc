@@ -1,4 +1,4 @@
-import Event from "rx.mini";
+import { Event } from "./imports/common";
 
 export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);

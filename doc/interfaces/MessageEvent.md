@@ -1,15 +1,13 @@
-[werift](../README.md) / [Exports](../modules.md) / MessageEvent
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / MessageEvent
 
 # Interface: MessageEvent
-
-## Table of contents
-
-### Properties
-
-- [data](MessageEvent.md#data)
 
 ## Properties
 
 ### data
 
-• **data**: `string` \| `Buffer`
+> **data**: `string` \| `Buffer`
