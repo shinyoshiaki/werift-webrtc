@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "1.8.3",
-    "@types/node": "^20.10.6",
+    "@types/node": "^22.13.11",
     "knip": "^3.9.0",
     "node-actionlint": "^1.2.2",
     "npm-run-all2": "^6.2.2",

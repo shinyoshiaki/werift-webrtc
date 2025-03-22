@@ -29,23 +29,23 @@ export function parseMessage(
   if (data.length < HEADER_LENGTH) {
     return undefined;
   }
-  const [messageType, length] = jspack.Unpack(
-    "!HHI",
-    data.slice(0, HEADER_LENGTH),
-  );
 
-  const transactionId = Buffer.from(
-    data.slice(HEADER_LENGTH - 12, HEADER_LENGTH),
-  );
+  const messageType = data.readUint16BE(0);
+  const length = data.readUint16BE(2);
 
   if (data.length !== HEADER_LENGTH + length) {
     return undefined;
   }
 
+  const transactionId = Buffer.from(
+    data.slice(HEADER_LENGTH - 12, HEADER_LENGTH),
+  );
+
   const attributeRepository = new AttributeRepository();
 
   for (let pos = HEADER_LENGTH; pos <= data.length - 4; ) {
-    const [attrType, attrLen] = jspack.Unpack("!HH", data.slice(pos, pos + 4));
+    const attrType = data.readUInt16BE(pos);
+    const attrLen = data.readUInt16BE(pos + 2);
     const payload = data.slice(pos + 4, pos + 4 + attrLen);
     const padLen = 4 * Math.floor((attrLen + 3) / 4) - attrLen;
     const attributesTypes = Object.keys(ATTRIBUTES_BY_TYPE);
@@ -126,20 +126,15 @@ export class Message extends AttributeRepository {
           : attrPack(attrValue);
       const attrLen = v.length;
       const padLen = 4 * Math.floor((attrLen + 3) / 4) - attrLen;
-      data = Buffer.concat([
-        data,
-        Buffer.from(jspack.Pack("!HH", [attrType, attrLen])),
-        v,
-        ...[...Array(padLen)].map(() => Buffer.from("\x00")),
-      ]);
+      const attrHeader = Buffer.alloc(4);
+      attrHeader.writeUInt16BE(attrType, 0);
+      attrHeader.writeUInt16BE(attrLen, 2);
+      data = Buffer.concat([data, attrHeader, v, Buffer.alloc(padLen, 0)]);
     }
-    const buf = Buffer.from(
-      jspack.Pack("!HHI", [
-        this.messageMethod | this.messageClass,
-        data.length,
-        COOKIE,
-      ]),
-    );
+    const buf = Buffer.alloc(8);
+    buf.writeUInt16BE(this.messageMethod | this.messageClass, 0);
+    buf.writeUInt16BE(data.length, 2);
+    buf.writeUInt32BE(COOKIE, 4);
 
     return Buffer.concat([buf, this.transactionId, data]);
   }
@@ -166,11 +161,11 @@ export class Message extends AttributeRepository {
 }
 
 const setBodyLength = (data: Buffer, length: number) => {
-  return Buffer.concat([
-    data.slice(0, 2),
-    Buffer.from(jspack.Pack("!H", [length])),
-    data.slice(4),
-  ]);
+  const output = Buffer.alloc(data.length);
+  data.copy(output, 0, 0, 2);
+  output.writeUInt16BE(length, 2);
+  data.copy(output, 4, 4);
+  return output;
 };
 
 function messageFingerprint(data: Buffer) {
