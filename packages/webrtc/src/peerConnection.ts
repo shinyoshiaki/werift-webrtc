@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import cloneDeep from "lodash/cloneDeep.js";
-import * as uuid from "uuid";
 
 import { SRTP_PROFILE, SenderDirections } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
@@ -20,6 +19,7 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
+import { StateManager } from "./pc/managers/stateManager";
 import {
   type PeerConfig,
   addTransportDescription,
@@ -46,10 +46,8 @@ import {
 import { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
 import {
   IceCandidate,
-  type IceGathererState,
   type RTCIceCandidate,
   type RTCIceCandidateInit,
-  type RTCIceConnectionState,
   RTCIceGatherer,
   RTCIceTransport,
 } from "./transport/ice";
@@ -62,7 +60,6 @@ import {
   reverseDirection,
   reverseSimulcastDirection,
 } from "./utils";
-import { StateManager } from "./pc/managers/stateManager";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
