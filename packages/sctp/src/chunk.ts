@@ -25,7 +25,6 @@
 // 192 to 254 - available
 // 255        - reserved for IETF-defined Chunk Extensions
 
-import { jspack } from "@shinyoshiaki/jspack";
 import crc32c from "turbo-crc32/crc32c.js";
 
 export class Chunk {
@@ -49,10 +48,13 @@ export class Chunk {
   get bytes() {
     if (!this.body) throw new Error();
 
+    const header = Buffer.alloc(4);
+    header.writeUInt8(this.type, 0);
+    header.writeUInt8(this.flags, 1);
+    header.writeUInt16BE(this.body.length + 4, 2);
+
     const data = Buffer.concat([
-      Buffer.from(
-        jspack.Pack("!BBH", [this.type, this.flags, this.body.length + 4]),
-      ),
+      header,
       this.body,
       ...[...Array(padL(this.body.length))].map(() => Buffer.from("\x00")),
     ]);
@@ -67,6 +69,7 @@ export class BaseInitChunk extends Chunk {
   inboundStreams: number;
   initialTsn: number;
   params: [number, Buffer][];
+
   constructor(
     public flags = 0,
     body?: Buffer,
@@ -74,13 +77,11 @@ export class BaseInitChunk extends Chunk {
     super(flags, body);
 
     if (body) {
-      [
-        this.initiateTag,
-        this.advertisedRwnd,
-        this.outboundStreams,
-        this.inboundStreams,
-        this.initialTsn,
-      ] = jspack.Unpack("!LLHHL", body);
+      this.initiateTag = body.readUInt32BE(0);
+      this.advertisedRwnd = body.readUInt32BE(4);
+      this.outboundStreams = body.readUInt16BE(8);
+      this.inboundStreams = body.readUInt16BE(10);
+      this.initialTsn = body.readUInt32BE(12);
       this.params = decodeParams(body.slice(16));
     } else {
       this.initiateTag = 0;
@@ -93,17 +94,13 @@ export class BaseInitChunk extends Chunk {
   }
 
   get body() {
-    let body = Buffer.from(
-      jspack.Pack("!LLHHL", [
-        this.initiateTag,
-        this.advertisedRwnd,
-        this.outboundStreams,
-        this.inboundStreams,
-        this.initialTsn,
-      ]),
-    );
-    body = Buffer.concat([body, encodeParams(this.params)]);
-    return body;
+    const body = Buffer.alloc(16);
+    body.writeUInt32BE(this.initiateTag, 0);
+    body.writeUInt32BE(this.advertisedRwnd, 4);
+    body.writeUInt16BE(this.outboundStreams, 8);
+    body.writeUInt16BE(this.inboundStreams, 10);
+    body.writeUInt32BE(this.initialTsn, 12);
+    return Buffer.concat([body, encodeParams(this.params)]);
   }
 }
 
@@ -143,12 +140,10 @@ export class ForwardTsnChunk extends Chunk {
     super(flags, body);
 
     if (body) {
-      this.cumulativeTsn = jspack.Unpack("!L", body)[0];
+      this.cumulativeTsn = body.readUInt32BE(0);
       let pos = 4;
       while (pos < body.length) {
-        this.streams.push(
-          jspack.Unpack("!HH", body.slice(pos)) as [number, number],
-        );
+        this.streams.push([body.readUInt16BE(pos), body.readUInt16BE(pos + 2)]);
         pos += 4;
       }
     } else {
@@ -163,12 +158,16 @@ export class ForwardTsnChunk extends Chunk {
   set body(_: Buffer) {}
 
   get body() {
-    const body = Buffer.from(jspack.Pack("!L", [this.cumulativeTsn]));
+    const body = Buffer.alloc(4);
+    body.writeUInt32BE(this.cumulativeTsn, 0);
     return Buffer.concat([
       body,
-      ...this.streams.map(([id, seq]) =>
-        Buffer.from(jspack.Pack("!HH", [id, seq])),
-      ),
+      ...this.streams.map(([id, seq]) => {
+        const streamBuffer = Buffer.alloc(4);
+        streamBuffer.writeUInt16BE(id, 0);
+        streamBuffer.writeUInt16BE(seq, 2);
+        return streamBuffer;
+      }),
     ]);
   }
 }
@@ -199,28 +198,26 @@ export class DataChunk extends Chunk {
   ) {
     super(flags, body);
     if (body) {
-      [this.tsn, this.streamId, this.streamSeqNum, this.protocol] =
-        jspack.Unpack("!LHHL", body);
+      this.tsn = body.readUInt32BE(0);
+      this.streamId = body.readUInt16BE(4);
+      this.streamSeqNum = body.readUInt16BE(6);
+      this.protocol = body.readUInt32BE(8);
       this.userData = body.slice(12);
     }
   }
 
   get bytes() {
     const length = 16 + this.userData.length;
-    let data = Buffer.concat([
-      Buffer.from(
-        jspack.Pack("!BBHLHHL", [
-          this.type,
-          this.flags,
-          length,
-          this.tsn,
-          this.streamId,
-          this.streamSeqNum,
-          this.protocol,
-        ]),
-      ),
-      this.userData,
-    ]);
+    const header = Buffer.alloc(16);
+    header.writeUInt8(this.type, 0);
+    header.writeUInt8(this.flags, 1);
+    header.writeUInt16BE(length, 2);
+    header.writeUInt32BE(this.tsn, 4);
+    header.writeUInt16BE(this.streamId, 8);
+    header.writeUInt16BE(this.streamSeqNum, 10);
+    header.writeUInt32BE(this.protocol, 12);
+
+    let data = Buffer.concat([header, this.userData]);
     if (length % 4) {
       data = Buffer.concat([
         data,
@@ -362,22 +359,20 @@ export class SackChunk extends Chunk {
     super(flags, body);
 
     if (body) {
-      const [cumulativeTsn, advertisedRwnd, nbGaps, nbDuplicates] =
-        jspack.Unpack("!LLHH", body);
-      this.cumulativeTsn = cumulativeTsn;
-      this.advertisedRwnd = advertisedRwnd;
+      this.cumulativeTsn = body.readUInt32BE(0);
+      this.advertisedRwnd = body.readUInt32BE(4);
+      const nbGaps = body.readUInt16BE(8);
+      const nbDuplicates = body.readUInt16BE(10);
 
       let pos = 12;
 
       [...Array(nbGaps)].forEach(() => {
-        this.gaps.push(
-          jspack.Unpack("!HH", body.slice(pos)) as [number, number],
-        );
+        this.gaps.push([body.readUInt16BE(pos), body.readUInt16BE(pos + 2)]);
         pos += 4;
       });
 
       [...Array(nbDuplicates)].forEach(() => {
-        this.duplicates.push(jspack.Unpack("!L", body.slice(pos))[0]);
+        this.duplicates.push(body.readUInt32BE(pos));
         pos += 4;
       });
     }
@@ -385,24 +380,31 @@ export class SackChunk extends Chunk {
 
   get bytes() {
     const length = 16 + 4 * (this.gaps.length + this.duplicates.length);
-    let data = Buffer.from(
-      jspack.Pack("!BBHLLHH", [
-        this.type,
-        this.flags,
-        length,
-        this.cumulativeTsn,
-        this.advertisedRwnd,
-        this.gaps.length,
-        this.duplicates.length,
-      ]),
-    );
-    data = Buffer.concat([
-      data,
-      ...this.gaps.map((gap) => Buffer.from(jspack.Pack("!HH", gap))),
+    const header = Buffer.alloc(16);
+    header.writeUInt8(this.type, 0);
+    header.writeUInt8(this.flags, 1);
+    header.writeUInt16BE(length, 2);
+    header.writeUInt32BE(this.cumulativeTsn, 4);
+    header.writeUInt32BE(this.advertisedRwnd, 8);
+    header.writeUInt16BE(this.gaps.length, 12);
+    header.writeUInt16BE(this.duplicates.length, 14);
+
+    let data = Buffer.concat([
+      header,
+      ...this.gaps.map((gap) => {
+        const gapBuffer = Buffer.alloc(4);
+        gapBuffer.writeUInt16BE(gap[0], 0);
+        gapBuffer.writeUInt16BE(gap[1], 2);
+        return gapBuffer;
+      }),
     ]);
     data = Buffer.concat([
       data,
-      ...this.duplicates.map((tsn) => Buffer.from(jspack.Pack("!L", [tsn]))),
+      ...this.duplicates.map((tsn) => {
+        const tsnBuffer = Buffer.alloc(4);
+        tsnBuffer.writeUInt32BE(tsn, 0);
+        return tsnBuffer;
+      }),
     ]);
     return data;
   }
@@ -423,12 +425,14 @@ export class ShutdownChunk extends Chunk {
     super(flags, body);
 
     if (body) {
-      this.cumulativeTsn = jspack.Unpack("!L", body)[0];
+      this.cumulativeTsn = body.readUInt32BE(0);
     }
   }
 
   get body() {
-    return Buffer.from(jspack.Pack("!L", [this.cumulativeTsn]));
+    const body = Buffer.alloc(4);
+    body.writeUInt32BE(this.cumulativeTsn, 0);
+    return body;
   }
 }
 
@@ -482,12 +486,10 @@ function encodeParams(params: [number, Buffer][]) {
   let padding = Buffer.from("");
   params.forEach(([type, value]) => {
     const length = value.length + 4;
-    body = Buffer.concat([
-      body,
-      padding,
-      Buffer.from(jspack.Pack("!HH", [type, length])),
-      value,
-    ]);
+    const paramHeader = Buffer.alloc(4);
+    paramHeader.writeUInt16BE(type, 0);
+    paramHeader.writeUInt16BE(length, 2);
+    body = Buffer.concat([body, padding, paramHeader, value]);
     padding = Buffer.concat(
       [...Array(padL(length))].map(() => Buffer.from("\x00")),
     );
@@ -499,7 +501,8 @@ export function decodeParams(body: Buffer): [number, Buffer][] {
   const params: [number, Buffer][] = [];
   let pos = 0;
   while (pos <= body.length - 4) {
-    const [type, length] = jspack.Unpack("!HH", body.slice(pos));
+    const type = body.readUInt16BE(pos);
+    const length = body.readUInt16BE(pos + 2);
     params.push([type, body.slice(pos + 4, pos + length)]);
     pos += length + padL(length);
   }
@@ -510,10 +513,9 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
   if (data.length < 12)
     throw new Error("SCTP packet length is less than 12 bytes");
 
-  const [sourcePort, destinationPort, verificationTag] = jspack.Unpack(
-    "!HHL",
-    data,
-  );
+  const sourcePort = data.readUInt16BE(0);
+  const destinationPort = data.readUInt16BE(2);
+  const verificationTag = data.readUInt32BE(4);
 
   const checkSum = data.readUInt32LE(8);
 
@@ -530,10 +532,9 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
   const chunks: Chunk[] = [];
   let pos = 12;
   while (pos + 4 <= data.length) {
-    const [chunkType, chunkFlags, chunkLength] = jspack.Unpack(
-      "!BBH",
-      data.slice(pos),
-    );
+    const chunkType = data.readUInt8(pos);
+    const chunkFlags = data.readUInt8(pos + 1);
+    const chunkLength = data.readUInt16BE(pos + 2);
     const chunkBody = data.slice(pos + 4, pos + chunkLength);
     const ChunkClass = CHUNK_BY_TYPE[chunkType.toString()];
     if (ChunkClass) {
@@ -552,9 +553,11 @@ export function serializePacket(
   verificationTag: number,
   chunk: Chunk,
 ) {
-  const header = Buffer.from(
-    jspack.Pack("!HHL", [sourcePort, destinationPort, verificationTag]),
-  );
+  const header = Buffer.alloc(8);
+  header.writeUInt16BE(sourcePort, 0);
+  header.writeUInt16BE(destinationPort, 2);
+  header.writeUInt32BE(verificationTag, 4);
+
   const body = chunk.bytes;
 
   const checksum: number = crc32c(
