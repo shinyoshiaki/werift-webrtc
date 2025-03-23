@@ -1,19 +1,9 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-import { types } from "@shinyoshiaki/binary-data";
-
 import { dumpBuffer } from "../../helper";
-import { DtlsPlaintextHeader, MACHeader } from "./header";
+import { type DtlsPlaintextHeader, MACHeader } from "./header";
 
 export class DtlsPlaintext {
-  static readonly spec = {
-    recordLayerHeader: DtlsPlaintextHeader.spec,
-    fragment: types.buffer(
-      (context: any) => context.current.recordLayerHeader.contentLen,
-    ),
-  };
-
   constructor(
-    public recordLayerHeader: typeof DtlsPlaintext.spec.recordLayerHeader,
+    public recordLayerHeader: DtlsPlaintextHeader,
     public fragment: Buffer,
   ) {}
 
