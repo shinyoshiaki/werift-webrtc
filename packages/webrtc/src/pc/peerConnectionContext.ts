@@ -13,6 +13,7 @@ import type { SessionDescription } from "../sdp";
 import type { RTCCertificate, RTCDtlsTransport } from "../transport/dtls";
 import type { RTCIceTransport } from "../transport/ice";
 import type { RTCSctpTransport } from "../transport/sctp";
+import { SdpManager } from "./managers/sdpManager";
 import {
   type ConnectionState,
   type RTCSignalingState,
@@ -33,15 +34,14 @@ export class RTCPeerConnectionContext extends EventTarget {
   protected readonly transceivers: RTCRtpTransceiver[] = [];
   protected readonly router = new RtpRouter();
   protected certificate?: RTCCertificate;
-  protected seenMid = new Set<string>();
-  protected currentLocalDescription?: SessionDescription;
-  protected currentRemoteDescription?: SessionDescription;
-  protected pendingLocalDescription?: SessionDescription;
-  protected pendingRemoteDescription?: SessionDescription;
   protected isClosed = false;
   protected shouldNegotiationneeded = false;
 
+  // マネージャーインスタンス
   protected readonly stateManager = new StateManager();
+  protected readonly sdpManager = new SdpManager();
+
+  // イベント
   readonly iceGatheringStateChange = this.stateManager.iceGatheringStateChange;
   readonly iceConnectionStateChange =
     this.stateManager.iceConnectionStateChange;
@@ -87,37 +87,77 @@ export class RTCPeerConnectionContext extends EventTarget {
 
   /**@private */
   get _localDescription() {
-    return this.pendingLocalDescription || this.currentLocalDescription;
+    return this.sdpManager._localDescription;
   }
 
   /**@private */
   get _remoteDescription() {
-    return this.pendingRemoteDescription || this.currentRemoteDescription;
+    return this.sdpManager._remoteDescription;
   }
 
   get localDescription() {
-    if (!this._localDescription) {
-      return undefined;
-    }
-    return this._localDescription.toJSON();
+    return this.sdpManager.localDescription;
   }
 
   get remoteDescription() {
-    if (!this._remoteDescription) {
-      return undefined;
-    }
-    return this._remoteDescription.toJSON();
+    return this.sdpManager.remoteDescription;
   }
 
   get remoteIsBundled() {
-    const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) {
-      return undefined;
-    }
-    const bundle = remoteSdp.group.find(
-      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
+    return this.sdpManager.isRemoteBundled(this.config.bundlePolicy);
+  }
+
+  /**
+   * SDP関連のメソッド
+   */
+  protected buildOfferSdp() {
+    return this.sdpManager.buildOfferSdp(
+      this.transceivers,
+      this.sctpTransport,
+      this.config,
+      this.cname,
+      this.getTransceiverByMid.bind(this),
     );
-    return bundle;
+  }
+
+  protected buildAnswer() {
+    this.assertNotClosed();
+
+    return this.sdpManager.buildAnswer(
+      this.transceivers,
+      this.sctpTransport,
+      this.signalingState,
+      this.cname,
+      this.config,
+      this.getTransceiverByMid.bind(this),
+    );
+  }
+
+  protected setLocal(description: SessionDescription) {
+    this.sdpManager.setLocal(
+      description,
+      this.transceivers,
+      this.sctpTransport,
+    );
+  }
+
+  protected processRemoteDescription(remoteSdp: SessionDescription) {
+    this.sdpManager.processRemoteDescription(remoteSdp);
+  }
+
+  protected assertSdpDescription(
+    description: SessionDescription,
+    isLocal: boolean,
+  ) {
+    this.sdpManager.assertSdpDescription(
+      description,
+      isLocal,
+      this.signalingState,
+    );
+  }
+
+  protected captureMids(description: SessionDescription) {
+    this.sdpManager.captureMids(description);
   }
 
   protected pushTransceiver(t: RTCRtpTransceiver) {
@@ -209,11 +249,25 @@ export class RTCPeerConnectionContext extends EventTarget {
     }
   }
 
+  /**
+   * DTO化 - ライブマイグレーション用
+   */
   toJSON() {
     return {
       cname: this.cname,
       config: this.config,
       negotiationneeded: this.negotiationneeded,
+      needRestart: this.needRestart,
+      sctpRemotePort: this.sctpRemotePort,
+      isClosed: this.isClosed,
+      shouldNegotiationneeded: this.shouldNegotiationneeded,
+      sdpManager: this.sdpManager.toJSON(),
+      stateManager: {
+        connectionState: this.connectionState,
+        iceConnectionState: this.iceConnectionState,
+        iceGatheringState: this.iceGatheringState,
+        signalingState: this.signalingState,
+      },
     };
   }
 }

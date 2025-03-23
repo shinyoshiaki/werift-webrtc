@@ -130,115 +130,9 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
 
     await this.ensureCerts();
 
-    const description = this.buildOfferSdp();
+    // 親クラスのメソッドを利用
+    const description = super.buildOfferSdp();
     return description.toJSON();
-  }
-
-  buildOfferSdp() {
-    this.transceivers.forEach((transceiver) => {
-      if (transceiver.codecs.length === 0) {
-        assignTransceiverCodecs(
-          transceiver,
-          this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[],
-        );
-      }
-      if (transceiver.headerExtensions.length === 0) {
-        transceiver.headerExtensions =
-          this.config.headerExtensions[transceiver.kind] ?? [];
-      }
-    });
-
-    const description = new SessionDescription();
-    addSDPHeader("offer", description);
-
-    // # handle existing transceivers / sctp
-
-    const currentMedia = this._localDescription
-      ? this._localDescription.media
-      : [];
-
-    currentMedia.forEach((m, i) => {
-      const mid = m.rtp.muxId;
-      if (!mid) {
-        log("mid missing", m);
-        return;
-      }
-      if (m.kind === "application") {
-        if (!this.sctpTransport) {
-          throw new Error("sctpTransport not found");
-        }
-        this.sctpTransport.mLineIndex = i;
-        description.media.push(
-          createMediaDescriptionForSctp(this.sctpTransport),
-        );
-      } else {
-        const transceiver = this.getTransceiverByMid(mid);
-        if (!transceiver) {
-          if (m.direction === "inactive") {
-            description.media.push(m);
-            return;
-          }
-          throw new Error("transceiver not found");
-        }
-        transceiver.mLineIndex = i;
-        description.media.push(
-          createMediaDescriptionForTransceiver(
-            transceiver,
-            this.cname,
-            transceiver.direction,
-          ),
-        );
-      }
-    });
-
-    // # handle new transceivers / sctp
-    this.transceivers
-      .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
-      .forEach((transceiver) => {
-        if (transceiver.mid == undefined) {
-          transceiver.mid = allocateMid(
-            this.seenMid,
-            this.config.midSuffix ? "av" : "",
-          );
-        }
-        const mediaDescription = createMediaDescriptionForTransceiver(
-          transceiver,
-          this.cname,
-          transceiver.direction,
-        );
-        if (transceiver.mLineIndex === undefined) {
-          transceiver.mLineIndex = description.media.length;
-          description.media.push(mediaDescription);
-        } else {
-          description.media[transceiver.mLineIndex] = mediaDescription;
-        }
-      });
-
-    if (
-      this.sctpTransport &&
-      !description.media.find((m) => m.kind === "application")
-    ) {
-      this.sctpTransport.mLineIndex = description.media.length;
-      if (this.sctpTransport.mid == undefined) {
-        this.sctpTransport.mid = allocateMid(
-          this.seenMid,
-          this.config.midSuffix ? "dc" : "",
-        );
-      }
-      description.media.push(createMediaDescriptionForSctp(this.sctpTransport));
-    }
-
-    if (this.config.bundlePolicy !== "disable") {
-      const mids = description.media
-        .map((m) => (m.direction !== "inactive" ? m.rtp.muxId : undefined))
-        .filter((v) => v) as string[];
-      if (mids.length) {
-        const bundle = new GroupDescription("BUNDLE", mids);
-        description.group.push(bundle);
-      }
-    }
-
-    return description;
   }
 
   createDataChannel(
@@ -460,7 +354,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     // # assign MID
     for (const [i, media] of enumerate(description.media)) {
       const mid = media.rtp.muxId!;
-      this.seenMid.add(mid);
+      this.captureMids(description);
       if (["audio", "video"].includes(media.kind)) {
         const transceiver = this.getTransceiverByMLineIndex(i);
         if (transceiver) {
@@ -544,23 +438,9 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private setLocal(description: SessionDescription) {
-    description.media
-      .filter((m) => ["audio", "video"].includes(m.kind))
-      .forEach((m, i) => {
-        addTransportDescription(m, this.transceivers[i].dtlsTransport);
-      });
-    const sctpMedia = description.media.find((m) => m.kind === "application");
-    if (this.sctpTransport && sctpMedia) {
-      addTransportDescription(sctpMedia, this.sctpTransport.dtlsTransport);
-    }
-
-    if (description.type === "answer") {
-      this.currentLocalDescription = description;
-      this.pendingLocalDescription = undefined;
-    } else {
-      this.pendingLocalDescription = description;
-    }
+  protected setLocal(description: SessionDescription) {
+    // 親クラスのsetLocalメソッドを呼び出し
+    super.setLocal(description);
   }
 
   async addIceCandidate(
@@ -658,12 +538,8 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     remoteSdp.type = sessionDescription.type;
     this.assertDescription(remoteSdp, false);
 
-    if (remoteSdp.type === "answer") {
-      this.currentRemoteDescription = remoteSdp;
-      this.pendingRemoteDescription = undefined;
-    } else {
-      this.pendingRemoteDescription = remoteSdp;
-    }
+    // SDP Managerにリモート記述を設定
+    this.processRemoteDescription(remoteSdp);
 
     let bundleTransport: RTCDtlsTransport | undefined;
 
@@ -927,12 +803,8 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
   }
 
   private assertDescription(description: SessionDescription, isLocal: boolean) {
-    assertSignalingState(description, this.signalingState, isLocal);
-    const offer = isLocal ? this._remoteDescription : this._localDescription;
-    assertDescription({
-      description,
-      offer,
-    });
+    // 親クラスの実装を呼び出し
+    this.assertSdpDescription(description, isLocal);
   }
 
   private fireOnTrack(
@@ -1084,76 +956,9 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
   async createAnswer() {
     await this.ensureCerts();
 
-    const description = this.buildAnswer();
+    // 親クラスのメソッドを利用
+    const description = super.buildAnswer();
     return description.toJSON();
-  }
-
-  private buildAnswer() {
-    this.assertNotClosed();
-    if (
-      !["have-remote-offer", "have-local-pranswer"].includes(
-        this.signalingState,
-      )
-    ) {
-      throw new Error("createAnswer failed");
-    }
-    if (!this._remoteDescription) {
-      throw new Error("wrong state");
-    }
-
-    const description = new SessionDescription();
-    addSDPHeader("answer", description);
-
-    for (const remoteMedia of this._remoteDescription.media) {
-      const { dtlsTransport, media } = (() => {
-        if (["audio", "video"].includes(remoteMedia.kind)) {
-          const transceiver = this.getTransceiverByMid(remoteMedia.rtp.muxId!)!;
-          const media = createMediaDescriptionForTransceiver(
-            transceiver,
-            this.cname,
-            andDirection(transceiver.direction, transceiver.offerDirection),
-          );
-          return { dtlsTransport: transceiver.dtlsTransport, media };
-        } else if (remoteMedia.kind === "application") {
-          if (!this.sctpTransport || !this.sctpTransport.mid) {
-            throw new Error("sctpTransport not found");
-          }
-          const media = createMediaDescriptionForSctp(this.sctpTransport);
-
-          return { dtlsTransport: this.sctpTransport.dtlsTransport, media };
-        } else {
-          throw new Error("invalid kind");
-        }
-      })();
-
-      // # determine DTLS role, or preserve the currently configured role
-      if (media.dtlsParams) {
-        if (dtlsTransport.role === "auto") {
-          media.dtlsParams.role = "client";
-        } else {
-          media.dtlsParams.role = dtlsTransport.role;
-        }
-      }
-
-      media.simulcastParameters = remoteMedia.simulcastParameters.map((v) => ({
-        ...v,
-        direction: reverseSimulcastDirection(v.direction),
-      }));
-
-      description.media.push(media);
-    }
-
-    if (this.config.bundlePolicy !== "disable") {
-      const bundle = new GroupDescription("BUNDLE", []);
-      for (const media of description.media) {
-        if (media.direction !== "inactive") {
-          bundle.items.push(media.rtp.muxId!);
-        }
-      }
-      description.group.push(bundle);
-    }
-
-    return description;
   }
 
   async close() {
