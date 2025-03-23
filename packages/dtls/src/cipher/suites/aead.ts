@@ -118,8 +118,6 @@ export default class AEADCipher extends Cipher {
     );
     explicitNonce.copy(iv, this.nonceImplicitLength);
 
-    const encryptedEnd =
-      this.nonceExplicitLength + data.length - this.authTagLength;
     const encrypted = data.subarray(
       this.nonceExplicitLength,
       data.length - this.authTagLength,
