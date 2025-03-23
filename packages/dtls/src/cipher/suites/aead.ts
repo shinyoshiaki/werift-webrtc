@@ -95,10 +95,8 @@ export default class AEADCipher extends Cipher {
   encodeAdditionalBuffer(header: CipherHeader, dataLength: number) {
     const additionalBuffer = Buffer.alloc(13);
 
-    // Sequence is an 6-byte unsigned integer, so write that first,
-    // then write the epoch with the correct first two bytes.
-    additionalBuffer.writeBigUInt64BE(BigInt(header.sequenceNumber), 0);
     additionalBuffer.writeUInt16BE(header.epoch, 0);
+    additionalBuffer.writeUintBE(header.sequenceNumber, 2, 6);
     additionalBuffer.writeUInt8(header.type, 8);
     additionalBuffer.writeUInt16BE(header.version, 9);
     additionalBuffer.writeUInt16BE(dataLength, 11);
