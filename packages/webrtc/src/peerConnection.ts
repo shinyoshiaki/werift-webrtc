@@ -108,6 +108,17 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
       return acc;
     }, []);
   }
+
+  /**@private */
+  get _localDescription() {
+    return this.pendingLocalDescription || this.currentLocalDescription;
+  }
+
+  /**@private */
+  get _remoteDescription() {
+    return this.pendingRemoteDescription || this.currentRemoteDescription;
+  }
+
   get iceTransports() {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
@@ -124,16 +135,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
       return undefined;
     }
     return this._remoteDescription.toJSON();
-  }
-
-  /**@private */
-  get _localDescription() {
-    return this.pendingLocalDescription || this.currentLocalDescription;
-  }
-
-  /**@private */
-  get _remoteDescription() {
-    return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
   get remoteIsBundled() {
@@ -163,13 +164,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     return this.stateManager.signalingState;
   }
 
-  private pushTransceiver(t: RTCRtpTransceiver) {
-    this.transceivers.push(t);
-  }
-  private replaceTransceiver(t: RTCRtpTransceiver, index: number) {
-    this.transceivers[index] = t;
-  }
-
   setConfiguration(config: Partial<PeerConfig>) {
     this.config = setConfiguration(this.config, config);
 
@@ -184,16 +178,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
         );
       }
     }
-  }
-
-  private getTransceiverByMid(mid: string) {
-    return this.transceivers.find((transceiver) => transceiver.mid === mid);
-  }
-
-  private getTransceiverByMLineIndex(index: number) {
-    return this.transceivers.find(
-      (transceiver) => transceiver.mLineIndex === index,
-    );
   }
 
   getConfiguration() {
@@ -656,30 +640,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private getTransportByMid(mid: string) {
-    let iceTransport: RTCIceTransport | undefined;
-
-    const transceiver = this.transceivers.find((t) => t.mid === mid);
-    if (transceiver) {
-      iceTransport = transceiver.dtlsTransport.iceTransport;
-    } else if (!iceTransport && this.sctpTransport?.mid === mid) {
-      iceTransport = this.sctpTransport?.dtlsTransport.iceTransport;
-    }
-
-    return iceTransport;
-  }
-
-  private getTransportByMLineIndex(index: number) {
-    const sdp = this.buildOfferSdp();
-    const media = sdp.media[index];
-    if (!media) {
-      return;
-    }
-    const transport = this.getTransportByMid(media.rtp.muxId!);
-
-    return transport;
-  }
-
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit,
   ) {
@@ -695,7 +655,10 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
 
     if (!iceTransport && typeof candidate.sdpMLineIndex === "number") {
-      iceTransport = this.getTransportByMLineIndex(candidate.sdpMLineIndex);
+      iceTransport = this.getTransportByMLineIndex(
+        this.buildOfferSdp(),
+        candidate.sdpMLineIndex,
+      );
     }
 
     if (!iceTransport) {
@@ -1317,14 +1280,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
           });
 
     this.stateManager.updateIceConnectionState(newState);
-  }
-
-  private setSignalingState(state: RTCSignalingState) {
-    this.stateManager.setSignalingState(state);
-  }
-
-  private setConnectionState(state: ConnectionState) {
-    this.stateManager.setConnectionState(state);
   }
 
   private dispose() {
