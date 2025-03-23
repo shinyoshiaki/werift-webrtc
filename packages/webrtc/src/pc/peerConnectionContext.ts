@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import cloneDeep from "lodash/cloneDeep.js";
 import { EventTarget } from "../helper";
+import { debug } from "../imports/common";
 import {
   type RTCRtpTransceiver,
   RtpRouter,
@@ -9,7 +10,7 @@ import {
   useVP8,
 } from "../media";
 import type { SessionDescription } from "../sdp";
-import type { RTCCertificate } from "../transport/dtls";
+import type { RTCCertificate, RTCDtlsTransport } from "../transport/dtls";
 import type { RTCIceTransport } from "../transport/ice";
 import type { RTCSctpTransport } from "../transport/sctp";
 import {
@@ -18,6 +19,9 @@ import {
   StateManager,
 } from "./managers/stateManager";
 import type { PeerConfig } from "./util";
+import { updateIceConnectionState, updateIceGatheringState } from "./util";
+
+const log = debug("werift:packages/webrtc/src/pc/peerConnectionContext.ts");
 
 export class RTCPeerConnectionContext extends EventTarget {
   readonly cname = randomUUID();
@@ -46,6 +50,74 @@ export class RTCPeerConnectionContext extends EventTarget {
 
   constructor() {
     super();
+  }
+
+  get dtlsTransports() {
+    const transports = this.transceivers.map((t) => t.dtlsTransport);
+    if (this.sctpTransport) {
+      transports.push(this.sctpTransport.dtlsTransport);
+    }
+    return transports.reduce((acc: RTCDtlsTransport[], cur) => {
+      if (!acc.map((d) => d.id).includes(cur.id)) {
+        acc.push(cur);
+      }
+      return acc;
+    }, []);
+  }
+
+  get iceTransports() {
+    return this.dtlsTransports.map((d) => d.iceTransport);
+  }
+
+  get connectionState() {
+    return this.stateManager.connectionState;
+  }
+
+  get iceConnectionState() {
+    return this.stateManager.iceConnectionState;
+  }
+
+  get iceGatheringState() {
+    return this.stateManager.iceGatheringState;
+  }
+
+  get signalingState() {
+    return this.stateManager.signalingState;
+  }
+
+  /**@private */
+  get _localDescription() {
+    return this.pendingLocalDescription || this.currentLocalDescription;
+  }
+
+  /**@private */
+  get _remoteDescription() {
+    return this.pendingRemoteDescription || this.currentRemoteDescription;
+  }
+
+  get localDescription() {
+    if (!this._localDescription) {
+      return undefined;
+    }
+    return this._localDescription.toJSON();
+  }
+
+  get remoteDescription() {
+    if (!this._remoteDescription) {
+      return undefined;
+    }
+    return this._remoteDescription.toJSON();
+  }
+
+  get remoteIsBundled() {
+    const remoteSdp = this._remoteDescription;
+    if (!remoteSdp) {
+      return undefined;
+    }
+    const bundle = remoteSdp.group.find(
+      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
+    );
+    return bundle;
   }
 
   protected pushTransceiver(t: RTCRtpTransceiver) {
@@ -95,6 +167,46 @@ export class RTCPeerConnectionContext extends EventTarget {
 
   protected setConnectionState(state: ConnectionState) {
     this.stateManager.setConnectionState(state);
+  }
+
+  protected updateIceGatheringState() {
+    const all = this.iceTransports;
+    const newState = updateIceGatheringState(all.map((t) => t.gatheringState));
+    this.stateManager.updateIceGatheringState(newState);
+  }
+
+  protected updateIceConnectionState() {
+    const newState =
+      this.connectionState === "closed"
+        ? "closed"
+        : updateIceConnectionState({
+            iceStates: this.iceTransports.map((t) => t.state),
+          });
+
+    this.stateManager.updateIceConnectionState(newState);
+  }
+
+  protected needNegotiation() {
+    this.shouldNegotiationneeded = true;
+    if (this.negotiationneeded || this.signalingState !== "stable") {
+      return;
+    }
+    this.shouldNegotiationneeded = false;
+    setImmediate(() => {
+      this.negotiationneeded = true;
+      this.onNegotiationNeeded();
+    });
+  }
+
+  // This method will be implemented by child classes
+  protected onNegotiationNeeded() {
+    // To be overridden
+  }
+
+  protected assertNotClosed() {
+    if (this.isClosed) {
+      throw new Error("RTCPeerConnection is closed");
+    }
   }
 
   toJSON() {

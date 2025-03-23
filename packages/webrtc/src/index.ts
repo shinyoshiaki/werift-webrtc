@@ -12,3 +12,4 @@ export * from "./transport/sctp";
 export * from "./types/domain";
 export * from "./utils";
 export * from "./pc/util";
+export { defaultPeerConfig } from "./pc/peerConnectionContext";
