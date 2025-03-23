@@ -1,5 +1,5 @@
 import { parseIceServers } from "../src";
-import type { RTCIceServer } from "../src/peerConnection";
+import type { RTCIceServer } from "../src/pc/util";
 
 describe("utils", () => {
   describe("parseIceServers", () => {

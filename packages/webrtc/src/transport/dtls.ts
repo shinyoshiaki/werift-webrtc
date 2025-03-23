@@ -31,7 +31,8 @@ import {
   saltLength,
 } from "../imports/rtp";
 import type { RtpRouter } from "../media/router";
-import type { PeerConfig } from "../peerConnection";
+
+import type { PeerConfig } from "../pc/util";
 import { fingerprint, isDtls } from "../utils";
 import type { RTCIceTransport } from "./ice";
 

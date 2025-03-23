@@ -2,13 +2,7 @@ import cloneDeep from "lodash/cloneDeep.js";
 import isEqual from "lodash/isEqual.js";
 import * as uuid from "uuid";
 
-import {
-  DISCARD_HOST,
-  DISCARD_PORT,
-  ReceiverDirection,
-  SRTP_PROFILE,
-  SenderDirections,
-} from "./const";
+import { SRTP_PROFILE, SenderDirections } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
 import {
@@ -20,41 +14,43 @@ import {
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import type { SrtpProfile } from "./imports/rtp";
 import {
-  type Direction,
   MediaStream,
   type MediaStreamTrack,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
-  type RTCRtpHeaderExtensionParameters,
   type RTCRtpParameters,
   type RTCRtpReceiveParameters,
   RTCRtpReceiver,
   RTCRtpRtxParameters,
   RTCRtpSender,
-  RTCRtpSimulcastParameters,
   RTCRtpTransceiver,
-  Recvonly,
   RtpRouter,
-  Sendonly,
-  Sendrecv,
   type TransceiverOptions,
   useOPUS,
   usePCMU,
   useVP8,
 } from "./media";
 import {
+  type PeerConfig,
+  addTransportDescription,
+  allocateMid,
+  assertSignalingState,
+  assignTransceiverCodecs,
+  createMediaDescriptionForSctp,
+  createMediaDescriptionForTransceiver,
+  findCodecByMimeType,
+  setConfiguration,
+  updateIceConnectionState,
+  updateIceGatheringState,
+} from "./pc/util";
+import {
   GroupDescription,
-  MediaDescription,
+  type MediaDescription,
   SessionDescription,
-  SsrcDescription,
   addSDPHeader,
   codecParametersFromString,
 } from "./sdp";
-import {
-  type DtlsKeys,
-  RTCCertificate,
-  RTCDtlsTransport,
-} from "./transport/dtls";
+import { RTCCertificate, RTCDtlsTransport } from "./transport/dtls";
 import {
   IceCandidate,
   type IceGathererState,
@@ -69,7 +65,6 @@ import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import {
   andDirection,
-  deepMerge,
   parseIceServers,
   reverseDirection,
   reverseSimulcastDirection,
@@ -191,47 +186,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   setConfiguration(config: Partial<PeerConfig>) {
-    deepMerge(this.config, config);
-
-    if (this.config.icePortRange) {
-      const [min, max] = this.config.icePortRange;
-      if (min === max) throw new Error("should not be same value");
-      if (min >= max) throw new Error("The min must be less than max");
-    }
-
-    for (const [i, codecParams] of enumerate([
-      ...(this.config.codecs.audio || []),
-      ...(this.config.codecs.video || []),
-    ])) {
-      if (codecParams.payloadType != undefined) {
-        continue;
-      }
-
-      codecParams.payloadType = 96 + i;
-      switch (codecParams.name.toLowerCase()) {
-        case "rtx":
-          {
-            codecParams.parameters = `apt=${codecParams.payloadType - 1}`;
-          }
-          break;
-        case "red":
-          {
-            if (codecParams.contentType === "audio") {
-              const redundant = codecParams.payloadType + 1;
-              codecParams.parameters = `${redundant}/${redundant}`;
-              codecParams.payloadType = 63;
-            }
-          }
-          break;
-      }
-    }
-
-    [
-      ...(this.config.headerExtensions.audio || []),
-      ...(this.config.headerExtensions.video || []),
-    ].forEach((v, i) => {
-      v.id = 1 + i;
-    });
+    this.config = setConfiguration(this.config, config);
 
     if (this.config.dtls) {
       const { keys } = this.config.dtls;
@@ -274,38 +229,13 @@ export class RTCPeerConnection extends EventTarget {
     return description.toJSON();
   }
 
-  private assignTransceiverCodecs(transceiver: RTCRtpTransceiver) {
-    const codecs = (
-      this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
-    ).filter((codecCandidate) => {
-      switch (codecCandidate.direction) {
-        case "recvonly": {
-          if (ReceiverDirection.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendonly": {
-          if (SenderDirections.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendrecv": {
-          if ([Sendrecv, Recvonly, Sendonly].includes(transceiver.direction))
-            return true;
-          return false;
-        }
-        case "all": {
-          return true;
-        }
-        default:
-          return false;
-      }
-    });
-    transceiver.codecs = codecs;
-  }
-
   buildOfferSdp() {
     this.transceivers.forEach((transceiver) => {
       if (transceiver.codecs.length === 0) {
-        this.assignTransceiverCodecs(transceiver);
+        assignTransceiverCodecs(
+          transceiver,
+          this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[],
+        );
       }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
@@ -456,7 +386,9 @@ export class RTCPeerConnection extends EventTarget {
     const transceiver = this.transceivers.find(
       ({ sender: { ssrc } }) => sender.ssrc === ssrc,
     );
-    if (!transceiver) throw new Error("unExist");
+    if (!transceiver) {
+      throw new Error("unExist");
+    }
 
     sender.stop();
 
@@ -926,69 +858,89 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.kind === media.kind &&
       [undefined, media.rtp.muxId].includes(transceiver.mid);
 
-    let transports = remoteSdp.media.map((remoteMedia, i) => {
-      let dtlsTransport: RTCDtlsTransport;
+    const dtlsTransports = remoteSdp.media
+      .map((remoteMedia, i) => {
+        if (["audio", "video"].includes(remoteMedia.kind)) {
+          let transceiver = this.transceivers.find((t) =>
+            matchTransceiverWithMedia(t, remoteMedia),
+          );
+          if (!transceiver) {
+            // create remote transceiver
+            transceiver = this._addTransceiver(remoteMedia.kind, {
+              direction: "recvonly",
+            });
+            transceiver.mid = remoteMedia.rtp.muxId;
+            this.onRemoteTransceiverAdded.execute(transceiver);
+          } else {
+            if (transceiver.direction === "inactive" && transceiver.stopping) {
+              transceiver.stopped = true;
 
-      if (["audio", "video"].includes(remoteMedia.kind)) {
-        let transceiver = this.transceivers.find((t) =>
-          matchTransceiverWithMedia(t, remoteMedia),
-        );
-        if (!transceiver) {
-          // create remote transceiver
-          transceiver = this._addTransceiver(remoteMedia.kind, {
-            direction: "recvonly",
-          });
-          transceiver.mid = remoteMedia.rtp.muxId;
-          this.onRemoteTransceiverAdded.execute(transceiver);
-        } else {
-          if (transceiver.direction === "inactive" && transceiver.stopping) {
-            transceiver.stopped = true;
-
-            if (sessionDescription.type === "answer") {
-              transceiver.setCurrentDirection("inactive");
+              if (sessionDescription.type === "answer") {
+                transceiver.setCurrentDirection("inactive");
+              }
+              return;
             }
-            return;
           }
-        }
 
-        if (this.remoteIsBundled) {
-          if (!bundleTransport) {
-            bundleTransport = transceiver.dtlsTransport;
-          } else {
-            transceiver.setDtlsTransport(bundleTransport);
+          if (this.remoteIsBundled) {
+            if (!bundleTransport) {
+              bundleTransport = transceiver.dtlsTransport;
+            } else {
+              transceiver.setDtlsTransport(bundleTransport);
+            }
           }
-        }
 
-        dtlsTransport = transceiver.dtlsTransport;
+          this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
 
-        this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
-      } else if (remoteMedia.kind === "application") {
-        if (!this.sctpTransport) {
-          this.sctpTransport = this.createSctpTransport();
-          this.sctpTransport.mid = remoteMedia.rtp.muxId;
-        }
-
-        if (this.remoteIsBundled) {
-          if (!bundleTransport) {
-            bundleTransport = this.sctpTransport.dtlsTransport;
-          } else {
-            this.sctpTransport.setDtlsTransport(bundleTransport);
+          return { dtlsTransport: transceiver.dtlsTransport, remoteMedia };
+        } else if (remoteMedia.kind === "application") {
+          if (!this.sctpTransport) {
+            this.sctpTransport = this.createSctpTransport();
+            this.sctpTransport.mid = remoteMedia.rtp.muxId;
           }
+
+          if (this.remoteIsBundled) {
+            if (!bundleTransport) {
+              bundleTransport = this.sctpTransport.dtlsTransport;
+            } else {
+              this.sctpTransport.setDtlsTransport(bundleTransport);
+            }
+          }
+
+          this.setRemoteSCTP(remoteMedia, this.sctpTransport, i);
+
+          return {
+            dtlsTransport: this.sctpTransport.dtlsTransport,
+            remoteMedia,
+          };
+        } else {
+          throw new Error("invalid media kind");
         }
+      })
+      .filter((t): t is NonNullable<typeof t> => t != undefined);
 
-        dtlsTransport = this.sctpTransport.dtlsTransport;
-
-        this.setRemoteSCTP(remoteMedia, this.sctpTransport, i);
-      } else {
-        throw new Error("invalid media kind");
+    // setup dtls
+    for (const { dtlsTransport, remoteMedia } of dtlsTransports) {
+      if (remoteMedia.dtlsParams) {
+        dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
       }
 
-      const iceTransport = dtlsTransport.iceTransport;
+      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
+        dtlsTransport.role =
+          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
+      }
+    }
 
+    const renomination = !!remoteSdp.media.find(
+      (m) => m.direction === "inactive",
+    );
+
+    // setup ice
+    for (const {
+      dtlsTransport: { iceTransport },
+      remoteMedia,
+    } of dtlsTransports) {
       if (remoteMedia.iceParams) {
-        const renomination = !!remoteSdp.media.find(
-          (m) => m.direction === "inactive",
-        );
         iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
         // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
@@ -997,27 +949,21 @@ export class RTCPeerConnection extends EventTarget {
           iceTransport.connection.iceControlling = true;
         }
       }
-      if (remoteMedia.dtlsParams) {
-        dtlsTransport.setRemoteParams(remoteMedia.dtlsParams);
-      }
 
-      // # add ICE candidates
-      remoteMedia.iceCandidates.forEach(iceTransport.addRemoteCandidate);
-
-      if (remoteMedia.iceCandidatesComplete) {
-        iceTransport.addRemoteCandidate(undefined);
-      }
-
-      // # set DTLS role
-      if (remoteSdp.type === "answer" && remoteMedia.dtlsParams?.role) {
-        dtlsTransport.role =
-          remoteMedia.dtlsParams.role === "client" ? "server" : "client";
-      }
-      return iceTransport;
-    }) as RTCIceTransport[];
-
-    // filter out inactive transports
-    transports = transports.filter((iceTransport) => !!iceTransport);
+      Promise.allSettled(
+        remoteMedia.iceCandidates.map((c) =>
+          iceTransport.addRemoteCandidate(c),
+        ),
+      ).then((r) => {
+        if (r.some((r) => r.status === "rejected")) {
+          log("addRemoteCandidate failed", r);
+        } else {
+          if (remoteMedia.iceCandidatesComplete) {
+            iceTransport.addRemoteCandidate(undefined);
+          }
+        }
+      });
+    }
 
     const removedTransceivers = this.transceivers.filter(
       (t) =>
@@ -1166,34 +1112,7 @@ export class RTCPeerConnection extends EventTarget {
     description: SessionDescription,
     isLocal: boolean,
   ) {
-    if (isLocal) {
-      if (description.type === "offer") {
-        if (!["stable", "have-local-offer"].includes(this.signalingState))
-          throw new Error("Cannot handle offer in signaling state");
-      } else if (description.type === "answer") {
-        if (
-          !["have-remote-offer", "have-local-pranswer"].includes(
-            this.signalingState,
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    } else {
-      if (description.type === "offer") {
-        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
-          throw new Error("Cannot handle offer in signaling state");
-        }
-      } else if (description.type === "answer") {
-        if (
-          !["have-local-offer", "have-remote-pranswer"].includes(
-            this.signalingState,
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    }
+    assertSignalingState(description, this.signalingState, isLocal);
 
     description.media.forEach((media) => {
       if (media.direction === "inactive") return;
@@ -1201,13 +1120,16 @@ export class RTCPeerConnection extends EventTarget {
         !media.iceParams ||
         !media.iceParams.usernameFragment ||
         !media.iceParams.password
-      )
+      ) {
         throw new Error("ICE username fragment or password is missing");
+      }
     });
 
     if (["answer", "pranswer"].includes(description.type || "")) {
       const offer = isLocal ? this._remoteDescription : this._localDescription;
-      if (!offer) throw new Error();
+      if (!offer) {
+        throw new Error();
+      }
 
       const answerMedia = description.media.map((v, i) => [v.kind, i]);
       const offerMedia = offer.media.map((v, i) => [v.kind, i]);
@@ -1302,7 +1224,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.getTransceivers().map((t) => t.receiver);
   }
 
-  // todo fix
   addTrack(
     track: MediaStreamTrack,
     /**todo impl */
@@ -1390,28 +1311,27 @@ export class RTCPeerConnection extends EventTarget {
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    this._remoteDescription.media.forEach((remoteMedia) => {
-      let dtlsTransport!: RTCDtlsTransport;
-      let media: MediaDescription;
+    for (const remoteMedia of this._remoteDescription.media) {
+      const { dtlsTransport, media } = (() => {
+        if (["audio", "video"].includes(remoteMedia.kind)) {
+          const transceiver = this.getTransceiverByMid(remoteMedia.rtp.muxId!)!;
+          const media = createMediaDescriptionForTransceiver(
+            transceiver,
+            this.cname,
+            andDirection(transceiver.direction, transceiver.offerDirection),
+          );
+          return { dtlsTransport: transceiver.dtlsTransport, media };
+        } else if (remoteMedia.kind === "application") {
+          if (!this.sctpTransport || !this.sctpTransport.mid) {
+            throw new Error("sctpTransport not found");
+          }
+          const media = createMediaDescriptionForSctp(this.sctpTransport);
 
-      if (["audio", "video"].includes(remoteMedia.kind)) {
-        const transceiver = this.getTransceiverByMid(remoteMedia.rtp.muxId!)!;
-        media = createMediaDescriptionForTransceiver(
-          transceiver,
-          this.cname,
-          andDirection(transceiver.direction, transceiver.offerDirection),
-        );
-        dtlsTransport = transceiver.dtlsTransport;
-      } else if (remoteMedia.kind === "application") {
-        if (!this.sctpTransport || !this.sctpTransport.mid) {
-          throw new Error("sctpTransport not found");
+          return { dtlsTransport: this.sctpTransport.dtlsTransport, media };
+        } else {
+          throw new Error("invalid kind");
         }
-        media = createMediaDescriptionForSctp(this.sctpTransport);
-
-        dtlsTransport = this.sctpTransport.dtlsTransport;
-      } else {
-        throw new Error("invalid kind");
-      }
+      })();
 
       // # determine DTLS role, or preserve the currently configured role
       if (media.dtlsParams) {
@@ -1428,7 +1348,7 @@ export class RTCPeerConnection extends EventTarget {
       }));
 
       description.media.push(media);
-    });
+    }
 
     if (this.config.bundlePolicy !== "disable") {
       const bundle = new GroupDescription("BUNDLE", []);
@@ -1473,68 +1393,28 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
   private updateIceGatheringState() {
     const all = this.iceTransports;
 
-    function allMatch(...state: IceGathererState[]) {
-      return (
-        all.filter((check) => state.includes(check.gatheringState)).length ===
-        all.length
-      );
-    }
-
-    let newState: IceGathererState;
-
-    if (all.length && allMatch("complete")) {
-      newState = "complete";
-    } else if (!all.length || allMatch("new", "complete")) {
-      newState = "new";
-    } else if (all.map((check) => check.gatheringState).includes("gathering")) {
-      newState = "gathering";
-    } else {
-      newState = "new";
-    }
-
+    const newState = updateIceGatheringState(all.map((t) => t.gatheringState));
     if (this.iceGatheringState === newState) {
       return;
     }
 
     log("iceGatheringStateChange", newState);
     this.iceGatheringState = newState;
+
     this.iceGatheringStateChange.execute(newState);
     this.emit("icegatheringstatechange", newState);
   }
 
-  // https://w3c.github.io/webrtc-pc/#dom-rtciceconnectionstate
   private updateIceConnectionState() {
-    const all = this.iceTransports;
-    let newState: RTCIceConnectionState;
-
-    function allMatch(...state: RTCIceConnectionState[]) {
-      return (
-        all.filter((check) => state.includes(check.state)).length === all.length
-      );
-    }
-
-    if (this.connectionState === "closed") {
-      newState = "closed";
-    } else if (allMatch("failed")) {
-      newState = "failed";
-    } else if (allMatch("disconnected")) {
-      newState = "disconnected";
-    } else if (allMatch("new", "closed")) {
-      newState = "new";
-    } else if (allMatch("new", "checking")) {
-      newState = "checking";
-    } else if (allMatch("completed", "closed")) {
-      newState = "completed";
-    } else if (allMatch("connected", "completed", "closed")) {
-      newState = "connected";
-    } else {
-      // unreachable?
-      newState = "new";
-    }
+    const newState =
+      this.connectionState === "closed"
+        ? "closed"
+        : updateIceConnectionState({
+            iceStates: this.iceTransports.map((t) => t.state),
+          });
 
     if (this.iceConnectionState === newState) {
       return;
@@ -1542,29 +1422,26 @@ export class RTCPeerConnection extends EventTarget {
 
     log("iceConnectionStateChange", newState);
     this.iceConnectionState = newState;
+
     this.iceConnectionStateChange.execute(newState);
     this.emit("iceconnectionstatechange", newState);
-    if (this.oniceconnectionstatechange) {
-      this.oniceconnectionstatechange();
-    }
+    this.oniceconnectionstatechange?.();
   }
 
   private setSignalingState(state: RTCSignalingState) {
     log("signalingStateChange", state);
     this.signalingState = state;
+
     this.signalingStateChange.execute(state);
-    if (this.onsignalingstatechange) {
-      this.onsignalingstatechange({});
-    }
+    this.onsignalingstatechange?.({});
   }
 
   private setConnectionState(state: ConnectionState) {
     log("connectionStateChange", state);
     this.connectionState = state;
+
     this.connectionStateChange.execute(state);
-    if (this.onconnectionstatechange) {
-      this.onconnectionstatechange();
-    }
+    this.onconnectionstatechange?.();
     this.emit("connectionstatechange");
   }
 
@@ -1578,176 +1455,6 @@ export class RTCPeerConnection extends EventTarget {
     this.onIceCandidate.allUnsubscribe();
   }
 }
-
-export function createMediaDescriptionForTransceiver(
-  transceiver: RTCRtpTransceiver,
-  cname: string,
-  direction: Direction,
-) {
-  const media = new MediaDescription(
-    transceiver.kind,
-    9,
-    "UDP/TLS/RTP/SAVPF",
-    transceiver.codecs.map((c) => c.payloadType),
-  );
-  media.direction = direction;
-  media.msid = transceiver.msid;
-  media.rtp = {
-    codecs: transceiver.codecs,
-    headerExtensions: transceiver.headerExtensions,
-    muxId: transceiver.mid,
-  };
-  media.rtcpHost = "0.0.0.0";
-  media.rtcpPort = 9;
-  media.rtcpMux = true;
-  media.ssrc = [new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname })];
-
-  if (transceiver.options.simulcast) {
-    media.simulcastParameters = transceiver.options.simulcast.map(
-      (o) => new RTCRtpSimulcastParameters(o),
-    );
-  }
-
-  if (media.rtp.codecs.find((c) => c.name.toLowerCase() === "rtx")) {
-    media.ssrc.push(
-      new SsrcDescription({ ssrc: transceiver.sender.rtxSsrc, cname }),
-    );
-    media.ssrcGroup = [
-      new GroupDescription("FID", [
-        transceiver.sender.ssrc.toString(),
-        transceiver.sender.rtxSsrc.toString(),
-      ]),
-    ];
-  }
-
-  addTransportDescription(media, transceiver.dtlsTransport);
-  return media;
-}
-
-export function createMediaDescriptionForSctp(sctp: RTCSctpTransport) {
-  const media = new MediaDescription(
-    "application",
-    DISCARD_PORT,
-    "UDP/DTLS/SCTP",
-    ["webrtc-datachannel"],
-  );
-  media.sctpPort = sctp.port;
-  media.rtp.muxId = sctp.mid;
-  media.sctpCapabilities = RTCSctpTransport.getCapabilities();
-
-  addTransportDescription(media, sctp.dtlsTransport);
-  return media;
-}
-
-export function addTransportDescription(
-  media: MediaDescription,
-  dtlsTransport: RTCDtlsTransport,
-) {
-  const iceTransport = dtlsTransport.iceTransport;
-
-  media.iceCandidates = iceTransport.localCandidates;
-  media.iceCandidatesComplete = iceTransport.gatheringState === "complete";
-  media.iceParams = iceTransport.localParameters;
-  media.iceOptions = "trickle";
-
-  media.host = DISCARD_HOST;
-  media.port = DISCARD_PORT;
-
-  if (media.direction === "inactive") {
-    media.port = 0;
-    media.msid = undefined;
-  }
-
-  if (!media.dtlsParams) {
-    media.dtlsParams = dtlsTransport.localParameters;
-    if (!media.dtlsParams.fingerprints) {
-      media.dtlsParams.fingerprints =
-        dtlsTransport.localParameters.fingerprints;
-    }
-  }
-}
-
-export function allocateMid(mids: Set<string>, type: "dc" | "av" | "") {
-  let mid = "";
-  for (let i = 0; ; ) {
-    // rfc9143.html#name-security-considerations
-    // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
-    mid = (i++).toString() + type;
-    if (!mids.has(mid)) break;
-  }
-  mids.add(mid);
-  return mid;
-}
-
-export type BundlePolicy = "max-compat" | "max-bundle" | "disable";
-
-export interface PeerConfig {
-  codecs: Partial<{
-    /**
-     * When specifying a codec with a fixed payloadType such as PCMU,
-     * it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
-     */
-    audio: RTCRtpCodecParameters[];
-    video: RTCRtpCodecParameters[];
-  }>;
-  headerExtensions: Partial<{
-    audio: RTCRtpHeaderExtensionParameters[];
-    video: RTCRtpHeaderExtensionParameters[];
-  }>;
-  iceTransportPolicy: "all" | "relay";
-  iceServers: RTCIceServer[];
-  /**Minimum port and Maximum port must not be the same value */
-  icePortRange: [number, number] | undefined;
-  iceInterfaceAddresses: InterfaceAddresses | undefined;
-  /** Add additional host (local) addresses to use for candidate gathering.
-   * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
-   */
-  iceAdditionalHostAddresses: string[] | undefined;
-  iceUseIpv4: boolean;
-  iceUseIpv6: boolean;
-  forceTurnTCP: boolean;
-  /** such as google cloud run */
-  iceUseLinkLocalAddress: boolean | undefined;
-  /** If provided, is called on each STUN request.
-   * Return `true` if a STUN response should be sent, false if it should be skipped. */
-  iceFilterStunResponse:
-    | ((message: Message, addr: Address, protocol: Protocol) => boolean)
-    | undefined;
-  iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
-  dtls: Partial<{
-    keys: DtlsKeys;
-  }>;
-  icePasswordPrefix: string | undefined;
-  bundlePolicy: BundlePolicy;
-  debug: Partial<{
-    /**% */
-    inboundPacketLoss: number;
-    /**% */
-    outboundPacketLoss: number;
-    /**ms */
-    receiverReportDelay: number;
-    disableSendNack: boolean;
-    disableRecvRetransmit: boolean;
-  }>;
-  midSuffix: boolean;
-}
-
-export const findCodecByMimeType = (
-  codecs: RTCRtpCodecParameters[],
-  target: RTCRtpCodecParameters,
-) =>
-  codecs.find(
-    (localCodec) =>
-      localCodec.mimeType.toLowerCase() === target.mimeType.toLowerCase(),
-  )
-    ? target
-    : undefined;
-
-export type RTCIceServer = {
-  urls: string;
-  username?: string;
-  credential?: string;
-};
 
 export const defaultPeerConfig: PeerConfig = {
   codecs: {

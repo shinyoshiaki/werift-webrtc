@@ -18,7 +18,6 @@ import {
   debug,
   unwrapRtx,
 } from "../imports/rtp";
-import type { PeerConfig } from "../peerConnection";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, timestampSeconds } from "../utils";
@@ -30,6 +29,7 @@ import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
 
+import type { PeerConfig } from "../pc/util";
 import { codecParametersFromString } from "../sdp";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import { MediaStreamTrack } from "./track";

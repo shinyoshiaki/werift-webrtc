@@ -15,9 +15,9 @@ import {
 import { CipherContext } from "./imports/dtls";
 
 import now from "nano-time";
-import { type Direction, Directions } from "./media/rtpTransceiver";
+import { Directions, type MediaDirection } from "./media/rtpTransceiver";
 import { MediaStreamTrack } from "./media/track";
-import type { RTCIceServer } from "./peerConnection";
+import type { RTCIceServer } from "./pc/util";
 
 const log = debug("werift:packages/webrtc/src/utils.ts");
 
@@ -40,10 +40,10 @@ export function reverseSimulcastDirection(dir: "recv" | "send") {
   return "recv";
 }
 
-export const andDirection = (a: Direction, b: Direction) =>
+export const andDirection = (a: MediaDirection, b: MediaDirection) =>
   Directions[Directions.indexOf(a) & Directions.indexOf(b)];
 
-export function reverseDirection(dir: Direction): Direction {
+export function reverseDirection(dir: MediaDirection): MediaDirection {
   if (dir === "sendonly") return "recvonly";
   if (dir === "recvonly") return "sendonly";
   return dir;

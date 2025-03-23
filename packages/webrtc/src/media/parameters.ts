@@ -1,4 +1,4 @@
-import type { Direction } from "./rtpTransceiver";
+import type { MediaDirection } from "./rtpTransceiver";
 
 export interface RTCRtpParameters {
   codecs: RTCRtpCodecParameters[];
@@ -22,7 +22,7 @@ export class RTCRtpCodecParameters {
   channels?: number;
   rtcpFeedback: RTCPFB[] = [];
   parameters?: string;
-  direction: Direction | "all" = "all";
+  direction: MediaDirection | "all" = "all";
 
   constructor(
     props: Pick<RTCRtpCodecParameters, "mimeType" | "clockRate"> &
