@@ -10,10 +10,9 @@ import {
   RTCRtpReceiver,
   RTCRtpSender,
   RTCRtpTransceiver,
-  RtpRouter,
   type TransceiverOptions,
 } from "./media";
-import { StateManager } from "./pc/managers/stateManager";
+import { RTCPeerConnectionContext } from "./pc/peerConnectionContext";
 import {
   type PeerConfig,
   addTransportDescription,
@@ -54,31 +53,10 @@ import {
   reverseDirection,
   reverseSimulcastDirection,
 } from "./utils";
-import { RTCPeerConnectionContext } from "./pc/peerConnectionContext";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends RTCPeerConnectionContext {
-  sctpRemotePort?: number;
-  sctpTransport?: RTCSctpTransport;
-  private readonly transceivers: RTCRtpTransceiver[] = [];
-  private readonly router = new RtpRouter();
-  private certificate?: RTCCertificate;
-  private seenMid = new Set<string>();
-  private currentLocalDescription?: SessionDescription;
-  private currentRemoteDescription?: SessionDescription;
-  private pendingLocalDescription?: SessionDescription;
-  private pendingRemoteDescription?: SessionDescription;
-  private isClosed = false;
-  private shouldNegotiationneeded = false;
-
-  readonly stateManager = new StateManager();
-
-  readonly iceGatheringStateChange = this.stateManager.iceGatheringStateChange;
-  readonly iceConnectionStateChange =
-    this.stateManager.iceConnectionStateChange;
-  readonly signalingStateChange = this.stateManager.signalingStateChange;
-  readonly connectionStateChange = this.stateManager.connectionStateChange;
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
