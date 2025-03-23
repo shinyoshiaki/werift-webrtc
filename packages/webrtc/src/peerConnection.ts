@@ -1,6 +1,5 @@
+import { randomUUID } from "node:crypto";
 import cloneDeep from "lodash/cloneDeep.js";
-import * as uuid from "uuid";
-
 import { SRTP_PROFILE, SenderDirections } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
@@ -71,7 +70,7 @@ import {
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
-  readonly cname = uuid.v4();
+  readonly cname = randomUUID();
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
@@ -144,14 +143,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
 
-  get extIdUriMap() {
-    return this.router.extIdUriMap;
-  }
-
-  get iceGeneration() {
-    return this.iceTransports[0].connection.generation;
-  }
-
   get localDescription() {
     if (!this._localDescription) {
       return undefined;
@@ -174,6 +165,17 @@ export class RTCPeerConnection extends EventTarget {
   /**@private */
   get _remoteDescription() {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
+  }
+
+  get remoteIsBundled() {
+    const remoteSdp = this._remoteDescription;
+    if (!remoteSdp) {
+      return undefined;
+    }
+    const bundle = remoteSdp.group.find(
+      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
+    );
+    return bundle;
   }
 
   private pushTransceiver(t: RTCRtpTransceiver) {
@@ -207,10 +209,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.transceivers.find(
       (transceiver) => transceiver.mLineIndex === index,
     );
-  }
-
-  getConfiguration() {
-    return this.config;
   }
 
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
@@ -377,7 +375,11 @@ export class RTCPeerConnection extends EventTarget {
 
   removeTrack(sender: RTCRtpSender) {
     if (this.isClosed) throw new Error("peer closed");
-    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
+    if (
+      !this.transceivers
+        .map((t) => t.sender)
+        .find(({ ssrc }) => sender.ssrc === ssrc)
+    ) {
       throw new Error("unExist");
     }
 
@@ -410,7 +412,7 @@ export class RTCPeerConnection extends EventTarget {
     this.needNegotiation();
   }
 
-  private needNegotiation = async () => {
+  private needNegotiation() {
     this.shouldNegotiationneeded = true;
     if (this.negotiationneeded || this.signalingState !== "stable") {
       return;
@@ -421,7 +423,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onNegotiationneeded.execute();
       if (this.onnegotiationneeded) this.onnegotiationneeded({});
     });
-  };
+  }
 
   private createTransport(srtpProfiles: SrtpProfile[] = []) {
     const [existing] = this.iceTransports;
@@ -464,7 +466,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
-      if (!this.localDescription) {
+      if (!this._localDescription) {
         log("localDescription not found when ice candidate was gathered");
         return;
       }
@@ -759,17 +761,6 @@ export class RTCPeerConnection extends EventTarget {
     } else {
       this.setConnectionState("connected");
     }
-  }
-
-  get remoteIsBundled() {
-    const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) {
-      return undefined;
-    }
-    const bundle = remoteSdp.group.find(
-      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
-    );
-    return bundle;
   }
 
   restartIce() {
@@ -1155,7 +1146,11 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw new Error("is closed");
     }
-    if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
+    if (
+      this.transceivers
+        .map((t) => t.sender)
+        .find((sender) => sender.track?.uuid === track.uuid)
+    ) {
       throw new Error("track exist");
     }
 
