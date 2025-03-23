@@ -1,53 +1,51 @@
-import type { RtpRouter } from "../media";
-import type { SessionDescription } from "../sdp";
-import type { RTCCertificate } from "../transport/dtls";
-import type { RTCPeerConnection } from "./pc";
-import type { PeerConnectionContext } from "./types/peerConnectionContext";
+import { randomUUID } from "node:crypto";
+import cloneDeep from "lodash/cloneDeep.js";
 import type { PeerConfig } from "./util";
+import { EventTarget, enumerate } from "../helper";
+import { useOPUS, usePCMU, useVP8 } from "../media";
 
-export class RTCPeerConnectionContext implements PeerConnectionContext {
-  constructor(
-    public readonly connection: RTCPeerConnection,
-    private readonly pc: {
-      config: Required<PeerConfig>;
-      router: RtpRouter;
-      certificate?: RTCCertificate;
-      updateIceGatheringState(): void;
-      updateIceConnectionState(): void;
-      needNegotiation(): void;
-      setLocal(description: SessionDescription): void;
-    },
-  ) {}
+export class RTCPeerConnectionContext extends EventTarget {
+  readonly cname = randomUUID();
+  config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
+  negotiationneeded = false;
+  needRestart = false;
 
-  get config(): Required<PeerConfig> {
-    return this.pc.config;
+  constructor() {
+    super();
   }
 
-  get router(): RtpRouter {
-    return this.pc.router;
-  }
-
-  get certificate(): RTCCertificate | undefined {
-    return this.pc.certificate;
-  }
-
-  set certificate(certificate: RTCCertificate | undefined) {
-    (this.pc as any).certificate = certificate;
-  }
-
-  updateIceGatheringState(): void {
-    this.pc.updateIceGatheringState();
-  }
-
-  updateIceConnectionState(): void {
-    this.pc.updateIceConnectionState();
-  }
-
-  needNegotiation(): void {
-    this.pc.needNegotiation();
-  }
-
-  setLocal(description: SessionDescription): void {
-    this.pc.setLocal(description);
+  toJSON() {
+    return {
+      cname: this.cname,
+      config: this.config,
+      negotiationneeded: this.negotiationneeded,
+    };
   }
 }
+
+export const defaultPeerConfig: PeerConfig = {
+  codecs: {
+    audio: [useOPUS(), usePCMU()],
+    video: [useVP8()],
+  },
+  headerExtensions: {
+    audio: [],
+    video: [],
+  },
+  iceTransportPolicy: "all",
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  icePortRange: undefined,
+  iceInterfaceAddresses: undefined,
+  iceAdditionalHostAddresses: undefined,
+  iceUseIpv4: true,
+  iceUseIpv6: true,
+  iceFilterStunResponse: undefined,
+  iceFilterCandidatePair: undefined,
+  icePasswordPrefix: undefined,
+  iceUseLinkLocalAddress: undefined,
+  dtls: {},
+  bundlePolicy: "max-compat",
+  debug: {},
+  midSuffix: false,
+  forceTurnTCP: false,
+};

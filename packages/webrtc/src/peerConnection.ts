@@ -1,9 +1,6 @@
-import { randomUUID } from "node:crypto";
-import cloneDeep from "lodash/cloneDeep.js";
-
 import { SRTP_PROFILE, SenderDirections } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
-import { EventTarget, enumerate } from "./helper";
+import { enumerate } from "./helper";
 import { Event, debug } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
 import {
@@ -15,9 +12,6 @@ import {
   RTCRtpTransceiver,
   RtpRouter,
   type TransceiverOptions,
-  useOPUS,
-  usePCMU,
-  useVP8,
 } from "./media";
 import { StateManager } from "./pc/managers/stateManager";
 import {
@@ -60,14 +54,11 @@ import {
   reverseDirection,
   reverseSimulcastDirection,
 } from "./utils";
+import { RTCPeerConnectionContext } from "./pc/peerConnectionContext";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
-export class RTCPeerConnection extends EventTarget {
-  readonly cname = randomUUID();
-  config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
-  negotiationneeded = false;
-  needRestart = false;
+export class RTCPeerConnection extends RTCPeerConnectionContext {
   sctpRemotePort?: number;
   sctpTransport?: RTCSctpTransport;
   private readonly transceivers: RTCRtpTransceiver[] = [];
@@ -1368,33 +1359,6 @@ export class RTCPeerConnection extends EventTarget {
     this.onIceCandidate.allUnsubscribe();
   }
 }
-
-export const defaultPeerConfig: PeerConfig = {
-  codecs: {
-    audio: [useOPUS(), usePCMU()],
-    video: [useVP8()],
-  },
-  headerExtensions: {
-    audio: [],
-    video: [],
-  },
-  iceTransportPolicy: "all",
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  icePortRange: undefined,
-  iceInterfaceAddresses: undefined,
-  iceAdditionalHostAddresses: undefined,
-  iceUseIpv4: true,
-  iceUseIpv6: true,
-  iceFilterStunResponse: undefined,
-  iceFilterCandidatePair: undefined,
-  icePasswordPrefix: undefined,
-  iceUseLinkLocalAddress: undefined,
-  dtls: {},
-  bundlePolicy: "max-compat",
-  debug: {},
-  midSuffix: false,
-  forceTurnTCP: false,
-};
 
 export interface RTCTrackEvent {
   track: MediaStreamTrack;
