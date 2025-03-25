@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
 
 import range from "lodash/range.js";
+import { nextTick } from "process";
 import {
   AbortChunk,
   type Chunk,
@@ -117,6 +118,7 @@ export class SCTP {
   private sackDuplicates: number[] = [];
   private sackMisOrdered = new Set<number>();
   private sackNeeded = false;
+  private sackTimeout: NodeJS.Immediate | undefined;
 
   // # outbound
   private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
@@ -224,6 +226,11 @@ export class SCTP {
   }
 
   private async sendSack() {
+    if (this.sackTimeout) return;
+    await new Promise((r) => (this.sackTimeout = setImmediate(r)));
+    this.sackTimeout = undefined;
+    if (!this.sackNeeded) return;
+
     const gaps: [number, number][] = [];
     let gapNext: number;
     [...this.sackMisOrdered].sort().forEach((tsn) => {
