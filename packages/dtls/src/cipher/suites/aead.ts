@@ -113,9 +113,8 @@ export default class AEADCipher extends Cipher {
     const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
     if (!iv || !writeKey) throw new Error();
 
-    const explicitNonce = Buffer.from(
-      data.subarray(0, this.nonceExplicitLength),
-    );
+    const explicitNonce = data.subarray(0, this.nonceExplicitLength);
+
     explicitNonce.copy(iv, this.nonceImplicitLength);
 
     const encrypted = data.subarray(
