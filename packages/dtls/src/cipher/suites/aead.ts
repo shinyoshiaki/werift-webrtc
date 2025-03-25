@@ -1,6 +1,5 @@
 import * as crypto from "crypto";
 
-import { createDecode, encode, types } from "@shinyoshiaki/binary-data";
 import { dumpBuffer, getObjectSummary } from "../../helper";
 import { debug } from "../../imports/common";
 import { prfEncryptionKeys } from "../prf";
@@ -9,19 +8,6 @@ import Cipher, {
   SessionType,
   type SessionTypes,
 } from "./abstract";
-
-const { uint8, uint16be, uint48be } = types;
-
-const ContentType = uint8;
-const ProtocolVersion = uint16be;
-
-const AEADAdditionalData = {
-  epoch: uint16be,
-  sequence: uint48be,
-  type: ContentType,
-  version: ProtocolVersion,
-  length: uint16be,
-};
 
 const err = debug(
   "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err",
@@ -84,15 +70,7 @@ export default class AEADCipher extends Cipher {
 
     const explicitNonce = iv.slice(this.nonceImplicitLength);
 
-    const additionalData = {
-      epoch: header.epoch,
-      sequence: header.sequenceNumber,
-      type: header.type,
-      version: header.version,
-      length: data.length,
-    };
-
-    const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
+    const additionalBuffer = this.encodeAdditionalBuffer(header, data.length);
 
     const cipher = crypto.createCipheriv(
       this.blockAlgorithm as crypto.CipherCCMTypes,
@@ -114,6 +92,18 @@ export default class AEADCipher extends Cipher {
     return Buffer.concat([explicitNonce, headPart, finalPart, authTag]);
   }
 
+  encodeAdditionalBuffer(header: CipherHeader, dataLength: number) {
+    const additionalBuffer = Buffer.alloc(13);
+
+    additionalBuffer.writeUInt16BE(header.epoch, 0);
+    additionalBuffer.writeUintBE(header.sequenceNumber, 2, 6);
+    additionalBuffer.writeUInt8(header.type, 8);
+    additionalBuffer.writeUInt16BE(header.version, 9);
+    additionalBuffer.writeUInt16BE(dataLength, 11);
+
+    return additionalBuffer;
+  }
+
   /**
    * Decrypt message.
    */
@@ -123,23 +113,21 @@ export default class AEADCipher extends Cipher {
     const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
     if (!iv || !writeKey) throw new Error();
 
-    const final = createDecode(data);
-
-    const explicitNonce = final.readBuffer(this.nonceExplicitLength);
+    const explicitNonce = Buffer.from(
+      data.subarray(0, this.nonceExplicitLength),
+    );
     explicitNonce.copy(iv, this.nonceImplicitLength);
 
-    const encrypted = final.readBuffer(final.length - this.authTagLength);
-    const authTag = final.readBuffer(this.authTagLength);
+    const encrypted = data.subarray(
+      this.nonceExplicitLength,
+      data.length - this.authTagLength,
+    );
+    const authTag = data.subarray(data.length - this.authTagLength);
 
-    const additionalData = {
-      epoch: header.epoch,
-      sequence: header.sequenceNumber,
-      type: header.type,
-      version: header.version,
-      length: encrypted.length,
-    };
-
-    const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
+    const additionalBuffer = this.encodeAdditionalBuffer(
+      header,
+      encrypted.length,
+    );
 
     const decipher = crypto.createDecipheriv(
       this.blockAlgorithm as crypto.CipherCCMTypes,
