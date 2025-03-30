@@ -17,7 +17,7 @@ import {
   type RTCRtpParameters,
   RTCRtpSimulcastParameters,
 } from "./media/parameters";
-import type { Direction } from "./media/rtpTransceiver";
+import type { MediaDirection } from "./media/rtpTransceiver";
 import {
   type DtlsRole,
   RTCDtlsFingerprint,
@@ -386,7 +386,7 @@ export class SessionDescription {
 export class MediaDescription {
   // rtp
   host?: string;
-  direction?: Direction;
+  direction?: MediaDirection;
   msid?: string;
 
   // rtcp
