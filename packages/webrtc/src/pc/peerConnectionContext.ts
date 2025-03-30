@@ -1,14 +1,43 @@
 import { randomUUID } from "node:crypto";
 import cloneDeep from "lodash/cloneDeep.js";
+import { EventTarget } from "../helper";
+import {
+  type RTCRtpTransceiver,
+  RtpRouter,
+  useOPUS,
+  usePCMU,
+  useVP8,
+} from "../media";
+import type { SessionDescription } from "../sdp";
+import type { RTCCertificate } from "../transport/dtls";
+import type { RTCSctpTransport } from "../transport/sctp";
+import { StateManager } from "./managers/stateManager";
 import type { PeerConfig } from "./util";
-import { EventTarget, enumerate } from "../helper";
-import { useOPUS, usePCMU, useVP8 } from "../media";
 
 export class RTCPeerConnectionContext extends EventTarget {
   readonly cname = randomUUID();
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   negotiationneeded = false;
   needRestart = false;
+  sctpRemotePort?: number;
+  sctpTransport?: RTCSctpTransport;
+  protected readonly transceivers: RTCRtpTransceiver[] = [];
+  protected readonly router = new RtpRouter();
+  protected certificate?: RTCCertificate;
+  protected seenMid = new Set<string>();
+  protected currentLocalDescription?: SessionDescription;
+  protected currentRemoteDescription?: SessionDescription;
+  protected pendingLocalDescription?: SessionDescription;
+  protected pendingRemoteDescription?: SessionDescription;
+  protected isClosed = false;
+  protected shouldNegotiationneeded = false;
+
+  readonly stateManager = new StateManager();
+  readonly iceGatheringStateChange = this.stateManager.iceGatheringStateChange;
+  readonly iceConnectionStateChange =
+    this.stateManager.iceConnectionStateChange;
+  readonly signalingStateChange = this.stateManager.signalingStateChange;
+  readonly connectionStateChange = this.stateManager.connectionStateChange;
 
   constructor() {
     super();
