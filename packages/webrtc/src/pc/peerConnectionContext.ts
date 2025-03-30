@@ -10,8 +10,13 @@ import {
 } from "../media";
 import type { SessionDescription } from "../sdp";
 import type { RTCCertificate } from "../transport/dtls";
+import type { RTCIceTransport } from "../transport/ice";
 import type { RTCSctpTransport } from "../transport/sctp";
-import { StateManager } from "./managers/stateManager";
+import {
+  type ConnectionState,
+  type RTCSignalingState,
+  StateManager,
+} from "./managers/stateManager";
 import type { PeerConfig } from "./util";
 
 export class RTCPeerConnectionContext extends EventTarget {
@@ -32,7 +37,7 @@ export class RTCPeerConnectionContext extends EventTarget {
   protected isClosed = false;
   protected shouldNegotiationneeded = false;
 
-  readonly stateManager = new StateManager();
+  protected readonly stateManager = new StateManager();
   readonly iceGatheringStateChange = this.stateManager.iceGatheringStateChange;
   readonly iceConnectionStateChange =
     this.stateManager.iceConnectionStateChange;
@@ -41,6 +46,55 @@ export class RTCPeerConnectionContext extends EventTarget {
 
   constructor() {
     super();
+  }
+
+  protected pushTransceiver(t: RTCRtpTransceiver) {
+    this.transceivers.push(t);
+  }
+
+  protected replaceTransceiver(t: RTCRtpTransceiver, index: number) {
+    this.transceivers[index] = t;
+  }
+
+  protected getTransceiverByMid(mid: string) {
+    return this.transceivers.find((transceiver) => transceiver.mid === mid);
+  }
+
+  protected getTransceiverByMLineIndex(index: number) {
+    return this.transceivers.find(
+      (transceiver) => transceiver.mLineIndex === index,
+    );
+  }
+
+  protected getTransportByMid(mid: string) {
+    let iceTransport: RTCIceTransport | undefined;
+
+    const transceiver = this.transceivers.find((t) => t.mid === mid);
+    if (transceiver) {
+      iceTransport = transceiver.dtlsTransport.iceTransport;
+    } else if (!iceTransport && this.sctpTransport?.mid === mid) {
+      iceTransport = this.sctpTransport?.dtlsTransport.iceTransport;
+    }
+
+    return iceTransport;
+  }
+
+  protected getTransportByMLineIndex(sdp: SessionDescription, index: number) {
+    const media = sdp.media[index];
+    if (!media) {
+      return;
+    }
+    const transport = this.getTransportByMid(media.rtp.muxId!);
+
+    return transport;
+  }
+
+  protected setSignalingState(state: RTCSignalingState) {
+    this.stateManager.setSignalingState(state);
+  }
+
+  protected setConnectionState(state: ConnectionState) {
+    this.stateManager.setConnectionState(state);
   }
 
   toJSON() {
