@@ -215,7 +215,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     this.needNegotiation();
   }
 
-  private createTransport(srtpProfiles: SrtpProfile[] = []) {
+  protected createTransport(srtpProfiles: SrtpProfile[] = []) {
     const [existing] = this.iceTransports;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
@@ -312,7 +312,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     return dtlsTransport;
   }
 
-  private createSctpTransport() {
+  protected createSctpTransport() {
     const dtlsTransport = this.createTransport([
       SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
       SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
@@ -424,7 +424,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     return description;
   }
 
-  private async gatherCandidates() {
+  protected async gatherCandidates() {
     // # gather candidates
     const connected = this.iceTransports.find(
       (transport) => transport.state === "connected",
@@ -475,7 +475,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private async connect() {
+  protected async connect() {
     log("start connect");
 
     const res = await Promise.allSettled(
@@ -695,7 +695,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private setRemoteRTP(
+  protected setRemoteRTP(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
     type: "offer" | "answer",
@@ -784,7 +784,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private setRemoteSCTP(
+  protected setRemoteSCTP(
     remoteMedia: MediaDescription,
     sctpTransport: RTCSctpTransport,
     mLineIndex: number,
@@ -802,12 +802,12 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private assertDescription(description: SessionDescription, isLocal: boolean) {
+  protected assertDescription(description: SessionDescription, isLocal: boolean) {
     // 親クラスの実装を呼び出し
     this.assertSdpDescription(description, isLocal);
   }
 
-  private fireOnTrack(
+  protected fireOnTrack(
     track: MediaStreamTrack,
     transceiver: RTCRtpTransceiver,
     stream: MediaStream,
@@ -943,7 +943,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     }
   }
 
-  private async ensureCerts() {
+  protected async ensureCerts() {
     if (!this.certificate) {
       this.certificate = await RTCDtlsTransport.SetupCertificate();
     }
@@ -985,7 +985,7 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     log("peerConnection closed");
   }
 
-  private dispose() {
+  protected dispose() {
     this.onDataChannel.allUnsubscribe();
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
