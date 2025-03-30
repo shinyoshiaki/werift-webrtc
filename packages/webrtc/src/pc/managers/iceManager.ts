@@ -19,6 +19,7 @@ const log = debug("werift:webrtc/iceManager");
  * Handles ICE (Interactive Connectivity Establishment) related operations
  */
 export class IceManager {
+  readonly onGatheringStateChange = new Event<[string]>();
   private transports: RTCIceTransport[] = [];
   private needRestart = false;
 
@@ -61,6 +62,12 @@ export class IceManager {
     }
 
     const iceTransport = new RTCIceTransport(iceGatherer);
+
+    // Subscribe to gatherer state change and forward it
+    iceGatherer.onGatheringStateChange.subscribe((state) => {
+      this.onGatheringStateChange.execute(state);
+    });
+
     this.transports.push(iceTransport);
 
     return iceTransport;
@@ -109,7 +116,7 @@ export class IceManager {
   /**
    * Gather ICE candidates
    */
-  async gatherCandidates(remoteIsBundled: boolean | undefined = false) {
+  async gatherCandidates(remoteIsBundled: any = false) {
     // If using a bundled connection and already have a connected transport, skip gathering
     const connectedTransport = this.transports.find(
       (transport) => transport.state === "connected",

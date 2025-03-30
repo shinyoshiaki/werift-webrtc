@@ -117,7 +117,8 @@ export class SctpManager {
       return;
     }
 
-    if (this.transport.sctp.isInitialized) {
+    // Skip if already started
+    if (this.transport.sctp.started) {
       log("SCTP transport already started");
       return;
     }

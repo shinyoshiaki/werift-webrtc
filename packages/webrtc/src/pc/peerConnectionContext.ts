@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import cloneDeep from "lodash/cloneDeep.js";
 import { EventTarget } from "../helper";
-import { debug } from "../imports/common";
+import { type Event, debug } from "../imports/common";
 import {
+  type MediaStreamTrack,
   type RTCRtpTransceiver,
   RtpRouter,
   useOPUS,
@@ -34,6 +35,7 @@ export class RTCPeerConnectionContext extends EventTarget {
   protected isClosed = false;
   protected shouldNegotiationneeded = false;
   protected readonly router = new RtpRouter();
+  protected certificate?: RTCCertificate;
 
   // Manager instances
   protected readonly stateManager = new StateManager();
@@ -41,7 +43,7 @@ export class RTCPeerConnectionContext extends EventTarget {
   protected readonly iceManager = new IceManager();
   protected readonly dtlsManager = new DtlsManager();
   protected readonly sctpManager = new SctpManager();
-  protected readonly mediaManager: MediaManager;
+  protected mediaManager!: MediaManager; // Will be initialized in constructor
 
   // Events
   readonly iceGatheringStateChange = this.stateManager.iceGatheringStateChange;
@@ -49,15 +51,22 @@ export class RTCPeerConnectionContext extends EventTarget {
     this.stateManager.iceConnectionStateChange;
   readonly signalingStateChange = this.stateManager.signalingStateChange;
   readonly connectionStateChange = this.stateManager.connectionStateChange;
-  readonly onTrack = this.mediaManager.onTrack;
-  readonly onTransceiverAdded = this.mediaManager.onTransceiverAdded;
-  readonly onRemoteTransceiverAdded =
-    this.mediaManager.onRemoteTransceiverAdded;
   readonly onDataChannel = this.sctpManager.onDataChannel;
+
+  // Media events - initialized in constructor after mediaManager is created
+  readonly onTrack!: Event<[MediaStreamTrack]>;
+  readonly onTransceiverAdded!: Event<[RTCRtpTransceiver]>;
+  readonly onRemoteTransceiverAdded!: Event<[RTCRtpTransceiver]>;
 
   constructor() {
     super();
     this.mediaManager = new MediaManager(this.config);
+
+    // Initialize media events after mediaManager is created
+    (this as any).onTrack = this.mediaManager.onTrack;
+    (this as any).onTransceiverAdded = this.mediaManager.onTransceiverAdded;
+    (this as any).onRemoteTransceiverAdded =
+      this.mediaManager.onRemoteTransceiverAdded;
 
     // Setup event relationships between managers
     this.setupManagerRelationships();
@@ -160,10 +169,29 @@ export class RTCPeerConnectionContext extends EventTarget {
   }
 
   /**
+   * Set SCTP transport - used by child classes
+   */
+  set sctpTransport(transport: RTCSctpTransport | undefined) {
+    // This is needed to allow RTCPeerConnection to set the transport property
+    if (!transport) {
+      this.sctpManager.stopSctpTransport();
+    }
+  }
+
+  /**
    * Get the SCTP remote port
    */
   get sctpRemotePort() {
     return this.sctpManager.getRemotePort();
+  }
+
+  /**
+   * Set SCTP remote port - used by child classes
+   */
+  set sctpRemotePort(port: number | undefined) {
+    if (port && this.sctpManager) {
+      this.sctpManager.setRemotePort(port);
+    }
   }
 
   /**
@@ -363,7 +391,8 @@ export class RTCPeerConnectionContext extends EventTarget {
       this.updateIceConnectionState();
     });
 
-    iceTransport.onGatheringStateChange.subscribe(() => {
+    // Use ICE gatherer events directly from the ICE manager
+    this.iceManager.onGatheringStateChange.subscribe(() => {
       this.updateIceGatheringState();
     });
 
@@ -436,6 +465,15 @@ export class RTCPeerConnectionContext extends EventTarget {
   }
 
   /**
+   * Ensure certificates are set up
+   */
+  protected async ensureCerts() {
+    if (!this.certificate) {
+      this.certificate = await this.dtlsManager.setupCertificate();
+    }
+  }
+
+  /**
    * Connect transports
    */
   protected async connect() {
@@ -489,6 +527,20 @@ export class RTCPeerConnectionContext extends EventTarget {
     if (this.isClosed) {
       throw new Error("RTCPeerConnection is closed");
     }
+  }
+
+  /**
+   * Method for child classes to access to replace a transceiver
+   */
+  protected replaceTransceiver(transceiver: RTCRtpTransceiver, index: number) {
+    this.mediaManager.replaceTransceiver(transceiver, index);
+  }
+
+  /**
+   * Method for child classes to add a transceiver to the list
+   */
+  protected pushTransceiver(transceiver: RTCRtpTransceiver) {
+    this.mediaManager.pushTransceiver(transceiver);
   }
 
   /**
