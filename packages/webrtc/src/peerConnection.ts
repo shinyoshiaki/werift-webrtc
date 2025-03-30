@@ -26,8 +26,6 @@ import {
   getLocalRtpParams,
   getRemoteRtpParams,
   setConfiguration,
-  updateIceConnectionState,
-  updateIceGatheringState,
 } from "./pc/util";
 import {
   GroupDescription,
@@ -45,7 +43,7 @@ import {
   RTCIceTransport,
 } from "./transport/ice";
 import { RTCSctpTransport } from "./transport/sctp";
-import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
+import type { Kind } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import {
   andDirection,
@@ -96,72 +94,10 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
     });
   }
 
-  get dtlsTransports() {
-    const transports = this.transceivers.map((t) => t.dtlsTransport);
-    if (this.sctpTransport) {
-      transports.push(this.sctpTransport.dtlsTransport);
-    }
-    return transports.reduce((acc: RTCDtlsTransport[], cur) => {
-      if (!acc.map((d) => d.id).includes(cur.id)) {
-        acc.push(cur);
-      }
-      return acc;
-    }, []);
-  }
-
-  /**@private */
-  get _localDescription() {
-    return this.pendingLocalDescription || this.currentLocalDescription;
-  }
-
-  /**@private */
-  get _remoteDescription() {
-    return this.pendingRemoteDescription || this.currentRemoteDescription;
-  }
-
-  get iceTransports() {
-    return this.dtlsTransports.map((d) => d.iceTransport);
-  }
-
-  get localDescription() {
-    if (!this._localDescription) {
-      return undefined;
-    }
-    return this._localDescription.toJSON();
-  }
-
-  get remoteDescription() {
-    if (!this._remoteDescription) {
-      return undefined;
-    }
-    return this._remoteDescription.toJSON();
-  }
-
-  get remoteIsBundled() {
-    const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) {
-      return undefined;
-    }
-    const bundle = remoteSdp.group.find(
-      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
-    );
-    return bundle;
-  }
-
-  get connectionState() {
-    return this.stateManager.connectionState;
-  }
-
-  get iceConnectionState() {
-    return this.stateManager.iceConnectionState;
-  }
-
-  get iceGatheringState() {
-    return this.stateManager.iceGatheringState;
-  }
-
-  get signalingState() {
-    return this.stateManager.signalingState;
+  // Override onNegotiationNeeded method from parent class
+  protected onNegotiationNeeded() {
+    this.onNegotiationneeded.execute();
+    if (this.onnegotiationneeded) this.onnegotiationneeded({});
   }
 
   setConfiguration(config: Partial<PeerConfig>) {
@@ -383,19 +319,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
       }
     }
     this.needNegotiation();
-  }
-
-  private needNegotiation() {
-    this.shouldNegotiationneeded = true;
-    if (this.negotiationneeded || this.signalingState !== "stable") {
-      return;
-    }
-    this.shouldNegotiationneeded = false;
-    setImmediate(() => {
-      this.negotiationneeded = true;
-      this.onNegotiationneeded.execute();
-      if (this.onnegotiationneeded) this.onnegotiationneeded({});
-    });
   }
 
   private createTransport(srtpProfiles: SrtpProfile[] = []) {
@@ -1255,31 +1178,6 @@ export class RTCPeerConnection extends RTCPeerConnectionContext {
 
     this.dispose();
     log("peerConnection closed");
-  }
-
-  private assertNotClosed() {
-    if (this.isClosed) {
-      throw new Error("RTCPeerConnection is closed");
-    }
-  }
-
-  private updateIceGatheringState() {
-    const all = this.iceTransports;
-
-    const newState = updateIceGatheringState(all.map((t) => t.gatheringState));
-
-    this.stateManager.updateIceGatheringState(newState);
-  }
-
-  private updateIceConnectionState() {
-    const newState =
-      this.connectionState === "closed"
-        ? "closed"
-        : updateIceConnectionState({
-            iceStates: this.iceTransports.map((t) => t.state),
-          });
-
-    this.stateManager.updateIceConnectionState(newState);
   }
 
   private dispose() {
