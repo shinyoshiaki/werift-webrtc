@@ -1,3 +1,4 @@
+import isEqual from "lodash/isEqual.js";
 import {
   DISCARD_HOST,
   DISCARD_PORT,
@@ -10,7 +11,11 @@ import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import {
   type MediaDirection,
   type RTCRtpCodecParameters,
+  RTCRtpCodingParameters,
   type RTCRtpHeaderExtensionParameters,
+  type RTCRtpParameters,
+  type RTCRtpReceiveParameters,
+  RTCRtpRtxParameters,
   RTCRtpSimulcastParameters,
   type RTCRtpTransceiver,
   Recvonly,
@@ -22,6 +27,7 @@ import {
   MediaDescription,
   type SessionDescription,
   SsrcDescription,
+  codecParametersFromString,
 } from "../sdp";
 import type { DtlsKeys, RTCDtlsTransport } from "../transport/dtls";
 import type { IceGathererState, RTCIceConnectionState } from "../transport/ice";
@@ -361,4 +367,86 @@ export interface PeerConfig {
     disableRecvRetransmit: boolean;
   }>;
   midSuffix: boolean;
+}
+
+export function getRemoteRtpParams(
+  media: MediaDescription,
+  transceiver: RTCRtpTransceiver,
+): RTCRtpReceiveParameters {
+  const receiveParameters: RTCRtpReceiveParameters = {
+    muxId: media.rtp.muxId,
+    rtcp: media.rtp.rtcp,
+    codecs: transceiver.codecs,
+    headerExtensions: transceiver.headerExtensions,
+    encodings: Object.values(
+      transceiver.codecs.reduce(
+        (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
+          if (codec.name.toLowerCase() === "rtx") {
+            const params = codecParametersFromString(codec.parameters ?? "");
+            const apt = acc[params["apt"]];
+            if (apt && media.ssrc.length === 2) {
+              apt.rtx = new RTCRtpRtxParameters({ ssrc: media.ssrc[1].ssrc });
+            }
+            return acc;
+          }
+          acc[codec.payloadType] = new RTCRtpCodingParameters({
+            ssrc: media.ssrc[0]?.ssrc,
+            payloadType: codec.payloadType,
+          });
+          return acc;
+        },
+        {},
+      ),
+    ),
+  };
+
+  return receiveParameters;
+}
+
+export function getLocalRtpParams(
+  transceiver: RTCRtpTransceiver,
+  cname: string,
+): RTCRtpParameters {
+  if (transceiver.mid == undefined) throw new Error("mid not assigned");
+
+  const rtp: RTCRtpParameters = {
+    codecs: transceiver.codecs,
+    muxId: transceiver.mid,
+    headerExtensions: transceiver.headerExtensions,
+    rtcp: { cname: cname, ssrc: transceiver.sender.ssrc, mux: true },
+  };
+  return rtp;
+}
+
+export function assertDescription({
+  description,
+  offer,
+}: {
+  description: SessionDescription;
+  offer?: SessionDescription;
+}) {
+  for (const media of description.media) {
+    if (media.direction === "inactive") {
+      continue;
+    }
+    if (
+      !media.iceParams ||
+      !media.iceParams.usernameFragment ||
+      !media.iceParams.password
+    ) {
+      throw new Error("ICE username fragment or password is missing");
+    }
+  }
+
+  if (["answer", "pranswer"].includes(description.type ?? "")) {
+    if (!offer) {
+      throw new Error("offer not found");
+    }
+
+    const answerMedia = description.media.map((v, i) => [v.kind, i]);
+    const offerMedia = offer.media.map((v, i) => [v.kind, i]);
+    if (!isEqual(offerMedia, answerMedia)) {
+      throw new Error("Media sections in answer do not match offer");
+    }
+  }
 }
