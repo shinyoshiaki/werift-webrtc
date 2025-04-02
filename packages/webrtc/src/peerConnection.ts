@@ -705,7 +705,8 @@ export class RTCPeerConnection extends EventTarget {
   private async gatherCandidates() {
     // # gather candidates
     const connected = this.iceTransports.find(
-      (transport) => transport.state === "connected",
+      (transport) =>
+        transport.state === "connected" || transport.state === "completed",
     );
     if (this.remoteIsBundled && connected) {
       // no need to gather ice candidates on an existing bundled connection
@@ -798,6 +799,10 @@ export class RTCPeerConnection extends EventTarget {
           return;
         }
 
+        if (dtlsTransport.state === "connected") {
+          return;
+        }
+
         this.setConnectionState("connecting");
 
         await iceTransport.start().catch((err) => {
@@ -805,9 +810,11 @@ export class RTCPeerConnection extends EventTarget {
           throw err;
         });
 
+        // @ts-expect-error
         if (dtlsTransport.state === "connected") {
           return;
         }
+
         await dtlsTransport.start().catch((err) => {
           log("dtlsTransport.start failed", err);
           throw err;
