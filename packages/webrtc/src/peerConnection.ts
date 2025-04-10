@@ -613,10 +613,19 @@ export class RTCPeerConnection extends EventTarget {
     return sctp;
   }
 
-  async setLocalDescription(sessionDescription: {
+  async setLocalDescription(sessionDescription?: {
     type: "offer" | "answer";
     sdp: string;
   }): Promise<SessionDescription> {
+    // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setLocalDescription#type
+    sessionDescription =
+      sessionDescription ??
+      (["stable", "have-local-offer", "have-remote-pranswer"].includes(
+        this.signalingState,
+      )
+        ? await this.createOffer()
+        : await this.createAnswer());
+
     // # parse and validate description
     const description = SessionDescription.parse(sessionDescription.sdp);
     description.type = sessionDescription.type;
