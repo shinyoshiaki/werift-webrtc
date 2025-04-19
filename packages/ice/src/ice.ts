@@ -195,20 +195,17 @@ export class Connection implements IceConnection {
         );
       }
 
-      const candidatePromises = this.getCandidates(address, 5);
-
-      candidatePromises.forEach(async (candidatePromise) => {
-        const candidate = await candidatePromise;
-        if (candidate) {
-          this.localCandidates = [...this.localCandidates, candidate];
-        }
-      });
-
+      const candidatePromises = this.getCandidatePromises(address, 5);
       await Promise.allSettled(candidatePromises);
 
       this.localCandidatesEnd = true;
     }
     this.setState("completed");
+  }
+
+  private appendLocalCandidate(candidate: Candidate) {
+    this.localCandidates.push(candidate);
+    this.onIceCandidate.execute(candidate);
   }
 
   private ensureProtocol(protocol: Protocol) {
@@ -283,7 +280,7 @@ export class Connection implements IceConnection {
     });
   }
 
-  private getCandidates(addresses: string[], timeout = 5) {
+  private getCandidatePromises(addresses: string[], timeout = 5) {
     let candidatePromises: Promise<Candidate | void>[] = [];
 
     addresses = addresses.filter((address) => {
@@ -294,7 +291,7 @@ export class Connection implements IceConnection {
       return true;
     });
 
-    const localPromises = addresses.map(async (address) => {
+    const localStunPromises = addresses.map(async (address) => {
       // # create transport
       const protocol = new StunProtocol();
       this.ensureProtocol(protocol);
@@ -329,7 +326,8 @@ export class Connection implements IceConnection {
         );
 
         this.pairLocalProtocol(protocol);
-        this.onIceCandidate.execute(protocol.localCandidate);
+        this.appendLocalCandidate(protocol.localCandidate);
+
         return protocol;
       } catch (error) {
         log("error protocol STUN", error);
@@ -337,7 +335,7 @@ export class Connection implements IceConnection {
     });
 
     candidatePromises.push(
-      ...localPromises.map((localPromise) =>
+      ...localStunPromises.map((localPromise) =>
         localPromise.then((l) => l?.localCandidate),
       ),
     );
@@ -345,46 +343,49 @@ export class Connection implements IceConnection {
     const { stunServer, turnServer } = this;
 
     if (stunServer) {
-      const stunPromises = localPromises.map(async (protocolPromise) => {
-        const protocol = await protocolPromise;
-        if (!protocol) return;
+      const stunCandidatePromises = localStunPromises.map(
+        async (protocolPromise) => {
+          const protocol = await protocolPromise;
+          if (!protocol) return;
 
-        // # query STUN server for server-reflexive candidates (IPv4 only)
-        const stunPromise = new Promise<Candidate | void>(async (r, f) => {
-          const timer = setTimeout(f, timeout * 1000);
-          if (
-            protocol.localCandidate?.host &&
-            isIPv4(protocol.localCandidate?.host)
-          ) {
-            const candidate = await serverReflexiveCandidate(
-              protocol,
-              stunServer,
-            ).catch((error) => {
-              log("error", error);
-            });
-            if (candidate) {
-              this.onIceCandidate.execute(candidate);
-            }
+          const stunCandidatePromise = new Promise<Candidate | void>(
+            async (r, f) => {
+              const timer = setTimeout(f, timeout * 1000);
+              if (
+                protocol.localCandidate?.host &&
+                isIPv4(protocol.localCandidate?.host)
+              ) {
+                const candidate = await serverReflexiveCandidate(
+                  protocol,
+                  stunServer,
+                ).catch((error) => {
+                  log("error", error);
+                });
+                if (candidate) {
+                  this.appendLocalCandidate(candidate);
+                }
 
-            clearTimeout(timer);
-            r(candidate);
-          } else {
-            clearTimeout(timer);
-            r();
-          }
-        }).catch((error) => {
-          log("query STUN server", error);
-        });
+                clearTimeout(timer);
+                r(candidate);
+              } else {
+                clearTimeout(timer);
+                r();
+              }
+            },
+          ).catch((error) => {
+            log("query STUN server", error);
+          });
 
-        return stunPromise;
-      });
+          return stunCandidatePromise;
+        },
+      );
 
-      candidatePromises.push(...stunPromises);
+      candidatePromises.push(...stunCandidatePromises);
     }
 
     const { turnUsername, turnPassword } = this.options;
     if (turnServer && turnUsername && turnPassword) {
-      const turnCandidate = (async () => {
+      const turnCandidatePromise = (async () => {
         const protocol = await createStunOverTurnClient(
           {
             address: turnServer,
@@ -436,7 +437,7 @@ export class Connection implements IceConnection {
           this.generation,
           this.localUsername,
         );
-        this.onIceCandidate.execute(protocol.localCandidate);
+        this.appendLocalCandidate(protocol.localCandidate);
 
         return protocol.localCandidate;
       })().catch((error) => {
@@ -447,7 +448,7 @@ export class Connection implements IceConnection {
         candidatePromises = [];
       }
 
-      candidatePromises.push(turnCandidate);
+      candidatePromises.push(turnCandidatePromise);
     }
 
     return candidatePromises;

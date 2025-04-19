@@ -798,8 +798,9 @@ export class RTCPeerConnection extends EventTarget {
         if (iceTransport.state === "connected") {
           return;
         }
+        const checkDtlsConnected=()=>(dtlsTransport.state === "connected")
 
-        if (dtlsTransport.state === "connected") {
+        if (checkDtlsConnected()) {
           return;
         }
 
@@ -810,8 +811,7 @@ export class RTCPeerConnection extends EventTarget {
           throw err;
         });
 
-        // @ts-expect-error
-        if (dtlsTransport.state === "connected") {
+        if (checkDtlsConnected()) {
           return;
         }
 
