@@ -11,6 +11,31 @@ import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
+
+/**
+ *                                          +------------+
+                                            |            |
+                                            |disconnected|
+                                            |            |
+                                            +------------+
+                                            ^           ^
+                                            |           |
++------+      +----------+      +-----------+      +----------+
+|      |      |          |      |           |      |          |
+| new  | ---> | checking | ---> | connected | ---> | completed|
+|      |      |          |      |           |      |          |
++------+      +----+-----+      +-----------+      +----------+
+                    |           
+                    |           
+                    v           
+                +-------+       
+                |       |      
+                | failed|      
+                |       |      
+                +-------+      
+ */
+
+
 export class RTCIceTransport {
   readonly id = v4();
   connection: IceConnection;
