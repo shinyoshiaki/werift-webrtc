@@ -68,7 +68,6 @@ export class Connection implements IceConnection {
   private localCandidatesStart = false;
   private protocols: Protocol[] = [];
   private queryConsentHandle?: Cancelable<void>;
-  private promiseGatherCandidates?: Event<[]>;
 
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -146,7 +145,6 @@ export class Connection implements IceConnection {
 
     this.queryConsentHandle?.resolve?.();
     this.queryConsentHandle = undefined;
-    this.promiseGatherCandidates = undefined;
   }
 
   resetNominatedPair() {
@@ -174,7 +172,6 @@ export class Connection implements IceConnection {
   async gatherCandidates() {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
-      this.promiseGatherCandidates = new Event();
 
       let address = getHostAddresses(
         this.options.useIpv4,
@@ -198,11 +195,18 @@ export class Connection implements IceConnection {
         );
       }
 
-      const candidates = await this.getCandidates(address, 5);
-      this.localCandidates = [...this.localCandidates, ...candidates];
+      const candidatePromises = this.getCandidates(address, 5);
+
+      candidatePromises.forEach(async (candidatePromise) => {
+        const candidate = await candidatePromise;
+        if (candidate) {
+          this.localCandidates = [...this.localCandidates, candidate];
+        }
+      });
+
+      await Promise.allSettled(candidatePromises);
 
       this.localCandidatesEnd = true;
-      this.promiseGatherCandidates.execute();
     }
     this.setState("completed");
   }
@@ -279,8 +283,8 @@ export class Connection implements IceConnection {
     });
   }
 
-  private async getCandidates(addresses: string[], timeout = 5) {
-    let candidates: Candidate[] = [];
+  private getCandidates(addresses: string[], timeout = 5) {
+    let candidatePromises: Promise<Candidate | void>[] = [];
 
     addresses = addresses.filter((address) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
@@ -290,24 +294,21 @@ export class Connection implements IceConnection {
       return true;
     });
 
-    await Promise.allSettled(
-      addresses.map(async (address) => {
-        // # create transport
-        const protocol = new StunProtocol();
-        this.ensureProtocol(protocol);
-        try {
-          await protocol.connectionMade(
-            isIPv4(address),
-            this.options.portRange,
-            this.options.interfaceAddresses,
-          );
-        } catch (error) {
-          log("error protocol STUN", error);
-          return;
-        }
+    const localPromises = addresses.map(async (address) => {
+      // # create transport
+      const protocol = new StunProtocol();
+      this.ensureProtocol(protocol);
+      try {
+        await protocol.connectionMade(
+          isIPv4(address),
+          this.options.portRange,
+          this.options.interfaceAddresses,
+        );
 
         protocol.localIp = address;
         this.protocols.push(protocol);
+
+        log("protocol", protocol.localIp);
 
         // # add host candidate
         const candidateAddress: Address = [address, protocol.getExtraInfo()[1]];
@@ -328,23 +329,28 @@ export class Connection implements IceConnection {
         );
 
         this.pairLocalProtocol(protocol);
-        candidates.push(protocol.localCandidate);
         this.onIceCandidate.execute(protocol.localCandidate);
-      }),
+        return protocol;
+      } catch (error) {
+        log("error protocol STUN", error);
+      }
+    });
+
+    candidatePromises.push(
+      ...localPromises.map((localPromise) =>
+        localPromise.then((l) => l?.localCandidate),
+      ),
     );
 
-    log(
-      "protocols",
-      this.protocols.map((p) => p.localIp),
-    );
-
-    let candidatePromises: Promise<Candidate | void>[] = [];
-
-    // # query STUN server for server-reflexive candidates (IPv4 only)
     const { stunServer, turnServer } = this;
+
     if (stunServer) {
-      const stunPromises = this.protocols.map((protocol) =>
-        new Promise<Candidate | void>(async (r, f) => {
+      const stunPromises = localPromises.map(async (protocolPromise) => {
+        const protocol = await protocolPromise;
+        if (!protocol) return;
+
+        // # query STUN server for server-reflexive candidates (IPv4 only)
+        const stunPromise = new Promise<Candidate | void>(async (r, f) => {
           const timer = setTimeout(f, timeout * 1000);
           if (
             protocol.localCandidate?.host &&
@@ -368,8 +374,10 @@ export class Connection implements IceConnection {
           }
         }).catch((error) => {
           log("query STUN server", error);
-        }),
-      );
+        });
+
+        return stunPromise;
+      });
 
       candidatePromises.push(...stunPromises);
     }
@@ -436,27 +444,13 @@ export class Connection implements IceConnection {
       });
 
       if (this.options.forceTurn) {
-        candidates = [];
         candidatePromises = [];
       }
 
       candidatePromises.push(turnCandidate);
     }
 
-    const extraCandidates = [...(await Promise.allSettled(candidatePromises))]
-      .filter(
-        (
-          v,
-        ): v is PromiseFulfilledResult<
-          Awaited<(typeof candidatePromises)[number]>
-        > => v.status === "fulfilled",
-      )
-      .map((v) => v.value)
-      .filter((v): v is Candidate => typeof v !== "undefined");
-
-    candidates.push(...extraCandidates);
-
-    return candidates;
+    return candidatePromises;
   }
 
   async connect() {
@@ -470,10 +464,6 @@ export class Connection implements IceConnection {
     if (!this.localCandidatesEnd) {
       if (!this.localCandidatesStart) {
         throw new Error("Local candidates gathering was not performed");
-      }
-      if (this.promiseGatherCandidates) {
-        // wait for GatherCandidates finish
-        await this.promiseGatherCandidates.asPromise();
       }
     }
     if (!this.remoteUsername || !this.remotePassword) {
