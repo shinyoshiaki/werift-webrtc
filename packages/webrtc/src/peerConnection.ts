@@ -20,7 +20,7 @@ import {
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import type { SrtpProfile } from "./imports/rtp";
 import {
-  type Direction,
+  type MediaDirection,
   MediaStream,
   type MediaStreamTrack,
   type RTCRtpCodecParameters,
@@ -1601,7 +1601,7 @@ export class RTCPeerConnection extends EventTarget {
 export function createMediaDescriptionForTransceiver(
   transceiver: RTCRtpTransceiver,
   cname: string,
-  direction: Direction,
+  direction: MediaDirection,
 ) {
   const media = new MediaDescription(
     transceiver.kind,

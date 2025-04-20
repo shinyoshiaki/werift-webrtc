@@ -37,6 +37,7 @@
     "Packetized",
     "Packetizer",
     "parse",
+    "PCMU",
     "pranswer",
     "prflx",
     "protoo",
