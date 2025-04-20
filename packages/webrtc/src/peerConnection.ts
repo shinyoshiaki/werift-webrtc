@@ -618,11 +618,14 @@ export class RTCPeerConnection extends EventTarget {
     sdp: string;
   }): Promise<SessionDescription> {
     // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setLocalDescription#type
+    const implicitOfferState: RTCSignalingState[] = [
+      "stable",
+      "have-local-offer",
+      "have-remote-pranswer",
+    ];
     sessionDescription =
       sessionDescription ??
-      (["stable", "have-local-offer", "have-remote-pranswer"].includes(
-        this.signalingState,
-      )
+      (implicitOfferState.includes(this.signalingState)
         ? await this.createOffer()
         : await this.createAnswer());
 
@@ -807,7 +810,7 @@ export class RTCPeerConnection extends EventTarget {
         if (iceTransport.state === "connected") {
           return;
         }
-        const checkDtlsConnected=()=>(dtlsTransport.state === "connected")
+        const checkDtlsConnected = () => dtlsTransport.state === "connected";
 
         if (checkDtlsConnected()) {
           return;
