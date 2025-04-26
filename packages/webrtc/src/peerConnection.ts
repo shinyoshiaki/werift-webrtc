@@ -66,7 +66,6 @@ export class RTCPeerConnection extends EventTarget {
   private readonly router = new RtpRouter();
   private readonly transceiverManager: RTCRtpTransceiverManager;
   private certificate?: RTCCertificate;
-  private seenMid = new Set<string>();
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
@@ -494,7 +493,7 @@ export class RTCPeerConnection extends EventTarget {
     // # assign MID
     for (const [i, media] of enumerate(description.media)) {
       const mid = media.rtp.muxId!;
-      this.seenMid.add(mid);
+      this.sdpHandler.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
         const transceiver = this.getTransceiverByMLineIndex(i);
         if (transceiver) {

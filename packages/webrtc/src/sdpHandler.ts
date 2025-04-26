@@ -17,7 +17,7 @@ import { andDirection } from "./utils";
  * SDPに関連する処理を担当するクラス
  */
 export class SDPHandler {
-  private seenMid = new Set<string>();
+  seenMid = new Set<string>();
   currentLocalDescription?: SessionDescription;
   currentRemoteDescription?: SessionDescription;
   pendingLocalDescription?: SessionDescription;
