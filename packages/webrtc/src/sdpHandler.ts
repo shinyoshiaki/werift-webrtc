@@ -18,18 +18,46 @@ import { andDirection } from "./utils";
  */
 export class SDPHandler {
   private seenMid = new Set<string>();
+  currentLocalDescription?: SessionDescription;
+  currentRemoteDescription?: SessionDescription;
+  pendingLocalDescription?: SessionDescription;
+  pendingRemoteDescription?: SessionDescription;
 
   constructor(
+    readonly cname: string,
     private midSuffix?: boolean,
     public bundlePolicy?: string,
   ) {}
+
+  get localDescription() {
+    if (!this._localDescription) {
+      return undefined;
+    }
+    return this._localDescription.toJSON();
+  }
+
+  get remoteDescription() {
+    if (!this._remoteDescription) {
+      return undefined;
+    }
+    return this._remoteDescription.toJSON();
+  }
+
+  /**@private */
+  get _localDescription() {
+    return this.pendingLocalDescription || this.currentLocalDescription;
+  }
+
+  /**@private */
+  get _remoteDescription() {
+    return this.pendingRemoteDescription || this.currentRemoteDescription;
+  }
 
   /**
    * MediaDescriptionをトランシーバー用に作成
    */
   createMediaDescriptionForTransceiver(
     transceiver: RTCRtpTransceiver,
-    cname: string,
     direction: MediaDirection,
   ): MediaDescription {
     const media = new MediaDescription(
@@ -49,7 +77,7 @@ export class SDPHandler {
     media.rtcpPort = 9;
     media.rtcpMux = true;
     media.ssrc = [
-      new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname }),
+      new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname: this.cname }),
     ];
 
     if (transceiver.options.simulcast) {
@@ -60,7 +88,10 @@ export class SDPHandler {
 
     if (media.rtp.codecs.find((c) => c.name.toLowerCase() === "rtx")) {
       media.ssrc.push(
-        new SsrcDescription({ ssrc: transceiver.sender.rtxSsrc, cname }),
+        new SsrcDescription({
+          ssrc: transceiver.sender.rtxSsrc,
+          cname: this.cname,
+        }),
       );
       media.ssrcGroup = [
         new GroupDescription("FID", [
@@ -144,15 +175,13 @@ export class SDPHandler {
   buildOfferSdp(
     transceivers: RTCRtpTransceiver[],
     sctpTransport: RTCSctpTransport | undefined,
-    cname: string,
-    currentLocalDescription?: SessionDescription,
   ): SessionDescription {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
 
     // # handle existing transceivers / sctp
-    const currentMedia = currentLocalDescription
-      ? currentLocalDescription.media
+    const currentMedia = this.currentLocalDescription
+      ? this.currentLocalDescription.media
       : [];
 
     currentMedia.forEach((m, i) => {
@@ -181,7 +210,6 @@ export class SDPHandler {
         description.media.push(
           this.createMediaDescriptionForTransceiver(
             transceiver,
-            cname,
             transceiver.direction,
           ),
         );
@@ -197,7 +225,6 @@ export class SDPHandler {
         }
         const mediaDescription = this.createMediaDescriptionForTransceiver(
           transceiver,
-          cname,
           transceiver.direction,
         );
         if (transceiver.mLineIndex === undefined) {
@@ -238,7 +265,6 @@ export class SDPHandler {
   buildAnswerSdp(
     transceivers: RTCRtpTransceiver[],
     sctpTransport: RTCSctpTransport | undefined,
-    cname: string,
     remoteDescription: SessionDescription,
   ): SessionDescription {
     const description = new SessionDescription();
@@ -259,7 +285,6 @@ export class SDPHandler {
         }
         media = this.createMediaDescriptionForTransceiver(
           transceiver,
-          cname,
           andDirection(transceiver.direction, transceiver.offerDirection),
         );
         dtlsTransport = transceiver.dtlsTransport;
@@ -324,5 +349,16 @@ export class SDPHandler {
    */
   clearMids(): void {
     this.seenMid.clear();
+  }
+
+  get remoteIsBundled() {
+    const remoteSdp = this._remoteDescription;
+    if (!remoteSdp) {
+      return undefined;
+    }
+    const bundle = remoteSdp.group.find(
+      (g) => g.semantic === "BUNDLE" && this.bundlePolicy !== "disable",
+    );
+    return bundle;
   }
 }

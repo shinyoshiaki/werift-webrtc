@@ -68,7 +68,7 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
-  sdpHandler = new SDPHandler();
+  sdpHandler = new SDPHandler(this.cname);
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
@@ -82,10 +82,6 @@ export class RTCPeerConnection extends EventTarget {
   private readonly router = new RtpRouter();
   private certificate?: RTCCertificate;
   private seenMid = new Set<string>();
-  private currentLocalDescription?: SessionDescription;
-  private currentRemoteDescription?: SessionDescription;
-  private pendingLocalDescription?: SessionDescription;
-  private pendingRemoteDescription?: SessionDescription;
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
@@ -165,12 +161,12 @@ export class RTCPeerConnection extends EventTarget {
 
   /**@private */
   get _localDescription() {
-    return this.pendingLocalDescription || this.currentLocalDescription;
+    return this.sdpHandler._localDescription;
   }
 
   /**@private */
   get _remoteDescription() {
-    return this.pendingRemoteDescription || this.currentRemoteDescription;
+    return this.sdpHandler._remoteDescription;
   }
 
   private pushTransceiver(t: RTCRtpTransceiver) {
@@ -270,8 +266,6 @@ export class RTCPeerConnection extends EventTarget {
     const description = this.sdpHandler.buildOfferSdp(
       this.transceivers,
       this.sctpTransport,
-      this.cname,
-      this.currentLocalDescription,
     );
     return description.toJSON();
   }
@@ -396,7 +390,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
-    if (this.config.bundlePolicy === "max-bundle") {
+    if (this.sdpHandler.bundlePolicy === "max-bundle") {
       if (existing) {
         return this.dtlsTransports[0];
       }
@@ -446,7 +440,10 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
-      if (this.config.bundlePolicy === "max-bundle" || this.remoteIsBundled) {
+      if (
+        this.sdpHandler.bundlePolicy === "max-bundle" ||
+        this.sdpHandler.remoteIsBundled
+      ) {
         candidate.sdpMLineIndex = 0;
         const media = this._localDescription?.media[0];
         if (media) {
@@ -618,7 +615,7 @@ export class RTCPeerConnection extends EventTarget {
       (transport) =>
         transport.state === "connected" || transport.state === "completed",
     );
-    if (this.remoteIsBundled && connected) {
+    if (this.sdpHandler.remoteIsBundled && connected) {
       // no need to gather ice candidates on an existing bundled connection
     } else {
       await Promise.allSettled(
@@ -645,10 +642,10 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     if (description.type === "answer") {
-      this.currentLocalDescription = description;
-      this.pendingLocalDescription = undefined;
+      this.sdpHandler.currentLocalDescription = description;
+      this.sdpHandler.pendingLocalDescription = undefined;
     } else {
-      this.pendingLocalDescription = description;
+      this.sdpHandler.pendingLocalDescription = description;
     }
   }
 
@@ -669,8 +666,6 @@ export class RTCPeerConnection extends EventTarget {
     const sdp = this.sdpHandler.buildOfferSdp(
       this.transceivers,
       this.sctpTransport,
-      this.cname,
-      this.currentLocalDescription,
     );
     const media = sdp.media[index];
     if (!media) {
@@ -805,17 +800,6 @@ export class RTCPeerConnection extends EventTarget {
     return receiveParameters;
   }
 
-  get remoteIsBundled() {
-    const remoteSdp = this._remoteDescription;
-    if (!remoteSdp) {
-      return undefined;
-    }
-    const bundle = remoteSdp.group.find(
-      (g) => g.semantic === "BUNDLE" && this.config.bundlePolicy !== "disable",
-    );
-    return bundle;
-  }
-
   restartIce() {
     this.needRestart = true;
     this.needNegotiation();
@@ -837,10 +821,10 @@ export class RTCPeerConnection extends EventTarget {
     this.validateDescription(remoteSdp, false);
 
     if (remoteSdp.type === "answer") {
-      this.currentRemoteDescription = remoteSdp;
-      this.pendingRemoteDescription = undefined;
+      this.sdpHandler.currentRemoteDescription = remoteSdp;
+      this.sdpHandler.pendingRemoteDescription = undefined;
     } else {
-      this.pendingRemoteDescription = remoteSdp;
+      this.sdpHandler.pendingRemoteDescription = remoteSdp;
     }
 
     let bundleTransport: RTCDtlsTransport | undefined;
@@ -879,7 +863,7 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
 
-        if (this.remoteIsBundled) {
+        if (this.sdpHandler.remoteIsBundled) {
           if (!bundleTransport) {
             bundleTransport = transceiver.dtlsTransport;
           } else {
@@ -896,7 +880,7 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
-        if (this.remoteIsBundled) {
+        if (this.sdpHandler.remoteIsBundled) {
           if (!bundleTransport) {
             bundleTransport = this.sctpTransport.dtlsTransport;
           } else {
@@ -1318,7 +1302,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.sdpHandler.buildAnswerSdp(
       this.transceivers,
       this.sctpTransport,
-      this.cname,
       this._remoteDescription,
     );
   }
