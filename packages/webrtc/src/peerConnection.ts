@@ -2,7 +2,7 @@ import cloneDeep from "lodash/cloneDeep.js";
 import isEqual from "lodash/isEqual.js";
 import * as uuid from "uuid";
 
-import { ReceiverDirection, SRTP_PROFILE, SenderDirections } from "./const";
+import { SRTP_PROFILE } from "./const";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
 import {
@@ -14,31 +14,21 @@ import {
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
 import type { SrtpProfile } from "./imports/rtp";
 import {
-  MediaStream,
+  type MediaStream,
   type MediaStreamTrack,
-  Recvonly,
   type RTCRtpCodecParameters,
-  RTCRtpCodingParameters,
   type RTCRtpHeaderExtensionParameters,
-  type RTCRtpParameters,
-  type RTCRtpReceiveParameters,
-  RTCRtpReceiver,
-  RTCRtpRtxParameters,
-  RTCRtpSender,
-  RTCRtpTransceiver,
+  type RTCRtpReceiver,
+  type RTCRtpSender,
+  type RTCRtpTransceiver,
+  RTCRtpTransceiverManager,
   RtpRouter,
-  Sendonly,
-  Sendrecv,
   type TransceiverOptions,
   useOPUS,
   usePCMU,
   useVP8,
 } from "./media";
-import {
-  type MediaDescription,
-  SessionDescription,
-  codecParametersFromString,
-} from "./sdp";
+import { type MediaDescription, SessionDescription } from "./sdp";
 import { SDPHandler } from "./sdpHandler";
 import {
   type DtlsKeys,
@@ -57,12 +47,7 @@ import {
 import { RTCSctpTransport } from "./transport/sctp";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
-import {
-  andDirection,
-  deepMerge,
-  parseIceServers,
-  reverseDirection,
-} from "./utils";
+import { andDirection, deepMerge, parseIceServers } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
@@ -78,8 +63,8 @@ export class RTCPeerConnection extends EventTarget {
   needRestart = false;
   sctpRemotePort?: number;
   sctpTransport?: RTCSctpTransport;
-  private readonly transceivers: RTCRtpTransceiver[] = [];
   private readonly router = new RtpRouter();
+  private readonly transceiverManager: RTCRtpTransceiverManager;
   private certificate?: RTCCertificate;
   private seenMid = new Set<string>();
   private isClosed = false;
@@ -108,6 +93,34 @@ export class RTCPeerConnection extends EventTarget {
     super();
 
     this.setConfiguration(config);
+    this.transceiverManager = new RTCRtpTransceiverManager(
+      this.cname,
+      this.config,
+      this.router,
+      () =>
+        this.createTransport([
+          SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+          SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+        ]),
+    );
+
+    // イベントの転送設定
+    this.transceiverManager.onTransceiverAdded.subscribe((transceiver) => {
+      this.onTransceiverAdded.execute(transceiver);
+    });
+    this.transceiverManager.onRemoteTransceiverAdded.subscribe(
+      (transceiver) => {
+        this.onRemoteTransceiverAdded.execute(transceiver);
+      },
+    );
+    this.transceiverManager.onTrack.subscribe(
+      ({ track, stream, transceiver }) => {
+        this.fireOnTrack(track, transceiver, stream);
+      },
+    );
+    this.transceiverManager.onNegotiationNeeded.subscribe(() => {
+      this.needNegotiation();
+    });
 
     this.iceConnectionStateChange.subscribe((state) => {
       switch (state) {
@@ -122,7 +135,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get dtlsTransports() {
-    const transports = this.transceivers.map((t) => t.dtlsTransport);
+    const transports = this.transceiverManager
+      .getTransceivers()
+      .map((t) => t.dtlsTransport);
     if (this.sctpTransport) {
       transports.push(this.sctpTransport.dtlsTransport);
     }
@@ -167,13 +182,6 @@ export class RTCPeerConnection extends EventTarget {
   /**@private */
   get _remoteDescription() {
     return this.sdpHandler._remoteDescription;
-  }
-
-  private pushTransceiver(t: RTCRtpTransceiver) {
-    this.transceivers.push(t);
-  }
-  private replaceTransceiver(t: RTCRtpTransceiver, index: number) {
-    this.transceivers[index] = t;
   }
 
   setConfiguration(config: Partial<PeerConfig>) {
@@ -234,9 +242,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private getTransceiverByMLineIndex(index: number) {
-    return this.transceivers.find(
-      (transceiver) => transceiver.mLineIndex === index,
-    );
+    return this.transceiverManager.getTransceiverByMLineIndex(index);
   }
 
   getConfiguration() {
@@ -253,7 +259,7 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.ensureCerts();
 
-    this.transceivers.forEach((transceiver) => {
+    this.transceiverManager.getTransceivers().forEach((transceiver) => {
       if (transceiver.codecs.length === 0) {
         this.assignTransceiverCodecs(transceiver);
       }
@@ -264,38 +270,14 @@ export class RTCPeerConnection extends EventTarget {
     });
 
     const description = this.sdpHandler.buildOfferSdp(
-      this.transceivers,
+      this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
     return description.toJSON();
   }
 
   private assignTransceiverCodecs(transceiver: RTCRtpTransceiver) {
-    const codecs = (
-      this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
-    ).filter((codecCandidate) => {
-      switch (codecCandidate.direction) {
-        case "recvonly": {
-          if (ReceiverDirection.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendonly": {
-          if (SenderDirections.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendrecv": {
-          if ([Sendrecv, Recvonly, Sendonly].includes(transceiver.direction))
-            return true;
-          return false;
-        }
-        case "all": {
-          return true;
-        }
-        default:
-          return false;
-      }
-    });
-    transceiver.codecs = codecs;
+    this.transceiverManager.assignTransceiverCodecs(transceiver);
   }
 
   createDataChannel(
@@ -341,34 +323,7 @@ export class RTCPeerConnection extends EventTarget {
 
   removeTrack(sender: RTCRtpSender) {
     if (this.isClosed) throw new Error("peer closed");
-    if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
-      throw new Error("unExist");
-    }
-
-    const transceiver = this.transceivers.find(
-      ({ sender: { ssrc } }) => sender.ssrc === ssrc,
-    );
-    if (!transceiver) throw new Error("unExist");
-
-    sender.stop();
-
-    if (transceiver.currentDirection === "recvonly") {
-      this.needNegotiation();
-      return;
-    }
-
-    if (transceiver.stopping || transceiver.stopped) {
-      transceiver.setDirection("inactive");
-    } else {
-      if (transceiver.direction === "sendrecv") {
-        transceiver.setDirection("recvonly");
-      } else if (
-        transceiver.direction === "sendonly" ||
-        transceiver.direction === "recvonly"
-      ) {
-        transceiver.setDirection("inactive");
-      }
-    }
+    this.transceiverManager.removeTrack(sender);
     this.needNegotiation();
   }
 
@@ -450,9 +405,9 @@ export class RTCPeerConnection extends EventTarget {
           candidate.sdpMid = media.rtp.muxId;
         }
       } else {
-        const transceiver = this.transceivers.find(
-          (t) => t.dtlsTransport.iceTransport.id === iceTransport.id,
-        );
+        const transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => t.dtlsTransport.iceTransport.id === iceTransport.id);
         if (transceiver) {
           candidate.sdpMLineIndex = transceiver.mLineIndex;
           candidate.sdpMid = transceiver.mid;
@@ -579,7 +534,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // # configure direction
     if (["answer", "pranswer"].includes(description.type)) {
-      for (const t of this.transceivers) {
+      for (const t of this.transceiverManager.getTransceivers()) {
         const direction = andDirection(t.direction, t.offerDirection);
         t.setCurrentDirection(direction);
       }
@@ -630,7 +585,7 @@ export class RTCPeerConnection extends EventTarget {
       .forEach((m, i) => {
         this.sdpHandler.addTransportDescription(
           m,
-          this.transceivers[i].dtlsTransport,
+          this.transceiverManager.getTransceivers()[i].dtlsTransport,
         );
       });
     const sctpMedia = description.media.find((m) => m.kind === "application");
@@ -652,7 +607,9 @@ export class RTCPeerConnection extends EventTarget {
   private getTransportByMid(mid: string) {
     let iceTransport: RTCIceTransport | undefined;
 
-    const transceiver = this.transceivers.find((t) => t.mid === mid);
+    const transceiver = this.transceiverManager
+      .getTransceivers()
+      .find((t) => t.mid === mid);
     if (transceiver) {
       iceTransport = transceiver.dtlsTransport.iceTransport;
     } else if (!iceTransport && this.sctpTransport?.mid === mid) {
@@ -664,7 +621,7 @@ export class RTCPeerConnection extends EventTarget {
 
   private getTransportByMLineIndex(index: number) {
     const sdp = this.sdpHandler.buildOfferSdp(
-      this.transceivers,
+      this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
     const media = sdp.media[index];
@@ -754,52 +711,6 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private getLocalRtpParams(transceiver: RTCRtpTransceiver): RTCRtpParameters {
-    if (transceiver.mid == undefined) throw new Error("mid not assigned");
-
-    const rtp: RTCRtpParameters = {
-      codecs: transceiver.codecs,
-      muxId: transceiver.mid,
-      headerExtensions: transceiver.headerExtensions,
-      rtcp: { cname: this.cname, ssrc: transceiver.sender.ssrc, mux: true },
-    };
-    return rtp;
-  }
-
-  private getRemoteRtpParams(
-    media: MediaDescription,
-    transceiver: RTCRtpTransceiver,
-  ): RTCRtpReceiveParameters {
-    const receiveParameters: RTCRtpReceiveParameters = {
-      muxId: media.rtp.muxId,
-      rtcp: media.rtp.rtcp,
-      codecs: transceiver.codecs,
-      headerExtensions: transceiver.headerExtensions,
-      encodings: Object.values(
-        transceiver.codecs.reduce(
-          (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
-            if (codec.name.toLowerCase() === "rtx") {
-              const params = codecParametersFromString(codec.parameters ?? "");
-              const apt = acc[params["apt"]];
-              if (apt && media.ssrc.length === 2) {
-                apt.rtx = new RTCRtpRtxParameters({ ssrc: media.ssrc[1].ssrc });
-              }
-              return acc;
-            }
-            acc[codec.payloadType] = new RTCRtpCodingParameters({
-              ssrc: media.ssrc[0]?.ssrc,
-              payloadType: codec.payloadType,
-            });
-            return acc;
-          },
-          {},
-        ),
-      ),
-    };
-
-    return receiveParameters;
-  }
-
   restartIce() {
     this.needRestart = true;
     this.needNegotiation();
@@ -842,9 +753,9 @@ export class RTCPeerConnection extends EventTarget {
       let dtlsTransport: RTCDtlsTransport;
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
-        let transceiver = this.transceivers.find((t) =>
-          matchTransceiverWithMedia(t, remoteMedia),
-        );
+        let transceiver = this.transceiverManager
+          .getTransceivers()
+          .find((t) => matchTransceiverWithMedia(t, remoteMedia));
         if (!transceiver) {
           // create remote transceiver
           transceiver = this._addTransceiver(remoteMedia.kind, {
@@ -931,11 +842,13 @@ export class RTCPeerConnection extends EventTarget {
     // filter out inactive transports
     transports = transports.filter((iceTransport) => !!iceTransport);
 
-    const removedTransceivers = this.transceivers.filter(
-      (t) =>
-        remoteSdp.media.find((m) => matchTransceiverWithMedia(t, m)) ==
-        undefined,
-    );
+    const removedTransceivers = this.transceiverManager
+      .getTransceivers()
+      .filter(
+        (t) =>
+          remoteSdp.media.find((m) => matchTransceiverWithMedia(t, m)) ==
+          undefined,
+      );
 
     if (sessionDescription.type === "answer") {
       for (const transceiver of removedTransceivers) {
@@ -973,87 +886,12 @@ export class RTCPeerConnection extends EventTarget {
     type: "offer" | "answer",
     mLineIndex: number,
   ) {
-    if (!transceiver.mid) {
-      transceiver.mid = remoteMedia.rtp.muxId;
-    }
-    transceiver.mLineIndex = mLineIndex;
-
-    // # negotiate codecs
-    transceiver.codecs = remoteMedia.rtp.codecs.filter((remoteCodec) => {
-      const localCodecs = this.config.codecs[remoteMedia.kind] || [];
-
-      const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
-      if (!existCodec) {
-        return false;
-      }
-
-      if (existCodec?.name.toLowerCase() === "rtx") {
-        const params = codecParametersFromString(existCodec.parameters ?? "");
-        const pt = params["apt"];
-        const origin = remoteMedia.rtp.codecs.find((c) => c.payloadType === pt);
-        if (!origin) {
-          return false;
-        }
-        return !!findCodecByMimeType(localCodecs, origin);
-      }
-
-      return true;
-    });
-
-    log("negotiated codecs", transceiver.codecs);
-    if (transceiver.codecs.length === 0) {
-      throw new Error("negotiate codecs failed.");
-    }
-    transceiver.headerExtensions = remoteMedia.rtp.headerExtensions.filter(
-      (extension) =>
-        (this.config.headerExtensions[remoteMedia.kind as Media] || []).find(
-          (v) => v.uri === extension.uri,
-        ),
+    this.transceiverManager.setRemoteRTP(
+      transceiver,
+      remoteMedia,
+      type,
+      mLineIndex,
     );
-
-    // # configure direction
-    const mediaDirection = remoteMedia.direction ?? "inactive";
-    const direction = reverseDirection(mediaDirection);
-    if (["answer", "pranswer"].includes(type)) {
-      transceiver.setCurrentDirection(direction);
-    } else {
-      transceiver.offerDirection = direction;
-    }
-    const localParams = this.getLocalRtpParams(transceiver);
-    transceiver.sender.prepareSend(localParams);
-
-    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-      const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
-
-      // register simulcast receiver
-      remoteMedia.simulcastParameters.forEach((param) => {
-        this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
-      });
-
-      transceiver.receiver.prepareReceive(remotePrams);
-      // register ssrc receiver
-      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
-    }
-    if (["sendonly", "sendrecv"].includes(mediaDirection)) {
-      if (remoteMedia.msid) {
-        const [streamId, trackId] = remoteMedia.msid.split(" ");
-        transceiver.receiver.remoteStreamId = streamId;
-        transceiver.receiver.remoteTrackId = trackId;
-      }
-
-      this.fireOnTrack(
-        transceiver.receiver.track,
-        transceiver,
-        new MediaStream({
-          id: transceiver.receiver.remoteStreamId,
-          tracks: [transceiver.receiver.track],
-        }),
-      );
-    }
-
-    if (remoteMedia.ssrc[0]?.ssrc) {
-      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
-    }
   }
 
   private setRemoteSCTP(
@@ -1158,60 +996,27 @@ export class RTCPeerConnection extends EventTarget {
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {},
   ) {
-    const kind =
-      typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
-
-    const direction = options.direction || "sendrecv";
-
-    const dtlsTransport = this.createTransport([
-      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
-
-    const sender = new RTCRtpSender(trackOrKind);
-    const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
-    const newTransceiver = new RTCRtpTransceiver(
-      kind,
-      dtlsTransport,
-      receiver,
-      sender,
-      direction,
+    const transceiver = this.transceiverManager.addTransceiver(
+      trackOrKind,
+      options,
     );
-    newTransceiver.options = options;
-    this.router.registerRtpSender(newTransceiver.sender);
-
-    // reuse inactive
-    const inactiveTransceiverIndex = this.transceivers.findIndex(
-      (t) => t.currentDirection === "inactive",
-    );
-    const inactiveTransceiver = this.transceivers.find(
-      (t) => t.currentDirection === "inactive",
-    );
-    if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
-      this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
-      newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
-      inactiveTransceiver.setCurrentDirection(undefined);
-    } else {
-      this.pushTransceiver(newTransceiver);
-    }
-    this.onTransceiverAdded.execute(newTransceiver);
 
     this.updateIceConnectionState();
     this.needNegotiation();
 
-    return newTransceiver;
+    return transceiver;
   }
 
   getTransceivers() {
-    return this.transceivers;
+    return this.transceiverManager.getTransceivers();
   }
 
   getSenders(): RTCRtpSender[] {
-    return this.getTransceivers().map((t) => t.sender);
+    return this.transceiverManager.getSenders();
   }
 
   getReceivers() {
-    return this.getTransceivers().map((t) => t.receiver);
+    return this.transceiverManager.getReceivers();
   }
 
   // todo fix
@@ -1223,50 +1028,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw new Error("is closed");
     }
-    if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
-      throw new Error("track exist");
-    }
-
-    const emptyTrackSender = this.transceivers.find(
-      (t) =>
-        t.sender.track == undefined &&
-        t.kind === track.kind &&
-        SenderDirections.includes(t.direction) === true,
-    );
-    if (emptyTrackSender) {
-      const sender = emptyTrackSender.sender;
-      sender.registerTrack(track);
-      this.needNegotiation();
-      return sender;
-    }
-
-    const notSendTransceiver = this.transceivers.find(
-      (t) =>
-        t.sender.track == undefined &&
-        t.kind === track.kind &&
-        SenderDirections.includes(t.direction) === false &&
-        !t.usedForSender,
-    );
-    if (notSendTransceiver) {
-      const sender = notSendTransceiver.sender;
-      sender.registerTrack(track);
-      switch (notSendTransceiver.direction) {
-        case "recvonly":
-          notSendTransceiver.setDirection("sendrecv");
-          break;
-        case "inactive":
-          notSendTransceiver.setDirection("sendonly");
-          break;
-      }
-      this.needNegotiation();
-      return sender;
-    } else {
-      const transceiver = this._addTransceiver(track, {
-        direction: "sendrecv",
-      });
-      this.needNegotiation();
-      return transceiver.sender;
-    }
+    const sender = this.transceiverManager.addTrack(track, ms);
+    this.needNegotiation();
+    return sender;
   }
 
   private async ensureCerts() {
@@ -1300,7 +1064,7 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     return this.sdpHandler.buildAnswerSdp(
-      this.transceivers,
+      this.transceiverManager.getTransceivers(),
       this.sctpTransport,
       this._remoteDescription,
     );
@@ -1313,7 +1077,7 @@ export class RTCPeerConnection extends EventTarget {
     this.setSignalingState("closed");
     this.setConnectionState("closed");
 
-    this.transceivers.forEach((transceiver) => {
+    this.transceiverManager.getTransceivers().forEach((transceiver) => {
       transceiver.receiver.stop();
       transceiver.sender.stop();
     });
@@ -1553,8 +1317,6 @@ export interface RTCDataChannelEvent {
 export interface RTCPeerConnectionIceEvent {
   candidate?: RTCIceCandidate;
 }
-
-type Media = "audio" | "video";
 
 export interface RTCSessionDescriptionInit {
   sdp?: string;
