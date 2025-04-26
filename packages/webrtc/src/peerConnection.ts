@@ -3,7 +3,7 @@ import isEqual from "lodash/isEqual.js";
 import * as uuid from "uuid";
 
 import { SRTP_PROFILE } from "./const";
-import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
 import {
   type Address,
@@ -44,7 +44,7 @@ import {
   RTCIceGatherer,
   RTCIceTransport,
 } from "./transport/ice";
-import { RTCSctpTransport } from "./transport/sctp";
+import { SctpTransportHandler } from "./transport/sctpHandler";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge, parseIceServers } from "./utils";
@@ -61,10 +61,9 @@ export class RTCPeerConnection extends EventTarget {
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   needRestart = false;
-  sctpRemotePort?: number;
-  sctpTransport?: RTCSctpTransport;
   private readonly router = new RtpRouter();
   private readonly transceiverManager: RTCRtpTransceiverManager;
+  private readonly sctpTransportHandler: SctpTransportHandler;
   private certificate?: RTCCertificate;
   private isClosed = false;
   private shouldNegotiationneeded = false;
@@ -96,11 +95,11 @@ export class RTCPeerConnection extends EventTarget {
       this.cname,
       this.config,
       this.router,
-      () =>
-        this.createTransport([
-          SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-          SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-        ]),
+      () => this.createTransport(srtpProfiles),
+    );
+
+    this.sctpTransportHandler = new SctpTransportHandler(() =>
+      this.createTransport(srtpProfiles),
     );
 
     // イベントの転送設定
@@ -121,6 +120,13 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     });
 
+    this.sctpTransportHandler.onDataChannel.subscribe((channel) => {
+      this.onDataChannel.execute(channel);
+      const event: RTCDataChannelEvent = { channel };
+      if (this.ondatachannel) this.ondatachannel(event);
+      this.emit("datachannel", event);
+    });
+
     this.iceConnectionStateChange.subscribe((state) => {
       switch (state) {
         case "disconnected":
@@ -137,8 +143,8 @@ export class RTCPeerConnection extends EventTarget {
     const transports = this.transceiverManager
       .getTransceivers()
       .map((t) => t.dtlsTransport);
-    if (this.sctpTransport) {
-      transports.push(this.sctpTransport.dtlsTransport);
+    if (this.sctpTransportHandler.sctpTransport) {
+      transports.push(this.sctpTransportHandler.sctpTransport.dtlsTransport);
     }
     return transports.reduce((acc: RTCDtlsTransport[], cur) => {
       if (!acc.map((d) => d.id).includes(cur.id)) {
@@ -147,6 +153,15 @@ export class RTCPeerConnection extends EventTarget {
       return acc;
     }, []);
   }
+
+  get sctpTransport() {
+    return this.sctpTransportHandler.sctpTransport;
+  }
+
+  get sctpRemotePort() {
+    return this.sctpTransportHandler.sctpRemotePort;
+  }
+
   get iceTransports() {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
@@ -290,33 +305,12 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
-    const base: typeof options = {
-      protocol: "",
-      ordered: true,
-      negotiated: false,
-    };
-    const settings: Required<typeof base> = { ...base, ...options } as any;
-
-    if (settings.maxPacketLifeTime && settings.maxRetransmits) {
-      throw new Error("can not select both");
-    }
-
     if (!this.sctpTransport) {
-      this.sctpTransport = this.createSctpTransport();
+      this.sctpTransportHandler.createSctpTransport();
       this.needNegotiation();
     }
 
-    const parameters = new RTCDataChannelParameters({
-      id: settings.id,
-      label,
-      maxPacketLifeTime: settings.maxPacketLifeTime,
-      maxRetransmits: settings.maxRetransmits,
-      negotiated: settings.negotiated,
-      ordered: settings.ordered,
-      protocol: settings.protocol,
-    });
-
-    const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    const channel = this.sctpTransportHandler.createDataChannel(label, options);
     return channel;
   }
 
@@ -437,29 +431,6 @@ export class RTCPeerConnection extends EventTarget {
     );
 
     return dtlsTransport;
-  }
-
-  private createSctpTransport() {
-    const dtlsTransport = this.createTransport([
-      SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-      SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-    ]);
-    const sctp = new RTCSctpTransport();
-    sctp.setDtlsTransport(dtlsTransport);
-    sctp.mid = undefined;
-
-    sctp.onDataChannel.subscribe((channel) => {
-      this.onDataChannel.execute(channel);
-
-      const event: RTCDataChannelEvent = { channel };
-      if (this.ondatachannel) this.ondatachannel(event);
-      this.emit("datachannel", event);
-    });
-
-    this.sctpTransport = sctp;
-    this.updateIceConnectionState();
-
-    return sctp;
   }
 
   async setLocalDescription(sessionDescription?: {
@@ -691,14 +662,12 @@ export class RTCPeerConnection extends EventTarget {
           log("dtlsTransport.start failed", err);
           throw err;
         });
+
         if (
           this.sctpTransport &&
-          this.sctpRemotePort &&
           this.sctpTransport.dtlsTransport.id === dtlsTransport.id
         ) {
-          await this.sctpTransport.start(this.sctpRemotePort);
-          await this.sctpTransport.sctp.stateChanged.connected.asPromise();
-          log("sctp connected");
+          await this.sctpTransportHandler.connectSctp();
         }
       }),
     );
@@ -785,22 +754,23 @@ export class RTCPeerConnection extends EventTarget {
 
         this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
       } else if (remoteMedia.kind === "application") {
-        if (!this.sctpTransport) {
-          this.sctpTransport = this.createSctpTransport();
-          this.sctpTransport.mid = remoteMedia.rtp.muxId;
+        let sctpTransport = this.sctpTransport;
+        if (!sctpTransport) {
+          sctpTransport = this.sctpTransportHandler.createSctpTransport();
+          sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
         if (this.sdpHandler.remoteIsBundled) {
           if (!bundleTransport) {
-            bundleTransport = this.sctpTransport.dtlsTransport;
+            bundleTransport = sctpTransport.dtlsTransport;
           } else {
-            this.sctpTransport.setDtlsTransport(bundleTransport);
+            sctpTransport.setDtlsTransport(bundleTransport);
           }
         }
 
-        dtlsTransport = this.sctpTransport.dtlsTransport;
+        dtlsTransport = sctpTransport.dtlsTransport;
 
-        this.setRemoteSCTP(remoteMedia, this.sctpTransport, i);
+        this.setRemoteSCTP(remoteMedia, i);
       } else {
         throw new Error("invalid media kind");
       }
@@ -893,22 +863,8 @@ export class RTCPeerConnection extends EventTarget {
     );
   }
 
-  private setRemoteSCTP(
-    remoteMedia: MediaDescription,
-    sctpTransport: RTCSctpTransport,
-    mLineIndex: number,
-  ) {
-    // # configure sctp
-    this.sctpRemotePort = remoteMedia.sctpPort;
-    if (!this.sctpRemotePort) {
-      throw new Error("sctpRemotePort not exist");
-    }
-
-    sctpTransport.setRemotePort(this.sctpRemotePort);
-    sctpTransport.mLineIndex = mLineIndex;
-    if (!sctpTransport.mid) {
-      sctpTransport.mid = remoteMedia.rtp.muxId;
-    }
+  private setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
+    this.sctpTransportHandler.setRemoteSCTP(remoteMedia, mLineIndex);
   }
 
   private validateDescription(
@@ -1081,9 +1037,8 @@ export class RTCPeerConnection extends EventTarget {
       transceiver.sender.stop();
     });
 
-    if (this.sctpTransport) {
-      await this.sctpTransport.stop();
-    }
+    await this.sctpTransportHandler.stop();
+
     for (const dtlsTransport of this.dtlsTransports) {
       await dtlsTransport.stop();
       await dtlsTransport.iceTransport.stop();
@@ -1322,3 +1277,8 @@ export interface RTCSessionDescriptionInit {
   type: RTCSdpType;
 }
 export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";
+
+const srtpProfiles = [
+  SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+  SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+];

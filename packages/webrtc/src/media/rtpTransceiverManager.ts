@@ -1,5 +1,5 @@
 import { ReceiverDirection, SenderDirections } from "../const";
-import { debug, Event } from "../imports/common";
+import { Event, debug } from "../imports/common";
 import { type PeerConfig, findCodecByMimeType } from "../peerConnection";
 import { type MediaDescription, codecParametersFromString } from "../sdp";
 import type { RTCDtlsTransport } from "../transport/dtls";
