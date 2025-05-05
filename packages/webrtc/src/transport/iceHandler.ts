@@ -1,23 +1,23 @@
-import type { ConnectionState, RTCDtlsTransport } from ".";
-import { EventTarget } from "./helper"; // enumerate を削除
-import { Event, debug } from "./imports/common";
-import type { RTCRtpTransceiver, TransceiverManager } from "./media"; // media からインポート
-import type { PeerConfig } from "./peerConnection"; // PeerConfig をインポート
-import type { BundlePolicy, SessionDescription } from "./sdp"; // sdp からは SessionDescription のみ
+import type { ConnectionState, RTCDtlsTransport } from "..";
+import { EventTarget } from "../helper"; // enumerate を削除
+import { Event, debug } from "../imports/common";
+import type { RTCRtpTransceiver, TransceiverManager } from "../media"; // media からインポート
+import type { PeerConfig } from "../peerConnection"; // PeerConfig をインポート
+import type { BundlePolicy, SessionDescription } from "../sdp"; // sdp からは SessionDescription のみ
 import {
   IceCandidate, // 値として import
   RTCIceGatherer,
   RTCIceTransport,
-} from "./transport/ice";
+} from "./ice";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
-} from "./transport/ice";
-import type { RTCSctpTransport } from "./transport/sctp"; // transport/sctp からインポート
-import type { SctpTransportHandler } from "./transport/sctpHandler";
-import { parseIceServers } from "./utils";
+} from "./ice";
+import type { RTCSctpTransport } from "./sctp"; // transport/sctp からインポート
+import type { SctpTransportHandler } from "./sctpHandler";
+import { parseIceServers } from "../utils";
 
 const log = debug("werift:packages/webrtc/src/iceHandler.ts"); // log を定義
 

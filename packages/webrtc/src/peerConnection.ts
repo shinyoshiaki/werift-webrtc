@@ -4,7 +4,7 @@ import * as uuid from "uuid";
 import { SRTP_PROFILE } from "./const";
 import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
-import { IceHandler } from "./iceHandler";
+import { IceHandler } from "./transport/iceHandler";
 import {
   type Address,
   Event,
