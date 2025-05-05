@@ -53,6 +53,12 @@ export class SDPHandler {
     return this.pendingRemoteDescription || this.currentRemoteDescription;
   }
 
+  get inactiveRemoteMedia() {
+    return this._remoteDescription?.media?.find?.(
+      (m) => m.direction === "inactive",
+    );
+  }
+
   /**
    * MediaDescriptionをトランシーバー用に作成
    */
@@ -169,6 +175,58 @@ export class SDPHandler {
     return mid;
   }
 
+  parseSdp({
+    sdp,
+    isLocal,
+    signalingState,
+    type,
+  }: {
+    sdp: string;
+    isLocal: boolean;
+    signalingState: string;
+    type: "offer" | "answer";
+  }): SessionDescription {
+    const description = SessionDescription.parse(sdp);
+    this.validateDescription({ description, isLocal, signalingState });
+    description.type = type;
+    return description;
+  }
+
+  private validateDescription({
+    description,
+    isLocal,
+    signalingState,
+  }: {
+    description: SessionDescription;
+    isLocal: boolean;
+    signalingState: string;
+  }) {
+    if (isLocal) {
+      if (description.type === "offer") {
+        if (!["stable", "have-local-offer"].includes(signalingState))
+          throw new Error("Cannot handle offer in signaling state");
+      } else if (description.type === "answer") {
+        if (
+          !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    } else {
+      if (description.type === "offer") {
+        if (!["stable", "have-remote-offer"].includes(signalingState)) {
+          throw new Error("Cannot handle offer in signaling state");
+        }
+      } else if (description.type === "answer") {
+        if (
+          !["have-local-offer", "have-remote-pranswer"].includes(signalingState)
+        ) {
+          throw new Error("Cannot handle answer in signaling state");
+        }
+      }
+    }
+  }
+
   /**
    * オファーSDPを構築
    */
@@ -262,15 +320,29 @@ export class SDPHandler {
   /**
    * アンサーSDPを構築
    */
-  buildAnswerSdp(
-    transceivers: RTCRtpTransceiver[],
-    sctpTransport: RTCSctpTransport | undefined,
-    remoteDescription: SessionDescription,
-  ): SessionDescription {
+  buildAnswerSdp({
+    transceivers,
+    sctpTransport,
+    signalingState,
+  }: {
+    transceivers: RTCRtpTransceiver[];
+    sctpTransport: RTCSctpTransport | undefined;
+
+    signalingState: string;
+  }): SessionDescription {
+    if (
+      !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
+    ) {
+      throw new Error("createAnswer failed");
+    }
+    if (!this._remoteDescription) {
+      throw new Error("wrong state");
+    }
+
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    remoteDescription.media.forEach((remoteMedia) => {
+    this._remoteDescription.media.forEach((remoteMedia) => {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
@@ -337,6 +409,46 @@ export class SDPHandler {
     return description;
   }
 
+  setLocalDescription(description: SessionDescription) {
+    if (description.type === "answer") {
+      this.currentLocalDescription = description;
+      this.pendingLocalDescription = undefined;
+    } else {
+      this.pendingLocalDescription = description;
+    }
+  }
+
+  setRemoteDescription(
+    sessionDescription: RTCSessionDescriptionInit,
+    signalingState: string,
+  ) {
+    if (
+      !sessionDescription.sdp ||
+      !sessionDescription.type ||
+      sessionDescription.type === "rollback" ||
+      sessionDescription.type === "pranswer"
+    ) {
+      throw new Error("invalid sessionDescription");
+    }
+
+    // # parse and validate description
+    const remoteSdp = this.parseSdp({
+      sdp: sessionDescription.sdp,
+      isLocal: false,
+      signalingState,
+      type: sessionDescription.type,
+    });
+
+    if (remoteSdp.type === "answer") {
+      this.currentRemoteDescription = remoteSdp;
+      this.pendingRemoteDescription = undefined;
+    } else {
+      this.pendingRemoteDescription = remoteSdp;
+    }
+
+    return remoteSdp;
+  }
+
   /**
    * 既存のMIDを登録
    */
@@ -362,3 +474,9 @@ export class SDPHandler {
     return bundle;
   }
 }
+
+export interface RTCSessionDescriptionInit {
+  sdp?: string;
+  type: RTCSdpType;
+}
+export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";

@@ -28,8 +28,8 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
-import { type MediaDescription, SessionDescription } from "./sdp";
-import { SDPHandler } from "./sdpHandler";
+import type { MediaDescription, SessionDescription } from "./sdp";
+import { type RTCSessionDescriptionInit, SDPHandler } from "./sdpHandler";
 import {
   type DtlsKeys,
   RTCCertificate,
@@ -255,12 +255,12 @@ export class RTCPeerConnection extends EventTarget {
     this.sdpHandler.bundlePolicy = this.config.bundlePolicy;
   }
 
-  private getTransceiverByMLineIndex(index: number) {
-    return this.transceiverManager.getTransceiverByMLineIndex(index);
-  }
-
   getConfiguration() {
     return this.config;
+  }
+
+  private getTransceiverByMLineIndex(index: number) {
+    return this.transceiverManager.getTransceiverByMLineIndex(index);
   }
 
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
@@ -450,9 +450,12 @@ export class RTCPeerConnection extends EventTarget {
         : await this.createAnswer());
 
     // # parse and validate description
-    const description = SessionDescription.parse(sessionDescription.sdp);
-    description.type = sessionDescription.type;
-    this.validateDescription(description, true);
+    const description = this.sdpHandler.parseSdp({
+      sdp: sessionDescription.sdp,
+      isLocal: true,
+      signalingState: this.signalingState,
+      type: sessionDescription.type,
+    });
 
     // # update signaling state
     if (description.type === "offer") {
@@ -566,12 +569,7 @@ export class RTCPeerConnection extends EventTarget {
       );
     }
 
-    if (description.type === "answer") {
-      this.sdpHandler.currentLocalDescription = description;
-      this.sdpHandler.pendingLocalDescription = undefined;
-    } else {
-      this.sdpHandler.pendingLocalDescription = description;
-    }
+    this.sdpHandler.setLocalDescription(description);
   }
 
   private getTransportByMid(mid: string) {
@@ -685,26 +683,11 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
-    if (
-      !sessionDescription.sdp ||
-      !sessionDescription.type ||
-      sessionDescription.type === "rollback" ||
-      sessionDescription.type === "pranswer"
-    ) {
-      throw new Error("invalid sessionDescription");
-    }
-
     // # parse and validate description
-    const remoteSdp = SessionDescription.parse(sessionDescription.sdp);
-    remoteSdp.type = sessionDescription.type;
-    this.validateDescription(remoteSdp, false);
-
-    if (remoteSdp.type === "answer") {
-      this.sdpHandler.currentRemoteDescription = remoteSdp;
-      this.sdpHandler.pendingRemoteDescription = undefined;
-    } else {
-      this.sdpHandler.pendingRemoteDescription = remoteSdp;
-    }
+    const remoteSdp = this.sdpHandler.setRemoteDescription(
+      sessionDescription,
+      this.signalingState,
+    );
 
     let bundleTransport: RTCDtlsTransport | undefined;
 
@@ -726,7 +709,7 @@ export class RTCPeerConnection extends EventTarget {
           .find((t) => matchTransceiverWithMedia(t, remoteMedia));
         if (!transceiver) {
           // create remote transceiver
-          transceiver = this._addTransceiver(remoteMedia.kind, {
+          transceiver = this.addTransceiver(remoteMedia.kind, {
             direction: "recvonly",
           });
           transceiver.mid = remoteMedia.rtp.muxId;
@@ -778,9 +761,7 @@ export class RTCPeerConnection extends EventTarget {
       const iceTransport = dtlsTransport.iceTransport;
 
       if (remoteMedia.iceParams) {
-        const renomination = !!remoteSdp.media.find(
-          (m) => m.direction === "inactive",
-        );
+        const renomination = !!this.sdpHandler.inactiveRemoteMedia;
         iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
         // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
@@ -867,61 +848,6 @@ export class RTCPeerConnection extends EventTarget {
     this.sctpTransportHandler.setRemoteSCTP(remoteMedia, mLineIndex);
   }
 
-  private validateDescription(
-    description: SessionDescription,
-    isLocal: boolean,
-  ) {
-    if (isLocal) {
-      if (description.type === "offer") {
-        if (!["stable", "have-local-offer"].includes(this.signalingState))
-          throw new Error("Cannot handle offer in signaling state");
-      } else if (description.type === "answer") {
-        if (
-          !["have-remote-offer", "have-local-pranswer"].includes(
-            this.signalingState,
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    } else {
-      if (description.type === "offer") {
-        if (!["stable", "have-remote-offer"].includes(this.signalingState)) {
-          throw new Error("Cannot handle offer in signaling state");
-        }
-      } else if (description.type === "answer") {
-        if (
-          !["have-local-offer", "have-remote-pranswer"].includes(
-            this.signalingState,
-          )
-        ) {
-          throw new Error("Cannot handle answer in signaling state");
-        }
-      }
-    }
-
-    description.media.forEach((media) => {
-      if (media.direction === "inactive") return;
-      if (
-        !media.iceParams ||
-        !media.iceParams.usernameFragment ||
-        !media.iceParams.password
-      )
-        throw new Error("ICE username fragment or password is missing");
-    });
-
-    if (["answer", "pranswer"].includes(description.type || "")) {
-      const offer = isLocal ? this._remoteDescription : this._localDescription;
-      if (!offer) throw new Error();
-
-      const answerMedia = description.media.map((v, i) => [v.kind, i]);
-      const offerMedia = offer.media.map((v, i) => [v.kind, i]);
-      if (!isEqual(offerMedia, answerMedia)) {
-        throw new Error("Media sections in answer do not match offer");
-      }
-    }
-  }
-
   private fireOnTrack(
     track: MediaStreamTrack,
     transceiver: RTCRtpTransceiver,
@@ -941,13 +867,6 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   addTransceiver(
-    trackOrKind: Kind | MediaStreamTrack,
-    options: Partial<TransceiverOptions> = {},
-  ) {
-    return this._addTransceiver(trackOrKind, options);
-  }
-
-  private _addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {},
   ) {
@@ -999,30 +918,16 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async createAnswer() {
+    this.assertNotClosed();
+
     await this.ensureCerts();
 
-    const description = this.buildAnswer();
+    const description = this.sdpHandler.buildAnswerSdp({
+      transceivers: this.transceiverManager.getTransceivers(),
+      sctpTransport: this.sctpTransport,
+      signalingState: this.signalingState,
+    });
     return description.toJSON();
-  }
-
-  private buildAnswer() {
-    this.assertNotClosed();
-    if (
-      !["have-remote-offer", "have-local-pranswer"].includes(
-        this.signalingState,
-      )
-    ) {
-      throw new Error("createAnswer failed");
-    }
-    if (!this._remoteDescription) {
-      throw new Error("wrong state");
-    }
-
-    return this.sdpHandler.buildAnswerSdp(
-      this.transceiverManager.getTransceivers(),
-      this.sctpTransport,
-      this._remoteDescription,
-    );
   }
 
   async close() {
@@ -1271,12 +1176,6 @@ export interface RTCDataChannelEvent {
 export interface RTCPeerConnectionIceEvent {
   candidate?: RTCIceCandidate;
 }
-
-export interface RTCSessionDescriptionInit {
-  sdp?: string;
-  type: RTCSdpType;
-}
-export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";
 
 const srtpProfiles = [
   SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
