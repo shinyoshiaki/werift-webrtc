@@ -3,6 +3,7 @@ import type { RTCRtpTransceiver } from "./media";
 import { RTCRtpSimulcastParameters } from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
 import {
+  type BundlePolicy,
   GroupDescription,
   MediaDescription,
   SessionDescription,
@@ -26,7 +27,7 @@ export class SDPHandler {
   constructor(
     readonly cname: string,
     private midSuffix?: boolean,
-    public bundlePolicy?: string,
+    public bundlePolicy?: BundlePolicy,
   ) {}
 
   get localDescription() {

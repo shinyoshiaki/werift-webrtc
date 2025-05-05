@@ -25,7 +25,7 @@ import {
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
 
-export class RTCRtpTransceiverManager {
+export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
 
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();

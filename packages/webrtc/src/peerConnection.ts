@@ -1,10 +1,10 @@
 import cloneDeep from "lodash/cloneDeep.js";
-import isEqual from "lodash/isEqual.js";
 import * as uuid from "uuid";
 
 import { SRTP_PROFILE } from "./const";
 import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
+import { IceHandler } from "./iceHandler";
 import {
   type Address,
   Event,
@@ -21,49 +21,45 @@ import {
   type RTCRtpReceiver,
   type RTCRtpSender,
   type RTCRtpTransceiver,
-  RTCRtpTransceiverManager,
   RtpRouter,
+  TransceiverManager,
   type TransceiverOptions,
   useOPUS,
   usePCMU,
   useVP8,
 } from "./media";
-import type { MediaDescription, SessionDescription } from "./sdp";
+import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPHandler } from "./sdpHandler";
 import {
   type DtlsKeys,
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
-import {
-  IceCandidate,
-  type IceGathererState,
-  type RTCIceCandidate,
-  type RTCIceCandidateInit,
-  type RTCIceConnectionState,
-  RTCIceGatherer,
+import type {
+  IceGathererState,
+  RTCIceCandidate,
+  RTCIceCandidateInit,
+  RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
 import { SctpTransportHandler } from "./transport/sctpHandler";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
-import { andDirection, deepMerge, parseIceServers } from "./utils";
+import { andDirection, deepMerge } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
-  sdpHandler = new SDPHandler(this.cname);
+  readonly sdpHandler = new SDPHandler(this.cname);
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
-  connectionState: ConnectionState = "new";
-  iceConnectionState: RTCIceConnectionState = "new";
-  iceGatheringState: IceGathererState = "new";
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   needRestart = false;
   private readonly router = new RtpRouter();
-  private readonly transceiverManager: RTCRtpTransceiverManager;
+  private readonly transceiverManager: TransceiverManager;
   private readonly sctpTransportHandler: SctpTransportHandler;
+  private readonly iceHandler: IceHandler;
   private certificate?: RTCCertificate;
   private isClosed = false;
   private shouldNegotiationneeded = false;
@@ -91,7 +87,7 @@ export class RTCPeerConnection extends EventTarget {
     super();
 
     this.setConfiguration(config);
-    this.transceiverManager = new RTCRtpTransceiverManager(
+    this.transceiverManager = new TransceiverManager(
       this.cname,
       this.config,
       this.router,
@@ -101,6 +97,35 @@ export class RTCPeerConnection extends EventTarget {
     this.sctpTransportHandler = new SctpTransportHandler(() =>
       this.createTransport(srtpProfiles),
     );
+    this.iceHandler = new IceHandler(
+      {
+        ...this.config,
+      },
+      this.transceiverManager,
+      this.sctpTransportHandler,
+    );
+    this.iceHandler.iceGatheringStateChange.subscribe((state) => {
+      this.iceGatheringStateChange.execute(state);
+    });
+    this.iceHandler.iceConnectionStateChange.subscribe((state) => {
+      this.iceConnectionStateChange.execute(state);
+    });
+    this.iceHandler.connectionStateChange.subscribe((state) => {
+      this.connectionStateChange.execute(state);
+      if (this.onconnectionstatechange) {
+        this.onconnectionstatechange();
+      }
+      this.emit("connectionstatechange");
+    });
+    this.iceHandler.onIceCandidate.subscribe((candidate) => {
+      this.onIceCandidate.execute(candidate ? candidate.toJSON() : undefined);
+      if (this.onicecandidate) {
+        this.onicecandidate({
+          candidate: candidate ? candidate.toJSON() : undefined,
+        });
+      }
+      this.emit("icecandidate", { candidate });
+    });
 
     // イベントの転送設定
     this.transceiverManager.onTransceiverAdded.subscribe((transceiver) => {
@@ -130,13 +155,23 @@ export class RTCPeerConnection extends EventTarget {
     this.iceConnectionStateChange.subscribe((state) => {
       switch (state) {
         case "disconnected":
-          this.setConnectionState("disconnected");
+          this.iceHandler.setConnectionState("disconnected");
           break;
         case "closed":
           this.close();
           break;
       }
     });
+  }
+
+  get connectionState() {
+    return this.iceHandler.connectionState;
+  }
+  get iceConnectionState() {
+    return this.iceHandler.iceConnectionState;
+  }
+  get iceGathererState() {
+    return this.iceHandler.iceGatheringState;
   }
 
   get dtlsTransports() {
@@ -266,9 +301,7 @@ export class RTCPeerConnection extends EventTarget {
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
     if (iceRestart || this.needRestart) {
       this.needRestart = false;
-      for (const t of this.iceTransports) {
-        t.restart();
-      }
+      this.iceHandler.restartIce();
     }
 
     await this.ensureCerts();
@@ -344,32 +377,8 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    const iceGatherer = new RTCIceGatherer({
-      ...parseIceServers(this.config.iceServers),
-      forceTurn: this.config.iceTransportPolicy === "relay",
-      portRange: this.config.icePortRange,
-      interfaceAddresses: this.config.iceInterfaceAddresses,
-      additionalHostAddresses: this.config.iceAdditionalHostAddresses,
-      filterStunResponse: this.config.iceFilterStunResponse,
-      filterCandidatePair: this.config.iceFilterCandidatePair,
-      localPasswordPrefix: this.config.icePasswordPrefix,
-      useIpv4: this.config.iceUseIpv4,
-      useIpv6: this.config.iceUseIpv6,
-      turnTransport: this.config.forceTurnTCP === true ? "tcp" : "udp",
-      useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
-    });
-    if (existing) {
-      iceGatherer.connection.localUsername = existing.connection.localUsername;
-      iceGatherer.connection.localPassword = existing.connection.localPassword;
-    }
-    iceGatherer.onGatheringStateChange.subscribe(() => {
-      this.updateIceGatheringState();
-    });
-    this.updateIceGatheringState();
-    const iceTransport = new RTCIceTransport(iceGatherer);
-    iceTransport.onStateChange.subscribe(() => {
-      this.updateIceConnectionState();
-    });
+    const iceTransport = this.iceHandler.createTransport();
+
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
     });
@@ -392,38 +401,19 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
-      if (
-        this.sdpHandler.bundlePolicy === "max-bundle" ||
-        this.sdpHandler.remoteIsBundled
-      ) {
-        candidate.sdpMLineIndex = 0;
-        const media = this._localDescription?.media[0];
-        if (media) {
-          candidate.sdpMid = media.rtp.muxId;
-        }
-      } else {
-        const transceiver = this.transceiverManager
+      this.iceHandler.handleNewIceCandidate({
+        candidate,
+        localDescription: this._localDescription,
+        remoteIsBundled: !!this.sdpHandler.remoteIsBundled,
+        transceiver: this.transceiverManager
           .getTransceivers()
-          .find((t) => t.dtlsTransport.iceTransport.id === iceTransport.id);
-        if (transceiver) {
-          candidate.sdpMLineIndex = transceiver.mLineIndex;
-          candidate.sdpMid = transceiver.mid;
-        }
-        if (
+          .find((t) => t.dtlsTransport.iceTransport.id === iceTransport.id),
+        sctpTransport:
           this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
-        ) {
-          candidate.sdpMLineIndex = this.sctpTransport.mLineIndex;
-          candidate.sdpMid = this.sctpTransport.mid;
-        }
-      }
-
-      candidate.foundation = "candidate:" + candidate.foundation;
-
-      this.onIceCandidate.execute(candidate.toJSON());
-      if (this.onicecandidate) {
-        this.onicecandidate({ candidate: candidate.toJSON() });
-      }
-      this.emit("icecandidate", { candidate });
+            ? this.sctpTransport
+            : undefined,
+        bundlePolicy: this.sdpHandler.bundlePolicy,
+      });
     });
 
     const dtlsTransport = new RTCDtlsTransport(
@@ -484,30 +474,13 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // setup ice,dtls role
-    for (const dtlsTransport of this.dtlsTransports) {
-      const iceTransport = dtlsTransport.iceTransport;
+    const role = description.media.find((media) => media.dtlsParams)?.dtlsParams
+      ?.role;
 
-      // # set ICE role
-      if (description.type === "offer") {
-        iceTransport.connection.iceControlling = true;
-      } else {
-        iceTransport.connection.iceControlling = false;
-      }
-      // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
-      // RFC 8445 S6.1.1
-      if (iceTransport.connection.remoteIsLite) {
-        iceTransport.connection.iceControlling = true;
-      }
-
-      // # set DTLS role for mediasoup
-      if (description.type === "answer") {
-        const role = description.media.find((media) => media.dtlsParams)
-          ?.dtlsParams?.role;
-        if (role) {
-          dtlsTransport.role = role;
-        }
-      }
-    }
+    this.iceHandler.setLocalRole({
+      type: description.type,
+      role,
+    });
 
     // # configure direction
     if (["answer", "pranswer"].includes(description.type)) {
@@ -532,7 +505,7 @@ export class RTCPeerConnection extends EventTarget {
     if (description.type === "answer") {
       this.connect().catch((err) => {
         log("connect failed", err);
-        this.setConnectionState("failed");
+        this.iceHandler.setConnectionState("failed");
       });
     }
 
@@ -550,76 +523,17 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async gatherCandidates() {
-    // # gather candidates
-    const connected = this.iceTransports.find(
-      (transport) =>
-        transport.state === "connected" || transport.state === "completed",
-    );
-    if (this.sdpHandler.remoteIsBundled && connected) {
-      // no need to gather ice candidates on an existing bundled connection
-    } else {
-      await Promise.allSettled(
-        this.iceTransports.map((iceTransport) => iceTransport.gather()),
-      );
-    }
-  }
-
-  private getTransportByMid(mid: string) {
-    let iceTransport: RTCIceTransport | undefined;
-
-    const transceiver = this.transceiverManager
-      .getTransceivers()
-      .find((t) => t.mid === mid);
-    if (transceiver) {
-      iceTransport = transceiver.dtlsTransport.iceTransport;
-    } else if (!iceTransport && this.sctpTransport?.mid === mid) {
-      iceTransport = this.sctpTransport?.dtlsTransport.iceTransport;
-    }
-
-    return iceTransport;
-  }
-
-  private getTransportByMLineIndex(index: number) {
-    const sdp = this.sdpHandler.buildOfferSdp(
-      this.transceiverManager.getTransceivers(),
-      this.sctpTransport,
-    );
-    const media = sdp.media[index];
-    if (!media) {
-      return;
-    }
-    const transport = this.getTransportByMid(media.rtp.muxId!);
-
-    return transport;
+    await this.iceHandler.gatherCandidates(!!this.sdpHandler.remoteIsBundled);
   }
 
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit,
   ) {
-    const candidate = IceCandidate.fromJSON(candidateMessage);
-    if (!candidate) {
-      return;
-    }
-
-    let iceTransport: RTCIceTransport | undefined;
-
-    if (typeof candidate.sdpMid === "number") {
-      iceTransport = this.getTransportByMid(candidate.sdpMid);
-    }
-
-    if (!iceTransport && typeof candidate.sdpMLineIndex === "number") {
-      iceTransport = this.getTransportByMLineIndex(candidate.sdpMLineIndex);
-    }
-
-    if (!iceTransport) {
-      iceTransport = this.iceTransports[0];
-    }
-
-    if (iceTransport) {
-      await iceTransport.addRemoteCandidate(candidate);
-    } else {
-      log("iceTransport not found", candidate);
-    }
+    const sdp = this.sdpHandler.buildOfferSdp(
+      this.transceiverManager.getTransceivers(),
+      this.sctpTransport,
+    );
+    await this.iceHandler.addIceCandidate(sdp, candidateMessage);
   }
 
   private async connect() {
@@ -637,7 +551,7 @@ export class RTCPeerConnection extends EventTarget {
           return;
         }
 
-        this.setConnectionState("connecting");
+        this.iceHandler.setConnectionState("connecting");
 
         await iceTransport.start().catch((err) => {
           log("iceTransport.start failed", err);
@@ -663,9 +577,9 @@ export class RTCPeerConnection extends EventTarget {
     );
 
     if (res.find((r) => r.status === "rejected")) {
-      this.setConnectionState("failed");
+      this.iceHandler.setConnectionState("failed");
     } else {
-      this.setConnectionState("connected");
+      this.iceHandler.setConnectionState("connected");
     }
   }
 
@@ -812,7 +726,7 @@ export class RTCPeerConnection extends EventTarget {
       log("caller start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
-        this.setConnectionState("failed");
+        this.iceHandler.setConnectionState("failed");
       });
     }
 
@@ -867,7 +781,7 @@ export class RTCPeerConnection extends EventTarget {
       options,
     );
 
-    this.updateIceConnectionState();
+    this.iceHandler.updateIceConnectionState();
     this.needNegotiation();
 
     return transceiver;
@@ -927,7 +841,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.isClosed = true;
     this.setSignalingState("closed");
-    this.setConnectionState("closed");
+    this.iceHandler.setConnectionState("closed");
 
     this.transceiverManager.getTransceivers().forEach((transceiver) => {
       transceiver.receiver.stop();
@@ -951,82 +865,6 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  // https://w3c.github.io/webrtc-pc/#dom-rtcicegatheringstate
-  private updateIceGatheringState() {
-    const all = this.iceTransports;
-
-    function allMatch(...state: IceGathererState[]) {
-      return (
-        all.filter((check) => state.includes(check.gatheringState)).length ===
-        all.length
-      );
-    }
-
-    let newState: IceGathererState;
-
-    if (all.length && allMatch("complete")) {
-      newState = "complete";
-    } else if (!all.length || allMatch("new", "complete")) {
-      newState = "new";
-    } else if (all.map((check) => check.gatheringState).includes("gathering")) {
-      newState = "gathering";
-    } else {
-      newState = "new";
-    }
-
-    if (this.iceGatheringState === newState) {
-      return;
-    }
-
-    log("iceGatheringStateChange", newState);
-    this.iceGatheringState = newState;
-    this.iceGatheringStateChange.execute(newState);
-    this.emit("icegatheringstatechange", newState);
-  }
-
-  // https://w3c.github.io/webrtc-pc/#dom-rtciceconnectionstate
-  private updateIceConnectionState() {
-    const all = this.iceTransports;
-    let newState: RTCIceConnectionState;
-
-    function allMatch(...state: RTCIceConnectionState[]) {
-      return (
-        all.filter((check) => state.includes(check.state)).length === all.length
-      );
-    }
-
-    if (this.connectionState === "closed") {
-      newState = "closed";
-    } else if (allMatch("failed")) {
-      newState = "failed";
-    } else if (allMatch("disconnected")) {
-      newState = "disconnected";
-    } else if (allMatch("new", "closed")) {
-      newState = "new";
-    } else if (allMatch("new", "checking")) {
-      newState = "checking";
-    } else if (allMatch("completed", "closed")) {
-      newState = "completed";
-    } else if (allMatch("connected", "completed", "closed")) {
-      newState = "connected";
-    } else {
-      // unreachable?
-      newState = "new";
-    }
-
-    if (this.iceConnectionState === newState) {
-      return;
-    }
-
-    log("iceConnectionStateChange", newState);
-    this.iceConnectionState = newState;
-    this.iceConnectionStateChange.execute(newState);
-    this.emit("iceconnectionstatechange", newState);
-    if (this.oniceconnectionstatechange) {
-      this.oniceconnectionstatechange();
-    }
-  }
-
   private setSignalingState(state: RTCSignalingState) {
     log("signalingStateChange", state);
     this.signalingState = state;
@@ -1034,16 +872,6 @@ export class RTCPeerConnection extends EventTarget {
     if (this.onsignalingstatechange) {
       this.onsignalingstatechange({});
     }
-  }
-
-  private setConnectionState(state: ConnectionState) {
-    log("connectionStateChange", state);
-    this.connectionState = state;
-    this.connectionStateChange.execute(state);
-    if (this.onconnectionstatechange) {
-      this.onconnectionstatechange();
-    }
-    this.emit("connectionstatechange");
   }
 
   private dispose() {
@@ -1056,8 +884,6 @@ export class RTCPeerConnection extends EventTarget {
     this.onIceCandidate.allUnsubscribe();
   }
 }
-
-export type BundlePolicy = "max-compat" | "max-bundle" | "disable";
 
 export interface PeerConfig {
   codecs: Partial<{

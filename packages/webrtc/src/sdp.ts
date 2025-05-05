@@ -719,3 +719,5 @@ export class SsrcDescription {
     Object.assign(this, props);
   }
 }
+
+export type BundlePolicy = "max-compat" | "max-bundle" | "disable";
