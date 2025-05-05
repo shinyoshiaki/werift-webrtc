@@ -473,6 +473,27 @@ export class SDPHandler {
     );
     return bundle;
   }
+
+  /**
+   * ローカルセッション記述を設定し、トランスポート情報を追加する
+   */
+  setLocal(
+    description: SessionDescription,
+    transceivers: RTCRtpTransceiver[],
+    sctpTransport?: { dtlsTransport: RTCDtlsTransport; mid?: string },
+  ) {
+    description.media
+      .filter((m) => ["audio", "video"].includes(m.kind))
+      .forEach((m, i) => {
+        this.addTransportDescription(m, transceivers[i].dtlsTransport);
+      });
+    const sctpMedia = description.media.find((m) => m.kind === "application");
+    if (sctpTransport && sctpMedia) {
+      this.addTransportDescription(sctpMedia, sctpTransport.dtlsTransport);
+    }
+
+    this.setLocalDescription(description);
+  }
 }
 
 export interface RTCSessionDescriptionInit {

@@ -379,7 +379,11 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
       if (!candidate) {
-        this.setLocal(this._localDescription!);
+        this.sdpHandler.setLocal(
+          this._localDescription!,
+          this.transceiverManager.getTransceivers(),
+          this.sctpTransport,
+        );
         this.onIceCandidate.execute(undefined);
         if (this.onicecandidate) {
           this.onicecandidate({ candidate: undefined });
@@ -514,7 +518,11 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // for trickle ice
-    this.setLocal(description);
+    this.sdpHandler.setLocal(
+      description,
+      this.transceiverManager.getTransceivers(),
+      this.sctpTransport,
+    );
 
     await this.gatherCandidates().catch((e) => {
       log("gatherCandidates failed", e);
@@ -528,7 +536,11 @@ export class RTCPeerConnection extends EventTarget {
       });
     }
 
-    this.setLocal(description);
+    this.sdpHandler.setLocal(
+      description,
+      this.transceiverManager.getTransceivers(),
+      this.sctpTransport,
+    );
 
     if (this.shouldNegotiationneeded) {
       this.needNegotiation();
@@ -550,26 +562,6 @@ export class RTCPeerConnection extends EventTarget {
         this.iceTransports.map((iceTransport) => iceTransport.gather()),
       );
     }
-  }
-
-  private setLocal(description: SessionDescription) {
-    description.media
-      .filter((m) => ["audio", "video"].includes(m.kind))
-      .forEach((m, i) => {
-        this.sdpHandler.addTransportDescription(
-          m,
-          this.transceiverManager.getTransceivers()[i].dtlsTransport,
-        );
-      });
-    const sctpMedia = description.media.find((m) => m.kind === "application");
-    if (this.sctpTransport && sctpMedia) {
-      this.sdpHandler.addTransportDescription(
-        sctpMedia,
-        this.sctpTransport.dtlsTransport,
-      );
-    }
-
-    this.sdpHandler.setLocalDescription(description);
   }
 
   private getTransportByMid(mid: string) {
