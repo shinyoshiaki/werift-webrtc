@@ -1,12 +1,11 @@
 import { Event, debug } from "../imports/common";
 
-import { SRTP_PROFILE } from "../const";
 import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
 import type { MediaDescription } from "../sdp";
 import type { RTCDtlsTransport } from "./dtls";
 import { RTCSctpTransport } from "./sctp";
 
-const log = debug("werift:packages/webrtc/src/transport/sctpHandler.ts");
+const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 
 export class SctpTransportHandler {
   sctpTransport?: RTCSctpTransport;

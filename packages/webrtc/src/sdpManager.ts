@@ -14,10 +14,7 @@ import type { RTCDtlsTransport } from "./transport/dtls";
 import { RTCSctpTransport } from "./transport/sctp";
 import { andDirection } from "./utils";
 
-/**
- * SDPに関連する処理を担当するクラス
- */
-export class SDPHandler {
+export class SDPManager {
   seenMid = new Set<string>();
   currentLocalDescription?: SessionDescription;
   currentRemoteDescription?: SessionDescription;

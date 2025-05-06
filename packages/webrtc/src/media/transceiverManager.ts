@@ -21,7 +21,7 @@ import {
   Sendonly,
   Sendrecv,
   type TransceiverOptions,
-} from "./";
+} from ".";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
 

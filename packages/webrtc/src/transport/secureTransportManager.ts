@@ -4,28 +4,25 @@ import type {
   RTCRtpTransceiver,
   RtpRouter,
   TransceiverManager,
-} from "../media"; // media からインポート
-import type { PeerConfig } from "../peerConnection"; // PeerConfig をインポート
-import type { BundlePolicy, SessionDescription } from "../sdp"; // sdp からは SessionDescription のみ
+} from "../media";
+import type { PeerConfig } from "../peerConnection";
+import type { BundlePolicy, SessionDescription } from "../sdp";
 import type { ConnectionState } from "../types/domain";
 import { parseIceServers } from "../utils";
 import { type DtlsKeys, RTCCertificate, RTCDtlsTransport } from "./dtls";
-import {
-  IceCandidate, // 値として import
-  RTCIceGatherer,
-  RTCIceTransport,
-} from "./ice";
+import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./ice";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
 } from "./ice";
-import type { RTCSctpTransport } from "./sctp"; // transport/sctp からインポート
-import type { SctpTransportHandler } from "./sctpHandler";
+import type { RTCSctpTransport } from "./sctp";
+import type { SctpTransportHandler } from "./sctpManager";
 
-const log = debug("werift:packages/webrtc/src/iceHandler.ts"); // log を定義
-
+const log = debug(
+  "werift:packages/webrtc/src/transport/secureTransportManager.ts",
+);
 export class SecureTransportHandler {
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";

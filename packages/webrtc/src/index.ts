@@ -11,4 +11,4 @@ export * from "./transport/ice";
 export * from "./transport/sctp";
 export * from "./types/domain";
 export * from "./utils";
-export * from "./sdpHandler";
+export * from "./sdpManager";

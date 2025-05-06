@@ -26,7 +26,7 @@ import {
   useVP8,
 } from "./media";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
-import { type RTCSessionDescriptionInit, SDPHandler } from "./sdpHandler";
+import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls";
 import type {
   IceGathererState,
@@ -35,8 +35,8 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
-import { SctpTransportHandler } from "./transport/sctpHandler";
-import { SecureTransportHandler } from "./transport/secureTransportHandler";
+import { SctpTransportHandler } from "./transport/sctpManager";
+import { SecureTransportHandler } from "./transport/secureTransportManager";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
@@ -45,15 +45,16 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
-  readonly sdpHandler: SDPHandler;
+
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   needRestart = false;
   private readonly router = new RtpRouter();
+  private readonly sdpManager: SDPManager;
   private readonly transceiverManager: TransceiverManager;
-  private readonly sctpTransportHandler: SctpTransportHandler;
-  private readonly secureTransportHandler: SecureTransportHandler;
+  private readonly sctpManager: SctpTransportHandler;
+  private readonly secureManager: SecureTransportHandler;
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
@@ -81,7 +82,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.setConfiguration(config);
 
-    this.sdpHandler = new SDPHandler({
+    this.sdpManager = new SDPManager({
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
     });
@@ -92,40 +93,6 @@ export class RTCPeerConnection extends EventTarget {
       this.router,
       () => this.createTransport(),
     );
-
-    this.sctpTransportHandler = new SctpTransportHandler(() =>
-      this.createTransport(),
-    );
-    this.secureTransportHandler = new SecureTransportHandler({
-      config: this.config,
-      router: this.router,
-      sctpHandler: this.sctpTransportHandler,
-      transceiverManager: this.transceiverManager,
-    });
-    this.secureTransportHandler.iceGatheringStateChange.subscribe((state) => {
-      this.iceGatheringStateChange.execute(state);
-    });
-    this.secureTransportHandler.iceConnectionStateChange.subscribe((state) => {
-      this.iceConnectionStateChange.execute(state);
-    });
-    this.secureTransportHandler.connectionStateChange.subscribe((state) => {
-      this.connectionStateChange.execute(state);
-      if (this.onconnectionstatechange) {
-        this.onconnectionstatechange();
-      }
-      this.emit("connectionstatechange");
-    });
-    this.secureTransportHandler.onIceCandidate.subscribe((candidate) => {
-      this.onIceCandidate.execute(candidate ? candidate.toJSON() : undefined);
-      if (this.onicecandidate) {
-        this.onicecandidate({
-          candidate: candidate ? candidate.toJSON() : undefined,
-        });
-      }
-      this.emit("icecandidate", { candidate });
-    });
-
-    // イベントの転送設定
     this.transceiverManager.onTransceiverAdded.subscribe((transceiver) => {
       this.onTransceiverAdded.execute(transceiver);
     });
@@ -143,41 +110,58 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     });
 
-    this.sctpTransportHandler.onDataChannel.subscribe((channel) => {
+    this.sctpManager = new SctpTransportHandler(() => this.createTransport());
+    this.sctpManager.onDataChannel.subscribe((channel) => {
       this.onDataChannel.execute(channel);
       const event: RTCDataChannelEvent = { channel };
-      if (this.ondatachannel) this.ondatachannel(event);
+      this.ondatachannel?.(event);
       this.emit("datachannel", event);
     });
 
-    this.iceConnectionStateChange.subscribe((state) => {
-      switch (state) {
-        case "disconnected":
-          this.secureTransportHandler.setConnectionState("disconnected");
-          break;
-        case "closed":
-          this.close();
-          break;
+    this.secureManager = new SecureTransportHandler({
+      config: this.config,
+      router: this.router,
+      sctpHandler: this.sctpManager,
+      transceiverManager: this.transceiverManager,
+    });
+    this.secureManager.iceGatheringStateChange.subscribe((state) => {
+      this.iceGatheringStateChange.execute(state);
+    });
+    this.secureManager.iceConnectionStateChange.subscribe((state) => {
+      if (state === "closed") {
+        this.close();
       }
+      this.iceConnectionStateChange.execute(state);
+    });
+    this.secureManager.connectionStateChange.subscribe((state) => {
+      this.connectionStateChange.execute(state);
+      this.onconnectionstatechange?.();
+      this.emit("connectionstatechange");
+    });
+    this.secureManager.onIceCandidate.subscribe((candidate) => {
+      const iceCandidate = candidate ? candidate.toJSON() : undefined;
+      this.onIceCandidate.execute(iceCandidate);
+      this.onicecandidate?.({ candidate: iceCandidate });
+      this.emit("icecandidate", { candidate: iceCandidate });
     });
   }
 
   get connectionState() {
-    return this.secureTransportHandler.connectionState;
+    return this.secureManager.connectionState;
   }
   get iceConnectionState() {
-    return this.secureTransportHandler.iceConnectionState;
+    return this.secureManager.iceConnectionState;
   }
   get iceGathererState() {
-    return this.secureTransportHandler.iceGatheringState;
+    return this.secureManager.iceGatheringState;
   }
 
   get dtlsTransports() {
     const transports = this.transceiverManager
       .getTransceivers()
       .map((t) => t.dtlsTransport);
-    if (this.sctpTransportHandler.sctpTransport) {
-      transports.push(this.sctpTransportHandler.sctpTransport.dtlsTransport);
+    if (this.sctpManager.sctpTransport) {
+      transports.push(this.sctpManager.sctpTransport.dtlsTransport);
     }
     return transports.reduce((acc: RTCDtlsTransport[], cur) => {
       if (!acc.map((d) => d.id).includes(cur.id)) {
@@ -188,11 +172,11 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get sctpTransport() {
-    return this.sctpTransportHandler.sctpTransport;
+    return this.sctpManager.sctpTransport;
   }
 
   get sctpRemotePort() {
-    return this.sctpTransportHandler.sctpRemotePort;
+    return this.sctpManager.sctpRemotePort;
   }
 
   get iceTransports() {
@@ -223,12 +207,12 @@ export class RTCPeerConnection extends EventTarget {
 
   /**@private */
   get _localDescription() {
-    return this.sdpHandler._localDescription;
+    return this.sdpManager._localDescription;
   }
 
   /**@private */
   get _remoteDescription() {
-    return this.sdpHandler._remoteDescription;
+    return this.sdpManager._remoteDescription;
   }
 
   setConfiguration(config: Partial<PeerConfig>) {
@@ -286,10 +270,10 @@ export class RTCPeerConnection extends EventTarget {
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
     if (iceRestart || this.needRestart) {
       this.needRestart = false;
-      this.secureTransportHandler.restartIce();
+      this.secureManager.restartIce();
     }
 
-    await this.secureTransportHandler.ensureCerts();
+    await this.secureManager.ensureCerts();
 
     this.transceiverManager.getTransceivers().forEach((transceiver) => {
       if (transceiver.codecs.length === 0) {
@@ -301,7 +285,7 @@ export class RTCPeerConnection extends EventTarget {
       }
     });
 
-    const description = this.sdpHandler.buildOfferSdp(
+    const description = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
@@ -324,11 +308,11 @@ export class RTCPeerConnection extends EventTarget {
     }> = {},
   ): RTCDataChannel {
     if (!this.sctpTransport) {
-      this.sctpTransportHandler.createSctpTransport();
+      this.sctpManager.createSctpTransport();
       this.needNegotiation();
     }
 
-    const channel = this.sctpTransportHandler.createDataChannel(label, options);
+    const channel = this.sctpManager.createDataChannel(label, options);
     return channel;
   }
 
@@ -356,13 +340,13 @@ export class RTCPeerConnection extends EventTarget {
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
-    if (this.sdpHandler.bundlePolicy === "max-bundle") {
+    if (this.sdpManager.bundlePolicy === "max-bundle") {
       if (existing) {
         return this.dtlsTransports[0];
       }
     }
 
-    const dtlsTransport = this.secureTransportHandler.createTransport();
+    const dtlsTransport = this.secureManager.createTransport();
     const iceTransport = dtlsTransport.iceTransport;
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
@@ -374,7 +358,7 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
       if (!candidate) {
-        this.sdpHandler.setLocal(
+        this.sdpManager.setLocal(
           this._localDescription!,
           this.transceiverManager.getTransceivers(),
           this.sctpTransport,
@@ -387,10 +371,10 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
-      this.secureTransportHandler.handleNewIceCandidate({
+      this.secureManager.handleNewIceCandidate({
         candidate,
         localDescription: this._localDescription,
-        remoteIsBundled: !!this.sdpHandler.remoteIsBundled,
+        remoteIsBundled: !!this.sdpManager.remoteIsBundled,
         transceiver: this.transceiverManager
           .getTransceivers()
           .find((t) => t.dtlsTransport.iceTransport.id === iceTransport.id),
@@ -398,7 +382,7 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
             ? this.sctpTransport
             : undefined,
-        bundlePolicy: this.sdpHandler.bundlePolicy,
+        bundlePolicy: this.sdpManager.bundlePolicy,
       });
     });
 
@@ -422,7 +406,7 @@ export class RTCPeerConnection extends EventTarget {
         : await this.createAnswer());
 
     // # parse and validate description
-    const description = this.sdpHandler.parseSdp({
+    const description = this.sdpManager.parseSdp({
       sdp: sessionDescription.sdp,
       isLocal: true,
       signalingState: this.signalingState,
@@ -439,7 +423,7 @@ export class RTCPeerConnection extends EventTarget {
     // # assign MID
     for (const [i, media] of enumerate(description.media)) {
       const mid = media.rtp.muxId!;
-      this.sdpHandler.seenMid.add(mid);
+      this.sdpManager.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
         const transceiver = this.getTransceiverByMLineIndex(i);
         if (transceiver) {
@@ -455,7 +439,7 @@ export class RTCPeerConnection extends EventTarget {
     const role = description.media.find((media) => media.dtlsParams)?.dtlsParams
       ?.role;
 
-    this.secureTransportHandler.setLocalRole({
+    this.secureManager.setLocalRole({
       type: description.type,
       role,
     });
@@ -469,7 +453,7 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     // for trickle ice
-    this.sdpHandler.setLocal(
+    this.sdpManager.setLocal(
       description,
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
@@ -483,11 +467,11 @@ export class RTCPeerConnection extends EventTarget {
     if (description.type === "answer") {
       this.connect().catch((err) => {
         log("connect failed", err);
-        this.secureTransportHandler.setConnectionState("failed");
+        this.secureManager.setConnectionState("failed");
       });
     }
 
-    this.sdpHandler.setLocal(
+    this.sdpManager.setLocal(
       description,
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
@@ -501,19 +485,19 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async gatherCandidates() {
-    await this.secureTransportHandler.gatherCandidates(
-      !!this.sdpHandler.remoteIsBundled,
+    await this.secureManager.gatherCandidates(
+      !!this.sdpManager.remoteIsBundled,
     );
   }
 
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit,
   ) {
-    const sdp = this.sdpHandler.buildOfferSdp(
+    const sdp = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
-    await this.secureTransportHandler.addIceCandidate(sdp, candidateMessage);
+    await this.secureManager.addIceCandidate(sdp, candidateMessage);
   }
 
   private async connect() {
@@ -531,7 +515,7 @@ export class RTCPeerConnection extends EventTarget {
           return;
         }
 
-        this.secureTransportHandler.setConnectionState("connecting");
+        this.secureManager.setConnectionState("connecting");
 
         await iceTransport.start().catch((err) => {
           log("iceTransport.start failed", err);
@@ -551,15 +535,15 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport &&
           this.sctpTransport.dtlsTransport.id === dtlsTransport.id
         ) {
-          await this.sctpTransportHandler.connectSctp();
+          await this.sctpManager.connectSctp();
         }
       }),
     );
 
     if (res.find((r) => r.status === "rejected")) {
-      this.secureTransportHandler.setConnectionState("failed");
+      this.secureManager.setConnectionState("failed");
     } else {
-      this.secureTransportHandler.setConnectionState("connected");
+      this.secureManager.setConnectionState("connected");
     }
   }
 
@@ -570,7 +554,7 @@ export class RTCPeerConnection extends EventTarget {
 
   async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
     // # parse and validate description
-    const remoteSdp = this.sdpHandler.setRemoteDescription(
+    const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
       this.signalingState,
     );
@@ -611,7 +595,7 @@ export class RTCPeerConnection extends EventTarget {
           }
         }
 
-        if (this.sdpHandler.remoteIsBundled) {
+        if (this.sdpManager.remoteIsBundled) {
           if (!bundleTransport) {
             bundleTransport = transceiver.dtlsTransport;
           } else {
@@ -625,11 +609,11 @@ export class RTCPeerConnection extends EventTarget {
       } else if (remoteMedia.kind === "application") {
         let sctpTransport = this.sctpTransport;
         if (!sctpTransport) {
-          sctpTransport = this.sctpTransportHandler.createSctpTransport();
+          sctpTransport = this.sctpManager.createSctpTransport();
           sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 
-        if (this.sdpHandler.remoteIsBundled) {
+        if (this.sdpManager.remoteIsBundled) {
           if (!bundleTransport) {
             bundleTransport = sctpTransport.dtlsTransport;
           } else {
@@ -647,7 +631,7 @@ export class RTCPeerConnection extends EventTarget {
       const iceTransport = dtlsTransport.iceTransport;
 
       if (remoteMedia.iceParams) {
-        const renomination = !!this.sdpHandler.inactiveRemoteMedia;
+        const renomination = !!this.sdpManager.inactiveRemoteMedia;
         iceTransport.setRemoteParams(remoteMedia.iceParams, renomination);
 
         // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
@@ -706,7 +690,7 @@ export class RTCPeerConnection extends EventTarget {
       log("caller start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
-        this.secureTransportHandler.setConnectionState("failed");
+        this.secureManager.setConnectionState("failed");
       });
     }
 
@@ -731,7 +715,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
-    this.sctpTransportHandler.setRemoteSCTP(remoteMedia, mLineIndex);
+    this.sctpManager.setRemoteSCTP(remoteMedia, mLineIndex);
   }
 
   private fireOnTrack(
@@ -761,7 +745,7 @@ export class RTCPeerConnection extends EventTarget {
       options,
     );
 
-    this.secureTransportHandler.updateIceConnectionState();
+    this.secureManager.updateIceConnectionState();
     this.needNegotiation();
 
     return transceiver;
@@ -796,9 +780,9 @@ export class RTCPeerConnection extends EventTarget {
   async createAnswer() {
     this.assertNotClosed();
 
-    await this.secureTransportHandler.ensureCerts();
+    await this.secureManager.ensureCerts();
 
-    const description = this.sdpHandler.buildAnswerSdp({
+    const description = this.sdpManager.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
       sctpTransport: this.sctpTransport,
       signalingState: this.signalingState,
@@ -811,14 +795,13 @@ export class RTCPeerConnection extends EventTarget {
 
     this.isClosed = true;
     this.setSignalingState("closed");
-    this.secureTransportHandler.setConnectionState("closed");
 
     this.transceiverManager.getTransceivers().forEach((transceiver) => {
       transceiver.receiver.stop();
       transceiver.sender.stop();
     });
 
-    await this.sctpTransportHandler.stop();
+    await this.sctpManager.stop();
 
     for (const dtlsTransport of this.dtlsTransports) {
       await dtlsTransport.stop();
