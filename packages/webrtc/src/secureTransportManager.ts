@@ -18,12 +18,12 @@ import type {
   RTCIceConnectionState,
 } from "./transport/ice";
 import type { RTCSctpTransport } from "./transport/sctp";
-import type { SctpTransportHandler } from "./sctpManager";
+import type { SctpTransportManager } from "./sctpManager";
 
 const log = debug(
   "werift:packages/webrtc/src/transport/secureTransportManager.ts",
 );
-export class SecureTransportHandler {
+export class SecureTransportManager {
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
@@ -35,7 +35,7 @@ export class SecureTransportHandler {
   readonly connectionStateChange = new Event<[ConnectionState]>();
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
-  private sctpHandler: SctpTransportHandler;
+  private sctpHandler: SctpTransportManager;
   private router: RtpRouter;
 
   constructor({
@@ -46,7 +46,7 @@ export class SecureTransportHandler {
   }: {
     config: PeerConfig;
     transceiverManager: TransceiverManager;
-    sctpHandler: SctpTransportHandler;
+    sctpHandler: SctpTransportManager;
     router: RtpRouter;
   }) {
     this.config = config;

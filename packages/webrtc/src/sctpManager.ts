@@ -6,7 +6,7 @@ import { RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 
-export class SctpTransportHandler {
+export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
   sctpRemotePort?: number;
 

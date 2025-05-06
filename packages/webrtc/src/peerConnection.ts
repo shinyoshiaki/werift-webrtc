@@ -35,8 +35,8 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
-import { SctpTransportHandler } from "./sctpManager";
-import { SecureTransportHandler } from "./secureTransportManager";
+import { SctpTransportManager } from "./sctpManager";
+import { SecureTransportManager } from "./secureTransportManager";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
@@ -53,8 +53,8 @@ export class RTCPeerConnection extends EventTarget {
   private readonly router = new RtpRouter();
   private readonly sdpManager: SDPManager;
   private readonly transceiverManager: TransceiverManager;
-  private readonly sctpManager: SctpTransportHandler;
-  private readonly secureManager: SecureTransportHandler;
+  private readonly sctpManager: SctpTransportManager;
+  private readonly secureManager: SecureTransportManager;
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
@@ -109,7 +109,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     });
 
-    this.sctpManager = new SctpTransportHandler();
+    this.sctpManager = new SctpTransportManager();
     this.sctpManager.onDataChannel.subscribe((channel) => {
       this.onDataChannel.execute(channel);
       const event: RTCDataChannelEvent = { channel };
@@ -117,7 +117,7 @@ export class RTCPeerConnection extends EventTarget {
       this.emit("datachannel", event);
     });
 
-    this.secureManager = new SecureTransportHandler({
+    this.secureManager = new SecureTransportManager({
       config: this.config,
       router: this.router,
       sctpHandler: this.sctpManager,
