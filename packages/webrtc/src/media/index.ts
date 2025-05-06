@@ -6,5 +6,5 @@ export * from "./router";
 export * from "./rtpReceiver";
 export * from "./rtpSender";
 export * from "./rtpTransceiver";
-export * from "./transceiverManager";
+export * from "../transceiverManager";
 export * from "./track";

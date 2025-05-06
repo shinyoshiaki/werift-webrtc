@@ -35,8 +35,8 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
-import { SctpTransportHandler } from "./transport/sctpManager";
-import { SecureTransportHandler } from "./transport/secureTransportManager";
+import { SctpTransportHandler } from "./sctpManager";
+import { SecureTransportHandler } from "./secureTransportManager";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";

@@ -1,8 +1,8 @@
-import { Event, debug } from "../imports/common";
+import { Event, debug } from "./imports/common";
 
-import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
-import type { MediaDescription } from "../sdp";
-import { RTCSctpTransport } from "./sctp";
+import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import type { MediaDescription } from "./sdp";
+import { RTCSctpTransport } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 

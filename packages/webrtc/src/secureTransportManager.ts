@@ -1,23 +1,23 @@
-import { SRTP_PROFILE } from "../const";
-import { Event, debug } from "../imports/common";
-import type {
-  RTCRtpTransceiver,
-  RtpRouter,
-  TransceiverManager,
-} from "../media";
-import type { PeerConfig } from "../peerConnection";
-import type { BundlePolicy, SessionDescription } from "../sdp";
-import type { ConnectionState } from "../types/domain";
-import { parseIceServers } from "../utils";
-import { type DtlsKeys, RTCCertificate, RTCDtlsTransport } from "./dtls";
-import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./ice";
+import { SRTP_PROFILE } from "./const";
+import { Event, debug } from "./imports/common";
+import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
+import type { PeerConfig } from "./peerConnection";
+import type { BundlePolicy, SessionDescription } from "./sdp";
+import type { ConnectionState } from "./types/domain";
+import { parseIceServers } from "./utils";
+import {
+  type DtlsKeys,
+  RTCCertificate,
+  RTCDtlsTransport,
+} from "./transport/dtls";
+import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
-} from "./ice";
-import type { RTCSctpTransport } from "./sctp";
+} from "./transport/ice";
+import type { RTCSctpTransport } from "./transport/sctp";
 import type { SctpTransportHandler } from "./sctpManager";
 
 const log = debug(

@@ -1,10 +1,10 @@
-import { ReceiverDirection, SenderDirections } from "../const";
-import { Event, debug } from "../imports/common";
-import { type PeerConfig, findCodecByMimeType } from "../peerConnection";
-import { type MediaDescription, codecParametersFromString } from "../sdp";
-import type { RTCDtlsTransport } from "../transport/dtls";
-import type { Kind } from "../types/domain";
-import { reverseDirection } from "../utils";
+import { ReceiverDirection, SenderDirections } from "./const";
+import { Event, debug } from "./imports/common";
+import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
+import { type MediaDescription, codecParametersFromString } from "./sdp";
+import type { RTCDtlsTransport } from "./transport/dtls";
+import type { Kind } from "./types/domain";
+import { reverseDirection } from "./utils";
 import {
   MediaStream,
   type MediaStreamTrack,
@@ -21,7 +21,7 @@ import {
   Sendonly,
   Sendrecv,
   type TransceiverOptions,
-} from ".";
+} from "./media";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
 
