@@ -64,12 +64,11 @@ export class SecureTransportHandler {
   }
 
   get dtlsTransports() {
-    const transports = this.transceiverManager
-      .getTransceivers()
-      .map((t) => t.dtlsTransport);
-    if (this.sctpHandler.sctpTransport) {
-      transports.push(this.sctpHandler.sctpTransport.dtlsTransport);
-    }
+    const transports = [
+      ...this.transceiverManager.getTransceivers().map((t) => t.dtlsTransport),
+      this.sctpHandler.sctpTransport?.dtlsTransport,
+    ].filter((t) => t != undefined);
+
     return transports.reduce((acc: RTCDtlsTransport[], cur) => {
       if (!acc.map((d) => d.id).includes(cur.id)) {
         acc.push(cur);

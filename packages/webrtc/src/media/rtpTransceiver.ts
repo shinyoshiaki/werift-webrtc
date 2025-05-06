@@ -35,13 +35,15 @@ export class RTCRtpTransceiver {
 
   constructor(
     public readonly kind: Kind,
-    dtlsTransport: RTCDtlsTransport,
+    dtlsTransport: RTCDtlsTransport | undefined,
     public receiver: RTCRtpReceiver,
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
     private _direction: MediaDirection,
   ) {
-    this.setDtlsTransport(dtlsTransport);
+    if (dtlsTransport) {
+      this.setDtlsTransport(dtlsTransport);
+    }
   }
 
   get dtlsTransport() {

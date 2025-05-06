@@ -45,7 +45,6 @@ export class TransceiverManager {
     private readonly cname: string,
     private readonly config: Required<PeerConfig>,
     private readonly router: RtpRouter,
-    private readonly createTransport: () => RTCDtlsTransport,
   ) {}
 
   getTransceivers(): RTCRtpTransceiver[] {
@@ -76,7 +75,7 @@ export class TransceiverManager {
 
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
-    dtlsTransport: RTCDtlsTransport,
+    dtlsTransport?: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
   ): RTCRtpTransceiver {
     const kind =
@@ -115,21 +114,21 @@ export class TransceiverManager {
     return newTransceiver;
   }
 
-  addTrack(track: MediaStreamTrack, ms?: MediaStream): RTCRtpSender {
+  addTrack(track: MediaStreamTrack, ms?: MediaStream): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw new Error("track exist");
     }
 
-    const emptyTrackSender = this.transceivers.find(
+    const emptyTrackSenderTransceiver = this.transceivers.find(
       (t) =>
         t.sender.track == undefined &&
         t.kind === track.kind &&
         SenderDirections.includes(t.direction) === true,
     );
-    if (emptyTrackSender) {
-      const sender = emptyTrackSender.sender;
+    if (emptyTrackSenderTransceiver) {
+      const sender = emptyTrackSenderTransceiver.sender;
       sender.registerTrack(track);
-      return sender;
+      return emptyTrackSenderTransceiver;
     }
 
     const notSendTransceiver = this.transceivers.find(
@@ -150,15 +149,12 @@ export class TransceiverManager {
           notSendTransceiver.setDirection("sendonly");
           break;
       }
-      this.onNegotiationNeeded.execute();
-      return sender;
+      return notSendTransceiver;
     } else {
-      const dtlsTransport = this.createTransport();
-      const transceiver = this.addTransceiver(track, dtlsTransport, {
+      const transceiver = this.addTransceiver(track, undefined, {
         direction: "sendrecv",
       });
-      this.onNegotiationNeeded.execute();
-      return transceiver.sender;
+      return transceiver;
     }
   }
 

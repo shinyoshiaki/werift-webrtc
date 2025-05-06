@@ -91,7 +91,6 @@ export class RTCPeerConnection extends EventTarget {
       this.cname,
       this.config,
       this.router,
-      () => this.createTransport(),
     );
     this.transceiverManager.onTransceiverAdded.subscribe((transceiver) => {
       this.onTransceiverAdded.execute(transceiver);
@@ -753,13 +752,17 @@ export class RTCPeerConnection extends EventTarget {
     track: MediaStreamTrack,
     /**todo impl */
     ms?: MediaStream,
-  ) {
+  ): RTCRtpSender {
     if (this.isClosed) {
       throw new Error("is closed");
     }
-    const sender = this.transceiverManager.addTrack(track, ms);
+    const transceiver = this.transceiverManager.addTrack(track, ms);
+    if (!transceiver.dtlsTransport) {
+      const dtlsTransport = this.createTransport();
+      transceiver.setDtlsTransport(dtlsTransport);
+    }
     this.needNegotiation();
-    return sender;
+    return transceiver.sender;
   }
 
   async createAnswer() {
