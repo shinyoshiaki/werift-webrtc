@@ -109,7 +109,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     });
 
-    this.sctpManager = new SctpTransportHandler(() => this.createTransport());
+    this.sctpManager = new SctpTransportHandler();
     this.sctpManager.onDataChannel.subscribe((channel) => {
       this.onDataChannel.execute(channel);
       const event: RTCDataChannelEvent = { channel };
@@ -278,6 +278,13 @@ export class RTCPeerConnection extends EventTarget {
     this.transceiverManager.assignTransceiverCodecs(transceiver);
   }
 
+  private createSctpTransport() {
+    const sctp = this.sctpManager.createSctpTransport();
+    const dtlsTransport = this.createTransport();
+    sctp.setDtlsTransport(dtlsTransport);
+    return sctp;
+  }
+
   createDataChannel(
     label: string,
     options: Partial<{
@@ -290,11 +297,15 @@ export class RTCPeerConnection extends EventTarget {
     }> = {},
   ): RTCDataChannel {
     if (!this.sctpTransport) {
-      this.sctpManager.createSctpTransport();
+      this.createSctpTransport();
       this.needNegotiation();
     }
 
     const channel = this.sctpManager.createDataChannel(label, options);
+    if (!channel.sctp.dtlsTransport) {
+      const dtlsTransport = this.createTransport();
+      channel.sctp.setDtlsTransport(dtlsTransport);
+    }
     return channel;
   }
 
@@ -591,7 +602,7 @@ export class RTCPeerConnection extends EventTarget {
       } else if (remoteMedia.kind === "application") {
         let sctpTransport = this.sctpTransport;
         if (!sctpTransport) {
-          sctpTransport = this.sctpManager.createSctpTransport();
+          sctpTransport = this.createSctpTransport();
           sctpTransport.mid = remoteMedia.rtp.muxId;
         }
 

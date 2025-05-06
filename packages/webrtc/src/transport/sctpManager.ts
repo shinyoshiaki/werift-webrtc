@@ -2,7 +2,6 @@ import { Event, debug } from "../imports/common";
 
 import { RTCDataChannel, RTCDataChannelParameters } from "../dataChannel";
 import type { MediaDescription } from "../sdp";
-import type { RTCDtlsTransport } from "./dtls";
 import { RTCSctpTransport } from "./sctp";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
@@ -13,12 +12,10 @@ export class SctpTransportHandler {
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
-  constructor(private readonly createTransport: () => RTCDtlsTransport) {}
+  constructor() {}
 
   createSctpTransport() {
-    const dtlsTransport = this.createTransport();
     const sctp = new RTCSctpTransport();
-    sctp.setDtlsTransport(dtlsTransport);
     sctp.mid = undefined;
 
     sctp.onDataChannel.subscribe((channel) => {

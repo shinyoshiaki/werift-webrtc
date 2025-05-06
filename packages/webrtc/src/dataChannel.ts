@@ -26,7 +26,7 @@ export class RTCDataChannel extends EventTarget {
   private _bufferedAmountLowThreshold = 0;
 
   constructor(
-    private readonly transport: RTCSctpTransport,
+    readonly sctp: RTCSctpTransport,
     private readonly parameters: RTCDataChannelParameters,
     public readonly sendOpen = true,
   ) {
@@ -40,11 +40,11 @@ export class RTCDataChannel extends EventTarget {
           "ID must be in range 0-65534 if data channel is negotiated out-of-band",
         );
       }
-      this.transport.dataChannelAddNegotiated(this);
+      this.sctp.dataChannelAddNegotiated(this);
     } else {
       if (sendOpen) {
         this.sendOpen = false;
-        this.transport.dataChannelOpen(this);
+        this.sctp.dataChannelOpen(this);
       }
     }
   }
@@ -124,11 +124,11 @@ export class RTCDataChannel extends EventTarget {
   }
 
   send(data: Buffer | string) {
-    this.transport.datachannelSend(this, data);
+    this.sctp.datachannelSend(this, data);
   }
 
   close() {
-    this.transport.dataChannelClose(this);
+    this.sctp.dataChannelClose(this);
   }
 }
 
