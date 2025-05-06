@@ -1,9 +1,15 @@
-import type { ConnectionState, RTCDtlsTransport } from "..";
-import { EventTarget } from "../helper"; // enumerate を削除
+import { SRTP_PROFILE } from "../const";
 import { Event, debug } from "../imports/common";
-import type { RTCRtpTransceiver, TransceiverManager } from "../media"; // media からインポート
+import type {
+  RTCRtpTransceiver,
+  RtpRouter,
+  TransceiverManager,
+} from "../media"; // media からインポート
 import type { PeerConfig } from "../peerConnection"; // PeerConfig をインポート
 import type { BundlePolicy, SessionDescription } from "../sdp"; // sdp からは SessionDescription のみ
+import type { ConnectionState } from "../types/domain";
+import { parseIceServers } from "../utils";
+import { type DtlsKeys, RTCCertificate, RTCDtlsTransport } from "./dtls";
 import {
   IceCandidate, // 値として import
   RTCIceGatherer,
@@ -17,38 +23,48 @@ import type {
 } from "./ice";
 import type { RTCSctpTransport } from "./sctp"; // transport/sctp からインポート
 import type { SctpTransportHandler } from "./sctpHandler";
-import { parseIceServers } from "../utils";
 
 const log = debug("werift:packages/webrtc/src/iceHandler.ts"); // log を定義
-
-// RTCPeerConnection から IceHandler に渡す設定情報
-type IceHandlerConfig = Pick<
-  Required<PeerConfig>,
-  | "iceServers"
-  | "iceTransportPolicy"
-  | "icePortRange"
-  | "iceInterfaceAddresses"
-  | "iceAdditionalHostAddresses"
-  | "iceFilterStunResponse"
-  | "iceFilterCandidatePair"
-  | "icePasswordPrefix"
-  | "iceUseIpv4"
-  | "iceUseIpv6"
-  | "forceTurnTCP"
-  | "iceUseLinkLocalAddress"
-  | "bundlePolicy" // bundlePolicy も必要
->;
 
 export class SecureTransportHandler {
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
+  certificate?: RTCCertificate;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
   readonly connectionStateChange = new Event<[ConnectionState]>();
-  private config: IceHandlerConfig;
+  private config: PeerConfig;
+  private transceiverManager: TransceiverManager;
+  private sctpHandler: SctpTransportHandler;
+  private router: RtpRouter;
+
+  constructor({
+    config,
+    transceiverManager,
+    sctpHandler,
+    router,
+  }: {
+    config: PeerConfig;
+    transceiverManager: TransceiverManager;
+    sctpHandler: SctpTransportHandler;
+    router: RtpRouter;
+  }) {
+    this.config = config;
+    this.transceiverManager = transceiverManager;
+    this.sctpHandler = sctpHandler;
+    this.router = router;
+
+    if (this.config.dtls) {
+      const { keys } = this.config.dtls;
+
+      if (keys) {
+        this.setupCertificate(keys);
+      }
+    }
+  }
 
   get dtlsTransports() {
     const transports = this.transceiverManager
@@ -65,19 +81,19 @@ export class SecureTransportHandler {
     }, []);
   }
 
-  constructor(
-    config: IceHandlerConfig,
-    private transceiverManager: TransceiverManager,
-    private sctpHandler: SctpTransportHandler,
-  ) {
-    this.config = config;
-  }
-
   get iceTransports() {
     return this.dtlsTransports.map((d) => d.iceTransport);
   }
 
-  createTransport(): RTCIceTransport {
+  setupCertificate(keys: DtlsKeys) {
+    this.certificate = new RTCCertificate(
+      keys.keyPem,
+      keys.certPem,
+      keys.signatureHash,
+    );
+  }
+
+  createTransport() {
     const [existing] = this.iceTransports;
 
     const iceGatherer = new RTCIceGatherer({
@@ -110,7 +126,16 @@ export class SecureTransportHandler {
     iceTransport.onStateChange.subscribe(() => {
       this.updateIceConnectionState();
     });
-    return iceTransport;
+
+    const dtlsTransport = new RTCDtlsTransport(
+      this.config,
+      iceTransport,
+      this.router,
+      this.certificate,
+      srtpProfiles,
+    );
+
+    return dtlsTransport;
   }
 
   handleNewIceCandidate({
@@ -356,4 +381,19 @@ export class SecureTransportHandler {
     this.connectionState = state;
     this.connectionStateChange.execute(state);
   }
+
+  async ensureCerts() {
+    if (!this.certificate) {
+      this.certificate = await RTCDtlsTransport.SetupCertificate();
+    }
+
+    for (const dtlsTransport of this.dtlsTransports) {
+      dtlsTransport.localCertificate = this.certificate;
+    }
+  }
 }
+
+const srtpProfiles = [
+  SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
+  SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
+];

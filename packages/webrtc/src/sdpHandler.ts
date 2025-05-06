@@ -23,12 +23,19 @@ export class SDPHandler {
   currentRemoteDescription?: SessionDescription;
   pendingLocalDescription?: SessionDescription;
   pendingRemoteDescription?: SessionDescription;
+  readonly cname: string;
+  readonly midSuffix: boolean;
+  readonly bundlePolicy?: BundlePolicy;
 
-  constructor(
-    readonly cname: string,
-    private midSuffix?: boolean,
-    public bundlePolicy?: BundlePolicy,
-  ) {}
+  constructor({
+    cname,
+    midSuffix,
+    bundlePolicy,
+  }: { cname: string; midSuffix?: boolean; bundlePolicy?: BundlePolicy }) {
+    this.cname = cname;
+    this.midSuffix = midSuffix ?? false;
+    this.bundlePolicy = bundlePolicy;
+  }
 
   get localDescription() {
     if (!this._localDescription) {

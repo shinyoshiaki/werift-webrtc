@@ -1,10 +1,8 @@
 import cloneDeep from "lodash/cloneDeep.js";
 import * as uuid from "uuid";
 
-import { SRTP_PROFILE } from "./const";
 import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
-import { SecureTransportHandler } from "./transport/secureTransportHandler";
 import {
   type Address,
   Event,
@@ -12,7 +10,6 @@ import {
   debug,
 } from "./imports/common";
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
-import type { SrtpProfile } from "./imports/rtp";
 import {
   type MediaStream,
   type MediaStreamTrack,
@@ -30,11 +27,7 @@ import {
 } from "./media";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPHandler } from "./sdpHandler";
-import {
-  type DtlsKeys,
-  RTCCertificate,
-  RTCDtlsTransport,
-} from "./transport/dtls";
+import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls";
 import type {
   IceGathererState,
   RTCIceCandidate,
@@ -43,6 +36,7 @@ import type {
   RTCIceTransport,
 } from "./transport/ice";
 import { SctpTransportHandler } from "./transport/sctpHandler";
+import { SecureTransportHandler } from "./transport/secureTransportHandler";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
@@ -51,7 +45,7 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
   readonly cname = uuid.v4();
-  readonly sdpHandler = new SDPHandler(this.cname);
+  readonly sdpHandler: SDPHandler;
   config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
@@ -60,7 +54,6 @@ export class RTCPeerConnection extends EventTarget {
   private readonly transceiverManager: TransceiverManager;
   private readonly sctpTransportHandler: SctpTransportHandler;
   private readonly secureTransportHandler: SecureTransportHandler;
-  private certificate?: RTCCertificate;
   private isClosed = false;
   private shouldNegotiationneeded = false;
 
@@ -87,23 +80,28 @@ export class RTCPeerConnection extends EventTarget {
     super();
 
     this.setConfiguration(config);
+
+    this.sdpHandler = new SDPHandler({
+      cname: this.cname,
+      bundlePolicy: this.config.bundlePolicy,
+    });
+
     this.transceiverManager = new TransceiverManager(
       this.cname,
       this.config,
       this.router,
-      () => this.createTransport(srtpProfiles),
+      () => this.createTransport(),
     );
 
     this.sctpTransportHandler = new SctpTransportHandler(() =>
-      this.createTransport(srtpProfiles),
+      this.createTransport(),
     );
-    this.secureTransportHandler = new SecureTransportHandler(
-      {
-        ...this.config,
-      },
-      this.transceiverManager,
-      this.sctpTransportHandler,
-    );
+    this.secureTransportHandler = new SecureTransportHandler({
+      config: this.config,
+      router: this.router,
+      sctpHandler: this.sctpTransportHandler,
+      transceiverManager: this.transceiverManager,
+    });
     this.secureTransportHandler.iceGatheringStateChange.subscribe((state) => {
       this.iceGatheringStateChange.execute(state);
     });
@@ -275,19 +273,6 @@ export class RTCPeerConnection extends EventTarget {
     ].forEach((v, i) => {
       v.id = 1 + i;
     });
-
-    if (this.config.dtls) {
-      const { keys } = this.config.dtls;
-
-      if (keys) {
-        this.certificate = new RTCCertificate(
-          keys.keyPem,
-          keys.certPem,
-          keys.signatureHash,
-        );
-      }
-    }
-    this.sdpHandler.bundlePolicy = this.config.bundlePolicy;
   }
 
   getConfiguration() {
@@ -304,7 +289,7 @@ export class RTCPeerConnection extends EventTarget {
       this.secureTransportHandler.restartIce();
     }
 
-    await this.ensureCerts();
+    await this.secureTransportHandler.ensureCerts();
 
     this.transceiverManager.getTransceivers().forEach((transceiver) => {
       if (transceiver.codecs.length === 0) {
@@ -366,7 +351,7 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport(srtpProfiles: SrtpProfile[] = []) {
+  private createTransport() {
     const [existing] = this.iceTransports;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
@@ -377,7 +362,8 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    const iceTransport = this.secureTransportHandler.createTransport();
+    const dtlsTransport = this.secureTransportHandler.createTransport();
+    const iceTransport = dtlsTransport.iceTransport;
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
@@ -415,14 +401,6 @@ export class RTCPeerConnection extends EventTarget {
         bundlePolicy: this.sdpHandler.bundlePolicy,
       });
     });
-
-    const dtlsTransport = new RTCDtlsTransport(
-      this.config,
-      iceTransport,
-      this.router,
-      this.certificate,
-      srtpProfiles,
-    );
 
     return dtlsTransport;
   }
@@ -815,20 +793,10 @@ export class RTCPeerConnection extends EventTarget {
     return sender;
   }
 
-  private async ensureCerts() {
-    if (!this.certificate) {
-      this.certificate = await RTCDtlsTransport.SetupCertificate();
-    }
-
-    for (const dtlsTransport of this.dtlsTransports) {
-      dtlsTransport.localCertificate = this.certificate;
-    }
-  }
-
   async createAnswer() {
     this.assertNotClosed();
 
-    await this.ensureCerts();
+    await this.secureTransportHandler.ensureCerts();
 
     const description = this.sdpHandler.buildAnswerSdp({
       transceivers: this.transceiverManager.getTransceivers(),
@@ -996,8 +964,3 @@ export interface RTCDataChannelEvent {
 export interface RTCPeerConnectionIceEvent {
   candidate?: RTCIceCandidate;
 }
-
-const srtpProfiles = [
-  SRTP_PROFILE.SRTP_AEAD_AES_128_GCM, // prefer
-  SRTP_PROFILE.SRTP_AES128_CM_HMAC_SHA1_80,
-];
