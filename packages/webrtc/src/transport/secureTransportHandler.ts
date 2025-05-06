@@ -39,7 +39,7 @@ type IceHandlerConfig = Pick<
   | "bundlePolicy" // bundlePolicy も必要
 >;
 
-export class IceHandler extends EventTarget {
+export class SecureTransportHandler {
   connectionState: ConnectionState = "new";
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
@@ -70,7 +70,6 @@ export class IceHandler extends EventTarget {
     private transceiverManager: TransceiverManager,
     private sctpHandler: SctpTransportHandler,
   ) {
-    super();
     this.config = config;
   }
 

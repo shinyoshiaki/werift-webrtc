@@ -4,7 +4,7 @@ import * as uuid from "uuid";
 import { SRTP_PROFILE } from "./const";
 import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
-import { IceHandler } from "./transport/iceHandler";
+import { SecureTransportHandler } from "./transport/secureTransportHandler";
 import {
   type Address,
   Event,
@@ -59,7 +59,7 @@ export class RTCPeerConnection extends EventTarget {
   private readonly router = new RtpRouter();
   private readonly transceiverManager: TransceiverManager;
   private readonly sctpTransportHandler: SctpTransportHandler;
-  private readonly iceHandler: IceHandler;
+  private readonly secureTransportHandler: SecureTransportHandler;
   private certificate?: RTCCertificate;
   private isClosed = false;
   private shouldNegotiationneeded = false;
@@ -97,27 +97,27 @@ export class RTCPeerConnection extends EventTarget {
     this.sctpTransportHandler = new SctpTransportHandler(() =>
       this.createTransport(srtpProfiles),
     );
-    this.iceHandler = new IceHandler(
+    this.secureTransportHandler = new SecureTransportHandler(
       {
         ...this.config,
       },
       this.transceiverManager,
       this.sctpTransportHandler,
     );
-    this.iceHandler.iceGatheringStateChange.subscribe((state) => {
+    this.secureTransportHandler.iceGatheringStateChange.subscribe((state) => {
       this.iceGatheringStateChange.execute(state);
     });
-    this.iceHandler.iceConnectionStateChange.subscribe((state) => {
+    this.secureTransportHandler.iceConnectionStateChange.subscribe((state) => {
       this.iceConnectionStateChange.execute(state);
     });
-    this.iceHandler.connectionStateChange.subscribe((state) => {
+    this.secureTransportHandler.connectionStateChange.subscribe((state) => {
       this.connectionStateChange.execute(state);
       if (this.onconnectionstatechange) {
         this.onconnectionstatechange();
       }
       this.emit("connectionstatechange");
     });
-    this.iceHandler.onIceCandidate.subscribe((candidate) => {
+    this.secureTransportHandler.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate.execute(candidate ? candidate.toJSON() : undefined);
       if (this.onicecandidate) {
         this.onicecandidate({
@@ -155,7 +155,7 @@ export class RTCPeerConnection extends EventTarget {
     this.iceConnectionStateChange.subscribe((state) => {
       switch (state) {
         case "disconnected":
-          this.iceHandler.setConnectionState("disconnected");
+          this.secureTransportHandler.setConnectionState("disconnected");
           break;
         case "closed":
           this.close();
@@ -165,13 +165,13 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get connectionState() {
-    return this.iceHandler.connectionState;
+    return this.secureTransportHandler.connectionState;
   }
   get iceConnectionState() {
-    return this.iceHandler.iceConnectionState;
+    return this.secureTransportHandler.iceConnectionState;
   }
   get iceGathererState() {
-    return this.iceHandler.iceGatheringState;
+    return this.secureTransportHandler.iceGatheringState;
   }
 
   get dtlsTransports() {
@@ -301,7 +301,7 @@ export class RTCPeerConnection extends EventTarget {
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
     if (iceRestart || this.needRestart) {
       this.needRestart = false;
-      this.iceHandler.restartIce();
+      this.secureTransportHandler.restartIce();
     }
 
     await this.ensureCerts();
@@ -377,7 +377,7 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    const iceTransport = this.iceHandler.createTransport();
+    const iceTransport = this.secureTransportHandler.createTransport();
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
@@ -401,7 +401,7 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
-      this.iceHandler.handleNewIceCandidate({
+      this.secureTransportHandler.handleNewIceCandidate({
         candidate,
         localDescription: this._localDescription,
         remoteIsBundled: !!this.sdpHandler.remoteIsBundled,
@@ -477,7 +477,7 @@ export class RTCPeerConnection extends EventTarget {
     const role = description.media.find((media) => media.dtlsParams)?.dtlsParams
       ?.role;
 
-    this.iceHandler.setLocalRole({
+    this.secureTransportHandler.setLocalRole({
       type: description.type,
       role,
     });
@@ -505,7 +505,7 @@ export class RTCPeerConnection extends EventTarget {
     if (description.type === "answer") {
       this.connect().catch((err) => {
         log("connect failed", err);
-        this.iceHandler.setConnectionState("failed");
+        this.secureTransportHandler.setConnectionState("failed");
       });
     }
 
@@ -523,7 +523,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async gatherCandidates() {
-    await this.iceHandler.gatherCandidates(!!this.sdpHandler.remoteIsBundled);
+    await this.secureTransportHandler.gatherCandidates(
+      !!this.sdpHandler.remoteIsBundled,
+    );
   }
 
   async addIceCandidate(
@@ -533,7 +535,7 @@ export class RTCPeerConnection extends EventTarget {
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
-    await this.iceHandler.addIceCandidate(sdp, candidateMessage);
+    await this.secureTransportHandler.addIceCandidate(sdp, candidateMessage);
   }
 
   private async connect() {
@@ -551,7 +553,7 @@ export class RTCPeerConnection extends EventTarget {
           return;
         }
 
-        this.iceHandler.setConnectionState("connecting");
+        this.secureTransportHandler.setConnectionState("connecting");
 
         await iceTransport.start().catch((err) => {
           log("iceTransport.start failed", err);
@@ -577,9 +579,9 @@ export class RTCPeerConnection extends EventTarget {
     );
 
     if (res.find((r) => r.status === "rejected")) {
-      this.iceHandler.setConnectionState("failed");
+      this.secureTransportHandler.setConnectionState("failed");
     } else {
-      this.iceHandler.setConnectionState("connected");
+      this.secureTransportHandler.setConnectionState("connected");
     }
   }
 
@@ -726,7 +728,7 @@ export class RTCPeerConnection extends EventTarget {
       log("caller start connect");
       this.connect().catch((err) => {
         log("connect failed", err);
-        this.iceHandler.setConnectionState("failed");
+        this.secureTransportHandler.setConnectionState("failed");
       });
     }
 
@@ -781,7 +783,7 @@ export class RTCPeerConnection extends EventTarget {
       options,
     );
 
-    this.iceHandler.updateIceConnectionState();
+    this.secureTransportHandler.updateIceConnectionState();
     this.needNegotiation();
 
     return transceiver;
@@ -841,7 +843,7 @@ export class RTCPeerConnection extends EventTarget {
 
     this.isClosed = true;
     this.setSignalingState("closed");
-    this.iceHandler.setConnectionState("closed");
+    this.secureTransportHandler.setConnectionState("closed");
 
     this.transceiverManager.getTransceivers().forEach((transceiver) => {
       transceiver.receiver.stop();
