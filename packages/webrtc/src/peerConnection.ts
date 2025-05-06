@@ -157,18 +157,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get dtlsTransports() {
-    const transports = this.transceiverManager
-      .getTransceivers()
-      .map((t) => t.dtlsTransport);
-    if (this.sctpManager.sctpTransport) {
-      transports.push(this.sctpManager.sctpTransport.dtlsTransport);
-    }
-    return transports.reduce((acc: RTCDtlsTransport[], cur) => {
-      if (!acc.map((d) => d.id).includes(cur.id)) {
-        acc.push(cur);
-      }
-      return acc;
-    }, []);
+    return this.secureManager.dtlsTransports;
   }
 
   get sctpTransport() {
@@ -180,7 +169,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get iceTransports() {
-    return this.dtlsTransports.map((d) => d.iceTransport);
+    return this.secureManager.iceTransports;
   }
 
   get extIdUriMap() {
@@ -192,17 +181,11 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   get localDescription() {
-    if (!this._localDescription) {
-      return undefined;
-    }
-    return this._localDescription.toJSON();
+    return this.sdpManager.localDescription;
   }
 
   get remoteDescription() {
-    if (!this._remoteDescription) {
-      return undefined;
-    }
-    return this._remoteDescription.toJSON();
+    return this.sdpManager.remoteDescription;
   }
 
   /**@private */
@@ -740,8 +723,10 @@ export class RTCPeerConnection extends EventTarget {
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {},
   ) {
+    const dtlsTransport = this.createTransport();
     const transceiver = this.transceiverManager.addTransceiver(
       trackOrKind,
+      dtlsTransport,
       options,
     );
 

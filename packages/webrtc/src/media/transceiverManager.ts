@@ -76,14 +76,13 @@ export class TransceiverManager {
 
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
+    dtlsTransport: RTCDtlsTransport,
     options: Partial<TransceiverOptions> = {},
   ): RTCRtpTransceiver {
     const kind =
       typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
 
     const direction = options.direction || "sendrecv";
-
-    const dtlsTransport = this.createTransport();
 
     const sender = new RTCRtpSender(trackOrKind);
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
@@ -154,7 +153,8 @@ export class TransceiverManager {
       this.onNegotiationNeeded.execute();
       return sender;
     } else {
-      const transceiver = this.addTransceiver(track, {
+      const dtlsTransport = this.createTransport();
+      const transceiver = this.addTransceiver(track, dtlsTransport, {
         direction: "sendrecv",
       });
       this.onNegotiationNeeded.execute();
