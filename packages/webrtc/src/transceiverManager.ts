@@ -116,7 +116,7 @@ export class TransceiverManager {
 
   addTrack(track: MediaStreamTrack, ms?: MediaStream): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
-      throw new Error("track exist");
+      throw new Error("Track already added");
     }
 
     const emptyTrackSenderTransceiver = this.transceivers.find(
