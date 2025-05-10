@@ -35,24 +35,20 @@ export class SecureTransportManager {
   readonly connectionStateChange = new Event<[ConnectionState]>();
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
-  private sctpHandler: SctpTransportManager;
-  private router: RtpRouter;
+  private sctpManager: SctpTransportManager;
 
   constructor({
     config,
     transceiverManager,
-    sctpHandler,
-    router,
+    sctpManager,
   }: {
     config: PeerConfig;
     transceiverManager: TransceiverManager;
-    sctpHandler: SctpTransportManager;
-    router: RtpRouter;
+    sctpManager: SctpTransportManager;
   }) {
     this.config = config;
     this.transceiverManager = transceiverManager;
-    this.sctpHandler = sctpHandler;
-    this.router = router;
+    this.sctpManager = sctpManager;
 
     if (this.config.dtls) {
       const { keys } = this.config.dtls;
@@ -66,7 +62,7 @@ export class SecureTransportManager {
   get dtlsTransports() {
     const transports = [
       ...this.transceiverManager.getTransceivers().map((t) => t.dtlsTransport),
-      this.sctpHandler.sctpTransport?.dtlsTransport,
+      this.sctpManager.sctpTransport?.dtlsTransport,
     ].filter((t) => t != undefined);
 
     return transports.reduce((acc: RTCDtlsTransport[], cur) => {
@@ -126,7 +122,6 @@ export class SecureTransportManager {
     const dtlsTransport = new RTCDtlsTransport(
       this.config,
       iceTransport,
-      this.router,
       this.certificate,
       srtpProfiles,
     );
@@ -219,8 +214,8 @@ export class SecureTransportManager {
       .find((t) => t.mid === mid);
     if (transceiver) {
       iceTransport = transceiver.dtlsTransport.iceTransport;
-    } else if (!iceTransport && this.sctpHandler.sctpTransport?.mid === mid) {
-      iceTransport = this.sctpHandler.sctpTransport.dtlsTransport.iceTransport;
+    } else if (!iceTransport && this.sctpManager.sctpTransport?.mid === mid) {
+      iceTransport = this.sctpManager.sctpTransport.dtlsTransport.iceTransport;
     }
 
     return iceTransport;
@@ -340,14 +335,6 @@ export class SecureTransportManager {
     this.iceConnectionStateChange.execute(newState);
   }
 
-  async close() {
-    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
-    // イベントリスナーなどもここで解除
-    this.iceGatheringStateChange.allUnsubscribe();
-    this.iceConnectionStateChange.allUnsubscribe();
-    this.onIceCandidate.allUnsubscribe();
-  }
-
   async gatherCandidates(remoteIsBundled: boolean) {
     const connected = this.iceTransports.find(
       (transport) =>
@@ -380,6 +367,14 @@ export class SecureTransportManager {
     for (const dtlsTransport of this.dtlsTransports) {
       dtlsTransport.localCertificate = this.certificate;
     }
+  }
+
+  async close() {
+    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
+    // イベントリスナーなどもここで解除
+    this.iceGatheringStateChange.allUnsubscribe();
+    this.iceConnectionStateChange.allUnsubscribe();
+    this.onIceCandidate.allUnsubscribe();
   }
 }
 

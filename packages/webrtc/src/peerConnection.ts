@@ -122,8 +122,7 @@ export class RTCPeerConnection extends EventTarget {
     });
     this.secureManager = new SecureTransportManager({
       config: this.config,
-      router: this.router,
-      sctpHandler: this.sctpManager,
+      sctpManager: this.sctpManager,
       transceiverManager: this.transceiverManager,
     });
     this.secureManager.iceGatheringStateChange.pipe(
@@ -339,6 +338,12 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     const dtlsTransport = this.secureManager.createTransport();
+    dtlsTransport.onRtp.subscribe((rtp) => {
+      this.router.routeRtp(rtp);
+    });
+    dtlsTransport.onRtcp.subscribe((rtcp) => {
+      this.router.routeRtcp(rtcp);
+    });
     const iceTransport = dtlsTransport.iceTransport;
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
@@ -751,6 +756,21 @@ export class RTCPeerConnection extends EventTarget {
     return description.toJSON();
   }
 
+  private assertNotClosed() {
+    if (this.isClosed) {
+      throw new Error("RTCPeerConnection is closed");
+    }
+  }
+
+  private setSignalingState(state: RTCSignalingState) {
+    log("signalingStateChange", state);
+    this.signalingState = state;
+    this.signalingStateChange.execute(state);
+    if (this.onsignalingstatechange) {
+      this.onsignalingstatechange({});
+    }
+  }
+
   async close() {
     if (this.isClosed) return;
 
@@ -769,21 +789,6 @@ export class RTCPeerConnection extends EventTarget {
     this.onRemoteTransceiverAdded.allUnsubscribe();
     this.onIceCandidate.allUnsubscribe();
     log("peerConnection closed");
-  }
-
-  private assertNotClosed() {
-    if (this.isClosed) {
-      throw new Error("RTCPeerConnection is closed");
-    }
-  }
-
-  private setSignalingState(state: RTCSignalingState) {
-    log("signalingStateChange", state);
-    this.signalingState = state;
-    this.signalingStateChange.execute(state);
-    if (this.onsignalingstatechange) {
-      this.onsignalingstatechange({});
-    }
   }
 }
 
