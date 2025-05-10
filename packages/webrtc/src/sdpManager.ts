@@ -15,7 +15,6 @@ import { RTCSctpTransport } from "./transport/sctp";
 import { andDirection } from "./utils";
 
 export class SDPManager {
-  seenMid = new Set<string>();
   currentLocalDescription?: SessionDescription;
   currentRemoteDescription?: SessionDescription;
   pendingLocalDescription?: SessionDescription;
@@ -23,6 +22,8 @@ export class SDPManager {
   readonly cname: string;
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
+
+  private seenMid = new Set<string>();
 
   constructor({
     cname,
@@ -280,23 +281,23 @@ export class SDPManager {
     });
 
     // # handle new transceivers / sctp
-    transceivers
-      .filter((t) => !description.media.find((m) => m.rtp.muxId === t.mid))
-      .forEach((transceiver) => {
-        if (transceiver.mid == undefined) {
-          transceiver.mid = this.allocateMid(this.midSuffix ? "av" : "");
-        }
-        const mediaDescription = this.createMediaDescriptionForTransceiver(
-          transceiver,
-          transceiver.direction,
-        );
-        if (transceiver.mLineIndex === undefined) {
-          transceiver.mLineIndex = description.media.length;
-          description.media.push(mediaDescription);
-        } else {
-          description.media[transceiver.mLineIndex] = mediaDescription;
-        }
-      });
+    for (const transceiver of transceivers.filter(
+      (t) => !description.media.find((m) => m.rtp.muxId === t.mid),
+    )) {
+      if (transceiver.mid == undefined) {
+        transceiver.mid = this.allocateMid(this.midSuffix ? "av" : "");
+      }
+      const mediaDescription = this.createMediaDescriptionForTransceiver(
+        transceiver,
+        transceiver.direction,
+      );
+      if (transceiver.mLineIndex === undefined) {
+        transceiver.mLineIndex = description.media.length;
+        description.media.push(mediaDescription);
+      } else {
+        description.media[transceiver.mLineIndex] = mediaDescription;
+      }
+    }
 
     if (
       sctpTransport &&
@@ -347,7 +348,7 @@ export class SDPManager {
     const description = new SessionDescription();
     addSDPHeader("answer", description);
 
-    this._remoteDescription.media.forEach((remoteMedia) => {
+    for (const remoteMedia of this._remoteDescription.media) {
       let dtlsTransport!: RTCDtlsTransport;
       let media: MediaDescription;
 
@@ -399,7 +400,7 @@ export class SDPManager {
       }
 
       description.media.push(media);
-    });
+    }
 
     if (this.bundlePolicy !== "disable") {
       const bundle = new GroupDescription("BUNDLE", []);
@@ -454,18 +455,8 @@ export class SDPManager {
     return remoteSdp;
   }
 
-  /**
-   * 既存のMIDを登録
-   */
   registerMid(mid: string): void {
     this.seenMid.add(mid);
-  }
-
-  /**
-   * 登録されているMIDをクリア
-   */
-  clearMids(): void {
-    this.seenMid.clear();
   }
 
   get remoteIsBundled() {

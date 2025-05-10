@@ -323,9 +323,9 @@ export class TransceiverManager {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
 
       // register simulcast receiver
-      remoteMedia.simulcastParameters.forEach((param) => {
+      for (const param of remoteMedia.simulcastParameters) {
         this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
-      });
+      }
 
       transceiver.receiver.prepareReceive(remotePrams);
       // register ssrc receiver

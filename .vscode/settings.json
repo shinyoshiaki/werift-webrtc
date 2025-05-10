@@ -52,6 +52,7 @@
     "rtpfb",
     "rttvar",
     "rwnd",
+    "SAVPF",
     "sctp",
     "sendonly",
     "sendrecv",

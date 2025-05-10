@@ -425,7 +425,7 @@ export class RTCPeerConnection extends EventTarget {
     // # assign MID
     for (const [i, media] of enumerate(description.media)) {
       const mid = media.rtp.muxId!;
-      this.sdpManager.seenMid.add(mid);
+      this.sdpManager.registerMid(mid);
       if (["audio", "video"].includes(media.kind)) {
         const transceiver =
           this.transceiverManager.getTransceiverByMLineIndex(i);

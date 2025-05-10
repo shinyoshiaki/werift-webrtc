@@ -17,10 +17,7 @@ export class SctpTransportManager {
   createSctpTransport() {
     const sctp = new RTCSctpTransport();
     sctp.mid = undefined;
-
-    sctp.onDataChannel.subscribe((channel) => {
-      this.onDataChannel.execute(channel);
-    });
+    sctp.onDataChannel.pipe(this.onDataChannel);
 
     this.sctpTransport = sctp;
 
