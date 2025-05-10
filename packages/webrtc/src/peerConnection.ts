@@ -190,6 +190,18 @@ export class RTCPeerConnection extends EventTarget {
     return this.sdpManager._remoteDescription;
   }
 
+  getTransceivers() {
+    return this.transceiverManager.getTransceivers();
+  }
+
+  getSenders(): RTCRtpSender[] {
+    return this.transceiverManager.getSenders();
+  }
+
+  getReceivers() {
+    return this.transceiverManager.getReceivers();
+  }
+
   setConfiguration(config: Partial<PeerConfig>) {
     deepMerge(this.config, config);
 
@@ -238,10 +250,6 @@ export class RTCPeerConnection extends EventTarget {
     return this.config;
   }
 
-  private getTransceiverByMLineIndex(index: number) {
-    return this.transceiverManager.getTransceiverByMLineIndex(index);
-  }
-
   async createOffer({ iceRestart }: { iceRestart?: boolean } = {}) {
     if (iceRestart || this.needRestart) {
       this.needRestart = false;
@@ -269,7 +277,7 @@ export class RTCPeerConnection extends EventTarget {
 
   private createSctpTransport() {
     const sctp = this.sctpManager.createSctpTransport();
-    const dtlsTransport = this.createTransport();
+    const dtlsTransport = this.findOrCreateTransport();
     sctp.setDtlsTransport(dtlsTransport);
     return sctp;
   }
@@ -292,7 +300,7 @@ export class RTCPeerConnection extends EventTarget {
 
     const channel = this.sctpManager.createDataChannel(label, options);
     if (!channel.sctp.dtlsTransport) {
-      const dtlsTransport = this.createTransport();
+      const dtlsTransport = this.findOrCreateTransport();
       channel.sctp.setDtlsTransport(dtlsTransport);
     }
     return channel;
@@ -319,7 +327,7 @@ export class RTCPeerConnection extends EventTarget {
     });
   };
 
-  private createTransport() {
+  private findOrCreateTransport() {
     const [existing] = this.iceTransports;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
@@ -355,10 +363,16 @@ export class RTCPeerConnection extends EventTarget {
         return;
       }
 
+      if (!this._localDescription) {
+        log("localDescription not found when ice candidate was gathered");
+        return;
+      }
+
       this.secureManager.handleNewIceCandidate({
         candidate,
-        localDescription: this._localDescription,
+        bundlePolicy: this.sdpManager.bundlePolicy,
         remoteIsBundled: !!this.sdpManager.remoteIsBundled,
+        media: this._localDescription.media[0],
         transceiver: this.transceiverManager
           .getTransceivers()
           .find((t) => t.dtlsTransport.iceTransport.id === iceTransport.id),
@@ -366,7 +380,6 @@ export class RTCPeerConnection extends EventTarget {
           this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
             ? this.sctpTransport
             : undefined,
-        bundlePolicy: this.sdpManager.bundlePolicy,
       });
     });
 
@@ -409,7 +422,8 @@ export class RTCPeerConnection extends EventTarget {
       const mid = media.rtp.muxId!;
       this.sdpManager.seenMid.add(mid);
       if (["audio", "video"].includes(media.kind)) {
-        const transceiver = this.getTransceiverByMLineIndex(i);
+        const transceiver =
+          this.transceiverManager.getTransceiverByMLineIndex(i);
         if (transceiver) {
           transceiver.mid = mid;
         }
@@ -589,7 +603,12 @@ export class RTCPeerConnection extends EventTarget {
 
         dtlsTransport = transceiver.dtlsTransport;
 
-        this.setRemoteRTP(transceiver, remoteMedia, remoteSdp.type, i);
+        this.transceiverManager.setRemoteRTP(
+          transceiver,
+          remoteMedia,
+          remoteSdp.type,
+          i,
+        );
       } else if (remoteMedia.kind === "application") {
         let sctpTransport = this.sctpTransport;
         if (!sctpTransport) {
@@ -607,7 +626,7 @@ export class RTCPeerConnection extends EventTarget {
 
         dtlsTransport = sctpTransport.dtlsTransport;
 
-        this.setRemoteSCTP(remoteMedia, i);
+        this.sctpManager.setRemoteSCTP(remoteMedia, i);
       } else {
         throw new Error("invalid media kind");
       }
@@ -684,29 +703,11 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
-  private setRemoteRTP(
-    transceiver: RTCRtpTransceiver,
-    remoteMedia: MediaDescription,
-    type: "offer" | "answer",
-    mLineIndex: number,
-  ) {
-    this.transceiverManager.setRemoteRTP(
-      transceiver,
-      remoteMedia,
-      type,
-      mLineIndex,
-    );
-  }
-
-  private setRemoteSCTP(remoteMedia: MediaDescription, mLineIndex: number) {
-    this.sctpManager.setRemoteSCTP(remoteMedia, mLineIndex);
-  }
-
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     options: Partial<TransceiverOptions> = {},
   ) {
-    const dtlsTransport = this.createTransport();
+    const dtlsTransport = this.findOrCreateTransport();
     const transceiver = this.transceiverManager.addTransceiver(
       trackOrKind,
       dtlsTransport,
@@ -717,18 +718,6 @@ export class RTCPeerConnection extends EventTarget {
     this.needNegotiation();
 
     return transceiver;
-  }
-
-  getTransceivers() {
-    return this.transceiverManager.getTransceivers();
-  }
-
-  getSenders(): RTCRtpSender[] {
-    return this.transceiverManager.getSenders();
-  }
-
-  getReceivers() {
-    return this.transceiverManager.getReceivers();
   }
 
   // todo fix
@@ -742,7 +731,7 @@ export class RTCPeerConnection extends EventTarget {
     }
     const transceiver = this.transceiverManager.addTrack(track, ms);
     if (!transceiver.dtlsTransport) {
-      const dtlsTransport = this.createTransport();
+      const dtlsTransport = this.findOrCreateTransport();
       transceiver.setDtlsTransport(dtlsTransport);
     }
     this.needNegotiation();

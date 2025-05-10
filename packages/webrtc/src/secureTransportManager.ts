@@ -2,7 +2,7 @@ import { SRTP_PROFILE } from "./const";
 import { Event, debug } from "./imports/common";
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
 import type { PeerConfig } from "./peerConnection";
-import type { BundlePolicy, SessionDescription } from "./sdp";
+import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import type { ConnectionState } from "./types/domain";
 import { parseIceServers } from "./utils";
 import {
@@ -136,28 +136,22 @@ export class SecureTransportManager {
 
   handleNewIceCandidate({
     candidate,
-    localDescription,
+    media,
     remoteIsBundled,
     transceiver,
     sctpTransport,
     bundlePolicy,
   }: {
     candidate: IceCandidate;
-    localDescription?: SessionDescription;
+    media?: MediaDescription;
     remoteIsBundled: boolean;
     transceiver?: RTCRtpTransceiver;
     sctpTransport?: RTCSctpTransport;
     bundlePolicy?: BundlePolicy;
   }) {
-    if (!localDescription) {
-      log("localDescription not found when ice candidate was gathered");
-      return;
-    }
-
     // Assign sdpMid and sdpMLineIndex
     if (bundlePolicy === "max-bundle" || remoteIsBundled) {
       candidate.sdpMLineIndex = 0;
-      const media = localDescription?.media[0];
       if (media) {
         candidate.sdpMid = media.rtp.muxId;
       }
