@@ -115,7 +115,6 @@ export class SecureTransportManager {
     this.updateIceGatheringState();
 
     const iceTransport = new RTCIceTransport(iceGatherer);
-    this.iceTransports.push(iceTransport);
     iceTransport.onStateChange.subscribe(() => {
       this.updateIceConnectionState();
     });
