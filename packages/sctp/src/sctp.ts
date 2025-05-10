@@ -45,13 +45,12 @@ import {
   SCTP_TSN_MODULO,
   USERDATA_MAX_LENGTH,
 } from "./const";
-import { type Unpacked, createEventsFromList, enumerate } from "./helper";
+import { type Unpacked, createEventsFromList } from "./helper";
 import {
   Event,
   debug,
   random32,
   uint16Add,
-  uint16Gt,
   uint32Gt,
   uint32Gte,
 } from "./imports/common";
@@ -150,9 +149,6 @@ export class SCTP {
 
   /**Re-configuration Timer */
   private timerManager: SCTPTimerManager;
-  private timerReconfigHandle?: any;
-  private timerReconfigFailures = 0;
-
   // etc
   private ssthresh?: number; // slow start threshold
 
@@ -174,11 +170,11 @@ export class SCTP {
       },
       onT3Expired: () => {
         // # mark retransmit or abandoned chunks
-        this.sentQueue.forEach((chunk) => {
+        for (const chunk of this.sentQueue) {
           if (!this.maybeAbandon(chunk)) {
             chunk.retransmit = true;
           }
-        });
+        }
         this.updateAdvancedPeerAckPoint();
 
         // # adjust congestion window
@@ -194,10 +190,20 @@ export class SCTP {
 
         this.transmit();
       },
-      onReconfigExpired: () => {},
-      sendChunk: async (chunk) => {},
-      maxInitRetrans: SCTP_MAX_INIT_RETRANS,
-      maxAssociationRetrans: SCTP_MAX_ASSOCIATION_RETRANS,
+      onReconfigExpired: async (reconfigFailures) => {
+        if (reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
+          log("timerReconfigFailures", reconfigFailures);
+          this.setState(SCTP_STATE.CLOSED);
+        } else if (this.reconfigRequest) {
+          log("timerReconfigHandleExpired", reconfigFailures, this.rto);
+          await this.sendReconfigParam(this.reconfigRequest);
+
+          this.timerManager.scheduleNextReconfigTimer();
+        }
+      },
+      sendChunk: async (chunk) => {
+        await this.sendChunk(chunk);
+      },
     });
   }
 
@@ -535,7 +541,7 @@ export class SCTP {
             this.onReconfigStreams.execute(streamIds);
 
             this.reconfigRequest = undefined;
-            this.timerReconfigCancel();
+            this.timerManager.cancelReconfigTimer();
             if (this.reconfigQueue.length > 0) {
               await this.transmitReconfigRequest();
             }
@@ -934,7 +940,7 @@ export class SCTP {
 
       this.reconfigRequest = param;
       await this.sendReconfigParam(param);
-      this.timerReconfigHandleStart();
+      this.timerManager.startReconfigTimer();
     }
   }
 
@@ -964,46 +970,6 @@ export class SCTP {
 
   private flightSizeDecrease(chunk: DataChunk) {
     this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
-  }
-
-  /**Re-configuration Timer */
-  private timerReconfigHandleStart() {
-    if (this.timerReconfigHandle) return;
-    log("timerReconfigHandleStart", { rto: this.rto });
-    this.timerReconfigFailures = 0;
-    this.timerReconfigHandle = setTimeout(
-      this.timerReconfigHandleExpired,
-      this.rto * 1000,
-    );
-  }
-
-  private timerReconfigHandleExpired = async () => {
-    this.timerReconfigFailures++;
-    // back off
-    this.rto = Math.ceil(this.rto * 1.5);
-
-    if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
-      log("timerReconfigFailures", this.timerReconfigFailures);
-      this.setState(SCTP_STATE.CLOSED);
-
-      this.timerReconfigHandle = undefined;
-    } else if (this.reconfigRequest) {
-      log("timerReconfigHandleExpired", this.timerReconfigFailures, this.rto);
-      await this.sendReconfigParam(this.reconfigRequest);
-
-      this.timerReconfigHandle = setTimeout(
-        this.timerReconfigHandleExpired,
-        this.rto * 1000,
-      );
-    }
-  };
-
-  private timerReconfigCancel() {
-    if (this.timerReconfigHandle) {
-      log("timerReconfigCancel");
-      clearTimeout(this.timerReconfigHandle);
-      this.timerReconfigHandle = undefined;
-    }
   }
 
   private updateAdvancedPeerAckPoint() {
@@ -1143,7 +1109,6 @@ export class SCTP {
       this.setConnectionState("connected");
     } else if (state === SCTP_STATE.CLOSED) {
       this.timerManager.cancelAllTimers();
-      this.timerReconfigCancel();
       this.setConnectionState("closed");
       this.removeAllListeners();
     }
@@ -1161,7 +1126,6 @@ export class SCTP {
     }
     this.setState(SCTP_STATE.CLOSED);
     this.timerManager.cancelAllTimers();
-    clearTimeout(this.timerReconfigHandle);
     this.transport.close();
   }
 
@@ -1173,7 +1137,9 @@ export class SCTP {
   }
 
   private removeAllListeners() {
-    Object.values(this.stateChanged).forEach((v) => v.allUnsubscribe());
+    for (const s of Object.values(this.stateChanged)) {
+      s.allUnsubscribe();
+    }
   }
 }
 

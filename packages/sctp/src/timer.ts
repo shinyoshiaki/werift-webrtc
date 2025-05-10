@@ -1,4 +1,5 @@
 import type { Chunk } from "./chunk";
+import { SCTP_MAX_ASSOCIATION_RETRANS, SCTP_MAX_INIT_RETRANS } from "./const";
 import { debug } from "./imports/common";
 
 const log = debug("werift/sctp/timer");
@@ -27,8 +28,6 @@ export class SCTPTimerManager {
   private t2Failures = 0;
   private reconfigFailures = 0;
   private rto: number;
-  private maxInitRetrans: number;
-  private maxAssociationRetrans: number;
   private onT1Expired: (failures: number) => void;
   private onT2Expired: (failures: number) => void;
   private onT3Expired: () => void;
@@ -42,8 +41,6 @@ export class SCTPTimerManager {
     onT3Expired,
     onReconfigExpired,
     sendChunk,
-    maxInitRetrans,
-    maxAssociationRetrans,
   }: {
     rto: number;
     onT1Expired: (failures: number) => void;
@@ -51,8 +48,6 @@ export class SCTPTimerManager {
     onT3Expired: () => void;
     onReconfigExpired: (failures: number) => void;
     sendChunk: (chunk: Chunk) => Promise<void>;
-    maxInitRetrans: number;
-    maxAssociationRetrans: number;
   }) {
     this.rto = rto;
     this.onT1Expired = onT1Expired;
@@ -60,8 +55,6 @@ export class SCTPTimerManager {
     this.onT3Expired = onT3Expired;
     this.onReconfigExpired = onReconfigExpired;
     this.sendChunk = sendChunk;
-    this.maxInitRetrans = maxInitRetrans;
-    this.maxAssociationRetrans = maxAssociationRetrans;
   }
 
   /**
@@ -124,7 +117,7 @@ export class SCTPTimerManager {
     this.t1Failures++;
     this.t1Handle = undefined;
 
-    if (this.t1Failures > this.maxInitRetrans) {
+    if (this.t1Failures > SCTP_MAX_INIT_RETRANS) {
       this.onT1Expired(this.t1Failures);
     } else {
       setImmediate(() => {
@@ -164,7 +157,7 @@ export class SCTPTimerManager {
     this.t2Failures++;
     this.t2Handle = undefined;
 
-    if (this.t2Failures > this.maxAssociationRetrans) {
+    if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
       this.onT2Expired(this.t2Failures);
     } else {
       setImmediate(() => {
@@ -241,10 +234,14 @@ export class SCTPTimerManager {
    */
   private reconfigTimerExpired() {
     this.reconfigFailures++;
-    this.onReconfigExpired(this.reconfigFailures);
+    // back off
+    this.rto = Math.ceil(this.rto * 1.5);
 
-    // タイマーハンドルをクリア（コールバック内で必要に応じて再スタートする）
-    this.reconfigHandle = undefined;
+    if (this.reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
+      this.reconfigHandle = undefined;
+    }
+
+    this.onReconfigExpired(this.reconfigFailures);
   }
 
   /**
