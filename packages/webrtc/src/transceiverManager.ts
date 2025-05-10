@@ -361,5 +361,10 @@ export class TransceiverManager {
       transceiver.receiver.stop();
       transceiver.sender.stop();
     }
+
+    this.onTransceiverAdded.allUnsubscribe();
+    this.onRemoteTransceiverAdded.allUnsubscribe();
+    this.onTrack.allUnsubscribe();
+    this.onNegotiationNeeded.allUnsubscribe();
   }
 }

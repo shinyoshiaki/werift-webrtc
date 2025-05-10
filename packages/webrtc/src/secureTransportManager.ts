@@ -33,6 +33,7 @@ export class SecureTransportManager {
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
   readonly connectionStateChange = new Event<[ConnectionState]>();
+
   private config: PeerConfig;
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
@@ -371,10 +372,11 @@ export class SecureTransportManager {
 
   async close() {
     await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
-    // イベントリスナーなどもここで解除
+
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
     this.onIceCandidate.allUnsubscribe();
+    this.connectionStateChange.allUnsubscribe();
   }
 }
 

@@ -96,5 +96,7 @@ export class SctpTransportManager {
     if (this.sctpTransport) {
       await this.sctpTransport.stop();
     }
+
+    this.onDataChannel.allUnsubscribe();
   }
 }

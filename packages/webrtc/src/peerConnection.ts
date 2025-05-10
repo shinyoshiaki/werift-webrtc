@@ -788,6 +788,7 @@ export class RTCPeerConnection extends EventTarget {
     this.onTransceiverAdded.allUnsubscribe();
     this.onRemoteTransceiverAdded.allUnsubscribe();
     this.onIceCandidate.allUnsubscribe();
+
     log("peerConnection closed");
   }
 }
