@@ -160,13 +160,13 @@ export class TransceiverManager {
 
   removeTrack(sender: RTCRtpSender): void {
     if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
-      throw new Error("unExist");
+      throw new Error("Sender does not exist");
     }
 
     const transceiver = this.transceivers.find(
       ({ sender: { ssrc } }) => sender.ssrc === ssrc,
     );
-    if (!transceiver) throw new Error("unExist");
+    if (!transceiver) throw new Error("No matching transceiver found");
 
     sender.stop();
 
