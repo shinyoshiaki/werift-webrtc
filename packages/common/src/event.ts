@@ -112,6 +112,12 @@ export class Event<T extends any[]> {
     return { unSubscribe, disposer };
   };
 
+  pipe(e: Event<T>) {
+    this.subscribe((...args) => {
+      e.execute(...args);
+    });
+  }
+
   queuingSubscribe = (
     execute: PromiseEventExecute<T>,
     complete?: EventComplete,

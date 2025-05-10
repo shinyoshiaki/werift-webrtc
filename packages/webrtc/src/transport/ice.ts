@@ -11,7 +11,6 @@ import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
-
 /**
  *                                          +------------+
                                             |            |
@@ -34,7 +33,6 @@ const log = debug("werift:packages/webrtc/src/transport/ice.ts");
                 |       |      
                 +-------+      
  */
-
 
 export class RTCIceTransport {
   readonly id = v4();

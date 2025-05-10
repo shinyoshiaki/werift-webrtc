@@ -30,7 +30,6 @@ import {
   keyLength,
   saltLength,
 } from "../imports/rtp";
-import type { RtpRouter } from "../media/router";
 import type { PeerConfig } from "../peerConnection";
 import { fingerprint, isDtls } from "../utils";
 import type { RTCIceTransport } from "./ice";
@@ -50,6 +49,8 @@ export class RTCDtlsTransport {
   srtcp!: SrtcpSession;
 
   readonly onStateChange = new Event<[DtlsState]>();
+  readonly onRtcp = new Event<[RtcpPacket]>();
+  readonly onRtp = new Event<[RtpPacket]>();
 
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
@@ -58,7 +59,6 @@ export class RTCDtlsTransport {
   constructor(
     readonly config: PeerConfig,
     readonly iceTransport: RTCIceTransport,
-    readonly router: RtpRouter,
     public localCertificate?: RTCCertificate,
     private readonly srtpProfiles: SrtpProfile[] = [],
   ) {
@@ -227,15 +227,21 @@ export class RTCDtlsTransport {
       if (!isMedia(data)) return;
       if (isRtcp(data)) {
         const dec = this.srtcp.decrypt(data);
-        const rtcps = RtcpPacketConverter.deSerialize(dec);
-        rtcps.forEach((rtcp) => this.router.routeRtcp(rtcp));
+        const rtcpPackets = RtcpPacketConverter.deSerialize(dec);
+        for (const rtcp of rtcpPackets) {
+          try {
+            this.onRtcp.execute(rtcp);
+          } catch (error) {
+            log("RTCP error", error);
+          }
+        }
       } else {
         const dec = this.srtp.decrypt(data);
         const rtp = RtpPacket.deSerialize(dec);
         try {
-          this.router.routeRtp(rtp);
+          this.onRtp.execute(rtp);
         } catch (error) {
-          log("router error", error);
+          log("RTP error", error);
         }
       }
     });
@@ -298,6 +304,7 @@ export class RTCDtlsTransport {
   async stop() {
     this.setState("closed");
     // todo impl send alert
+    await this.iceTransport.stop();
   }
 }
 
