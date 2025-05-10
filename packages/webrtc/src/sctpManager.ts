@@ -95,7 +95,7 @@ export class SctpTransportManager {
     }
   }
 
-  async stop() {
+  async close() {
     if (this.sctpTransport) {
       await this.sctpTransport.stop();
     }

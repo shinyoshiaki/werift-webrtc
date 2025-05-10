@@ -757,19 +757,17 @@ export class RTCPeerConnection extends EventTarget {
     this.isClosed = true;
     this.setSignalingState("closed");
 
-    this.transceiverManager.getTransceivers().forEach((transceiver) => {
-      transceiver.receiver.stop();
-      transceiver.sender.stop();
-    });
+    await this.secureManager.close();
+    await this.sctpManager.close();
+    this.transceiverManager.close();
 
-    await this.sctpManager.stop();
-
-    for (const dtlsTransport of this.dtlsTransports) {
-      await dtlsTransport.stop();
-      await dtlsTransport.iceTransport.stop();
-    }
-
-    this.dispose();
+    this.onDataChannel.allUnsubscribe();
+    this.iceGatheringStateChange.allUnsubscribe();
+    this.iceConnectionStateChange.allUnsubscribe();
+    this.signalingStateChange.allUnsubscribe();
+    this.onTransceiverAdded.allUnsubscribe();
+    this.onRemoteTransceiverAdded.allUnsubscribe();
+    this.onIceCandidate.allUnsubscribe();
     log("peerConnection closed");
   }
 
@@ -786,16 +784,6 @@ export class RTCPeerConnection extends EventTarget {
     if (this.onsignalingstatechange) {
       this.onsignalingstatechange({});
     }
-  }
-
-  private dispose() {
-    this.onDataChannel.allUnsubscribe();
-    this.iceGatheringStateChange.allUnsubscribe();
-    this.iceConnectionStateChange.allUnsubscribe();
-    this.signalingStateChange.allUnsubscribe();
-    this.onTransceiverAdded.allUnsubscribe();
-    this.onRemoteTransceiverAdded.allUnsubscribe();
-    this.onIceCandidate.allUnsubscribe();
   }
 }
 

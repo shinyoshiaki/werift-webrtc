@@ -298,6 +298,7 @@ export class RTCDtlsTransport {
   async stop() {
     this.setState("closed");
     // todo impl send alert
+    await this.iceTransport.stop();
   }
 }
 

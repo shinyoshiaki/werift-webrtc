@@ -340,8 +340,8 @@ export class SecureTransportManager {
     this.iceConnectionStateChange.execute(newState);
   }
 
-  async stop() {
-    await Promise.allSettled([...this.iceTransports.map((t) => t.stop())]);
+  async close() {
+    await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
     // イベントリスナーなどもここで解除
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();

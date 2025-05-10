@@ -352,4 +352,14 @@ export class TransceiverManager {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
   }
+
+  /**
+   * 全トランシーバーのreceiver/senderのstopを呼ぶcloseメソッド
+   */
+  close() {
+    for (const transceiver of this.transceivers) {
+      transceiver.receiver.stop();
+      transceiver.sender.stop();
+    }
+  }
 }
