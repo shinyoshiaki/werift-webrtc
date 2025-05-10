@@ -2,7 +2,6 @@ import { createHmac, randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
 
 import range from "lodash/range.js";
-import { nextTick } from "process";
 import {
   AbortChunk,
   type Chunk,
@@ -24,7 +23,28 @@ import {
   parsePacket,
   serializePacket,
 } from "./chunk";
-import { SCTP_STATE } from "./const";
+import {
+  COOKIE_LENGTH,
+  COOKIE_LIFETIME,
+  MAX_STREAMS,
+  RECONFIG_MAX_STREAMS,
+  SCTP_DATA_FIRST_FRAG,
+  SCTP_DATA_LAST_FRAG,
+  SCTP_DATA_UNORDERED,
+  SCTP_MAX_ASSOCIATION_RETRANS,
+  SCTP_MAX_INIT_RETRANS,
+  SCTP_PRSCTP_SUPPORTED,
+  SCTP_RTO_ALPHA,
+  SCTP_RTO_BETA,
+  SCTP_RTO_INITIAL,
+  SCTP_RTO_MAX,
+  SCTP_RTO_MIN,
+  SCTP_STATE,
+  SCTP_STATE_COOKIE,
+  SCTP_SUPPORTED_CHUNK_EXT,
+  SCTP_TSN_MODULO,
+  USERDATA_MAX_LENGTH,
+} from "./const";
 import { type Unpacked, createEventsFromList, enumerate } from "./helper";
 import {
   Event,
@@ -43,38 +63,12 @@ import {
   type StreamParam,
   reconfigResult,
 } from "./param";
+import { InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
 import type { Transport } from "./transport";
 
 const log = debug("werift/sctp/sctp");
 
 // SSN: Stream Sequence Number
-
-// # local constants
-const COOKIE_LENGTH = 24;
-const COOKIE_LIFETIME = 60;
-const MAX_STREAMS = 65535;
-const USERDATA_MAX_LENGTH = 1200;
-
-// # protocol constants
-const SCTP_DATA_LAST_FRAG = 0x01;
-const SCTP_DATA_FIRST_FRAG = 0x02;
-const SCTP_DATA_UNORDERED = 0x04;
-
-const SCTP_MAX_ASSOCIATION_RETRANS = 10;
-const SCTP_MAX_INIT_RETRANS = 8;
-const SCTP_RTO_ALPHA = 1 / 8;
-const SCTP_RTO_BETA = 1 / 4;
-const SCTP_RTO_INITIAL = 3;
-const SCTP_RTO_MIN = 1;
-const SCTP_RTO_MAX = 60;
-const SCTP_TSN_MODULO = 2 ** 32;
-
-const RECONFIG_MAX_STREAMS = 135;
-
-// # parameters
-const SCTP_STATE_COOKIE = 0x0007;
-const SCTP_SUPPORTED_CHUNK_EXT = 0x8008; //32778
-const SCTP_PRSCTP_SUPPORTED = 0xc000; //49152
 
 const SCTPConnectionStates = [
   "new",
@@ -1251,6 +1245,7 @@ export class SCTP {
     clearTimeout(this.timer2Handle);
     clearTimeout(this.timer3Handle);
     clearTimeout(this.timerReconfigHandle);
+    this.transport.close();
   }
 
   async abort() {
@@ -1265,124 +1260,6 @@ export class SCTP {
   }
 }
 
-export class InboundStream {
-  reassembly: DataChunk[] = [];
-  streamSequenceNumber = 0; // SSN
-
-  constructor() {}
-
-  addChunk(chunk: DataChunk) {
-    if (
-      this.reassembly.length === 0 ||
-      uint32Gt(chunk.tsn, this.reassembly[this.reassembly.length - 1].tsn)
-    ) {
-      this.reassembly.push(chunk);
-      return;
-    }
-
-    for (const [i, v] of enumerate(this.reassembly)) {
-      if (v.tsn === chunk.tsn) throw new Error("duplicate chunk in reassembly");
-
-      if (uint32Gt(v.tsn, chunk.tsn)) {
-        this.reassembly.splice(i, 0, chunk);
-        break;
-      }
-    }
-  }
-
-  *popMessages(): Generator<[number, number, Buffer]> {
-    let pos = 0;
-    let startPos: number | undefined;
-    let expectedTsn: number;
-    let ordered: boolean | undefined;
-    while (pos < this.reassembly.length) {
-      const chunk = this.reassembly[pos];
-      if (startPos === undefined) {
-        ordered = !(chunk.flags & SCTP_DATA_UNORDERED);
-        if (!(chunk.flags & SCTP_DATA_FIRST_FRAG)) {
-          if (ordered) {
-            break;
-          } else {
-            pos++;
-            continue;
-          }
-        }
-        if (
-          ordered &&
-          uint16Gt(chunk.streamSeqNum, this.streamSequenceNumber)
-        ) {
-          break;
-        }
-        expectedTsn = chunk.tsn;
-        startPos = pos;
-      } else if (chunk.tsn !== expectedTsn!) {
-        if (ordered!) {
-          break;
-        } else {
-          startPos = undefined;
-          pos++;
-          continue;
-        }
-      }
-
-      if (chunk.flags & SCTP_DATA_LAST_FRAG) {
-        const arr = this.reassembly
-          .slice(startPos, pos + 1)
-          .map((c) => c.userData)
-          .reduce((acc, cur) => {
-            acc.push(cur);
-            acc.push(Buffer.from(""));
-            return acc;
-          }, [] as Buffer[]);
-        arr.pop();
-        const userData = Buffer.concat(arr);
-
-        this.reassembly = [
-          ...this.reassembly.slice(0, startPos),
-          ...this.reassembly.slice(pos + 1),
-        ];
-        if (ordered && chunk.streamSeqNum === this.streamSequenceNumber) {
-          this.streamSequenceNumber = uint16Add(this.streamSequenceNumber, 1);
-        }
-        pos = startPos;
-        yield [chunk.streamId, chunk.protocol, userData];
-      } else {
-        pos++;
-      }
-      expectedTsn = tsnPlusOne(expectedTsn);
-    }
-  }
-
-  pruneChunks(tsn: number) {
-    // """
-    // Prune chunks up to the given TSN.
-    // """
-
-    let pos = -1,
-      size = 0;
-
-    for (const [i, chunk] of this.reassembly.entries()) {
-      if (uint32Gte(tsn, chunk.tsn)) {
-        pos = i;
-        size += chunk.userData.length;
-      } else {
-        break;
-      }
-    }
-
-    this.reassembly = this.reassembly.slice(pos + 1);
-    return size;
-  }
-}
-
 export class RTCSctpCapabilities {
   constructor(public maxMessageSize: number) {}
-}
-
-function tsnMinusOne(a: number) {
-  return (a - 1) % SCTP_TSN_MODULO;
-}
-
-function tsnPlusOne(a: number) {
-  return (a + 1) % SCTP_TSN_MODULO;
 }

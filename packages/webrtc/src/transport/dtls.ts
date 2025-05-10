@@ -37,13 +37,14 @@ import type { RTCIceTransport } from "./ice";
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
 export class RTCDtlsTransport {
-  id = v4();
+  static localCertificate?: RTCCertificate;
+  static localCertificatePromise?: Promise<RTCCertificate>;
+
+  readonly id = v4();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
   srtpStarted = false;
   transportSequenceNumber = 0;
-
-  dataReceiver: (buf: Buffer) => void = () => {};
   dtls?: DtlsSocket;
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
@@ -51,9 +52,8 @@ export class RTCDtlsTransport {
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onRtp = new Event<[RtpPacket]>();
+  readonly onData = new Event<[Buffer]>();
 
-  static localCertificate?: RTCCertificate;
-  static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
@@ -151,7 +151,7 @@ export class RTCDtlsTransport {
         ) {
           return;
         }
-        this.dataReceiver(buf);
+        this.onData.execute(buf);
       });
       this.dtls.onClose.subscribe(() => {
         this.setState("closed");

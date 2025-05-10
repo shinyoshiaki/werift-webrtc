@@ -14,24 +14,20 @@ import type { MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
   readonly id = uuid.v4();
-  readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid?: string;
   mLineIndex?: number;
   /**should not be reused because it has been used for sending before. */
   usedForSender = false;
-  private _currentDirection?: MediaDirection;
   offerDirection!: MediaDirection;
-  _codecs: RTCRtpCodecParameters[] = [];
-  set codecs(codecs: RTCRtpCodecParameters[]) {
-    this._codecs = codecs;
-  }
-  get codecs() {
-    return this._codecs;
-  }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   options: Partial<TransceiverOptions> = {};
   stopping = false;
   stopped = false;
+
+  private _codecs: RTCRtpCodecParameters[] = [];
+  private _currentDirection?: MediaDirection;
+
+  readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
 
   constructor(
     public readonly kind: Kind,
@@ -44,6 +40,13 @@ export class RTCRtpTransceiver {
     if (dtlsTransport) {
       this.setDtlsTransport(dtlsTransport);
     }
+  }
+
+  set codecs(codecs: RTCRtpCodecParameters[]) {
+    this._codecs = codecs;
+  }
+  get codecs() {
+    return this._codecs;
   }
 
   get dtlsTransport() {

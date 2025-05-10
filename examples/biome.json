@@ -20,7 +20,7 @@
       "complexity": {
         "noStaticOnlyClass": "off",
         "noUselessCatch": "off",
-        "noForEach": "off",
+        "noForEach": "warn",
         "noThisInStatic": "off",
         "useLiteralKeys": "off",
         "noUselessConstructor": "off"

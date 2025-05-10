@@ -25,8 +25,10 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
+import { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
+import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls";
 import type {
   IceGathererState,
@@ -35,8 +37,6 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
-import { SctpTransportManager } from "./sctpManager";
-import { SecureTransportManager } from "./secureTransportManager";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
