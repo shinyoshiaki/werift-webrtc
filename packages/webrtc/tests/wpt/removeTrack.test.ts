@@ -55,7 +55,7 @@ describe("peerConnection/removeTrack", () => {
     const { sender } = transceiver;
 
     const pc2 = new RTCPeerConnection();
-    expect(() => pc2.removeTrack(sender)).toThrowError("unExist");
+    expect(() => pc2.removeTrack(sender)).toThrowError("Sender does not exist");
 
     await pc.close();
     await pc2.close();
@@ -68,7 +68,7 @@ describe("peerConnection/removeTrack", () => {
     const sender = pc.addTrack(track);
 
     const pc2 = new RTCPeerConnection();
-    expect(() => pc2.removeTrack(sender)).toThrowError("unExist");
+    expect(() => pc2.removeTrack(sender)).toThrowError("Sender does not exist");
 
     await pc.close();
     await pc2.close();

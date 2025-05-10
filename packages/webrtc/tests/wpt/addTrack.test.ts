@@ -44,7 +44,7 @@ describe("peerConnection/addTrack", () => {
     const track = new MediaStreamTrack({ kind: "audio" });
 
     pc.addTrack(track);
-    expect(() => pc.addTrack(track)).toThrowError("track exist");
+    expect(() => pc.addTrack(track)).toThrowError("Track already added");
 
     await pc.close();
   });
