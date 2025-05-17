@@ -32,7 +32,7 @@ export class SCTPTransmitter {
   private remotePort?: number;
   private remoteVerificationTag = 0;
   state: SCTPConnectionState = "new";
-  onStateChanged = new Event();
+  onStateChanged = new Event<[SCTPConnectionState]>();
   flush = new Event<[void]>();
   outboundQueue: DataChunk[] = [];
   sentQueue: DataChunk[] = [];
@@ -109,7 +109,7 @@ export class SCTPTransmitter {
   setConnectionState(state: SCTPConnectionState) {
     this.state = state;
     log("setConnectionState", state);
-    this.onStateChanged.execute();
+    this.onStateChanged.execute(state);
   }
 
   async transmit() {
