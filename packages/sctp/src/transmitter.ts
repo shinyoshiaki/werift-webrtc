@@ -42,8 +42,7 @@ export class SCTPTransmitter {
   private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
   private fastRecoveryTransmit = false;
   private lastSackedTsn: number;
-  private srtt?: number;
-  private rttvar?: number;
+
   private partialBytesAcked = 0;
   private ssthresh?: number; // slow start threshold
   private advancedPeerAckTsn: number;
@@ -258,7 +257,7 @@ export class SCTPTransmitter {
       }
 
       if (done === 1 && sChunk.sentCount === 1) {
-        this.updateRto(receivedTime - sChunk.sentTime!);
+        this.timerManager.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
     // Furthermore, this exposed an issue I've seen in v8 in other projects: using an array as a queue seems to result in long calls to shift (it does an array copy under the hood?). The problem seems to get worse the more times it shifts. Resetting the queue to empty array mitigates this.
@@ -377,22 +376,6 @@ export class SCTPTransmitter {
         v,
       ]);
     }
-  }
-
-  private updateRto(R: number) {
-    if (!this.srtt) {
-      this.rttvar = R / 2;
-      this.srtt = R;
-    } else {
-      this.rttvar =
-        (1 - SCTP_RTO_BETA) * this.rttvar! +
-        SCTP_RTO_BETA * Math.abs(this.srtt - R);
-      this.srtt = (1 - SCTP_RTO_ALPHA) * this.srtt + SCTP_RTO_ALPHA * R;
-    }
-    this.timerManager.rto = Math.max(
-      SCTP_RTO_MIN,
-      Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX),
-    );
   }
 }
 export const SCTPConnectionStates = [

@@ -2,7 +2,11 @@ import type { Chunk } from "./chunk";
 import {
   SCTP_MAX_ASSOCIATION_RETRANS,
   SCTP_MAX_INIT_RETRANS,
+  SCTP_RTO_ALPHA,
+  SCTP_RTO_BETA,
   SCTP_RTO_INITIAL,
+  SCTP_RTO_MAX,
+  SCTP_RTO_MIN,
 } from "./const";
 import { debug } from "./imports/common";
 
@@ -32,6 +36,8 @@ export class SCTPTimerManager {
   private t2Failures = 0;
   private reconfigFailures = 0;
   rto: number = SCTP_RTO_INITIAL;
+  private srtt?: number;
+  private rttvar?: number;
   private onT1Expired: (failures: number) => void;
   private onT2Expired: (failures: number) => void;
   private onT3Expired: () => void;
@@ -292,5 +298,21 @@ export class SCTPTimerManager {
       case SCTPTimerType.RECONFIG:
         return this.reconfigHandle !== undefined;
     }
+  }
+
+  updateRto(R: number) {
+    if (!this.srtt) {
+      this.rttvar = R / 2;
+      this.srtt = R;
+    } else {
+      this.rttvar =
+        (1 - SCTP_RTO_BETA) * this.rttvar! +
+        SCTP_RTO_BETA * Math.abs(this.srtt - R);
+      this.srtt = (1 - SCTP_RTO_ALPHA) * this.srtt + SCTP_RTO_ALPHA * R;
+    }
+    this.rto = Math.max(
+      SCTP_RTO_MIN,
+      Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX),
+    );
   }
 }
