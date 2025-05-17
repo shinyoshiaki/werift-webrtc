@@ -1,12 +1,16 @@
 import { type Chunk, serializePacket } from "./chunk";
 import type { Unpacked } from "./helper";
+import { debug, Event } from "./imports/common";
 import type { Transport } from "./transport";
+
+const log = debug("packages/sctp/src/transmitter.ts");
 
 export class SCTPTransmitter {
   private localPort: number;
   remotePort?: number;
   remoteVerificationTag = 0;
   state: SCTPConnectionState = "new";
+  onStateChanged = new Event();
 
   constructor(
     public transport: Transport,
@@ -28,6 +32,12 @@ export class SCTPTransmitter {
       chunk,
     );
     await this.transport.send(packet);
+  }
+
+  setConnectionState(state: SCTPConnectionState) {
+    this.state = state;
+    log("setConnectionState", state);
+    this.onStateChanged.execute();
   }
 }
 export const SCTPConnectionStates = [
