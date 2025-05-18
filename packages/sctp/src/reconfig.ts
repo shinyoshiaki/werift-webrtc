@@ -30,11 +30,10 @@ export class SctpReconfig {
   readonly onReconfigStreams = new Event<[number[]]>();
 
   constructor(
-    private initialLocalTsn: number,
     private transmitter: SCTPTransmitter,
     private timerManager: SCTPTimerManager,
   ) {
-    this.reconfigRequestSeq = this.initialLocalTsn;
+    this.reconfigRequestSeq = this.transmitter.localTsn;
 
     this.timerManager.onReconfigExpired.subscribe(async (reconfigFailures) => {
       if (
@@ -65,7 +64,7 @@ export class SctpReconfig {
       const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
         this.reconfigResponseSeq,
-        tsnMinusOne(this.initialLocalTsn),
+        tsnMinusOne(this.transmitter.localTsn),
         streams,
       );
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);

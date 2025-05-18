@@ -9,6 +9,7 @@ import {
   serializePacket,
 } from "./chunk";
 import {
+  SCTP_DATA_FIRST_FRAG,
   SCTP_DATA_LAST_FRAG,
   SCTP_DATA_UNORDERED,
   SCTP_RTO_ALPHA,
@@ -20,8 +21,8 @@ import {
   USERDATA_MAX_LENGTH,
 } from "./const";
 import type { Unpacked } from "./helper";
-import { Event, debug, uint32Gt, uint32Gte } from "./imports/common";
-import { tsnMinusOne } from "./stream";
+import { Event, debug, random32, uint32Gt, uint32Gte } from "./imports/common";
+import { tsnMinusOne, tsnPlusOne } from "./stream";
 import { type SCTPTimerManager, SCTPTimerType } from "./timer";
 import type { Transport } from "./transport";
 
@@ -48,10 +49,12 @@ export class SCTPTransmitter {
   private advancedPeerAckTsn: number;
   onSackReceived: () => Promise<void> = async () => {};
 
+  /**local transmission sequence number */
+  localTsn = Number(random32());
+
   constructor(
     public transport: Transport,
     private timerManager: SCTPTimerManager,
-    public localTsn: number,
     public port = 5000,
   ) {
     this.localPort = port;
@@ -382,6 +385,66 @@ export class SCTPTransmitter {
       ]);
     }
   }
+
+  send = async (
+    streamId: number,
+    ppId: number,
+    userData: Buffer,
+    streamSeqNum: number,
+    {
+      expiry,
+      maxRetransmits,
+      ordered,
+    }: {
+      expiry?: number | undefined;
+      maxRetransmits?: number | undefined;
+      ordered?: boolean;
+    } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
+  ) => {
+    const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
+    let pos = 0;
+    const chunks: DataChunk[] = [];
+    for (const fragment of range(0, fragments)) {
+      const chunk = new DataChunk(0, undefined);
+      chunk.flags = 0;
+      if (!ordered) {
+        chunk.flags = SCTP_DATA_UNORDERED;
+      }
+      if (fragment === 0) {
+        chunk.flags |= SCTP_DATA_FIRST_FRAG;
+      }
+      if (fragment === fragments - 1) {
+        chunk.flags |= SCTP_DATA_LAST_FRAG;
+      }
+      chunk.tsn = this.localTsn;
+      chunk.streamId = streamId;
+      chunk.streamSeqNum = streamSeqNum;
+      chunk.protocol = ppId;
+      chunk.userData = userData.subarray(pos, pos + USERDATA_MAX_LENGTH);
+      chunk.bookSize = chunk.userData.length;
+      chunk.expiry = expiry;
+      chunk.maxRetransmits = maxRetransmits;
+
+      pos += USERDATA_MAX_LENGTH;
+      this.localTsn = tsnPlusOne(this.localTsn);
+      chunks.push(chunk);
+    }
+
+    for (const chunk of chunks) {
+      this.outboundQueue.push(chunk);
+    }
+
+    if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
+      await this.transmit();
+    } else {
+      if (this.outboundQueue.length) {
+        await this.flush.asPromise();
+      } else {
+        // unreachable?
+        await new Promise((r) => setImmediate(r));
+      }
+    }
+  };
 }
 export const SCTPConnectionStates = [
   "new",
