@@ -53,7 +53,6 @@ import {
   ReconfigResponseParam,
   StreamAddOutgoingParam,
   type StreamParam,
-  reconfigResult,
 } from "./param";
 import { SctpReconfig } from "./reconfig";
 import { InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
@@ -450,21 +449,27 @@ export class SCTP {
     switch (param.type) {
       case OutgoingSSNResetRequestParam.type:
         {
-          await this.reconfig.handleOutgoingSSNResetRequest(
+          const streams = await this.reconfig.handleOutgoingSSNResetRequest(
             param as OutgoingSSNResetRequestParam,
             this.outboundStreamSeq,
-            this.inboundStreams,
             this.associationState,
           );
+          for (const streamId of streams) {
+            delete this.inboundStreams[streamId];
+          }
         }
         break;
       case ReconfigResponseParam.type:
         {
-          await this.reconfig.handleReconfigResponse(
+          const streams = await this.reconfig.handleReconfigResponse(
             param as ReconfigResponseParam,
-            this.outboundStreamSeq,
             this.associationState,
           );
+          if (streams) {
+            for (const streamId of streams) {
+              delete this.outboundStreamSeq[streamId];
+            }
+          }
         }
         break;
       case StreamAddOutgoingParam.type:
