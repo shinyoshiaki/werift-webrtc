@@ -460,35 +460,11 @@ export class SCTP {
         break;
       case ReconfigResponseParam.type:
         {
-          const reset = param as ReconfigResponseParam;
-          if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
-            log(
-              "OutgoingSSNResetRequestParam failed",
-              Object.keys(reconfigResult).find(
-                (key) => reconfigResult[key as never] === reset.result,
-              ),
-            );
-          } else if (
-            reset.responseSequence ===
-            this.reconfig.reconfigRequest?.requestSequence
-          ) {
-            const streamIds = this.reconfig.reconfigRequest.streams.map(
-              (streamId) => {
-                delete this.outboundStreamSeq[streamId];
-                return streamId;
-              },
-            );
-
-            this.reconfig.onReconfigStreams.execute(streamIds);
-
-            this.reconfig.reconfigRequest = undefined;
-            this.timerManager.cancelReconfigTimer();
-            if (this.reconfig.reconfigQueue.length > 0) {
-              await this.reconfig.transmitReconfigRequest(
-                this.associationState,
-              );
-            }
-          }
+          await this.reconfig.handleReconfigResponse(
+            param as ReconfigResponseParam,
+            this.outboundStreamSeq,
+            this.associationState,
+          );
         }
         break;
       case StreamAddOutgoingParam.type:
