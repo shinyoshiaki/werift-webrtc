@@ -1,8 +1,17 @@
 import { ReconfigChunk } from "./chunk";
-import { RECONFIG_MAX_STREAMS, SCTP_STATE } from "./const";
-import { debug } from "./imports/common";
-import { OutgoingSSNResetRequestParam, type StreamParam } from "./param";
-import { tsnMinusOne, tsnPlusOne } from "./stream";
+import {
+  RECONFIG_MAX_STREAMS,
+  SCTP_MAX_ASSOCIATION_RETRANS,
+  SCTP_STATE,
+} from "./const";
+import { Event, debug } from "./imports/common";
+import {
+  OutgoingSSNResetRequestParam,
+  ReconfigResponseParam,
+  type StreamParam,
+  reconfigResult,
+} from "./param";
+import { type InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
 import type { SCTPTimerManager } from "./timer";
 import type { SCTPTransmitter } from "./transmitter";
 
@@ -17,6 +26,7 @@ export class SctpReconfig {
   reconfigResponseSeq = 0;
   reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
+  readonly onReconfigStreams = new Event<[number[]]>();
 
   constructor(
     private initialLocalTsn: number,
@@ -24,6 +34,22 @@ export class SctpReconfig {
     private timerManager: SCTPTimerManager,
   ) {
     this.reconfigRequestSeq = this.initialLocalTsn;
+
+    this.timerManager.onReconfigExpired.subscribe(async (reconfigFailures) => {
+      if (
+        reconfigFailures <= SCTP_MAX_ASSOCIATION_RETRANS &&
+        this.reconfigRequest
+      ) {
+        log(
+          "timerReconfigHandleExpired",
+          reconfigFailures,
+          this.timerManager.rto,
+        );
+        await this.sendReconfigParam(this.reconfigRequest);
+
+        this.timerManager.scheduleNextReconfigTimer();
+      }
+    });
   }
 
   async transmitReconfigRequest(associationState: SCTP_STATE) {
@@ -56,5 +82,42 @@ export class SctpReconfig {
     await this.transmitter.sendChunk(chunk).catch((err: Error) => {
       log("send reconfig failed", err.message);
     });
+  }
+
+  updateReconfigResponseSeq(reconfigResponseSeq: number) {
+    this.reconfigResponseSeq = reconfigResponseSeq;
+  }
+
+  async handleOutgoingSSNResetRequest(
+    p: OutgoingSSNResetRequestParam,
+    outboundStreamSeq: {
+      [streamId: number]: number;
+    },
+    inboundStreams: {
+      [key: number]: InboundStream;
+    },
+    associationState: SCTP_STATE,
+  ) {
+    // # send response
+    const response = new ReconfigResponseParam(
+      p.requestSequence,
+      reconfigResult.ReconfigResultSuccessPerformed,
+    );
+    this.updateReconfigResponseSeq(p.requestSequence);
+    await this.sendReconfigParam(response);
+
+    // # mark closed inbound streams
+    await Promise.all(
+      p.streams.map(async (streamId) => {
+        delete inboundStreams[streamId];
+        if (outboundStreamSeq[streamId]) {
+          this.reconfigQueue.push(streamId);
+          // await this.sendResetRequest(streamId);
+        }
+      }),
+    );
+    await this.transmitReconfigRequest(associationState);
+    // # close data channel
+    this.onReconfigStreams.execute(p.streams);
   }
 }

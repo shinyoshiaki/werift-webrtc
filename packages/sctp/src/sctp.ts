@@ -55,6 +55,7 @@ import {
   type StreamParam,
   reconfigResult,
 } from "./param";
+import { SctpReconfig } from "./reconfig";
 import { InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
 import { SCTPTimerManager, SCTPTimerType } from "./timer";
 import {
@@ -63,7 +64,6 @@ import {
   SCTPTransmitter,
 } from "./transmitter";
 import type { Transport } from "./transport";
-import { SctpReconfig } from "./reconfig";
 
 const log = debug("werift/sctp/sctp");
 
@@ -142,15 +142,6 @@ export class SCTP {
       if (reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
         log("timerReconfigFailures", reconfigFailures);
         this.setState(SCTP_STATE.CLOSED);
-      } else if (this.reconfig.reconfigRequest) {
-        log(
-          "timerReconfigHandleExpired",
-          reconfigFailures,
-          this.timerManager.rto,
-        );
-        await this.reconfig.sendReconfigParam(this.reconfig.reconfigRequest);
-
-        this.timerManager.scheduleNextReconfigTimer();
       }
     });
 
@@ -162,6 +153,8 @@ export class SCTP {
     this.transmitter.onSackReceived = async () => {
       await this.onSackReceived?.();
     };
+
+    this.reconfig.onReconfigStreams.pipe(this.onReconfigStreams);
   }
 
   get maxChannels() {
@@ -261,7 +254,7 @@ export class SCTP {
 
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
-          this.reconfig.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+          this.reconfig.updateReconfigResponseSeq(tsnMinusOne(init.initialTsn));
           this.transmitter.handleInitChunk(init);
           this.getExtensions(init.params);
 
@@ -302,7 +295,9 @@ export class SCTP {
           const initAck = chunk as InitAckChunk;
           this.timerManager.cancelT1();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
-          this.reconfig.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
+          this.reconfig.updateReconfigResponseSeq(
+            tsnMinusOne(initAck.initialTsn),
+          );
           this.transmitter.handleInitChunk(initAck);
           this.getExtensions(initAck.params);
 
@@ -455,29 +450,12 @@ export class SCTP {
     switch (param.type) {
       case OutgoingSSNResetRequestParam.type:
         {
-          const p = param as OutgoingSSNResetRequestParam;
-
-          // # send response
-          const response = new ReconfigResponseParam(
-            p.requestSequence,
-            reconfigResult.ReconfigResultSuccessPerformed,
+          await this.reconfig.handleOutgoingSSNResetRequest(
+            param as OutgoingSSNResetRequestParam,
+            this.outboundStreamSeq,
+            this.inboundStreams,
+            this.associationState,
           );
-          this.reconfig.reconfigResponseSeq = p.requestSequence;
-          await this.reconfig.sendReconfigParam(response);
-
-          // # mark closed inbound streams
-          await Promise.all(
-            p.streams.map(async (streamId) => {
-              delete this.inboundStreams[streamId];
-              if (this.outboundStreamSeq[streamId]) {
-                this.reconfig.reconfigQueue.push(streamId);
-                // await this.sendResetRequest(streamId);
-              }
-            }),
-          );
-          await this.reconfig.transmitReconfigRequest(this.associationState);
-          // # close data channel
-          this.onReconfigStreams.execute(p.streams);
         }
         break;
       case ReconfigResponseParam.type:
@@ -501,7 +479,7 @@ export class SCTP {
               },
             );
 
-            this.onReconfigStreams.execute(streamIds);
+            this.reconfig.onReconfigStreams.execute(streamIds);
 
             this.reconfig.reconfigRequest = undefined;
             this.timerManager.cancelReconfigTimer();
@@ -530,7 +508,7 @@ export class SCTP {
 
     if (this.markReceived(chunk.tsn)) return;
 
-    const inboundStream = this.getInboundStream(chunk.streamId);
+    const inboundStream = this.findOrCreateInboundStream(chunk.streamId);
 
     inboundStream.addChunk(chunk);
     this.advertisedRwnd -= chunk.userData.length;
@@ -566,7 +544,7 @@ export class SCTP {
 
     // # update reassembly
     for (const [streamId, streamSeqNum] of chunk.streams) {
-      const inboundStream = this.getInboundStream(streamId);
+      const inboundStream = this.findOrCreateInboundStream(streamId);
 
       // # advance sequence number and perform delivery
       inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
@@ -586,7 +564,7 @@ export class SCTP {
     this.onReceive.execute(streamId, ppId, data);
   }
 
-  private getInboundStream(streamId: number) {
+  private findOrCreateInboundStream(streamId: number) {
     if (!this.inboundStreams[streamId]) {
       this.inboundStreams[streamId] = new InboundStream();
     }
