@@ -8,7 +8,7 @@ import {
   SCTP_RTO_MAX,
   SCTP_RTO_MIN,
 } from "./const";
-import { debug, Event } from "./imports/common";
+import { Event, debug } from "./imports/common";
 
 const log = debug("werift/sctp/timer");
 
