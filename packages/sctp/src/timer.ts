@@ -8,7 +8,7 @@ import {
   SCTP_RTO_MAX,
   SCTP_RTO_MIN,
 } from "./const";
-import { debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 
 const log = debug("werift/sctp/timer");
 
@@ -38,29 +38,17 @@ export class SCTPTimerManager {
   rto: number = SCTP_RTO_INITIAL;
   private srtt?: number;
   private rttvar?: number;
-  private onT1Expired: (failures: number) => void;
-  private onT2Expired: (failures: number) => void;
-  private onT3Expired: () => void;
-  private onReconfigExpired: (failures: number) => void;
+  onT1Expired = new Event<[number]>();
+  onT2Expired = new Event<[number]>();
+  onT3Expired = new Event<[]>();
+  onReconfigExpired = new Event<[number]>();
   private sendChunk: (chunk: Chunk) => Promise<void>;
 
   constructor({
-    onT1Expired,
-    onT2Expired,
-    onT3Expired,
-    onReconfigExpired,
     sendChunk,
   }: {
-    onT1Expired: (failures: number) => void;
-    onT2Expired: (failures: number) => void;
-    onT3Expired: () => void;
-    onReconfigExpired: (failures: number) => void;
     sendChunk: (chunk: Chunk) => Promise<void>;
   }) {
-    this.onT1Expired = onT1Expired;
-    this.onT2Expired = onT2Expired;
-    this.onT3Expired = onT3Expired;
-    this.onReconfigExpired = onReconfigExpired;
     this.sendChunk = sendChunk;
   }
 
@@ -125,7 +113,7 @@ export class SCTPTimerManager {
     this.t1Handle = undefined;
 
     if (this.t1Failures > SCTP_MAX_INIT_RETRANS) {
-      this.onT1Expired(this.t1Failures);
+      this.onT1Expired.execute(this.t1Failures);
     } else {
       setImmediate(() => {
         this.sendChunk(this.t1Chunk!).catch((err: Error) => {
@@ -165,7 +153,7 @@ export class SCTPTimerManager {
     this.t2Handle = undefined;
 
     if (this.t2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
-      this.onT2Expired(this.t2Failures);
+      this.onT2Expired.execute(this.t2Failures);
     } else {
       setImmediate(() => {
         this.sendChunk(this.t2Chunk!).catch((err: Error) => {
@@ -209,7 +197,7 @@ export class SCTPTimerManager {
    */
   private t3Expired() {
     this.t3Handle = undefined;
-    this.onT3Expired();
+    this.onT3Expired.execute();
   }
 
   /**
@@ -248,7 +236,7 @@ export class SCTPTimerManager {
       this.reconfigHandle = undefined;
     }
 
-    this.onReconfigExpired(this.reconfigFailures);
+    this.onReconfigExpired.execute(this.reconfigFailures);
   }
 
   /**

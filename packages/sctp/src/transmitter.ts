@@ -57,6 +57,9 @@ export class SCTPTransmitter {
     this.localPort = port;
     this.lastSackedTsn = tsnMinusOne(this.localTsn);
     this.advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
+    this.timerManager.onT3Expired.subscribe(() => {
+      this.onT3Expired();
+    });
   }
 
   onT3Expired() {
@@ -78,7 +81,9 @@ export class SCTPTransmitter {
     );
     this.cwnd = USERDATA_MAX_LENGTH;
 
-    this.transmit();
+    this.transmit().catch((err: Error) => {
+      log("send data failed", err.message);
+    });
   }
 
   setRemotePort(port: number) {
