@@ -12,9 +12,9 @@ import {
   type StreamParam,
   reconfigResult,
 } from "./param";
-import { type InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
 import type { SCTPTimerManager } from "./timer";
 import type { SCTPTransmitter } from "./transmitter";
+import { tsnMinusOne, tsnPlusOne } from "./util";
 
 const log = debug("packages/sctp/src/reconfig.ts");
 

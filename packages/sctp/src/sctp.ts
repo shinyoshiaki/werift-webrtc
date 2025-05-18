@@ -24,7 +24,6 @@ import {
 import {
   COOKIE_LENGTH,
   COOKIE_LIFETIME,
-  MAX_STREAMS,
   SCTP_MAX_ASSOCIATION_RETRANS,
   SCTP_PRSCTP_SUPPORTED,
   SCTP_STATE,
@@ -38,7 +37,6 @@ import {
   EventDisposer,
   debug,
   random32,
-  uint16Add,
   uint32Gt,
   uint32Gte,
 } from "./imports/common";
@@ -50,7 +48,7 @@ import {
   type StreamParam,
 } from "./param";
 import { SctpReconfig } from "./reconfig";
-import { InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
+import { StreamManager } from "./stream";
 import { SCTPTimerManager } from "./timer";
 import {
   type SCTPConnectionState,
@@ -58,6 +56,7 @@ import {
   SCTPTransmitter,
 } from "./transmitter";
 import type { Transport } from "./transport";
+import { tsnMinusOne, tsnPlusOne } from "./util";
 
 const log = debug("werift/sctp/sctp");
 
@@ -75,26 +74,16 @@ export class SCTP {
   remoteExtensions: number[] = [];
   remotePartialReliability = true;
 
-  // inbound
-  private advertisedRwnd = 1024 * 1024; // Receiver Window
-  private inboundStreams: { [key: number]: InboundStream } = {};
-  _inboundStreamsCount = 0;
-  readonly _inboundStreamsMax = MAX_STREAMS;
   private lastReceivedTsn?: number; // Transmission Sequence Number
   private sackDuplicates: number[] = [];
   private sackMisOrdered = new Set<number>();
   private sackNeeded = false;
   private sackTimeout: NodeJS.Immediate | undefined;
 
-  // # outbound
-  private outboundStreamSeq: { [streamId: number]: number } = {};
-  _outboundStreamsCount = MAX_STREAMS;
-
-  // etc
-
-  transmitter: SCTPTransmitter;
-  timerManager: SCTPTimerManager;
-  reconfig: SctpReconfig;
+  readonly transmitter: SCTPTransmitter;
+  readonly timerManager: SCTPTimerManager;
+  readonly reconfig: SctpReconfig;
+  readonly stream = new StreamManager();
 
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
@@ -143,13 +132,12 @@ export class SCTP {
     };
 
     this.reconfig.onReconfigStreams.pipe(this.onReconfigStreams);
+
+    this.stream.onReceive.pipe(this.onReceive);
   }
 
   get maxChannels() {
-    if (this._inboundStreamsCount > 0) {
-      return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
-    }
-    return undefined;
+    return this.stream.maxChannels;
   }
 
   get state() {
@@ -216,7 +204,7 @@ export class SCTP {
 
     const sack = new SackChunk(0, undefined);
     sack.cumulativeTsn = this.lastReceivedTsn!;
-    sack.advertisedRwnd = Math.max(0, this.advertisedRwnd);
+    sack.advertisedRwnd = Math.max(0, this.stream.advertisedRwnd);
     sack.duplicates = [...this.sackDuplicates];
     sack.gaps = gaps;
 
@@ -246,20 +234,13 @@ export class SCTP {
           this.transmitter.handleInitChunk(init);
           this.getExtensions(init.params);
 
-          this._inboundStreamsCount = Math.min(
-            init.outboundStreams,
-            this._inboundStreamsMax,
-          );
-          this._outboundStreamsCount = Math.min(
-            this._outboundStreamsCount,
-            init.inboundStreams,
-          );
+          this.stream.updateStreamsCount(init);
 
           const ack = new InitAckChunk();
           ack.initiateTag = this.localVerificationTag;
-          ack.advertisedRwnd = this.advertisedRwnd;
-          ack.outboundStreams = this._outboundStreamsCount;
-          ack.inboundStreams = this._inboundStreamsCount;
+          ack.advertisedRwnd = this.stream.advertisedRwnd;
+          ack.outboundStreams = this.stream._outboundStreamsCount;
+          ack.inboundStreams = this.stream._inboundStreamsCount;
           ack.initialTsn = this.transmitter.localTsn;
           this.setExtensions(ack.params);
 
@@ -289,14 +270,7 @@ export class SCTP {
           this.transmitter.handleInitChunk(initAck);
           this.getExtensions(initAck.params);
 
-          this._inboundStreamsCount = Math.min(
-            initAck.outboundStreams,
-            this._inboundStreamsMax,
-          );
-          this._outboundStreamsCount = Math.min(
-            this._outboundStreamsCount,
-            initAck.inboundStreams,
-          );
+          this.stream.updateStreamsCount(initAck);
 
           const echo = new CookieEchoChunk();
           for (const [k, v] of initAck.params) {
@@ -427,11 +401,11 @@ export class SCTP {
         {
           const streams = await this.reconfig.handleOutgoingSSNResetRequest(
             param as OutgoingSSNResetRequestParam,
-            this.outboundStreamSeq,
+            this.stream.outboundStreamSeq,
             this.associationState,
           );
           for (const streamId of streams) {
-            delete this.inboundStreams[streamId];
+            this.stream.removeInboundStream(streamId);
           }
         }
         break;
@@ -441,17 +415,15 @@ export class SCTP {
             param as ReconfigResponseParam,
             this.associationState,
           );
-          if (streams) {
-            for (const streamId of streams) {
-              delete this.outboundStreamSeq[streamId];
-            }
+          for (const streamId of streams ?? []) {
+            this.stream.removeOutboundStreamSeq(streamId);
           }
         }
         break;
       case StreamAddOutgoingParam.type:
         {
           const add = param as StreamAddOutgoingParam;
-          this._inboundStreamsCount += add.newStreams;
+          this.stream.increaseInboundStreamCount(add.newStreams);
           await this.reconfig.handleStreamAddOutgoing(add);
         }
         break;
@@ -463,14 +435,7 @@ export class SCTP {
 
     if (this.markReceived(chunk.tsn)) return;
 
-    const inboundStream = this.findOrCreateInboundStream(chunk.streamId);
-
-    inboundStream.addChunk(chunk);
-    this.advertisedRwnd -= chunk.userData.length;
-    for (const message of inboundStream.popMessages()) {
-      this.advertisedRwnd += message[2].length;
-      this.receive(...message);
-    }
+    this.stream.handleData(chunk);
   }
 
   receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
@@ -497,33 +462,7 @@ export class SCTP {
     this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
-    // # update reassembly
-    for (const [streamId, streamSeqNum] of chunk.streams) {
-      const inboundStream = this.findOrCreateInboundStream(streamId);
-
-      // # advance sequence number and perform delivery
-      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
-      for (const message of inboundStream.popMessages()) {
-        this.advertisedRwnd += message[2].length;
-        this.receive(...message);
-      }
-    }
-
-    // # prune obsolete chunks
-    for (const inboundStream of Object.values(this.inboundStreams)) {
-      this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
-    }
-  }
-
-  private receive(streamId: number, ppId: number, data: Buffer) {
-    this.onReceive.execute(streamId, ppId, data);
-  }
-
-  private findOrCreateInboundStream(streamId: number) {
-    if (!this.inboundStreams[streamId]) {
-      this.inboundStreams[streamId] = new InboundStream();
-    }
-    return this.inboundStreams[streamId];
+    this.stream.handleForwardTsn(chunk, this.lastReceivedTsn!);
   }
 
   private markReceived(tsn: number) {
@@ -563,10 +502,10 @@ export class SCTP {
       ordered?: boolean;
     } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
   ) => {
-    const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
-    if (ordered) {
-      this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
-    }
+    const streamSeqNum = this.stream.incrementOutboundStreamSeq(
+      streamId,
+      ordered,
+    );
     await this.transmitter.send(streamId, ppId, userData, streamSeqNum, {
       expiry,
       maxRetransmits,
@@ -600,9 +539,9 @@ export class SCTP {
   private async init() {
     const init = new InitChunk();
     init.initiateTag = this.localVerificationTag;
-    init.advertisedRwnd = this.advertisedRwnd;
-    init.outboundStreams = this._outboundStreamsCount;
-    init.inboundStreams = this._inboundStreamsMax;
+    init.advertisedRwnd = this.stream.advertisedRwnd;
+    init.outboundStreams = this.stream._outboundStreamsCount;
+    init.inboundStreams = this.stream._inboundStreamsMax;
     init.initialTsn = this.transmitter.localTsn;
     this.setExtensions(init.params);
     log("send init", init);

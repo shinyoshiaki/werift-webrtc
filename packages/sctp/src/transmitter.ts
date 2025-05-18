@@ -17,9 +17,9 @@ import {
 } from "./const";
 import type { Unpacked } from "./helper";
 import { Event, debug, random32, uint32Gt, uint32Gte } from "./imports/common";
-import { tsnMinusOne, tsnPlusOne } from "./stream";
 import { type SCTPTimerManager, SCTPTimerType } from "./timer";
 import type { Transport } from "./transport";
+import { tsnMinusOne, tsnPlusOne } from "./util";
 
 const log = debug("packages/sctp/src/transmitter.ts");
 
