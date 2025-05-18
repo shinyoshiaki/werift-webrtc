@@ -17,9 +17,10 @@ describe("sctp", () => {
       createUdpTransport(createSocket("udp4"), {
         port,
         address: "127.0.0.1",
-      })
+      }),
     );
 
+    //@ts-ignore
     client._inboundStreamsMax = 2048;
     client._outboundStreamsCount = 256;
 
@@ -39,8 +40,11 @@ describe("sctp", () => {
     expect(server._outboundStreamsCount).toBe(2048);
     expect(server.remoteExtensions).toEqual([192, 130]);
 
-    const param = new StreamAddOutgoingParam(client.reconfigRequestSeq, 16);
-    await client.sendReconfigParam(param);
+    const param = new StreamAddOutgoingParam(
+      client.reconfig.reconfigRequestSeq,
+      16,
+    );
+    await client.reconfig.sendReconfigParam(param);
     await setTimeout(100);
 
     expect(server.maxChannels).toBe(272);

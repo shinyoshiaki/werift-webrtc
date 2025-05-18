@@ -64,20 +64,13 @@ const log = debug("werift/sctp/sctp");
 // SSN: Stream Sequence Number
 
 export class SCTP {
-  readonly stateChanged: {
-    [key in SCTPConnectionState]: Event<[]>;
-  } = createEventsFromList(SCTPConnectionStates);
-  readonly onReconfigStreams = new Event<[number[]]>();
-  /**streamId: number, ppId: number, data: Buffer */
-  readonly onReceive = new Event<[number, number, Buffer]>();
-
   associationState = SCTP_STATE.CLOSED;
   started = false;
   isServer = true;
 
-  private hmacKey = randomBytes(16);
-  private localPartialReliability = true;
-  private localVerificationTag = random32();
+  private readonly hmacKey = randomBytes(16);
+  private readonly localPartialReliability = true;
+  private readonly localVerificationTag = random32();
 
   remoteExtensions: number[] = [];
   remotePartialReliability = true;
@@ -86,7 +79,7 @@ export class SCTP {
   private advertisedRwnd = 1024 * 1024; // Receiver Window
   private inboundStreams: { [key: number]: InboundStream } = {};
   _inboundStreamsCount = 0;
-  _inboundStreamsMax = MAX_STREAMS;
+  readonly _inboundStreamsMax = MAX_STREAMS;
   private lastReceivedTsn?: number; // Transmission Sequence Number
   private sackDuplicates: number[] = [];
   private sackMisOrdered = new Set<number>();
@@ -94,14 +87,21 @@ export class SCTP {
   private sackTimeout: NodeJS.Immediate | undefined;
 
   // # outbound
-
   private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
 
-  private transmitter: SCTPTransmitter;
-  private timerManager: SCTPTimerManager;
-  private reconfig: SctpReconfig;
   // etc
+
+  transmitter: SCTPTransmitter;
+  timerManager: SCTPTimerManager;
+  reconfig: SctpReconfig;
+
+  readonly stateChanged: {
+    [key in SCTPConnectionState]: Event<[]>;
+  } = createEventsFromList(SCTPConnectionStates);
+  readonly onReconfigStreams = new Event<[number[]]>();
+  /**streamId: number, ppId: number, data: Buffer */
+  readonly onReceive = new Event<[number, number, Buffer]>();
   onSackReceived: () => Promise<void> = async () => {};
   private disposer = new EventDisposer();
 
