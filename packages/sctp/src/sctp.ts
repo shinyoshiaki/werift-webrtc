@@ -471,9 +471,7 @@ export class SCTP {
         {
           const add = param as StreamAddOutgoingParam;
           this._inboundStreamsCount += add.newStreams;
-          const res = new ReconfigResponseParam(add.requestSequence, 1);
-          this.reconfig.reconfigResponseSeq = add.requestSequence;
-          await this.reconfig.sendReconfigParam(res);
+          await this.reconfig.handleStreamAddOutgoing(add);
         }
         break;
     }
