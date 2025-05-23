@@ -497,4 +497,14 @@ export class RTCRtpSender {
     }
     this.onRtcp.execute(rtcpPacket);
   }
+
+  // todo impl
+  getParameters() {
+    return {
+      encodings: [],
+    };
+  }
+
+  // todo impl
+  setParameters(params: any) {}
 }

@@ -25,8 +25,10 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
+import { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
+import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls";
 import type {
   IceGathererState,
@@ -35,8 +37,6 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
-import { SctpTransportManager } from "./sctpManager";
-import { SecureTransportManager } from "./secureTransportManager";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
@@ -71,6 +71,8 @@ export class RTCPeerConnection extends EventTarget {
 
   ondatachannel?: CallbackWithValue<RTCDataChannelEvent>;
   onicecandidate?: CallbackWithValue<RTCPeerConnectionIceEvent>;
+  onicecandidateerror?: CallbackWithValue<any>;
+  onicegatheringstatechange?: CallbackWithValue<any>;
   onnegotiationneeded?: CallbackWithValue<any>;
   onsignalingstatechange?: CallbackWithValue<any>;
   ontrack?: CallbackWithValue<RTCTrackEvent>;
@@ -154,6 +156,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.secureManager.iceConnectionState;
   }
   get iceGathererState() {
+    return this.secureManager.iceGatheringState;
+  }
+  get iceGatheringState() {
     return this.secureManager.iceGatheringState;
   }
   get dtlsTransports() {

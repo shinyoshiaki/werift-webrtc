@@ -10,7 +10,7 @@ import type {
 } from "./parameters";
 import type { RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
-import type { MediaStreamTrack } from "./track";
+import type { MediaStream, MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
   readonly id = uuid.v4();
@@ -120,4 +120,5 @@ type SimulcastDirection = "send" | "recv";
 export interface TransceiverOptions {
   direction: MediaDirection;
   simulcast: { direction: SimulcastDirection; rid: string }[];
+  streams: MediaStream[];
 }

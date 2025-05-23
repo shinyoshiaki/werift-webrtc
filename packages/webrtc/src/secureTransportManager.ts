@@ -2,9 +2,8 @@ import { SRTP_PROFILE } from "./const";
 import { Event, debug } from "./imports/common";
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
 import type { PeerConfig } from "./peerConnection";
+import type { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
-import type { ConnectionState } from "./types/domain";
-import { parseIceServers } from "./utils";
 import {
   type DtlsKeys,
   RTCCertificate,
@@ -18,7 +17,8 @@ import type {
   RTCIceConnectionState,
 } from "./transport/ice";
 import type { RTCSctpTransport } from "./transport/sctp";
-import type { SctpTransportManager } from "./sctpManager";
+import type { ConnectionState } from "./types/domain";
+import { parseIceServers } from "./utils";
 
 const log = debug(
   "werift:packages/webrtc/src/transport/secureTransportManager.ts",
