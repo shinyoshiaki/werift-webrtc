@@ -81,6 +81,10 @@ export class Connection implements IceConnection {
       ...defaultOptions,
       ...options,
     };
+    if (this.options.isLite) {
+      this._iceControlling = false;
+      this.remoteIsLite = false;
+    }
     const { stunServer, turnServer } = this.options;
     this.stunServer = validateAddress(stunServer) ?? [
       "stun.l.google.com",
@@ -170,6 +174,11 @@ export class Connection implements IceConnection {
 
   // 4.1.1 Gathering Candidates
   async gatherCandidates() {
+    if (this.options.isLite) {
+      this.localCandidatesEnd = true;
+      this.setState("completed");
+      return;
+    }
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
 
@@ -462,6 +471,10 @@ export class Connection implements IceConnection {
     // and raises an exception otherwise.
     // """
     log("start connect ice");
+    if (this.options.isLite) {
+      this.setState("connected");
+      return;
+    }
     if (!this.localCandidatesEnd) {
       if (!this.localCandidatesStart) {
         throw new Error("Local candidates gathering was not performed");

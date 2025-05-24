@@ -157,6 +157,7 @@ export interface IceOptions {
     protocol: Protocol,
   ) => boolean;
   filterCandidatePair?: (pair: CandidatePair) => boolean;
+  isLite?: boolean;
 }
 
 export const defaultOptions: IceOptions = {

@@ -44,8 +44,15 @@ export class RTCIceTransport {
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
   readonly onNegotiationNeeded = new Event<[]>();
+  public readonly iceLite: boolean;
 
-  constructor(private iceGather: RTCIceGatherer) {
+  constructor(
+    private iceGather: RTCIceGatherer,
+    options: { iceLite?: boolean } = {},
+  ) {
+    this.iceLite = !!options.iceLite;
+    // We assume iceGather is already configured with the same iceLite mode.
+    // The actual connection's behavior (lite or full) is determined by how iceGather was instantiated.
     this.connection = this.iceGather.connection;
     this.connection.stateChanged.subscribe((state) => {
       this.setState(state);
@@ -183,8 +190,8 @@ export class RTCIceGatherer {
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
-  constructor(private options: Partial<IceOptions> = {}) {
-    this.connection = new Connection(false, this.options);
+  constructor(public options: Partial<IceOptions> = {}) {
+    this.connection = new Connection(!!options.isLite, this.options);
     this.connection.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate(candidateFromIce(candidate));
     });
@@ -207,6 +214,7 @@ export class RTCIceGatherer {
     const params = new RTCIceParameters({
       usernameFragment: this.connection.localUsername,
       password: this.connection.localPassword,
+      iceLite: this.options.isLite,
     });
 
     return params;
