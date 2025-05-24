@@ -32,6 +32,13 @@ import { StreamStatistics } from "./receiver/statistics";
 
 import { codecParametersFromString } from "../sdp";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
+import {
+  type RTCInboundRtpStreamStats,
+  type RTCRemoteOutboundRtpStreamStats,
+  type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./stats";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
@@ -211,8 +218,61 @@ export class RTCRtpReceiver {
     } catch (error) {}
   }
 
-  /**todo impl */
-  getStats() {}
+  async getStats(): Promise<RTCStats[]> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    if (!this.dtlsTransport) {
+      return stats;
+    }
+
+    const transportId = generateStatsId("transport", this.dtlsTransport.id);
+
+    // Collect stats for each track
+    for (const track of this.tracks) {
+      if (!track.ssrc) continue;
+
+      const streamStats = this.remoteStreams[track.ssrc];
+      if (!streamStats) continue;
+
+      // Inbound RTP stats
+      const inboundRtpStats: RTCInboundRtpStreamStats = {
+        type: "inbound-rtp",
+        id: generateStatsId("inbound-rtp", track.ssrc),
+        timestamp,
+        ssrc: track.ssrc,
+        kind: this.kind,
+        transportId,
+        codecId: this.codecs[0]
+          ? generateStatsId("codec", this.codecs[0].payloadType, transportId)
+          : undefined,
+        mid: this.sdesMid,
+        trackIdentifier: track.id,
+        packetsReceived: streamStats.packets_received,
+        packetsLost: streamStats.packets_lost,
+        jitter: streamStats.jitter,
+      };
+      stats.push(inboundRtpStats);
+
+      // Remote outbound RTP stats (if we have SR info)
+      if (this.lastSRtimestamp[track.ssrc]) {
+        const remoteOutboundStats: RTCRemoteOutboundRtpStreamStats = {
+          type: "remote-outbound-rtp",
+          id: generateStatsId("remote-outbound-rtp", track.ssrc),
+          timestamp,
+          ssrc: track.ssrc,
+          kind: this.kind,
+          transportId,
+          codecId: inboundRtpStats.codecId,
+          localId: inboundRtpStats.id,
+          remoteTimestamp: this.receiveLastSRTimestamp[track.ssrc] * 1000, // Convert to ms
+        };
+        stats.push(remoteOutboundStats);
+      }
+    }
+
+    return stats;
+  }
 
   async sendRtcpPLI(mediaSsrc: number) {
     if (!this.pliEnabled) {

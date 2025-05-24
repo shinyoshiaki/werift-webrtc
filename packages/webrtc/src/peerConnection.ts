@@ -25,6 +25,14 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
+import {
+  type RTCDataChannelStats,
+  type RTCPeerConnectionStats,
+  type RTCStats,
+  RTCStatsReport,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./media/stats";
 import { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
@@ -774,6 +782,74 @@ export class RTCPeerConnection extends EventTarget {
     if (this.onsignalingstatechange) {
       this.onsignalingstatechange({});
     }
+  }
+
+  async getStats(selector?: MediaStreamTrack | null): Promise<RTCStatsReport> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    // Peer connection stats
+    const pcStats: RTCPeerConnectionStats = {
+      type: "peer-connection",
+      id: generateStatsId("peer-connection"),
+      timestamp,
+      dataChannelsOpened: this.sctpManager.dataChannelsOpened,
+      dataChannelsClosed: this.sctpManager.dataChannelsClosed,
+    };
+    stats.push(pcStats);
+
+    // Get stats from transceivers
+    const transceivers = this.transceiverManager.getTransceivers();
+    for (const transceiver of transceivers) {
+      // Skip if selector is specified and doesn't match
+      if (
+        selector &&
+        transceiver.sender.track !== selector &&
+        transceiver.receiver.track !== selector
+      ) {
+        continue;
+      }
+
+      // Collect sender stats
+      if (transceiver.sender) {
+        const senderStats = await transceiver.sender.getStats();
+        if (senderStats) {
+          stats.push(...senderStats);
+        }
+      }
+
+      // Collect receiver stats
+      if (transceiver.receiver) {
+        const receiverStats = await transceiver.receiver.getStats();
+        if (receiverStats) {
+          stats.push(...receiverStats);
+        }
+      }
+
+      // Collect codec stats
+      const codecStats = transceiver.getCodecStats();
+      if (codecStats) {
+        stats.push(...codecStats);
+      }
+    }
+
+    // Get transport stats
+    for (const dtlsTransport of this.dtlsTransports) {
+      const transportStats = await dtlsTransport.getStats();
+      if (transportStats) {
+        stats.push(...transportStats);
+      }
+    }
+
+    // Get data channel stats
+    if (this.sctpTransport) {
+      const dataChannelStats = await this.sctpManager.getStats();
+      if (dataChannelStats) {
+        stats.push(...dataChannelStats);
+      }
+    }
+
+    return new RTCStatsReport(stats);
   }
 
   async close() {

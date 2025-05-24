@@ -30,6 +30,15 @@ import {
   keyLength,
   saltLength,
 } from "../imports/rtp";
+import {
+  type RTCCertificateStats,
+  type RTCIceCandidatePairStats,
+  type RTCIceCandidateStats,
+  type RTCStats,
+  type RTCTransportStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "../media/stats";
 import type { PeerConfig } from "../peerConnection";
 import { fingerprint, isDtls } from "../utils";
 import type { RTCIceTransport } from "./ice";
@@ -42,6 +51,12 @@ export class RTCDtlsTransport {
   role: DtlsRole = "auto";
   srtpStarted = false;
   transportSequenceNumber = 0;
+
+  // Statistics tracking
+  private bytesSent = 0;
+  private bytesReceived = 0;
+  private packetsSent = 0;
+  private packetsReceived = 0;
 
   dataReceiver: (buf: Buffer) => void = () => {};
   dtls?: DtlsSocket;
@@ -225,6 +240,11 @@ export class RTCDtlsTransport {
       }
 
       if (!isMedia(data)) return;
+
+      // Track received data statistics
+      this.bytesReceived += data.length;
+      this.packetsReceived++;
+
       if (isRtcp(data)) {
         const dec = this.srtcp.decrypt(data);
         const rtcpPackets = RtcpPacketConverter.deSerialize(dec);
@@ -272,6 +292,10 @@ export class RTCDtlsTransport {
         return enc.length;
       }
 
+      // Track statistics
+      this.bytesSent += enc.length;
+      this.packetsSent++;
+
       await this.iceTransport.connection.send(enc).catch(() => {});
       return enc.length;
     } catch (error) {
@@ -291,6 +315,10 @@ export class RTCDtlsTransport {
       return enc.length;
     }
 
+    // Track statistics
+    this.bytesSent += enc.length;
+    this.packetsSent++;
+
     await this.iceTransport.connection.send(enc).catch(() => {});
   }
 
@@ -305,6 +333,80 @@ export class RTCDtlsTransport {
     this.setState("closed");
     // todo impl send alert
     await this.iceTransport.stop();
+  }
+
+  async getStats(): Promise<RTCStats[]> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    const transportId = generateStatsId("transport", this.id);
+
+    // Transport stats
+    const transportStats: RTCTransportStats = {
+      type: "transport",
+      id: transportId,
+      timestamp,
+      bytesSent: this.bytesSent,
+      bytesReceived: this.bytesReceived,
+      packetsSent: this.packetsSent,
+      packetsReceived: this.packetsReceived,
+      dtlsState: this.state,
+      iceState: this.iceTransport.state,
+      selectedCandidatePairId: this.iceTransport.connection.nominated
+        ? generateStatsId(
+            "candidate-pair",
+            this.iceTransport.connection.nominated.localCandidate.foundation,
+            this.iceTransport.connection.nominated.remoteCandidate.foundation,
+          )
+        : undefined,
+      localCertificateId: this.localCertificate
+        ? generateStatsId("certificate", "local")
+        : undefined,
+      remoteCertificateId: this.remoteParameters
+        ? generateStatsId("certificate", "remote")
+        : undefined,
+      dtlsRole: this.role === "auto" ? undefined : this.role,
+    };
+    stats.push(transportStats);
+
+    // Certificate stats
+    if (this.localCertificate) {
+      const fingerprints = this.localCertificate.getFingerprints();
+      if (fingerprints.length > 0) {
+        const certStats: RTCCertificateStats = {
+          type: "certificate",
+          id: generateStatsId("certificate", "local"),
+          timestamp,
+          fingerprint: fingerprints[0].value,
+          fingerprintAlgorithm: fingerprints[0].algorithm,
+          base64Certificate: Buffer.from(
+            this.localCertificate.certPem,
+          ).toString("base64"),
+        };
+        stats.push(certStats);
+      }
+    }
+
+    if (
+      this.remoteParameters &&
+      this.remoteParameters.fingerprints.length > 0
+    ) {
+      const certStats: RTCCertificateStats = {
+        type: "certificate",
+        id: generateStatsId("certificate", "remote"),
+        timestamp,
+        fingerprint: this.remoteParameters.fingerprints[0].value,
+        fingerprintAlgorithm: this.remoteParameters.fingerprints[0].algorithm,
+        base64Certificate: "", // Remote certificate content not available
+      };
+      stats.push(certStats);
+    }
+
+    // Get ICE stats
+    const iceStats = await this.iceTransport.getStats();
+    stats.push(...iceStats);
+
+    return stats;
   }
 }
 

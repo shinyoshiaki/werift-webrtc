@@ -7,6 +7,7 @@ import type { Callback, CallbackWithValue } from "./types/util";
 const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
 export class RTCDataChannel extends EventTarget {
+  readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
   readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
@@ -24,6 +25,12 @@ export class RTCDataChannel extends EventTarget {
 
   bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
+
+  // Statistics
+  messagesSent = 0;
+  bytesSent = 0;
+  messagesReceived = 0;
+  bytesReceived = 0;
 
   constructor(
     readonly sctp: RTCSctpTransport,
@@ -93,6 +100,7 @@ export class RTCDataChannel extends EventTarget {
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
+      this.stateChange.execute(state);
       this.stateChanged.execute(state);
 
       switch (state) {
@@ -124,6 +132,9 @@ export class RTCDataChannel extends EventTarget {
   }
 
   send(data: Buffer | string) {
+    const size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+    this.messagesSent++;
+    this.bytesSent += size;
     this.sctp.datachannelSend(this, data);
   }
 

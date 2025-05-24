@@ -70,6 +70,15 @@ export class CandidatePair {
     return this._state;
   }
 
+  // Statistics tracking
+  packetsSent = 0;
+  packetsReceived = 0;
+  bytesSent = 0;
+  bytesReceived = 0;
+  rtt?: number;
+  totalRoundTripTime = 0;
+  roundTripTimeMeasurements = 0;
+
   toJSON() {
     return this.json;
   }
