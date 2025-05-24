@@ -48,6 +48,7 @@ import {
 import { type Unpacked, createEventsFromList } from "./helper";
 import {
   Event,
+  EventDisposer,
   debug,
   random32,
   uint16Add,
@@ -144,12 +145,18 @@ export class SCTP {
   private timerManager: SCTPTimerManager;
   // etc
   private ssthresh?: number; // slow start threshold
+  private disposer = new EventDisposer();
 
   constructor(
     public transport: Transport,
     public port = 5000,
   ) {
     this.transmitter = new SCTPTransmitter(transport, port);
+    this.transmitter.onStateChanged
+      .subscribe((state) => {
+        this.stateChanged[state].execute();
+      })
+      .disposer(this.disposer);
     this.transport.onData = (buf) => {
       this.handleData(buf);
     };
@@ -1041,7 +1048,7 @@ export class SCTP {
   async start(remotePort?: number) {
     if (!this.started) {
       this.started = true;
-      this.setConnectionState("connecting");
+      this.transmitter.setConnectionState("connecting");
 
       if (remotePort) {
         this.setRemotePort(remotePort);
@@ -1090,18 +1097,12 @@ export class SCTP {
       this.associationState = state;
     }
     if (state === SCTP_STATE.ESTABLISHED) {
-      this.setConnectionState("connected");
+      this.transmitter.setConnectionState("connected");
     } else if (state === SCTP_STATE.CLOSED) {
       this.timerManager.cancelAllTimers();
-      this.setConnectionState("closed");
+      this.transmitter.setConnectionState("closed");
       this.removeAllListeners();
     }
-  }
-
-  setConnectionState(state: SCTPConnectionState) {
-    this.transmitter.state = state;
-    log("setConnectionState", state);
-    this.stateChanged[state].execute();
   }
 
   async stop() {
@@ -1111,6 +1112,7 @@ export class SCTP {
     this.setState(SCTP_STATE.CLOSED);
     this.timerManager.cancelAllTimers();
     this.transport.close();
+    this.disposer.dispose();
   }
 
   async abort() {
