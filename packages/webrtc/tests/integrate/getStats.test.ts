@@ -632,7 +632,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       // Establish connection
       const offer = await pc1.createOffer();
       await pc1.setLocalDescription(offer);
-      await pc2.setRemoteDescription(offer);
+      await pc2.setRemoteDescription(pc1.localDescription!);
       const answer = await pc2.createAnswer();
       await pc2.setLocalDescription(answer);
       await pc1.setRemoteDescription(answer);
@@ -664,7 +664,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       // Establish connection
       const offer = await pc1.createOffer();
       await pc1.setLocalDescription(offer);
-      await pc2.setRemoteDescription(offer);
+      await pc2.setRemoteDescription(pc1.localDescription!);
       const answer = await pc2.createAnswer();
       await pc2.setLocalDescription(answer);
       await pc1.setRemoteDescription(answer);

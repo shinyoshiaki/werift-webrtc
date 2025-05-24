@@ -788,7 +788,7 @@ export class RTCPeerConnection extends EventTarget {
     const timestamp = getStatsTimestamp();
     const stats: RTCStats[] = [];
 
-    // Peer connection stats
+    // Peer connection stats - always included regardless of selector
     const pcStats: RTCPeerConnectionStats = {
       type: "peer-connection",
       id: generateStatsId("peer-connection"),
@@ -801,20 +801,26 @@ export class RTCPeerConnection extends EventTarget {
     // Get stats from transceivers
     const transceivers = this.transceiverManager.getTransceivers();
     for (const transceiver of transceivers) {
-      // Skip if selector is specified and doesn't match
-      if (
-        selector &&
-        transceiver.sender.track !== selector &&
-        transceiver.receiver.track !== selector
-      ) {
-        continue;
-      }
+      // Determine if this transceiver's stats should be included
+      const includeTransceiverStats = !selector || 
+        (transceiver.sender.track === selector || 
+         transceiver.receiver.track === selector);
 
       // Collect sender stats
       if (transceiver.sender) {
         const senderStats = await transceiver.sender.getStats();
         if (senderStats) {
-          stats.push(...senderStats);
+          // Filter RTP stats based on selector
+          for (const stat of senderStats) {
+            if (stat.type === "outbound-rtp" || stat.type === "media-source") {
+              if (includeTransceiverStats) {
+                stats.push(stat);
+              }
+            } else {
+              // Non-RTP stats are always included
+              stats.push(stat);
+            }
+          }
         }
       }
 
@@ -822,18 +828,30 @@ export class RTCPeerConnection extends EventTarget {
       if (transceiver.receiver) {
         const receiverStats = await transceiver.receiver.getStats();
         if (receiverStats) {
-          stats.push(...receiverStats);
+          // Filter RTP stats based on selector
+          for (const stat of receiverStats) {
+            if (stat.type === "inbound-rtp" || stat.type === "remote-outbound-rtp") {
+              if (includeTransceiverStats) {
+                stats.push(stat);
+              }
+            } else {
+              // Non-RTP stats are always included
+              stats.push(stat);
+            }
+          }
         }
       }
 
-      // Collect codec stats
-      const codecStats = transceiver.getCodecStats();
-      if (codecStats) {
-        stats.push(...codecStats);
+      // Collect codec stats - include if transceiver matches selector
+      if (includeTransceiverStats) {
+        const codecStats = transceiver.getCodecStats();
+        if (codecStats) {
+          stats.push(...codecStats);
+        }
       }
     }
 
-    // Get transport stats
+    // Get transport stats - always included regardless of selector
     for (const dtlsTransport of this.dtlsTransports) {
       const transportStats = await dtlsTransport.getStats();
       if (transportStats) {
@@ -841,7 +859,7 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    // Get data channel stats
+    // Get data channel stats - always included regardless of selector
     if (this.sctpTransport) {
       const dataChannelStats = await this.sctpManager.getStats();
       if (dataChannelStats) {
