@@ -120,4 +120,36 @@ export class SctpReconfig {
     // # close data channel
     this.onReconfigStreams.execute(p.streams);
   }
+
+  async handleReconfigResponse(
+    reset: ReconfigResponseParam,
+    outboundStreamSeq: {
+      [streamId: number]: number;
+    },
+    associationState: SCTP_STATE,
+  ) {
+    if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
+      log(
+        "OutgoingSSNResetRequestParam failed",
+        Object.keys(reconfigResult).find(
+          (key) => reconfigResult[key as never] === reset.result,
+        ),
+      );
+    } else if (
+      reset.responseSequence === this.reconfigRequest?.requestSequence
+    ) {
+      const streamIds = this.reconfigRequest.streams.map((streamId) => {
+        delete outboundStreamSeq[streamId];
+        return streamId;
+      });
+
+      this.onReconfigStreams.execute(streamIds);
+
+      this.reconfigRequest = undefined;
+      this.timerManager.cancelReconfigTimer();
+      if (this.reconfigQueue.length > 0) {
+        await this.transmitReconfigRequest(associationState);
+      }
+    }
+  }
 }
