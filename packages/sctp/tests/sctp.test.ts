@@ -21,8 +21,8 @@ describe("sctp", () => {
     );
 
     //@ts-ignore
-    client._inboundStreamsMax = 2048;
-    client._outboundStreamsCount = 256;
+    client.stream._inboundStreamsMax = 2048;
+    client.stream._outboundStreamsCount = 256;
 
     await Promise.all([client.start(5000), server.start(5000)]);
     await Promise.all([
@@ -32,12 +32,12 @@ describe("sctp", () => {
 
     expect(client.maxChannels).toBe(256);
     expect(client.associationState).toBe(SCTP_STATE.ESTABLISHED);
-    expect(client._inboundStreamsCount).toBe(2048);
-    expect(client._outboundStreamsCount).toBe(256);
+    expect(client.stream._inboundStreamsCount).toBe(2048);
+    expect(client.stream._outboundStreamsCount).toBe(256);
     expect(client.remoteExtensions).toEqual([192, 130]);
     expect(server.associationState).toBe(SCTP_STATE.ESTABLISHED);
-    expect(server._inboundStreamsCount).toBe(256);
-    expect(server._outboundStreamsCount).toBe(2048);
+    expect(server.stream._inboundStreamsCount).toBe(256);
+    expect(server.stream._outboundStreamsCount).toBe(2048);
     expect(server.remoteExtensions).toEqual([192, 130]);
 
     const param = new StreamAddOutgoingParam(
@@ -48,8 +48,8 @@ describe("sctp", () => {
     await setTimeout(100);
 
     expect(server.maxChannels).toBe(272);
-    expect(server._inboundStreamsCount).toBe(272);
-    expect(server._outboundStreamsCount).toBe(2048);
+    expect(server.stream._inboundStreamsCount).toBe(272);
+    expect(server.stream._outboundStreamsCount).toBe(2048);
 
     client.stop();
 

@@ -1,12 +1,119 @@
-import type { DataChunk } from "./chunk";
+import type {
+  DataChunk,
+  ForwardTsnChunk,
+  InitAckChunk,
+  InitChunk,
+} from "./chunk";
 import {
+  MAX_STREAMS,
   SCTP_DATA_FIRST_FRAG,
   SCTP_DATA_LAST_FRAG,
   SCTP_DATA_UNORDERED,
-  SCTP_TSN_MODULO,
 } from "./const";
 import { enumerate } from "./helper";
-import { uint16Add, uint16Gt, uint32Gt, uint32Gte } from "./imports/common";
+import {
+  Event,
+  uint16Add,
+  uint16Gt,
+  uint32Gt,
+  uint32Gte,
+} from "./imports/common";
+import { tsnPlusOne } from "./util";
+
+export class StreamManager {
+  // inbound
+  advertisedRwnd = 1024 * 1024; // Receiver Window
+  inboundStreams: { [key: number]: InboundStream } = {};
+  _inboundStreamsCount = 0;
+  readonly _inboundStreamsMax = MAX_STREAMS;
+
+  // # outbound
+  outboundStreamSeq: { [streamId: number]: number } = {};
+  _outboundStreamsCount = MAX_STREAMS;
+
+  readonly onReceive = new Event<[number, number, Buffer]>();
+
+  constructor() {}
+
+  get maxChannels() {
+    if (this._inboundStreamsCount > 0) {
+      return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
+    }
+    return undefined;
+  }
+
+  updateStreamsCount(init: InitChunk | InitAckChunk) {
+    this._inboundStreamsCount = Math.min(
+      init.outboundStreams,
+      this._inboundStreamsMax,
+    );
+    this._outboundStreamsCount = Math.min(
+      this._outboundStreamsCount,
+      init.inboundStreams,
+    );
+  }
+
+  removeInboundStream(id: number) {
+    delete this.inboundStreams[id];
+  }
+
+  removeOutboundStreamSeq(id: number) {
+    delete this.outboundStreamSeq[id];
+  }
+
+  increaseInboundStreamCount(c: number) {
+    this._inboundStreamsCount += c;
+  }
+
+  incrementOutboundStreamSeq(id: number, ordered?: boolean) {
+    const streamSeqNum = ordered ? this.outboundStreamSeq[id] || 0 : 0;
+    if (ordered) {
+      this.outboundStreamSeq[id] = uint16Add(streamSeqNum, 1);
+    }
+    return streamSeqNum;
+  }
+
+  findOrCreateInboundStream(streamId: number) {
+    if (!this.inboundStreams[streamId]) {
+      this.inboundStreams[streamId] = new InboundStream();
+    }
+    return this.inboundStreams[streamId];
+  }
+
+  handleForwardTsn(chunk: ForwardTsnChunk, lastReceivedTsn: number) {
+    // # update reassembly
+    for (const [streamId, streamSeqNum] of chunk.streams) {
+      const inboundStream = this.findOrCreateInboundStream(streamId);
+
+      // # advance sequence number and perform delivery
+      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
+      for (const message of inboundStream.popMessages()) {
+        this.advertisedRwnd += message[2].length;
+        this.receive(...message);
+      }
+    }
+
+    // # prune obsolete chunks
+    for (const inboundStream of Object.values(this.inboundStreams)) {
+      this.advertisedRwnd += inboundStream.pruneChunks(lastReceivedTsn);
+    }
+  }
+
+  private receive(streamId: number, ppId: number, data: Buffer) {
+    this.onReceive.execute(streamId, ppId, data);
+  }
+
+  handleData(chunk: DataChunk) {
+    const inboundStream = this.findOrCreateInboundStream(chunk.streamId);
+
+    inboundStream.addChunk(chunk);
+    this.advertisedRwnd -= chunk.userData.length;
+    for (const message of inboundStream.popMessages()) {
+      this.advertisedRwnd += message[2].length;
+      this.receive(...message);
+    }
+  }
+}
 
 export class InboundStream {
   reassembly: DataChunk[] = [];
@@ -116,12 +223,4 @@ export class InboundStream {
     this.reassembly = this.reassembly.slice(pos + 1);
     return size;
   }
-}
-
-export function tsnMinusOne(a: number) {
-  return (a - 1) % SCTP_TSN_MODULO;
-}
-
-export function tsnPlusOne(a: number) {
-  return (a + 1) % SCTP_TSN_MODULO;
 }
