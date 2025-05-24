@@ -18,6 +18,11 @@ import { tsnMinusOne, tsnPlusOne } from "./util";
 
 const log = debug("packages/sctp/src/reconfig.ts");
 
+interface Deps {
+  transmitter: SCTPTransmitter;
+  timerManager: SCTPTimerManager;
+}
+
 export class SctpReconfig {
   // # reconfiguration
 
@@ -27,12 +32,16 @@ export class SctpReconfig {
   reconfigResponseSeq = 0;
   reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
+
+  private transmitter: SCTPTransmitter;
+  private timerManager: SCTPTimerManager;
+
   readonly onReconfigStreams = new Event<[number[]]>();
 
-  constructor(
-    private transmitter: SCTPTransmitter,
-    private timerManager: SCTPTimerManager,
-  ) {
+  constructor(deps: Deps) {
+    this.transmitter = deps.transmitter;
+    this.timerManager = deps.timerManager;
+
     this.reconfigRequestSeq = this.transmitter.localTsn;
 
     this.timerManager.onReconfigExpired.subscribe(async (reconfigFailures) => {
@@ -154,4 +163,35 @@ export class SctpReconfig {
     this.reconfigResponseSeq = add.requestSequence;
     await this.sendReconfigParam(res);
   }
+
+  toDto(): ReconfigDto {
+    return {
+      reconfigRequestSeq: this.reconfigRequestSeq,
+      reconfigResponseSeq: this.reconfigResponseSeq,
+      reconfigRequest: this.reconfigRequest?.bytes,
+      reconfigQueue: this.reconfigQueue,
+    };
+  }
+
+  static fromDto(dto: ReconfigDto, deps: Deps): SctpReconfig {
+    const reconfig = new SctpReconfig(deps);
+    reconfig.reconfigRequestSeq = dto.reconfigRequestSeq;
+    reconfig.reconfigResponseSeq = dto.reconfigResponseSeq;
+    reconfig.reconfigQueue = dto.reconfigQueue;
+
+    if (dto.reconfigRequest) {
+      reconfig.reconfigRequest = OutgoingSSNResetRequestParam.parse(
+        dto.reconfigRequest,
+      );
+    }
+
+    return reconfig;
+  }
+}
+
+export interface ReconfigDto {
+  reconfigRequestSeq: number;
+  reconfigResponseSeq: number;
+  reconfigRequest: Buffer<ArrayBuffer> | undefined;
+  reconfigQueue: number[];
 }

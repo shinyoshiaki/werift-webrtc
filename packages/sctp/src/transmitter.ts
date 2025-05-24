@@ -6,6 +6,7 @@ import {
   type InitAckChunk,
   type InitChunk,
   type SackChunk,
+  parseChunk,
   serializePacket,
 } from "./chunk";
 import {
@@ -23,38 +24,44 @@ import { tsnMinusOne, tsnPlusOne } from "./util";
 
 const log = debug("packages/sctp/src/transmitter.ts");
 
+interface Deps {
+  transport: Transport;
+  timerManager: SCTPTimerManager;
+  port?: number;
+}
+
 export class SCTPTransmitter {
-  private localPort: number;
-  private remotePort?: number;
-  private remoteVerificationTag = 0;
+  protected localPort: number;
+  protected remotePort?: number;
+  protected remoteVerificationTag = 0;
   state: SCTPConnectionState = "new";
-  onStateChanged = new Event<[SCTPConnectionState]>();
-  flush = new Event<[void]>();
   outboundQueue: DataChunk[] = [];
   sentQueue: DataChunk[] = [];
-  private forwardTsnChunk?: ForwardTsnChunk;
-  private fastRecoveryExit?: number;
-  private flightSize = 0;
-  private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
-  private fastRecoveryTransmit = false;
-  private lastSackedTsn: number;
-
-  private partialBytesAcked = 0;
-  private ssthresh?: number; // slow start threshold
-  private advancedPeerAckTsn: number;
-  onSackReceived: () => Promise<void> = async () => {};
-
+  protected forwardTsnChunk?: ForwardTsnChunk;
+  protected fastRecoveryExit?: number;
+  protected flightSize = 0;
+  protected cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
+  protected fastRecoveryTransmit = false;
+  protected lastSackedTsn: number;
+  protected partialBytesAcked = 0;
+  protected ssthresh?: number; // slow start threshold
+  protected advancedPeerAckTsn: number;
   /**local transmission sequence number */
   localTsn = Number(random32());
 
-  constructor(
-    public transport: Transport,
-    private timerManager: SCTPTimerManager,
-    public port = 5000,
-  ) {
-    this.localPort = port;
+  timerManager: SCTPTimerManager;
+  transport: Transport;
+
+  onStateChanged = new Event<[SCTPConnectionState]>();
+  flush = new Event<[void]>();
+  onSackReceived: () => Promise<void> = async () => {};
+
+  constructor(deps: Deps) {
+    this.localPort = deps.port ?? 5000;
     this.lastSackedTsn = tsnMinusOne(this.localTsn);
     this.advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
+    this.timerManager = deps.timerManager;
+    this.transport = deps.transport;
     this.timerManager.onT3Expired.subscribe(() => {
       this.onT3Expired();
     });
@@ -273,12 +280,12 @@ export class SCTPTransmitter {
     if (chunk.gaps.length > 0) {
       const seen = new Set();
       let highestSeenTsn: number;
-      chunk.gaps.forEach((gap) =>
-        range(gap[0], gap[1] + 1).forEach((pos) => {
+      for (const gap of chunk.gaps) {
+        for (const pos of range(gap[0], gap[1] + 1)) {
           highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
           seen.add(highestSeenTsn);
-        }),
-      );
+        }
+      }
 
       let highestNewlyAcked = chunk.cumulativeTsn;
       for (const sChunk of this.sentQueue) {
@@ -440,7 +447,75 @@ export class SCTPTransmitter {
       }
     }
   };
+
+  toDto(): SCTPTransmitterDto {
+    return {
+      localPort: this.localPort,
+      remotePort: this.remotePort,
+      remoteVerificationTag: this.remoteVerificationTag,
+      state: this.state,
+      outboundQueue: this.outboundQueue.map((v) => v.bytes),
+      sentQueue: this.sentQueue.map((v) => v.bytes),
+      forwardTsnChunk: this.forwardTsnChunk?.bytes,
+      fastRecoveryExit: this.fastRecoveryExit,
+      flightSize: this.flightSize,
+      cwnd: this.cwnd,
+      fastRecoveryTransmit: this.fastRecoveryTransmit,
+      lastSackedTsn: this.lastSackedTsn,
+      partialBytesAcked: this.partialBytesAcked,
+      ssthresh: this.ssthresh,
+      advancedPeerAckTsn: this.advancedPeerAckTsn,
+      localTsn: this.localTsn,
+    };
+  }
+
+  static fromDto(dto: SCTPTransmitterDto, deps: Deps): SCTPTransmitter {
+    const instance = new SCTPTransmitter(deps);
+    instance.localPort = dto.localPort;
+    instance.remotePort = dto.remotePort;
+    instance.remoteVerificationTag = dto.remoteVerificationTag;
+    instance.state = dto.state;
+    instance.outboundQueue = dto.outboundQueue.map(
+      (v) => parseChunk(v).chunk as DataChunk,
+    );
+    instance.sentQueue = dto.sentQueue.map(
+      (v) => parseChunk(v).chunk as DataChunk,
+    );
+    instance.forwardTsnChunk = dto.forwardTsnChunk
+      ? (parseChunk(dto.forwardTsnChunk).chunk as ForwardTsnChunk)
+      : undefined;
+    instance.fastRecoveryExit = dto.fastRecoveryExit;
+    instance.flightSize = dto.flightSize;
+    instance.cwnd = dto.cwnd;
+    instance.fastRecoveryTransmit = dto.fastRecoveryTransmit;
+    instance.lastSackedTsn = dto.lastSackedTsn;
+    instance.partialBytesAcked = dto.partialBytesAcked;
+    instance.ssthresh = dto.ssthresh;
+    instance.advancedPeerAckTsn = dto.advancedPeerAckTsn;
+    instance.localTsn = dto.localTsn;
+    return instance;
+  }
 }
+
+export interface SCTPTransmitterDto {
+  localPort: number;
+  remotePort?: number;
+  remoteVerificationTag: number;
+  state: SCTPConnectionState;
+  outboundQueue: Buffer[];
+  sentQueue: Buffer[];
+  forwardTsnChunk?: Buffer;
+  fastRecoveryExit?: number;
+  flightSize: number;
+  cwnd: number;
+  fastRecoveryTransmit: boolean;
+  lastSackedTsn: number;
+  partialBytesAcked: number;
+  ssthresh?: number;
+  advancedPeerAckTsn: number;
+  localTsn: number;
+}
+
 export const SCTPConnectionStates = [
   "new",
   "closed",

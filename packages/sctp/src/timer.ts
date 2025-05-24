@@ -333,7 +333,7 @@ export class SCTPTimerManager {
   }
 }
 
-interface SCTPTimerDto {
+export interface SCTPTimerDto {
   t1Chunk: Buffer | undefined;
   t1Failures: number;
   t2Chunk: Buffer | undefined;

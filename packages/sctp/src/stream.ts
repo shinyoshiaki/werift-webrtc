@@ -1,8 +1,9 @@
-import type {
-  DataChunk,
-  ForwardTsnChunk,
-  InitAckChunk,
-  InitChunk,
+import {
+  type DataChunk,
+  type ForwardTsnChunk,
+  type InitAckChunk,
+  type InitChunk,
+  parseChunk,
 } from "./chunk";
 import {
   MAX_STREAMS,
@@ -113,6 +114,44 @@ export class StreamManager {
       this.receive(...message);
     }
   }
+
+  toDto(): StreamManagerStateDTO {
+    return {
+      advertisedRwnd: this.advertisedRwnd,
+      inboundStreams: Object.fromEntries(
+        Object.entries(this.inboundStreams).map(([k, v]) => [k, v.toDto()]),
+      ),
+      _inboundStreamsCount: this._inboundStreamsCount,
+      outboundStreamSeq: this.outboundStreamSeq,
+      _outboundStreamsCount: this._outboundStreamsCount,
+    };
+  }
+
+  static fromDto(dto: StreamManagerStateDTO): StreamManager {
+    const streamManager = new StreamManager();
+    streamManager.advertisedRwnd = dto.advertisedRwnd;
+    streamManager._inboundStreamsCount = dto._inboundStreamsCount;
+    streamManager.outboundStreamSeq = dto.outboundStreamSeq;
+    streamManager._outboundStreamsCount = dto._outboundStreamsCount;
+
+    for (const [k, v] of Object.entries(dto.inboundStreams)) {
+      streamManager.inboundStreams[Number(k)] = InboundStream.fromDto(v);
+    }
+
+    return streamManager;
+  }
+}
+
+export interface StreamManagerStateDTO {
+  advertisedRwnd: number;
+  inboundStreams: {
+    [k: string]: InboundStreamDTO;
+  };
+  _inboundStreamsCount: number;
+  outboundStreamSeq: {
+    [streamId: number]: number;
+  };
+  _outboundStreamsCount: number;
 }
 
 export class InboundStream {
@@ -223,4 +262,25 @@ export class InboundStream {
     this.reassembly = this.reassembly.slice(pos + 1);
     return size;
   }
+
+  toDto(): InboundStreamDTO {
+    return {
+      reassembly: this.reassembly.map((chunk) => chunk.bytes),
+      streamSequenceNumber: this.streamSequenceNumber,
+    };
+  }
+
+  static fromDto(dto: InboundStreamDTO): InboundStream {
+    const stream = new InboundStream();
+    stream.reassembly = dto.reassembly.map(
+      (chunk) => parseChunk(chunk).chunk as DataChunk,
+    );
+    stream.streamSequenceNumber = dto.streamSequenceNumber;
+    return stream;
+  }
+}
+
+interface InboundStreamDTO {
+  reassembly: Buffer<ArrayBuffer>[];
+  streamSequenceNumber: number;
 }

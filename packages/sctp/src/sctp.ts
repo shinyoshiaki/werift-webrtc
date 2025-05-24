@@ -47,13 +47,14 @@ import {
   StreamAddOutgoingParam,
   type StreamParam,
 } from "./param";
-import { SctpReconfig } from "./reconfig";
-import { StreamManager } from "./stream";
-import { SCTPTimerManager } from "./timer";
+import { type ReconfigDto, SctpReconfig } from "./reconfig";
+import { StreamManager, type StreamManagerStateDTO } from "./stream";
+import { type SCTPTimerDto, SCTPTimerManager } from "./timer";
 import {
   type SCTPConnectionState,
   SCTPConnectionStates,
   SCTPTransmitter,
+  type SCTPTransmitterDto,
 } from "./transmitter";
 import type { Transport } from "./transport";
 import { tsnMinusOne, tsnPlusOne } from "./util";
@@ -63,27 +64,26 @@ const log = debug("werift/sctp/sctp");
 // SSN: Stream Sequence Number
 
 export class SCTP {
-  associationState = SCTP_STATE.CLOSED;
-  started = false;
-  isServer = true;
-
   private readonly hmacKey = randomBytes(16);
   private readonly localPartialReliability = true;
   private readonly localVerificationTag = random32();
 
+  associationState = SCTP_STATE.CLOSED;
+  started = false;
+  isServer = true;
   remoteExtensions: number[] = [];
   remotePartialReliability = true;
+  protected lastReceivedTsn?: number; // Transmission Sequence Number
+  protected sackDuplicates: number[] = [];
+  protected sackMisOrdered = new Set<number>();
+  protected sackNeeded = false;
 
-  private lastReceivedTsn?: number; // Transmission Sequence Number
-  private sackDuplicates: number[] = [];
-  private sackMisOrdered = new Set<number>();
-  private sackNeeded = false;
   private sackTimeout: NodeJS.Immediate | undefined;
 
-  readonly transmitter: SCTPTransmitter;
-  readonly timerManager: SCTPTimerManager;
-  readonly reconfig: SctpReconfig;
-  readonly stream = new StreamManager();
+  transmitter: SCTPTransmitter;
+  timerManager: SCTPTimerManager;
+  reconfig: SctpReconfig;
+  stream: StreamManager;
 
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
@@ -98,16 +98,29 @@ export class SCTP {
     public transport: Transport,
     public port = 5000,
   ) {
-    this.transport.onData = (buf) => {
-      this.handleData(buf);
-    };
     this.timerManager = new SCTPTimerManager({
       sendChunk: async (chunk) => {
         await this.transmitter.sendChunk(chunk);
       },
     });
-    this.transmitter = new SCTPTransmitter(transport, this.timerManager, port);
-    this.reconfig = new SctpReconfig(this.transmitter, this.timerManager);
+    this.transmitter = new SCTPTransmitter({
+      transport,
+      timerManager: this.timerManager,
+      port,
+    });
+    this.reconfig = new SctpReconfig({
+      transmitter: this.transmitter,
+      timerManager: this.timerManager,
+    });
+    this.stream = new StreamManager();
+
+    this.setup();
+  }
+
+  protected setup() {
+    this.transport.onData = (buf) => {
+      this.handleData(buf);
+    };
 
     this.timerManager.onT1Expired.subscribe(() => {
       this.setState(SCTP_STATE.CLOSED);
@@ -614,6 +627,73 @@ export class SCTP {
       this.reconfig.transmitReconfigRequest(this.associationState);
     }
   }
+
+  toDto(): SCTPDto {
+    return {
+      associationState: this.associationState,
+      started: this.started,
+      isServer: this.isServer,
+      remoteExtensions: this.remoteExtensions,
+      remotePartialReliability: this.remotePartialReliability,
+      port: this.port,
+      lastReceivedTsn: this.lastReceivedTsn,
+      sackDuplicates: this.sackDuplicates,
+      sackMisOrdered: Array.from(this.sackMisOrdered),
+      sackNeeded: this.sackNeeded,
+      transmitter: this.transmitter.toDto(),
+      timerManager: this.timerManager.toDto(),
+      reconfig: this.reconfig.toDto(),
+      stream: this.stream.toDto(),
+    };
+  }
+
+  fromDto(dto: SCTPDto, transport: Transport) {
+    const sctp = new SCTP(transport);
+    sctp.associationState = dto.associationState;
+    sctp.started = dto.started;
+    sctp.isServer = dto.isServer;
+    sctp.remoteExtensions = dto.remoteExtensions;
+    sctp.remotePartialReliability = dto.remotePartialReliability;
+    sctp.port = dto.port;
+    sctp.lastReceivedTsn = dto.lastReceivedTsn;
+    sctp.sackDuplicates = dto.sackDuplicates;
+    sctp.sackMisOrdered = new Set(dto.sackMisOrdered);
+    sctp.sackNeeded = dto.sackNeeded;
+
+    sctp.timerManager = SCTPTimerManager.fromDto(dto.timerManager, {
+      sendChunk: async (chunk) => {
+        await sctp.transmitter.sendChunk(chunk);
+      },
+    });
+    sctp.transmitter = SCTPTransmitter.fromDto(dto.transmitter, {
+      timerManager: sctp.timerManager,
+      transport,
+    });
+    sctp.reconfig = SctpReconfig.fromDto(dto.reconfig, {
+      timerManager: sctp.timerManager,
+      transmitter: sctp.transmitter,
+    });
+    sctp.stream = StreamManager.fromDto(dto.stream);
+    sctp.setup();
+    return sctp;
+  }
+}
+
+export interface SCTPDto {
+  associationState: SCTP_STATE;
+  started: boolean;
+  isServer: boolean;
+  remoteExtensions: number[];
+  remotePartialReliability: boolean;
+  port: number;
+  lastReceivedTsn?: number;
+  sackDuplicates: number[];
+  sackMisOrdered: number[];
+  sackNeeded: boolean;
+  transmitter: SCTPTransmitterDto;
+  timerManager: SCTPTimerDto;
+  reconfig: ReconfigDto;
+  stream: StreamManagerStateDTO;
 }
 
 export class RTCSctpCapabilities {
