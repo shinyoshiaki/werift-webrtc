@@ -1,7 +1,7 @@
 import { jspack } from "@shinyoshiaki/jspack";
 
 import * as uuid from "uuid";
-import { Event, debug } from "../imports/common";
+import { Event, EventDisposer, debug } from "../imports/common";
 
 import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
 import {
@@ -354,7 +354,6 @@ export class RTCSctpTransport {
   }
 
   async stop() {
-    this.dtlsTransport.dataReceiver = () => {};
     await this.sctp.stop();
   }
 
@@ -385,12 +384,21 @@ export class RTCSctpCapabilities {
 }
 
 class BridgeDtls implements Transport {
+  disposer = new EventDisposer();
   constructor(private dtls: RTCDtlsTransport) {}
   set onData(onData: (buf: Buffer) => void) {
-    this.dtls.dataReceiver = onData;
+    this.dtls.onData
+      .subscribe((buf) => {
+        onData(buf);
+      })
+      .disposer(this.disposer);
   }
+
   readonly send = (data: Buffer) => {
     return this.dtls.sendData(data);
   };
-  close() {}
+
+  close() {
+    this.disposer.dispose();
+  }
 }
