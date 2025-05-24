@@ -362,10 +362,7 @@ export class RTCSctpTransport {
       channel.setReadyState("closing");
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
-        this.sctp.reconfigQueue.push(channel.id);
-        if (this.sctp.reconfigQueue.length === 1) {
-          this.sctp.transmitReconfigRequest();
-        }
+        this.sctp.dataChannelClose(channel.id!);
       } else {
         this.dataChannelQueue = this.dataChannelQueue.filter(
           (queueItem) => queueItem[0].id !== channel.id,

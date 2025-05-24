@@ -26,7 +26,6 @@ import {
   COOKIE_LENGTH,
   COOKIE_LIFETIME,
   MAX_STREAMS,
-  RECONFIG_MAX_STREAMS,
   SCTP_DATA_FIRST_FRAG,
   SCTP_DATA_LAST_FRAG,
   SCTP_DATA_UNORDERED,
@@ -64,6 +63,7 @@ import {
   SCTPTransmitter,
 } from "./transmitter";
 import type { Transport } from "./transport";
+import { SctpReconfig } from "./reconfig";
 
 const log = debug("werift/sctp/sctp");
 
@@ -106,17 +106,9 @@ export class SCTP {
   /**local transmission sequence number */
   private localTsn = Number(random32());
 
-  // # reconfiguration
-
-  /**初期TSNと同じ値に初期化される単調に増加する数です. これは、新しいre-configuration requestパラメーターを送信するたびに1ずつ増加します */
-  reconfigRequestSeq = this.localTsn;
-  /**このフィールドは、incoming要求のre-configuration requestシーケンス番号を保持します. 他の場合では、次に予想されるre-configuration requestシーケンス番号から1を引いた値が保持されます */
-  reconfigResponseSeq = 0;
-  reconfigRequest?: OutgoingSSNResetRequestParam;
-  reconfigQueue: number[] = [];
-
   private transmitter: SCTPTransmitter;
   private timerManager: SCTPTimerManager;
+  private reconfig: SctpReconfig;
   // etc
   onSackReceived: () => Promise<void> = async () => {};
   private disposer = new EventDisposer();
@@ -133,6 +125,13 @@ export class SCTP {
         await this.transmitter.sendChunk(chunk);
       },
     });
+    this.transmitter = new SCTPTransmitter(transport, this.timerManager, port);
+    this.reconfig = new SctpReconfig(
+      this.localTsn,
+      this.transmitter,
+      this.timerManager,
+    );
+
     this.timerManager.onT1Expired.subscribe(() => {
       this.setState(SCTP_STATE.CLOSED);
     });
@@ -143,18 +142,18 @@ export class SCTP {
       if (reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
         log("timerReconfigFailures", reconfigFailures);
         this.setState(SCTP_STATE.CLOSED);
-      } else if (this.reconfigRequest) {
+      } else if (this.reconfig.reconfigRequest) {
         log(
           "timerReconfigHandleExpired",
           reconfigFailures,
           this.timerManager.rto,
         );
-        await this.sendReconfigParam(this.reconfigRequest);
+        await this.reconfig.sendReconfigParam(this.reconfig.reconfigRequest);
 
         this.timerManager.scheduleNextReconfigTimer();
       }
     });
-    this.transmitter = new SCTPTransmitter(transport, this.timerManager, port);
+
     this.transmitter.onStateChanged
       .subscribe((state) => {
         this.stateChanged[state]?.execute?.();
@@ -262,7 +261,7 @@ export class SCTP {
 
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+          this.reconfig.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
           this.transmitter.handleInitChunk(init);
           this.getExtensions(init.params);
 
@@ -303,7 +302,7 @@ export class SCTP {
           const initAck = chunk as InitAckChunk;
           this.timerManager.cancelT1();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
+          this.reconfig.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
           this.transmitter.handleInitChunk(initAck);
           this.getExtensions(initAck.params);
 
@@ -463,20 +462,20 @@ export class SCTP {
             p.requestSequence,
             reconfigResult.ReconfigResultSuccessPerformed,
           );
-          this.reconfigResponseSeq = p.requestSequence;
-          await this.sendReconfigParam(response);
+          this.reconfig.reconfigResponseSeq = p.requestSequence;
+          await this.reconfig.sendReconfigParam(response);
 
           // # mark closed inbound streams
           await Promise.all(
             p.streams.map(async (streamId) => {
               delete this.inboundStreams[streamId];
               if (this.outboundStreamSeq[streamId]) {
-                this.reconfigQueue.push(streamId);
+                this.reconfig.reconfigQueue.push(streamId);
                 // await this.sendResetRequest(streamId);
               }
             }),
           );
-          await this.transmitReconfigRequest();
+          await this.reconfig.transmitReconfigRequest(this.associationState);
           // # close data channel
           this.onReconfigStreams.execute(p.streams);
         }
@@ -492,19 +491,24 @@ export class SCTP {
               ),
             );
           } else if (
-            reset.responseSequence === this.reconfigRequest?.requestSequence
+            reset.responseSequence ===
+            this.reconfig.reconfigRequest?.requestSequence
           ) {
-            const streamIds = this.reconfigRequest.streams.map((streamId) => {
-              delete this.outboundStreamSeq[streamId];
-              return streamId;
-            });
+            const streamIds = this.reconfig.reconfigRequest.streams.map(
+              (streamId) => {
+                delete this.outboundStreamSeq[streamId];
+                return streamId;
+              },
+            );
 
             this.onReconfigStreams.execute(streamIds);
 
-            this.reconfigRequest = undefined;
+            this.reconfig.reconfigRequest = undefined;
             this.timerManager.cancelReconfigTimer();
-            if (this.reconfigQueue.length > 0) {
-              await this.transmitReconfigRequest();
+            if (this.reconfig.reconfigQueue.length > 0) {
+              await this.reconfig.transmitReconfigRequest(
+                this.associationState,
+              );
             }
           }
         }
@@ -514,8 +518,8 @@ export class SCTP {
           const add = param as StreamAddOutgoingParam;
           this._inboundStreamsCount += add.newStreams;
           const res = new ReconfigResponseParam(add.requestSequence, 1);
-          this.reconfigResponseSeq = add.requestSequence;
-          await this.sendReconfigParam(res);
+          this.reconfig.reconfigResponseSeq = add.requestSequence;
+          await this.reconfig.sendReconfigParam(res);
         }
         break;
     }
@@ -677,38 +681,6 @@ export class SCTP {
     }
   };
 
-  async transmitReconfigRequest() {
-    if (
-      this.reconfigQueue.length > 0 &&
-      this.associationState === SCTP_STATE.ESTABLISHED &&
-      !this.reconfigRequest
-    ) {
-      const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
-
-      this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
-      const param = new OutgoingSSNResetRequestParam(
-        this.reconfigRequestSeq,
-        this.reconfigResponseSeq,
-        tsnMinusOne(this.localTsn),
-        streams,
-      );
-      this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
-
-      this.reconfigRequest = param;
-      await this.sendReconfigParam(param);
-      this.timerManager.startReconfigTimer();
-    }
-  }
-
-  async sendReconfigParam(param: StreamParam) {
-    log("sendReconfigParam", param);
-    const chunk = new ReconfigChunk();
-    chunk.params.push([param.type, param.bytes]);
-    await this.transmitter.sendChunk(chunk).catch((err: Error) => {
-      log("send reconfig failed", err.message);
-    });
-  }
-
   static getCapabilities() {
     return new RTCSctpCapabilities(65536);
   }
@@ -802,6 +774,13 @@ export class SCTP {
 
   get isOutboundQueueEmpty() {
     return this.transmitter.outboundQueue.length === 0;
+  }
+
+  dataChannelClose(channelId: number) {
+    this.reconfig.reconfigQueue.push(channelId);
+    if (this.reconfig.reconfigQueue.length === 1) {
+      this.reconfig.transmitReconfigRequest(this.associationState);
+    }
   }
 }
 
