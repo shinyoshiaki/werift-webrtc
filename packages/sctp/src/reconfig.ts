@@ -8,7 +8,7 @@ import { Event, debug } from "./imports/common";
 import {
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
-  StreamAddOutgoingParam,
+  type StreamAddOutgoingParam,
   type StreamParam,
   reconfigResult,
 } from "./param";
@@ -94,9 +94,6 @@ export class SctpReconfig {
     outboundStreamSeq: {
       [streamId: number]: number;
     },
-    inboundStreams: {
-      [key: number]: InboundStream;
-    },
     associationState: SCTP_STATE,
   ) {
     // # send response
@@ -110,7 +107,6 @@ export class SctpReconfig {
     // # mark closed inbound streams
     await Promise.all(
       p.streams.map(async (streamId) => {
-        delete inboundStreams[streamId];
         if (outboundStreamSeq[streamId]) {
           this.reconfigQueue.push(streamId);
           // await this.sendResetRequest(streamId);
@@ -120,13 +116,12 @@ export class SctpReconfig {
     await this.transmitReconfigRequest(associationState);
     // # close data channel
     this.onReconfigStreams.execute(p.streams);
+
+    return p.streams;
   }
 
   async handleReconfigResponse(
     reset: ReconfigResponseParam,
-    outboundStreamSeq: {
-      [streamId: number]: number;
-    },
     associationState: SCTP_STATE,
   ) {
     if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
@@ -139,18 +134,19 @@ export class SctpReconfig {
     } else if (
       reset.responseSequence === this.reconfigRequest?.requestSequence
     ) {
-      const streamIds = this.reconfigRequest.streams.map((streamId) => {
-        delete outboundStreamSeq[streamId];
+      const reconfigStreams = this.reconfigRequest.streams.map((streamId) => {
         return streamId;
       });
 
-      this.onReconfigStreams.execute(streamIds);
+      this.onReconfigStreams.execute(reconfigStreams);
 
       this.reconfigRequest = undefined;
       this.timerManager.cancelReconfigTimer();
       if (this.reconfigQueue.length > 0) {
         await this.transmitReconfigRequest(associationState);
       }
+
+      return reconfigStreams;
     }
   }
 
