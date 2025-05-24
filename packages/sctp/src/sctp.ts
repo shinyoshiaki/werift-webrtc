@@ -63,20 +63,17 @@ import {
   reconfigResult,
 } from "./param";
 import { InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
-import type { Transport } from "./transport";
 import { SCTPTimerManager, SCTPTimerType } from "./timer";
+import {
+  type SCTPConnectionState,
+  SCTPConnectionStates,
+  SCTPTransmitter,
+} from "./transmitter";
+import type { Transport } from "./transport";
 
 const log = debug("werift/sctp/sctp");
 
 // SSN: Stream Sequence Number
-
-const SCTPConnectionStates = [
-  "new",
-  "closed",
-  "connected",
-  "connecting",
-] as const;
-type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
   flush = new Event<[void]>();
@@ -90,18 +87,14 @@ export class SCTP {
 
   associationState = SCTP_STATE.CLOSED;
   started = false;
-  state: SCTPConnectionState = "new";
   isServer = true;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
-  private localPort: number;
   private localVerificationTag = random32();
 
   remoteExtensions: number[] = [];
   remotePartialReliability = true;
-  private remotePort?: number;
-  private remoteVerificationTag = 0;
 
   // inbound
   private advertisedRwnd = 1024 * 1024; // Receiver Window
@@ -147,7 +140,7 @@ export class SCTP {
   private rto = SCTP_RTO_INITIAL;
   /**t1 is wait for initAck or cookieAck */
 
-  /**Re-configuration Timer */
+  private transmitter: SCTPTransmitter;
   private timerManager: SCTPTimerManager;
   // etc
   private ssthresh?: number; // slow start threshold
@@ -156,7 +149,7 @@ export class SCTP {
     public transport: Transport,
     public port = 5000,
   ) {
-    this.localPort = this.port;
+    this.transmitter = new SCTPTransmitter(transport, port);
     this.transport.onData = (buf) => {
       this.handleData(buf);
     };
@@ -202,7 +195,7 @@ export class SCTP {
         }
       },
       sendChunk: async (chunk) => {
-        await this.sendChunk(chunk);
+        await this.transmitter.sendChunk(chunk);
       },
     });
   }
@@ -212,6 +205,10 @@ export class SCTP {
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
     }
     return undefined;
+  }
+
+  get state() {
+    return this.transmitter.state;
   }
 
   static client(transport: Transport, port = 5000) {
@@ -277,7 +274,7 @@ export class SCTP {
     sack.duplicates = [...this.sackDuplicates];
     sack.gaps = gaps;
 
-    await this.sendChunk(sack).catch((err: Error) => {
+    await this.transmitter.sendChunk(sack).catch((err: Error) => {
       log("send sack failed", err.message);
     });
 
@@ -300,7 +297,7 @@ export class SCTP {
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
-          this.remoteVerificationTag = init.initiateTag;
+          this.transmitter.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
           this.getExtensions(init.params);
 
@@ -329,7 +326,7 @@ export class SCTP {
           ]);
           ack.params.push([SCTP_STATE_COOKIE, cookie]);
           log("send initAck", ack);
-          await this.sendChunk(ack).catch((err: Error) => {
+          await this.transmitter.sendChunk(ack).catch((err: Error) => {
             log("send initAck failed", err.message);
           });
         }
@@ -342,7 +339,7 @@ export class SCTP {
           this.timerManager.cancelT1();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
           this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
-          this.remoteVerificationTag = initAck.initiateTag;
+          this.transmitter.remoteVerificationTag = initAck.initiateTag;
           this.ssthresh = initAck.advertisedRwnd;
           this.getExtensions(initAck.params);
 
@@ -362,7 +359,7 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo).catch((err: Error) => {
+          await this.transmitter.sendChunk(echo).catch((err: Error) => {
             log("send echo failed", err.message);
           });
 
@@ -379,7 +376,7 @@ export class SCTP {
         {
           const ack = new HeartbeatAckChunk();
           ack.params = (chunk as HeartbeatChunk).params;
-          await this.sendChunk(ack).catch((err: Error) => {
+          await this.transmitter.sendChunk(ack).catch((err: Error) => {
             log("send heartbeat ack failed", err.message);
           });
         }
@@ -394,7 +391,7 @@ export class SCTP {
           this.timerManager.cancelT2();
           this.setState(SCTP_STATE.SHUTDOWN_RECEIVED);
           const ack = new ShutdownAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
+          await this.transmitter.sendChunk(ack).catch((err: Error) => {
             log("send shutdown ack failed", err.message);
           });
           this.timerManager.startT2(ack);
@@ -433,13 +430,13 @@ export class SCTP {
               ErrorChunk.CODE.StaleCookieError,
               Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
             ]);
-            await this.sendChunk(error).catch((err: Error) => {
+            await this.transmitter.sendChunk(error).catch((err: Error) => {
               log("send errorChunk failed", err.message);
             });
             return;
           }
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
+          await this.transmitter.sendChunk(ack).catch((err: Error) => {
             log("send cookieAck failed", err.message);
           });
           this.setState(SCTP_STATE.ESTABLISHED);
@@ -856,9 +853,11 @@ export class SCTP {
 
     // # send FORWARD TSN
     if (this.forwardTsnChunk) {
-      await this.sendChunk(this.forwardTsnChunk).catch((err: Error) => {
-        log("send forwardTsn failed", err.message);
-      });
+      await this.transmitter
+        .sendChunk(this.forwardTsnChunk)
+        .catch((err: Error) => {
+          log("send forwardTsn failed", err.message);
+        });
       this.forwardTsnChunk = undefined;
 
       if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
@@ -886,7 +885,7 @@ export class SCTP {
         dataChunk.misses = 0;
         dataChunk.retransmit = false;
         dataChunk.sentCount++;
-        await this.sendChunk(dataChunk).catch((err: Error) => {
+        await this.transmitter.sendChunk(dataChunk).catch((err: Error) => {
           log("send data failed", err.message);
         });
 
@@ -909,7 +908,7 @@ export class SCTP {
       chunk.sentCount++;
       chunk.sentTime = Date.now() / 1000;
 
-      await this.sendChunk(chunk).catch((err: Error) => {
+      await this.transmitter.sendChunk(chunk).catch((err: Error) => {
         log("send data outboundQueue failed", err.message);
       });
       if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
@@ -948,7 +947,7 @@ export class SCTP {
     log("sendReconfigParam", param);
     const chunk = new ReconfigChunk();
     chunk.params.push([param.type, param.bytes]);
-    await this.sendChunk(chunk).catch((err: Error) => {
+    await this.transmitter.sendChunk(chunk).catch((err: Error) => {
       log("send reconfig failed", err.message);
     });
   }
@@ -1036,7 +1035,7 @@ export class SCTP {
   }
 
   setRemotePort(port: number) {
-    this.remotePort = port;
+    this.transmitter.remotePort = port;
   }
 
   async start(remotePort?: number) {
@@ -1065,7 +1064,7 @@ export class SCTP {
     log("send init", init);
 
     try {
-      await this.sendChunk(init);
+      await this.transmitter.sendChunk(init);
 
       // # start T1 timer and enter COOKIE-WAIT state
       this.timerManager.startT1(init);
@@ -1086,21 +1085,6 @@ export class SCTP {
     params.push([SCTP_SUPPORTED_CHUNK_EXT, Buffer.from(extensions)]);
   }
 
-  async sendChunk(chunk: Chunk) {
-    if (this.state === "closed") return;
-    if (this.remotePort === undefined) {
-      throw new Error("invalid remote port");
-    }
-
-    const packet = serializePacket(
-      this.localPort,
-      this.remotePort,
-      this.remoteVerificationTag,
-      chunk,
-    );
-    await this.transport.send(packet);
-  }
-
   setState(state: SCTP_STATE) {
     if (state != this.associationState) {
       this.associationState = state;
@@ -1115,7 +1099,7 @@ export class SCTP {
   }
 
   setConnectionState(state: SCTPConnectionState) {
-    this.state = state;
+    this.transmitter.state = state;
     log("setConnectionState", state);
     this.stateChanged[state].execute();
   }
@@ -1131,7 +1115,7 @@ export class SCTP {
 
   async abort() {
     const abort = new AbortChunk();
-    await this.sendChunk(abort).catch((err: Error) => {
+    await this.transmitter.sendChunk(abort).catch((err: Error) => {
       log("send abort failed", err.message);
     });
   }
