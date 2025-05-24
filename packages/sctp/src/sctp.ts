@@ -1,7 +1,6 @@
 import { createHmac, randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
 
-import range from "lodash/range.js";
 import {
   AbortChunk,
   type Chunk,
@@ -26,16 +25,12 @@ import {
   COOKIE_LENGTH,
   COOKIE_LIFETIME,
   MAX_STREAMS,
-  SCTP_DATA_FIRST_FRAG,
-  SCTP_DATA_LAST_FRAG,
-  SCTP_DATA_UNORDERED,
   SCTP_MAX_ASSOCIATION_RETRANS,
   SCTP_PRSCTP_SUPPORTED,
   SCTP_STATE,
   SCTP_STATE_COOKIE,
   SCTP_SUPPORTED_CHUNK_EXT,
   SCTP_TSN_MODULO,
-  USERDATA_MAX_LENGTH,
 } from "./const";
 import { createEventsFromList } from "./helper";
 import {
@@ -56,7 +51,7 @@ import {
 } from "./param";
 import { SctpReconfig } from "./reconfig";
 import { InboundStream, tsnMinusOne, tsnPlusOne } from "./stream";
-import { SCTPTimerManager, SCTPTimerType } from "./timer";
+import { SCTPTimerManager } from "./timer";
 import {
   type SCTPConnectionState,
   SCTPConnectionStates,
@@ -123,10 +118,7 @@ export class SCTP {
       },
     });
     this.transmitter = new SCTPTransmitter(transport, this.timerManager, port);
-    this.reconfig = new SctpReconfig(
-      this.transmitter,
-      this.timerManager,
-    );
+    this.reconfig = new SctpReconfig(this.transmitter, this.timerManager);
 
     this.timerManager.onT1Expired.subscribe(() => {
       this.setState(SCTP_STATE.CLOSED);
@@ -364,35 +356,22 @@ export class SCTP {
       case CookieEchoChunk.type:
         {
           if (!this.isServer) return;
-          const data = chunk as CookieEchoChunk;
-          const cookie = data.body!;
-          const digest = createHmac("sha1", this.hmacKey)
-            .update(cookie.subarray(0, 4))
-            .digest();
-          if (
-            cookie?.length != COOKIE_LENGTH ||
-            !cookie.subarray(4).equals(digest)
-          ) {
-            log("x State cookie is invalid");
-            return;
-          }
-          const now = Date.now() / 1000;
-          const stamp = jspack.Unpack("!L", cookie)[0];
-          if (stamp < now - COOKIE_LIFETIME || stamp > now) {
-            const error = new ErrorChunk(0, undefined);
-            error.params.push([
-              ErrorChunk.CODE.StaleCookieError,
-              Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
-            ]);
-            await this.transmitter.sendChunk(error).catch((err: Error) => {
+
+          const res = handleCookieEchoChunk(
+            chunk as CookieEchoChunk,
+            this.hmacKey,
+          );
+
+          if (res instanceof ErrorChunk) {
+            await this.transmitter.sendChunk(res).catch((err: Error) => {
               log("send errorChunk failed", err.message);
             });
-            return;
+          } else if (res instanceof CookieAckChunk) {
+            await this.transmitter.sendChunk(res).catch((err: Error) => {
+              log("send cookieAck failed", err.message);
+            });
           }
-          const ack = new CookieAckChunk();
-          await this.transmitter.sendChunk(ack).catch((err: Error) => {
-            log("send cookieAck failed", err.message);
-          });
+
           this.setState(SCTP_STATE.ESTABLISHED);
         }
         break;
@@ -700,4 +679,28 @@ export class SCTP {
 
 export class RTCSctpCapabilities {
   constructor(public maxMessageSize: number) {}
+}
+
+function handleCookieEchoChunk(data: CookieEchoChunk, hmacKey: Buffer) {
+  const cookie = data.body!;
+  const digest = createHmac("sha1", hmacKey)
+    .update(cookie.subarray(0, 4))
+    .digest();
+  if (cookie?.length != COOKIE_LENGTH || !cookie.subarray(4).equals(digest)) {
+    log("x State cookie is invalid");
+    return;
+  }
+  const now = Date.now() / 1000;
+  const stamp = jspack.Unpack("!L", cookie)[0];
+  if (stamp < now - COOKIE_LIFETIME || stamp > now) {
+    const error = new ErrorChunk(0, undefined);
+    error.params.push([
+      ErrorChunk.CODE.StaleCookieError,
+      Buffer.concat([...Array(8)].map(() => Buffer.from("\x00"))),
+    ]);
+
+    return error;
+  }
+  const ack = new CookieAckChunk();
+  return ack;
 }
