@@ -582,7 +582,7 @@ export class SCTP {
     this.transmitter.setRemotePort(port);
   }
 
-  async start(remotePort?: number) {
+  async start(remotePort: number = 5000) {
     if (!this.started) {
       this.started = true;
       this.transmitter.setConnectionState("connecting");

@@ -8,29 +8,34 @@ export interface Transport {
 
 export class UdpTransport implements Transport {
   constructor(
-    private upd: Socket,
-    private rinfo: Partial<RemoteInfo>,
+    private udp: Socket,
+    private remoteInfo: Partial<RemoteInfo>,
   ) {
-    upd.on("message", (buf, target) => {
-      this.rinfo = target;
+    udp.on("message", (buf, target) => {
+      this.remoteInfo = target;
       if (this.onData) this.onData(buf);
     });
   }
   onData?: (buf: Buffer) => void;
 
   send = (buf: Buffer) =>
-    new Promise<void>((r, f) =>
-      this.upd.send(buf, this.rinfo.port, this.rinfo.address, (err) => {
-        if (err) {
-          f(err);
-        } else {
-          r();
-        }
-      }),
-    );
+    new Promise<void>((r, f) => {
+      this.udp.send(
+        buf,
+        this.remoteInfo.port,
+        this.remoteInfo.address,
+        (err) => {
+          if (err) {
+            f(err);
+          } else {
+            r();
+          }
+        },
+      );
+    });
 
   close() {
-    this.upd.close();
+    this.udp.close();
   }
 }
 
