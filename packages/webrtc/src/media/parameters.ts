@@ -101,7 +101,26 @@ export interface RTCRtpReceiveParameters extends RTCRtpParameters {
   encodings: RTCRtpCodingParameters[];
 }
 
-export type RTCRtpSendParameters = RTCRtpParameters;
+export class RTCRtpEncodingParameters {
+  rid?: string;
+  ssrc?: number;
+  scaleResolutionDownBy = 1;
+  maxBitrate?: number;
+  active = true;
+  scalabilityMode?: string;
+  priority: "very-low" | "low" | "medium" | "high" = "low";
+  networkPriority: "very-low" | "low" | "medium" | "high" = "low";
+  adaptivePtime?: boolean;
+  maxFramerate?: number;
+
+  constructor(props: Partial<RTCRtpEncodingParameters> = {}) {
+    Object.assign(this, props);
+  }
+}
+
+export interface RTCRtpSendParameters extends RTCRtpParameters {
+  encodings?: RTCRtpEncodingParameters[];
+}
 
 export class RTCRtpSimulcastParameters {
   rid!: string;

@@ -4,9 +4,11 @@ import { Event } from "../imports/common";
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import type { Kind } from "../types/domain";
-import type {
+import {
   RTCRtpCodecParameters,
+  RTCRtpEncodingParameters,
   RTCRtpHeaderExtensionParameters,
+  RTCRtpSendParameters,
 } from "./parameters";
 import type { RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
@@ -29,7 +31,7 @@ export class RTCRtpTransceiver {
     return this._codecs;
   }
   headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
-  options: Partial<TransceiverOptions> = {};
+  private sendEncodings: RTCRtpEncodingParameters[] = [];
   stopping = false;
   stopped = false;
 
@@ -40,9 +42,20 @@ export class RTCRtpTransceiver {
     public sender: RTCRtpSender,
     /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
     private _direction: MediaDirection,
+    public options: Partial<TransceiverOptions> = {}, // Added options here
   ) {
     if (dtlsTransport) {
       this.setDtlsTransport(dtlsTransport);
+    }
+    if (options.simulcast) {
+      this.sendEncodings = options.simulcast
+        .filter(
+          (s): s is SimulcastParametersSend => s.direction === "send",
+        )
+        .map((s) => {
+          const { direction, ...encodingParams } = s;
+          return new RTCRtpEncodingParameters(encodingParams);
+        });
     }
   }
 
@@ -69,6 +82,29 @@ export class RTCRtpTransceiver {
 
   setCurrentDirection(direction: MediaDirection | undefined) {
     this._currentDirection = direction;
+
+    if (
+      this._currentDirection &&
+      SenderDirections.includes(this._currentDirection) &&
+      this.sendEncodings.length > 0
+    ) {
+      if (this.codecs.length === 0) {
+        console.warn(
+          "RTCRtpTransceiver.setCurrentDirection: Cannot set sender parameters without codecs. Codecs are typically set via SDP negotiation.",
+        );
+        return;
+      }
+      const params: RTCRtpSendParameters = {
+        codecs: this.codecs,
+        headerExtensions: this.headerExtensions,
+        encodings: this.sendEncodings,
+        muxId: this.mid,
+        // rtcp parameters could be added if available and needed by sender.setParameters
+      };
+      this.sender.setParameters(params).catch((err) => {
+        console.error("Error setting sender parameters:", err);
+      });
+    }
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
@@ -115,10 +151,29 @@ export const Directions = [Inactive, Sendonly, Recvonly, Sendrecv] as const;
 
 export type MediaDirection = (typeof Directions)[number];
 
-type SimulcastDirection = "send" | "recv";
+// Define SimulcastParameters types for TransceiverOptions
+export interface SimulcastParametersBase {
+  rid: string;
+}
+
+export interface SimulcastParametersRecv extends SimulcastParametersBase {
+  direction: "recv";
+}
+
+export interface SimulcastParametersSend
+  extends RTCRtpEncodingParameters, // Inherits all optional fields from RTCRtpEncodingParameters
+    SimulcastParametersBase {
+  direction: "send";
+  // rid is mandatory for send, inherited from SimulcastParametersBase
+  // Other RTCRtpEncodingParameters like scalabilityMode, scaleResolutionDownBy, maxBitrate etc. are optional
+}
+
+export type SimulcastParameters =
+  | SimulcastParametersRecv
+  | SimulcastParametersSend;
 
 export interface TransceiverOptions {
   direction: MediaDirection;
-  simulcast: { direction: SimulcastDirection; rid: string }[];
+  simulcast?: SimulcastParameters[];
   streams: MediaStream[];
 }

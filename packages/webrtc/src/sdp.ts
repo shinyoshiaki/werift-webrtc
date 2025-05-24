@@ -529,21 +529,28 @@ export class MediaDescription {
       this.simulcastParameters.forEach((param) => {
         lines.push(`a=rid:${param.rid} ${param.direction}`);
       });
-      let line = `a=simulcast:`;
-      const recv = this.simulcastParameters.filter(
-        (v) => v.direction === "recv",
-      );
-      if (recv.length) {
-        line += `recv ${recv.map((v) => v.rid).join(";")} `;
+
+      const recvRids = this.simulcastParameters
+        .filter((v) => v.direction === "recv")
+        .map((v) => v.rid);
+      const sendRids = this.simulcastParameters
+        .filter((v) => v.direction === "send")
+        .map((v) => v.rid);
+
+      let simulcastValue = "";
+      if (recvRids.length > 0) {
+        simulcastValue += `recv ${recvRids.join(";")}`;
       }
-      const send = this.simulcastParameters.filter(
-        (v) => v.direction === "send",
-      );
-      if (send.length) {
-        line += `send ${send.map((v) => v.rid).join(";")}`;
+      if (sendRids.length > 0) {
+        if (simulcastValue.length > 0) {
+          simulcastValue += " ";
+        }
+        simulcastValue += `send ${sendRids.join(";")}`;
       }
 
-      lines.push(line);
+      if (simulcastValue.length > 0) {
+        lines.push(`a=simulcast:${simulcastValue}`);
+      }
     }
 
     return lines.join("\r\n") + "\r\n";

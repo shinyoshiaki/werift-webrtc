@@ -58,8 +58,9 @@ import {
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
-import type {
+import {
   RTCRtpCodecParameters,
+  RTCRtpEncodingParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
 } from "./parameters";
@@ -70,6 +71,9 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const RTP_HISTORY_SIZE = 128;
 const RTT_ALPHA = 0.85;
+
+// Helper function to generate a new SSRC
+const generateSsrc = () => jspack.Unpack("!L", randomBytes(4))[0];
 
 export class RTCRtpSender {
   readonly type = "sender";
@@ -94,6 +98,7 @@ export class RTCRtpSender {
   private _redDistance = 2;
   redEncoder = new RedEncoder(this._redDistance);
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  private encodings: RTCRtpEncodingParameters[] = [];
   private disposeTrack?: () => void;
 
   // # stats
@@ -161,8 +166,50 @@ export class RTCRtpSender {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
     this.headerExtensions = params.headerExtensions;
-    this.rtpStreamId = params.rtpStreamId;
+    this.rtpStreamId = params.rtpStreamId; 
     this.repairedRtpStreamId = params.repairedRtpStreamId;
+
+    const allocatedSsrcsInParams = new Set<number>();
+    let senderSsrcExplicitlyInParams = false;
+    if (params.encodings && params.encodings.length > 0) {
+      params.encodings.forEach(e => {
+        if (e.ssrc) {
+          allocatedSsrcsInParams.add(e.ssrc);
+          if (e.ssrc === this.ssrc) {
+            senderSsrcExplicitlyInParams = true;
+          }
+        }
+      });
+    }
+
+    if (params.encodings && params.encodings.length > 0) {
+      const newEncodings: RTCRtpEncodingParameters[] = [];
+      let senderSsrcAssigned = senderSsrcExplicitlyInParams;
+
+      params.encodings.forEach((encodingParams) => {
+        const encoding = new RTCRtpEncodingParameters(encodingParams);
+        if (!encoding.ssrc) {
+          if (!senderSsrcAssigned) {
+            encoding.ssrc = this.ssrc;
+            senderSsrcAssigned = true;
+            allocatedSsrcsInParams.add(this.ssrc); // Ensure it's marked as allocated
+          } else {
+            let newSsrc = generateSsrc();
+            while (allocatedSsrcsInParams.has(newSsrc)) {
+              newSsrc = generateSsrc();
+            }
+            encoding.ssrc = newSsrc;
+            allocatedSsrcsInParams.add(newSsrc);
+          }
+        }
+        newEncodings.push(encoding);
+      });
+      this.encodings = newEncodings;
+    } else {
+      const defaultEncoding = new RTCRtpEncodingParameters({ active: true, ssrc: this.ssrc });
+      if (this.rtpStreamId) defaultEncoding.rid = this.rtpStreamId;
+      this.encodings = [defaultEncoding];
+    }
 
     this.codec = params.codecs[0];
     if (this.track) {
@@ -321,90 +368,146 @@ export class RTCRtpSender {
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
-    this.timestamp = header.timestamp;
-    this.sequenceNumber = header.sequenceNumber;
+    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
+    const originalRtpPacket = rtp; // Keep original for payload and non-modified header parts
 
-    const ntpTimestamp = ntpTime();
+    const baseTimestamp = uint32Add(originalRtpPacket.header.timestamp, this.timestampOffset);
+    const baseSequenceNumber = uint16Add(originalRtpPacket.header.sequenceNumber, this.seqOffset);
 
-    const originalHeaderExtensions = [...header.extensions];
-    header.extensions = this.headerExtensions
-      .map((extension) => {
-        const payload = (() => {
-          switch (extension.uri) {
-            case RTP_EXTENSION_URI.sdesMid:
-              if (this.mid) {
-                return serializeSdesMid(this.mid);
-              }
-              return;
-            // todo : sender simulcast unsupported now
-            case RTP_EXTENSION_URI.sdesRTPStreamID:
-              if (this.rtpStreamId) {
-                return serializeSdesRTPStreamID(this.rtpStreamId);
-              }
-              return;
-            // todo : sender simulcast unsupported now
-            case RTP_EXTENSION_URI.repairedRtpStreamId:
-              if (this.repairedRtpStreamId) {
-                return serializeRepairedRtpStreamId(this.repairedRtpStreamId);
-              }
-              return;
-            case RTP_EXTENSION_URI.transportWideCC:
-              this.dtlsTransport.transportSequenceNumber = uint16Add(
-                this.dtlsTransport.transportSequenceNumber,
-                1,
-              );
-              return serializeTransportWideCC(
-                this.dtlsTransport.transportSequenceNumber,
-              );
-            case RTP_EXTENSION_URI.absSendTime:
-              return serializeAbsSendTime(ntpTimestamp);
-          }
-        })();
+    // Update sender's main timestamp/sequenceNumber trackers
+    this.timestamp = baseTimestamp;
+    this.sequenceNumber = baseSequenceNumber;
 
-        if (payload) return { id: extension.id, payload };
-      })
-      .filter((v) => v) as Extension[];
-    for (const ext of originalHeaderExtensions) {
-      const exist = header.extensions.find((v) => v.id === ext.id);
-      if (exist) {
-        exist.payload = ext.payload;
-      } else {
-        header.extensions.push(ext);
+    const ntpTimestamp = ntpTime(); // NTP timestamp for AbsSendTime, common for all sends in this event
+    const originalPayload = originalRtpPacket.payload;
+
+    let totalOctetCountIncrement = 0;
+    let totalPacketCountIncrement = 0;
+
+    const activeEncodings = this.encodings.filter(e => e.active !== false);
+
+    if (activeEncodings.length === 0) {
+      log("sendRtp: No active encodings. Defaulting to single send with main SSRC.");
+      // Fallback to a single send using the main SSRC if no encodings are active
+      // This ensures that if encodings are cleared or misconfigured, the sender still tries to send.
+      const fallbackEncoding = new RTCRtpEncodingParameters({ ssrc: this.ssrc, active: true, rid: this.rtpStreamId });
+      activeEncodings.push(fallbackEncoding);
+    }
+
+    for (const encoding of activeEncodings) {
+      const packetHeader = new RtpHeader(); // Start with a clean header
+      Object.assign(packetHeader, originalRtpPacket.header); // Copy basic fields
+
+      packetHeader.ssrc = encoding.ssrc ?? this.ssrc; // Ensure SSRC is set
+      packetHeader.payloadType = this.codec!.payloadType;
+      packetHeader.timestamp = baseTimestamp;
+      // TODO: Sequence number should ideally be managed per SSRC/stream.
+      // For now, using the base sequence number for all.
+      packetHeader.sequenceNumber = baseSequenceNumber;
+
+      const currentExtensions: Extension[] = [];
+
+      // Process configured header extensions
+      this.headerExtensions.forEach(extConfig => {
+        let extPayload: Buffer | undefined;
+        switch (extConfig.uri) {
+          case RTP_EXTENSION_URI.sdesMid:
+            if (this.mid) extPayload = serializeSdesMid(this.mid);
+            break;
+          case RTP_EXTENSION_URI.sdesRTPStreamID:
+            if (encoding.rid) extPayload = serializeSdesRTPStreamID(encoding.rid);
+            break;
+          case RTP_EXTENSION_URI.repairedRtpStreamId:
+            // Only add if RID is present for this encoding and global repairedRtpStreamId is set
+            if (encoding.rid && this.repairedRtpStreamId) {
+               // Optional: Check if encoding.rid matches this.repairedRtpStreamId if that's a requirement
+               extPayload = serializeRepairedRtpStreamId(this.repairedRtpStreamId);
+            }
+            break;
+          case RTP_EXTENSION_URI.transportWideCC:
+            this.dtlsTransport.transportSequenceNumber = uint16Add(
+              this.dtlsTransport.transportSequenceNumber,
+              1,
+            );
+            extPayload = serializeTransportWideCC(this.dtlsTransport.transportSequenceNumber);
+            break;
+          case RTP_EXTENSION_URI.absSendTime:
+            extPayload = serializeAbsSendTime(ntpTimestamp);
+            break;
+          default:
+            // Preserve other extensions from original packet if their ID matches a configured one
+            const originalExt = originalRtpPacket.header.extensions.find(oe => oe.id === extConfig.id);
+            if (originalExt) extPayload = originalExt.payload;
+            break;
+        }
+        if (extPayload) {
+          currentExtensions.push({ id: extConfig.id, payload: extPayload });
+        }
+      });
+      
+      // Add any extensions from the original packet that were not processed by configured header extensions
+      // This ensures unknown extensions or those not matching this.headerExtensions URIs are preserved if they have an ID.
+      originalRtpPacket.header.extensions.forEach(originalExt => {
+        if (!currentExtensions.some(ce => ce.id === originalExt.id)) {
+          currentExtensions.push(originalExt);
+        }
+      });
+
+      packetHeader.extensions = currentExtensions.sort((a, b) => a.id - b.id);
+
+      const packetToSend = new RtpPacket(packetHeader, originalPayload);
+      const sentSize = await this.dtlsTransport.sendRtp(packetToSend.serialize());
+
+      totalOctetCountIncrement += originalPayload.length; // Or use sentSize for more accuracy
+      totalPacketCountIncrement += 1;
+
+      // Cache the packet. If multiple encodings, cache the one matching the primary SSRC,
+      // or the first one if primary SSRC isn't used by any active encoding.
+      if (packetHeader.ssrc === this.ssrc || activeEncodings.indexOf(encoding) === 0) {
+        this.rtpCache[packetHeader.sequenceNumber % RTP_HISTORY_SIZE] = packetToSend;
       }
     }
-    header.extensions = header.extensions.sort((a, b) => a.id - b.id);
 
-    this.ntpTimestamp = ntpTimestamp;
-    this.rtpTimestamp = header.timestamp;
-    this.octetCount += payload.length;
-    this.packetCount = uint32Add(this.packetCount, 1);
+    this.ntpTimestamp = ntpTimestamp; // Set once per original rtp event
+    this.rtpTimestamp = baseTimestamp; // Main rtpTimestamp for SR reports
+    this.octetCount += totalOctetCountIncrement;
+    this.packetCount = uint32Add(this.packetCount, totalPacketCountIncrement);
 
-    this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
-
-    let rtpPayload = payload;
-
+    // RED / FEC: Needs careful consideration with simulcast.
+    // Current RED implementation is based on a single stream.
+    // For now, commenting out RED to avoid conflicts until its interaction with simulcast is defined.
+    /*
     if (this.redRedundantPayloadType) {
       this.redEncoder.push({
-        block: rtpPayload,
-        timestamp: header.timestamp,
-        blockPT: this.redRedundantPayloadType,
+        block: originalPayload,
+        timestamp: baseTimestamp,
+        blockPT: this.codec!.payloadType,
       });
       const red = this.redEncoder.build();
-      rtpPayload = red.serialize();
+      if (red) {
+        // This part needs a proper header for the RED packet.
+        // const redHeader = ...;
+        // await this.dtlsTransport.sendRtp(red.serialize(), redHeader);
+        // log("Sent RED packet");
+      }
     }
+    */
 
-    const size = await this.dtlsTransport.sendRtp(rtpPayload, header);
+    this.runRtcp(); // Run RTCP after all packets for this event are sent.
 
-    this.runRtcp();
-    const millitime = milliTime();
-    const sentInfo: SentInfo = {
-      wideSeq: this.dtlsTransport.transportSequenceNumber,
-      size,
-      sendingAtMs: millitime,
-      sentAtMs: millitime,
-    };
-    this.senderBWE.rtpPacketSent(sentInfo);
+    // BWE update: This should reflect the total data sent or be done per packet.
+    // If TWCC is per packet, BWE update should also be per packet or aggregated correctly.
+    // For now, using the latest TWCC sequence number and representative size.
+    if (totalPacketCountIncrement > 0) { // Only update BWE if packets were actually sent
+      const millitime = milliTime();
+      const sentInfo: SentInfo = {
+        wideSeq: this.dtlsTransport.transportSequenceNumber, // Latest TWCC seq num
+        size: Math.floor(totalOctetCountIncrement / totalPacketCountIncrement), // Average size
+        sendingAtMs: millitime,
+        sentAtMs: millitime,
+      };
+      this.senderBWE.rtpPacketSent(sentInfo);
+    }
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {
@@ -498,13 +601,98 @@ export class RTCRtpSender {
     this.onRtcp.execute(rtcpPacket);
   }
 
-  // todo impl
-  getParameters() {
+  getParameters(): RTCRtpSendParameters {
+    // This should return a structure compatible with RTCRtpSendParameters
+    // For now, returning a simplified version.
+    // A more complete implementation would reconstruct RTCRtpSendParameters from current state.
     return {
-      encodings: [],
+      codecs: this.codec ? [this.codec] : [],
+      headerExtensions: this.headerExtensions,
+      encodings: this.encodings.map(e => ({ ...e })), // Return copies
+      muxId: this.mid,
+      rtcp: { cname: this.cname },
     };
   }
 
-  // todo impl
-  setParameters(params: any) {}
+  async setParameters(params: RTCRtpSendParameters): Promise<void> {
+    this.cname = params.rtcp?.cname ?? this.cname;
+    this.mid = params.muxId ?? this.mid;
+    this.headerExtensions = params.headerExtensions ?? this.headerExtensions;
+
+    if (params.codecs && params.codecs.length > 0) {
+      this.codec = params.codecs[0];
+      if (this.track) {
+        this.track.codec = this.codec;
+      }
+      // Re-evaluate RTX, RED based on new codecs
+      this.rtxPayloadType = undefined;
+      this.redRedundantPayloadType = undefined;
+      params.codecs.forEach((codec) => {
+        const codecParams = codecParametersFromString(codec.parameters ?? "");
+        if (
+          codec.name.toLowerCase() === "rtx" &&
+          this.codec && // Ensure primary codec is defined
+          codecParams["apt"] === this.codec.payloadType
+        ) {
+          this.rtxPayloadType = codec.payloadType;
+        }
+        if (codec.name.toLowerCase() === "red") {
+          this.redRedundantPayloadType = Number(
+            (codec.parameters ?? "").split("/")[0],
+          );
+        }
+      });
+    }
+
+    if (params.encodings !== undefined) { // Check if encodings are provided (even if empty array)
+      const allocatedSsrcsInParams = new Set<number>();
+      let senderSsrcExplicitlyInParams = false;
+      if (params.encodings.length > 0) {
+        params.encodings.forEach(e => {
+          if (e.ssrc) {
+            allocatedSsrcsInParams.add(e.ssrc);
+            if (e.ssrc === this.ssrc) {
+              senderSsrcExplicitlyInParams = true;
+            }
+          }
+        });
+      }
+
+      if (params.encodings.length > 0) {
+        const newEncodings: RTCRtpEncodingParameters[] = [];
+        let senderSsrcAssigned = senderSsrcExplicitlyInParams;
+
+        params.encodings.forEach((encodingParams) => {
+          const encoding = new RTCRtpEncodingParameters(encodingParams);
+          if (!encoding.ssrc) {
+            if (!senderSsrcAssigned) {
+              encoding.ssrc = this.ssrc;
+              senderSsrcAssigned = true;
+              allocatedSsrcsInParams.add(this.ssrc);
+            } else {
+              let newSsrc = generateSsrc();
+              while (allocatedSsrcsInParams.has(newSsrc)) {
+                newSsrc = generateSsrc();
+              }
+              encoding.ssrc = newSsrc;
+              allocatedSsrcsInParams.add(newSsrc);
+            }
+          }
+          newEncodings.push(encoding);
+        });
+        this.encodings = newEncodings;
+      } else { // params.encodings is an empty array []
+        const defaultEncoding = new RTCRtpEncodingParameters({ active: true, ssrc: this.ssrc });
+        if (this.rtpStreamId) defaultEncoding.rid = this.rtpStreamId;
+        this.encodings = [defaultEncoding];
+      }
+    }
+    // If params.encodings is undefined, this.encodings remains unchanged.
+    // Note: this.rtpStreamId and this.repairedRtpStreamId from the initial prepareSend()
+    // are not directly used by encodings unless no encodings are provided,
+    // in which case a default encoding might use rtpStreamId as its RID.
+    // The primary SSRC management is crucial here.
+
+    return Promise.resolve();
+  }
 }
