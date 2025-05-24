@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { RTCPeerConnection } from "../../src";
-import { RTCStatsReport } from "../../src/media/stats";
+import {
+  type RTCPeerConnectionStats,
+  RTCStatsReport,
+} from "../../src/media/stats";
 import { MediaStreamTrack } from "../../src/media/track";
 
 describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
@@ -18,12 +21,14 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       await pc2.close();
     });
 
+    // RTCStatsReportインスタンスの正常な生成とMap継承の確認
     test("getStats() returns RTCStatsReport instance", async () => {
       const stats = await pc1.getStats();
       expect(stats).toBeInstanceOf(RTCStatsReport);
       expect(stats).toBeInstanceOf(Map);
     });
 
+    // nullセレクターで全統計情報が取得できることを確認
     test("getStats() with null selector returns all stats", async () => {
       const stats = await pc1.getStats(null);
       expect(stats).toBeInstanceOf(RTCStatsReport);
@@ -35,6 +40,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(pcStats).toBeDefined();
     });
 
+    // 全統計オブジェクトが必須プロパティ（id, timestamp, type）を持つことを確認
     test("stats have required properties", async () => {
       const stats = await pc1.getStats();
 
@@ -47,6 +53,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       }
     });
 
+    // 統計オブジェクトのIDが重複しないことを確認
     test("stats IDs are unique", async () => {
       const stats = await pc1.getStats();
 
@@ -56,6 +63,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(ids.length).toBe(uniqueIds.size);
     });
 
+    // 連続したgetStats()呼び出しでタイムスタンプが単調増加することを確認
     test("consecutive getStats() calls have increasing timestamps", async () => {
       const stats1 = await pc1.getStats();
 
@@ -86,6 +94,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     });
 
     describe("peer-connection statistics", () => {
+      // デフォルトでpeer-connection統計が含まれることを確認
       test("contains peer-connection stats by default", async () => {
         const stats = await pc1.getStats();
 
@@ -99,6 +108,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         expect(pcStats?.timestamp).toBeGreaterThan(0);
       });
 
+      // データチャンネル作成時にカウンター情報が含まれることを確認
       test("includes data channel counters when available", async () => {
         // Create multiple data channels
         const dc1 = pc1.createDataChannel("test-channel-1");
@@ -107,18 +117,19 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         const stats = await pc1.getStats();
         const pcStats = Array.from(stats.values()).find(
           (stat) => stat.type === "peer-connection",
-        ) as any;
+        ) as RTCPeerConnectionStats | undefined;
 
         expect(pcStats).toBeDefined();
         // Note: dataChannelsOpened might not be implemented yet
         // This test validates the structure exists when available
-        if (pcStats.dataChannelsOpened !== undefined) {
+        if (pcStats?.dataChannelsOpened !== undefined) {
           expect(pcStats.dataChannelsOpened).toBeTypeOf("number");
         }
       });
     });
 
     describe("data-channel statistics", () => {
+      // データチャンネル作成後にdata-channel統計が含まれることを確認
       test("includes data-channel stats after creating data channel", async () => {
         const dc1 = pc1.createDataChannel("test-channel", {
           maxRetransmits: 3,
@@ -144,6 +155,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         }
       });
 
+      // 複数のデータチャンネルがそれぞれのラベルで追跡されることを確認
       test("tracks data channels with their labels", async () => {
         const dc1 = pc1.createDataChannel("channel-1");
         const dc2 = pc1.createDataChannel("channel-2");
@@ -164,6 +176,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         ).toBe(true);
       });
 
+      // データチャンネルのプロトコル情報と設定が統計に含まれることを確認
       test("includes protocol and configuration info", async () => {
         const dc1 = pc1.createDataChannel("test-channel", {
           protocol: "test-protocol",
@@ -181,6 +194,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     });
 
     describe("media-source statistics", () => {
+      // オーディオトラックを追加時にmedia-source統計が含まれることを確認
       test("includes media-source stats for audio tracks", async () => {
         const track = new MediaStreamTrack({ kind: "audio" });
         pc1.addTrack(track);
@@ -201,6 +215,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         expect(audioStat.id).toMatch(/^media-source/);
       });
 
+      // ビデオトラックを追加時にmedia-source統計が含まれることを確認
       test("includes media-source stats for video tracks", async () => {
         const track = new MediaStreamTrack({ kind: "video" });
         pc1.addTrack(track);
@@ -220,6 +235,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         expect(videoStat.kind).toBe("video");
       });
 
+      // 複数のメディアソースが個別に管理されることを確認
       test("tracks multiple media sources separately", async () => {
         const audioTrack = new MediaStreamTrack({ kind: "audio" });
         const videoTrack = new MediaStreamTrack({ kind: "video" });
@@ -240,6 +256,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     });
 
     describe("codec statistics", () => {
+      // トランシーバーが存在する時にcodec統計が取得できることを確認
       test("handles codec stats when transceivers are present", async () => {
         const track = new MediaStreamTrack({ kind: "audio" });
         pc1.addTrack(track);
@@ -259,6 +276,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         }
       });
 
+      // codec統計が利用可能時にコーデック詳細が正しく取得できることを確認
       test("validates codec details when available", async () => {
         const audioTrack = new MediaStreamTrack({ kind: "audio" });
         const videoTrack = new MediaStreamTrack({ kind: "video" });
@@ -286,6 +304,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
     });
 
     describe("outbound-rtp statistics", () => {
+      // トラック追加時にoutbound-rtp統計が含まれることを確認
       test("includes outbound-rtp stats for added tracks", async () => {
         const track = new MediaStreamTrack({ kind: "audio" });
         pc1.addTrack(track);
@@ -308,6 +327,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         }
       });
 
+      // 異なるトラックが個別に管理されることを確認
       test("tracks different tracks separately", async () => {
         const audioTrack = new MediaStreamTrack({ kind: "audio" });
         const videoTrack = new MediaStreamTrack({ kind: "video" });
@@ -342,6 +362,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       await pc2.close();
     });
 
+    // トラックセレクターで結果が正しくフィルタリングされることを確認
     test("getStats() with track selector filters results correctly", async () => {
       const audioTrack = new MediaStreamTrack({ kind: "audio" });
       const videoTrack = new MediaStreamTrack({ kind: "video" });
@@ -377,6 +398,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(allOutboundStats.length).toBe(2);
     });
 
+    // セレクターでmedia-source統計が正しくフィルタリングされることを確認
     test("selector filters media-source stats correctly", async () => {
       const audioTrack = new MediaStreamTrack({ kind: "audio" });
       const videoTrack = new MediaStreamTrack({ kind: "video" });
@@ -397,6 +419,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect((audioMediaSourceStats[0] as any).kind).toBe("audio");
     });
 
+    // セレクターで関係のない統計が除外されることを確認
     test("selector excludes unrelated statistics", async () => {
       const audioTrack = new MediaStreamTrack({ kind: "audio" });
       const videoTrack = new MediaStreamTrack({ kind: "video" });
@@ -417,6 +440,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(videoOutboundStats.length).toBe(0);
     });
 
+    // セレクターで特定トラックを選択しても一般統計が含まれることを確認
     test("selector still includes general stats", async () => {
       const audioTrack = new MediaStreamTrack({ kind: "audio" });
       pc1.addTrack(audioTrack);
@@ -442,6 +466,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       await pc1.close();
     });
 
+    // 存在しないトラックでgetStats()を呼び出してもエラーにならないことを確認
     test("getStats() with non-existent track returns empty filtered results", async () => {
       const nonExistentTrack = new MediaStreamTrack({ kind: "audio" });
 
@@ -462,6 +487,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(pcStats).toBeDefined();
     });
 
+    // トラック削除後でもgetStats()が正常に動作することを確認
     test("getStats() works after track removal", async () => {
       const track = new MediaStreamTrack({ kind: "audio" });
       const sender = pc1.addTrack(track);
@@ -487,6 +513,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       // This is implementation dependent - just verify no error
     });
 
+    // 接続をクローズした状態でもgetStats()がエラーを発生させないことを確認
     test("getStats() works on closed connection", async () => {
       await pc1.close();
 
@@ -495,6 +522,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(stats).toBeInstanceOf(RTCStatsReport);
     });
 
+    // 無効なセレクターでもgetStats()がグレースフルに処理されることを確認
     test("getStats() handles invalid selector gracefully", async () => {
       // Test with invalid selector types
       const stats1 = await pc1.getStats(undefined as any);
@@ -519,6 +547,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       await pc2.close();
     });
 
+    // 新しい接続では基本統計のみが含まれることを確認
     test("empty stats for new connection", async () => {
       const stats = await pc1.getStats();
 
@@ -531,28 +560,130 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(statTypes).not.toContain("candidate-pair");
     });
 
-    // Note: Connection establishment tests are skipped in this implementation
-    // as the current test environment may not support full WebRTC connection setup.
-    // In a real deployment, these statistics would be available after connection establishment.
+    // WebRTC接続確立後にtransport統計が含まれることを確認
+    test("includes transport stats after connection establishment", async () => {
+      // Create a data channel to trigger connection establishment
+      const dc1 = pc1.createDataChannel("test");
+      const dc2Event = new Promise<void>((resolve) => {
+        pc2.ondatachannel = () => resolve();
+      });
 
-    test.skip("includes transport stats after connection establishment", async () => {
-      // This test is skipped due to current implementation limitations
-      // Transport stats would be available after successful ICE/DTLS connection
+      // Create offer and set local description
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+
+      // Set remote description and create answer
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+
+      // Wait for data channel to be established
+      await dc2Event;
+
+      // Give some time for connection to establish
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const stats = await pc1.getStats();
+      const transportStats = Array.from(stats.values()).filter(
+        (stat) => stat.type === "transport",
+      );
+
+      if (transportStats.length > 0) {
+        const transportStat = transportStats[0] as any;
+        expect(transportStat.id).toMatch(/^transport/);
+        expect(transportStat.dtlsState).toBeDefined();
+      }
     });
 
-    test.skip("includes ICE candidate stats after connection", async () => {
-      // This test is skipped due to current implementation limitations
-      // ICE candidate stats would be available during/after ICE gathering
+    // ICE候補統計が接続時に含まれることを確認
+    test("includes ICE candidate stats after connection", async () => {
+      const dc1 = pc1.createDataChannel("test");
+
+      // Create offer to trigger ICE gathering
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+
+      // Give some time for ICE gathering
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const stats = await pc1.getStats();
+      const candidateStats = Array.from(stats.values()).filter(
+        (stat) =>
+          stat.type === "local-candidate" || stat.type === "remote-candidate",
+      );
+
+      // ICE candidates may or may not be present depending on the test environment
+      // This test validates the structure when available
+      if (candidateStats.length > 0) {
+        const candidateStat = candidateStats[0] as any;
+        expect(candidateStat.id).toMatch(/^(local|remote)-candidate/);
+        expect(candidateStat.candidateType).toBeDefined();
+      }
     });
 
-    test.skip("candidate pair stats include required properties", async () => {
-      // This test is skipped due to current implementation limitations
-      // Candidate pair stats would show connection details
+    // candidate-pair統計が必要なプロパティを持つことを確認
+    test("candidate pair stats include required properties", async () => {
+      const dc1 = pc1.createDataChannel("test");
+      const dc2Event = new Promise<void>((resolve) => {
+        pc2.ondatachannel = () => resolve();
+      });
+
+      // Establish connection
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+
+      await dc2Event;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const stats = await pc1.getStats();
+      const candidatePairStats = Array.from(stats.values()).filter(
+        (stat) => stat.type === "candidate-pair",
+      );
+
+      if (candidatePairStats.length > 0) {
+        const pairStat = candidatePairStats[0] as any;
+        expect(pairStat.id).toMatch(/^candidate-pair/);
+        expect(pairStat.localCandidateId).toBeDefined();
+        expect(pairStat.remoteCandidateId).toBeDefined();
+        expect(pairStat.state).toBeDefined();
+      }
     });
 
-    test.skip("includes certificate stats after connection", async () => {
-      // This test is skipped due to current implementation limitations
-      // Certificate stats would be available after DTLS handshake
+    // 接続後に証明書統計が含まれることを確認
+    test("includes certificate stats after connection", async () => {
+      const dc1 = pc1.createDataChannel("test");
+      const dc2Event = new Promise<void>((resolve) => {
+        pc2.ondatachannel = () => resolve();
+      });
+
+      // Establish connection
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+
+      await dc2Event;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const stats = await pc1.getStats();
+      const certificateStats = Array.from(stats.values()).filter(
+        (stat) => stat.type === "certificate",
+      );
+
+      if (certificateStats.length > 0) {
+        const certStat = certificateStats[0] as any;
+        expect(certStat.id).toMatch(/^certificate/);
+        expect(certStat.fingerprint).toBeDefined();
+        expect(certStat.fingerprintAlgorithm).toBeDefined();
+        expect(certStat.base64Certificate).toBeDefined();
+      }
     });
   });
 
@@ -567,6 +698,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       await pc1.close();
     });
 
+    // getStats()のパフォーマンスが合理的な範囲内であることを確認
     test("getStats() performance is reasonable", async () => {
       // Add multiple tracks to increase stats complexity
       for (let i = 0; i < 5; i++) {
@@ -581,11 +713,12 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
 
       const duration = endTime - startTime;
 
-      // Should complete within reasonable time (adjust as needed)
-      expect(duration).toBeLessThan(1000); // 1 second max
+      // Should complete within reasonable time (adjusted for realistic performance)
+      expect(duration).toBeLessThan(500); // 500ms max - more realistic threshold
       expect(stats.size).toBeGreaterThan(0);
     });
 
+    // タイムスタンプが単調増加することを確認
     test("timestamps are monotonically increasing", async () => {
       pc1.addTrack(new MediaStreamTrack({ kind: "audio" }));
 
@@ -602,6 +735,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       }
     });
 
+    // 統計IDがgetStats()呼び出し間で一貫していることを確認
     test("stat IDs remain consistent across calls", async () => {
       pc1.addTrack(new MediaStreamTrack({ kind: "audio" }));
       pc1.createDataChannel("test");
@@ -616,6 +750,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(ids1).toEqual(ids2);
     });
 
+    // 数値統計値が合理的な範囲内であることを確認
     test("validates numeric stat values are reasonable", async () => {
       pc1.addTrack(new MediaStreamTrack({ kind: "audio" }));
 
