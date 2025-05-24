@@ -1,64 +1,138 @@
-# Claude Code プログラミングガイド
+# CLAUDE.md
 
-ユーザーとの対話には日本語を用いてください
+このファイルはClaude Code (claude.ai/code)がこのリポジトリで作業する際のガイダンスを提供します。
 
-プロジェクトパス: `/home/shin/code/werift-webrtc`
+## プロジェクト概要
 
-## プログラミングのワークフロー
+werift（WebRTC Implementation for TypeScript）は、Node.js向けのピュアTypeScriptによるWebRTC実装です。ICE/DTLS/SCTP/RTPプロトコルスタックを包含する完全なWebRTCライブラリです。
 
-次の2つのステップを遵守してください。ステップ1の承認を得ずにステップ2を実行しないでください
+### アーキテクチャ
 
-1. **計画フェーズ (Plan)**
+6つのコアパッケージで構成されたmonorepo構成：
 
-   - プロジェクト構造の把握と変更内容の設計
-   - 既存コードの分析と修正アプローチの検討
-   - 計画フェーズ完了後、実装フェーズに移る前にユーザーの確認を必ず得る
-   - この段階では:
-     - ✅ プロジェクト探索（ファイル確認、アーキテクチャ理解）
-     - ✅ 実装戦略の提案（変更範囲とアプローチの明確化）
-     - ✅ 潜在的な技術的負債や課題の特定
-     - ❌ 実際のコード実装は行わない
+```
+webrtc (メインAPI)
+├── dtls (セキュア通信)
+├── ice (接続確立) 
+├── rtp (メディア転送)
+├── sctp (データ転送)
+└── common (共通ユーティリティ)
+```
 
-2. **実装フェーズ (Act)**
-   - ユーザーに承認された計画に基づいてコード実装
-   - 主要なマイルストーンごとの進捗報告と必要に応じた方向修正
-   - 実装中に発見された新たな課題の報告と対応策の提案
+**プロトコルスタック**: ICE → DTLS → SCTP/RTP
 
-## 技術的注意事項
+**主要コンポーネント**:
+- `RTCPeerConnection`: WebRTC接続の中核クラス
+- `RTCDataChannel`: データチャンネル機能
+- `RTCRtpTransceiver`: メディアトランシーバー（送受信制御）
 
-- **bashによるコマンド実行**:
+## 開発コマンド
 
-  - コマンド実行時は標準エラー出力をファイルにリダイレクトする
-    - 例
-      -  `command 2> error.log`
-    - "Shell command failed"エラーが発生した場合は標準エラー出力のリダイレクトができていない
+### ビルドとテスト
+```bash
+# 全パッケージビルド
+npm run build
 
-## コーディングスタイルガイドライン
+# 全テスト実行（単体テスト + E2Eテスト）
+npm run test
 
-### 関数設計
+# 単体テストのみ
+npm run test:small
 
-- **オブジェクト引数パターン**:
-  - プリミティブ型の引数が3つ以上ある場合は必ずオブジェクト引数を使用
-  - 例: `function update(id, name, age)` → `function update({ id, name, age })`
+# E2Eテストのみ（ブラウザテスト）
+npm run e2e
 
-### 型定義
+# 特定パッケージのテスト
+cd packages/webrtc && npm test
+```
 
-- **型の分離と再利用**:
-  - 複数の場所で使用される型は独立して定義
-  - 単一の関数でのみ使用される型はインラインで定義可
-- **命名規則**:
-  - 型名は具体的で目的を明確に表現する
-  - 一貫した命名パターンを使用
+### 開発ツール
+```bash
+# コードフォーマット（Biome使用）
+npm run format
 
-### エラーハンドリング
+# 型チェック
+npm run type:all
 
-- **例外処理の原則**:
-  - 例外処理を適切に実装し、エラーメッセージは明確に
-    - 単に例外をキャッチしてエラーメッセージを出すだけの無意味な例外処理はしない
+# ドキュメント生成
+npm run doc
 
-### コメント
+# 依存関係チェック
+npm run knip
+```
 
-- **コードコメント**:
-  - 複雑なビジネスロジックや非直感的な実装には必ず説明コメントを追加
-    - 過度な量のコメントは逆に視認性の悪化を呼ぶので控える
-    - 既存コードを改修する際に無意味なコードコメントの追加を避ける
+### デバッグ
+```bash
+# デバッグログ付きで実行
+DEBUG=werift* npm run example
+
+# 特定の例を実行
+npm run datachannel  # DataChannel例
+npm run media        # MediaChannel例
+```
+
+### E2Eテスト詳細
+```bash
+# Chrome E2Eテスト
+cd e2e && npm run chrome
+
+# Firefox E2Eテスト  
+cd e2e && npm run firefox
+
+# 本番環境テスト
+cd e2e && npm run ci
+```
+
+## 開発ガイドライン
+
+### Monorepo作業
+
+1. **パッケージ間依存関係**: 変更時は依存先パッケージへの影響を考慮
+2. **ビルド順序**: common → ice/dtls/rtp/sctp → webrtc の順序でビルド
+3. **テスト実行**: 各パッケージの単体テスト後、webrtcパッケージの統合テスト
+
+### 重要な設計パターン
+
+**マネージャーパターン**: 複雑な機能は専門マネージャークラスで管理
+- `SDPManager`: SDP処理
+- `TransceiverManager`: メディア管理
+- `SctpTransportManager`: DataChannel管理
+
+**イベント駆動**: EventTargetを継承し、非同期通知を実装
+
+**エラーハンドリング**: 各パッケージで独自例外クラスを定義
+
+### WebRTCプロトコル理解
+
+- **ICE**: ネットワーク接続確立とNAT穴あけ
+- **DTLS**: UDP上でのTLS暗号化
+- **SCTP**: 信頼性のあるメッセージ配信（DataChannel用）
+- **RTP/RTCP**: リアルタイムメディア転送とフィードバック
+
+### examplesディレクトリ活用
+
+実装参考のため積極的に活用：
+- `datachannel/`: DataChannel実装例
+- `mediachannel/`: 音声・映像転送例
+- `ice/`: ICE処理例
+- `save_to_disk/`: メディア録画例
+
+### ブラウザ互換性
+
+Chrome、Firefox、Safari での動作確認済み。
+ブラウザ固有の実装差異に注意が必要。
+
+## プロジェクト固有の注意事項
+
+- **デバッグ**: `DEBUG=werift*` 環境変数でログ出力制御
+- **Node.js要件**: 最低Node.js 16以上
+- **RFC準拠**: WebRTC関連RFCに忠実な実装
+- **TypeScript**: 型安全性を重視した実装
+
+## よく使用されるファイルパス
+
+- メインAPI: `packages/webrtc/src/index.ts`
+- PeerConnection: `packages/webrtc/src/peerConnection.ts`
+- DataChannel: `packages/webrtc/src/dataChannel.ts`  
+- RTCメディア: `packages/webrtc/src/media/`
+- 統合テスト: `packages/webrtc/tests/integrate/`
