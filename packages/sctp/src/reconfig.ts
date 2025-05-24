@@ -8,6 +8,7 @@ import { Event, debug } from "./imports/common";
 import {
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
+  StreamAddOutgoingParam,
   type StreamParam,
   reconfigResult,
 } from "./param";
@@ -151,5 +152,11 @@ export class SctpReconfig {
         await this.transmitReconfigRequest(associationState);
       }
     }
+  }
+
+  async handleStreamAddOutgoing(add: StreamAddOutgoingParam) {
+    const res = new ReconfigResponseParam(add.requestSequence, 1);
+    this.reconfigResponseSeq = add.requestSequence;
+    await this.sendReconfigParam(res);
   }
 }
