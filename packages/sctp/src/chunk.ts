@@ -46,7 +46,9 @@ export class Chunk {
   }
 
   get bytes() {
-    if (!this.body) throw new Error();
+    if (!this.body) {
+      throw new Error("Chunk body is undefined");
+    }
 
     const header = Buffer.alloc(4);
     header.writeUInt8(this.type, 0);
@@ -59,6 +61,17 @@ export class Chunk {
       ...[...Array(padL(this.body.length))].map(() => Buffer.from("\x00")),
     ]);
     return data;
+  }
+
+  static parse(data: Buffer) {
+    if (data.length < 4) {
+      throw new Error("Chunk header length is less than 4 bytes");
+    }
+    const type = data.readUInt8(0);
+    const flags = data.readUInt8(1);
+    const length = data.readUInt16BE(2);
+    const body = data.subarray(4, length);
+    return { type, flags, length, body };
   }
 }
 
@@ -484,7 +497,7 @@ function padL(l: number) {
 function encodeParams(params: [number, Buffer][]) {
   let body = Buffer.from("");
   let padding = Buffer.from("");
-  params.forEach(([type, value]) => {
+  for (const [type, value] of params) {
     const length = value.length + 4;
     const paramHeader = Buffer.alloc(4);
     paramHeader.writeUInt16BE(type, 0);
@@ -493,7 +506,7 @@ function encodeParams(params: [number, Buffer][]) {
     padding = Buffer.concat(
       [...Array(padL(length))].map(() => Buffer.from("\x00")),
     );
-  });
+  }
   return body;
 }
 
@@ -508,6 +521,20 @@ export function decodeParams(body: Buffer): [number, Buffer][] {
   }
   return params;
 }
+
+export const parseChunk = (data: Buffer) => {
+  const { type, flags, length, body } = Chunk.parse(data);
+
+  const ChunkClass = CHUNK_BY_TYPE[type.toString()];
+  if (!ChunkClass) {
+    throw new Error("unknown");
+  }
+
+  return {
+    chunk: new ChunkClass(flags, body),
+    length,
+  };
+};
 
 export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
   if (data.length < 12)
@@ -532,17 +559,9 @@ export function parsePacket(data: Buffer): [number, number, number, Chunk[]] {
   const chunks: Chunk[] = [];
   let pos = 12;
   while (pos + 4 <= data.length) {
-    const chunkType = data.readUInt8(pos);
-    const chunkFlags = data.readUInt8(pos + 1);
-    const chunkLength = data.readUInt16BE(pos + 2);
-    const chunkBody = data.slice(pos + 4, pos + chunkLength);
-    const ChunkClass = CHUNK_BY_TYPE[chunkType.toString()];
-    if (ChunkClass) {
-      chunks.push(new ChunkClass(chunkFlags, chunkBody));
-    } else {
-      throw new Error("unknown");
-    }
-    pos += chunkLength + padL(chunkLength);
+    const { length, chunk } = parseChunk(data.subarray(pos));
+    chunks.push(chunk);
+    pos += length + padL(length);
   }
   return [sourcePort, destinationPort, verificationTag, chunks];
 }

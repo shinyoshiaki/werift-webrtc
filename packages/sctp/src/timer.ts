@@ -1,4 +1,4 @@
-import type { Chunk } from "./chunk";
+import { type Chunk, parseChunk } from "./chunk";
 import {
   SCTP_MAX_ASSOCIATION_RETRANS,
   SCTP_MAX_INIT_RETRANS,
@@ -19,16 +19,14 @@ export enum SCTPTimerType {
   RECONFIG = "reconfig", // re-configuration
 }
 
+interface Deps {
+  sendChunk: (chunk: Chunk) => Promise<void>;
+}
+
 /**
  * SCTP タイマーの管理を行うクラス
  */
 export class SCTPTimerManager {
-  // タイマーハンドラ
-  private t1Handle?: NodeJS.Timeout;
-  private t2Handle?: NodeJS.Timeout;
-  private t3Handle?: NodeJS.Timeout;
-  private reconfigHandle?: NodeJS.Timeout;
-
   // タイマー関連の状態管理
   private t1Chunk?: Chunk;
   private t1Failures = 0;
@@ -38,17 +36,20 @@ export class SCTPTimerManager {
   rto: number = SCTP_RTO_INITIAL;
   private srtt?: number;
   private rttvar?: number;
-  onT1Expired = new Event<[number]>();
-  onT2Expired = new Event<[number]>();
-  onT3Expired = new Event<[]>();
-  onReconfigExpired = new Event<[number]>();
-  private sendChunk: (chunk: Chunk) => Promise<void>;
 
-  constructor({
-    sendChunk,
-  }: {
-    sendChunk: (chunk: Chunk) => Promise<void>;
-  }) {
+  // タイマーハンドラ
+  private t1Handle?: NodeJS.Timeout;
+  private t2Handle?: NodeJS.Timeout;
+  private t3Handle?: NodeJS.Timeout;
+  private reconfigHandle?: NodeJS.Timeout;
+
+  readonly onT1Expired = new Event<[number]>();
+  readonly onT2Expired = new Event<[number]>();
+  readonly onT3Expired = new Event<[]>();
+  readonly onReconfigExpired = new Event<[number]>();
+  private readonly sendChunk: (chunk: Chunk) => Promise<void>;
+
+  constructor({ sendChunk }: Deps) {
     this.sendChunk = sendChunk;
   }
 
@@ -303,4 +304,42 @@ export class SCTPTimerManager {
       Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX),
     );
   }
+
+  toDto(): SCTPTimerDto {
+    return {
+      t1Chunk: this.t1Chunk?.bytes,
+      t1Failures: this.t1Failures,
+      t2Chunk: this.t2Chunk?.bytes,
+      t2Failures: this.t2Failures,
+      reconfigFailures: this.reconfigFailures,
+      rto: this.rto,
+      srtt: this.srtt,
+      rttvar: this.rttvar,
+    };
+  }
+
+  static fromDto(dto: SCTPTimerDto, deps: Deps): SCTPTimerManager {
+    const timerManager = new SCTPTimerManager(deps);
+    timerManager.t1Chunk = dto.t1Chunk && parseChunk(dto.t1Chunk).chunk;
+    timerManager.t1Failures = dto.t1Failures;
+    timerManager.t2Chunk = dto.t2Chunk && parseChunk(dto.t2Chunk).chunk;
+    timerManager.t2Failures = dto.t2Failures;
+    timerManager.reconfigFailures = dto.reconfigFailures;
+    timerManager.rto = dto.rto;
+    timerManager.srtt = dto.srtt;
+    timerManager.rttvar = dto.rttvar;
+
+    return timerManager;
+  }
+}
+
+interface SCTPTimerDto {
+  t1Chunk: Buffer | undefined;
+  t1Failures: number;
+  t2Chunk: Buffer | undefined;
+  t2Failures: number;
+  reconfigFailures: number;
+  rto: number;
+  srtt: number | undefined;
+  rttvar: number | undefined;
 }
