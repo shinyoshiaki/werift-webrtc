@@ -1,6 +1,7 @@
 import { SRTP_PROFILE } from "./const";
 import { Event, debug } from "./imports/common";
-import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
+import type { RTCRtpTransceiver, TransceiverManager } from "./media";
+import type { RTCStats } from "./media/stats";
 import type { PeerConfig } from "./peerConnection";
 import type { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
@@ -357,6 +358,19 @@ export class SecureTransportManager {
     log("connectionStateChange", state);
     this.connectionState = state;
     this.connectionStateChange.execute(state);
+  }
+
+  async getStats(): Promise<RTCStats[]> {
+    const stats: RTCStats[] = [];
+
+    for (const dtlsTransport of this.dtlsTransports) {
+      const transportStats = await dtlsTransport.getStats();
+      if (transportStats) {
+        stats.push(...transportStats);
+      }
+    }
+
+    return stats;
   }
 
   async ensureCerts() {
