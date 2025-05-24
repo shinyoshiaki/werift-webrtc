@@ -202,6 +202,10 @@ export class RTCSctpTransport {
           }
         })();
 
+        // Update reception statistics
+        channel.messagesReceived++;
+        channel.bytesReceived += data.length;
+
         channel.onMessage.execute(msg);
         channel.emit("message", { data: msg });
         if (channel.onmessage) {

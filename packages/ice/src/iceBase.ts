@@ -23,6 +23,8 @@ export interface IceConnection {
   remoteIsLite: boolean;
   checkList: CandidatePair[];
   localCandidates: Candidate[];
+  remoteCandidates: Candidate[];
+  candidatePairs: CandidatePair[];
   stunServer?: Address;
   turnServer?: Address;
   generation: number;
@@ -59,7 +61,17 @@ export interface IceConnection {
   resetNominatedPair(): void;
 }
 
-export class CandidatePair {
+export interface CandidatePairStats {
+  packetsSent: number;
+  packetsReceived: number;
+  bytesSent: number;
+  bytesReceived: number;
+  rtt?: number;
+  totalRoundTripTime: number;
+  roundTripTimeMeasurements: number;
+}
+
+export class CandidatePair implements CandidatePairStats {
   readonly id = randomUUID();
   handle?: Cancelable<void>;
   nominated = false;
@@ -69,6 +81,15 @@ export class CandidatePair {
   get state() {
     return this._state;
   }
+
+  // Statistics tracking
+  packetsSent = 0;
+  packetsReceived = 0;
+  bytesSent = 0;
+  bytesReceived = 0;
+  rtt?: number;
+  totalRoundTripTime = 0;
+  roundTripTimeMeasurements = 0;
 
   toJSON() {
     return this.json;
@@ -113,6 +134,10 @@ export class CandidatePair {
       this.remoteCandidate,
       this.iceControlling,
     );
+  }
+
+  get foundation() {
+    return this.localCandidate.foundation;
   }
 }
 

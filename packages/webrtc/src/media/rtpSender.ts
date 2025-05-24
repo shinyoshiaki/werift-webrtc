@@ -64,6 +64,14 @@ import type {
   RTCRtpSendParameters,
 } from "./parameters";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
+import {
+  type RTCMediaSourceStats,
+  type RTCOutboundRtpStreamStats,
+  type RTCRemoteInboundRtpStreamStats,
+  type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./stats";
 import type { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
@@ -507,4 +515,63 @@ export class RTCRtpSender {
 
   // todo impl
   setParameters(params: any) {}
+
+  async getStats(): Promise<RTCStats[]> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    if (!this.dtlsTransport) {
+      return stats;
+    }
+
+    const transportId = generateStatsId("transport", this.dtlsTransport.id);
+
+    // Outbound RTP stats
+    const outboundRtpStats: RTCOutboundRtpStreamStats = {
+      type: "outbound-rtp",
+      id: generateStatsId("outbound-rtp", this.ssrc),
+      timestamp,
+      ssrc: this.ssrc,
+      kind: this.kind,
+      transportId,
+      codecId: this.codec
+        ? generateStatsId("codec", this.codec.payloadType, transportId)
+        : undefined,
+      mid: this.mid,
+      packetsSent: this.packetCount,
+      bytesSent: this.octetCount,
+      rtxSsrc: this.rtxPayloadType ? this.rtxSsrc : undefined,
+    };
+    stats.push(outboundRtpStats);
+
+    // Media source stats
+    if (this.track) {
+      const mediaSourceStats: RTCMediaSourceStats = {
+        type: "media-source",
+        id: generateStatsId("media-source", this.trackId),
+        timestamp,
+        trackIdentifier: this.trackId,
+        kind: this.kind,
+      };
+      stats.push(mediaSourceStats);
+    }
+
+    // Remote inbound RTP stats (if we have RTT)
+    if (this.rtt !== undefined) {
+      const remoteInboundStats: RTCRemoteInboundRtpStreamStats = {
+        type: "remote-inbound-rtp",
+        id: generateStatsId("remote-inbound-rtp", this.ssrc),
+        timestamp,
+        ssrc: this.ssrc,
+        kind: this.kind,
+        transportId,
+        codecId: outboundRtpStats.codecId,
+        localId: outboundRtpStats.id,
+        roundTripTime: this.rtt,
+      };
+      stats.push(remoteInboundStats);
+    }
+
+    return stats;
+  }
 }

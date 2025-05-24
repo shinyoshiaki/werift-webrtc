@@ -1,6 +1,12 @@
 import { Event, debug } from "./imports/common";
 
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import {
+  type RTCDataChannelStats,
+  type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./media/stats";
 import type { MediaDescription } from "./sdp";
 import { RTCSctpTransport } from "./transport/sctp";
 
@@ -9,6 +15,9 @@ const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
   sctpRemotePort?: number;
+  dataChannelsOpened = 0;
+  dataChannelsClosed = 0;
+  private dataChannels: RTCDataChannel[] = [];
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
@@ -17,7 +26,11 @@ export class SctpTransportManager {
   createSctpTransport() {
     const sctp = new RTCSctpTransport();
     sctp.mid = undefined;
-    sctp.onDataChannel.pipe(this.onDataChannel);
+    sctp.onDataChannel.subscribe((channel) => {
+      this.dataChannelsOpened++;
+      this.dataChannels.push(channel);
+      this.onDataChannel.execute(channel);
+    });
 
     this.sctpTransport = sctp;
 
@@ -61,6 +74,17 @@ export class SctpTransportManager {
     });
 
     const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    this.dataChannelsOpened++;
+    this.dataChannels.push(channel);
+    channel.stateChange.subscribe((state) => {
+      if (state === "closed") {
+        this.dataChannelsClosed++;
+        const index = this.dataChannels.indexOf(channel);
+        if (index !== -1) {
+          this.dataChannels.splice(index, 1);
+        }
+      }
+    });
     return channel;
   }
 
@@ -98,5 +122,29 @@ export class SctpTransportManager {
     }
 
     this.onDataChannel.allUnsubscribe();
+  }
+
+  async getStats(): Promise<RTCStats[]> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    for (const channel of this.dataChannels) {
+      const channelStats: RTCDataChannelStats = {
+        type: "data-channel",
+        id: generateStatsId("data-channel", channel.id),
+        timestamp,
+        label: channel.label,
+        protocol: channel.protocol,
+        dataChannelIdentifier: channel.id,
+        state: channel.readyState,
+        messagesSent: channel.messagesSent || 0,
+        bytesSent: channel.bytesSent || 0,
+        messagesReceived: channel.messagesReceived || 0,
+        bytesReceived: channel.bytesReceived || 0,
+      };
+      stats.push(channelStats);
+    }
+
+    return stats;
   }
 }

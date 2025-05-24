@@ -10,6 +10,12 @@ import type {
 } from "./parameters";
 import type { RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
+import {
+  type RTCCodecStats,
+  type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
@@ -103,6 +109,35 @@ export class RTCRtpTransceiver {
     return this.codecs.find((codec) =>
       codec.mimeType.toLowerCase().includes(mimeType.toLowerCase()),
     )?.payloadType;
+  }
+
+  getCodecStats(): RTCStats[] {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    if (!this.dtlsTransport) {
+      return stats;
+    }
+
+    const transportId = generateStatsId("transport", this.dtlsTransport.id);
+
+    // Add codec stats for each codec
+    for (const codec of this.codecs) {
+      const codecStats: RTCCodecStats = {
+        type: "codec",
+        id: generateStatsId("codec", codec.payloadType, transportId),
+        timestamp,
+        payloadType: codec.payloadType,
+        transportId,
+        mimeType: codec.mimeType,
+        clockRate: codec.clockRate,
+        channels: codec.channels,
+        sdpFmtpLine: codec.parameters,
+      };
+      stats.push(codecStats);
+    }
+
+    return stats;
   }
 }
 

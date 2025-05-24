@@ -7,6 +7,13 @@ import {
   type IceConnection,
   type IceOptions,
 } from "../../../ice/src";
+import {
+  type RTCIceCandidatePairStats,
+  type RTCIceCandidateStats,
+  type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "../media/stats";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
@@ -159,6 +166,80 @@ export class RTCIceTransport {
     this.onStateChange.complete();
     this.onIceCandidate.complete();
     this.onNegotiationNeeded.complete();
+  }
+
+  async getStats(): Promise<RTCStats[]> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    // Local candidates
+    for (const candidate of this.localCandidates) {
+      const candidateStats: RTCIceCandidateStats = {
+        type: "local-candidate",
+        id: generateStatsId("local-candidate", candidate.foundation),
+        timestamp,
+        transportId: generateStatsId("transport", this.id),
+        address: candidate.ip,
+        port: candidate.port,
+        protocol: candidate.protocol,
+        candidateType: candidate.type as any,
+        priority: candidate.priority,
+        foundation: candidate.foundation,
+      };
+      stats.push(candidateStats);
+    }
+
+    // Remote candidates
+    for (const candidate of this.connection.remoteCandidates) {
+      const ice = candidateFromIce(candidate);
+      const candidateStats: RTCIceCandidateStats = {
+        type: "remote-candidate",
+        id: generateStatsId("remote-candidate", ice.foundation),
+        timestamp,
+        transportId: generateStatsId("transport", this.id),
+        address: ice.ip,
+        port: ice.port,
+        protocol: ice.protocol,
+        candidateType: ice.type as any,
+        priority: ice.priority,
+        foundation: ice.foundation,
+      };
+      stats.push(candidateStats);
+    }
+
+    // Candidate pairs
+    const pairs = this.connection?.candidatePairs
+      ? [
+          ...this.connection.candidatePairs.filter((p) => p.nominated),
+          ...this.connection.candidatePairs.filter((p) => !p.nominated),
+        ]
+      : [];
+    for (const pair of pairs) {
+      const pairStats: RTCIceCandidatePairStats = {
+        type: "candidate-pair",
+        id: generateStatsId("candidate-pair", pair.foundation),
+        timestamp,
+        transportId: generateStatsId("transport", this.id),
+        localCandidateId: generateStatsId(
+          "local-candidate",
+          pair.localCandidate.foundation,
+        ),
+        remoteCandidateId: generateStatsId(
+          "remote-candidate",
+          pair.remoteCandidate.foundation,
+        ),
+        state: pair.state as any,
+        nominated: pair.nominated,
+        packetsSent: pair.packetsSent,
+        packetsReceived: pair.packetsReceived,
+        bytesSent: pair.bytesSent,
+        bytesReceived: pair.bytesReceived,
+        currentRoundTripTime: pair.rtt,
+      };
+      stats.push(pairStats);
+    }
+
+    return stats;
   }
 }
 

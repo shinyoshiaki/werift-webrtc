@@ -17,6 +17,7 @@ import {
   Sendrecv,
   type TransceiverOptions,
 } from "./media";
+import type { RTCStats } from "./media/stats";
 import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
@@ -351,6 +352,59 @@ export class TransceiverManager {
     if (remoteMedia.ssrc[0]?.ssrc) {
       transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
+  }
+
+  async getStats(selector?: MediaStreamTrack | null): Promise<RTCStats[]> {
+    const stats: RTCStats[] = [];
+
+    for (const transceiver of this.transceivers) {
+      const includeTransceiverStats =
+        !selector ||
+        transceiver.sender.track === selector ||
+        transceiver.receiver.track === selector;
+
+      if (transceiver.sender) {
+        const senderStats = await transceiver.sender.getStats();
+        if (senderStats) {
+          for (const stat of senderStats) {
+            if (stat.type === "outbound-rtp" || stat.type === "media-source") {
+              if (includeTransceiverStats) {
+                stats.push(stat);
+              }
+            } else {
+              stats.push(stat);
+            }
+          }
+        }
+      }
+
+      if (transceiver.receiver) {
+        const receiverStats = await transceiver.receiver.getStats();
+        if (receiverStats) {
+          for (const stat of receiverStats) {
+            if (
+              stat.type === "inbound-rtp" ||
+              stat.type === "remote-outbound-rtp"
+            ) {
+              if (includeTransceiverStats) {
+                stats.push(stat);
+              }
+            } else {
+              stats.push(stat);
+            }
+          }
+        }
+      }
+
+      if (includeTransceiverStats) {
+        const codecStats = transceiver.getCodecStats();
+        if (codecStats) {
+          stats.push(...codecStats);
+        }
+      }
+    }
+
+    return stats;
   }
 
   /**

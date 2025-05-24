@@ -25,6 +25,13 @@ import {
   usePCMU,
   useVP8,
 } from "./media";
+import {
+  type RTCPeerConnectionStats,
+  type RTCStats,
+  RTCStatsReport,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./media/stats";
 import { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
@@ -774,6 +781,42 @@ export class RTCPeerConnection extends EventTarget {
     if (this.onsignalingstatechange) {
       this.onsignalingstatechange({});
     }
+  }
+
+  private createPeerConnectionStats(): RTCPeerConnectionStats {
+    const timestamp = getStatsTimestamp();
+    return {
+      type: "peer-connection",
+      id: generateStatsId("peer-connection"),
+      timestamp,
+      dataChannelsOpened: this.sctpManager.dataChannelsOpened,
+      dataChannelsClosed: this.sctpManager.dataChannelsClosed,
+    };
+  }
+
+  async getStats(selector?: MediaStreamTrack | null): Promise<RTCStatsReport> {
+    const stats: RTCStats[] = [];
+
+    // Peer connection stats - always included regardless of selector
+    stats.push(this.createPeerConnectionStats());
+
+    // Get stats from transceivers
+    const transceiverStats = await this.transceiverManager.getStats(selector);
+    stats.push(...transceiverStats);
+
+    // Get transport stats - always included regardless of selector
+    const transportStats = await this.secureManager.getStats();
+    stats.push(...transportStats);
+
+    // Get data channel stats - always included regardless of selector
+    if (this.sctpTransport) {
+      const dataChannelStats = await this.sctpManager.getStats();
+      if (dataChannelStats) {
+        stats.push(...dataChannelStats);
+      }
+    }
+
+    return new RTCStatsReport(stats);
   }
 
   async close() {

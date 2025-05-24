@@ -273,6 +273,13 @@ export class Connection implements IceConnection {
     });
     protocol.onDataReceived.subscribe((data) => {
       try {
+        // Update statistics for the nominated pair
+        const activePair = this.nominated;
+        if (activePair && activePair.protocol === protocol) {
+          activePair.packetsReceived++;
+          activePair.bytesReceived += data.length;
+        }
+
         this.onData.execute(data);
       } catch (error) {
         log("dataReceived", error);
@@ -734,6 +741,10 @@ export class Connection implements IceConnection {
     const activePair = this.nominated;
     if (activePair) {
       await activePair.protocol.sendData(data, activePair.remoteAddr);
+
+      // Update statistics
+      activePair.packetsSent++;
+      activePair.bytesSent += data.length;
     } else {
       // log("Cannot send data, ice not connected");
       return;
@@ -766,6 +777,10 @@ export class Connection implements IceConnection {
   }
   get remoteCandidates() {
     return this._remoteCandidates;
+  }
+
+  get candidatePairs() {
+    return this.checkList;
   }
 
   private sortCheckList() {
@@ -896,6 +911,9 @@ export class Connection implements IceConnection {
         iceControlling: this.iceControlling,
       });
 
+      // Record start time for RTT calculation
+      const startTime = performance.now();
+
       try {
         const [response, addr] = await pair.protocol.request(
           request,
@@ -903,11 +921,22 @@ export class Connection implements IceConnection {
           Buffer.from(remotePassword, "utf8"),
           4,
         );
+
+        // Calculate RTT
+        const endTime = performance.now();
+        const rtt = (endTime - startTime) / 1000; // Convert to seconds
+
+        // Update RTT statistics
+        pair.rtt = rtt;
+        pair.totalRoundTripTime += rtt;
+        pair.roundTripTimeMeasurements++;
+
         log("response received", request.toJSON(), response.toJSON(), addr, {
           localUsername,
           remoteUsername,
           remotePassword,
           generation,
+          rtt,
         });
         result.response = response;
         result.addr = addr;
