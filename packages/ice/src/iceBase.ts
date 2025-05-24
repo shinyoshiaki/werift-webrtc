@@ -23,6 +23,8 @@ export interface IceConnection {
   remoteIsLite: boolean;
   checkList: CandidatePair[];
   localCandidates: Candidate[];
+  remoteCandidates: Candidate[];
+  candidatePairs: CandidatePair[];
   stunServer?: Address;
   turnServer?: Address;
   generation: number;
@@ -122,6 +124,10 @@ export class CandidatePair {
       this.remoteCandidate,
       this.iceControlling,
     );
+  }
+
+  get foundation() {
+    return this.localCandidate.foundation;
   }
 }
 

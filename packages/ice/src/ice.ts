@@ -779,6 +779,10 @@ export class Connection implements IceConnection {
     return this._remoteCandidates;
   }
 
+  get candidatePairs() {
+    return this.checkList;
+  }
+
   private sortCheckList() {
     sortCandidatePairs(this.checkList, this.iceControlling);
   }
