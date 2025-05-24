@@ -21,7 +21,6 @@ import {
   ShutdownChunk,
   ShutdownCompleteChunk,
   parsePacket,
-  serializePacket,
 } from "./chunk";
 import {
   COOKIE_LENGTH,
@@ -32,20 +31,14 @@ import {
   SCTP_DATA_LAST_FRAG,
   SCTP_DATA_UNORDERED,
   SCTP_MAX_ASSOCIATION_RETRANS,
-  SCTP_MAX_INIT_RETRANS,
   SCTP_PRSCTP_SUPPORTED,
-  SCTP_RTO_ALPHA,
-  SCTP_RTO_BETA,
-  SCTP_RTO_INITIAL,
-  SCTP_RTO_MAX,
-  SCTP_RTO_MIN,
   SCTP_STATE,
   SCTP_STATE_COOKIE,
   SCTP_SUPPORTED_CHUNK_EXT,
   SCTP_TSN_MODULO,
   USERDATA_MAX_LENGTH,
 } from "./const";
-import { type Unpacked, createEventsFromList } from "./helper";
+import { createEventsFromList } from "./helper";
 import {
   Event,
   EventDisposer,
@@ -136,33 +129,30 @@ export class SCTP {
       this.handleData(buf);
     };
     this.timerManager = new SCTPTimerManager({
-      onT1Expired: (failures) => {
-        this.setState(SCTP_STATE.CLOSED);
-      },
-      onT2Expired: (failures) => {
-        this.setState(SCTP_STATE.CLOSED);
-      },
-      onT3Expired: () => {
-        this.transmitter.onT3Expired();
-      },
-      onReconfigExpired: async (reconfigFailures) => {
-        if (reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
-          log("timerReconfigFailures", reconfigFailures);
-          this.setState(SCTP_STATE.CLOSED);
-        } else if (this.reconfigRequest) {
-          log(
-            "timerReconfigHandleExpired",
-            reconfigFailures,
-            this.timerManager.rto,
-          );
-          await this.sendReconfigParam(this.reconfigRequest);
-
-          this.timerManager.scheduleNextReconfigTimer();
-        }
-      },
       sendChunk: async (chunk) => {
         await this.transmitter.sendChunk(chunk);
       },
+    });
+    this.timerManager.onT1Expired.subscribe(() => {
+      this.setState(SCTP_STATE.CLOSED);
+    });
+    this.timerManager.onT2Expired.subscribe(() => {
+      this.setState(SCTP_STATE.CLOSED);
+    });
+    this.timerManager.onReconfigExpired.subscribe(async (reconfigFailures) => {
+      if (reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
+        log("timerReconfigFailures", reconfigFailures);
+        this.setState(SCTP_STATE.CLOSED);
+      } else if (this.reconfigRequest) {
+        log(
+          "timerReconfigHandleExpired",
+          reconfigFailures,
+          this.timerManager.rto,
+        );
+        await this.sendReconfigParam(this.reconfigRequest);
+
+        this.timerManager.scheduleNextReconfigTimer();
+      }
     });
     this.transmitter = new SCTPTransmitter(transport, this.timerManager, port);
     this.transmitter.onStateChanged
@@ -233,8 +223,8 @@ export class SCTP {
     if (!this.sackNeeded) return;
 
     const gaps: [number, number][] = [];
-    let gapNext: number;
-    [...this.sackMisOrdered].sort().forEach((tsn) => {
+    let gapNext: number | undefined;
+    for (const tsn of [...this.sackMisOrdered].sort()) {
       const pos = (tsn - this.lastReceivedTsn!) % SCTP_TSN_MODULO;
       if (tsn === gapNext) {
         gaps[gaps.length - 1][1] = pos;
@@ -242,7 +232,8 @@ export class SCTP {
         gaps.push([pos, pos]);
       }
       gapNext = tsnPlusOne(tsn);
-    });
+    }
+
     const sack = new SackChunk(0, undefined);
     sack.cumulativeTsn = this.lastReceivedTsn!;
     sack.advertisedRwnd = Math.max(0, this.advertisedRwnd);
@@ -386,11 +377,11 @@ export class SCTP {
           const data = chunk as CookieEchoChunk;
           const cookie = data.body!;
           const digest = createHmac("sha1", this.hmacKey)
-            .update(cookie.slice(0, 4))
+            .update(cookie.subarray(0, 4))
             .digest();
           if (
             cookie?.length != COOKIE_LENGTH ||
-            !cookie.slice(4).equals(digest)
+            !cookie.subarray(4).equals(digest)
           ) {
             log("x State cookie is invalid");
             return;
@@ -582,9 +573,9 @@ export class SCTP {
     }
 
     // # prune obsolete chunks
-    Object.values(this.inboundStreams).forEach((inboundStream) => {
+    for (const inboundStream of Object.values(this.inboundStreams)) {
       this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
-    });
+    }
   }
 
   private receive(streamId: number, ppId: number, data: Buffer) {
@@ -656,7 +647,7 @@ export class SCTP {
       chunk.streamId = streamId;
       chunk.streamSeqNum = streamSeqNum;
       chunk.protocol = ppId;
-      chunk.userData = userData.slice(pos, pos + USERDATA_MAX_LENGTH);
+      chunk.userData = userData.subarray(pos, pos + USERDATA_MAX_LENGTH);
       chunk.bookSize = chunk.userData.length;
       chunk.expiry = expiry;
       chunk.maxRetransmits = maxRetransmits;
@@ -666,9 +657,9 @@ export class SCTP {
       chunks.push(chunk);
     }
 
-    chunks.forEach((chunk) => {
+    for (const chunk of chunks) {
       this.transmitter.outboundQueue.push(chunk);
-    });
+    }
 
     if (ordered) {
       this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
