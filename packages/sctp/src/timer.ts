@@ -1,5 +1,9 @@
 import type { Chunk } from "./chunk";
-import { SCTP_MAX_ASSOCIATION_RETRANS, SCTP_MAX_INIT_RETRANS } from "./const";
+import {
+  SCTP_MAX_ASSOCIATION_RETRANS,
+  SCTP_MAX_INIT_RETRANS,
+  SCTP_RTO_INITIAL,
+} from "./const";
 import { debug } from "./imports/common";
 
 const log = debug("werift/sctp/timer");
@@ -27,7 +31,7 @@ export class SCTPTimerManager {
   private t2Chunk?: Chunk;
   private t2Failures = 0;
   private reconfigFailures = 0;
-  private rto: number;
+  rto: number = SCTP_RTO_INITIAL;
   private onT1Expired: (failures: number) => void;
   private onT2Expired: (failures: number) => void;
   private onT3Expired: () => void;
@@ -35,21 +39,18 @@ export class SCTPTimerManager {
   private sendChunk: (chunk: Chunk) => Promise<void>;
 
   constructor({
-    rto,
     onT1Expired,
     onT2Expired,
     onT3Expired,
     onReconfigExpired,
     sendChunk,
   }: {
-    rto: number;
     onT1Expired: (failures: number) => void;
     onT2Expired: (failures: number) => void;
     onT3Expired: () => void;
     onReconfigExpired: (failures: number) => void;
     sendChunk: (chunk: Chunk) => Promise<void>;
   }) {
-    this.rto = rto;
     this.onT1Expired = onT1Expired;
     this.onT2Expired = onT2Expired;
     this.onT3Expired = onT3Expired;

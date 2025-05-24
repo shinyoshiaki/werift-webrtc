@@ -282,7 +282,7 @@ export class RTCSctpTransport {
     // """
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
-    if (this.sctp.outboundQueue.length > 0) return;
+    if (!this.sctp.isOutboundQueueEmpty) return;
 
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;

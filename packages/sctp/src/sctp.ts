@@ -77,14 +77,12 @@ const log = debug("werift/sctp/sctp");
 // SSN: Stream Sequence Number
 
 export class SCTP {
-  flush = new Event<[void]>();
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
   readonly onReconfigStreams = new Event<[number[]]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
-  onSackReceived: () => Promise<void> = async () => {};
 
   associationState = SCTP_STATE.CLOSED;
   started = false;
@@ -109,20 +107,11 @@ export class SCTP {
   private sackTimeout: NodeJS.Immediate | undefined;
 
   // # outbound
-  private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
-  private fastRecoveryExit?: number;
-  private fastRecoveryTransmit = false;
-  private forwardTsnChunk?: ForwardTsnChunk;
-  private flightSize = 0;
-  outboundQueue: DataChunk[] = [];
+
   private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
   /**local transmission sequence number */
   private localTsn = Number(random32());
-  private lastSackedTsn = tsnMinusOne(this.localTsn);
-  private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
-  private partialBytesAcked = 0;
-  private sentQueue: DataChunk[] = [];
 
   // # reconfiguration
 
@@ -133,35 +122,20 @@ export class SCTP {
   reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
 
-  // rtt calculation
-  private srtt?: number;
-  private rttvar?: number;
-
-  // timers
-  private rto = SCTP_RTO_INITIAL;
-  /**t1 is wait for initAck or cookieAck */
-
   private transmitter: SCTPTransmitter;
   private timerManager: SCTPTimerManager;
   // etc
-  private ssthresh?: number; // slow start threshold
+  onSackReceived: () => Promise<void> = async () => {};
   private disposer = new EventDisposer();
 
   constructor(
     public transport: Transport,
     public port = 5000,
   ) {
-    this.transmitter = new SCTPTransmitter(transport, port);
-    this.transmitter.onStateChanged
-      .subscribe((state) => {
-        this.stateChanged[state].execute();
-      })
-      .disposer(this.disposer);
     this.transport.onData = (buf) => {
       this.handleData(buf);
     };
     this.timerManager = new SCTPTimerManager({
-      rto: this.rto,
       onT1Expired: (failures) => {
         this.setState(SCTP_STATE.CLOSED);
       },
@@ -169,33 +143,18 @@ export class SCTP {
         this.setState(SCTP_STATE.CLOSED);
       },
       onT3Expired: () => {
-        // # mark retransmit or abandoned chunks
-        for (const chunk of this.sentQueue) {
-          if (!this.maybeAbandon(chunk)) {
-            chunk.retransmit = true;
-          }
-        }
-        this.updateAdvancedPeerAckPoint();
-
-        // # adjust congestion window
-        this.fastRecoveryExit = undefined;
-        this.flightSize = 0;
-        this.partialBytesAcked = 0;
-
-        this.ssthresh = Math.max(
-          Math.floor(this.cwnd / 2),
-          4 * USERDATA_MAX_LENGTH,
-        );
-        this.cwnd = USERDATA_MAX_LENGTH;
-
-        this.transmit();
+        this.transmitter.onT3Expired();
       },
       onReconfigExpired: async (reconfigFailures) => {
         if (reconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
           log("timerReconfigFailures", reconfigFailures);
           this.setState(SCTP_STATE.CLOSED);
         } else if (this.reconfigRequest) {
-          log("timerReconfigHandleExpired", reconfigFailures, this.rto);
+          log(
+            "timerReconfigHandleExpired",
+            reconfigFailures,
+            this.timerManager.rto,
+          );
           await this.sendReconfigParam(this.reconfigRequest);
 
           this.timerManager.scheduleNextReconfigTimer();
@@ -205,6 +164,15 @@ export class SCTP {
         await this.transmitter.sendChunk(chunk);
       },
     });
+    this.transmitter = new SCTPTransmitter(transport, this.timerManager, port);
+    this.transmitter.onStateChanged
+      .subscribe((state) => {
+        this.stateChanged[state]?.execute?.();
+      })
+      .disposer(this.disposer);
+    this.transmitter.onSackReceived = async () => {
+      await this.onSackReceived?.();
+    };
   }
 
   get maxChannels() {
@@ -304,8 +272,7 @@ export class SCTP {
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
-          this.transmitter.remoteVerificationTag = init.initiateTag;
-          this.ssthresh = init.advertisedRwnd;
+          this.transmitter.handleInitChunk(init);
           this.getExtensions(init.params);
 
           this._inboundStreamsCount = Math.min(
@@ -346,8 +313,7 @@ export class SCTP {
           this.timerManager.cancelT1();
           this.lastReceivedTsn = tsnMinusOne(initAck.initialTsn);
           this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
-          this.transmitter.remoteVerificationTag = initAck.initiateTag;
-          this.ssthresh = initAck.advertisedRwnd;
+          this.transmitter.handleInitChunk(initAck);
           this.getExtensions(initAck.params);
 
           this._inboundStreamsCount = Math.min(
@@ -376,7 +342,7 @@ export class SCTP {
         break;
       case SackChunk.type:
         {
-          await this.receiveSackChunk(chunk as SackChunk);
+          await this.transmitter.receiveSackChunk(chunk as SackChunk);
         }
         break;
       case HeartbeatChunk.type:
@@ -579,123 +545,6 @@ export class SCTP {
     }
   }
 
-  private async receiveSackChunk(chunk: SackChunk) {
-    // """
-    // Handle a SACK chunk.
-    // """
-
-    if (uint32Gt(this.lastSackedTsn, chunk.cumulativeTsn)) return;
-
-    const receivedTime = Date.now() / 1000;
-    this.lastSackedTsn = chunk.cumulativeTsn;
-    const cwndFullyUtilized = this.flightSize >= this.cwnd;
-    let done = 0,
-      doneBytes = 0;
-
-    // # handle acknowledged data
-    while (
-      this.sentQueue.length > 0 &&
-      uint32Gte(this.lastSackedTsn, this.sentQueue[0].tsn)
-    ) {
-      const sChunk = this.sentQueue.shift()!;
-      done++;
-      if (!sChunk?.acked) {
-        doneBytes += sChunk.bookSize;
-        this.flightSizeDecrease(sChunk);
-      }
-
-      if (done === 1 && sChunk.sentCount === 1) {
-        this.updateRto(receivedTime - sChunk.sentTime!);
-      }
-    }
-    // Furthermore, this exposed an issue I've seen in v8 in other projects: using an array as a queue seems to result in long calls to shift (it does an array copy under the hood?). The problem seems to get worse the more times it shifts. Resetting the queue to empty array mitigates this.
-    if (!this.sentQueue.length) {
-      this.sentQueue = [];
-    }
-
-    // # handle gap blocks
-    let loss = false;
-    if (chunk.gaps.length > 0) {
-      const seen = new Set();
-      let highestSeenTsn: number;
-      chunk.gaps.forEach((gap) =>
-        range(gap[0], gap[1] + 1).forEach((pos) => {
-          highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
-          seen.add(highestSeenTsn);
-        }),
-      );
-
-      let highestNewlyAcked = chunk.cumulativeTsn;
-      for (const sChunk of this.sentQueue) {
-        if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
-          break;
-        }
-        if (seen.has(sChunk.tsn) && !sChunk.acked) {
-          doneBytes += sChunk.bookSize;
-          sChunk.acked = true;
-          this.flightSizeDecrease(sChunk);
-          highestNewlyAcked = sChunk.tsn;
-        }
-      }
-
-      // # strike missing chunks prior to HTNA
-      for (const sChunk of this.sentQueue) {
-        if (uint32Gt(sChunk.tsn, highestNewlyAcked)) {
-          break;
-        }
-        if (!seen.has(sChunk.tsn)) {
-          sChunk.misses++;
-          if (sChunk.misses === 3) {
-            sChunk.misses = 0;
-            if (!this.maybeAbandon(sChunk)) {
-              sChunk.retransmit = true;
-            }
-            sChunk.acked = false;
-            this.flightSizeDecrease(sChunk);
-            loss = true;
-          }
-        }
-      }
-    }
-
-    // # adjust congestion window
-    if (this.fastRecoveryExit === undefined) {
-      if (done && cwndFullyUtilized) {
-        if (this.cwnd <= this.ssthresh!) {
-          this.cwnd += Math.min(doneBytes, USERDATA_MAX_LENGTH);
-        } else {
-          this.partialBytesAcked += doneBytes;
-          if (this.partialBytesAcked >= this.cwnd) {
-            this.partialBytesAcked -= this.cwnd;
-            this.cwnd += USERDATA_MAX_LENGTH;
-          }
-        }
-      }
-      if (loss) {
-        this.ssthresh = Math.max(
-          Math.floor(this.cwnd / 2),
-          4 * USERDATA_MAX_LENGTH,
-        );
-        this.cwnd = this.ssthresh;
-        this.partialBytesAcked = 0;
-        this.fastRecoveryExit = this.sentQueue[this.sentQueue.length - 1].tsn;
-        this.fastRecoveryTransmit = true;
-      }
-    } else if (uint32Gte(chunk.cumulativeTsn, this.fastRecoveryExit)) {
-      this.fastRecoveryExit = undefined;
-    }
-
-    if (this.sentQueue.length === 0) {
-      this.timerManager.cancelT3();
-    } else if (done > 0) {
-      this.timerManager.restartT3();
-    }
-
-    this.updateAdvancedPeerAckPoint();
-    await this.onSackReceived();
-    await this.transmit();
-  }
-
   receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
     this.sackNeeded = true;
 
@@ -736,22 +585,6 @@ export class SCTP {
     Object.values(this.inboundStreams).forEach((inboundStream) => {
       this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
     });
-  }
-
-  private updateRto(R: number) {
-    if (!this.srtt) {
-      this.rttvar = R / 2;
-      this.srtt = R;
-    } else {
-      this.rttvar =
-        (1 - SCTP_RTO_BETA) * this.rttvar! +
-        SCTP_RTO_BETA * Math.abs(this.srtt - R);
-      this.srtt = (1 - SCTP_RTO_ALPHA) * this.srtt + SCTP_RTO_ALPHA * R;
-    }
-    this.rto = Math.max(
-      SCTP_RTO_MIN,
-      Math.min(this.srtt + 4 * this.rttvar, SCTP_RTO_MAX),
-    );
   }
 
   private receive(streamId: number, ppId: number, data: Buffer) {
@@ -834,7 +667,7 @@ export class SCTP {
     }
 
     chunks.forEach((chunk) => {
-      this.outboundQueue.push(chunk);
+      this.transmitter.outboundQueue.push(chunk);
     });
 
     if (ordered) {
@@ -842,90 +675,16 @@ export class SCTP {
     }
 
     if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
-      await this.transmit();
+      await this.transmitter.transmit();
     } else {
-      if (this.outboundQueue.length) {
-        await this.flush.asPromise();
+      if (this.transmitter.outboundQueue.length) {
+        await this.transmitter.flush.asPromise();
       } else {
         // unreachable?
         await new Promise((r) => setImmediate(r));
       }
     }
   };
-
-  private async transmit() {
-    // """
-    // Transmit outbound data.
-    // """
-
-    // # send FORWARD TSN
-    if (this.forwardTsnChunk) {
-      await this.transmitter
-        .sendChunk(this.forwardTsnChunk)
-        .catch((err: Error) => {
-          log("send forwardTsn failed", err.message);
-        });
-      this.forwardTsnChunk = undefined;
-
-      if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
-        this.timerManager.startT3();
-      }
-    }
-
-    const burstSize =
-      this.fastRecoveryExit != undefined
-        ? 2 * USERDATA_MAX_LENGTH
-        : 4 * USERDATA_MAX_LENGTH;
-
-    const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
-
-    let retransmitEarliest = true;
-    for (const dataChunk of this.sentQueue) {
-      if (dataChunk.retransmit) {
-        if (this.fastRecoveryTransmit) {
-          this.fastRecoveryTransmit = false;
-        } else if (this.flightSize >= cwnd) {
-          return;
-        }
-        this.flightSizeIncrease(dataChunk);
-
-        dataChunk.misses = 0;
-        dataChunk.retransmit = false;
-        dataChunk.sentCount++;
-        await this.transmitter.sendChunk(dataChunk).catch((err: Error) => {
-          log("send data failed", err.message);
-        });
-
-        if (retransmitEarliest) {
-          this.timerManager.restartT3();
-        }
-      }
-      retransmitEarliest = false;
-    }
-
-    // for performance todo fix
-    while (this.outboundQueue.length > 0) {
-      const chunk = this.outboundQueue.shift();
-      if (!chunk) return;
-
-      this.sentQueue.push(chunk);
-      this.flightSizeIncrease(chunk);
-
-      // # update counters
-      chunk.sentCount++;
-      chunk.sentTime = Date.now() / 1000;
-
-      await this.transmitter.sendChunk(chunk).catch((err: Error) => {
-        log("send data outboundQueue failed", err.message);
-      });
-      if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
-        this.timerManager.startT3();
-      }
-    }
-    // Resetting the queue to empty array mitigates this.
-    this.outboundQueue = [];
-    this.flush.execute();
-  }
 
   async transmitReconfigRequest() {
     if (
@@ -959,90 +718,12 @@ export class SCTP {
     });
   }
 
-  // https://github.com/pion/sctp/pull/44/files
-  private async sendResetRequest(streamId: number) {
-    log("sendResetRequest", streamId);
-    const chunk = new DataChunk(0, undefined);
-    chunk.streamId = streamId;
-    this.outboundQueue.push(chunk);
-    if (!this.timerManager.isRunning(SCTPTimerType.T3)) {
-      await this.transmit();
-    }
-  }
-
-  private flightSizeIncrease(chunk: DataChunk) {
-    this.flightSize += chunk.bookSize;
-  }
-
-  private flightSizeDecrease(chunk: DataChunk) {
-    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
-  }
-
-  private updateAdvancedPeerAckPoint() {
-    if (uint32Gt(this.lastSackedTsn, this.advancedPeerAckTsn)) {
-      this.advancedPeerAckTsn = this.lastSackedTsn;
-    }
-
-    let done = 0;
-    const streams: { [key: number]: number } = {};
-    while (this.sentQueue.length > 0 && this.sentQueue[0].abandoned) {
-      const chunk = this.sentQueue.shift()!;
-      this.advancedPeerAckTsn = chunk.tsn;
-      done++;
-      if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
-        streams[chunk.streamId] = chunk.streamSeqNum;
-      }
-    }
-    // Resetting the queue to empty array mitigates this.
-    if (!this.sentQueue.length) {
-      this.sentQueue = [];
-    }
-
-    if (done) {
-      this.forwardTsnChunk = new ForwardTsnChunk(0, undefined);
-      this.forwardTsnChunk.cumulativeTsn = this.advancedPeerAckTsn;
-      this.forwardTsnChunk.streams = Object.entries(streams).map(([k, v]) => [
-        Number(k),
-        v,
-      ]);
-    }
-  }
-
-  private maybeAbandon(chunk: DataChunk): boolean {
-    if (chunk.abandoned) return true;
-    const abandon =
-      (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||
-      (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
-    if (!abandon) return false;
-
-    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
-    for (const pos of range(chunkPos, -1, -1)) {
-      const oChunk = this.sentQueue[pos];
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
-        break;
-      }
-    }
-
-    for (const pos of range(chunkPos, this.sentQueue.length)) {
-      const oChunk = this.sentQueue[pos];
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
-        break;
-      }
-    }
-
-    return true;
-  }
-
   static getCapabilities() {
     return new RTCSctpCapabilities(65536);
   }
 
   setRemotePort(port: number) {
-    this.transmitter.remotePort = port;
+    this.transmitter.setRemotePort(port);
   }
 
   async start(remotePort?: number) {
@@ -1126,6 +807,10 @@ export class SCTP {
     for (const s of Object.values(this.stateChanged)) {
       s.allUnsubscribe();
     }
+  }
+
+  get isOutboundQueueEmpty() {
+    return this.transmitter.outboundQueue.length === 0;
   }
 }
 
