@@ -45,7 +45,14 @@ import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
-export class RTCDtlsTransport {
+export interface DtlsTransportStats {
+  bytesSent: number;
+  bytesReceived: number;
+  packetsSent: number;
+  packetsReceived: number;
+}
+
+export class RTCDtlsTransport implements DtlsTransportStats {
   id = v4();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
@@ -53,10 +60,10 @@ export class RTCDtlsTransport {
   transportSequenceNumber = 0;
 
   // Statistics tracking
-  private bytesSent = 0;
-  private bytesReceived = 0;
-  private packetsSent = 0;
-  private packetsReceived = 0;
+  public bytesSent = 0;
+  public bytesReceived = 0;
+  public packetsSent = 0;
+  public packetsReceived = 0;
 
   dataReceiver: (buf: Buffer) => void = () => {};
   dtls?: DtlsSocket;

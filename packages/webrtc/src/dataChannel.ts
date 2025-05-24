@@ -6,7 +6,14 @@ import type { Callback, CallbackWithValue } from "./types/util";
 
 const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
-export class RTCDataChannel extends EventTarget {
+export interface DataChannelStats {
+  messagesSent: number;
+  bytesSent: number;
+  messagesReceived: number;
+  bytesReceived: number;
+}
+
+export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
   readonly onMessage = new Event<[string | Buffer]>();

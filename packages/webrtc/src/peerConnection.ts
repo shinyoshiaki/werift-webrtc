@@ -26,7 +26,6 @@ import {
   useVP8,
 } from "./media";
 import {
-  type RTCDataChannelStats,
   type RTCPeerConnectionStats,
   type RTCStats,
   RTCStatsReport,
@@ -802,9 +801,10 @@ export class RTCPeerConnection extends EventTarget {
     const transceivers = this.transceiverManager.getTransceivers();
     for (const transceiver of transceivers) {
       // Determine if this transceiver's stats should be included
-      const includeTransceiverStats = !selector || 
-        (transceiver.sender.track === selector || 
-         transceiver.receiver.track === selector);
+      const includeTransceiverStats =
+        !selector ||
+        transceiver.sender.track === selector ||
+        transceiver.receiver.track === selector;
 
       // Collect sender stats
       if (transceiver.sender) {
@@ -830,7 +830,10 @@ export class RTCPeerConnection extends EventTarget {
         if (receiverStats) {
           // Filter RTP stats based on selector
           for (const stat of receiverStats) {
-            if (stat.type === "inbound-rtp" || stat.type === "remote-outbound-rtp") {
+            if (
+              stat.type === "inbound-rtp" ||
+              stat.type === "remote-outbound-rtp"
+            ) {
               if (includeTransceiverStats) {
                 stats.push(stat);
               }

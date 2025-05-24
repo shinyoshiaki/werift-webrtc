@@ -61,7 +61,17 @@ export interface IceConnection {
   resetNominatedPair(): void;
 }
 
-export class CandidatePair {
+export interface CandidatePairStats {
+  packetsSent: number;
+  packetsReceived: number;
+  bytesSent: number;
+  bytesReceived: number;
+  rtt?: number;
+  totalRoundTripTime: number;
+  roundTripTimeMeasurements: number;
+}
+
+export class CandidatePair implements CandidatePairStats {
   readonly id = randomUUID();
   handle?: Cancelable<void>;
   nominated = false;
