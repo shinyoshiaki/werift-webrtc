@@ -31,10 +31,12 @@
   "dependencies": {
     "@shinyoshiaki/jspack": "^0.0.6",
     "lodash": "^4.17.21",
+    "msgpack-lite": "^0.1.26",
     "turbo-crc32": "^1.0.1"
   },
   "devDependencies": {
-    "@types/lodash": "^4.17.15"
+    "@types/lodash": "^4.17.15",
+    "@types/msgpack-lite": "^0.1.11"
   },
   "engines": {
     "node": ">=10"

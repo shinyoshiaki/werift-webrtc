@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
+import * as msgpack from "msgpack-lite";
 
 import {
   AbortChunk,
@@ -647,7 +648,7 @@ export class SCTP {
     };
   }
 
-  fromDto(dto: SCTPDto, transport: Transport) {
+  static fromDto(dto: SCTPDto, transport: Transport) {
     const sctp = new SCTP(transport);
     sctp.associationState = dto.associationState;
     sctp.started = dto.started;
@@ -676,6 +677,15 @@ export class SCTP {
     sctp.stream = StreamManager.fromDto(dto.stream);
     sctp.setup();
     return sctp;
+  }
+
+  exportState(): Buffer {
+    return msgpack.encode(this.toDto());
+  }
+
+  static restoreState(data: Buffer, transport: Transport): SCTP {
+    const dto: SCTPDto = msgpack.decode(data);
+    return SCTP.fromDto(dto, transport);
   }
 }
 
