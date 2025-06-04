@@ -1,4 +1,4 @@
-import { bufferArrayXor } from "../src";
+import { bufferArrayXor } from "../src/index.js";
 
 describe("binary", () => {
   test("bufferArrayXor", () => {

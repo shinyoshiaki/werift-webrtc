@@ -1,5 +1,5 @@
-import { createNULLKeyExchange } from "../key-exchange";
-import Cipher from "./abstract";
+import { createNULLKeyExchange } from "../key-exchange.js";
+import Cipher from "./abstract.js";
 
 /**
  * Default passthrough cipher.

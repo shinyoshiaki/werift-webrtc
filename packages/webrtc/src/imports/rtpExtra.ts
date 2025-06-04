@@ -1,1 +1,1 @@
-export * from "../../../rtp/src/extra";
+export * from "../../../rtp/src/extra/index.js";

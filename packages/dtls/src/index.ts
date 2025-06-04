@@ -1,9 +1,9 @@
-export * from "./context/cipher";
-export * from "./context/srtp";
-export * from "./cipher/const";
-export { DtlsClient } from "./client";
-export { DtlsServer } from "./server";
-export { DtlsSocket } from "./socket";
+export * from "./context/cipher.js";
+export * from "./context/srtp.js";
+export * from "./cipher/const.js";
+export { DtlsClient } from "./client.js";
+export { DtlsServer } from "./server.js";
+export { DtlsSocket } from "./socket.js";
 
 /* Client                                          Server
    ------                                          ------

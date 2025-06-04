@@ -1,6 +1,6 @@
-import { HandshakeType } from "../../../src/handshake/const";
-import { ClientHello } from "../../../src/handshake/message/client/hello";
-import { FragmentedHandshake } from "../../../src/record/message/fragment";
+import { HandshakeType } from "../../../src/handshake/const.js";
+import { ClientHello } from "../../../src/handshake/message/client/hello.js";
+import { FragmentedHandshake } from "../../../src/record/message/fragment.js";
 
 test("record/message/fragment", () => {
   const raw = Buffer.from([

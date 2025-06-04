@@ -1,12 +1,12 @@
 import inRange from "lodash/inRange";
 
-import { HashAlgorithm } from "../../../dtls/src/cipher/const";
+import { HashAlgorithm } from "../../../dtls/src/cipher/const.js";
 import {
   type RTCDataChannel,
   RTCPeerConnection,
   createSelfSignedCertificate,
-} from "../../src";
-import { SignatureAlgorithm } from "../../src/const";
+} from "../../src/index.js";
+import { SignatureAlgorithm } from "../../src/const.js";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>

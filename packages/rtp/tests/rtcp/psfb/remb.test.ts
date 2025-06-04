@@ -1,6 +1,6 @@
-import { RtcpPacketConverter } from "../../../src";
-import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
-import type { ReceiverEstimatedMaxBitrate } from "../../../src/rtcp/psfb/remb";
+import { RtcpPacketConverter } from "../../../src/index.js";
+import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb/index.js";
+import type { ReceiverEstimatedMaxBitrate } from "../../../src/rtcp/psfb/remb.js";
 
 describe("rtcp/psfb/remb", () => {
   test("remb", () => {

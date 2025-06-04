@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../src/index.js";
 
 describe("datachannel", () => {
   test("send some messages at same time", async () =>

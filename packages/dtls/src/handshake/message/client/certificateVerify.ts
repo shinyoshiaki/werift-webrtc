@@ -1,9 +1,9 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import type { SignatureSchemes } from "../../../cipher/const";
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import type { Handshake } from "../../../typings/domain";
-import { HandshakeType } from "../../const";
+import type { SignatureSchemes } from "../../../cipher/const.js";
+import { FragmentedHandshake } from "../../../record/message/fragment.js";
+import type { Handshake } from "../../../typings/domain.js";
+import { HandshakeType } from "../../const.js";
 
 export class CertificateVerify implements Handshake {
   msgType = HandshakeType.certificate_verify_15;

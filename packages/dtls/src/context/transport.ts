@@ -1,4 +1,4 @@
-import type { Transport } from "../imports/common";
+import type { Transport } from "../imports/common.js";
 
 export class TransportContext {
   constructor(public socket: Transport) {}

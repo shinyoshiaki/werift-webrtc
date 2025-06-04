@@ -1,10 +1,10 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 
-import { UdpTransport } from "../../../../common/src";
-import { DtlsClient } from "../../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
-import { certPem, keyPem } from "../../fixture";
+import { UdpTransport } from "../../../../common/src/index.js";
+import { DtlsClient } from "../../../src/index.js";
+import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const.js";
+import { certPem, keyPem } from "../../fixture.js";
 
 describe("e2e/certificate_request/client", () => {
   const port = 55559;

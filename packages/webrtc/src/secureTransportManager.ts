@@ -1,25 +1,25 @@
-import { SRTP_PROFILE } from "./const";
-import { Event, debug } from "./imports/common";
-import type { RTCRtpTransceiver, TransceiverManager } from "./media";
-import type { RTCStats } from "./media/stats";
-import type { PeerConfig } from "./peerConnection";
-import type { SctpTransportManager } from "./sctpManager";
-import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
+import { SRTP_PROFILE } from "./const.js";
+import { Event, debug } from "./imports/common.js";
+import type { RTCRtpTransceiver, TransceiverManager } from "./media/index.js";
+import type { RTCStats } from "./media/stats.js";
+import type { PeerConfig } from "./peerConnection.js";
+import type { SctpTransportManager } from "./sctpManager.js";
+import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp.js";
 import {
   type DtlsKeys,
   RTCCertificate,
   RTCDtlsTransport,
-} from "./transport/dtls";
-import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
+} from "./transport/dtls.js";
+import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice.js";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
-} from "./transport/ice";
-import type { RTCSctpTransport } from "./transport/sctp";
-import type { ConnectionState } from "./types/domain";
-import { parseIceServers } from "./utils";
+} from "./transport/ice.js";
+import type { RTCSctpTransport } from "./transport/sctp.js";
+import type { ConnectionState } from "./types/domain.js";
+import { parseIceServers } from "./utils.js";
 
 const log = debug(
   "werift:packages/webrtc/src/transport/secureTransportManager.ts",

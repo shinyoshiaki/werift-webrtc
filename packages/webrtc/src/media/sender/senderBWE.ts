@@ -1,9 +1,9 @@
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 
-import { Int, type TransportWideCC } from "../../imports/rtp";
+import { Int, type TransportWideCC } from "../../imports/rtp.js";
 
-import { milliTime } from "../../utils";
-import { CumulativeResult } from "./cumulativeResult";
+import { milliTime } from "../../utils.js";
+import { CumulativeResult } from "./cumulativeResult.js";
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;

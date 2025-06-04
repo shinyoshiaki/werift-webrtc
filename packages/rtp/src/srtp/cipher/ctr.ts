@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, createHmac } from "crypto";
 
-import { CipherAesBase } from ".";
-import { RtcpHeader } from "../../rtcp/header";
-import { RtpHeader } from "../../rtp/rtp";
+import { CipherAesBase } from "./index.js";
+import { RtcpHeader } from "../../rtcp/header.js";
+import { RtpHeader } from "../../rtp/rtp.js";
 
 export class CipherAesCtr extends CipherAesBase {
   readonly authTagLength = 10;

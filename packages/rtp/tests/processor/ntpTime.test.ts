@@ -1,5 +1,5 @@
-import { RtcpSenderInfo, RtcpSrPacket, RtpHeader, RtpPacket } from "../../src";
-import { Max32Uint, NtpTimeBase } from "../../src/extra/processor";
+import { RtcpSenderInfo, RtcpSrPacket, RtpHeader, RtpPacket } from "../../src/index.js";
+import { Max32Uint, NtpTimeBase } from "../../src/extra/processor/index.js";
 
 describe("ntpTime", () => {
   it("rollover", () => {

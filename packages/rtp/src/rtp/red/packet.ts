@@ -1,6 +1,6 @@
 // rfc2198
 
-import { BitStream, debug } from "../../imports/common";
+import { BitStream, debug } from "../../imports/common.js";
 
 const log = debug("packages/rtp/src/rtp/red/packet.ts");
 

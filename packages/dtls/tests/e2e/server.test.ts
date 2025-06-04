@@ -1,10 +1,10 @@
 import { spawn } from "child_process";
 
-import { UdpTransport } from "../../../common/src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { CipherContext } from "../../src/context/cipher";
-import { DtlsServer } from "../../src/server";
-import { certPem, keyPem } from "../fixture";
+import { UdpTransport } from "../../../common/src/index.js";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const.js";
+import { CipherContext } from "../../src/context/cipher.js";
+import { DtlsServer } from "../../src/server.js";
+import { certPem, keyPem } from "../fixture.js";
 
 describe("e2e/server", () => {
   test(

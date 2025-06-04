@@ -2,7 +2,7 @@ import {
   float32bit,
   numberToByteArray,
   stringToByteArray,
-} from "./typedArrayUtils";
+} from "./typedArrayUtils.js";
 
 export interface EBMLData {
   write(buf: Uint8Array, pos: number): number;

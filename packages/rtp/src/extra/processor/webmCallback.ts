@@ -1,6 +1,6 @@
 import { appendFile, open, stat } from "fs/promises";
 
-import { PromiseQueue } from "../..";
+import { PromiseQueue } from "../../index.js";
 import {
   DurationPosition,
   SegmentSizePosition,
@@ -10,7 +10,7 @@ import {
   type WebmOutput,
   type WebmTrack,
   replaceSegmentSize,
-} from "./webm";
+} from "./webm.js";
 
 export class WebmCallback extends WebmBase {
   private cb?: (input: WebmOutput) => Promise<void>;

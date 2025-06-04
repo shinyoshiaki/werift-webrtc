@@ -1,6 +1,6 @@
 import { jspack } from "@shinyoshiaki/jspack";
 
-import { RtpHeader, RtpPacket } from "./rtp";
+import { RtpHeader, RtpPacket } from "./rtp.js";
 
 export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
   const packet = new RtpPacket(

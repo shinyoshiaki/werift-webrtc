@@ -1,7 +1,7 @@
 import { createSocket } from "dgram";
 
-import { SCTP, WEBRTC_PPID } from "../src";
-import { createUdpTransport } from "../src/transport";
+import { SCTP, WEBRTC_PPID } from "../src/index.js";
+import { createUdpTransport } from "../src/transport.js";
 
 test("udp", async () =>
   new Promise<void>(async (done) => {

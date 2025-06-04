@@ -1,11 +1,11 @@
 import { setTimeout } from "timers/promises";
 
-import type { DtlsContext } from "../context/dtls";
-import type { TransportContext } from "../context/transport";
-import { debug } from "../imports/common";
-import { createFragments, createPlaintext } from "../record/builder";
-import { ContentType } from "../record/const";
-import type { Handshake } from "../typings/domain";
+import type { DtlsContext } from "../context/dtls.js";
+import type { TransportContext } from "../context/transport.js";
+import { debug } from "../imports/common.js";
+import { createFragments, createPlaintext } from "../record/builder.js";
+import { ContentType } from "../record/const.js";
+import type { Handshake } from "../typings/domain.js";
 
 const warn = debug("werift-dtls : packages/dtls/src/flight/flight.ts : warn");
 const err = debug("werift-dtls : packages/dtls/src/flight/flight.ts : err");

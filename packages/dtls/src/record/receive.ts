@@ -1,10 +1,10 @@
-import type { CipherContext } from "../context/cipher";
-import type { DtlsContext } from "../context/dtls";
-import { Alert } from "../handshake/message/alert";
-import { debug } from "../imports/common";
-import { AlertDesc, ContentType } from "./const";
-import { FragmentedHandshake } from "./message/fragment";
-import { DtlsPlaintext } from "./message/plaintext";
+import type { CipherContext } from "../context/cipher.js";
+import type { DtlsContext } from "../context/dtls.js";
+import { Alert } from "../handshake/message/alert.js";
+import { debug } from "../imports/common.js";
+import { AlertDesc, ContentType } from "./const.js";
+import { FragmentedHandshake } from "./message/fragment.js";
+import { DtlsPlaintext } from "./message/plaintext.js";
 
 const log = debug("werift-dtls : packages/dtls/record/receive.ts : log");
 const err = debug("werift-dtls : packages/dtls/record/receive.ts : err");

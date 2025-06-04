@@ -1,30 +1,23 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "commonjs",
-    "lib": [
-      "esnext"
-    ],
-    "declaration": true,
-    "outDir": "lib",
-    "strict": true,
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "pretty": true,
-    "sourceMap": true,
-    "inlineSources": true,
-    "noUnusedLocals": false,
-    "skipLibCheck": true,
-    "strictNullChecks": true,
-    "noImplicitAny": false,
-    "useDefineForClassFields": true,
-    "types": [
-      "vitest/globals"
-    ]
-  },
-  "include": [
-    "src",
-    "tests",
-    "examples"
-  ]
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "nodenext",
+		"lib": ["esnext"],
+		"declaration": true,
+		"outDir": "lib",
+		"strict": true,
+		"allowSyntheticDefaultImports": true,
+		"esModuleInterop": true,
+		"pretty": true,
+		"sourceMap": true,
+		"inlineSources": true,
+		"noUnusedLocals": false,
+		"skipLibCheck": true,
+		"strictNullChecks": true,
+		"noImplicitAny": false,
+		"useDefineForClassFields": true,
+		"types": ["vitest/globals"],
+		"moduleResolution": "nodenext"
+	},
+	"include": ["src", "tests", "examples"]
 }

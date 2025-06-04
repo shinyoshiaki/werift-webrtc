@@ -1,9 +1,9 @@
 import { jspack } from "@shinyoshiaki/jspack";
 
 import * as uuid from "uuid";
-import { Event, debug } from "../imports/common";
+import { Event, debug } from "../imports/common.js";
 
-import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
+import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src/index.js";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -13,13 +13,13 @@ import {
   WEBRTC_DCEP,
   WEBRTC_STRING,
   WEBRTC_STRING_EMPTY,
-} from "../const";
+} from "../const.js";
 import {
   type DCState,
   RTCDataChannel,
   RTCDataChannelParameters,
-} from "../dataChannel";
-import type { RTCDtlsTransport } from "./dtls";
+} from "../dataChannel.js";
+import type { RTCDtlsTransport } from "./dtls.js";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 

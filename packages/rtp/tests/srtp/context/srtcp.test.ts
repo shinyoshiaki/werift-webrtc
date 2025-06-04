@@ -1,5 +1,5 @@
-import { RtcpHeader } from "../../../src/rtcp/header";
-import { SrtcpContext } from "../../../src/srtp/context/srtcp";
+import { RtcpHeader } from "../../../src/rtcp/header.js";
+import { SrtcpContext } from "../../../src/srtp/context/srtcp.js";
 
 const rtcpTestMasterKey = Buffer.from([
   0xfd, 0xa6, 0x25, 0x95, 0xd7, 0xf6, 0x92, 0x6f, 0x7d, 0x9c, 0x02, 0x4c, 0xc9,

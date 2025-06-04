@@ -1,5 +1,5 @@
-import { SessionType } from "../../src/cipher/suites/abstract";
-import AEADCipher from "../../src/cipher/suites/aead";
+import { SessionType } from "../../src/cipher/suites/abstract.js";
+import AEADCipher from "../../src/cipher/suites/aead.js";
 
 describe("packages/dtls/tests/record/receive.test.ts", () => {
   test.skip("test", () => {

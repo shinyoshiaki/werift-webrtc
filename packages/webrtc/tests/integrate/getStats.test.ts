@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../src/index.js";
 import {
   type RTCPeerConnectionStats,
   RTCStatsReport,
-} from "../../src/media/stats";
-import { MediaStreamTrack } from "../../src/media/track";
+} from "../../src/media/stats.js";
+import { MediaStreamTrack } from "../../src/media/track.js";
 
 describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
   describe("Basic Functionality", () => {

@@ -1,15 +1,15 @@
 import cloneDeep from "lodash/cloneDeep.js";
 import * as uuid from "uuid";
 
-import type { RTCDataChannel } from "./dataChannel";
-import { EventTarget, enumerate } from "./helper";
+import type { RTCDataChannel } from "./dataChannel.js";
+import { EventTarget, enumerate } from "./helper.js";
 import {
   type Address,
   Event,
   type InterfaceAddresses,
   debug,
-} from "./imports/common";
-import type { CandidatePair, Message, Protocol } from "./imports/ice";
+} from "./imports/common.js";
+import type { CandidatePair, Message, Protocol } from "./imports/ice.js";
 import {
   type MediaStream,
   type MediaStreamTrack,
@@ -24,29 +24,29 @@ import {
   useOPUS,
   usePCMU,
   useVP8,
-} from "./media";
+} from "./media/index.js";
 import {
   type RTCPeerConnectionStats,
   type RTCStats,
   RTCStatsReport,
   generateStatsId,
   getStatsTimestamp,
-} from "./media/stats";
-import { SctpTransportManager } from "./sctpManager";
-import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
-import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
-import { SecureTransportManager } from "./secureTransportManager";
-import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls";
+} from "./media/stats.js";
+import { SctpTransportManager } from "./sctpManager.js";
+import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp.js";
+import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager.js";
+import { SecureTransportManager } from "./secureTransportManager.js";
+import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls.js";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
   RTCIceTransport,
-} from "./transport/ice";
-import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
-import type { Callback, CallbackWithValue } from "./types/util";
-import { andDirection, deepMerge } from "./utils";
+} from "./transport/ice.js";
+import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain.js";
+import type { Callback, CallbackWithValue } from "./types/util.js";
+import { andDirection, deepMerge } from "./utils.js";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 

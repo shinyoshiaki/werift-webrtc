@@ -3,7 +3,7 @@ import {
   LipsyncBase,
   type LipsyncInput,
   type LipsyncOutput,
-} from "./lipsync";
+} from "./lipsync.js";
 
 export class LipsyncCallback extends LipsyncBase {
   private audioCb?: (input: LipsyncOutput) => void;

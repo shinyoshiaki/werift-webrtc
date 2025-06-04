@@ -1,4 +1,4 @@
-import { Candidate } from "../src/candidate";
+import { Candidate } from "../src/candidate.js";
 
 describe("candidate", () => {
   test("test_can_pair_ipv4", () => {

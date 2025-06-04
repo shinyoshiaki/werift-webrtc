@@ -3,7 +3,7 @@ import {
   MediaDescription,
   SessionDescription,
   codecParametersFromString,
-} from "../src";
+} from "../src/index.js";
 
 describe("sdp", () => {
   test("rtx", () => {

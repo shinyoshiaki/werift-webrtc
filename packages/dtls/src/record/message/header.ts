@@ -1,5 +1,5 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
-import { ProtocolVersion } from "../../handshake/binary";
+import { ProtocolVersion } from "../../handshake/binary.js";
 
 export interface DtlsPlaintextHeader {
   contentType: number;

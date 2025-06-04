@@ -5,10 +5,10 @@ import {
   type InterfaceAddresses,
   debug,
   normalizeFamilyNodeV18,
-} from "./imports/common";
-import { classes, methods } from "./stun/const";
-import { Message } from "./stun/message";
-import { StunProtocol } from "./stun/protocol";
+} from "./imports/common.js";
+import { classes, methods } from "./stun/const.js";
+import { Message } from "./stun/message.js";
+import { StunProtocol } from "./stun/protocol.js";
 
 const logger = debug("werift-ice : packages/ice/src/utils.ts");
 

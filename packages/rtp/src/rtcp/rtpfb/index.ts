@@ -1,7 +1,7 @@
-import { debug } from "../../imports/common";
-import type { RtcpHeader } from "../header";
-import { GenericNack } from "./nack";
-import { TransportWideCC } from "./twcc";
+import { debug } from "../../imports/common.js";
+import type { RtcpHeader } from "../header.js";
+import { GenericNack } from "./nack.js";
+import { TransportWideCC } from "./twcc.js";
 
 const log = debug("werift-rtp:packages/rtp/rtcp/rtpfb/index");
 

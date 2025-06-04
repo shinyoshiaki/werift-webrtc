@@ -1,4 +1,4 @@
-import { UseSRTP } from "../../../src/handshake/extensions/useSrtp";
+import { UseSRTP } from "../../../src/handshake/extensions/useSrtp.js";
 
 describe("handshake_extensions_useSrtp", () => {
   const raw = Buffer.from([

@@ -1,4 +1,4 @@
-import { Int } from "../../imports/rtp";
+import { Int } from "../../imports/rtp.js";
 
 // refer by mediasoup
 export class CumulativeResult {

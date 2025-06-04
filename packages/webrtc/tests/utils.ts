@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 
-import { type RTCDataChannel, RTCPeerConnection } from "../src";
+import { type RTCDataChannel, RTCPeerConnection } from "../src/index.js";
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);

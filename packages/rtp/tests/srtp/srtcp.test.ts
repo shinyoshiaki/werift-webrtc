@@ -1,9 +1,9 @@
-import { RtcpReceiverInfo, RtcpRrPacket } from "../../src/rtcp/rr";
-import { RtcpPacketConverter } from "../../src/rtcp/rtcp";
-import type { Config } from "../../src/srtp/session";
-import { SrtcpSession } from "../../src/srtp/srtcp";
-import type { Transport } from "../../src/transport";
-import { createMockTransportPair } from "../utils";
+import { RtcpReceiverInfo, RtcpRrPacket } from "../../src/rtcp/rr.js";
+import { RtcpPacketConverter } from "../../src/rtcp/rtcp.js";
+import type { Config } from "../../src/srtp/session.js";
+import { SrtcpSession } from "../../src/srtp/srtcp.js";
+import type { Transport } from "../../src/transport.js";
+import { createMockTransportPair } from "../utils.js";
 
 function buildSessionSRTCPPair(): [
   { session: SrtcpSession; transport: Transport },

@@ -1,14 +1,14 @@
-import { Event, debug } from "./imports/common";
+import { Event, debug } from "./imports/common.js";
 
-import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel.js";
 import {
   type RTCDataChannelStats,
   type RTCStats,
   generateStatsId,
   getStatsTimestamp,
-} from "./media/stats";
-import type { MediaDescription } from "./sdp";
-import { RTCSctpTransport } from "./transport/sctp";
+} from "./media/stats.js";
+import type { MediaDescription } from "./sdp.js";
+import { RTCSctpTransport } from "./transport/sctp.js";
 
 const log = debug("werift:packages/webrtc/src/transport/sctpManager.ts");
 

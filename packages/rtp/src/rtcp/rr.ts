@@ -1,5 +1,5 @@
-import { bufferReader, bufferWriter } from "../../../common/src";
-import { RtcpPacketConverter } from "./rtcp";
+import { bufferReader, bufferWriter } from "../../../common/src/index.js";
+import { RtcpPacketConverter } from "./rtcp.js";
 
 export class RtcpRrPacket {
   ssrc = 0;

@@ -1,4 +1,4 @@
-import { MediaStreamTrack, RTCPeerConnection } from "../../src";
+import { MediaStreamTrack, RTCPeerConnection } from "../../src/index.js";
 
 const answer = `v=0
 o=- 0 2 IN IP4 127.0.0.1

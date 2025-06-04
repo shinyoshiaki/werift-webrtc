@@ -1,4 +1,4 @@
-import { DtlsPlaintext } from "../../../src/record/message/plaintext";
+import { DtlsPlaintext } from "../../../src/record/message/plaintext.js";
 describe("record_message_plaintext", () => {
   test("Change_Cipher_Spec_single_packet", () => {
     const raw = Buffer.from([

@@ -1,5 +1,5 @@
-import { RtpHeader, RtpPacket, int } from "../../src";
-import { Max32Uint, RtpTimeBase } from "../../src/extra/processor";
+import { RtpHeader, RtpPacket, int } from "../../src/index.js";
+import { Max32Uint, RtpTimeBase } from "../../src/extra/processor/index.js";
 
 describe("rtpTime", () => {
   it("rollover", () => {

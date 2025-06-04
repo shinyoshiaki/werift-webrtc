@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 
-import type { CodecFrame, DepacketizerOutput } from "./depacketizer";
-import type { Processor } from "./interface";
+import type { CodecFrame, DepacketizerOutput } from "./depacketizer.js";
+import type { Processor } from "./interface.js";
 
 export type DtxInput = DepacketizerOutput;
 

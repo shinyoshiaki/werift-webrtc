@@ -1,5 +1,5 @@
-import { MediaStreamTrack, RTCPeerConnection } from "../../src";
-import { generateAnswer } from "../fixture";
+import { MediaStreamTrack, RTCPeerConnection } from "../../src/index.js";
+import { generateAnswer } from "../fixture.js";
 
 // webrtc/RTCPeerConnection-removeTrack.https.html
 describe("peerConnection/removeTrack", () => {

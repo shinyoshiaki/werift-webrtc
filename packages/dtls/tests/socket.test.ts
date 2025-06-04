@@ -1,8 +1,8 @@
-import { UdpTransport } from "../../common/src";
-import { DtlsSocket } from "../src";
-import { SessionType } from "../src/cipher/suites/abstract";
-import { DtlsRandom } from "../src/handshake/random";
-import { certPem, keyPem } from "./fixture";
+import { UdpTransport } from "../../common/src/index.js";
+import { DtlsSocket } from "../src/index.js";
+import { SessionType } from "../src/cipher/suites/abstract.js";
+import { DtlsRandom } from "../src/handshake/random.js";
+import { certPem, keyPem } from "./fixture.js";
 
 describe("socket", () => {
   test("TestExportKeyingMaterial", async () => {

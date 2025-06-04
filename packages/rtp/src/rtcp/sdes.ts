@@ -1,6 +1,6 @@
-import { bufferWriter } from "../../../common/src";
-import type { RtcpHeader } from "./header";
-import { RtcpPacketConverter } from "./rtcp";
+import { bufferWriter } from "../../../common/src/index.js";
+import type { RtcpHeader } from "./header.js";
+import { RtcpPacketConverter } from "./rtcp.js";
 
 export class RtcpSourceDescriptionPacket {
   static readonly type = 202;

@@ -1,9 +1,9 @@
-import { debug } from "../../imports/common";
-import type { RtcpHeader } from "../header";
-import { RtcpPacketConverter } from "../rtcp";
-import { FullIntraRequest } from "./fullIntraRequest";
-import { PictureLossIndication } from "./pictureLossIndication";
-import { ReceiverEstimatedMaxBitrate } from "./remb";
+import { debug } from "../../imports/common.js";
+import type { RtcpHeader } from "../header.js";
+import { RtcpPacketConverter } from "../rtcp.js";
+import { FullIntraRequest } from "./fullIntraRequest.js";
+import { PictureLossIndication } from "./pictureLossIndication.js";
+import { ReceiverEstimatedMaxBitrate } from "./remb.js";
 
 const log = debug("werift-rtp: /rtcp/psfb/index");
 

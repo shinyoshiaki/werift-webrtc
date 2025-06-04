@@ -3,7 +3,7 @@ import {
   bufferReader,
   bufferWriter,
   getBit,
-} from "../../../../common/src";
+} from "../../../../common/src/index.js";
 
 export class ReceiverEstimatedMaxBitrate {
   static count = 15;

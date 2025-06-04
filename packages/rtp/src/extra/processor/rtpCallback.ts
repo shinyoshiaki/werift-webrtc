@@ -1,7 +1,7 @@
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 
-import { RtpPacket } from "../..";
-import type { SimpleProcessorCallback } from "./interface";
+import { RtpPacket } from "../../index.js";
+import type { SimpleProcessorCallback } from "./interface.js";
 
 export type RtpInput = Buffer | RtpPacket;
 

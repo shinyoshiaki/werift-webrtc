@@ -1,4 +1,4 @@
-import SPSParser from "./sps-parser";
+import SPSParser from "./sps-parser.js";
 
 export enum H264NaluType {
   kUnspecified = 0,

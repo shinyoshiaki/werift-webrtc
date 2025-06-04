@@ -1,6 +1,6 @@
-import { type RtpPacket, int } from "../..";
-import type { Processor } from "./interface";
-import { Max32Uint } from "./webm";
+import { type RtpPacket, int } from "../../index.js";
+import type { Processor } from "./interface.js";
+import { Max32Uint } from "./webm.js";
 
 export type RtpTimeInput = {
   rtp?: RtpPacket;

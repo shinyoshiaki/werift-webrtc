@@ -1,5 +1,5 @@
-import { dumpBuffer } from "../../helper";
-import { type DtlsPlaintextHeader, MACHeader } from "./header";
+import { dumpBuffer } from "../../helper.js";
+import { type DtlsPlaintextHeader, MACHeader } from "./header.js";
 
 export class DtlsPlaintext {
   constructor(

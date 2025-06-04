@@ -15,6 +15,7 @@
   "author": {
     "name": "shinyoshiaki"
   },
+  "type": "module",
   "exports": {
     ".": {
       "types": "./lib/webrtc/src/index.d.ts",

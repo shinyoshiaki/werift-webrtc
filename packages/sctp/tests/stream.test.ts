@@ -1,6 +1,6 @@
-import { DataChunk } from "../src/chunk";
-import { enumerate } from "../src/helper";
-import { InboundStream } from "../src/sctp";
+import { DataChunk } from "../src/chunk.js";
+import { enumerate } from "../src/helper.js";
+import { InboundStream } from "../src/sctp.js";
 
 describe("SctpStreamTest", () => {
   test("test_duplicate", (done) =>

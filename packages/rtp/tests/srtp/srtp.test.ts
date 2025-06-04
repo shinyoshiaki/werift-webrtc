@@ -1,8 +1,8 @@
-import { RtpHeader, RtpPacket } from "../../src/rtp/rtp";
-import type { Config } from "../../src/srtp/session";
-import { SrtpSession } from "../../src/srtp/srtp";
-import type { Transport } from "../../src/transport";
-import { createMockTransportPair } from "../utils";
+import { RtpHeader, RtpPacket } from "../../src/rtp/rtp.js";
+import type { Config } from "../../src/srtp/session.js";
+import { SrtpSession } from "../../src/srtp/srtp.js";
+import type { Transport } from "../../src/transport.js";
+import { createMockTransportPair } from "../utils.js";
 
 function buildSessionSRTPPair(): [
   { session: SrtpSession; transport: Transport },

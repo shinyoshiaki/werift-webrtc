@@ -1,11 +1,11 @@
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 import type {
   JitterBufferOptions,
   LipSyncOptions,
-} from "../../imports/rtpExtra";
-import type { MediaStreamTrack } from "../../media/track";
-import type { MediaWriter, StreamEvent } from "./writer";
-import { WebmFactory } from "./writer/webm";
+} from "../../imports/rtpExtra.js";
+import type { MediaStreamTrack } from "../../media/track.js";
+import type { MediaWriter, StreamEvent } from "./writer/index.js";
+import { WebmFactory } from "./writer/webm.js";
 
 export type { StreamEvent };
 

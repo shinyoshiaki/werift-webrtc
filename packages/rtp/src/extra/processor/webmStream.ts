@@ -4,13 +4,13 @@ import {
   WritableStream,
 } from "stream/web";
 
-import type { ContainerSupportedCodec } from "../container/webm/container";
+import type { ContainerSupportedCodec } from "../container/webm/container.js";
 import {
   WebmBase,
   type WebmInput,
   type WebmOption,
   type WebmOutput,
-} from "./webm";
+} from "./webm.js";
 
 export type WebmStreamOutput = WebmOutput;
 

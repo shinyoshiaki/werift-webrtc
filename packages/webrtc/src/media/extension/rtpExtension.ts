@@ -1,5 +1,5 @@
-import { RTP_EXTENSION_URI } from "../../imports/rtp";
-import { RTCRtpHeaderExtensionParameters } from "../parameters";
+import { RTP_EXTENSION_URI } from "../../imports/rtp.js";
+import { RTCRtpHeaderExtensionParameters } from "../parameters.js";
 
 export function useSdesMid() {
   return new RTCRtpHeaderExtensionParameters({

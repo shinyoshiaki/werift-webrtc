@@ -1,4 +1,4 @@
-import { ServerHelloVerifyRequest } from "../../../../src/handshake/message/server/helloVerifyRequest";
+import { ServerHelloVerifyRequest } from "../../../../src/handshake/message/server/helloVerifyRequest.js";
 test("handshake_message_server_helloVerifyRequest", () => {
   const raw = Buffer.from([
     0xfe, 0xff, 0x14, 0x25, 0xfb, 0xee, 0xb3, 0x7c, 0x95, 0xcf, 0x00, 0xeb,

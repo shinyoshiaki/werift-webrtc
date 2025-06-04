@@ -5,9 +5,9 @@ import {
   RtcpSrPacket,
   type RtpPacket,
   ntpTime2Sec,
-} from "../..";
-import type { Processor } from "./interface";
-import { Max32Uint } from "./webm";
+} from "../../index.js";
+import type { Processor } from "./interface.js";
+import { Max32Uint } from "./webm.js";
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;

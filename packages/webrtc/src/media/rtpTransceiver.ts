@@ -1,22 +1,22 @@
 import * as uuid from "uuid";
-import { Event } from "../imports/common";
+import { Event } from "../imports/common.js";
 
-import type { RTCDtlsTransport } from "..";
-import { SenderDirections } from "../const";
-import type { Kind } from "../types/domain";
+import type { RTCDtlsTransport } from "../index.js";
+import { SenderDirections } from "../const.js";
+import type { Kind } from "../types/domain.js";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
-} from "./parameters";
-import type { RTCRtpReceiver } from "./rtpReceiver";
-import type { RTCRtpSender } from "./rtpSender";
+} from "./parameters.js";
+import type { RTCRtpReceiver } from "./rtpReceiver.js";
+import type { RTCRtpSender } from "./rtpSender.js";
 import {
   type RTCCodecStats,
   type RTCStats,
   generateStatsId,
   getStatsTimestamp,
-} from "./stats";
-import type { MediaStream, MediaStreamTrack } from "./track";
+} from "./stats.js";
+import type { MediaStream, MediaStreamTrack } from "./track.js";
 
 export class RTCRtpTransceiver {
   readonly id = uuid.v4();

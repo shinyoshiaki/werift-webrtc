@@ -2,8 +2,8 @@
 
 import { LEB128 } from "@minhducsun2002/leb128";
 
-import type { RtpHeader } from "..";
-import { BitWriter2, debug, getBit } from "../imports/common";
+import type { RtpHeader } from "../index.js";
+import { BitWriter2, debug, getBit } from "../imports/common.js";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
 

@@ -1,4 +1,4 @@
-import { Vp9RtpPayload } from "../../src";
+import { Vp9RtpPayload } from "../../src/index.js";
 
 const kMaxOneBytePictureId = 0x7f; // 7 bits
 const kMaxTwoBytePictureId = 0x7fff; // 15 bits

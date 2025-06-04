@@ -5,12 +5,12 @@ import * as Int64 from "int64-buffer";
 
 import isEqual from "lodash/isEqual.js";
 import timers from "timers/promises";
-import { type Address, Event, debug } from "./imports/common";
+import { type Address, Event, debug } from "./imports/common.js";
 
-import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
-import { MdnsLookup } from "./dns/lookup";
-import type { TransactionError } from "./exceptions";
-import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
+import { Candidate, candidateFoundation, candidatePriority } from "./candidate.js";
+import { MdnsLookup } from "./dns/lookup.js";
+import type { TransactionError } from "./exceptions.js";
+import { type Cancelable, PQueue, cancelable, randomString } from "./helper.js";
 import {
   CONSENT_FAILURES,
   CONSENT_INTERVAL,
@@ -26,13 +26,13 @@ import {
   sortCandidatePairs,
   validateAddress,
   validateRemoteCandidate,
-} from "./iceBase";
-import { classes, methods } from "./stun/const";
-import { Message } from "./stun/message";
-import { StunProtocol } from "./stun/protocol";
-import { createStunOverTurnClient } from "./turn/protocol";
-import type { Protocol } from "./types/model";
-import { getHostAddresses } from "./utils";
+} from "./iceBase.js";
+import { classes, methods } from "./stun/const.js";
+import { Message } from "./stun/message.js";
+import { StunProtocol } from "./stun/protocol.js";
+import { createStunOverTurnClient } from "./turn/protocol.js";
+import type { Protocol } from "./types/model.js";
+import { getHostAddresses } from "./utils.js";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 

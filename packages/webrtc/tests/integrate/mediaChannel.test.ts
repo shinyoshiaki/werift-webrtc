@@ -7,7 +7,7 @@ import {
   isMedia,
   serializeAudioLevelIndication,
   useSdesMid,
-} from "../../src";
+} from "../../src/index.js";
 
 describe("media", () => {
   test("test_sendonly_recvonly", async () =>

@@ -1,6 +1,6 @@
 import { setTimeout } from "timers/promises";
 
-import { dtlsTransportPair } from "../fixture";
+import { dtlsTransportPair } from "../fixture.js";
 
 describe("RTCDtlsTransportTest", () => {
   test("dtls_test_data", async () => {

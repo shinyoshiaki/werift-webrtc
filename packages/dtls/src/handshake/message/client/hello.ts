@@ -1,10 +1,10 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import type { Extension } from "../../../typings/domain";
-import { ExtensionList } from "../../binary";
-import { HandshakeType } from "../../const";
-import { DtlsRandom } from "../../random";
+import { FragmentedHandshake } from "../../../record/message/fragment.js";
+import type { Extension } from "../../../typings/domain.js";
+import { ExtensionList } from "../../binary.js";
+import { HandshakeType } from "../../const.js";
+import { DtlsRandom } from "../../random.js";
 
 // 7.4.1.2.  Client Hello
 

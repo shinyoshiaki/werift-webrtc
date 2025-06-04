@@ -1,7 +1,7 @@
-import { RtpPacket } from "../../../src";
-import { ProtectionProfileAeadAes128Gcm } from "../../../src/srtp/const";
-import { SrtcpContext } from "../../../src/srtp/context/srtcp";
-import { SrtpContext } from "../../../src/srtp/context/srtp";
+import { RtpPacket } from "../../../src/index.js";
+import { ProtectionProfileAeadAes128Gcm } from "../../../src/srtp/const.js";
+import { SrtcpContext } from "../../../src/srtp/context/srtcp.js";
+import { SrtpContext } from "../../../src/srtp/context/srtp.js";
 
 describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
   const masterKey = Buffer.from([

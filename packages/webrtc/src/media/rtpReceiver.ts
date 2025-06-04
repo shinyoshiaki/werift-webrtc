@@ -1,6 +1,6 @@
 import { setTimeout } from "timers/promises";
 import { v4 as uuid } from "uuid";
-import { Event, int } from "../imports/common";
+import { Event, int } from "../imports/common.js";
 
 import {
   type Extensions,
@@ -17,29 +17,29 @@ import {
   type TransportWideCCPayload,
   debug,
   unwrapRtx,
-} from "../imports/rtp";
-import type { PeerConfig } from "../peerConnection";
-import type { RTCDtlsTransport } from "../transport/dtls";
-import type { Kind } from "../types/domain";
-import { compactNtp, timestampSeconds } from "../utils";
+} from "../imports/rtp.js";
+import type { PeerConfig } from "../peerConnection.js";
+import type { RTCDtlsTransport } from "../transport/dtls.js";
+import type { Kind } from "../types/domain.js";
+import { compactNtp, timestampSeconds } from "../utils.js";
 import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
-} from "./parameters";
-import { NackHandler } from "./receiver/nack";
-import { ReceiverTWCC } from "./receiver/receiverTwcc";
-import { StreamStatistics } from "./receiver/statistics";
+} from "./parameters.js";
+import { NackHandler } from "./receiver/nack.js";
+import { ReceiverTWCC } from "./receiver/receiverTwcc.js";
+import { StreamStatistics } from "./receiver/statistics.js";
 
-import { codecParametersFromString } from "../sdp";
-import { usePLI, useTWCC } from "./extension/rtcpFeedback";
+import { codecParametersFromString } from "../sdp.js";
+import { usePLI, useTWCC } from "./extension/rtcpFeedback.js";
 import {
   type RTCInboundRtpStreamStats,
   type RTCRemoteOutboundRtpStreamStats,
   type RTCStats,
   generateStatsId,
   getStatsTimestamp,
-} from "./stats";
-import { MediaStreamTrack } from "./track";
+} from "./stats.js";
+import { MediaStreamTrack } from "./track.js";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 

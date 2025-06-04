@@ -1,5 +1,5 @@
-import { DtxBase, type DtxInput, type DtxOutput } from "./dtx";
-import { SimpleProcessorCallbackBase } from "./interface";
+import { DtxBase, type DtxInput, type DtxOutput } from "./dtx.js";
+import { SimpleProcessorCallbackBase } from "./interface.js";
 
 export class DtxCallback extends SimpleProcessorCallbackBase<
   DtxInput,

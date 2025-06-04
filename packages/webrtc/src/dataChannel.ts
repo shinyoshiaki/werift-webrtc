@@ -1,8 +1,8 @@
-import { Event, debug } from "./imports/common";
+import { Event, debug } from "./imports/common.js";
 
-import { EventTarget } from "./helper";
-import type { RTCSctpTransport } from "./transport/sctp";
-import type { Callback, CallbackWithValue } from "./types/util";
+import { EventTarget } from "./helper.js";
+import type { RTCSctpTransport } from "./transport/sctp.js";
+import type { Callback, CallbackWithValue } from "./types/util.js";
 
 const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 

@@ -3,7 +3,7 @@ import {
   packXorAddress,
   unpackErrorCode,
   unpackXorAddress,
-} from "../../src/stun/attributes";
+} from "../../src/stun/attributes.js";
 
 describe("stun", () => {
   test("test_unpack_error_code", () => {

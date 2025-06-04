@@ -1,5 +1,5 @@
-import type { RtcpHeader } from "../../rtcp/header";
-import type { RtpHeader } from "../../rtp/rtp";
+import type { RtcpHeader } from "../../rtcp/header.js";
+import type { RtpHeader } from "../../rtp/rtp.js";
 
 export abstract class CipherAesBase {
   constructor(

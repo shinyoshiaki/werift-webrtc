@@ -1,5 +1,5 @@
-import { int, uint16Gt } from "../../imports/common";
-import type { RtpPacket } from "../../imports/rtp";
+import { int, uint16Gt } from "../../imports/common.js";
+import type { RtpPacket } from "../../imports/rtp.js";
 
 // from aiortc
 

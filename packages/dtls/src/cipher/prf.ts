@@ -2,8 +2,8 @@ import { createHash, createHmac } from "crypto";
 import { createDecode } from "@shinyoshiaki/binary-data";
 import nacl from "tweetnacl";
 
-import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
-import { p256PreMasterSecret } from "./ec";
+import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const.js";
+import { p256PreMasterSecret } from "./ec.js";
 
 export function prfPreMasterSecret(
   publicKey: Buffer,

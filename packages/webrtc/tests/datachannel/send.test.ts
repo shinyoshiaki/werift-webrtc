@@ -1,4 +1,4 @@
-import { awaitMessage, createDataChannelPair } from "../utils";
+import { awaitMessage, createDataChannelPair } from "../utils.js";
 
 const helloString = "hello";
 const unicodeString = "世界你好";

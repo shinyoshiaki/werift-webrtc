@@ -1,7 +1,7 @@
-import { DISCARD_HOST, DISCARD_PORT } from "./const";
-import type { RTCRtpTransceiver } from "./media";
-import { RTCRtpSimulcastParameters } from "./media/parameters";
-import type { MediaDirection } from "./media/rtpTransceiver";
+import { DISCARD_HOST, DISCARD_PORT } from "./const.js";
+import type { RTCRtpTransceiver } from "./media/index.js";
+import { RTCRtpSimulcastParameters } from "./media/parameters.js";
+import type { MediaDirection } from "./media/rtpTransceiver.js";
 import {
   type BundlePolicy,
   GroupDescription,
@@ -9,10 +9,10 @@ import {
   SessionDescription,
   SsrcDescription,
   addSDPHeader,
-} from "./sdp";
-import type { RTCDtlsTransport } from "./transport/dtls";
-import { RTCSctpTransport } from "./transport/sctp";
-import { andDirection } from "./utils";
+} from "./sdp.js";
+import type { RTCDtlsTransport } from "./transport/dtls.js";
+import { RTCSctpTransport } from "./transport/sctp.js";
+import { andDirection } from "./utils.js";
 
 export class SDPManager {
   currentLocalDescription?: SessionDescription;

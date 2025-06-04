@@ -1,8 +1,8 @@
 // RTP Payload Format for VP9 Video draft-ietf-payload-vp9-16 https://datatracker.ietf.org/doc/html/draft-ietf-payload-vp9
 
-import { getBit, paddingByte } from "../../../common/src";
-import type { RtpHeader } from "../rtp/rtp";
-import type { DePacketizerBase } from "./base";
+import { getBit, paddingByte } from "../../../common/src/index.js";
+import type { RtpHeader } from "../rtp/rtp.js";
+import type { DePacketizerBase } from "./base.js";
 
 //          0 1 2 3 4 5 6 7
 //         +-+-+-+-+-+-+-+-+

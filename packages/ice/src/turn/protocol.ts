@@ -3,9 +3,9 @@ import { jspack } from "@shinyoshiaki/jspack";
 
 import { setTimeout } from "timers/promises";
 
-import type { Candidate } from "../candidate";
-import { TransactionFailed } from "../exceptions";
-import { type Cancelable, cancelable, randomTransactionId } from "../helper";
+import type { Candidate } from "../candidate.js";
+import { TransactionFailed } from "../exceptions.js";
+import { type Cancelable, cancelable, randomTransactionId } from "../helper.js";
 import {
   type Address,
   Event,
@@ -17,12 +17,12 @@ import {
   bufferReader,
   debug,
   int,
-} from "../imports/common";
-import { classes, methods } from "../stun/const";
-import { Message, paddingLength, parseMessage } from "../stun/message";
-import { Transaction } from "../stun/transaction";
+} from "../imports/common.js";
+import { classes, methods } from "../stun/const.js";
+import { Message, paddingLength, parseMessage } from "../stun/message.js";
+import { Transaction } from "../stun/transaction.js";
 
-import type { Protocol } from "../types/model";
+import type { Protocol } from "../types/model.js";
 
 const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 

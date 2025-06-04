@@ -1,9 +1,9 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { FragmentedHandshake } from "../../record/message/fragment";
-import type { Handshake } from "../../typings/domain";
-import { ASN11Cert } from "../binary";
-import { HandshakeType } from "../const";
+import { FragmentedHandshake } from "../../record/message/fragment.js";
+import type { Handshake } from "../../typings/domain.js";
+import { ASN11Cert } from "../binary.js";
+import { HandshakeType } from "../const.js";
 
 // 7.4.2.  Server Certificate
 // 7.4.6.  Client Certificate

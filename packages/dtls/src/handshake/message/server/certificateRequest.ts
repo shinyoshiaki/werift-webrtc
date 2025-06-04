@@ -3,15 +3,15 @@ import { decode, encode, types } from "@shinyoshiaki/binary-data";
 import type {
   HashAlgorithms,
   SignatureAlgorithms,
-} from "../../../cipher/const";
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import type { Handshake } from "../../../typings/domain";
+} from "../../../cipher/const.js";
+import { FragmentedHandshake } from "../../../record/message/fragment.js";
+import type { Handshake } from "../../../typings/domain.js";
 import {
   ClientCertificateType,
   DistinguishedName,
   SignatureHashAlgorithm,
-} from "../../binary";
-import { HandshakeType } from "../../const";
+} from "../../binary.js";
+import { HandshakeType } from "../../const.js";
 
 // 7.4.4.  Certificate Request
 

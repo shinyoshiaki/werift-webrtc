@@ -1,4 +1,4 @@
-import type { RtpHeader } from "../rtp/rtp";
+import type { RtpHeader } from "../rtp/rtp.js";
 
 export abstract class DePacketizerBase {
   payload!: Buffer;

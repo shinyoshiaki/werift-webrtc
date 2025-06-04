@@ -1,6 +1,6 @@
-import { RtcpPacketConverter } from "../../../src";
-import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
-import { PictureLossIndication } from "../../../src/rtcp/psfb/pictureLossIndication";
+import { RtcpPacketConverter } from "../../../src/index.js";
+import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb/index.js";
+import { PictureLossIndication } from "../../../src/rtcp/psfb/pictureLossIndication.js";
 
 describe("fullIntraRequest", () => {
   test("valid", () => {

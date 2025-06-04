@@ -23,9 +23,9 @@ import {
   ShutdownCompleteChunk,
   parsePacket,
   serializePacket,
-} from "./chunk";
-import { SCTP_STATE } from "./const";
-import { type Unpacked, createEventsFromList, enumerate } from "./helper";
+} from "./chunk.js";
+import { SCTP_STATE } from "./const.js";
+import { type Unpacked, createEventsFromList, enumerate } from "./helper.js";
 import {
   Event,
   debug,
@@ -34,7 +34,7 @@ import {
   uint16Gt,
   uint32Gt,
   uint32Gte,
-} from "./imports/common";
+} from "./imports/common.js";
 import {
   OutgoingSSNResetRequestParam,
   RECONFIG_PARAM_BY_TYPES,
@@ -42,8 +42,8 @@ import {
   StreamAddOutgoingParam,
   type StreamParam,
   reconfigResult,
-} from "./param";
-import type { Transport } from "./transport";
+} from "./param.js";
+import type { Transport } from "./transport.js";
 
 const log = debug("werift/sctp/sctp");
 

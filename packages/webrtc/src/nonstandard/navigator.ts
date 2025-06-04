@@ -1,8 +1,8 @@
 import { randomBytes } from "crypto";
 import { createSocket } from "dgram";
 import { jspack } from "@shinyoshiaki/jspack";
-import { RTCRtpCodecParameters } from "..";
-import { MediaStream, MediaStreamTrack } from "../media/track";
+import { RTCRtpCodecParameters } from "../index.js";
+import { MediaStream, MediaStreamTrack } from "../media/track.js";
 
 export class Navigator {
   mediaDevices: MediaDevices;

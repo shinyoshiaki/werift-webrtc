@@ -2,7 +2,7 @@ import { Certificate, PrivateKey } from "@fidm/x509";
 
 import { setTimeout } from "timers/promises";
 import { v4 } from "uuid";
-import { Event, type Transport } from "../imports/common";
+import { Event, type Transport } from "../imports/common.js";
 
 import type { AddressInfo } from "net";
 import {
@@ -14,8 +14,8 @@ import {
   NamedCurveAlgorithm,
   SignatureAlgorithm,
   type SignatureHash,
-} from "../imports/dtls";
-import type { IceConnection } from "../imports/ice";
+} from "../imports/dtls.js";
+import type { IceConnection } from "../imports/ice.js";
 import {
   type RtcpPacket,
   RtcpPacketConverter,
@@ -29,7 +29,7 @@ import {
   isRtcp,
   keyLength,
   saltLength,
-} from "../imports/rtp";
+} from "../imports/rtp.js";
 import {
   type RTCCertificateStats,
   type RTCIceCandidatePairStats,
@@ -38,10 +38,10 @@ import {
   type RTCTransportStats,
   generateStatsId,
   getStatsTimestamp,
-} from "../media/stats";
-import type { PeerConfig } from "../peerConnection";
-import { fingerprint, isDtls } from "../utils";
-import type { RTCIceTransport } from "./ice";
+} from "../media/stats.js";
+import type { PeerConfig } from "../peerConnection.js";
+import { fingerprint, isDtls } from "../utils.js";
+import type { RTCIceTransport } from "./ice.js";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 

@@ -1,7 +1,7 @@
 import { setTimeout } from "timers/promises";
 
-import { Connection } from "../../src";
-import { assertCandidateTypes } from "../utils";
+import { Connection } from "../../src/index.js";
+import { assertCandidateTypes } from "../utils.js";
 
 describe("IceTrickleTest", () => {
   test("test_trickle_connect", async () => {

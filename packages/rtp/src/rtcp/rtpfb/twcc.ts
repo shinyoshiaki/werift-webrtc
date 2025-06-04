@@ -4,8 +4,8 @@ import {
   bufferWriter,
   debug,
   getBit,
-} from "../../imports/common";
-import { RtcpHeader } from "../header";
+} from "../../imports/common.js";
+import { RtcpHeader } from "../header.js";
 
 const log = debug("werift/rtp/rtcp/rtpfb/twcc");
 

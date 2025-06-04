@@ -1,5 +1,5 @@
-import { ExtensionProfiles, RtpHeader, RtpPacket } from "../../src/rtp/rtp";
-import { load } from "../utils";
+import { ExtensionProfiles, RtpHeader, RtpPacket } from "../../src/rtp/rtp.js";
+import { load } from "../utils.js";
 
 describe("packet", () => {
   test("basic", () => {

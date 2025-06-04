@@ -5,7 +5,7 @@ import {
   type JitterBufferInput,
   type JitterBufferOptions,
   type JitterBufferOutput,
-} from "./jitterBuffer";
+} from "./jitterBuffer.js";
 
 export const jitterBufferTransformer = (
   ...args: ConstructorParameters<typeof JitterBufferTransformer>

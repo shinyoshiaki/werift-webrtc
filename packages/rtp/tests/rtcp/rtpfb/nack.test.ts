@@ -2,10 +2,10 @@ import {
   RTCP_HEADER_SIZE,
   RtcpHeader,
   RtcpPacketConverter,
-} from "../../../src";
-import type { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb";
-import { GenericNack } from "../../../src/rtcp/rtpfb/nack";
-import { load } from "../../utils";
+} from "../../../src/index.js";
+import type { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb/index.js";
+import { GenericNack } from "../../../src/rtcp/rtpfb/nack.js";
+import { load } from "../../utils.js";
 
 describe("rtcp/rtpfb/nack", () => {
   test("test", () => {

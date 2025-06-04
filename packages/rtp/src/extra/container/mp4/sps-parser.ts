@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-import ExpGolomb from "./exp-golomb";
+import ExpGolomb from "./exp-golomb.js";
 
 class SPSParser {
   static _ebsp2rbsp(uint8array) {

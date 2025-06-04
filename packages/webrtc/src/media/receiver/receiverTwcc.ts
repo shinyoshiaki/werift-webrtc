@@ -1,6 +1,6 @@
 import { setTimeout } from "timers/promises";
 
-import { uint8Add, uint16Add, uint24 } from "../../imports/common";
+import { uint8Add, uint16Add, uint24 } from "../../imports/common.js";
 import {
   type PacketStatus,
   RecvDelta,
@@ -9,9 +9,9 @@ import {
   type StatusVectorChunk,
   TransportWideCC,
   debug,
-} from "../../imports/rtp";
-import type { RTCDtlsTransport } from "../../transport/dtls";
-import { microTime } from "../../utils";
+} from "../../imports/rtp.js";
+import type { RTCDtlsTransport } from "../../transport/dtls.js";
+import { microTime } from "../../utils.js";
 
 const log = debug("werift:packages/webrtc/media/receiver/receiverTwcc");
 

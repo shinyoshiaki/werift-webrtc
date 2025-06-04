@@ -1,6 +1,6 @@
 import { AddressInfo } from "net";
-import { Address, Transport } from "../../../common/src";
-import { Connection } from "../../../ice/src";
+import { Address, Transport } from "../../../common/src/index.js";
+import { Connection } from "../../../ice/src/index.js";
 
 export class IceTransport implements Transport {
   constructor(private ice: Connection) {

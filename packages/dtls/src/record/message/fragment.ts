@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import type { HandshakeType } from "../../handshake/const";
-import { getObjectSummary } from "../../helper";
+import type { HandshakeType } from "../../handshake/const.js";
+import { getObjectSummary } from "../../helper.js";
 
 export class FragmentedHandshake {
   static readonly spec = {

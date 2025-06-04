@@ -1,14 +1,14 @@
 import range from "lodash/range.js";
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 
-import { uint16Add } from "../../imports/common";
+import { uint16Add } from "../../imports/common.js";
 import {
   GenericNack,
   RtcpTransportLayerFeedback,
   type RtpPacket,
   debug,
-} from "../../imports/rtp";
-import type { RTCRtpReceiver } from "../rtpReceiver";
+} from "../../imports/rtp.js";
+import type { RTCRtpReceiver } from "../rtpReceiver.js";
 
 const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
 

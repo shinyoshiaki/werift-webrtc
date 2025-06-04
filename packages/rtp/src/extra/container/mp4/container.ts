@@ -1,6 +1,6 @@
-import { Event } from "../../../imports/common";
+import { Event } from "../../../imports/common.js";
 
-import * as MP4 from "./mp4box";
+import * as MP4 from "./mp4box.js";
 
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
 type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;

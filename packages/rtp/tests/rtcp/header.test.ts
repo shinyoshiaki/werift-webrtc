@@ -1,4 +1,4 @@
-import { RtcpHeader } from "../../src/rtcp/header";
+import { RtcpHeader } from "../../src/rtcp/header.js";
 
 describe("rtcp/header", () => {
   test("valid", () => {

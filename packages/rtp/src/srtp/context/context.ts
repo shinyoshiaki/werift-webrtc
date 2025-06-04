@@ -1,14 +1,14 @@
 import { type Hmac, createHmac } from "crypto";
 import AES from "aes-js";
 
-import type { CipherAesBase } from "../cipher";
-import { CipherAesCtr } from "../cipher/ctr";
-import { CipherAesGcm } from "../cipher/gcm";
+import type { CipherAesBase } from "../cipher/index.js";
+import { CipherAesCtr } from "../cipher/ctr.js";
+import { CipherAesGcm } from "../cipher/gcm.js";
 import {
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
   type SrtpProfile,
-} from "../const";
+} from "../const.js";
 
 export class Context {
   srtpSSRCStates: { [ssrc: number]: SrtpSsrcState } = {};

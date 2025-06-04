@@ -1,5 +1,5 @@
-import type { SimpleProcessorCallback } from "./interface";
-import { MuteHandlerBase, type MuteInput, type MuteOutput } from "./mute";
+import type { SimpleProcessorCallback } from "./interface.js";
+import { MuteHandlerBase, type MuteInput, type MuteOutput } from "./mute.js";
 
 export class MuteCallback
   extends MuteHandlerBase

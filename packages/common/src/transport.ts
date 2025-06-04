@@ -8,14 +8,14 @@ import {
 import net from "net";
 
 import { type AddressInfo, type Socket as TcpSocket, connect } from "net";
-import { debug } from "./log";
+import { debug } from "./log.js";
 import {
   type Address,
   type InterfaceAddresses,
   findPort,
   interfaceAddress,
   normalizeFamilyNodeV18,
-} from "./network";
+} from "./network.js";
 
 const log = debug("werift-ice:packages/ice/src/transport.ts");
 

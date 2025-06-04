@@ -11,13 +11,13 @@ import {
   bufferWriter,
   debug,
   randomPort,
-} from "./imports/common";
-import { CipherContext } from "./imports/dtls";
+} from "./imports/common.js";
+import { CipherContext } from "./imports/dtls.js";
 
 import now from "nano-time";
-import { Directions, type MediaDirection } from "./media/rtpTransceiver";
-import { MediaStreamTrack } from "./media/track";
-import type { RTCIceServer } from "./peerConnection";
+import { Directions, type MediaDirection } from "./media/rtpTransceiver.js";
+import { MediaStreamTrack } from "./media/track.js";
+import type { RTCIceServer } from "./peerConnection.js";
 
 const log = debug("werift:packages/webrtc/src/utils.ts");
 

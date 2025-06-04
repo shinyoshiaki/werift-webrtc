@@ -1,6 +1,6 @@
-import type { RtcpHeader } from "../../rtcp/header";
-import type { SrtpProfile } from "../const";
-import { Context } from "./context";
+import type { RtcpHeader } from "../../rtcp/header.js";
+import type { SrtpProfile } from "../const.js";
+import { Context } from "./context.js";
 
 export class SrtcpContext extends Context {
   constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {

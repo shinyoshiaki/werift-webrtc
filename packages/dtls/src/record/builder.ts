@@ -1,6 +1,6 @@
-import type { DtlsContext } from "../context/dtls";
-import type { Handshake } from "../typings/domain";
-import { DtlsPlaintext } from "./message/plaintext";
+import type { DtlsContext } from "../context/dtls.js";
+import type { Handshake } from "../typings/domain.js";
+import { DtlsPlaintext } from "./message/plaintext.js";
 
 export type Message = { type: number; fragment: Buffer };
 

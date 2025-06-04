@@ -12,14 +12,14 @@ import {
   type NamedCurveAlgorithms,
   SignatureAlgorithm,
   type SignatureHash,
-} from "../cipher/const";
-import type { NamedCurveKeyPair } from "../cipher/namedCurve";
-import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
-import { SessionType, type SessionTypes } from "../cipher/suites/abstract";
-import type AEADCipher from "../cipher/suites/aead";
-import { ProtocolVersion } from "../handshake/binary";
-import type { DtlsRandom } from "../handshake/random";
-import type { DtlsPlaintext } from "../record/message/plaintext";
+} from "../cipher/const.js";
+import type { NamedCurveKeyPair } from "../cipher/namedCurve.js";
+import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf.js";
+import { SessionType, type SessionTypes } from "../cipher/suites/abstract.js";
+import type AEADCipher from "../cipher/suites/aead.js";
+import { ProtocolVersion } from "../handshake/binary.js";
+import type { DtlsRandom } from "../handshake/random.js";
+import type { DtlsPlaintext } from "../record/message/plaintext.js";
 
 const crypto = nodeCrypto.webcrypto;
 x509.cryptoProvider.set(crypto as any);

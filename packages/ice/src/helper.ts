@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 
-import { Event } from "./imports/common";
+import { Event } from "./imports/common.js";
 
 export function randomString(length: number) {
   return randomBytes(length).toString("hex").substring(0, length);

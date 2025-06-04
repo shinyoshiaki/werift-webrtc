@@ -1,30 +1,30 @@
 import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { setTimeout } from "timers/promises";
-import { Event, type Transport, debug } from "./imports/common";
+import { Event, type Transport, debug } from "./imports/common.js";
 
 import {
   NamedCurveAlgorithmList,
   type SignatureHash,
   signatures,
-} from "./cipher/const";
-import { exportKeyingMaterial } from "./cipher/prf";
-import { SessionType, type SessionTypes } from "./cipher/suites/abstract";
-import { CipherContext } from "./context/cipher";
-import { DtlsContext } from "./context/dtls";
-import { SrtpContext } from "./context/srtp";
-import { TransportContext } from "./context/transport";
-import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
-import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
-import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
-import { Signature } from "./handshake/extensions/signature";
-import { UseSRTP } from "./handshake/extensions/useSrtp";
-import type { SrtpProfile } from "./imports/rtp";
-import { createPlaintext } from "./record/builder";
-import { ContentType } from "./record/const";
-import { FragmentedHandshake } from "./record/message/fragment";
-import { parsePacket, parsePlainText } from "./record/receive";
-import type { Extension } from "./typings/domain";
+} from "./cipher/const.js";
+import { exportKeyingMaterial } from "./cipher/prf.js";
+import { SessionType, type SessionTypes } from "./cipher/suites/abstract.js";
+import { CipherContext } from "./context/cipher.js";
+import { DtlsContext } from "./context/dtls.js";
+import { SrtpContext } from "./context/srtp.js";
+import { TransportContext } from "./context/transport.js";
+import { EllipticCurves } from "./handshake/extensions/ellipticCurves.js";
+import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret.js";
+import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication.js";
+import { Signature } from "./handshake/extensions/signature.js";
+import { UseSRTP } from "./handshake/extensions/useSrtp.js";
+import type { SrtpProfile } from "./imports/rtp.js";
+import { createPlaintext } from "./record/builder.js";
+import { ContentType } from "./record/const.js";
+import { FragmentedHandshake } from "./record/message/fragment.js";
+import { parsePacket, parsePlainText } from "./record/receive.js";
+import type { Extension } from "./typings/domain.js";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");

@@ -1,9 +1,9 @@
-import { RtcpPacketConverter } from "../../src";
+import { RtcpPacketConverter } from "../../src/index.js";
 import {
   RtcpSourceDescriptionPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
-} from "../../src/rtcp/sdes";
+} from "../../src/rtcp/sdes.js";
 
 describe("rtcp/sdes", () => {
   test("two items", () => {

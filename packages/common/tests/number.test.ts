@@ -1,4 +1,4 @@
-import { uint32Add } from "../src";
+import { uint32Add } from "../src/index.js";
 
 describe("uint32Add", () => {
   it("rollover", () => {

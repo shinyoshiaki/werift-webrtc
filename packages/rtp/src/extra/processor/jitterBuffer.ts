@@ -5,9 +5,9 @@ import {
   uint16Gte,
   uint32Add,
   uint32Gt,
-} from "../..";
-import type { Processor } from "./interface";
-import type { RtpOutput } from "./rtpCallback";
+} from "../../index.js";
+import type { Processor } from "./interface.js";
+import type { RtpOutput } from "./rtpCallback.js";
 
 export type JitterBufferInput = RtpOutput;
 

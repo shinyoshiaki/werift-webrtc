@@ -1,8 +1,8 @@
 // webrtc/RTCPeerConnection-onnegotiationneeded.html
 
-import { RTCPeerConnection } from "../../src";
-import { generateAnswer, generateOffer } from "../fixture";
-import { generateAudioReceiveOnlyOffer } from "../utils";
+import { RTCPeerConnection } from "../../src/index.js";
+import { generateAnswer, generateOffer } from "../fixture.js";
+import { generateAudioReceiveOnlyOffer } from "../utils.js";
 
 describe("onnegotiationneeded", () => {
   test("Creating first data channel should fire negotiationneeded event", async () => {

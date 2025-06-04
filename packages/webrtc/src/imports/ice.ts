@@ -1,1 +1,1 @@
-export * from "../../../ice/src";
+export * from "../../../ice/src/index.js";

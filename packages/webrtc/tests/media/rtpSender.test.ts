@@ -1,9 +1,9 @@
 import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
-import { MediaStreamTrack } from "../../src";
-import { RTCRtpSender } from "../../src/media/rtpSender";
-import { createDtlsTransport, createRtpPacket } from "../fixture";
+import { MediaStreamTrack } from "../../src/index.js";
+import { RTCRtpSender } from "../../src/media/rtpSender.js";
+import { createDtlsTransport, createRtpPacket } from "../fixture.js";
 
 describe("media/rtpSender", () => {
   test("stop track", () => {
