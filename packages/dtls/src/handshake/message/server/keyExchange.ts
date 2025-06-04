@@ -1,6 +1,9 @@
 import { decode, types } from "@shinyoshiaki/binary-data";
 
-import type { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const.js";
+import type {
+  CurveTypes,
+  NamedCurveAlgorithms,
+} from "../../../cipher/const.js";
 import { FragmentedHandshake } from "../../../record/message/fragment.js";
 import type { Handshake } from "../../../typings/domain.js";
 import { encodeBuffer } from "../../../util/binary.js";

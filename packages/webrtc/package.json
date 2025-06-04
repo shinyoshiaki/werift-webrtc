@@ -19,23 +19,24 @@
   "exports": {
     ".": {
       "types": "./lib/webrtc/src/index.d.ts",
-      "require": "./lib/webrtc/src/index.js",
+      "require": "./lib/index.cjs",
       "import": "./lib/index.mjs"
     },
     "./nonstandard": {
       "types": "./lib/webrtc/src/nonstandard/index.d.ts",
-      "require": "./lib/webrtc/src/nonstandard/index.js",
+      "require": "./lib/nonstandard/index.cjs",
       "import": "./lib/nonstandard/index.mjs"
     }
   },
-  "main": "lib/webrtc/src/index.js",
-  "types": "lib/webrtc/src/index.d.ts",
+  "main": "./lib/index.cjs",
+  "types": "./lib/webrtc/src/index.d.ts",
   "files": [
     "lib"
   ],
   "scripts": {
     "build": "npm i && rm -rf lib && run-s format compile:*",
-    "compile:cjs": "tsc -p ./tsconfig.production.json",
+    "compile:type": "tsc -p ./tsconfig.production.json",
+    "compile:cjs": "esbuild src/index.ts src/nonstandard/index.ts --bundle --packages=external --platform=node --format=cjs --target=es2022 --outdir=lib --out-extension:.js=.cjs && node lib/index.cjs",
     "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
     "deploy": "npm run build && npm publish",

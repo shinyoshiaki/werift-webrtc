@@ -1,4 +1,9 @@
-import { RedEncoder, RedHandler, RtpHeader, RtpPacket } from "../../../src/index.js";
+import {
+  RedEncoder,
+  RedHandler,
+  RtpHeader,
+  RtpPacket,
+} from "../../../src/index.js";
 
 describe("rtp/red/handler", () => {
   test("handle red packet", () => {

@@ -1,6 +1,6 @@
 import { RtcpPacketConverter } from "../../../src/index.js";
-import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb/index.js";
 import type { FullIntraRequest } from "../../../src/rtcp/psfb/fullIntraRequest.js";
+import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb/index.js";
 
 describe("fullIntraRequest", () => {
   test("valid", () => {

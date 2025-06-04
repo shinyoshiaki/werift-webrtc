@@ -1,7 +1,7 @@
-import type { MediaRecorderOptions } from "../index.js";
-import type { MediaStreamTrack } from "../../../index.js";
 import type { Event } from "../../../imports/common.js";
 import type { WebmOutput } from "../../../imports/rtpExtra.js";
+import type { MediaStreamTrack } from "../../../index.js";
+import type { MediaRecorderOptions } from "../index.js";
 
 export abstract class MediaWriter {
   constructor(

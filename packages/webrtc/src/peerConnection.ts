@@ -33,7 +33,11 @@ import {
   getStatsTimestamp,
 } from "./media/stats.js";
 import { SctpTransportManager } from "./sctpManager.js";
-import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp.js";
+import type {
+  BundlePolicy,
+  MediaDescription,
+  SessionDescription,
+} from "./sdp.js";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager.js";
 import { SecureTransportManager } from "./secureTransportManager.js";
 import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls.js";
@@ -44,7 +48,11 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice.js";
-import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain.js";
+import type {
+  ConnectionState,
+  Kind,
+  RTCSignalingState,
+} from "./types/domain.js";
 import type { Callback, CallbackWithValue } from "./types/util.js";
 import { andDirection, deepMerge } from "./utils.js";
 

@@ -8,7 +8,11 @@ import {
 } from "../../src/index.js";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver.js";
 import { MediaStream } from "../../src/media/track.js";
-import { addEventListenerPromise, assert_equals, assert_true } from "../utils.js";
+import {
+  addEventListenerPromise,
+  assert_equals,
+  assert_true,
+} from "../utils.js";
 
 describe("wpt/ontrack", () => {
   it("setRemoteDescription should trigger ontrack event when the MSID of the stream is parsed.", async () => {

@@ -27,7 +27,6 @@ import { setTimeout } from "timers/promises";
 import * as uuid from "uuid";
 import { Event, random16, uint16Add, uint32Add } from "../imports/common.js";
 
-import { codecParametersFromString } from "../index.js";
 import {
   type Extension,
   GenericNack,
@@ -55,6 +54,7 @@ import {
   serializeTransportWideCC,
   wrapRtx,
 } from "../imports/rtp.js";
+import { codecParametersFromString } from "../index.js";
 import type { RTCDtlsTransport } from "../transport/dtls.js";
 import type { Kind } from "../types/domain.js";
 import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils.js";

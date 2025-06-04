@@ -1,8 +1,8 @@
 import { UdpTransport } from "../../common/src/index.js";
-import { DtlsServer } from "../src/index.js";
 import { CipherSuite } from "../src/cipher/const.js";
 import { ClientHello } from "../src/handshake/message/client/hello.js";
 import { DtlsRandom } from "../src/handshake/random.js";
+import { DtlsServer } from "../src/index.js";
 
 describe("server", () => {
   test("handleFragmentHandshake", async () => {

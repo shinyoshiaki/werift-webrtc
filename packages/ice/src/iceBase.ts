@@ -1,5 +1,9 @@
 import { randomUUID } from "crypto";
-import { Candidate, candidateFoundation, candidatePriority } from "./candidate.js";
+import {
+  Candidate,
+  candidateFoundation,
+  candidatePriority,
+} from "./candidate.js";
 import type { MdnsLookup } from "./dns/lookup.js";
 import type { Cancelable } from "./helper.js";
 import {

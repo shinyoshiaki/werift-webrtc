@@ -1,8 +1,8 @@
 import * as uuid from "uuid";
 import { Event } from "../imports/common.js";
 
-import type { RTCDtlsTransport } from "../index.js";
 import { SenderDirections } from "../const.js";
+import type { RTCDtlsTransport } from "../index.js";
 import type { Kind } from "../types/domain.js";
 import type {
   RTCRtpCodecParameters,

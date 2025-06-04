@@ -4,13 +4,21 @@ import type { RTCRtpTransceiver, TransceiverManager } from "./media/index.js";
 import type { RTCStats } from "./media/stats.js";
 import type { PeerConfig } from "./peerConnection.js";
 import type { SctpTransportManager } from "./sctpManager.js";
-import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp.js";
+import type {
+  BundlePolicy,
+  MediaDescription,
+  SessionDescription,
+} from "./sdp.js";
 import {
   type DtlsKeys,
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls.js";
-import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice.js";
+import {
+  IceCandidate,
+  RTCIceGatherer,
+  RTCIceTransport,
+} from "./transport/ice.js";
 import type {
   IceGathererState,
   RTCIceCandidate,

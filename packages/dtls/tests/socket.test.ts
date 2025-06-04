@@ -1,7 +1,7 @@
 import { UdpTransport } from "../../common/src/index.js";
-import { DtlsSocket } from "../src/index.js";
 import { SessionType } from "../src/cipher/suites/abstract.js";
 import { DtlsRandom } from "../src/handshake/random.js";
+import { DtlsSocket } from "../src/index.js";
 import { certPem, keyPem } from "./fixture.js";
 
 describe("socket", () => {

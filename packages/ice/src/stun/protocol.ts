@@ -1,6 +1,9 @@
 import { Event, UdpTransport, debug } from "../imports/common.js";
 
-import type { Address, InterfaceAddresses } from "../../../common/src/network.js";
+import type {
+  Address,
+  InterfaceAddresses,
+} from "../../../common/src/network.js";
 import type { Candidate } from "../candidate.js";
 
 import type { Protocol } from "../types/model.js";

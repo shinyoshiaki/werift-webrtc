@@ -1,13 +1,13 @@
 import { setTimeout } from "timers/promises";
 
 import { type Address, Event } from "../../../common/src/index.js";
+import { Candidate, candidatePriority } from "../../src/candidate.js";
+import { Connection } from "../../src/ice.js";
 import {
   CandidatePair,
   CandidatePairState,
   sortCandidatePairs,
 } from "../../src/index.js";
-import { Candidate, candidatePriority } from "../../src/candidate.js";
-import { Connection } from "../../src/ice.js";
 import { classes, methods } from "../../src/stun/const.js";
 import { Message } from "../../src/stun/message.js";
 import type { Protocol } from "../../src/types/model.js";

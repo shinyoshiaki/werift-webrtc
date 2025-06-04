@@ -1,7 +1,7 @@
 import { Candidate, Connection } from "../../../ice/src/index.js";
 import { createIceTransport } from "../../examples/transport/ice.js";
-import { DtlsClient, DtlsServer } from "../../src/index.js";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const.js";
+import { DtlsClient, DtlsServer } from "../../src/index.js";
 import { certPem, keyPem } from "../fixture.js";
 
 test(

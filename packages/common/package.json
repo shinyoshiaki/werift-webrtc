@@ -16,13 +16,23 @@
 		"name": "shinyoshiaki"
 	},
 	"type": "module",
-	"main": "lib/index.js",
-	"types": "lib/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./lib/index.d.ts",
+			"require": "./lib/index.cjs",
+			"import": "./lib/index.mjs"
+		}
+	},
+	"main": "./lib/index.cjs",
+	"types": "./lib/index.d.ts",
 	"files": [
 		"lib"
 	],
 	"scripts": {
-		"build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+		"build": "rm -rf lib && run-s format compile:*",
+		"compile:type": "tsc -p ./tsconfig.production.json",
+		"compile:cjs": "esbuild src/index.ts --bundle --packages=external --platform=node --format=cjs --target=es2022 --outdir=lib --out-extension:.js=.cjs && node lib/index.cjs",
+		"compile:esm": "esbuild src/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
 		"deploy": "npm run build && npm publish",
 		"format": "biome check --write src",
 		"type": "tsc --noEmit --project ./tsconfig.json",

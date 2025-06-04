@@ -7,7 +7,11 @@ import isEqual from "lodash/isEqual.js";
 import timers from "timers/promises";
 import { type Address, Event, debug } from "./imports/common.js";
 
-import { Candidate, candidateFoundation, candidatePriority } from "./candidate.js";
+import {
+  Candidate,
+  candidateFoundation,
+  candidatePriority,
+} from "./candidate.js";
 import { MdnsLookup } from "./dns/lookup.js";
 import type { TransactionError } from "./exceptions.js";
 import { type Cancelable, PQueue, cancelable, randomString } from "./helper.js";

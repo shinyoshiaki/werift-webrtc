@@ -1,5 +1,5 @@
-import { RTCDataChannel, RTCSctpTransport } from "../../src/index.js";
 import { RTCDataChannelParameters } from "../../src/dataChannel.js";
+import { RTCDataChannel, RTCSctpTransport } from "../../src/index.js";
 import { dtlsTransportPair } from "../fixture.js";
 
 describe("RTCSctpTransportTest", () => {

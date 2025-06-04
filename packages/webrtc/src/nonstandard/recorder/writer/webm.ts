@@ -1,8 +1,6 @@
 import { unlink } from "fs/promises";
 import { Event, EventDisposer } from "../../../imports/common.js";
 
-import { MediaWriter } from "./index.js";
-import { type MediaStreamTrack, WeriftError } from "../../../index.js";
 import {
   type ContainerSupportedCodec,
   DepacketizeCallback,
@@ -16,6 +14,8 @@ import {
   type WebmTrack,
   saveToFileSystem,
 } from "../../../imports/rtpExtra.js";
+import { type MediaStreamTrack, WeriftError } from "../../../index.js";
+import { MediaWriter } from "./index.js";
 
 const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
 

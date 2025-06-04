@@ -1,4 +1,8 @@
-import { BitStream, bufferReader, bufferWriter } from "../../../common/src/index.js";
+import {
+  BitStream,
+  bufferReader,
+  bufferWriter,
+} from "../../../common/src/index.js";
 import type { Extension } from "./rtp.js";
 
 export const RTP_EXTENSION_URI = {
