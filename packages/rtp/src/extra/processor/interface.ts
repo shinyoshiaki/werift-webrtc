@@ -27,7 +27,7 @@ export const SimpleProcessorCallbackBase = <
   ) => Processor<Input, Output>,
 >(
   Base: TBase,
-) => {
+): new (...args: any[]) => Processor<Input, Output> & SimpleProcessorCallback<Input, Output> => {
   return class extends Base implements SimpleProcessorCallback<Input, Output> {
     cb?: (o: Output) => void;
     destructor?: () => void;
