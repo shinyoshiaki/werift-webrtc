@@ -1,6 +1,6 @@
 import type { AcceptFn, Peer } from "protoo-server";
-import { RTCPeerConnection } from "../..";
-import { peerConfig } from "../../fixture";
+import { RTCPeerConnection } from "../../index.js";
+import { peerConfig } from "../../fixture.js";
 
 export class bundle_max_bundle_answer {
   pc!: RTCPeerConnection;

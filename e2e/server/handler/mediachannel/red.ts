@@ -6,8 +6,8 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   randomPort,
-} from "../../";
-import { DtlsKeysContext } from "../../fixture";
+} from "../../index.js";
+import { DtlsKeysContext } from "../../fixture.js";
 
 export class mediachannel_red_client_answer {
   pc!: RTCPeerConnection;

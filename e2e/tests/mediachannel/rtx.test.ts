@@ -1,4 +1,4 @@
-import { peer, sleep, waitVideoPlay } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture.js";
 
 describe("mediachannel_rtx", () => {
   it("mediachannel_rtx_client_answer", async () =>

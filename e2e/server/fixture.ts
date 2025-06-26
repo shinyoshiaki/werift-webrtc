@@ -4,11 +4,11 @@ import {
   type PeerConfig,
   SignatureAlgorithm,
   createSelfSignedCertificate,
-} from ".";
+} from "./index.js";
 import {
   type BundlePolicy,
   NamedCurveAlgorithm,
-} from "../../packages/webrtc/src";
+} from "../../packages/webrtc/src/index.js";
 
 export class DtlsKeysContext {
   private static rsa: DtlsKeys;

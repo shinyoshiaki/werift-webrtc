@@ -1,4 +1,4 @@
-import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
+import { Counter, peer, sleep, waitVideoPlay } from "../fixture.js";
 
 describe("bundle_max_compat", () => {
   it(

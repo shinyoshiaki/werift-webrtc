@@ -1,4 +1,4 @@
-import { peer, sleep, waitVideoPlay } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture.js";
 
 describe("ice/trickle", () => {
   it("answer", async () =>

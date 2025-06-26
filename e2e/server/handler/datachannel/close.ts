@@ -1,6 +1,6 @@
 import type { AcceptFn } from "protoo-server";
-import { type RTCDataChannel, RTCPeerConnection } from "../../";
-import { peerConfig } from "../../fixture";
+import { type RTCDataChannel, RTCPeerConnection } from "../../index.js";
+import { peerConfig } from "../../fixture.js";
 
 export class datachannel_close_server_create_close {
   pc!: RTCPeerConnection;

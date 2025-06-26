@@ -1,5 +1,6 @@
 import { createHmac } from "crypto";
-import {} from "buffer-crc32";
+//@ts-ignore
+import crc32 from "buffer-crc32";
 
 import { bufferXor, randomTransactionId } from "../helper.js";
 import {
@@ -20,7 +21,6 @@ import {
   classes,
   methods,
 } from "./const.js";
-import { crc32 } from "./crc32.js";
 
 export function parseMessage(
   data: Buffer,

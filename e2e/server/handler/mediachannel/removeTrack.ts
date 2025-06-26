@@ -6,8 +6,8 @@ import {
   RTCPeerConnection,
   RtpPacket,
   randomPort,
-} from "../../";
-import { peerConfig } from "../../fixture";
+} from "../../index.js";
+import { peerConfig } from "../../fixture.js";
 
 export class mediachannel_removetrack_answer_base {
   pc!: RTCPeerConnection;

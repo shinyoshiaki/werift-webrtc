@@ -1,4 +1,4 @@
-import { browserName, peer, sleep, waitVideoPlay } from "../fixture";
+import { browserName, peer, sleep, waitVideoPlay } from "../fixture.js";
 
 const mediachannel_removetrack_addtrack = "mediachannel_removetrack_addtrack";
 const mediachannel_addtrack_removefirst_addtrack =

@@ -7,8 +7,8 @@ import {
   RTCRtpCodecParameters,
   RtpPacket,
   randomPort,
-} from "../../";
-import { DtlsKeysContext } from "../../fixture";
+} from "../../index.js";
+import { DtlsKeysContext } from "../../fixture.js";
 
 export class mediachannel_rtx_client_answer {
   pc!: RTCPeerConnection;
