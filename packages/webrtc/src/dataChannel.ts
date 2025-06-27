@@ -17,6 +17,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
   readonly onOpen = new Event();
+  readonly onClose = new Event();
   readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
   readonly error = new Event<[Error]>();
@@ -120,6 +121,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
         case "closed":
           if (this.onclose) this.onclose();
           this.emit("close");
+          this.onClose.execute();
           break;
         case "closing":
           if (this.onclosing) this.onclosing();
