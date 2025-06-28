@@ -18,6 +18,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly stateChanged = new Event<[DCState]>();
   readonly onOpen = new Event();
   readonly onClose = new Event();
+  readonly onError = new Event<[Error]>();
   readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
   readonly error = new Event<[Error]>();
