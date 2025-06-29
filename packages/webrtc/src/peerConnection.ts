@@ -33,7 +33,11 @@ import {
   getStatsTimestamp,
 } from "./media/stats";
 import { SctpTransportManager } from "./sctpManager";
-import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
+import {
+  type BundlePolicy,
+  type MediaDescription,
+  SessionDescription,
+} from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsKeys, RTCDtlsTransport } from "./transport/dtls";
@@ -568,6 +572,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
+    if (sessionDescription instanceof SessionDescription) {
+      sessionDescription = sessionDescription.toSdp();
+    }
+
     // # parse and validate description
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
