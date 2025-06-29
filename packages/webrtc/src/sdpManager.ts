@@ -244,9 +244,7 @@ export class SDPManager {
     addSDPHeader("offer", description);
 
     // # handle existing transceivers / sctp
-    const currentMedia = this.currentLocalDescription
-      ? this.currentLocalDescription.media
-      : [];
+    const currentMedia = this.currentLocalDescription?.media ?? [];
 
     currentMedia.forEach((m, i) => {
       const mid = m.rtp.muxId;
@@ -416,8 +414,8 @@ export class SDPManager {
   }
 
   setLocalDescription(description: SessionDescription) {
+    this.currentLocalDescription = description;
     if (description.type === "answer") {
-      this.currentLocalDescription = description;
       this.pendingLocalDescription = undefined;
     } else {
       this.pendingLocalDescription = description;
