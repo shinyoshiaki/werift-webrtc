@@ -1,6 +1,6 @@
 import type { AcceptFn } from "protoo-server";
-import { RTCPeerConnection, useSdesRTPStreamId } from "../../index.js";
 import { DtlsKeysContext } from "../../fixture.js";
+import { RTCPeerConnection, useSdesRTPStreamId } from "../../index.js";
 
 export class mediachannel_simulcast_answer {
   pc!: RTCPeerConnection;

@@ -1,6 +1,6 @@
 import type { AcceptFn, Peer } from "protoo-server";
-import { RTCPeerConnection } from "../../index.js";
 import { peerConfig } from "../../fixture.js";
+import { RTCPeerConnection } from "../../index.js";
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 export class ice_restart_web_trigger {

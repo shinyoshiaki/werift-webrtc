@@ -33,9 +33,9 @@ import {
   getStatsTimestamp,
 } from "./media/stats.js";
 import { SctpTransportManager } from "./sctpManager.js";
-import type {
-  BundlePolicy,
-  MediaDescription,
+import {
+  type BundlePolicy,
+  type MediaDescription,
   SessionDescription,
 } from "./sdp.js";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager.js";
@@ -576,6 +576,10 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async setRemoteDescription(sessionDescription: RTCSessionDescriptionInit) {
+    if (sessionDescription instanceof SessionDescription) {
+      sessionDescription = sessionDescription.toSdp();
+    }
+
     // # parse and validate description
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,

@@ -31,7 +31,10 @@ import {
   ice_restart_node_trigger,
   ice_restart_web_trigger,
 } from "./handler/ice/restart.js";
-import { ice_trickle_answer, ice_trickle_offer } from "./handler/ice/trickle.js";
+import {
+  ice_trickle_answer,
+  ice_trickle_offer,
+} from "./handler/ice/trickle.js";
 import {
   mediachannel_addTrack_answer,
   mediachannel_addTrack_offer,

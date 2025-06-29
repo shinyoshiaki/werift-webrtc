@@ -1,6 +1,6 @@
 import type { AcceptFn, Peer } from "protoo-server";
-import { RTCPeerConnection } from "../../index.js";
 import { peerConfig } from "../../fixture.js";
+import { RTCPeerConnection } from "../../index.js";
 
 export class ice_trickle_answer {
   pc!: RTCPeerConnection;

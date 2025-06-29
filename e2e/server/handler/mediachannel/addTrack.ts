@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "child_process";
 import { createSocket } from "dgram";
 import type { AcceptFn } from "protoo-server";
+import { peerConfig } from "../../fixture.js";
 import {
   MediaStreamTrack,
   MediaStreamTrackFactory,
@@ -8,7 +9,6 @@ import {
   RtpPacket,
   randomPort,
 } from "../../index.js";
-import { peerConfig } from "../../fixture.js";
 
 export class mediachannel_addTrack_answer {
   pc!: RTCPeerConnection;
