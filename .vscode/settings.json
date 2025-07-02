@@ -41,12 +41,14 @@
     "pranswer",
     "prflx",
     "protoo",
+    "PRSCTP",
     "psfb",
     "raddr",
     "reconfig",
     "recvonly",
     "remb",
     "reset",
+    "RETRANS",
     "rport",
     "rtc",
     "rtpfb",
@@ -81,5 +83,5 @@
   ],
   "typescript.tsdk": "node_modules/typescript/lib",
   "biome.lsp.bin": "node_modules/@biomejs/biome/bin/biome",
-  "prettier.enable": false
+  "prettier.enable": false,
 }

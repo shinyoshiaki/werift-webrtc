@@ -1,7 +1,7 @@
 import { jspack } from "@shinyoshiaki/jspack";
 
 import * as uuid from "uuid";
-import { Event, debug } from "../imports/common";
+import { Event, EventDisposer, debug } from "../imports/common";
 
 import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
 import {
@@ -24,16 +24,14 @@ import type { RTCDtlsTransport } from "./dtls";
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 
 export class RTCSctpTransport {
+  readonly id = uuid.v4();
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
-
-  readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly id = uuid.v4();
-
   mid?: string;
   mLineIndex?: number;
-  bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
+
+  readonly onDataChannel = new Event<[RTCDataChannel]>();
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
@@ -46,7 +44,9 @@ export class RTCSctpTransport {
       return;
     }
 
-    this.eventDisposer.forEach((dispose) => dispose());
+    for (const dispose of this.eventDisposer) {
+      dispose();
+    }
 
     this.dtlsTransport = dtlsTransport;
     this.sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
@@ -55,27 +55,27 @@ export class RTCSctpTransport {
       ...[
         this.sctp.onReceive.subscribe(this.datachannelReceive),
         this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
-          ids.forEach((id) => {
+          for (const id of ids) {
             const dc = this.dataChannels[id];
-            if (!dc) return;
+            if (!dc) continue;
             // todo fix
             dc.setReadyState("closing");
             dc.setReadyState("closed");
             delete this.dataChannels[id];
-          });
+          }
         }),
         this.sctp.stateChanged.connected.subscribe(() => {
-          Object.values(this.dataChannels).forEach((channel) => {
+          for (const channel of Object.values(this.dataChannels)) {
             if (channel.negotiated && channel.readyState !== "open") {
               channel.setReadyState("open");
             }
-          });
+          }
           this.dataChannelFlush();
         }),
         this.sctp.stateChanged.closed.subscribe(() => {
-          Object.values(this.dataChannels).forEach((dc) => {
+          for (const dc of Object.values(this.dataChannels)) {
             dc.setReadyState("closed");
-          });
+          }
           this.dataChannels = {};
         }),
         this.dtlsTransport.onStateChange.subscribe((state) => {
@@ -126,10 +126,12 @@ export class RTCSctpTransport {
               ] = jspack.Unpack("!BBHLHH", data);
 
               let pos = 12;
-              const label = data.slice(pos, pos + labelLength).toString("utf8");
+              const label = data
+                .subarray(pos, pos + labelLength)
+                .toString("utf8");
               pos += labelLength;
               const protocol = data
-                .slice(pos, pos + protocolLength)
+                .subarray(pos, pos + protocolLength)
                 .toString("utf8");
 
               log("DATA_CHANNEL_OPEN", {
@@ -217,10 +219,10 @@ export class RTCSctpTransport {
 
   dataChannelAddNegotiated(channel: RTCDataChannel) {
     if (channel.id == undefined) {
-      throw new Error();
+      throw new Error("Channel ID is undefined");
     }
     if (this.dataChannels[channel.id]) {
-      throw new Error();
+      throw new Error("Channel already exists");
     }
 
     this.dataChannels[channel.id] = channel;
@@ -282,7 +284,7 @@ export class RTCSctpTransport {
     // """
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
-    if (this.sctp.outboundQueue.length > 0) return;
+    if (!this.sctp.isOutboundQueueEmpty) return;
 
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
@@ -354,7 +356,6 @@ export class RTCSctpTransport {
   }
 
   async stop() {
-    this.dtlsTransport.dataReceiver = () => {};
     await this.sctp.stop();
   }
 
@@ -363,10 +364,7 @@ export class RTCSctpTransport {
       channel.setReadyState("closing");
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
-        this.sctp.reconfigQueue.push(channel.id);
-        if (this.sctp.reconfigQueue.length === 1) {
-          this.sctp.transmitReconfigRequest();
-        }
+        this.sctp.dataChannelClose(channel.id!);
       } else {
         this.dataChannelQueue = this.dataChannelQueue.filter(
           (queueItem) => queueItem[0].id !== channel.id,
@@ -385,12 +383,21 @@ export class RTCSctpCapabilities {
 }
 
 class BridgeDtls implements Transport {
+  disposer = new EventDisposer();
   constructor(private dtls: RTCDtlsTransport) {}
   set onData(onData: (buf: Buffer) => void) {
-    this.dtls.dataReceiver = onData;
+    this.dtls.onData
+      .subscribe((buf) => {
+        onData(buf);
+      })
+      .disposer(this.disposer);
   }
+
   readonly send = (data: Buffer) => {
     return this.dtls.sendData(data);
   };
-  close() {}
+
+  close() {
+    this.disposer.dispose();
+  }
 }

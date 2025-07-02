@@ -53,7 +53,10 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
-  id = v4();
+  static localCertificate?: RTCCertificate;
+  static localCertificatePromise?: Promise<RTCCertificate>;
+
+  readonly id = v4();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
   srtpStarted = false;
@@ -73,9 +76,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onRtp = new Event<[RtpPacket]>();
+  readonly onData = new Event<[Buffer]>();
 
-  static localCertificate?: RTCCertificate;
-  static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
@@ -173,7 +175,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         ) {
           return;
         }
-        this.dataReceiver(buf);
+        this.onData.execute(buf);
       });
       this.dtls.onClose.subscribe(() => {
         this.setState("closed");

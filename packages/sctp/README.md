@@ -39,6 +39,89 @@ await Promise.all([
 client.send(0, WEBRTC_PPID.STRING, Buffer.from("ping"));
 ```
 
+## Session Migration
+
+werift-sctp supports session state serialization and restoration, allowing you to migrate SCTP sessions between different processes or network endpoints while preserving connection state.
+
+### Usage
+
+```typescript
+import { SCTP } from "werift-sctp";
+
+// Export session state
+const stateBuffer = sctpSession.exportState();
+
+// Restore session with new transport
+const newSession = SCTP.restoreState(stateBuffer, newTransport);
+```
+
+### Example
+
+```typescript
+import { createSocket } from "dgram";
+import { SCTP, WEBRTC_PPID, createUdpTransport } from "werift-sctp";
+import { randomPort } from "werift-common";
+
+async function sessionMigrationExample() {
+  const clientPort = await randomPort();
+  const serverPort = await randomPort();
+  
+  // Create initial session
+  const sctpA = SCTP.client(
+    createUdpTransport(createSocket("udp4").bind(clientPort), {
+      port: serverPort,
+      address: "127.0.0.1",
+    }),
+  );
+  
+  const sctpB = SCTP.server(
+    createUdpTransport(createSocket("udp4").bind(serverPort), {
+      port: clientPort,
+      address: "127.0.0.1",
+    }),
+  );
+  
+  // Establish connection
+  await Promise.all([sctpA.start(), sctpB.start()]);
+  
+  // Send data
+  await sctpA.send(0, WEBRTC_PPID.STRING, Buffer.from("Hello"));
+  
+  // Export session state
+  const stateBuffer = sctpA.exportState();
+  
+  // Create new transport for migration
+  const newClientPort = await randomPort();
+  const newTransport = createUdpTransport(createSocket("udp4").bind(newClientPort), {
+    port: serverPort,
+    address: "127.0.0.1",
+  });
+  
+  // Restore session
+  const sctpA2 = SCTP.restoreState(stateBuffer, newTransport);
+  
+  // Update server's remote port
+  sctpB.setRemotePort(newClientPort);
+  
+  // Stop old session
+  await sctpA.stop();
+  
+  // Continue communication with migrated session
+  await sctpA2.send(0, WEBRTC_PPID.STRING, Buffer.from("Migrated Hello"));
+  
+  // Cleanup
+  await sctpA2.stop();
+  await sctpB.stop();
+}
+```
+
+### Features
+
+- **Complete state preservation**: All session state including streams, sequence numbers, and connection parameters are preserved
+- **MessagePack serialization**: Efficient binary serialization using MessagePack
+- **Multiple stream support**: Stream state is maintained across migration
+- **Transport flexibility**: Works with any transport implementation
+
 # reference
 
 -
