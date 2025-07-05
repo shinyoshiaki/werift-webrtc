@@ -157,12 +157,14 @@ export class Event<T extends any[]> {
     );
   };
 
-  watch = (cb: (...args: T) => boolean, timeLimit?: number) =>
+  watch = (cb: (...args: T) => boolean, timeLimit?: number, reason?: string) =>
     new Promise<T>((resolve, reject) => {
       const timeout =
         timeLimit &&
         setTimeout(() => {
-          reject("Event watch timeout");
+          reject(
+            reason ? `Event watch timeout: ${reason}` : "Event watch timeout",
+          );
         }, timeLimit);
 
       const { unSubscribe } = this.subscribe((...args) => {
@@ -175,12 +177,16 @@ export class Event<T extends any[]> {
       });
     });
 
-  asPromise = (timeLimit?: number) =>
+  asPromise = (timeLimit?: number, reason?: string) =>
     new Promise<T>((resolve, reject) => {
       const timeout =
         timeLimit &&
         setTimeout(() => {
-          reject("Event asPromise timeout");
+          reject(
+            reason
+              ? `Event asPromise timeout: ${reason}`
+              : "Event asPromise timeout",
+          );
         }, timeLimit);
 
       this.once(
