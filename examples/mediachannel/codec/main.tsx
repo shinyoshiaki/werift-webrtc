@@ -1,6 +1,6 @@
 import React, { type FC, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { createTestTrack } from "./util";
+import { createTestTrack } from "./util.js";
 
 const App: FC = () => {
   const localVideoRef = useRef<HTMLVideoElement>(null);

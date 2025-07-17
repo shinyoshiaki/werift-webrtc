@@ -1,6 +1,6 @@
 import React, { type FC, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { getVideoStreamFromFile } from "../../util";
+import { getVideoStreamFromFile } from "../../util.js";
 
 const peer = new RTCPeerConnection({
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],

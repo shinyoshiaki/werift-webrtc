@@ -4,8 +4,8 @@ import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../packages/webrtc/src";
-import { CustomPeerConnection } from "./peer";
+} from "../../packages/webrtc/src/index.js";
+import { CustomPeerConnection } from "./peer.js";
 
 const example = async () => {
   const ringApi = new RingApi({

@@ -6,8 +6,8 @@ import {
   Red,
   RedEncoder,
   buffer2ArrayBuffer,
-} from "../../../../packages/rtp/src";
-import { getAudioStream } from "./util";
+} from "../../../../packages/rtp/src/index.js";
+import { getAudioStream } from "./util.js";
 
 const peer = new RTCPeerConnection({
   //@ts-ignore

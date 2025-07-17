@@ -1,6 +1,6 @@
 import { Server } from "ws";
-import { RTCPeerConnection } from "../../packages/webrtc/src";
-import { MediaRecorder } from "../../packages/webrtc/src/nonstandard";
+import { RTCPeerConnection } from "../../packages/webrtc/src/index.js";
+import { MediaRecorder } from "../../packages/webrtc/src/nonstandard/index.js";
 
 // open ./answer.html
 

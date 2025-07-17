@@ -1,6 +1,6 @@
 import { writeFileSync } from "fs";
 import { Server } from "ws";
-import { RTCPeerConnection, Vp8RtpPayload } from "../../../packages/webrtc/src";
+import { RTCPeerConnection, Vp8RtpPayload } from "../../../packages/webrtc/src/index.js";
 
 const server = new Server({ port: 8888 });
 console.log("start");

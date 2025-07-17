@@ -8,7 +8,7 @@ import {
   RTCPeerConnection,
   RtpPacket,
   randomPort,
-} from "../../packages/webrtc/src";
+} from "../../packages/webrtc/src/index.js";
 
 const TestType = { PeerConnection: 0, DataChannelEcho: 1 };
 

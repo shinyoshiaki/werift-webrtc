@@ -1,7 +1,7 @@
 import React, { type FC } from "react";
 import { createRoot } from "react-dom/client";
 import * as sdpTransform from "sdp-transform";
-import { getVideoStreamFromFile } from "../../util";
+import { getVideoStreamFromFile } from "../../util.js";
 
 const peer = new RTCPeerConnection({});
 

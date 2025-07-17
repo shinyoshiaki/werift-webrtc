@@ -2,8 +2,8 @@ import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../../../packages/webrtc/src";
-import { MediaRecorder } from "../../../../packages/webrtc/src/nonstandard";
+} from "../../../../packages/webrtc/src/index.js";
+import { MediaRecorder } from "../../../../packages/webrtc/src/nonstandard/index.js";
 
 const server = new Server({ port: 8888 });
 console.log("start");

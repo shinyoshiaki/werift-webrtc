@@ -8,8 +8,8 @@ import {
   useREMB,
   useVideoOrientation,
   type videoOrientationPayload,
-} from "../../packages/webrtc/src";
-import { MediaRecorder } from "../../packages/webrtc/src/nonstandard";
+} from "../../packages/webrtc/src/index.js";
+import { MediaRecorder } from "../../packages/webrtc/src/nonstandard/index.js";
 
 // open ./answer.html
 

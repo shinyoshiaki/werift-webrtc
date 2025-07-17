@@ -3,7 +3,7 @@ import {
   RTCIceCandidate,
   RTCPeerConnection,
   RTCSessionDescription,
-} from "../../../packages/webrtc/src";
+} from "../../../packages/webrtc/src/index.js";
 
 const server = new Server({ port: 8889 });
 console.log("start");

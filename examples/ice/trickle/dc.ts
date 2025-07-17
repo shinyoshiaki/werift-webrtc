@@ -1,5 +1,5 @@
 import express from "express";
-import { RTCPeerConnection } from "../../../packages/webrtc/src";
+import { RTCPeerConnection } from "../../../packages/webrtc/src/index.js";
 
 const app = express();
 app.use(express.json());

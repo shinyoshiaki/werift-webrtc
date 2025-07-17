@@ -3,7 +3,7 @@ import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../../packages/webrtc/src";
+} from "../../../packages/webrtc/src/index.js";
 import {
   DepacketizeCallback,
   DtxCallback,
@@ -12,7 +12,7 @@ import {
   RtpSourceCallback,
   WebmCallback,
   saveToFileSystem,
-} from "../../../packages/webrtc/src/nonstandard";
+} from "../../../packages/webrtc/src/nonstandard/index.js";
 
 // open ./answer.html
 

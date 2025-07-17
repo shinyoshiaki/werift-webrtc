@@ -1,7 +1,7 @@
 import { exec } from "child_process";
 import { createSocket } from "dgram";
 import { Server } from "ws";
-import { RTCPeerConnection, randomPorts } from "../../packages/webrtc/src";
+import { RTCPeerConnection, randomPorts } from "../../packages/webrtc/src/index.js";
 
 (async () => {
   const [videoPort, audioPort] = await randomPorts(2);

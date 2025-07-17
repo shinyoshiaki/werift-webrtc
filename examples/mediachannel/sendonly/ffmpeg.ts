@@ -7,7 +7,7 @@ import {
   RTCRtpCodecParameters,
   RtpPacket,
   randomPort,
-} from "../../../packages/webrtc/src";
+} from "../../../packages/webrtc/src/index.js";
 
 // open answer.html
 

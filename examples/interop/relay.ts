@@ -3,7 +3,7 @@ import axios from "axios";
 import cors from "cors";
 import express from "express";
 import * as yargs from "yargs";
-import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
+import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src/index.js";
 
 const udp = createSocket("udp4");
 udp.bind(5000);

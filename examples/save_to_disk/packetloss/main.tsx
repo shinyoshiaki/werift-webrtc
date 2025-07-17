@@ -1,7 +1,7 @@
 import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import { createRoot } from "react-dom/client";
-import { getVideoStream } from "../../util";
+import { getVideoStream } from "../../util.js";
 
 const peer = new RTCPeerConnection({});
 

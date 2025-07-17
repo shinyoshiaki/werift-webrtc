@@ -8,7 +8,7 @@ import {
   RTCRtpCodecParameters,
   type RtcpPacket,
   type RtpPacket,
-} from "../../packages/webrtc/src";
+} from "../../packages/webrtc/src/index.js";
 
 export class CustomPeerConnection implements BasicPeerConnection {
   private pc;

@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
-import { uint16Add, uint32Add } from "../../packages/common/src";
-import { MediaStreamTrack, RtpPacket } from "../../packages/webrtc/src";
-import { MediaRecorder } from "../../packages/webrtc/src/nonstandard";
+import { uint16Add, uint32Add } from "../../packages/common/src/index.js";
+import { MediaStreamTrack, RtpPacket } from "../../packages/webrtc/src/index.js";
+import { MediaRecorder } from "../../packages/webrtc/src/nonstandard/index.js";
 
 (async () => {
   const packets = await Promise.all(

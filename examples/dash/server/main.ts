@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "fs/promises";
 import { Server } from "ws";
-import { PromiseQueue, RTCPeerConnection } from "../../../packages/webrtc/src";
+import { PromiseQueue, RTCPeerConnection } from "../../../packages/webrtc/src/index.js";
 import {
   DepacketizeCallback,
   JitterBufferCallback,
@@ -18,8 +18,8 @@ import {
   RtcpSourceCallback,
   RtpSourceCallback,
   WebmCallback,
-} from "../../../packages/webrtc/src/nonstandard";
-import { MPD } from "./mpd";
+} from "../../../packages/webrtc/src/nonstandard/index.js";
+import { MPD } from "./mpd.js";
 
 const dir = "./dash";
 const dashServerPort = 8125;

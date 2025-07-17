@@ -3,8 +3,8 @@ import * as google from "googleapis";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../packages/webrtc/src";
-import { MediaRecorder } from "../../packages/webrtc/src/nonstandard";
+} from "../../packages/webrtc/src/index.js";
+import { MediaRecorder } from "../../packages/webrtc/src/nonstandard/index.js";
 
 config({ path: __dirname + "/../../credential.env" });
 

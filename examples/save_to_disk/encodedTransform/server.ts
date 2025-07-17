@@ -1,14 +1,14 @@
 import { appendFile, open } from "fs/promises";
 import { type ReadableStreamReadResult, TransformStream } from "stream/web";
 import { Server } from "ws";
-import { RTCPeerConnection, RtpPacket } from "../../../packages/webrtc/src";
+import { RTCPeerConnection, RtpPacket } from "../../../packages/webrtc/src/index.js";
 import {
   type DepacketizerInput,
   type DepacketizerOutput,
   RtpSourceStream,
   WebmStream,
   type WebmStreamOutput,
-} from "../../../packages/webrtc/src/nonstandard";
+} from "../../../packages/webrtc/src/nonstandard/index.js";
 
 const server = new Server({ port: 8888 });
 console.log("start");

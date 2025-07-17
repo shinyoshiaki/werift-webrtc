@@ -1,6 +1,6 @@
 import { unlink } from "fs/promises";
 import { Server } from "ws";
-import { RTCPeerConnection } from "../../packages/webrtc/src";
+import { RTCPeerConnection } from "../../packages/webrtc/src/index.js";
 import {
   DepacketizeCallback,
   JitterBufferCallback,
@@ -10,7 +10,7 @@ import {
   RtpSourceCallback,
   WebmCallback,
   saveToFileSystem,
-} from "../../packages/webrtc/src/nonstandard";
+} from "../../packages/webrtc/src/nonstandard/index.js";
 
 // open ./answer.html
 

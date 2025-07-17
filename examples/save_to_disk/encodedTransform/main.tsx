@@ -3,8 +3,8 @@ import React, { type FC, useEffect } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
 import { createRoot } from "react-dom/client";
-import { uint16Add } from "../../../packages/common/src";
-import { RtpHeader, RtpPacket } from "../../../packages/rtp/src";
+import { uint16Add } from "../../../packages/common/src/index.js";
+import { RtpHeader, RtpPacket } from "../../../packages/rtp/src/index.js";
 
 let sequenceNumber = 0;
 const socket = new WebSocket("ws://localhost:8889");

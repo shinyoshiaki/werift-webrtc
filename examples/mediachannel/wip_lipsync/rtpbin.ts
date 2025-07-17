@@ -7,8 +7,8 @@ import {
   RTCRtpCodecParameters,
   RtcpSrPacket,
   randomPorts,
-} from "../../../packages/webrtc/src";
-import { getUserMedia } from "../../../packages/webrtc/src/nonstandard";
+} from "../../../packages/webrtc/src/index.js";
+import { getUserMedia } from "../../../packages/webrtc/src/nonstandard/index.js";
 
 console.log("start", __dirname);
 

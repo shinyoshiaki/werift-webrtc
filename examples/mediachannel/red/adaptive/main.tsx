@@ -3,8 +3,8 @@ import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
 import { createRoot } from "react-dom/client";
-import { Red } from "../../../../packages/rtp/src";
-import { getAudioStream, uint32Add } from "./util";
+import { Red } from "../../../../packages/rtp/src/index.js";
+import { getAudioStream, uint32Add } from "./util.js";
 
 const peer = new RTCPeerConnection({
   //@ts-ignore

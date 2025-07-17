@@ -6,7 +6,7 @@
 
 import { randomBytes } from "crypto";
 import Benchmark from "benchmark";
-import * as Werift from "../../packages/webrtc/src";
+import * as Werift from "../../packages/webrtc/src/index.js";
 
 console.log("Setting up...");
 
