@@ -16,6 +16,7 @@ export default defineConfig({
       instances: [
         {
           browser: "chromium",
+          headless: true,
           launch: {
             args: [
               "--use-fake-ui-for-media-stream",

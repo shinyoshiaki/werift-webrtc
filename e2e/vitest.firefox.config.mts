@@ -15,6 +15,7 @@ export default defineConfig({
       instances: [
         {
           browser: "firefox",
+          headless: true,
           launch: {
             firefoxUserPrefs: {
               "media.navigator.permission.disabled": true,

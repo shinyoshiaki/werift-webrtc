@@ -44,6 +44,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@types/node": "^22.13.4",
+    "@vitest/browser": "3.0.5",
     "knip": "^5.44.1",
     "npm-run-all2": "^7.0.2",
     "organize-imports-cli": "^0.10.0",
