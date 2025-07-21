@@ -60,6 +60,9 @@ export class RTCRtpTransceiver {
   get direction() {
     return this._direction;
   }
+  set direction(direction: MediaDirection) {
+    this.setDirection(direction);
+  }
 
   setDirection(direction: MediaDirection) {
     this._direction = direction;
