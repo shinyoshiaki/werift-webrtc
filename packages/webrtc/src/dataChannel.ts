@@ -143,7 +143,10 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     }
   }
 
-  send(data: Buffer | string) {
+  send(data: Buffer | ArrayBuffer | string) {
+    if (data instanceof ArrayBuffer) {
+      data = Buffer.from(data);
+    }
     const size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
     this.messagesSent++;
     this.bytesSent += size;
