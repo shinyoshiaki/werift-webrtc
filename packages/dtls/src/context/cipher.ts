@@ -2,7 +2,6 @@ import nodeCrypto, { createSign } from "crypto";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import * as x509 from "@peculiar/x509";
 import { encode, types } from "@shinyoshiaki/binary-data";
-import { addYears } from "date-fns";
 
 import {
   type CipherSuites,
@@ -111,7 +110,7 @@ export class CipherContext {
       serialNumber: nodeCrypto.randomBytes(8).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
-      notAfter: addYears(Date.now(), 10),
+      notAfter: new Date(new Date().setFullYear(new Date().getFullYear() + 10)),
       signingAlgorithm: alg,
       keys,
     });
