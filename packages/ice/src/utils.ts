@@ -1,5 +1,5 @@
 import os from "os";
-import nodeIp from "ip";
+import nodeIp from "./ip";
 import {
   type Address,
   type InterfaceAddresses,
