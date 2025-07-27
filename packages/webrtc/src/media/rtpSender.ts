@@ -23,8 +23,8 @@ Figure 2: Example for round-trip time computation
 import { randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
 
+import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import * as uuid from "uuid";
 import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 
 import { codecParametersFromString } from "..";
@@ -84,8 +84,8 @@ export class RTCRtpSender {
   readonly kind: Kind;
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
-  streamId = uuid.v4();
-  readonly trackId = uuid.v4();
+  streamId = randomUUID();
+  readonly trackId = randomUUID();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onPictureLossIndication = new Event<[]>();
@@ -136,7 +136,8 @@ export class RTCRtpSender {
         : this.trackOrKind.kind;
     if (typeof trackOrKind !== "string") {
       if (trackOrKind.streamId) {
-        this.streamId = trackOrKind.streamId;
+        this.streamId =
+          trackOrKind.streamId as "`${string}-${string}-${string}-${string}-${string}`";
       }
       this.registerTrack(trackOrKind);
     }

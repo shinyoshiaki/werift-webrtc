@@ -67,7 +67,6 @@
     "nano-time": "^1.0.0",
     "turbo-crc32": "^1.0.1",
     "tweetnacl": "^1.0.3",
-    "uuid": "^11.0.5",
     "werift-common": "*",
     "werift-dtls": "*",
     "werift-ice": "*",

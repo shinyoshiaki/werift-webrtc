@@ -1,6 +1,6 @@
+import { randomUUID } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
 
-import * as uuid from "uuid";
 import { Event, debug } from "../imports/common";
 
 import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
@@ -28,7 +28,7 @@ export class RTCSctpTransport {
   sctp!: SCTP;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly id = uuid.v4();
+  readonly id = randomUUID();
 
   mid?: string;
   mLineIndex?: number;

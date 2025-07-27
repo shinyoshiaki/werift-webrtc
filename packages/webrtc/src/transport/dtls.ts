@@ -1,7 +1,7 @@
 import { Certificate, PrivateKey } from "@fidm/x509";
 
+import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { v4 } from "uuid";
 import { Event, type Transport } from "../imports/common";
 
 import type { AddressInfo } from "net";
@@ -53,7 +53,7 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
-  id = v4();
+  id = randomUUID();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
   srtpStarted = false;

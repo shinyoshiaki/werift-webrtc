@@ -1,4 +1,4 @@
-import { v4 } from "uuid";
+import { randomUUID } from "crypto";
 import { Event, debug } from "../imports/common";
 
 import {
@@ -42,7 +42,7 @@ const log = debug("werift:packages/webrtc/src/transport/ice.ts");
  */
 
 export class RTCIceTransport {
-  readonly id = v4();
+  readonly id = randomUUID();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
   private waitStart?: Event<[]>;

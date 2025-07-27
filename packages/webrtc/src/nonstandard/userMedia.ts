@@ -1,7 +1,7 @@
 import { type ChildProcess, exec } from "child_process";
+import { randomUUID } from "crypto";
 import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
-import { v4 } from "uuid";
 
 import { randomPort } from "../imports/common";
 import { RtpPacket } from "../imports/rtp";
