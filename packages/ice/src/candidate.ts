@@ -1,6 +1,5 @@
 import { createHash } from "crypto";
 import { isIPv4 } from "net";
-import range from "lodash/range.js";
 
 export class Candidate {
   // An ICE candidate.
@@ -42,7 +41,7 @@ export class Candidate {
       type: bits[7],
     };
 
-    for (const i of range(8, bits.length - 1, 2)) {
+    for (let i = 8, il = bits.length - 1; i < il; i += 2) {
       if (bits[i] === "raddr") {
         (kwargs as any)["related_address"] = bits[i + 1];
       } else if (bits[i] === "rport") {

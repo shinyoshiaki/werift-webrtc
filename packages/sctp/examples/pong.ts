@@ -1,5 +1,4 @@
 import { createSocket } from "dgram";
-import range from "lodash/range.js";
 import { setTimeout } from "timers/promises";
 import { SCTP, SCTP_STATE, WEBRTC_PPID } from "../src";
 import { createUdpTransport } from "../src/transport";
@@ -24,7 +23,7 @@ import { createUdpTransport } from "../src/transport";
 
 async function waitForOutcome(sctp: SCTP) {
   const final = [SCTP_STATE.ESTABLISHED];
-  for (const _ of range(100)) {
+  for (let i = 0; i < 100; i++) {
     if (final.includes(sctp.associationState)) {
       break;
     }

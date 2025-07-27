@@ -1,5 +1,4 @@
 import { jspack } from "@shinyoshiaki/jspack";
-import range from "lodash/range.js";
 
 // This parameter is used by the sender to request the reset of some or
 // all outgoing streams.
@@ -55,9 +54,11 @@ export class OutgoingSSNResetRequestParam {
       "!LLL",
       data,
     );
-    const stream = range(12, data.length, 2).map(
-      (pos) => jspack.Unpack("!H", data.slice(pos))[0],
-    );
+    const stream: number[] = [];
+
+    for (let pos = 12; pos < data.length; pos += 2) {
+      stream.push(jspack.Unpack("!H", data.slice(pos))[0]);
+    }
 
     return new OutgoingSSNResetRequestParam(
       requestSequence,

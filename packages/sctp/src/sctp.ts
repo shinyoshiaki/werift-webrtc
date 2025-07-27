@@ -1,7 +1,6 @@
 import { createHmac, randomBytes } from "crypto";
 import { jspack } from "@shinyoshiaki/jspack";
 
-import range from "lodash/range.js";
 import { nextTick } from "process";
 import {
   AbortChunk,
@@ -585,12 +584,12 @@ export class SCTP {
     if (chunk.gaps.length > 0) {
       const seen = new Set();
       let highestSeenTsn: number;
-      chunk.gaps.forEach((gap) =>
-        range(gap[0], gap[1] + 1).forEach((pos) => {
+      chunk.gaps.forEach((gap) => {
+        for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
           highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
           seen.add(highestSeenTsn);
-        }),
-      );
+        }
+      });
 
       let highestNewlyAcked = chunk.cumulativeTsn;
       for (const sChunk of this.sentQueue) {
@@ -774,7 +773,7 @@ export class SCTP {
     const fragments = Math.ceil(userData.length / USERDATA_MAX_LENGTH);
     let pos = 0;
     const chunks: DataChunk[] = [];
-    for (const fragment of range(0, fragments)) {
+    for (let fragment = 0; fragment < fragments; fragment++) {
       const chunk = new DataChunk(0, undefined);
       chunk.flags = 0;
       if (!ordered) {
@@ -1129,7 +1128,7 @@ export class SCTP {
     if (!abandon) return false;
 
     const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
-    for (const pos of range(chunkPos, -1, -1)) {
+    for (let pos = chunkPos; pos < -1; pos--) {
       const oChunk = this.sentQueue[pos];
       oChunk.abandoned = true;
       oChunk.retransmit = false;
@@ -1138,7 +1137,7 @@ export class SCTP {
       }
     }
 
-    for (const pos of range(chunkPos, this.sentQueue.length)) {
+    for (let pos = chunkPos; pos < this.sentQueue.length; pos++) {
       const oChunk = this.sentQueue[pos];
       oChunk.abandoned = true;
       oChunk.retransmit = false;

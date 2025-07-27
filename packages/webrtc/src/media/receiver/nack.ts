@@ -1,4 +1,3 @@
-import range from "lodash/range.js";
 import { Event } from "../../imports/common";
 
 import { uint16Add } from "../../imports/common";
@@ -76,9 +75,9 @@ export class NackHandler {
       this.newEstSeqNum = sequenceNumber;
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
-      range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
-        this.setLost(seq, 1);
-      });
+      for (let i = uint16Add(this.newEstSeqNum, 1); i < sequenceNumber; i++) {
+        this.setLost(i, 1);
+      }
       // this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
       this.newEstSeqNum = sequenceNumber;
