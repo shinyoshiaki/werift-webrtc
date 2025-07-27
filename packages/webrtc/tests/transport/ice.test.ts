@@ -1,5 +1,3 @@
-import inRange from "lodash/inRange";
-
 import { RTCIceGatherer, RTCIceTransport } from "../../src";
 
 describe("iceTransport", () => {
@@ -48,7 +46,8 @@ describe("iceTransport", () => {
 
     const candidates = gatherer.localCandidates;
     for (const candidate of candidates) {
-      expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
+      expect(candidate.port >= 44444).toBeTruthy();
+      expect(candidate.port < 44455).toBeTruthy();
     }
     await gatherer.connection.close();
   });
@@ -63,7 +62,8 @@ describe("iceTransport", () => {
 
     const candidates = gatherer.localCandidates;
     for (const candidate of candidates) {
-      expect(inRange(candidate.port, 44546, 44547 + 1)).toBeTruthy();
+      expect(candidate.port >= 44546).toBeTruthy();
+      expect(candidate.port < 44547 + 1).toBeTruthy();
     }
     await gatherer.connection.close();
   });
