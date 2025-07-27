@@ -15,7 +15,7 @@ import { microTime } from "../../utils";
 
 const log = debug("werift:packages/webrtc/media/receiver/receiverTwcc");
 
-type ExtensionInfo = { tsn: number; timestamp: number };
+type ExtensionInfo = { tsn: number; timestamp: bigint };
 
 export class ReceiverTWCC {
   extensionInfo: {
@@ -24,7 +24,7 @@ export class ReceiverTWCC {
   twccRunning = false;
   /** uint8 */
   fbPktCount = 0;
-  lastTimestamp?: number;
+  lastTimestamp?: bigint;
 
   constructor(
     private dtlsTransport: RTCDtlsTransport,
@@ -37,7 +37,7 @@ export class ReceiverTWCC {
   handleTWCC(transportSequenceNumber: number) {
     this.extensionInfo[transportSequenceNumber] = {
       tsn: transportSequenceNumber,
-      timestamp: microTime(),
+      timestamp: process.hrtime.bigint(),
     };
 
     if (Object.keys(this.extensionInfo).length > 10) {
@@ -65,7 +65,7 @@ export class ReceiverTWCC {
     const baseSequenceNumber = extensionsArr[0].tsn;
     const packetStatusCount = uint16Add(maxTSN - minTSN, 1);
     /**micro sec */
-    let referenceTime!: number;
+    let referenceTime!: bigint;
     let lastPacketStatus: { status: PacketStatus; minTSN: number } | undefined;
     const recvDeltas: RecvDelta[] = [];
 
@@ -138,7 +138,7 @@ export class ReceiverTWCC {
         mediaSourceSsrc: this.mediaSourceSsrc,
         baseSequenceNumber,
         packetStatusCount,
-        referenceTime: uint24(Math.floor(referenceTime / 1000 / 64)),
+        referenceTime: uint24(Math.floor(Number(referenceTime / 1000n / 64n))),
         fbPktCount: this.fbPktCount,
         recvDeltas,
         packetChunks,

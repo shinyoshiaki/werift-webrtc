@@ -678,7 +678,7 @@ ___
 
 ### microTime
 
-▸ `Const` **microTime**(): `number`
+▸ `Const` **microTime**(): `bigint`
 
 #### Returns
 

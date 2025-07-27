@@ -14,7 +14,6 @@ import {
 } from "./imports/common";
 import { CipherContext } from "./imports/dtls";
 
-import now from "nano-time";
 import { Directions, type MediaDirection } from "./media/rtpTransceiver";
 import { MediaStreamTrack } from "./media/track";
 import type { RTCIceServer } from "./peerConnection";
@@ -49,9 +48,14 @@ export function reverseDirection(dir: MediaDirection): MediaDirection {
   return dir;
 }
 
-export const microTime = () => now.micro() as number;
+export const milliTime = () => Date.now();
 
-export const milliTime = () => new Date().getTime();
+const loadTimeNs = process.hrtime.bigint();
+const loadTimeMs = BigInt(Date.now()) * 1000n;
+
+export const microTime = () => {
+  return (loadTimeMs + (process.hrtime.bigint() - loadTimeNs) / 1000n);
+};
 
 export const timestampSeconds = () => Date.now() / 1000;
 
