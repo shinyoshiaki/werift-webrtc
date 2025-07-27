@@ -1,3 +1,4 @@
+import type { CipherGCMTypes } from "crypto";
 import type { KeyExchange } from "../key-exchange";
 
 export type CipherHeader = {
@@ -19,7 +20,7 @@ export default abstract class AbstractCipher {
   hashAlgorithm?: string;
   verifyDataLength = 12;
 
-  blockAlgorithm?: string;
+  blockAlgorithm?: CipherGCMTypes;
   kx?: KeyExchange;
 
   /**

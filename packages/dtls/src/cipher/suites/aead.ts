@@ -1,4 +1,4 @@
-import * as crypto from "crypto";
+import { createCipheriv, createDecipheriv } from "crypto";
 
 import { dumpBuffer, getObjectSummary } from "../../helper";
 import { debug } from "../../imports/common";
@@ -72,8 +72,8 @@ export default class AEADCipher extends Cipher {
 
     const additionalBuffer = this.encodeAdditionalBuffer(header, data.length);
 
-    const cipher = crypto.createCipheriv(
-      this.blockAlgorithm as crypto.CipherCCMTypes,
+    const cipher = createCipheriv(
+      this.blockAlgorithm!,
       writeKey,
       iv,
       {
@@ -128,8 +128,8 @@ export default class AEADCipher extends Cipher {
       encrypted.length,
     );
 
-    const decipher = crypto.createDecipheriv(
-      this.blockAlgorithm as crypto.CipherCCMTypes,
+    const decipher = createDecipheriv(
+      this.blockAlgorithm!,
       writeKey,
       iv,
       {
