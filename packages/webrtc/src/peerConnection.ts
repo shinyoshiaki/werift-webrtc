@@ -196,6 +196,9 @@ export class RTCPeerConnection extends EventTarget {
   get remoteDescription() {
     return this.sdpManager.remoteDescription;
   }
+  get remoteIsBundled() {
+    return this.sdpManager.remoteIsBundled;
+  }
   /**@private */
   get _localDescription() {
     return this.sdpManager._localDescription;
