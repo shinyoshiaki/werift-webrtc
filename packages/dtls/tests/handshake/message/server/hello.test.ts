@@ -1,4 +1,4 @@
-import { ServerHello } from "../../../../src/handshake/message/server/hello";
+import { ServerHello } from "../../../../src/handshake/message/server/hello.js";
 
 test("handshake_message_server_hello", () => {
   const rawServerHello = Buffer.from([

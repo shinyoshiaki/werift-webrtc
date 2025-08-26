@@ -1,4 +1,4 @@
-import type { Context } from "./context/context";
+import type { Context } from "./context/context.js";
 
 export type SessionKeys = {
   localMasterKey: Buffer;

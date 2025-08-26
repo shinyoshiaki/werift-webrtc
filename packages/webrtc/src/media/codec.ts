@@ -1,5 +1,5 @@
-import { useNACK, usePLI, useREMB } from "./extension/rtcpFeedback";
-import { RTCRtpCodecParameters } from "./parameters";
+import { useNACK, usePLI, useREMB } from "./extension/rtcpFeedback.js";
+import { RTCRtpCodecParameters } from "./parameters.js";
 
 export const useH264 = (props: Partial<RTCRtpCodecParameters> = {}) =>
   new RTCRtpCodecParameters({

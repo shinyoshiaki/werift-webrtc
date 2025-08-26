@@ -1,20 +1,20 @@
 import { v4 } from "uuid";
-import { Event, debug } from "../imports/common";
+import { Event, debug } from "../imports/common.js";
 
 import {
   Candidate,
   Connection,
   type IceConnection,
   type IceOptions,
-} from "../../../ice/src";
+} from "../../../ice/src/index.js";
 import {
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
   generateStatsId,
   getStatsTimestamp,
-} from "../media/stats";
-import { candidateFromSdp, candidateToSdp } from "../sdp";
+} from "../media/stats.js";
+import { candidateFromSdp, candidateToSdp } from "../sdp.js";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 

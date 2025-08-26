@@ -1,7 +1,7 @@
 import { setTimeout } from "timers/promises";
 
 import { describe, expect, test, vi } from "vitest";
-import { wrapRtx } from "../../../rtp/src";
+import { wrapRtx } from "../../../rtp/src/index.js";
 import {
   MediaStreamTrack,
   RTCRtpCodecParameters,
@@ -10,9 +10,9 @@ import {
   RtpPacket,
   codecParametersToString,
   defaultPeerConfig,
-} from "../../src";
-import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
-import { createDtlsTransport } from "../fixture";
+} from "../../src/index.js";
+import { RTCRtpReceiver } from "../../src/media/rtpReceiver.js";
+import { createDtlsTransport } from "../fixture.js";
 
 describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
   test("abort runRtcp", async () =>

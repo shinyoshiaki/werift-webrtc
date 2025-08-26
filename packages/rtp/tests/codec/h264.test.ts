@@ -1,4 +1,4 @@
-import { H264RtpPayload } from "../../src";
+import { H264RtpPayload } from "../../src/index.js";
 
 // from pion-rtp
 

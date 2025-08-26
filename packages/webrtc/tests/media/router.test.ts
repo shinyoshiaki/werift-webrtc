@@ -4,15 +4,15 @@ import {
   RtpHeader,
   RtpPacket,
   defaultPeerConfig,
-} from "../../src";
+} from "../../src/index.js";
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
-} from "../../src/media/parameters";
-import { RtpRouter } from "../../src/media/router";
-import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
-import { RTCRtpSender } from "../../src/media/rtpSender";
-import { createDtlsTransport } from "../fixture";
+} from "../../src/media/parameters.js";
+import { RtpRouter } from "../../src/media/router.js";
+import { RTCRtpReceiver } from "../../src/media/rtpReceiver.js";
+import { RTCRtpSender } from "../../src/media/rtpSender.js";
+import { createDtlsTransport } from "../fixture.js";
 
 describe("media/router", () => {
   test("routeRtp", () =>

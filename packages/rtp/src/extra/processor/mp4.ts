@@ -1,13 +1,13 @@
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 
-import { OpusRtpPayload, buffer2ArrayBuffer } from "../..";
+import { OpusRtpPayload, buffer2ArrayBuffer } from "../../index.js";
 import {
   type DataType,
   Mp4Container,
   type Mp4SupportedCodec,
   annexb2avcc,
-} from "../container/mp4";
-import type { AVProcessor } from "./interface";
+} from "../container/mp4/index.js";
+import type { AVProcessor } from "./interface.js";
 
 export type Mp4Input = {
   frame?: {

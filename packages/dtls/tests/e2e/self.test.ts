@@ -1,9 +1,9 @@
 import { createSocket } from "dgram";
 
-import { UdpTransport, randomPort } from "../../../common/src";
-import { DtlsClient, DtlsServer } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { certPem, keyPem } from "../fixture";
+import { UdpTransport, randomPort } from "../../../common/src/index.js";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const.js";
+import { DtlsClient, DtlsServer } from "../../src/index.js";
+import { certPem, keyPem } from "../fixture.js";
 
 test(
   "e2e/self",

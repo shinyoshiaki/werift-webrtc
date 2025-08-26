@@ -1,9 +1,9 @@
-import { SimpleProcessorCallbackBase } from "./interface";
+import { SimpleProcessorCallbackBase } from "./interface.js";
 import {
   JitterBufferBase,
   type JitterBufferInput,
   type JitterBufferOutput,
-} from "./jitterBuffer";
+} from "./jitterBuffer.js";
 
 export class JitterBufferCallback extends SimpleProcessorCallbackBase<
   JitterBufferInput,

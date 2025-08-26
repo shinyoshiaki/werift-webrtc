@@ -1,7 +1,7 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
 
-import type { Connection } from "../src/ice";
+import type { Connection } from "../src/ice.js";
 
 export function readMessage(name: string) {
   let data!: Buffer;

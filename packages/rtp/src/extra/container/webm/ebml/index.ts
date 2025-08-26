@@ -1,3 +1,3 @@
-export * from "./ebml";
-export * from "./id";
-export * from "./typedArrayUtils";
+export * from "./ebml.js";
+export * from "./id.js";
+export * from "./typedArrayUtils.js";

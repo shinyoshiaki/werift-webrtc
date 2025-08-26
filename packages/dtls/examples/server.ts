@@ -6,10 +6,10 @@ import {
   HashAlgorithm,
   NamedCurveAlgorithm,
   SignatureAlgorithm,
-} from "../src/cipher/const";
-import { CipherContext } from "../src/context/cipher";
-import { DtlsServer } from "../src/server";
-import { UdpTransport } from "../../common/src";
+} from "../src/cipher/const.js";
+import { CipherContext } from "../src/context/cipher.js";
+import { DtlsServer } from "../src/server.js";
+import { UdpTransport } from "../../common/src/index.js";
 
 const crypto = nodeCrypto.webcrypto;
 x509.cryptoProvider.set(crypto as any);

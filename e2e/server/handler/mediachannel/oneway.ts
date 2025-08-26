@@ -1,6 +1,6 @@
 import type { AcceptFn } from "protoo-server";
-import { RTCPeerConnection } from "../..";
-import { peerConfig } from "../../fixture";
+import { peerConfig } from "../../fixture.js";
+import { RTCPeerConnection } from "../../index.js";
 
 export class mediachannel_oneway_answer {
   pc!: RTCPeerConnection;

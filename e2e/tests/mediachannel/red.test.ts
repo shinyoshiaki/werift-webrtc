@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import "buffer";
 import { Red } from "werift-rtp";
-import { Counter, browserName, peer, sleep } from "../fixture";
+import { Counter, browserName, peer, sleep } from "../fixture.js";
 
 describe("mediachannel_red", () => {
   if (browserName === "Firefox") {

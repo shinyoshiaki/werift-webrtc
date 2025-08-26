@@ -1,9 +1,9 @@
-import { type Address, Event, debug } from "../imports/common";
+import { type Address, Event, debug } from "../imports/common.js";
 
-import { TransactionFailed, TransactionTimeout } from "../exceptions";
-import type { Protocol } from "../types/model";
-import { RETRY_MAX, RETRY_RTO, classes } from "./const";
-import type { Message } from "./message";
+import { TransactionFailed, TransactionTimeout } from "../exceptions.js";
+import type { Protocol } from "../types/model.js";
+import { RETRY_MAX, RETRY_RTO, classes } from "./const.js";
+import type { Message } from "./message.js";
 
 const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
 

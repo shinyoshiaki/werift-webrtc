@@ -1,4 +1,4 @@
-import { Event } from "./imports/common";
+import { Event } from "./imports/common.js";
 
 export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);

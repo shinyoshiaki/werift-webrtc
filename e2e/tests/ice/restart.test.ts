@@ -1,4 +1,4 @@
-import { peer, sleep, waitVideoPlay } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture.js";
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 const ice_restart_node_trigger_label = "ice_restart_node_trigger";

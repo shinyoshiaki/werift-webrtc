@@ -1,5 +1,5 @@
-import { RTCPeerConnection } from "../../src";
-import { setupPerfectNegotiation } from "./perfectNegotiation";
+import { RTCPeerConnection } from "../../src/index.js";
+import { setupPerfectNegotiation } from "./perfectNegotiation.js";
 
 describe("perfect negotiation", () => {
   it("perfect negotiation pattern", async () =>

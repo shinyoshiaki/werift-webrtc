@@ -1,4 +1,4 @@
-import { Alert } from "../../../src/handshake/message/alert";
+import { Alert } from "../../../src/handshake/message/alert.js";
 
 test("handshake_message_alert", () => {
   const raw = Buffer.from([0x02, 0x0a]);

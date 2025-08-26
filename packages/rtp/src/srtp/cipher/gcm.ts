@@ -1,10 +1,10 @@
 import { createCipheriv, createDecipheriv } from "crypto";
 
-import { CipherAesBase } from ".";
-import { createBufferWriter } from "../../../../common/src";
-import { growBufferSize } from "../../helper";
-import { RtcpHeader } from "../../rtcp/header";
-import { RtpHeader } from "../../rtp/rtp";
+import { createBufferWriter } from "../../../../common/src/index.js";
+import { growBufferSize } from "../../helper.js";
+import { RtcpHeader } from "../../rtcp/header.js";
+import { RtpHeader } from "../../rtp/rtp.js";
+import { CipherAesBase } from "./index.js";
 
 export class CipherAesGcm extends CipherAesBase {
   readonly aeadAuthTagLen = 16;

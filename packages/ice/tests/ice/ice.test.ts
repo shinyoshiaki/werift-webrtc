@@ -1,17 +1,17 @@
 import { setTimeout } from "timers/promises";
 
-import { type Address, Event } from "../../../common/src";
+import { type Address, Event } from "../../../common/src/index.js";
+import { Candidate, candidatePriority } from "../../src/candidate.js";
+import { Connection } from "../../src/ice.js";
 import {
   CandidatePair,
   CandidatePairState,
   sortCandidatePairs,
-} from "../../src";
-import { Candidate, candidatePriority } from "../../src/candidate";
-import { Connection } from "../../src/ice";
-import { classes, methods } from "../../src/stun/const";
-import { Message } from "../../src/stun/message";
-import type { Protocol } from "../../src/types/model";
-import { assertCandidateTypes, inviteAccept } from "../utils";
+} from "../../src/index.js";
+import { classes, methods } from "../../src/stun/const.js";
+import { Message } from "../../src/stun/message.js";
+import type { Protocol } from "../../src/types/model.js";
+import { assertCandidateTypes, inviteAccept } from "../utils.js";
 
 class ProtocolMock implements Protocol {
   type = "mock";

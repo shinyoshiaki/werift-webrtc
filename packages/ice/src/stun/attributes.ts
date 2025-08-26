@@ -2,13 +2,13 @@ import * as Int64 from "int64-buffer";
 import nodeIp from "ip";
 import range from "lodash/range.js";
 
-import type { Address } from "../imports/common";
+import type { Address } from "../imports/common.js";
 import {
   type AttributeKeys,
   COOKIE,
   IPV4_PROTOCOL,
   IPV6_PROTOCOL,
-} from "./const";
+} from "./const.js";
 
 function packAddress(value: Address) {
   const [address] = value;

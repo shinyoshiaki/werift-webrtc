@@ -1,6 +1,6 @@
-import type { Candidate } from "../candidate";
-import type { Address, Event } from "../imports/common";
-import type { Message } from "../stun/message";
+import type { Candidate } from "../candidate.js";
+import type { Address, Event } from "../imports/common.js";
+import type { Message } from "../stun/message.js";
 
 export interface Protocol {
   type: string;

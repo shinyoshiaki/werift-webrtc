@@ -1,4 +1,4 @@
-import { RedEncoder, RtpHeader, RtpPacket } from "../../../src";
+import { RedEncoder, RtpHeader, RtpPacket } from "../../../src/index.js";
 
 describe("RedEncoder", () => {
   it("normal", () => {

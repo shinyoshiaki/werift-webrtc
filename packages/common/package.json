@@ -1,39 +1,50 @@
 {
-  "name": "werift-common",
-  "version": "0.0.3",
-  "description": "common",
-  "keywords": [
-    "WebRTC",
-    "node.js"
-  ],
-  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
-  },
-  "license": "MIT",
-  "author": {
-    "name": "shinyoshiaki"
-  },
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
-  "files": [
-    "lib"
-  ],
-  "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
-    "deploy": "npm run build && npm publish",
-    "format": "biome check --write src",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts"
-  },
-  "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6",
-    "debug": "^4.4.0"
-  },
-  "devDependencies": {},
-  "engines": {
-    "node": ">=16"
-  },
-  "readme": "README.md"
+	"name": "werift-common",
+	"version": "0.0.3",
+	"description": "common",
+	"keywords": [
+		"WebRTC",
+		"node.js"
+	],
+	"homepage": "https://github.com/shinyoshiaki/werift-webrtc",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/shinyoshiaki/werift-webrtc.git"
+	},
+	"license": "MIT",
+	"author": {
+		"name": "shinyoshiaki"
+	},
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./lib/index.d.ts",
+			"require": "./lib/index.cjs",
+			"import": "./lib/index.mjs"
+		}
+	},
+	"main": "./lib/index.cjs",
+	"types": "./lib/index.d.ts",
+	"files": [
+		"lib"
+	],
+	"scripts": {
+		"build": "rm -rf lib && run-s format compile:*",
+		"compile:cjs": "esbuild src/index.ts --bundle --packages=external --platform=node --format=cjs --target=es2022 --outdir=lib --out-extension:.js=.cjs && node lib/index.cjs",
+		"compile:esm": "esbuild src/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
+		"compile:type": "tsc -p ./tsconfig.production.json",
+		"deploy": "npm run build && npm publish",
+		"format": "biome check --write src",
+		"type": "tsc --noEmit --project ./tsconfig.json",
+		"unused": "organize-imports-cli src/**/*.ts"
+	},
+	"dependencies": {
+		"@shinyoshiaki/jspack": "^0.0.6",
+		"debug": "^4.4.0"
+	},
+	"devDependencies": {},
+	"engines": {
+		"node": ">=16"
+	},
+	"readme": "README.md"
 }

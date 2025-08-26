@@ -1,13 +1,13 @@
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 
 import {
   WEBMContainer,
   getEBMLByteLength,
   numberToByteArray,
   vintEncode,
-} from "../container";
-import type { ContainerSupportedCodec } from "../container/webm";
-import type { AVProcessor } from "./interface";
+} from "../container/index.js";
+import type { ContainerSupportedCodec } from "../container/webm/index.js";
+import type { AVProcessor } from "./interface.js";
 
 export interface WebmTrack {
   width?: number;

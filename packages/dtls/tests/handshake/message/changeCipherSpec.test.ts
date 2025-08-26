@@ -1,4 +1,4 @@
-import { ChangeCipherSpec } from "../../../src/handshake/message/changeCipherSpec";
+import { ChangeCipherSpec } from "../../../src/handshake/message/changeCipherSpec.js";
 test("handshake_message_changeCipherSpec", () => {
   const c = new ChangeCipherSpec();
   const raw = c.serialize();

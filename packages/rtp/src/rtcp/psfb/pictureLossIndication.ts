@@ -1,4 +1,4 @@
-import { bufferReader, bufferWriter } from "../../../../common/src";
+import { bufferReader, bufferWriter } from "../../../../common/src/index.js";
 
 export class PictureLossIndication {
   static count = 1;

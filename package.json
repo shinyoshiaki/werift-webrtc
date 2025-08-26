@@ -48,6 +48,7 @@
     "organize-imports-cli": "^0.10.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
+    "ts2esm": "^2.2.7",
     "tsx": "^4.19.3",
     "typedoc": "0.27.7",
     "typedoc-plugin-markdown": "4.4.2",

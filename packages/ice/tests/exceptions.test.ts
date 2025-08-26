@@ -1,6 +1,6 @@
-import { TransactionFailed, TransactionTimeout } from "../src/exceptions";
-import { classes, methods } from "../src/stun/const";
-import { Message } from "../src/stun/message";
+import { TransactionFailed, TransactionTimeout } from "../src/exceptions.js";
+import { classes, methods } from "../src/stun/const.js";
+import { Message } from "../src/stun/message.js";
 
 describe("exceptions", () => {
   test("test_transaction_failed", () => {

@@ -11,13 +11,13 @@ import {
   SackChunk,
   serializePacket,
   ShutdownChunk,
-} from "../src/chunk";
+} from "../src/chunk.js";
 import {
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
   StreamAddOutgoingParam,
-} from "../src/param";
-import { load } from "./utils";
+} from "../src/param.js";
+import { load } from "./utils.js";
 
 describe("SctpPacketTest", () => {
   const roundtripPacket = (data: Buffer) => {

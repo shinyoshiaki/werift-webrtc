@@ -2,8 +2,8 @@ import {
   DepacketizeBase,
   type DepacketizerInput,
   type DepacketizerOutput,
-} from "./depacketizer";
-import { SimpleProcessorCallbackBase } from "./interface";
+} from "./depacketizer.js";
+import { SimpleProcessorCallbackBase } from "./interface.js";
 
 export class DepacketizeCallback extends SimpleProcessorCallbackBase<
   DepacketizerInput,

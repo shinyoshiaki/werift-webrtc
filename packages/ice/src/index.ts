@@ -1,11 +1,11 @@
-export { randomPort } from "../../common/src";
+export { randomPort } from "../../common/src/index.js";
 
-export * from "./stun/const";
-export * from "./stun/message";
-export * from "./stun/protocol";
-export * from "./turn/protocol";
-export * from "./candidate";
-export * from "./ice";
-export * from "./types/model";
-export * from "./utils";
-export * from "./iceBase";
+export * from "./stun/const.js";
+export * from "./stun/message.js";
+export * from "./stun/protocol.js";
+export * from "./turn/protocol.js";
+export * from "./candidate.js";
+export * from "./ice.js";
+export * from "./types/model.js";
+export * from "./utils.js";
+export * from "./iceBase.js";

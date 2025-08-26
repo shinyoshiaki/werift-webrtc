@@ -1,6 +1,9 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import type { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
+import type {
+  HashAlgorithms,
+  SignatureAlgorithms,
+} from "../../cipher/const.js";
 
 export class Signature {
   static type = 13;

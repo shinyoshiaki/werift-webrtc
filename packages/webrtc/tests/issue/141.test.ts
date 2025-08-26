@@ -1,4 +1,4 @@
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../src/index.js";
 
 const offer = `v=0
 o=- 0 2 IN IP4 127.0.0.1

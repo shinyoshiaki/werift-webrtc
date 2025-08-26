@@ -1,43 +1,54 @@
 {
-  "name": "werift-sctp",
-  "version": "0.0.6",
-  "description": "SCTP protocol implementation for Node.js written in TypeScript.",
-  "homepage": "https://github.com/shinyoshiaki/werift-sctp",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/shinyoshiaki/werift-sctp.git"
-  },
-  "license": "MIT",
-  "author": {
-    "name": "shinyoshiaki"
-  },
-  "main": "./lib/sctp/src/index.js",
-  "types": "lib/sctp/src/index.d.ts",
-  "files": [
-    "lib"
-  ],
-  "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
-    "ci": "npm run type && npm run lint && npm run test",
-    "client": "ts-node --files --project tsconfig.json examples/client.ts",
-    "deploy": "npm run build && npm publish",
-    "format": "biome check --write src",
-    "server": "ts-node --files --project tsconfig.json examples/server.ts",
-    "test": "npm run type && vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli **/*.ts",
-    "upgrade-interactive": "npx npm-check-updates -i"
-  },
-  "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6",
-    "lodash": "^4.17.21",
-    "turbo-crc32": "^1.0.1"
-  },
-  "devDependencies": {
-    "@types/lodash": "^4.17.15"
-  },
-  "engines": {
-    "node": ">=10"
-  },
-  "readme": "README.md"
+	"name": "werift-sctp",
+	"version": "0.0.6",
+	"description": "SCTP protocol implementation for Node.js written in TypeScript.",
+	"homepage": "https://github.com/shinyoshiaki/werift-sctp",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/shinyoshiaki/werift-sctp.git"
+	},
+	"license": "MIT",
+	"author": {
+		"name": "shinyoshiaki"
+	},
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./lib/sctp/src/index.d.ts",
+			"require": "./lib/index.cjs",
+			"import": "./lib/index.mjs"
+		}
+	},
+	"main": "./lib/index.cjs",
+	"types": "./lib/sctp/src/index.d.ts",
+	"files": [
+		"lib"
+	],
+	"scripts": {
+		"build": "rm -rf lib && run-s format compile:*",
+		"compile:type": "tsc -p ./tsconfig.production.json",
+		"compile:cjs": "esbuild src/index.ts --bundle --packages=external --platform=node --format=cjs --target=es2022 --outdir=lib --out-extension:.js=.cjs && node lib/index.cjs",
+		"compile:esm": "esbuild src/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
+		"ci": "npm run type && npm run lint && npm run test",
+		"client": "ts-node --files --project tsconfig.json examples/client.ts",
+		"deploy": "npm run build && npm publish",
+		"format": "biome check --write src",
+		"server": "ts-node --files --project tsconfig.json examples/server.ts",
+		"test": "npm run type && vitest run ./tests",
+		"type": "tsc --noEmit -p .",
+		"unused": "organize-imports-cli **/*.ts",
+		"upgrade-interactive": "npx npm-check-updates -i"
+	},
+	"dependencies": {
+		"@shinyoshiaki/jspack": "^0.0.6",
+		"lodash": "^4.17.21",
+		"turbo-crc32": "^1.0.1"
+	},
+	"devDependencies": {
+		"@types/lodash": "^4.17.15"
+	},
+	"engines": {
+		"node": ">=10"
+	},
+	"readme": "README.md"
 }

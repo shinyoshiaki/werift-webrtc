@@ -1,4 +1,4 @@
-import { ClientKeyExchange } from "../../../../src/handshake/message/client/keyExchange";
+import { ClientKeyExchange } from "../../../../src/handshake/message/client/keyExchange.js";
 test("handshake/message/client/keyExchange", () => {
   const raw = Buffer.from([
     0x20, 0x26, 0x78, 0x4a, 0x78, 0x70, 0xc1, 0xf9, 0x71, 0xea, 0x50, 0x4a,

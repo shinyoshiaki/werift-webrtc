@@ -1,5 +1,5 @@
-import { MediaStreamTrack, RTCPeerConnection } from "../../src";
-import { RTCRtpSender } from "../../src/media/rtpSender";
+import { MediaStreamTrack, RTCPeerConnection } from "../../src/index.js";
+import { RTCRtpSender } from "../../src/media/rtpSender.js";
 
 // https://github.com/web-platform-tests/wpt/blob/master/webrtc/RTCPeerConnection-addTrack.https.html
 

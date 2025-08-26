@@ -1,10 +1,10 @@
-import { debug } from "../imports/common";
-import { RTCP_HEADER_SIZE, RtcpHeader } from "./header";
-import { RtcpPayloadSpecificFeedback } from "./psfb";
-import { RtcpRrPacket } from "./rr";
-import { RtcpTransportLayerFeedback } from "./rtpfb";
-import { RtcpSourceDescriptionPacket } from "./sdes";
-import { RtcpSrPacket } from "./sr";
+import { debug } from "../imports/common.js";
+import { RTCP_HEADER_SIZE, RtcpHeader } from "./header.js";
+import { RtcpPayloadSpecificFeedback } from "./psfb/index.js";
+import { RtcpRrPacket } from "./rr.js";
+import { RtcpTransportLayerFeedback } from "./rtpfb/index.js";
+import { RtcpSourceDescriptionPacket } from "./sdes.js";
+import { RtcpSrPacket } from "./sr.js";
 
 const log = debug("werift-rtp:packages/rtp/src/rtcp/rtcp.ts");
 

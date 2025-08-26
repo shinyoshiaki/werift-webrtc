@@ -1,6 +1,6 @@
-import { getBit, paddingByte } from "../../../common/src";
-import type { RtpHeader } from "../rtp/rtp";
-import type { DePacketizerBase } from "./base";
+import { getBit, paddingByte } from "../../../common/src/index.js";
+import type { RtpHeader } from "../rtp/rtp.js";
+import type { DePacketizerBase } from "./base.js";
 
 // RFC 7741 - RTP Payload Format for VP8 Video
 

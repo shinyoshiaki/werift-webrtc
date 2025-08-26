@@ -1,10 +1,10 @@
-import { NamedCurveAlgorithm } from "../../src/cipher/const";
+import { NamedCurveAlgorithm } from "../../src/cipher/const.js";
 import {
   prfEncryptionKeys,
   prfMasterSecret,
   prfPreMasterSecret,
   prfVerifyDataClient,
-} from "../../src/cipher/prf";
+} from "../../src/cipher/prf.js";
 
 describe("cipher/prf", () => {
   test("prfPreMasterSecret", () => {

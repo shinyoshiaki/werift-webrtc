@@ -7,29 +7,29 @@ import {
   DTLS_SETUP_ROLE,
   FMTP_INT_PARAMETERS,
   SSRC_INFO_ATTRS,
-} from "./const";
-import { divide } from "./helper";
-import { Candidate } from "./imports/ice";
+} from "./const.js";
+import { divide } from "./helper.js";
+import { Candidate } from "./imports/ice.js";
 import {
   RTCRtcpFeedback,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   type RTCRtpParameters,
   RTCRtpSimulcastParameters,
-} from "./media/parameters";
-import type { MediaDirection } from "./media/rtpTransceiver";
+} from "./media/parameters.js";
+import type { MediaDirection } from "./media/rtpTransceiver.js";
 import {
   type DtlsRole,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
-} from "./transport/dtls";
+} from "./transport/dtls.js";
 import {
   type IceCandidate,
   RTCIceParameters,
   candidateFromIce,
-} from "./transport/ice";
-import { RTCSctpCapabilities } from "./transport/sctp";
-import type { Kind } from "./types/domain";
+} from "./transport/ice.js";
+import { RTCSctpCapabilities } from "./transport/sctp.js";
+import type { Kind } from "./types/domain.js";
 
 export class SessionDescription {
   version = 0;

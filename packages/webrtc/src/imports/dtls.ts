@@ -1,1 +1,1 @@
-export * from "../../../dtls/src";
+export * from "../../../dtls/src/index.js";

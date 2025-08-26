@@ -1,4 +1,4 @@
-import { peer, sleep } from "../fixture";
+import { peer, sleep } from "../fixture.js";
 
 describe("datachannel", () => {
   it("answer", async () =>

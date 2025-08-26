@@ -1,9 +1,9 @@
 import { randomUUID } from "crypto";
 
-import { int } from "../..";
-import type { CodecFrame } from "./depacketizer";
-import type { AVProcessor } from "./interface";
-import type { MediaKind } from "./webm";
+import { int } from "../../index.js";
+import type { CodecFrame } from "./depacketizer.js";
+import type { AVProcessor } from "./interface.js";
+import type { MediaKind } from "./webm.js";
 
 export type LipsyncInput = {
   frame?: CodecFrame;

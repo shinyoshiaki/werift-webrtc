@@ -1,9 +1,9 @@
-import type { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
-import type { SessionTypes } from "../cipher/suites/abstract";
-import { debug } from "../imports/common";
-import type { FragmentedHandshake } from "../record/message/fragment";
-import type { Options } from "../socket";
-import type { Handshake } from "../typings/domain";
+import type { HashAlgorithms, SignatureAlgorithms } from "../cipher/const.js";
+import type { SessionTypes } from "../cipher/suites/abstract.js";
+import { debug } from "../imports/common.js";
+import type { FragmentedHandshake } from "../record/message/fragment.js";
+import type { Options } from "../socket.js";
+import type { Handshake } from "../typings/domain.js";
 
 const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 

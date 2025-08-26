@@ -3,9 +3,9 @@ import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
 import { v4 } from "uuid";
 
-import { randomPort } from "../imports/common";
-import { RtpPacket } from "../imports/rtp";
-import { MediaStreamTrack } from "../media/track";
+import { randomPort } from "../imports/common.js";
+import { RtpPacket } from "../imports/rtp.js";
+import { MediaStreamTrack } from "../media/track.js";
 
 export const getUserMedia = async ({
   path,

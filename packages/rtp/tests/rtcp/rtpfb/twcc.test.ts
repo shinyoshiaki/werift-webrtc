@@ -1,5 +1,5 @@
-import { RtcpHeader, RtcpPacketConverter } from "../../../src";
-import { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb";
+import { RtcpHeader, RtcpPacketConverter } from "../../../src/index.js";
+import { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb/index.js";
 import {
   PacketChunk,
   PacketStatus,
@@ -7,7 +7,7 @@ import {
   RunLengthChunk,
   StatusVectorChunk,
   TransportWideCC,
-} from "../../../src/rtcp/rtpfb/twcc";
+} from "../../../src/rtcp/rtpfb/twcc.js";
 
 describe("rtcp/rtpfb/twcc", () => {
   test("RunLength deserialize", () => {

@@ -1,9 +1,9 @@
 // RFC 6184 - RTP Payload Format for H.264 Video
 // pion/rtp
 
-import { BitStream, getBit } from "../../../common/src";
-import type { RtpHeader } from "../rtp/rtp";
-import type { DePacketizerBase } from "./base";
+import { BitStream, getBit } from "../../../common/src/index.js";
+import type { RtpHeader } from "../rtp/rtp.js";
+import type { DePacketizerBase } from "./base.js";
 
 // FU indicator octet
 // +---------------+

@@ -1,4 +1,4 @@
-import { Event, debug } from "../../imports/common";
+import { Event, debug } from "../../imports/common.js";
 
 import {
   GenericNack,
@@ -6,9 +6,9 @@ import {
   type RtpPacket,
   timer,
   uint16Add,
-} from "../..";
-import type { Processor } from "./interface";
-import type { RtpOutput } from "./rtpCallback";
+} from "../../index.js";
+import type { Processor } from "./interface.js";
+import type { RtpOutput } from "./rtpCallback.js";
 
 const log = debug("werift-rtp : packages/rtp/src/processor/nack.ts");
 

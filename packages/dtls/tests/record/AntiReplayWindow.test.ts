@@ -1,4 +1,4 @@
-﻿import { AntiReplayWindow } from "../../src/record/antiReplayWindow";
+﻿import { AntiReplayWindow } from "../../src/record/antiReplayWindow.js";
 
 describe("AntiReplayWindow =>", () => {
   it("constructor & reset", () => {

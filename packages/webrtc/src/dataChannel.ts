@@ -1,8 +1,8 @@
-import { Event, debug } from "./imports/common";
+import { Event, debug } from "./imports/common.js";
 
-import { EventTarget } from "./helper";
-import type { RTCSctpTransport } from "./transport/sctp";
-import type { Callback, CallbackWithValue } from "./types/util";
+import { EventTarget } from "./helper.js";
+import type { RTCSctpTransport } from "./transport/sctp.js";
+import type { Callback, CallbackWithValue } from "./types/util.js";
 
 const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
@@ -16,6 +16,9 @@ export interface DataChannelStats {
 export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
+  readonly onOpen = new Event();
+  readonly onClose = new Event();
+  readonly onError = new Event<[Error]>();
   readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
   readonly error = new Event<[Error]>();
@@ -114,10 +117,12 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
         case "open":
           if (this.onopen) this.onopen();
           this.emit("open");
+          this.onOpen.execute();
           break;
         case "closed":
           if (this.onclose) this.onclose();
           this.emit("close");
+          this.onClose.execute();
           break;
         case "closing":
           if (this.onclosing) this.onclosing();

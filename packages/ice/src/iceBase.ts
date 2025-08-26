@@ -1,16 +1,20 @@
 import { randomUUID } from "crypto";
-import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
-import type { MdnsLookup } from "./dns/lookup";
-import type { Cancelable } from "./helper";
+import {
+  Candidate,
+  candidateFoundation,
+  candidatePriority,
+} from "./candidate.js";
+import type { MdnsLookup } from "./dns/lookup.js";
+import type { Cancelable } from "./helper.js";
 import {
   type Address,
   type Event,
   type InterfaceAddresses,
   debug,
-} from "./imports/common";
-import { classes, methods } from "./stun/const";
-import { Message } from "./stun/message";
-import type { Protocol } from "./types/model";
+} from "./imports/common.js";
+import { classes, methods } from "./stun/const.js";
+import { Message } from "./stun/message.js";
+import type { Protocol } from "./types/model.js";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 

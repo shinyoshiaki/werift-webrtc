@@ -1,20 +1,20 @@
-import { CurveType, certificateTypes, signatures } from "../../cipher/const";
-import type { CipherContext } from "../../context/cipher";
-import type { DtlsContext } from "../../context/dtls";
-import type { SrtpContext } from "../../context/srtp";
-import type { TransportContext } from "../../context/transport";
-import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
-import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
-import { UseSRTP } from "../../handshake/extensions/useSrtp";
-import { Certificate } from "../../handshake/message/certificate";
-import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
-import { ServerHello } from "../../handshake/message/server/hello";
-import { ServerHelloDone } from "../../handshake/message/server/helloDone";
-import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
-import { debug } from "../../imports/common";
-import type { FragmentedHandshake } from "../../record/message/fragment";
-import type { Extension } from "../../typings/domain";
-import { Flight } from "../flight";
+import { CurveType, certificateTypes, signatures } from "../../cipher/const.js";
+import type { CipherContext } from "../../context/cipher.js";
+import type { DtlsContext } from "../../context/dtls.js";
+import type { SrtpContext } from "../../context/srtp.js";
+import type { TransportContext } from "../../context/transport.js";
+import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret.js";
+import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication.js";
+import { UseSRTP } from "../../handshake/extensions/useSrtp.js";
+import { Certificate } from "../../handshake/message/certificate.js";
+import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest.js";
+import { ServerHello } from "../../handshake/message/server/hello.js";
+import { ServerHelloDone } from "../../handshake/message/server/helloDone.js";
+import { ServerKeyExchange } from "../../handshake/message/server/keyExchange.js";
+import { debug } from "../../imports/common.js";
+import type { FragmentedHandshake } from "../../record/message/fragment.js";
+import type { Extension } from "../../typings/domain.js";
+import { Flight } from "../flight.js";
 
 const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
 

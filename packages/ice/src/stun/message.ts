@@ -1,8 +1,8 @@
 import { createHmac } from "crypto";
-import { jspack } from "@shinyoshiaki/jspack";
+//@ts-ignore
 import crc32 from "buffer-crc32";
 
-import { bufferXor, randomTransactionId } from "../helper";
+import { bufferXor, randomTransactionId } from "../helper.js";
 import {
   ATTRIBUTES_BY_NAME,
   ATTRIBUTES_BY_TYPE,
@@ -11,7 +11,7 @@ import {
   AttributeRepository,
   packXorAddress,
   unpackXorAddress,
-} from "./attributes";
+} from "./attributes.js";
 import {
   COOKIE,
   FINGERPRINT_LENGTH,
@@ -20,7 +20,7 @@ import {
   INTEGRITY_LENGTH,
   classes,
   methods,
-} from "./const";
+} from "./const.js";
 
 export function parseMessage(
   data: Buffer,

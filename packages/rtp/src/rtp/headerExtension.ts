@@ -1,5 +1,9 @@
-import { BitStream, bufferReader, bufferWriter } from "../../../common/src";
-import type { Extension } from "./rtp";
+import {
+  BitStream,
+  bufferReader,
+  bufferWriter,
+} from "../../../common/src/index.js";
+import type { Extension } from "./rtp.js";
 
 export const RTP_EXTENSION_URI = {
   sdesMid: "urn:ietf:params:rtp-hdrext:sdes:mid",

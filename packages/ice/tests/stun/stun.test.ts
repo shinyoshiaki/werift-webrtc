@@ -1,7 +1,7 @@
-import { classes, methods } from "../../src/stun/const";
-import { Message, parseMessage } from "../../src/stun/message";
-import { Transaction } from "../../src/stun/transaction";
-import { readMessage } from "../utils";
+import { classes, methods } from "../../src/stun/const.js";
+import { Message, parseMessage } from "../../src/stun/message.js";
+import { Transaction } from "../../src/stun/transaction.js";
+import { readMessage } from "../utils.js";
 
 describe("stun", () => {
   test("test_binding_request", () => {

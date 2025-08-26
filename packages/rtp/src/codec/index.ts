@@ -1,17 +1,17 @@
-import type { RtpPacket } from "../rtp/rtp";
-import { AV1RtpPayload } from "./av1";
-import type { DePacketizerBase } from "./base";
-import { H264RtpPayload } from "./h264";
-import { OpusRtpPayload } from "./opus";
-import { Vp8RtpPayload } from "./vp8";
-import { Vp9RtpPayload } from "./vp9";
+import type { RtpPacket } from "../rtp/rtp.js";
+import { AV1RtpPayload } from "./av1.js";
+import type { DePacketizerBase } from "./base.js";
+import { H264RtpPayload } from "./h264.js";
+import { OpusRtpPayload } from "./opus.js";
+import { Vp8RtpPayload } from "./vp8.js";
+import { Vp9RtpPayload } from "./vp9.js";
 
-export * from "./av1";
-export * from "./base";
-export * from "./h264";
-export * from "./opus";
-export * from "./vp8";
-export * from "./vp9";
+export * from "./av1.js";
+export * from "./base.js";
+export * from "./h264.js";
+export * from "./opus.js";
+export * from "./vp8.js";
+export * from "./vp9.js";
 
 export function dePacketizeRtpPackets(
   codec: DepacketizerCodec,

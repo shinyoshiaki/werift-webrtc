@@ -1,7 +1,7 @@
-import { Event } from "../../imports/common";
+import { Event } from "../../imports/common.js";
 
-import type { RtcpPacket } from "../..";
-import type { SimpleProcessorCallback } from "./interface";
+import type { RtcpPacket } from "../../index.js";
+import type { SimpleProcessorCallback } from "./interface.js";
 
 export type RtcpInput = RtcpPacket;
 

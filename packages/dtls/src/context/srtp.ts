@@ -1,4 +1,4 @@
-import type { SrtpProfile } from "../imports/rtp";
+import type { SrtpProfile } from "../imports/rtp.js";
 
 export class SrtpContext {
   srtpProfile?: SrtpProfile;

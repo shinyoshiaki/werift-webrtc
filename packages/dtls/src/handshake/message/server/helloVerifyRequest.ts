@@ -1,9 +1,9 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import type { Handshake } from "../../../typings/domain";
-import { ProtocolVersion } from "../../binary";
-import { HandshakeType } from "../../const";
+import { FragmentedHandshake } from "../../../record/message/fragment.js";
+import type { Handshake } from "../../../typings/domain.js";
+import { ProtocolVersion } from "../../binary.js";
+import { HandshakeType } from "../../const.js";
 
 // 4.2.1.  Denial-of-Service Countermeasures
 

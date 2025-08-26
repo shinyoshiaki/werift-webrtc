@@ -1,5 +1,5 @@
-import type { HandshakeType } from "../handshake/const";
-import type { FragmentedHandshake } from "../record/message/fragment";
+import type { HandshakeType } from "../handshake/const.js";
+import type { FragmentedHandshake } from "../record/message/fragment.js";
 
 export type Version = { major: number; minor: number };
 export type Random = { gmt_unix_time: number; random_bytes: Buffer };

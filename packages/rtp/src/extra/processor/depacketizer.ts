@@ -1,4 +1,4 @@
-import { Event, debug } from "../../imports/common";
+import { Event, debug } from "../../imports/common.js";
 
 import {
   type DepacketizerCodec,
@@ -8,8 +8,8 @@ import {
   enumerate,
   uint16Add,
   uint16Gt,
-} from "../..";
-import type { Processor } from "./interface";
+} from "../../index.js";
+import type { Processor } from "./interface.js";
 
 const path = `werift-rtp : packages/rtp/src/processor/depacketizer.ts`;
 const log = debug(path);

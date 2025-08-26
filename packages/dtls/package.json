@@ -1,48 +1,59 @@
 {
-  "name": "werift-dtls",
-  "version": "0.5.7",
-  "description": "DTLS protocol implementation for Node.js written in TypeScript.",
-  "homepage": "https://github.com/shinyoshiaki/werift-dtls",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/shinyoshiaki/werift-dtls.git"
-  },
-  "license": "MIT",
-  "author": {
-    "name": "shinyoshiaki"
-  },
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
-  "files": [
-    "lib"
-  ],
-  "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
-    "ci": "npm run type && npm run test",
-    "client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
-    "dep": "depcheck",
-    "deploy": "npm run build && npm publish",
-    "format": "biome check --write src tests",
-    "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
-    "test": "vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts",
-    "upgrade-interactive": "npx npm-check-updates -i"
-  },
-  "dependencies": {
-    "@fidm/x509": "^1.2.1",
-    "@noble/curves": "^1.8.1",
-    "@peculiar/x509": "^1.12.3",
-    "@shinyoshiaki/binary-data": "^0.6.1",
-    "date-fns": "^4.1.0",
-    "lodash": "^4.17.21",
-    "tweetnacl": "^1.0.3"
-  },
-  "devDependencies": {
-    "@types/lodash": "^4.17.15"
-  },
-  "engines": {
-    "node": ">=16"
-  },
-  "readme": "README.md"
+	"name": "werift-dtls",
+	"version": "0.5.7",
+	"description": "DTLS protocol implementation for Node.js written in TypeScript.",
+	"homepage": "https://github.com/shinyoshiaki/werift-dtls",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/shinyoshiaki/werift-dtls.git"
+	},
+	"license": "MIT",
+	"author": {
+		"name": "shinyoshiaki"
+	},
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./lib/dtls/src/index.d.ts",
+			"require": "./lib/index.cjs",
+			"import": "./lib/index.mjs"
+		}
+	},
+	"main": "./lib/index.cjs",
+	"types": "./lib/dtls/src/index.d.ts",
+	"files": [
+		"lib"
+	],
+	"scripts": {
+		"build": "rm -rf lib && run-s format compile:*",
+		"compile:type": "tsc -p ./tsconfig.production.json",
+		"compile:cjs": "esbuild src/index.ts --bundle --packages=external --platform=node --format=cjs --target=es2022 --outdir=lib --out-extension:.js=.cjs && node lib/index.cjs",
+		"compile:esm": "esbuild src/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
+		"ci": "npm run type && npm run test",
+		"client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
+		"dep": "depcheck",
+		"deploy": "npm run build && npm publish",
+		"format": "biome check --write src tests",
+		"server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
+		"test": "vitest run ./tests",
+		"type": "tsc --noEmit -p .",
+		"unused": "organize-imports-cli src/**/*.ts",
+		"upgrade-interactive": "npx npm-check-updates -i"
+	},
+	"dependencies": {
+		"@fidm/x509": "^1.2.1",
+		"@noble/curves": "^1.8.1",
+		"@peculiar/x509": "^1.12.3",
+		"@shinyoshiaki/binary-data": "^0.6.1",
+		"date-fns": "^4.1.0",
+		"lodash": "^4.17.21",
+		"tweetnacl": "^1.0.3"
+	},
+	"devDependencies": {
+		"@types/lodash": "^4.17.15"
+	},
+	"engines": {
+		"node": ">=16"
+	},
+	"readme": "README.md"
 }

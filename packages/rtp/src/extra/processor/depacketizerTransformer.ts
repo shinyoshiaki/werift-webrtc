@@ -1,12 +1,12 @@
 import { TransformStream } from "stream/web";
 
-import type { DepacketizerCodec } from "../../codec";
+import type { DepacketizerCodec } from "../../codec/index.js";
 import {
   DepacketizeBase,
   type DepacketizerInput,
   type DepacketizerOptions,
   type DepacketizerOutput,
-} from "./depacketizer";
+} from "./depacketizer.js";
 
 export const depacketizeTransformer = (
   ...args: ConstructorParameters<typeof DepacketizeTransformer>

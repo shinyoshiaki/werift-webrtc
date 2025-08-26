@@ -1,4 +1,4 @@
-import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
+import { Counter, peer, sleep, waitVideoPlay } from "../fixture.js";
 
 describe("combination_all_media", () => {
   it("combination_all_media_answer", async () =>

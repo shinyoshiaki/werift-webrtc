@@ -1,5 +1,5 @@
-import { uint32Add } from "../../../../common/src";
-import { Red } from "./packet";
+import { uint32Add } from "../../../../common/src/index.js";
+import { Red } from "./packet.js";
 
 export class RedEncoder {
   private cache: { block: Buffer; timestamp: number; blockPT: number }[] = [];

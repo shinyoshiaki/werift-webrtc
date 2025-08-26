@@ -1,34 +1,34 @@
-import { SignatureAlgorithm, SignatureScheme } from "../../cipher/const";
-import { createCipher } from "../../cipher/create";
-import { generateKeyPair } from "../../cipher/namedCurve";
+import { SignatureAlgorithm, SignatureScheme } from "../../cipher/const.js";
+import { createCipher } from "../../cipher/create.js";
+import { generateKeyPair } from "../../cipher/namedCurve.js";
 import {
   prfExtendedMasterSecret,
   prfMasterSecret,
   prfPreMasterSecret,
-} from "../../cipher/prf";
-import type { CipherContext } from "../../context/cipher";
-import type { DtlsContext } from "../../context/dtls";
-import { SrtpContext } from "../../context/srtp";
-import type { TransportContext } from "../../context/transport";
-import { HandshakeType } from "../../handshake/const";
-import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
-import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
-import { UseSRTP } from "../../handshake/extensions/useSrtp";
-import { Certificate } from "../../handshake/message/certificate";
-import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec";
-import { CertificateVerify } from "../../handshake/message/client/certificateVerify";
-import { ClientKeyExchange } from "../../handshake/message/client/keyExchange";
-import { Finished } from "../../handshake/message/finished";
-import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
-import { ServerHello } from "../../handshake/message/server/hello";
-import { ServerHelloDone } from "../../handshake/message/server/helloDone";
-import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
-import { DtlsRandom } from "../../handshake/random";
-import { type SrtpProfile, debug } from "../../imports/rtp";
-import { createPlaintext } from "../../record/builder";
-import { ContentType } from "../../record/const";
-import type { FragmentedHandshake } from "../../record/message/fragment";
-import { Flight } from "../flight";
+} from "../../cipher/prf.js";
+import type { CipherContext } from "../../context/cipher.js";
+import type { DtlsContext } from "../../context/dtls.js";
+import { SrtpContext } from "../../context/srtp.js";
+import type { TransportContext } from "../../context/transport.js";
+import { HandshakeType } from "../../handshake/const.js";
+import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret.js";
+import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication.js";
+import { UseSRTP } from "../../handshake/extensions/useSrtp.js";
+import { Certificate } from "../../handshake/message/certificate.js";
+import { ChangeCipherSpec } from "../../handshake/message/changeCipherSpec.js";
+import { CertificateVerify } from "../../handshake/message/client/certificateVerify.js";
+import { ClientKeyExchange } from "../../handshake/message/client/keyExchange.js";
+import { Finished } from "../../handshake/message/finished.js";
+import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest.js";
+import { ServerHello } from "../../handshake/message/server/hello.js";
+import { ServerHelloDone } from "../../handshake/message/server/helloDone.js";
+import { ServerKeyExchange } from "../../handshake/message/server/keyExchange.js";
+import { DtlsRandom } from "../../handshake/random.js";
+import { type SrtpProfile, debug } from "../../imports/rtp.js";
+import { createPlaintext } from "../../record/builder.js";
+import { ContentType } from "../../record/const.js";
+import type { FragmentedHandshake } from "../../record/message/fragment.js";
+import { Flight } from "../flight.js";
 
 const log = debug(
   "werift-dtls : packages/dtls/src/flight/client/flight5.ts : log",

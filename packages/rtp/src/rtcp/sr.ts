@@ -1,6 +1,6 @@
-import { bufferReader, bufferWriter } from "../../../common/src";
-import { RtcpReceiverInfo } from "./rr";
-import { RtcpPacketConverter } from "./rtcp";
+import { bufferReader, bufferWriter } from "../../../common/src/index.js";
+import { RtcpReceiverInfo } from "./rr.js";
+import { RtcpPacketConverter } from "./rtcp.js";
 
 // https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 //         0                   1                   2                   3

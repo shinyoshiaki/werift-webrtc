@@ -5,8 +5,8 @@ import {
   createECDHERSAKeyExchange,
   createPSKKeyExchange,
   createRSAKeyExchange,
-} from "./key-exchange";
-import AEADCipher from "./suites/aead";
+} from "./key-exchange.js";
+import AEADCipher from "./suites/aead.js";
 
 const cipherSuites = {
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b,

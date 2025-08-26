@@ -11,15 +11,15 @@ import {
   type RtpPacket,
   debug,
   rtpHeaderExtensionsParser,
-} from "../imports/rtp";
+} from "../imports/rtp.js";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
-} from "./parameters";
-import { RTCRtpReceiver } from "./rtpReceiver";
-import type { RTCRtpSender } from "./rtpSender";
-import type { RTCRtpTransceiver } from "./rtpTransceiver";
-import { MediaStreamTrack } from "./track";
+} from "./parameters.js";
+import { RTCRtpReceiver } from "./rtpReceiver.js";
+import type { RTCRtpSender } from "./rtpSender.js";
+import type { RTCRtpTransceiver } from "./rtpTransceiver.js";
+import { MediaStreamTrack } from "./track.js";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 

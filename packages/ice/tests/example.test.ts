@@ -1,4 +1,4 @@
-import { Connection } from "../src";
+import { Connection } from "../src/index.js";
 
 test("example", async () => {
   const a = new Connection(true, {

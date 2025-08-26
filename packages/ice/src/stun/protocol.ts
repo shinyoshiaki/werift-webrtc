@@ -1,12 +1,15 @@
-import { Event, UdpTransport, debug } from "../imports/common";
+import { Event, UdpTransport, debug } from "../imports/common.js";
 
-import type { Address, InterfaceAddresses } from "../../../common/src/network";
-import type { Candidate } from "../candidate";
+import type {
+  Address,
+  InterfaceAddresses,
+} from "../../../common/src/network.js";
+import type { Candidate } from "../candidate.js";
 
-import type { Protocol } from "../types/model";
-import { classes } from "./const";
-import { type Message, parseMessage } from "./message";
-import { Transaction } from "./transaction";
+import type { Protocol } from "../types/model.js";
+import { classes } from "./const.js";
+import { type Message, parseMessage } from "./message.js";
+import { Transaction } from "./transaction.js";
 
 const log = debug("werift-ice : packages/ice/src/stun/protocol.ts");
 

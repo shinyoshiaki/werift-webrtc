@@ -1,4 +1,4 @@
-import type { RTCPFB } from "../parameters";
+import type { RTCPFB } from "../parameters.js";
 
 export const useFIR = (): RTCPFB => ({ type: "ccm", parameter: "fir" });
 

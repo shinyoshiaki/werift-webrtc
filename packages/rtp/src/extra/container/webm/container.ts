@@ -1,8 +1,8 @@
 import { createCipheriv, randomBytes, randomFillSync } from "crypto";
 
-import { BitWriter2, BufferChain } from "../../../../../common/src";
-import { OpusRtpPayload } from "../../../codec";
-import * as EBML from "./ebml";
+import { BitWriter2, BufferChain } from "../../../../../common/src/index.js";
+import { OpusRtpPayload } from "../../../codec/index.js";
+import * as EBML from "./ebml/index.js";
 
 export class WEBMContainer {
   readonly ebmlHeader = EBML.build(

@@ -3,7 +3,7 @@ import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-} from "../../src";
+} from "../../src/index.js";
 
 describe("codec negotiation", () => {
   describe("red negotiation", () => {

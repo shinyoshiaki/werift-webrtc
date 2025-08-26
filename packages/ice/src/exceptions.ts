@@ -1,5 +1,5 @@
-import type { Address } from "./imports/common";
-import type { Message } from "./stun/message";
+import type { Address } from "./imports/common.js";
+import type { Message } from "./stun/message.js";
 
 export class TransactionError extends Error {
   response?: Message;

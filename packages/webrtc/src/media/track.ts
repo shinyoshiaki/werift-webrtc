@@ -1,15 +1,15 @@
 import { v4 } from "uuid";
-import { Event } from "../imports/common";
+import { Event } from "../imports/common.js";
 
-import { EventTarget } from "../helper";
+import { EventTarget } from "../helper.js";
 import {
   type Extensions,
   type RtcpPacket,
   type RtpHeader,
   RtpPacket,
-} from "../imports/rtp";
-import type { Kind } from "../types/domain";
-import type { RTCRtpCodecParameters } from "./parameters";
+} from "../imports/rtp.js";
+import type { Kind } from "../types/domain.js";
+import type { RTCRtpCodecParameters } from "./parameters.js";
 
 export class MediaStreamTrack extends EventTarget {
   readonly uuid = v4();

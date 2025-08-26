@@ -1,4 +1,4 @@
-import { peer, sleep, waitVideoPlay } from "../fixture";
+import { peer, sleep, waitVideoPlay } from "../fixture.js";
 
 describe("mediachannel_simulcast", () => {
   it("mediachannel_simulcast_answer", async () =>

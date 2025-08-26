@@ -1,12 +1,12 @@
-import { SessionType } from "./cipher/suites/abstract";
-import { Flight1 } from "./flight/client/flight1";
-import { Flight3 } from "./flight/client/flight3";
-import { Flight5 } from "./flight/client/flight5";
-import { HandshakeType } from "./handshake/const";
-import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
-import { debug } from "./imports/common";
-import type { FragmentedHandshake } from "./record/message/fragment";
-import { DtlsSocket, type Options } from "./socket";
+import { SessionType } from "./cipher/suites/abstract.js";
+import { Flight1 } from "./flight/client/flight1.js";
+import { Flight3 } from "./flight/client/flight3.js";
+import { Flight5 } from "./flight/client/flight5.js";
+import { HandshakeType } from "./handshake/const.js";
+import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest.js";
+import { debug } from "./imports/common.js";
+import type { FragmentedHandshake } from "./record/message/fragment.js";
+import { DtlsSocket, type Options } from "./socket.js";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 

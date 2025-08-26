@@ -1,8 +1,8 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { FragmentedHandshake } from "../../../record/message/fragment";
-import type { Handshake } from "../../../typings/domain";
-import { HandshakeType } from "../../const";
+import { FragmentedHandshake } from "../../../record/message/fragment.js";
+import type { Handshake } from "../../../typings/domain.js";
+import { HandshakeType } from "../../const.js";
 
 export class ClientKeyExchange implements Handshake {
   msgType = HandshakeType.client_key_exchange_16;

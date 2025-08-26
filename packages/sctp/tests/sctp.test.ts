@@ -1,9 +1,9 @@
 import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
 
-import { SCTP, SCTP_STATE } from "../src";
-import { StreamAddOutgoingParam } from "../src/param";
-import { createUdpTransport } from "../src/transport";
+import { SCTP, SCTP_STATE } from "../src/index.js";
+import { StreamAddOutgoingParam } from "../src/param.js";
+import { createUdpTransport } from "../src/transport.js";
 
 describe("sctp", () => {
   test("test_connect_client_limits_streams", async () => {

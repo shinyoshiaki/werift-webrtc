@@ -1,7 +1,7 @@
-import { Connection, Candidate } from "../../../ice/src";
+import { Connection, Candidate } from "../../../ice/src/index.js";
 import readline from "readline";
-import { DtlsClient } from "../../src";
-import { createIceTransport } from "../transport/ice";
+import { DtlsClient } from "../../src/index.js";
+import { createIceTransport } from "../transport/ice.js";
 
 const reader = readline.createInterface({
   input: process.stdin,

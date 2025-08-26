@@ -1,55 +1,61 @@
 {
-  "name": "werift-rtp",
-  "version": "0.8.4",
-  "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
-  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
-  },
-  "license": "MIT",
-  "author": {
-    "name": "shinyoshiaki"
-  },
-  "exports": {
-    ".": {
-      "types": "./lib/rtp/src/index.d.ts",
-      "default": "./lib/rtp/src/index.js"
-    },
-    "./extra": {
-      "types": "./lib/rtp/src/extra/index.d.ts",
-      "default": "./lib/rtp/src/extra/index.js"
-    }
-  },
-  "main": "lib/rtp/src/index.js",
-  "types": "lib/rtp/src/index.d.ts",
-  "files": [
-    "lib"
-  ],
-  "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
-    "ci": "npm run type && npm run lint && npm run test",
-    "deploy": "npm run build && npm publish",
-    "deploy:alpha": "npm run build && npm publish --tag alpha",
-    "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
-    "format": "biome check --write src tests",
-    "test": "npm run type && vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts",
-    "upgrade-interactive": "npx npm-check-updates -i"
-  },
-  "dependencies": {
-    "@minhducsun2002/leb128": "^1.0.0",
-    "aes-js": "^3.1.2",
-    "buffer": "^6.0.3",
-    "@shinyoshiaki/jspack": "^0.0.6",
-    "mp4box": "^0.5.3"
-  },
-  "devDependencies": {
-    "@types/aes-js": "^3.1.4"
-  },
-  "engines": {
-    "node": ">=10"
-  },
-  "readme": "README.md"
+	"name": "werift-rtp",
+	"version": "0.8.4",
+	"description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
+	"homepage": "https://github.com/shinyoshiaki/werift-webrtc",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/shinyoshiaki/werift-webrtc.git"
+	},
+	"license": "MIT",
+	"author": {
+		"name": "shinyoshiaki"
+	},
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./lib/rtp/src/index.d.ts",
+			"require": "./lib/index.cjs",
+			"import": "./lib/index.mjs"
+		},
+		"./extra": {
+			"types": "./lib/rtp/src/extra/index.d.ts",
+			"require": "./lib/extra/index.cjs",
+			"import": "./lib/extra/index.mjs"
+		}
+	},
+	"main": "lib/index.cjs",
+	"types": "lib/rtp/src/index.d.ts",
+	"files": [
+		"lib"
+	],
+	"scripts": {
+		"build": "rm -rf lib && run-s format compile:*",
+		"compile:type": "tsc -p ./tsconfig.production.json",
+		"compile:cjs": "esbuild src/index.ts src/extra/index.ts --bundle --packages=external --platform=node --format=cjs --target=es2022 --outdir=lib --out-extension:.js=.cjs && node lib/index.cjs",
+		"compile:esm": "esbuild src/index.ts src/extra/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
+		"ci": "npm run type && npm run lint && npm run test",
+		"deploy": "npm run build && npm publish",
+		"deploy:alpha": "npm run build && npm publish --tag alpha",
+		"doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
+		"format": "biome check --write src tests",
+		"test": "npm run type && vitest run ./tests",
+		"type": "tsc --noEmit -p .",
+		"unused": "organize-imports-cli src/**/*.ts",
+		"upgrade-interactive": "npx npm-check-updates -i"
+	},
+	"dependencies": {
+		"@minhducsun2002/leb128": "^1.0.0",
+		"@shinyoshiaki/jspack": "^0.0.6",
+		"aes-js": "^3.1.2",
+		"buffer": "^6.0.3",
+		"mp4box": "^0.5.3"
+	},
+	"devDependencies": {
+		"@types/aes-js": "^3.1.4"
+	},
+	"engines": {
+		"node": ">=10"
+	},
+	"readme": "README.md"
 }

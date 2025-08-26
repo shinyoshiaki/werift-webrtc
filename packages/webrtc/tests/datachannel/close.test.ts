@@ -1,4 +1,4 @@
-import { createDataChannelPair } from "../utils";
+import { createDataChannelPair } from "../utils.js";
 
 describe.each([{}, { negotiated: true, id: 0 }])(
   "datachannel/close",

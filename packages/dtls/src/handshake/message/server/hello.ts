@@ -1,16 +1,16 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import type { CipherSuites } from "../../../cipher/const";
-import { FragmentedHandshake } from "../../../record/message/fragment";
+import type { CipherSuites } from "../../../cipher/const.js";
+import { FragmentedHandshake } from "../../../record/message/fragment.js";
 import type {
   Extension,
   Handshake,
   Random,
   Version,
-} from "../../../typings/domain";
-import { ExtensionList, ProtocolVersion } from "../../binary";
-import { HandshakeType } from "../../const";
-import { DtlsRandom } from "../../random";
+} from "../../../typings/domain.js";
+import { ExtensionList, ProtocolVersion } from "../../binary.js";
+import { HandshakeType } from "../../const.js";
+import { DtlsRandom } from "../../random.js";
 
 // 7.4.1.3.  Server Hello
 

@@ -25,9 +25,8 @@ import { jspack } from "@shinyoshiaki/jspack";
 
 import { setTimeout } from "timers/promises";
 import * as uuid from "uuid";
-import { Event, random16, uint16Add, uint32Add } from "../imports/common";
+import { Event, random16, uint16Add, uint32Add } from "../imports/common.js";
 
-import { codecParametersFromString } from "..";
 import {
   type Extension,
   GenericNack,
@@ -54,16 +53,17 @@ import {
   serializeSdesRTPStreamID,
   serializeTransportWideCC,
   wrapRtx,
-} from "../imports/rtp";
-import type { RTCDtlsTransport } from "../transport/dtls";
-import type { Kind } from "../types/domain";
-import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
+} from "../imports/rtp.js";
+import { codecParametersFromString } from "../index.js";
+import type { RTCDtlsTransport } from "../transport/dtls.js";
+import type { Kind } from "../types/domain.js";
+import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils.js";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
-} from "./parameters";
-import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
+} from "./parameters.js";
+import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE.js";
 import {
   type RTCMediaSourceStats,
   type RTCOutboundRtpStreamStats,
@@ -71,8 +71,8 @@ import {
   type RTCStats,
   generateStatsId,
   getStatsTimestamp,
-} from "./stats";
-import type { MediaStreamTrack } from "./track";
+} from "./stats.js";
+import type { MediaStreamTrack } from "./track.js";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 

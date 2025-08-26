@@ -1,11 +1,11 @@
-import { CipherSuiteList } from "../../cipher/const";
-import type { CipherContext } from "../../context/cipher";
-import type { DtlsContext } from "../../context/dtls";
-import type { TransportContext } from "../../context/transport";
-import { ClientHello } from "../../handshake/message/client/hello";
-import { DtlsRandom } from "../../handshake/random";
-import type { Extension } from "../../typings/domain";
-import { Flight } from "../flight";
+import { CipherSuiteList } from "../../cipher/const.js";
+import type { CipherContext } from "../../context/cipher.js";
+import type { DtlsContext } from "../../context/dtls.js";
+import type { TransportContext } from "../../context/transport.js";
+import { ClientHello } from "../../handshake/message/client/hello.js";
+import { DtlsRandom } from "../../handshake/random.js";
+import type { Extension } from "../../typings/domain.js";
+import { Flight } from "../flight.js";
 
 export class Flight1 extends Flight {
   constructor(

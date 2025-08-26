@@ -9,8 +9,8 @@ import {
   RtpHeader,
   RtpPacket,
   defaultPeerConfig,
-} from "../src";
-import { RtpRouter } from "../src/media/router";
+} from "../src/index.js";
+import { RtpRouter } from "../src/media/router.js";
 
 export const createRtpPacket = () => {
   const header = new RtpHeader({

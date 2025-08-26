@@ -1,4 +1,4 @@
-import type { MediaDirection } from "./rtpTransceiver";
+import type { MediaDirection } from "./rtpTransceiver.js";
 
 export interface RTCRtpParameters {
   codecs: RTCRtpCodecParameters[];

@@ -1,9 +1,9 @@
-import { type HashAlgorithms, SignatureAlgorithm } from "./imports/dtls";
+import { type HashAlgorithms, SignatureAlgorithm } from "./imports/dtls.js";
 import {
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
-} from "./imports/rtp";
-import type { DtlsRole } from "./transport/dtls";
+} from "./imports/rtp.js";
+import type { DtlsRole } from "./transport/dtls.js";
 
 // data channel export constants
 export const DATA_CHANNEL_ACK = 2;

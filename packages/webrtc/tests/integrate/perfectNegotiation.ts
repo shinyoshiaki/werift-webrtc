@@ -2,7 +2,7 @@ import type {
   RTCIceCandidate,
   RTCPeerConnection,
   RTCSessionDescription,
-} from "../../src";
+} from "../../src/index.js";
 
 // https://w3c.github.io/webrtc-pc/#perfect-negotiation-example
 

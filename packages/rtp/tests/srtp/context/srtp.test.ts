@@ -1,5 +1,5 @@
-import { RtpHeader, RtpPacket } from "../../../src/rtp/rtp";
-import { SrtpContext } from "../../../src/srtp/context/srtp";
+import { RtpHeader, RtpPacket } from "../../../src/rtp/rtp.js";
+import { SrtpContext } from "../../../src/srtp/context/srtp.js";
 
 describe("srtp/context/srtp", () => {
   function buildTestContext() {

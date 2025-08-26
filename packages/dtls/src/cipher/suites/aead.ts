@@ -1,13 +1,13 @@
 import * as crypto from "crypto";
 
-import { dumpBuffer, getObjectSummary } from "../../helper";
-import { debug } from "../../imports/common";
-import { prfEncryptionKeys } from "../prf";
+import { dumpBuffer, getObjectSummary } from "../../helper.js";
+import { debug } from "../../imports/common.js";
+import { prfEncryptionKeys } from "../prf.js";
 import Cipher, {
   type CipherHeader,
   SessionType,
   type SessionTypes,
-} from "./abstract";
+} from "./abstract.js";
 
 const err = debug(
   "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err",

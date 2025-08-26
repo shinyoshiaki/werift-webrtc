@@ -1,14 +1,14 @@
 import {
+  type BundlePolicy,
+  NamedCurveAlgorithm,
+} from "../../packages/webrtc/src/index.js";
+import {
   type DtlsKeys,
   HashAlgorithm,
   type PeerConfig,
   SignatureAlgorithm,
   createSelfSignedCertificate,
-} from ".";
-import {
-  type BundlePolicy,
-  NamedCurveAlgorithm,
-} from "../../packages/webrtc/src";
+} from "./index.js";
 
 export class DtlsKeysContext {
   private static rsa: DtlsKeys;

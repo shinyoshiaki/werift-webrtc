@@ -1,13 +1,13 @@
 import { type ChildProcess, spawn } from "child_process";
 import { createSocket } from "dgram";
 import type { AcceptFn } from "protoo-server";
+import { DtlsKeysContext } from "../../fixture.js";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   randomPort,
-} from "../../";
-import { DtlsKeysContext } from "../../fixture";
+} from "../../index.js";
 
 export class mediachannel_red_client_answer {
   pc!: RTCPeerConnection;

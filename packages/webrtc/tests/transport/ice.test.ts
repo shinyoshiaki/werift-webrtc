@@ -1,6 +1,6 @@
 import inRange from "lodash/inRange";
 
-import { RTCIceGatherer, RTCIceTransport } from "../../src";
+import { RTCIceGatherer, RTCIceTransport } from "../../src/index.js";
 
 describe("iceTransport", () => {
   test("test_connect", async () => {

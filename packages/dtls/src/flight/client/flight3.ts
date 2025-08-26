@@ -1,9 +1,9 @@
-import type { DtlsContext } from "../../context/dtls";
-import type { TransportContext } from "../../context/transport";
-import type { ClientHello } from "../../handshake/message/client/hello";
-import type { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
-import { debug } from "../../imports/common";
-import { Flight } from "../flight";
+import type { DtlsContext } from "../../context/dtls.js";
+import type { TransportContext } from "../../context/transport.js";
+import type { ClientHello } from "../../handshake/message/client/hello.js";
+import type { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest.js";
+import { debug } from "../../imports/common.js";
+import { Flight } from "../flight.js";
 
 const log = debug(
   "werift-dtls : packages/dtls/src/flight/client/flight3.ts : log",

@@ -1,4 +1,4 @@
-import { BitWriter, getBit } from "../../../common/src";
+import { BitWriter, getBit } from "../../../common/src/index.js";
 
 export type Extension = { id: number; payload: Buffer };
 
