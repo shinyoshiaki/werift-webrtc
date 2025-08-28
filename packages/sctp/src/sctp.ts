@@ -1072,43 +1072,21 @@ export class SCTP {
 
   private timerReconfigHandleExpired = async () => {
     this.timerReconfigFailures++;
-    // back off, but not too aggressively
-    this.rto = Math.min(Math.ceil(this.rto * 1.5), SCTP_RTO_MAX);
+    // back off
+    this.rto = Math.ceil(this.rto * 1.5);
 
-    // Limit reconfiguration failures to prevent connection termination
-    // Only terminate if we've had many consecutive failures without any success
-    if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS * 2) {
-      log("timerReconfigFailures exceeded limit", this.timerReconfigFailures);
-      // Instead of immediately closing, try to resend the request one more time
-      if (this.reconfigRequest) {
-        log("Attempting final reconfig request before closing connection");
-        try {
-          await this.sendReconfigParam(this.reconfigRequest);
-          // If successful, reset the failure count and restart the timer
-          this.timerReconfigFailures = 0;
-          this.timerReconfigHandle = setTimeout(
-            this.timerReconfigHandleExpired,
-            this.rto * 1000,
-          );
-          return;
-        } catch (e) {
-          log("Final reconfig request failed, closing connection", e);
-        }
-      }
-      
+    if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
+      log("timerReconfigFailures", this.timerReconfigFailures);
       this.setState(SCTP_STATE.CLOSED);
+
       this.timerReconfigHandle = undefined;
     } else if (this.reconfigRequest) {
       log("timerReconfigHandleExpired", this.timerReconfigFailures, this.rto);
-      try {
-        await this.sendReconfigParam(this.reconfigRequest);
-      } catch (e) {
-        log("Failed to send reconfig param", e);
-      }
+      await this.sendReconfigParam(this.reconfigRequest);
 
       this.timerReconfigHandle = setTimeout(
         this.timerReconfigHandleExpired,
-        this.rto * 1000,
+        this.rto * 1000
       );
     }
   };
