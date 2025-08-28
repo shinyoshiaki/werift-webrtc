@@ -481,7 +481,10 @@ export class SCTP {
             p.streams.map(async (streamId) => {
               delete this.inboundStreams[streamId];
               if (this.outboundStreamSeq[streamId]) {
-                this.reconfigQueue.push(streamId);
+                // Only add to reconfigQueue if not already present
+                if (!this.reconfigQueue.includes(streamId)) {
+                  this.reconfigQueue.push(streamId);
+                }
                 // await this.sendResetRequest(streamId);
               }
             }),
@@ -513,6 +516,9 @@ export class SCTP {
 
             this.reconfigRequest = undefined;
             this.timerReconfigCancel();
+            // Reset RTO backoff on successful reconfiguration
+            this.rto = SCTP_RTO_INITIAL;
+            this.timerReconfigFailures = 0;
             if (this.reconfigQueue.length > 0) {
               await this.transmitReconfigRequest();
             }
@@ -898,9 +904,11 @@ export class SCTP {
       this.associationState === SCTP_STATE.ESTABLISHED &&
       !this.reconfigRequest
     ) {
-      const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
+      // Remove duplicate stream IDs from reconfigQueue
+      const uniqueStreams = [...new Set(this.reconfigQueue)];
+      const streams = uniqueStreams.slice(0, RECONFIG_MAX_STREAMS);
 
-      this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
+      this.reconfigQueue = uniqueStreams.slice(RECONFIG_MAX_STREAMS);
       const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
         this.reconfigResponseSeq,
@@ -1064,17 +1072,39 @@ export class SCTP {
 
   private timerReconfigHandleExpired = async () => {
     this.timerReconfigFailures++;
-    // back off
-    this.rto = Math.ceil(this.rto * 1.5);
+    // back off, but not too aggressively
+    this.rto = Math.min(Math.ceil(this.rto * 1.5), SCTP_RTO_MAX);
 
-    if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
-      log("timerReconfigFailures", this.timerReconfigFailures);
+    // Limit reconfiguration failures to prevent connection termination
+    // Only terminate if we've had many consecutive failures without any success
+    if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS * 2) {
+      log("timerReconfigFailures exceeded limit", this.timerReconfigFailures);
+      // Instead of immediately closing, try to resend the request one more time
+      if (this.reconfigRequest) {
+        log("Attempting final reconfig request before closing connection");
+        try {
+          await this.sendReconfigParam(this.reconfigRequest);
+          // If successful, reset the failure count and restart the timer
+          this.timerReconfigFailures = 0;
+          this.timerReconfigHandle = setTimeout(
+            this.timerReconfigHandleExpired,
+            this.rto * 1000,
+          );
+          return;
+        } catch (e) {
+          log("Final reconfig request failed, closing connection", e);
+        }
+      }
+      
       this.setState(SCTP_STATE.CLOSED);
-
       this.timerReconfigHandle = undefined;
     } else if (this.reconfigRequest) {
       log("timerReconfigHandleExpired", this.timerReconfigFailures, this.rto);
-      await this.sendReconfigParam(this.reconfigRequest);
+      try {
+        await this.sendReconfigParam(this.reconfigRequest);
+      } catch (e) {
+        log("Failed to send reconfig param", e);
+      }
 
       this.timerReconfigHandle = setTimeout(
         this.timerReconfigHandleExpired,
@@ -1088,6 +1118,8 @@ export class SCTP {
       log("timerReconfigCancel");
       clearTimeout(this.timerReconfigHandle);
       this.timerReconfigHandle = undefined;
+      // Reset failures counter when timer is successfully cancelled
+      this.timerReconfigFailures = 0;
     }
   }
 
