@@ -1086,7 +1086,7 @@ export class SCTP {
 
       this.timerReconfigHandle = setTimeout(
         this.timerReconfigHandleExpired,
-        this.rto * 1000
+        this.rto * 1000,
       );
     }
   };
