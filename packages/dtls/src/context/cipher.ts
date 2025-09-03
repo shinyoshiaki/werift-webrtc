@@ -110,7 +110,7 @@ export class CipherContext {
       serialNumber: nodeCrypto.randomBytes(8).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
-      notAfter: new Date(new Date().setFullYear(new Date().getFullYear() + 10)),
+      notAfter: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
       signingAlgorithm: alg,
       keys,
     });
