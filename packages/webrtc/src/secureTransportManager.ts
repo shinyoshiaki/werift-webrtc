@@ -309,9 +309,7 @@ export class SecureTransportManager {
     }
 
     function anyMatch(...state: RTCIceConnectionState[]) {
-      return (
-        all.filter((check) => state.includes(check.state)).length > 0
-      );
+      return all.some((check) => state.includes(check.state));
     }
 
     if (this.connectionState === "closed") {
