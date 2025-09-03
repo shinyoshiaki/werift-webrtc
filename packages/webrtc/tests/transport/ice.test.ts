@@ -62,8 +62,7 @@ describe("iceTransport", () => {
 
     const candidates = gatherer.localCandidates;
     for (const candidate of candidates) {
-      expect(candidate.port >= 44546).toBeTruthy();
-      expect(candidate.port < 44547 + 1).toBeTruthy();
+      expect(candidate.port >= 44546 && candidate.port < 44547 + 1).toBeTruthy();
     }
     await gatherer.connection.close();
   });
