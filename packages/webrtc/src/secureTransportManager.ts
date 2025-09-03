@@ -308,15 +308,21 @@ export class SecureTransportManager {
       );
     }
 
+    function anyMatch(...state: RTCIceConnectionState[]) {
+      return (
+        all.filter((check) => state.includes(check.state)).length > 0
+      );
+    }
+
     if (this.connectionState === "closed") {
       newState = "closed";
-    } else if (allMatch("failed")) {
+    } else if (anyMatch("failed")) {
       newState = "failed";
-    } else if (allMatch("disconnected")) {
+    } else if (anyMatch("disconnected")) {
       newState = "disconnected";
     } else if (allMatch("new", "closed")) {
       newState = "new";
-    } else if (allMatch("new", "checking")) {
+    } else if (anyMatch("new", "checking")) {
       newState = "checking";
     } else if (allMatch("completed", "closed")) {
       newState = "completed";
@@ -384,6 +390,8 @@ export class SecureTransportManager {
   }
 
   async close() {
+    this.setConnectionState("closed");
+
     await Promise.allSettled([...this.dtlsTransports.map((t) => t.stop())]);
 
     this.iceGatheringStateChange.allUnsubscribe();
