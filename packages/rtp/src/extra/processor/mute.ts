@@ -9,7 +9,7 @@ export type MuteInput = DepacketizerOutput;
 export type MuteOutput = MuteInput;
 
 export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
   private buffer: CodecFrame[][];
   private index = 0;
   private ended = false;

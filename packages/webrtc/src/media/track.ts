@@ -1,4 +1,4 @@
-import { v4 } from "uuid";
+import { randomUUID } from "crypto";
 import { Event } from "../imports/common";
 
 import { EventTarget } from "../helper";
@@ -12,7 +12,7 @@ import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack extends EventTarget {
-  readonly uuid = v4();
+  readonly uuid = randomUUID().toString();
   /**MediaStream ID*/
   streamId?: string;
   remote = false;
@@ -82,7 +82,7 @@ export class MediaStream {
     } else {
       Object.assign(this, props);
     }
-    this.id ??= v4();
+    this.id ??= randomUUID().toString();
   }
 
   addTrack(track: MediaStreamTrack) {

@@ -1,4 +1,4 @@
-import * as uuid from "uuid";
+import { randomUUID } from "crypto";
 import { Event } from "../imports/common";
 
 import type { RTCDtlsTransport } from "..";
@@ -19,7 +19,7 @@ import {
 import type { MediaStream, MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
-  readonly id = uuid.v4();
+  readonly id = randomUUID().toString();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid?: string;
   mLineIndex?: number;

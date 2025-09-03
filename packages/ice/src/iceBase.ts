@@ -72,7 +72,7 @@ export interface CandidatePairStats {
 }
 
 export class CandidatePair implements CandidatePairStats {
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
   handle?: Cancelable<void>;
   nominated = false;
   remoteNominated = false;

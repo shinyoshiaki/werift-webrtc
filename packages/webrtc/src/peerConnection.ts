@@ -1,4 +1,4 @@
-import * as uuid from "uuid";
+import { randomUUID } from "crypto";
 
 import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
@@ -54,7 +54,7 @@ import { andDirection, deepMerge } from "./utils";
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
-  readonly cname = uuid.v4();
+  readonly cname = randomUUID().toString();
 
   config: Required<PeerConfig> = generateDefaultPeerConfig();
   signalingState: RTCSignalingState = "stable";

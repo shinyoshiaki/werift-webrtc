@@ -1,7 +1,7 @@
 import { type ChildProcess, exec } from "child_process";
+import { randomUUID } from "crypto";
 import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
-import { v4 } from "uuid";
 
 import { randomPort } from "../imports/common";
 import { RtpPacket } from "../imports/rtp";
@@ -43,7 +43,7 @@ export const getUserMedia = async ({
 };
 
 abstract class MediaPlayer {
-  protected streamId = v4();
+  protected streamId = randomUUID().toString();
   audio = new MediaStreamTrack({ kind: "audio", streamId: this.streamId });
   video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
   protected process!: ChildProcess;

@@ -1,5 +1,5 @@
+import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { v4 as uuid } from "uuid";
 import { Event, int } from "../imports/common";
 
 import {
@@ -55,7 +55,7 @@ export class RTCRtpReceiver {
   private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
-  readonly uuid = uuid();
+  readonly uuid = randomUUID().toString();
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
