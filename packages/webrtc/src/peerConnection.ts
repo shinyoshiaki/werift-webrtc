@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import cloneDeep from "lodash/cloneDeep.js";
 
 import type { RTCDataChannel } from "./dataChannel";
 import { EventTarget, enumerate } from "./helper";
@@ -57,7 +56,7 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 export class RTCPeerConnection extends EventTarget {
   readonly cname = randomUUID();
 
-  config: Required<PeerConfig> = cloneDeep<PeerConfig>(defaultPeerConfig);
+  config: Required<PeerConfig> = generateDefaultPeerConfig();
   signalingState: RTCSignalingState = "stable";
   negotiationneeded = false;
   needRestart = false;
@@ -195,6 +194,9 @@ export class RTCPeerConnection extends EventTarget {
   }
   get remoteDescription() {
     return this.sdpManager.remoteDescription;
+  }
+  get remoteIsBundled() {
+    return this.sdpManager.remoteIsBundled;
   }
   /**@private */
   get _localDescription() {
@@ -917,32 +919,35 @@ export type RTCIceServer = {
   credential?: string;
 };
 
-export const defaultPeerConfig: PeerConfig = {
-  codecs: {
-    audio: [useOPUS(), usePCMU()],
-    video: [useVP8()],
-  },
-  headerExtensions: {
-    audio: [],
-    video: [],
-  },
-  iceTransportPolicy: "all",
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  icePortRange: undefined,
-  iceInterfaceAddresses: undefined,
-  iceAdditionalHostAddresses: undefined,
-  iceUseIpv4: true,
-  iceUseIpv6: true,
-  iceFilterStunResponse: undefined,
-  iceFilterCandidatePair: undefined,
-  icePasswordPrefix: undefined,
-  iceUseLinkLocalAddress: undefined,
-  dtls: {},
-  bundlePolicy: "max-compat",
-  debug: {},
-  midSuffix: false,
-  forceTurnTCP: false,
-};
+function generateDefaultPeerConfig(): PeerConfig {
+  return {
+    codecs: {
+      audio: [useOPUS(), usePCMU()],
+      video: [useVP8()],
+    },
+    headerExtensions: {
+      audio: [],
+      video: [],
+    },
+    iceTransportPolicy: "all",
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    icePortRange: undefined,
+    iceInterfaceAddresses: undefined,
+    iceAdditionalHostAddresses: undefined,
+    iceUseIpv4: true,
+    iceUseIpv6: true,
+    iceFilterStunResponse: undefined,
+    iceFilterCandidatePair: undefined,
+    icePasswordPrefix: undefined,
+    iceUseLinkLocalAddress: undefined,
+    dtls: {},
+    bundlePolicy: "max-compat",
+    debug: {},
+    midSuffix: false,
+    forceTurnTCP: false,
+  };
+}
+export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
 
 export interface RTCTrackEvent {
   track: MediaStreamTrack;
