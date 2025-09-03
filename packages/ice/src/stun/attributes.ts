@@ -58,7 +58,7 @@ function xorAddress(data: Buffer, transactionId: Buffer) {
   const xPad = [...cookieBuffer, ...transactionId];
   let xData = data.slice(0, 2);
 
-  for (let i = 2; i < data.length; ++i) {
+  for (let i = 2; i < data.length; i++) {
     const num = data[i] ^ xPad[i - 2];
     const buf = Buffer.alloc(1);
     buf.writeUIntBE(num, 0, 1);
