@@ -12,7 +12,7 @@ import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack extends EventTarget {
-  readonly uuid = randomUUID();
+  readonly uuid = randomUUID().toString();
   /**MediaStream ID*/
   streamId?: string;
   remote = false;
@@ -82,7 +82,7 @@ export class MediaStream {
     } else {
       Object.assign(this, props);
     }
-    this.id ??= randomUUID();
+    this.id ??= randomUUID().toString();
   }
 
   addTrack(track: MediaStreamTrack) {

@@ -42,7 +42,7 @@ const log = debug("werift:packages/webrtc/src/transport/ice.ts");
  */
 
 export class RTCIceTransport {
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
   private waitStart?: Event<[]>;

@@ -19,7 +19,7 @@ import {
 import type { MediaStream, MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid?: string;
   mLineIndex?: number;

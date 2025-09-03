@@ -43,7 +43,7 @@ export const getUserMedia = async ({
 };
 
 abstract class MediaPlayer {
-  protected streamId = v4();
+  protected streamId = randomUUID().toString();
   audio = new MediaStreamTrack({ kind: "audio", streamId: this.streamId });
   video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
   protected process!: ChildProcess;

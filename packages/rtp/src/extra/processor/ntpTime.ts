@@ -23,7 +23,7 @@ export interface NtpTimeOutput {
 }
 
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
   private baseNtpTimestamp?: bigint;
   private baseRtpTimestamp?: number;
   private latestNtpTimestamp?: bigint;

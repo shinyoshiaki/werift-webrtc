@@ -53,7 +53,7 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
-  id = randomUUID();
+  id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
   srtpStarted = false;

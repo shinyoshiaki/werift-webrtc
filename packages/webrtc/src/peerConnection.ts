@@ -54,7 +54,7 @@ import { andDirection, deepMerge } from "./utils";
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
 export class RTCPeerConnection extends EventTarget {
-  readonly cname = randomUUID();
+  readonly cname = randomUUID().toString();
 
   config: Required<PeerConfig> = generateDefaultPeerConfig();
   signalingState: RTCSignalingState = "stable";

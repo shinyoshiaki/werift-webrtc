@@ -55,7 +55,7 @@ export class RTCRtpReceiver {
   private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
-  readonly uuid = randomUUID();
+  readonly uuid = randomUUID().toString();
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};

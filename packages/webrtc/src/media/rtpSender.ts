@@ -84,8 +84,8 @@ export class RTCRtpSender {
   readonly kind: Kind;
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
-  streamId = randomUUID();
-  readonly trackId = randomUUID();
+  streamId = randomUUID().toString();
+  readonly trackId = randomUUID().toString();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onPictureLossIndication = new Event<[]>();
@@ -136,8 +136,7 @@ export class RTCRtpSender {
         : this.trackOrKind.kind;
     if (typeof trackOrKind !== "string") {
       if (trackOrKind.streamId) {
-        this.streamId =
-          trackOrKind.streamId as "`${string}-${string}-${string}-${string}-${string}`";
+        this.streamId = trackOrKind.streamId;
       }
       this.registerTrack(trackOrKind);
     }

@@ -16,7 +16,7 @@ export type LipsyncOutput = {
 };
 
 export class LipsyncBase implements AVProcessor<LipsyncInput> {
-  private id = randomUUID();
+  private id = randomUUID().toString();
   bufferLength: number;
   /**ms */
   baseTime?: number;

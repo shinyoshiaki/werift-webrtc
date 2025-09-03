@@ -28,7 +28,7 @@ export class RTCSctpTransport {
   sctp!: SCTP;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
 
   mid?: string;
   mLineIndex?: number;

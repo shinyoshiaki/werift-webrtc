@@ -8,7 +8,7 @@ export type DtxInput = DepacketizerOutput;
 export type DtxOutput = DtxInput;
 
 export class DtxBase implements Processor<DtxInput, DtxOutput> {
-  readonly id = randomUUID();
+  readonly id = randomUUID().toString();
   previousTimestamp?: number;
   private fillCount = 0;
   private internalStats = {};
