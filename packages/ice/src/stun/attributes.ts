@@ -1,6 +1,5 @@
 import * as Int64 from "int64-buffer";
 import nodeIp from "ip";
-import range from "lodash/range.js";
 
 import type { Address } from "../imports/common";
 import {
@@ -59,7 +58,7 @@ function xorAddress(data: Buffer, transactionId: Buffer) {
   const xPad = [...cookieBuffer, ...transactionId];
   let xData = data.slice(0, 2);
 
-  for (const i of range(2, data.length)) {
+  for (let i = 2; i < data.length; i++) {
     const num = data[i] ^ xPad[i - 2];
     const buf = Buffer.alloc(1);
     buf.writeUIntBE(num, 0, 1);
