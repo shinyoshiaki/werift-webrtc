@@ -1,5 +1,3 @@
-import inRange from "lodash/inRange";
-
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
   type RTCDataChannel,
@@ -141,7 +139,7 @@ describe("peerConnection", () => {
 
     const candidates = peer.iceTransports[0].localCandidates;
     for (const candidate of candidates) {
-      expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
+      expect(candidate.port >= 44444 && candidate.port < 44455).toBeTruthy();
     }
     await peer.close();
   });
