@@ -75,7 +75,7 @@ export class NackHandler {
       this.newEstSeqNum = sequenceNumber;
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
-      for (let i = uint16Add(this.newEstSeqNum, 1); i < sequenceNumber; i++) {
+      for (let i = uint16Add(this.newEstSeqNum, 1); i < sequenceNumber; i = uint16Add(i, 1)) {
         this.setLost(i, 1);
       }
       // this.receiver.sendRtcpPLI(this.mediaSourceSsrc);

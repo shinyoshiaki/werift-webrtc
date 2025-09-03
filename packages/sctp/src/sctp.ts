@@ -1128,7 +1128,7 @@ export class SCTP {
     if (!abandon) return false;
 
     const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
-    for (let pos = chunkPos; pos < -1; pos--) {
+    for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue[pos];
       oChunk.abandoned = true;
       oChunk.retransmit = false;
