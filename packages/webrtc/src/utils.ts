@@ -50,11 +50,10 @@ export function reverseDirection(dir: MediaDirection): MediaDirection {
 
 export const milliTime = Date.now;
 
-const loadTimeNs = process.hrtime.bigint();
-const loadTimeMs = BigInt(Date.now()) * 1000n;
+const startupTimestampInMicroseconds = BigInt(Date.now()) * 1000n - process.hrtime.bigint() / 1000n;
 
 export const microTime = () => {
-  return (loadTimeMs + (process.hrtime.bigint() - loadTimeNs) / 1000n);
+  return (startupTimestampInMicroseconds + process.hrtime.bigint()/1000n);
 };
 
 export const timestampSeconds = () => Date.now() / 1000;
