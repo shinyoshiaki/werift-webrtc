@@ -350,7 +350,7 @@ export class RTCPeerConnection extends EventTarget {
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
-    if (this.sdpManager.bundlePolicy === "max-bundle") {
+    if (this.sdpManager.bundlePolicy === "max-bundle" || (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled)) {
       if (existing) {
         return this.dtlsTransports[0];
       }
