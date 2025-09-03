@@ -1,5 +1,4 @@
 import { decode, encode, types } from "@shinyoshiaki/binary-data";
-import times from "lodash/times.js";
 
 import type { Extension } from "../../typings/domain";
 
@@ -30,9 +29,11 @@ export class UseSRTP {
   static deSerialize(buf: Buffer) {
     const useSrtp = new UseSRTP(decode(buf, UseSRTP.spec));
     const profileLength = useSrtp.data.readUInt16BE();
-    const profiles = times(profileLength / 2).map((i) => {
-      return useSrtp.data.readUInt16BE(i * 2 + 2);
-    });
+
+    const profiles = new Array(profileLength / 2);
+    for (let i = 0; i < profiles.length; i++) {
+      profiles[i] = useSrtp.data.readUInt16BE(i * 2 + 2);
+    }
     useSrtp.profiles = profiles;
     useSrtp.mki = useSrtp.data.slice(profileLength + 2);
     return useSrtp;
