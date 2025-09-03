@@ -3,7 +3,7 @@ import { isIPv4 } from "net";
 
 import * as Int64 from "int64-buffer";
 
-import isEqual from "lodash/isEqual.js";
+import isEqual from "fast-deep-equal";
 import timers from "timers/promises";
 import { type Address, Event, debug } from "./imports/common";
 
