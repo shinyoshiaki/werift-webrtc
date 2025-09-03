@@ -148,6 +148,11 @@ export class MediaStreamTrackFactory {
   }
 }
 
+/**
+ * Merge two objects. If a property value in the source object is undefined or
+ * when casted is equal to undefined (== undefined), then it will not overwrite
+ * the value of the property in the destination object.
+ */
 export const deepMerge = <T>(dst: T, src: T) => {
   if (!dst || typeof dst !== 'object') {
     if (src !== null && typeof src === 'object') {
