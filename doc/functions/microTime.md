@@ -6,8 +6,8 @@
 
 # Function: microTime()
 
-> **microTime**(): `number`
+> **microTime**(): `bigint`
 
 ## Returns
 
-`number`
+`bigint`
