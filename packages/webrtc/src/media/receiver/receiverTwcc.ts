@@ -37,7 +37,7 @@ export class ReceiverTWCC {
   handleTWCC(transportSequenceNumber: number) {
     this.extensionInfo[transportSequenceNumber] = {
       tsn: transportSequenceNumber,
-      timestamp: process.hrtime.bigint(),
+      timestamp: microTime(),
     };
 
     if (Object.keys(this.extensionInfo).length > 10) {

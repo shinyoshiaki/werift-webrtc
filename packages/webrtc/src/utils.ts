@@ -48,7 +48,7 @@ export function reverseDirection(dir: MediaDirection): MediaDirection {
   return dir;
 }
 
-export const milliTime = () => Date.now();
+export const milliTime = Date.now;
 
 const loadTimeNs = process.hrtime.bigint();
 const loadTimeMs = BigInt(Date.now()) * 1000n;
