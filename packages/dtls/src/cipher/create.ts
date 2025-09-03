@@ -1,3 +1,4 @@
+import type { CipherGCMTypes } from "crypto";
 import {
   type KeyExchange,
   createECDHEECDSAKeyExchange,
@@ -166,7 +167,7 @@ export function createCipher(cipher: number) {
 export function createAEADCipher(
   id: number,
   name: string,
-  block: string,
+  block: CipherGCMTypes,
   kx: KeyExchange,
   constants: { K_LEN: number; N_MAX: number },
   hash = "sha256",

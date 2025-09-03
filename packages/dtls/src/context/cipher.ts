@@ -1,4 +1,4 @@
-import nodeCrypto, { createSign } from "crypto";
+import { webcrypto, createSign, randomBytes } from "crypto";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import * as x509 from "@peculiar/x509";
 import { encode, types } from "@shinyoshiaki/binary-data";
@@ -16,11 +16,10 @@ import type { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
 import { SessionType, type SessionTypes } from "../cipher/suites/abstract";
 import type AEADCipher from "../cipher/suites/aead";
-import { ProtocolVersion } from "../handshake/binary";
 import type { DtlsRandom } from "../handshake/random";
 import type { DtlsPlaintext } from "../record/message/plaintext";
 
-const crypto = nodeCrypto.webcrypto;
+const crypto = webcrypto;
 x509.cryptoProvider.set(crypto as any);
 
 export class CipherContext {
@@ -104,10 +103,10 @@ export class CipherContext {
     const keys = (await crypto.subtle.generateKey(alg, true, [
       "sign",
       "verify",
-    ])) as nodeCrypto.webcrypto.CryptoKeyPair;
+    ])) as webcrypto.CryptoKeyPair;
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      serialNumber: nodeCrypto.randomBytes(8).toString("hex"),
+      serialNumber: randomBytes(8).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
       notAfter: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),

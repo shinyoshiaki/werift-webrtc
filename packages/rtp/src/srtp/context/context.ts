@@ -1,4 +1,4 @@
-import { type Hmac, createHmac } from "crypto";
+import { createHmac } from "crypto";
 import AES from "aes-js";
 
 import type { CipherAesBase } from "../cipher";
@@ -15,12 +15,12 @@ export class Context {
   srtpSessionKey: Buffer;
   srtpSessionSalt: Buffer;
   srtpSessionAuthTag: Buffer;
-  srtpSessionAuth: Hmac;
+  srtpSessionAuth: ReturnType<typeof createHmac>;
   srtcpSSRCStates: { [ssrc: number]: SrtcpSSRCState } = {};
   srtcpSessionKey: Buffer;
   srtcpSessionSalt: Buffer;
   srtcpSessionAuthTag: Buffer;
-  srtcpSessionAuth: Hmac;
+  srtcpSessionAuth: ReturnType<typeof createHmac>;
 
   cipher: CipherAesBase;
 
