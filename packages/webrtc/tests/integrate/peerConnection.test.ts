@@ -139,8 +139,7 @@ describe("peerConnection", () => {
 
     const candidates = peer.iceTransports[0].localCandidates;
     for (const candidate of candidates) {
-      expect(candidate.port >= 44444).toBeTruthy();
-      expect(candidate.port < 44455).toBeTruthy();
+      expect(candidate.port >= 44444 && candidate.port < 44455).toBeTruthy();
     }
     await peer.close();
   });
