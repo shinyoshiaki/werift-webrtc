@@ -71,7 +71,7 @@ describe('IP library for node.js', () => {
   });
 
   describe('fromLong() method', () => {
-    it('should repond with ipv4 address', () => {
+    it('should respond with ipv4 address', () => {
       assert.equal(ip.fromLong(2130706433), '127.0.0.1');
       assert.equal(ip.fromLong(4294967295), '255.255.255.255');
     });

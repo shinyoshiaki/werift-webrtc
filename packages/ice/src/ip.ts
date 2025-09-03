@@ -87,7 +87,7 @@ const isIntegerString = /^\d+$/;
 export function isLoopback(addr: string) {
   // If addr is an IPv4 address in long integer form (no dots and no colons), convert it
   if (isIntegerString.test(addr)) {
-    const numAddr = Number(addr)
+    const numAddr = Number(addr);
     if (numAddr >= 0 && numAddr <= 0xFFFFFFFF) {
       addr = fromLong(Number(addr));
     } else {
