@@ -63,9 +63,9 @@ export class RtpRouter {
         }
       });
 
-    params.headerExtensions.forEach((extension) => {
+    for (const extension of params.headerExtensions) {
       this.extIdUriMap[extension.id] = extension.uri;
-    });
+    }
   }
 
   registerRtpReceiverByRid(
@@ -151,9 +151,9 @@ export class RtpRouter {
       case RtcpRrPacket.type:
         {
           packet = packet as RtcpRrPacket;
-          packet.reports.forEach((report) => {
+          for (const report of packet.reports) {
             recipients.push(this.ssrcTable[report.ssrc]);
-          });
+          }
         }
         break;
       case RtcpSourceDescriptionPacket.type:
@@ -189,8 +189,11 @@ export class RtpRouter {
         }
         break;
     }
-    recipients
-      .filter((v) => v) // todo simulcast
-      .forEach((recipient) => recipient.handleRtcpPacket(packet));
+    for (const recipient of recipients) {
+      if (!recipient) {
+        continue;
+      }
+      recipient.handleRtcpPacket(packet);
+    }
   };
 }

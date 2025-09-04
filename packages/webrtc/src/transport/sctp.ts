@@ -46,7 +46,9 @@ export class RTCSctpTransport {
       return;
     }
 
-    this.eventDisposer.forEach((dispose) => dispose());
+    for (const dispose of this.eventDisposer) {
+      dispose();
+    }
 
     this.dtlsTransport = dtlsTransport;
     this.sctp = new SCTP(new BridgeDtls(this.dtlsTransport), this.port);
@@ -55,27 +57,27 @@ export class RTCSctpTransport {
       ...[
         this.sctp.onReceive.subscribe(this.datachannelReceive),
         this.sctp.onReconfigStreams.subscribe((ids: number[]) => {
-          ids.forEach((id) => {
+          for (const id of ids) {
             const dc = this.dataChannels[id];
             if (!dc) return;
             // todo fix
             dc.setReadyState("closing");
             dc.setReadyState("closed");
             delete this.dataChannels[id];
-          });
+          }
         }),
         this.sctp.stateChanged.connected.subscribe(() => {
-          Object.values(this.dataChannels).forEach((channel) => {
+          for (const channel of Object.values(this.dataChannels)) {
             if (channel.negotiated && channel.readyState !== "open") {
               channel.setReadyState("open");
             }
-          });
+          }
           this.dataChannelFlush();
         }),
         this.sctp.stateChanged.closed.subscribe(() => {
-          Object.values(this.dataChannels).forEach((dc) => {
+          for (const dc of Object.values(this.dataChannels)) {
             dc.setReadyState("closed");
-          });
+          }
           this.dataChannels = {};
         }),
         this.dtlsTransport.onStateChange.subscribe((state) => {

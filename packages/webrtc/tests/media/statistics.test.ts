@@ -6,14 +6,19 @@ describe("packages/webrtc/src/media/statics.ts", () => {
   test("no loss", () => {
     const counter = new StreamStatistics(8000);
     const packets = createRtpPackets(20, 0);
-    packets.slice(0, 10).forEach((p) => counter.add(p));
+
+    for (const packet of packets.slice(0, 10)) {
+      counter.add(packet);
+    }
 
     expect(counter.max_seq).toBe(9);
     expect(counter.packets_received).toBe(10);
     expect(counter.packets_lost).toBe(0);
     expect(counter.fraction_lost).toBe(0);
 
-    packets.slice(10, 20).forEach((p) => counter.add(p));
+    for (const packet of packets.slice(10, 20)) {
+      counter.add(packet);
+    }
 
     expect(counter.max_seq).toBe(19);
     expect(counter.packets_received).toBe(20);
@@ -24,7 +29,10 @@ describe("packages/webrtc/src/media/statics.ts", () => {
   test("test_no_loss_cycle", () => {
     const counter = new StreamStatistics(8000);
     const packets = createRtpPackets(10, 65530);
-    packets.forEach((p) => counter.add(p));
+
+    for (const packet of packets) {
+      counter.add(packet);
+    }
 
     expect(counter.max_seq).toBe(3);
     expect(counter.packets_received).toBe(10);
@@ -37,14 +45,19 @@ describe("packages/webrtc/src/media/statics.ts", () => {
     const packets = createRtpPackets(20, 0);
     packets.splice(1, 1);
 
-    packets.slice(0, 9).forEach((p) => counter.add(p));
+    for (const packet of packets.slice(0, 9)) {
+      counter.add(packet);
+    }
 
     expect(counter.max_seq).toBe(9);
     expect(counter.packets_received).toBe(9);
     expect(counter.packets_lost).toBe(1);
     expect(counter.fraction_lost).toBe(25);
 
-    packets.slice(9).forEach((p) => counter.add(p));
+    for (const packet of packets.slice(9)) {
+      counter.add(packet);
+    }
+
     expect(counter.max_seq).toBe(19);
     expect(counter.packets_received).toBe(19);
     expect(counter.packets_lost).toBe(1);

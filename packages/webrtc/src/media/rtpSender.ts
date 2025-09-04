@@ -144,7 +144,9 @@ export class RTCRtpSender {
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
     if (this.dtlsTransport) {
-      this.dtlsDisposer.forEach((dispose) => dispose());
+      for (const dispose of this.dtlsDisposer) {
+        dispose();
+      }
     }
 
     this.dtlsTransport = dtlsTransport;
@@ -177,7 +179,7 @@ export class RTCRtpSender {
       this.track.codec = this.codec;
     }
 
-    params.codecs.forEach((codec) => {
+    for (const codec of params.codecs) {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
       if (
         codec.name.toLowerCase() === "rtx" &&
@@ -190,7 +192,7 @@ export class RTCRtpSender {
           (codec.parameters ?? "").split("/")[0],
         );
       }
-    });
+    }
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -421,23 +423,24 @@ export class RTCRtpSender {
       case RtcpRrPacket.type:
         {
           const packet = rtcpPacket as RtcpSrPacket | RtcpRrPacket;
-          packet.reports
-            .filter((report) => report.ssrc === this.ssrc)
-            .forEach((report) => {
-              if (this.lastSRtimestamp === report.lsr && report.dlsr) {
-                if (this.lastSentSRTimestamp) {
-                  const rtt =
-                    timestampSeconds() -
-                    this.lastSentSRTimestamp -
-                    report.dlsr / 65536;
-                  if (this.rtt === undefined) {
-                    this.rtt = rtt;
-                  } else {
-                    this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
-                  }
+          for (const report of packet.reports) {
+            if (report.ssrc !== this.ssrc) {
+              continue;
+            }
+            if (this.lastSRtimestamp === report.lsr && report.dlsr) {
+              if (this.lastSentSRTimestamp) {
+                const rtt =
+                  timestampSeconds() -
+                  this.lastSentSRTimestamp -
+                  report.dlsr / 65536;
+                if (this.rtt === undefined) {
+                  this.rtt = rtt;
+                } else {
+                  this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
                 }
               }
-            });
+            }
+          }
         }
         break;
       case RtcpTransportLayerFeedback.type:
@@ -453,6 +456,9 @@ export class RTCRtpSender {
             case GenericNack.count:
               {
                 const feedback = packet.feedback as GenericNack;
+
+                // Can we replace this with a for..of loop and
+                // add a .catch() to result of the sendRtp() call?
                 feedback.lost.forEach(async (seqNum) => {
                   let packet: RtpPacket | undefined =
                     this.rtpCache[seqNum % RTP_HISTORY_SIZE];

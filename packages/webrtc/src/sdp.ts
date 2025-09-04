@@ -53,7 +53,7 @@ export class SessionDescription {
     const [sessionLines, mediaGroups] = groupLines(sdp);
 
     const session = new SessionDescription();
-    sessionLines.forEach((line) => {
+    for (const line of sessionLines) {
       if (line.startsWith("v=")) {
         session.version = Number.parseInt(line.slice(2), 10);
       } else if (line.startsWith("o=")) {
@@ -101,11 +101,11 @@ export class SessionDescription {
             break;
         }
       }
-    });
+    }
 
     const bundle = session.group.find((g) => g.semantic === "BUNDLE");
 
-    mediaGroups.forEach((mediaLines) => {
+    for (const mediaLines of mediaGroups) {
       const target = mediaLines[0];
       const m = target.match(/^m=([^ ]+) ([0-9]+) ([A-Z/]+) (.+)/);
       if (!m) {
@@ -139,7 +139,7 @@ export class SessionDescription {
       currentMedia.iceOptions = session.iceOptions;
       session.media.push(currentMedia);
 
-      mediaLines.slice(1).forEach((line) => {
+      for (const line of mediaLines.slice(1)) {
         if (line.startsWith("c=")) {
           currentMedia.host = ipAddressFromSdp(line.slice(2));
         } else if (line.startsWith("a=")) {
@@ -280,7 +280,7 @@ export class SessionDescription {
               break;
           }
         }
-      });
+      }
 
       if (
         !currentMedia.iceParams.usernameFragment ||
@@ -311,7 +311,7 @@ export class SessionDescription {
       const findCodec = (pt: number) =>
         currentMedia.rtp.codecs.find((v) => v.payloadType === pt);
 
-      mediaLines.slice(1).forEach((line) => {
+      for (const line of mediaLines.slice(1)) {
         if (line.startsWith("a=")) {
           const [attr, value] = parseAttr(line);
           if (attr === "fmtp") {
@@ -320,7 +320,7 @@ export class SessionDescription {
             codec.parameters = formatDesc;
           } else if (attr === "rtcp-fb") {
             const [payloadType, feedbackType, feedbackParam] = value.split(" ");
-            currentMedia.rtp.codecs.forEach((codec) => {
+            for (const codec of currentMedia.rtp.codecs) {
               if (["*", codec.payloadType!.toString()].includes(payloadType)) {
                 codec.rtcpFeedback.push(
                   new RTCRtcpFeedback({
@@ -329,11 +329,11 @@ export class SessionDescription {
                   }),
                 );
               }
-            });
+            }
           }
         }
-      });
-    });
+      }
+    }
 
     return session;
   }
@@ -359,13 +359,15 @@ export class SessionDescription {
       lines.push(`c=${ipAddressToSdp(this.host)}`);
     }
     lines.push(`t=${this.time}`);
-    this.group.forEach((group) => lines.push(`a=group:${group.str}`));
+    for (const group of this.group) {
+      lines.push(`a=group:${group.str}`);
+    }
     if (this.extMapAllowMixed) {
       lines.push(`a=extmap-allow-mixed`);
     }
-    this.msidSemantic.forEach((group) =>
-      lines.push(`a=msid-semantic:${group.str}`),
-    );
+    for (const group of this.msidSemantic) {
+      lines.push(`a=msid-semantic:${group.str}`);
+    }
     const media = this.media.map((m) => m.toString()).join("");
     const sdp = lines.join("\r\n") + "\r\n" + media;
     return sdp;
@@ -436,9 +438,9 @@ export class MediaDescription {
       lines.push(`c=${ipAddressToSdp(this.host)}`);
     }
     // ice
-    this.iceCandidates.forEach((candidate) => {
+    for (const candidate of this.iceCandidates) {
       lines.push(`a=candidate:${candidateToSdp(candidate)}`);
-    });
+    }
     if (this.iceCandidatesComplete) {
       lines.push("a=end-of-candidates");
     }
@@ -457,11 +459,11 @@ export class MediaDescription {
 
     // dtls
     if (this.dtlsParams) {
-      this.dtlsParams.fingerprints.forEach((fingerprint) => {
+      for (const fingerprint of this.dtlsParams.fingerprints) {
         lines.push(
           `a=fingerprint:${fingerprint.algorithm} ${fingerprint.value}`,
         );
-      });
+      }
       lines.push(`a=setup:${DTLS_ROLE_SETUP[this.dtlsParams.role]}`);
     }
 
@@ -482,36 +484,36 @@ export class MediaDescription {
       }
     }
 
-    this.ssrcGroup.forEach((group) => {
+    for (const group of this.ssrcGroup) {
       lines.push(`a=ssrc-group:${group.str}`);
-    });
-    this.ssrc.forEach((ssrcInfo) => {
-      SSRC_INFO_ATTRS.forEach((ssrcAttr) => {
+    }
+    for (const ssrcInfo of this.ssrc) {
+      for (const ssrcAttr of SSRC_INFO_ATTRS) {
         const ssrcValue = ssrcInfo[ssrcAttr];
         if (ssrcValue !== undefined) {
           lines.push(`a=ssrc:${ssrcInfo.ssrc} ${ssrcAttr}:${ssrcValue}`);
         }
-      });
-    });
+      }
+    }
 
-    this.rtp.codecs.forEach((codec) => {
+    for (const codec of this.rtp.codecs) {
       lines.push(`a=rtpmap:${codec.payloadType} ${codec.str}`);
 
-      codec.rtcpFeedback.forEach((feedback) => {
+      for (const feedback of codec.rtcpFeedback) {
         let value = feedback.type;
         if (feedback.parameter) value += ` ${feedback.parameter}`;
         lines.push(`a=rtcp-fb:${codec.payloadType} ${value}`);
-      });
+      }
 
       if (codec.parameters) {
         lines.push(`a=fmtp:${codec.payloadType} ${codec.parameters}`);
       }
-    });
+    }
 
-    Object.keys(this.sctpMap).forEach((k) => {
+    for (const k of Object.keys(this.sctpMap)) {
       const v = this.sctpMap[Number(k)];
       lines.push(`a=sctpmap:${k} ${v}`);
-    });
+    }
     if (this.sctpPort) {
       lines.push(`a=sctp-port:${this.sctpPort}`);
     }
@@ -520,15 +522,15 @@ export class MediaDescription {
     }
 
     // rtp extension
-    this.rtp.headerExtensions.forEach((extension) =>
-      lines.push(`a=extmap:${extension.id} ${extension.uri}`),
-    );
+    for (const extension of this.rtp.headerExtensions) {
+      lines.push(`a=extmap:${extension.id} ${extension.uri}`);
+    }
 
     // simulcast
     if (this.simulcastParameters.length) {
-      this.simulcastParameters.forEach((param) => {
+      for (const param of this.simulcastParameters) {
         lines.push(`a=rid:${param.rid} ${param.direction}`);
-      });
+      }
       let line = `a=simulcast:`;
       const recv = this.simulcastParameters.filter(
         (v) => v.direction === "recv",
@@ -602,7 +604,7 @@ function groupLines(sdp: string): [string[], string[][]] {
     lines = sdp.split("\n");
   }
 
-  lines.forEach((line) => {
+  for (const line of lines) {
     if (line.startsWith("m=")) {
       media.push([line]);
     } else if (media.length > 0) {
@@ -610,7 +612,7 @@ function groupLines(sdp: string): [string[], string[][]] {
     } else {
       session.push(line);
     }
-  });
+  }
 
   return [session, media];
 }
@@ -674,7 +676,7 @@ export function addSDPHeader(
 
 export function codecParametersFromString(str: string) {
   const parameters: any = {};
-  str.split(";").forEach((param) => {
+  for (const param of str.split(";")) {
     if (param.includes("=")) {
       const [k, v] = divide(param, "=");
       if (FMTP_INT_PARAMETERS.includes(k)) {
@@ -688,7 +690,7 @@ export function codecParametersFromString(str: string) {
     } else {
       parameters[param] = undefined;
     }
-  });
+  }
   return parameters;
 }
 

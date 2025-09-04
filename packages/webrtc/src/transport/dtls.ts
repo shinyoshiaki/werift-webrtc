@@ -32,8 +32,6 @@ import {
 } from "../imports/rtp";
 import {
   type RTCCertificateStats,
-  type RTCIceCandidatePairStats,
-  type RTCIceCandidateStats,
   type RTCStats,
   type RTCTransportStats,
   generateStatsId,

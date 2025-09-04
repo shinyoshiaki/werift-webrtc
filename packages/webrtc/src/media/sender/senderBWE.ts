@@ -106,13 +106,12 @@ export class SenderBandwidthEstimator {
   }
 
   rtpPacketSent(sentInfo: SentInfo) {
-    Object.keys(sentInfo)
-      .map((v) => Number(v))
-      .sort()
-      .filter((seq) => seq < sentInfo.wideSeq)
-      .forEach((seq) => {
-        delete this.sentInfos[seq];
-      });
+    for (const seq of Object.keys(sentInfo)) {
+      const v = Number(seq);
+      if (v < sentInfo.wideSeq) {
+        delete this.sentInfos[v];
+      }
+    }
     this.sentInfos[sentInfo.wideSeq] = sentInfo;
   }
 }

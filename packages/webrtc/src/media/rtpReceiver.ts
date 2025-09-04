@@ -114,14 +114,14 @@ export class RTCRtpReceiver {
   }
 
   prepareReceive(params: RTCRtpReceiveParameters) {
-    params.codecs.forEach((c) => {
-      this.codecs[c.payloadType] = c;
-    });
-    params.encodings.forEach((e) => {
-      if (e.rtx) {
-        this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
+    for (const codec of params.codecs) {
+      this.codecs[codec.payloadType] = codec;
+    }
+    for (const encoding of params.encodings) {
+      if (encoding.rtx) {
+        this.ssrcByRtx[encoding.rtx.ssrc] = encoding.ssrc;
       }
-    });
+    }
   }
 
   /**

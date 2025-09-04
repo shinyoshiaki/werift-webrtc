@@ -150,7 +150,9 @@ describe("peerConnection", () => {
 
     a.createDataChannel("test");
     const offer = await a.setLocalDescription(await a.createOffer());
-    offer.media.forEach((m) => (m.iceParams!.iceLite = true));
+    for (const m of offer.media) {
+      m.iceParams!.iceLite = true;
+    }
 
     await b.setRemoteDescription(offer.toJSON());
     expect(b.iceTransports[0].connection.remoteIsLite).toBeTruthy();
