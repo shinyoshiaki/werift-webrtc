@@ -28,7 +28,9 @@ describe("server", () => {
     const fragments = hello.toFragment().chunk(10);
     const last = fragments.pop()!;
     const second = fragments.pop()!;
-    fragments.forEach((fragment) => server.handleFragmentHandshake([fragment]));
+    for (const fragment of fragments) {
+      server.handleFragmentHandshake([fragment]);
+    }
     expect(server.handleFragmentHandshake([last]).length).toBeGreaterThan(0);
     expect(server.handleFragmentHandshake([second]).length).toBe(0);
   });

@@ -50,7 +50,7 @@ export const flight2 =
     dtls.recordSequenceNumber = 0;
     dtls.sequenceNumber = 0;
 
-    clientHello.extensions.forEach((extension) => {
+    for (const extension of clientHello.extensions) {
       switch (extension.type) {
         case EllipticCurves.type:
           {
@@ -118,7 +118,7 @@ export const flight2 =
           }
           break;
       }
-    });
+    }
 
     cipher.localRandom = new DtlsRandom();
     cipher.remoteRandom = DtlsRandom.from(clientHello.random);

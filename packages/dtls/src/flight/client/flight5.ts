@@ -231,7 +231,7 @@ handlers[HandshakeType.server_hello_2] =
     log(dtls.sessionId, "selected cipherSuite", cipher.cipherSuite);
 
     if (message.extensions) {
-      message.extensions.forEach((extension) => {
+      for (const extension of message.extensions) {
         switch (extension.type) {
           case UseSRTP.type:
             {
@@ -252,7 +252,7 @@ handlers[HandshakeType.server_hello_2] =
             log(dtls.sessionId, "RenegotiationIndication");
             break;
         }
-      });
+      }
     }
   };
 

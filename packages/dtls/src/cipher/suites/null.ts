@@ -12,7 +12,7 @@ export default class NullCipher extends Cipher {
     super();
 
     this.name = "NULL_NULL_NULL"; // key, mac, hash
-    this.blockAlgorithm = "NULL";
+    this.blockAlgorithm = "NULL" as any;
     this.kx = createNULLKeyExchange();
     this.hashAlgorithm = "NULL";
   }

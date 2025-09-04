@@ -72,14 +72,9 @@ export default class AEADCipher extends Cipher {
 
     const additionalBuffer = this.encodeAdditionalBuffer(header, data.length);
 
-    const cipher = createCipheriv(
-      this.blockAlgorithm!,
-      writeKey,
-      iv,
-      {
-        authTagLength: this.authTagLength,
-      },
-    );
+    const cipher = createCipheriv(this.blockAlgorithm!, writeKey, iv, {
+      authTagLength: this.authTagLength,
+    });
 
     cipher.setAAD(additionalBuffer, {
       plaintextLength: data.length,
@@ -128,14 +123,9 @@ export default class AEADCipher extends Cipher {
       encrypted.length,
     );
 
-    const decipher = createDecipheriv(
-      this.blockAlgorithm!,
-      writeKey,
-      iv,
-      {
-        authTagLength: this.authTagLength,
-      },
-    );
+    const decipher = createDecipheriv(this.blockAlgorithm!, writeKey, iv, {
+      authTagLength: this.authTagLength,
+    });
 
     decipher.setAuthTag(authTag);
     decipher.setAAD(additionalBuffer, {
