@@ -2,7 +2,6 @@
 import { createHash } from "crypto";
 import { createSocket } from "dgram";
 
-import mergeWith from "lodash/mergeWith.js";
 import { performance } from "perf_hooks";
 
 import {
@@ -142,17 +141,42 @@ export class MediaStreamTrackFactory {
       udp.removeListener("message", onMessage);
       try {
         udp.close();
-      } catch (error) {}
+      } catch (error) { }
     };
 
     return [track, port, dispose] as const;
   }
 }
 
-export const deepMerge = <T>(dst: T, src: T) =>
-  mergeWith(dst, src, (obj, src) => {
-    if (!(src == undefined)) {
+/**
+ * Merge two objects. If a property value in the source object is undefined or
+ * when casted is equal to undefined (== undefined), then it will not overwrite
+ * the value of the property in the destination object.
+ */
+export const deepMerge = <T>(dst: T, src: T) => {
+  if (!dst || typeof dst !== 'object') {
+    if (src !== null && typeof src === 'object') {
       return src;
+    } else {
+      return dst;
     }
-    return obj;
-  });
+  }
+
+  if (!src || typeof src !== 'object') {
+    if (src == undefined) {
+      return dst;
+    }
+    return src;
+  }
+
+  for (const key in src) {
+    if (Object.prototype.hasOwnProperty.call(src, key)) {
+      const sourceValue = src[key];
+
+      if (sourceValue != undefined) {
+        dst[key] = sourceValue;
+      }
+    }
+  }
+  return dst;
+}

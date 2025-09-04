@@ -30,11 +30,7 @@
   },
   "dependencies": {
     "@shinyoshiaki/jspack": "^0.0.6",
-    "lodash": "^4.17.21",
     "turbo-crc32": "^1.0.1"
-  },
-  "devDependencies": {
-    "@types/lodash": "^4.17.15"
   },
   "engines": {
     "node": ">=10"
