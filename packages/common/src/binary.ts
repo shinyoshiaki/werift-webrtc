@@ -34,9 +34,9 @@ export function bufferArrayXor(arr: Buffer[]): Buffer {
 
   for (let i = 0; i < length; i++) {
     xored[i] = 0;
-    arr.forEach((buffer) => {
+    for (const buffer of arr) {
       xored[i] ^= buffer[i] ?? 0;
-    });
+    }
   }
 
   return xored;

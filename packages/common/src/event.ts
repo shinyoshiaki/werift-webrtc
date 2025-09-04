@@ -222,7 +222,9 @@ export class EventDisposer {
   }
 
   dispose() {
-    this._disposer.forEach((d) => d());
+    for (const d of this._disposer) {
+      d();
+    }
     this._disposer = [];
   }
 }
