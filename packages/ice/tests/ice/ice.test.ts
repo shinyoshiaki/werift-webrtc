@@ -560,7 +560,9 @@ describe("ice", () => {
 
       // # we would have both host and server-reflexive candidates
       expect(a.localCandidates.length > 0).toBeTruthy();
-      a.localCandidates.forEach((v) => expect(v.type).toBe("host"));
+      for (const v of a.localCandidates) {
+        expect(v.type).toBe("host");
+      }
 
       // # connect
       await Promise.all([a.connect(), b.connect()]);

@@ -125,9 +125,9 @@ export class StunProtocol implements Protocol {
   }
 
   async close() {
-    Object.values(this.transactions).forEach((transaction) => {
+    for (const transaction of Object.values(this.transactions)) {
       transaction.cancel();
-    });
+    }
     await this.transport.close();
     this.onRequestReceived.complete();
     this.onDataReceived.complete();
