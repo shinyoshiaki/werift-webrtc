@@ -480,7 +480,10 @@ export class SCTP {
             p.streams.map(async (streamId) => {
               delete this.inboundStreams[streamId];
               if (this.outboundStreamSeq[streamId]) {
-                this.reconfigQueue.push(streamId);
+                // Only add to reconfigQueue if not already present
+                if (!this.reconfigQueue.includes(streamId)) {
+                  this.reconfigQueue.push(streamId);
+                }
                 // await this.sendResetRequest(streamId);
               }
             }),
@@ -512,6 +515,9 @@ export class SCTP {
 
             this.reconfigRequest = undefined;
             this.timerReconfigCancel();
+            // Reset RTO backoff on successful reconfiguration
+            this.rto = SCTP_RTO_INITIAL;
+            this.timerReconfigFailures = 0;
             if (this.reconfigQueue.length > 0) {
               await this.transmitReconfigRequest();
             }
@@ -897,9 +903,11 @@ export class SCTP {
       this.associationState === SCTP_STATE.ESTABLISHED &&
       !this.reconfigRequest
     ) {
-      const streams = this.reconfigQueue.slice(0, RECONFIG_MAX_STREAMS);
+      // Remove duplicate stream IDs from reconfigQueue
+      const uniqueStreams = [...new Set(this.reconfigQueue)];
+      const streams = uniqueStreams.slice(0, RECONFIG_MAX_STREAMS);
 
-      this.reconfigQueue = this.reconfigQueue.slice(RECONFIG_MAX_STREAMS);
+      this.reconfigQueue = uniqueStreams.slice(RECONFIG_MAX_STREAMS);
       const param = new OutgoingSSNResetRequestParam(
         this.reconfigRequestSeq,
         this.reconfigResponseSeq,
@@ -1087,6 +1095,8 @@ export class SCTP {
       log("timerReconfigCancel");
       clearTimeout(this.timerReconfigHandle);
       this.timerReconfigHandle = undefined;
+      // Reset failures counter when timer is successfully cancelled
+      this.timerReconfigFailures = 0;
     }
   }
 

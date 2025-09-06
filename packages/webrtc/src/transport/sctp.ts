@@ -363,13 +363,20 @@ export class RTCSctpTransport {
       channel.setReadyState("closing");
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
-        this.sctp.reconfigQueue.push(channel.id);
+        // Check if channel.id is already in reconfigQueue to prevent duplicates
+        if (!this.sctp.reconfigQueue.includes(channel.id)) {
+          this.sctp.reconfigQueue.push(channel.id);
+        }
         if (this.sctp.reconfigQueue.length === 1) {
           this.sctp.transmitReconfigRequest();
         }
       } else {
         this.dataChannelQueue = this.dataChannelQueue.filter(
           (queueItem) => queueItem[0].id !== channel.id,
+        );
+        // Remove any pending reconfiguration requests for this channel
+        this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
+          (streamId) => streamId !== channel.id,
         );
         if (channel.id) {
           delete this.dataChannels[channel.id];
