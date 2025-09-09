@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "@shinyoshiaki/jspack": "^0.0.6",
-    "debug": "^4.4.0"
+    "debug": "4.4.0"
   },
   "devDependencies": {},
   "engines": {
