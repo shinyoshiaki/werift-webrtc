@@ -835,9 +835,10 @@ export class RTCPeerConnection extends EventTarget {
     this.isClosed = true;
     this.setSignalingState("closed");
 
+    this.transceiverManager.close();
+
     await this.secureManager.close();
     await this.sctpManager.close();
-    this.transceiverManager.close();
 
     this.onDataChannel.allUnsubscribe();
     this.iceGatheringStateChange.allUnsubscribe();
