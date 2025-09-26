@@ -238,6 +238,10 @@ export class TurnProtocol implements Protocol {
   }
 
   private async send(data: Buffer, addr: Address) {
+    if (this.transport.closed) {
+      return;
+    }
+
     if (this.transport.type === "tcp") {
       const padding = paddingLength(data.length);
       await this.transport.send(

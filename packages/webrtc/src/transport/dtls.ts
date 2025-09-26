@@ -476,6 +476,7 @@ export class RTCDtlsParameters {
 }
 
 class IceTransport implements Transport {
+  closed: boolean = false;
   constructor(private ice: IceConnection) {
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
@@ -498,6 +499,7 @@ class IceTransport implements Transport {
   };
 
   async close() {
+    this.closed = true;
     this.ice.close();
   }
 }

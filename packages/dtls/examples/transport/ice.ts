@@ -1,8 +1,9 @@
-import { AddressInfo } from "net";
-import { Address, Transport } from "../../../common/src";
-import { Connection } from "../../../ice/src";
+import { AddressInfo } from 'net';
+import { Address, Transport } from '../../../common/src';
+import { Connection } from '../../../ice/src';
 
 export class IceTransport implements Transport {
+  closed: boolean = false;
   constructor(private ice: Connection) {
     ice.onData.subscribe((buf) => {
       if (this.onData) this.onData(buf);
@@ -18,9 +19,10 @@ export class IceTransport implements Transport {
     return {} as AddressInfo;
   }
 
-  type = "ice";
+  type = 'ice';
 
   async close() {
+    this.closed = true;
     this.ice.close();
   }
 }

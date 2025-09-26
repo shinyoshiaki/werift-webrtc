@@ -24,6 +24,7 @@ export class UdpTransport implements Transport {
   readonly socket: Socket;
   rinfo?: Partial<Pick<RemoteInfo, "address" | "port">>;
   onData: (data: Buffer, addr: Address) => void = () => {};
+  closed: boolean = false;
 
   private constructor(
     private socketType: SocketType,
@@ -116,6 +117,7 @@ export class UdpTransport implements Transport {
 
   close = () =>
     new Promise<void>((r) => {
+      this.closed = true;
       this.socket.once("close", r);
       try {
         this.socket.close();
@@ -199,6 +201,7 @@ export class TcpTransport implements Transport {
 export interface Transport {
   type: string;
   address: AddressInfo;
+  closed: boolean;
   onData: (data: Buffer, addr: Address) => void;
   send: (data: Buffer, addr?: Address) => Promise<void>;
   close: () => Promise<void>;

@@ -80,6 +80,10 @@ export class StunProtocol implements Protocol {
   }
 
   async sendStun(message: Message, addr: Address) {
+    if (this.transport.closed) {
+      return;
+    }
+
     const data = message.bytes;
     await this.transport.send(data, addr).catch(() => {
       log("sendStun failed", addr, message);
@@ -87,6 +91,10 @@ export class StunProtocol implements Protocol {
   }
 
   async sendData(data: Buffer, addr: Address) {
+    if (this.transport.closed) {
+      return;
+    }
+
     await this.transport.send(data, addr);
   }
 
