@@ -23,21 +23,21 @@
     "knip": "npx knip --config ./knip.json"
   },
   "dependencies": {
-    "bowser": "^2.11.0",
-    "werift": "^0.22.1",
+    "bowser": "^2.12.1",
+    "werift": "^0.22.2",
     "werift-rtp": "^0.8.4"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
+    "@types/express": "^5.0.3",
     "@types/protoo-client": "^4.0.4",
     "@types/protoo-server": "^4.0.6",
-    "@vitest/browser": "3.0.5",
-    "axios": "^1.8.2",
-    "express": "^4.21.2",
-    "npm-run-all2": "^7.0.2",
-    "playwright": "^1.50.1",
+    "@vitest/browser": "3.2.4",
+    "axios": "^1.12.2",
+    "express": "^5.1.0",
+    "npm-run-all2": "^8.0.4",
+    "playwright": "^1.55.1",
     "protoo-client": "^4.0.6",
     "protoo-server": "^4.0.6",
-    "vite-plugin-node-polyfills": "^0.23.0"
+    "vite-plugin-node-polyfills": "^0.24.0"
   }
 }
