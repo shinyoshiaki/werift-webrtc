@@ -49,10 +49,11 @@ export function reverseDirection(dir: MediaDirection): MediaDirection {
 
 export const milliTime = Date.now;
 
-const startupTimestampInMicroseconds = BigInt(Date.now()) * 1000n - process.hrtime.bigint() / 1000n;
+const startupTimestampInMicroseconds =
+  BigInt(Date.now()) * 1000n - process.hrtime.bigint() / 1000n;
 
 export const microTime = () => {
-  return (startupTimestampInMicroseconds + process.hrtime.bigint() / 1000n);
+  return startupTimestampInMicroseconds + process.hrtime.bigint() / 1000n;
 };
 
 export const timestampSeconds = () => Date.now() / 1000;
@@ -141,7 +142,7 @@ export class MediaStreamTrackFactory {
       udp.removeListener("message", onMessage);
       try {
         udp.close();
-      } catch (error) { }
+      } catch (error) {}
     };
 
     return [track, port, dispose] as const;
@@ -154,15 +155,15 @@ export class MediaStreamTrackFactory {
  * the value of the property in the destination object.
  */
 export const deepMerge = <T>(dst: T, src: T) => {
-  if (!dst || typeof dst !== 'object') {
-    if (src !== null && typeof src === 'object') {
+  if (!dst || typeof dst !== "object") {
+    if (src !== null && typeof src === "object") {
       return src;
     } else {
       return dst;
     }
   }
 
-  if (!src || typeof src !== 'object') {
+  if (!src || typeof src !== "object") {
     if (src == undefined) {
       return dst;
     }
@@ -179,4 +180,4 @@ export const deepMerge = <T>(dst: T, src: T) => {
     }
   }
   return dst;
-}
+};
