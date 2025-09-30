@@ -66,6 +66,22 @@ export const vintEncodedNumber = (num: number): Value => {
   return bytes(vintEncode(numberToByteArray(num, getEBMLByteLength(num))));
 };
 
+/**
+ * Decode a vint-encoded unsigned integer previously produced by `vintEncodedNumber`.
+ * Returns its numeric value (number if within MAX_SAFE_INTEGER, otherwise bigint) and the length in bytes.
+ * Throws if the value is the EBML unknown-size sentinel.
+ */
+export const decodeVintEncodedNumber = (
+  buf: Uint8Array,
+  offset = 0,
+): { value: number | bigint; length: number } => {
+  const { value, length, unknown } = vintDecode(buf, offset);
+  if (unknown || value === undefined) {
+    throw new Error("decodeVintEncodedNumber: value is unknown size sentinel");
+  }
+  return { value, length };
+};
+
 export const string = (str: string): Value => {
   return bytes(stringToByteArray(str));
 };
@@ -130,4 +146,78 @@ export const vintEncode = (byteArray: Uint8Array): Uint8Array => {
 
 export const getSizeMask = (byteLength: number): number => {
   return 0x80 >> (byteLength - 1);
+};
+
+export interface VIntDecodeResult {
+  /** The decoded value. Undefined if the VINT represents an unknown size sentinel (all value bits = 1). */
+  value: number | bigint | undefined;
+  /** Total number of bytes consumed by this VINT. */
+  length: number;
+  /** True when this VINT encodes the EBML "unknown size" value (all value bits set to 1). */
+  unknown: boolean;
+}
+
+/**
+ * Decode an EBML variable size integer (VINT) from the provided buffer.
+ *
+ * Encoding recap (EBML spec):
+ *   The length (N, 1..8) is indicated by the position of the first set bit in the first byte.
+ *   Patterns:
+ *     1xxxxxxx -> 1 byte total  (7 value bits)
+ *     01xxxxxx xxxxxxxx -> 2 bytes total (14 value bits)
+ *     001xxxxx ...... -> 3 bytes total (21 value bits)
+ *     ...
+ *     00000001 [7 subsequent bytes] -> 8 bytes total (56 value bits)
+ *
+ * The marker bit itself is cleared from the first byte to recover the value bits.
+ * Total value bits = 7 * N.
+ * A value with all value bits set to 1 is reserved for the "unknown size" sentinel.
+ */
+export const vintDecode = (buf: Uint8Array, offset = 0): VIntDecodeResult => {
+  if (offset >= buf.length) {
+    throw new Error("vintDecode: offset out of range");
+  }
+  const first = buf[offset];
+  if (first === 0) {
+    throw new Error("vintDecode: invalid first byte 0x00 (no leading 1 bit)");
+  }
+
+  // Determine length by locating first set bit (MSB towards LSB)
+  let length = 0;
+  for (let i = 0; i < 8; i++) {
+    const mask = 0x80 >> i;
+    if (first & mask) {
+      length = i + 1; // Length is position index + 1
+      break;
+    }
+  }
+  if (length === 0) {
+    throw new Error("vintDecode: could not determine length");
+  }
+  if (offset + length > buf.length) {
+    throw new Error("vintDecode: insufficient bytes for declared length");
+  }
+
+  // Mask out the length marker bit(s) in the first byte
+  const lengthMarker = getSizeMask(length);
+  let valueBig = BigInt(first & ~lengthMarker);
+
+  for (let i = 1; i < length; i++) {
+    valueBig = (valueBig << 8n) | BigInt(buf[offset + i]);
+  }
+
+  // Maximum value (all value bits = 1) indicates unknown size
+  const allOnes = (1n << BigInt(7 * length)) - 1n; // 7 value bits per byte
+  const unknown = valueBig === allOnes;
+
+  let value: number | bigint | undefined;
+  if (unknown) {
+    value = undefined;
+  } else if (valueBig <= BigInt(Number.MAX_SAFE_INTEGER)) {
+    value = Number(valueBig);
+  } else {
+    value = valueBig; // preserve precision as bigint
+  }
+
+  return { value, length, unknown };
 };
