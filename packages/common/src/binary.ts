@@ -247,7 +247,11 @@ export class BitStream {
     return this;
   }
 
-  readBits(bits: number, bitBuffer?: number): any {
+  readBits(bits: number) {
+    return this._readBits(bits);
+  }
+
+  private _readBits(bits: number, bitBuffer?: number): number {
     if (typeof bitBuffer == "undefined") {
       bitBuffer = 0;
     }
@@ -269,7 +273,7 @@ export class BitStream {
     }
     bits -= bitsConsumed;
     bitBuffer = (bitBuffer << bitsConsumed) | partial;
-    return bits > 0 ? this.readBits(bits, bitBuffer) : bitBuffer;
+    return bits > 0 ? this._readBits(bits, bitBuffer) : bitBuffer;
   }
 
   seekTo(bitPos: number) {
