@@ -4,7 +4,6 @@ import { Event, EventDisposer } from "../../../imports/common";
 import { MediaWriter } from ".";
 import { type MediaStreamTrack, WeriftError } from "../../..";
 import {
-  type ContainerSupportedCodec,
   DepacketizeCallback,
   JitterBufferCallback,
   LipsyncCallback,
@@ -13,6 +12,7 @@ import {
   RtpSourceCallback,
   RtpTimeCallback,
   WebmCallback,
+  type WebmSupportedCodec,
   type WebmTrack,
   saveToFileSystem,
 } from "../../../imports/rtpExtra";
@@ -36,7 +36,7 @@ export class WebmFactory extends MediaWriter {
         const payloadType = track.codec!.payloadType;
 
         if (track.kind === "video") {
-          const codec = ((): ContainerSupportedCodec => {
+          const codec = ((): WebmSupportedCodec => {
             switch (track.codec?.name.toLowerCase() as SupportedVideoCodec) {
               case "vp8":
                 return "VP8";

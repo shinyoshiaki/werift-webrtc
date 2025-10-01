@@ -6,7 +6,7 @@ import {
   numberToByteArray,
   vintEncode,
 } from "../container";
-import type { ContainerSupportedCodec } from "../container/webm";
+import type { WebmSupportedCodec } from "../container/webm";
 import type { AVProcessor } from "./interface";
 
 export interface WebmTrack {
@@ -14,7 +14,7 @@ export interface WebmTrack {
   height?: number;
   roll?: number;
   kind: MediaKind;
-  codec: ContainerSupportedCodec;
+  codec: WebmSupportedCodec;
   clockRate: number;
   trackNumber: number;
 }

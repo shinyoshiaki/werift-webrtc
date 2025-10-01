@@ -4,7 +4,7 @@ import {
   WritableStream,
 } from "stream/web";
 
-import type { ContainerSupportedCodec } from "../container/webm/container";
+import type { WebmSupportedCodec } from "../container/webm/container";
 import {
   WebmBase,
   type WebmInput,
@@ -27,7 +27,7 @@ export class WebmStream extends WebmBase {
       width?: number;
       height?: number;
       kind: "audio" | "video";
-      codec: ContainerSupportedCodec;
+      codec: WebmSupportedCodec;
       clockRate: number;
       trackNumber: number;
     }[],

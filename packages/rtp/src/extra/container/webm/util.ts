@@ -1,5 +1,4 @@
-
-import { BitWriter2, BufferChain, BitStream } from "../../../imports/common.js";
+import { BitStream, BitWriter2, BufferChain } from "../../../imports/common.js";
 import * as EBML from "./ebml/ebml.js";
 import { decodeVintEncodedNumber } from "./ebml/ebml.js";
 
