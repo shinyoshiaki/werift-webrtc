@@ -71,17 +71,20 @@ export class WEBMContainer {
     if (kind === "video") {
       width ??= 640;
       height ??= 360;
-      roll ??= 0;
-      trackElements.push(
-        EBML.element(EBML.ID.Video, [
-          EBML.element(EBML.ID.PixelWidth, EBML.number(width)),
-          EBML.element(EBML.ID.PixelHeight, EBML.number(height)),
+      const videoElements = [
+        EBML.element(EBML.ID.PixelWidth, EBML.number(width)),
+        EBML.element(EBML.ID.PixelHeight, EBML.number(height)),
+      ];
+      if (roll !== undefined) {
+        videoElements.push(
           EBML.element(EBML.ID.Projection, [
             EBML.element(EBML.ID.ProjectionType, EBML.number(0)),
             EBML.element(EBML.ID.ProjectionPoseRoll, EBML.float(roll)),
           ]),
-        ]),
-      );
+        );
+      }
+
+      trackElements.push(EBML.element(EBML.ID.Video, videoElements));
     } else {
       trackElements.push(
         EBML.element(EBML.ID.Audio, [
