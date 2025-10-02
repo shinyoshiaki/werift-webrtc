@@ -37,7 +37,7 @@ export interface SimpleBlock {
   data: Buffer;
   trackNumber: number;
   isKeyframe: boolean;
-  timecode: number; 
+  timecode: number;
 }
 
 export function deserializeSimpleBlocks(data: Buffer) {
@@ -76,7 +76,12 @@ export function deserializeSimpleBlocks(data: Buffer) {
       throw new Error("invalid simple block size");
     }
     const frame = data.subarray(position, position + remaining);
-    frames.push({ data: frame, trackNumber: Number(trackNumber), isKeyframe, timecode });
+    frames.push({
+      data: frame,
+      trackNumber: Number(trackNumber),
+      isKeyframe,
+      timecode,
+    });
     position += remaining;
   }
   return frames;
