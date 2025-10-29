@@ -1,6 +1,6 @@
-import { RtcpTransportLayerFeedback } from ".";
 import { bufferReader, bufferWriter } from "../../../../common/src";
 import { RtcpHeader } from "../header";
+import { RtcpTransportLayerFeedbackType } from "./const";
 
 // 0                   1                   2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -31,7 +31,7 @@ export class GenericNack {
     Object.assign(this, props);
     if (!this.header) {
       this.header = new RtcpHeader({
-        type: RtcpTransportLayerFeedback.type,
+        type: RtcpTransportLayerFeedbackType,
         count: this.count,
         version: 2,
       });
