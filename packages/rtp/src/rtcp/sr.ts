@@ -1,6 +1,6 @@
 import { bufferReader, bufferWriter } from "../../../common/src";
+import { RtcpHeader } from "./header";
 import { RtcpReceiverInfo } from "./rr";
-import { RtcpPacketConverter } from "./rtcp";
 
 // https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 //         0                   1                   2                   3
@@ -66,7 +66,7 @@ export class RtcpSrPacket {
       payload,
       ...this.reports.map((report) => report.serialize()),
     ]);
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       RtcpSrPacket.type,
       this.reports.length,
       payload,

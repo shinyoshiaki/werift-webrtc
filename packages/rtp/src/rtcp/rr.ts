@@ -1,5 +1,5 @@
 import { bufferReader, bufferWriter } from "../../../common/src";
-import { RtcpPacketConverter } from "./rtcp";
+import { RtcpHeader } from "./header";
 
 export class RtcpRrPacket {
   ssrc = 0;
@@ -17,7 +17,7 @@ export class RtcpRrPacket {
       payload,
       ...this.reports.map((report) => report.serialize()),
     ]);
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       RtcpRrPacket.type,
       this.reports.length,
       payload,
