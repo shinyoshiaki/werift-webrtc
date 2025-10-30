@@ -16,22 +16,6 @@ export type RtcpPacket =
   | RtcpTransportLayerFeedback;
 
 export class RtcpPacketConverter {
-  static serialize(
-    type: number,
-    count: number,
-    payload: Buffer,
-    length: number,
-  ) {
-    const header = new RtcpHeader({
-      type,
-      count,
-      version: 2,
-      length,
-    });
-    const buf = header.serialize();
-    return Buffer.concat([buf, payload]);
-  }
-
   static deSerialize(data: Buffer) {
     let pos = 0;
     const packets: RtcpPacket[] = [];

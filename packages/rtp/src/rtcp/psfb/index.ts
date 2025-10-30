@@ -1,6 +1,5 @@
 import { debug } from "../../imports/common";
-import type { RtcpHeader } from "../header";
-import { RtcpPacketConverter } from "../rtcp";
+import { RtcpHeader } from "../header";
 import { FullIntraRequest } from "./fullIntraRequest";
 import { PictureLossIndication } from "./pictureLossIndication";
 import { ReceiverEstimatedMaxBitrate } from "./remb";
@@ -24,7 +23,7 @@ export class RtcpPayloadSpecificFeedback {
 
   serialize() {
     const payload = this.feedback.serialize();
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       this.type,
       this.feedback.count,
       payload,

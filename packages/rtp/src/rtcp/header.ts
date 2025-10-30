@@ -27,6 +27,22 @@ export class RtcpHeader {
     Object.assign(this, props);
   }
 
+  static serialize(
+    type: number,
+    count: number,
+    payload: Buffer,
+    length: number,
+  ) {
+    const header = new RtcpHeader({
+      type,
+      count,
+      version: 2,
+      length,
+    });
+    const buf = header.serialize();
+    return Buffer.concat([buf, payload]);
+  }
+
   serialize() {
     const v_p_rc = new BitWriter(8);
     v_p_rc.set(2, 0, this.version);
