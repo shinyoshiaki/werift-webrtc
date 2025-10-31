@@ -121,24 +121,33 @@ export function paddingBits(bits: number, expectLength: number) {
 }
 
 export function bufferWriter(bytes: number[], values: (number | bigint)[]) {
-  return createBufferWriter(bytes)(values);
+  return createBufferWriter(bytes).write(values);
 }
 
 export function createBufferWriter(bytes: number[], singleBuffer?: boolean) {
   const length = bytes.reduce((acc, cur) => acc + cur, 0);
-  const reuseBuffer = singleBuffer ? Buffer.alloc(length) : undefined;
+  let reuseBuffer = singleBuffer ? Buffer.alloc(length) : undefined;
 
-  return (values: (number | bigint)[]) => {
-    const buf = reuseBuffer || Buffer.alloc(length);
-    let offset = 0;
+  return {
+    write: (values: (number | bigint)[]) => {
+      if(singleBuffer && !reuseBuffer) {
+        throw new Error('buffer is cleared');
+      }
 
-    values.forEach((v, i) => {
-      const size = bytes[i];
-      if (size === 8) buf.writeBigUInt64BE(v as bigint, offset);
-      else buf.writeUIntBE(v as number, offset, size);
-      offset += size;
-    });
-    return buf;
+      const buf = reuseBuffer || Buffer.alloc(length);
+      let offset = 0;
+
+      values.forEach((v, i) => {
+        const size = bytes[i];
+        if (size === 8) buf.writeBigUInt64BE(v as bigint, offset);
+        else buf.writeUIntBE(v as number, offset, size);
+        offset += size;
+      });
+      return buf;
+    },
+    end: () => {
+      reuseBuffer = undefined;
+    },
   };
 }
 

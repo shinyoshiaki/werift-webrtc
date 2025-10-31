@@ -225,6 +225,10 @@ export class Context {
     const s = this.getSrtcpSsrcState(ssrc);
     s.srtcpIndex = index % 0x7fffffff;
   }
+
+  dispose() {
+    this.cipher.dispose();
+  }
 }
 
 export interface SrtpSsrcState {

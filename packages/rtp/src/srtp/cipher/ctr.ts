@@ -157,6 +157,8 @@ export class CipherAesCtr extends CipherAesBase {
     }
     return srtpSessionAuth.update(rocRaw).digest().subarray(0, 10);
   }
+
+  dispose(): void {}
 }
 
 const srtcpIndexSize = 4;

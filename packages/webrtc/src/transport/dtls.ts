@@ -337,6 +337,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async stop() {
+    this.srtp.dispose();
+    this.srtcp.dispose();
+
     this.setState("closed");
     // todo impl send alert
     await this.iceTransport.stop();

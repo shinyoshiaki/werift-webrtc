@@ -109,7 +109,7 @@ export class CipherAesGcm extends CipherAesBase {
 
   // https://tools.ietf.org/html/rfc7714#section-8.1
   private rtpInitializationVector(header: RtpHeader, rolloverCounter: number) {
-    const iv = this.rtpIvWriter([
+    const iv = this.rtpIvWriter.write([
       0,
       header.ssrc,
       rolloverCounter,
@@ -123,7 +123,7 @@ export class CipherAesGcm extends CipherAesBase {
 
   // https://tools.ietf.org/html/rfc7714#section-9.1
   private rtcpInitializationVector(ssrc: number, srtcpIndex: number) {
-    const iv = this.rtcpIvWriter([0, ssrc, 0, srtcpIndex]);
+    const iv = this.rtcpIvWriter.write([0, ssrc, 0, srtcpIndex]);
     for (let i = 0; i < iv.length; i++) {
       iv[i] ^= this.srtcpSessionSalt[i];
     }
@@ -137,10 +137,16 @@ export class CipherAesGcm extends CipherAesBase {
   ) {
     const aad = Buffer.concat([
       rtcpPacket.subarray(0, 8),
-      this.aadWriter([srtcpIndex]),
+      this.aadWriter.write([srtcpIndex]),
     ]);
     aad[8] |= rtcpEncryptionFlag;
     return aad;
+  }
+
+  dispose() {
+    this.rtpIvWriter.end();
+    this.rtcpIvWriter.end();
+    this.aadWriter.end();
   }
 }
 

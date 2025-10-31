@@ -37,4 +37,9 @@ export class Session<T extends Context> {
       profile,
     );
   }
+
+  dispose() {
+    this.localContext.dispose();
+    this.remoteContext.dispose();
+  }
 }

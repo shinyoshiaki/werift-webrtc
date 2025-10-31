@@ -28,4 +28,6 @@ export abstract class CipherAesBase {
   decryptRTCP(encrypted: Buffer): [Buffer, RtcpHeader] {
     return [] as any;
   }
+
+  abstract dispose(): void;
 }
