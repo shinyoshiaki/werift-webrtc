@@ -70,6 +70,9 @@ export class DtlsSocket {
       this.options.key,
       this.options.signatureHash,
     );
+    if (this.dtls) {
+      this.dtls.dispose();
+    }
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.srtp = new SrtpContext();
     this.extensions = [];
@@ -202,6 +205,7 @@ export class DtlsSocket {
 
   close() {
     this.transport.socket.close();
+    this.dtls.dispose();
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {

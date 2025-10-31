@@ -79,4 +79,11 @@ export class DtlsContext {
       ...filtered,
     ];
   }
+
+  dispose() {
+    this.lastFlight = [];
+    this.lastMessage = [];
+    this.handshakeCache = {};
+    this.requestedCertificateTypes = [];
+  }
 }

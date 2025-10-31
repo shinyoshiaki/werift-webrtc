@@ -688,6 +688,7 @@ export class Connection implements IceConnection {
 
     this.protocols = [];
     this.localCandidates = [];
+    this.checkList = [];
 
     this.lookup?.close?.();
     this.lookup = undefined;

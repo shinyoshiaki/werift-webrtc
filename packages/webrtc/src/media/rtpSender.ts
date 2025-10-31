@@ -237,6 +237,12 @@ export class RTCRtpSender {
   }
 
   stop() {
+    this.onReady.allUnsubscribe();
+    this.onRtcp.allUnsubscribe();
+    this.onPictureLossIndication.allUnsubscribe();
+    this.onGenericNack.allUnsubscribe();
+
+    this.rtpCache = [];
     this.stopped = true;
     this.rtcpRunning = false;
     this.rtcpCancel.abort();

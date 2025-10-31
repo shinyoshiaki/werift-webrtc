@@ -130,8 +130,8 @@ export function createBufferWriter(bytes: number[], singleBuffer?: boolean) {
 
   return {
     write: (values: (number | bigint)[]) => {
-      if(singleBuffer && !reuseBuffer) {
-        throw new Error('buffer is cleared');
+      if (singleBuffer && !reuseBuffer) {
+        throw new Error("buffer is cleared");
       }
 
       const buf = reuseBuffer || Buffer.alloc(length);

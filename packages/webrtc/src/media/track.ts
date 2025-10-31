@@ -54,6 +54,8 @@ export class MediaStreamTrack extends EventTarget {
     this.stopped = true;
     this.muted = true;
     this.onReceiveRtp.complete();
+    this.onReceiveRtcp.complete();
+    this.onSourceChanged.complete();
     this.emit("ended");
   };
 

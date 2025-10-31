@@ -343,6 +343,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.setState("closed");
     // todo impl send alert
     await this.iceTransport.stop();
+    this.dtls?.close?.();
   }
 
   async getStats(): Promise<RTCStats[]> {
