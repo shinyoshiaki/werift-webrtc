@@ -33,7 +33,7 @@
     "sdp-transform": "^2.15.0",
     "socket.io-client": "^4.8.1",
     "ws": "^8.18.0",
-    "xmlbuilder2": "^3.1.1",
+    "xmlbuilder2": "^4.0.0",
     "yargs": "^17.7.2",
     "zx": "^8.3.2"
   },
