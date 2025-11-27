@@ -35,7 +35,7 @@
     "ws": "^8.18.0",
     "xmlbuilder2": "^3.1.1",
     "yargs": "^17.7.2",
-    "zx": "^8.3.2"
+    "zx": "^8.8.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
