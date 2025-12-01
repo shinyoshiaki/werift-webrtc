@@ -33,7 +33,7 @@
     "@types/protoo-server": "^4.0.6",
     "@vitest/browser": "3.2.4",
     "axios": "^1.12.2",
-    "express": "^5.1.0",
+    "express": "^5.2.0",
     "npm-run-all2": "^8.0.4",
     "playwright": "^1.55.1",
     "protoo-client": "^4.0.6",
