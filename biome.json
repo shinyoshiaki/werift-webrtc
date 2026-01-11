@@ -13,7 +13,6 @@
         "noParameterAssign": "off",
         "useSingleVarDeclarator": "off",
         "useDefaultParameterLast": "off",
-        "noVar": "off",
         "noInferrableTypes": "off",
         "useNodejsImportProtocol": "off"
       },
