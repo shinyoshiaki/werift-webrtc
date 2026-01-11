@@ -1,4 +1,5 @@
 import { createHmac } from "crypto";
+//@ts-ignore
 import crc32 from "buffer-crc32";
 
 import { bufferXor, randomTransactionId } from "../helper";
