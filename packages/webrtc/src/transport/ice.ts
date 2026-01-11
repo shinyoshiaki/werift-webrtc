@@ -344,13 +344,16 @@ export interface RTCIceCandidateInit {
 }
 
 export class RTCIceCandidate {
-  candidate!: string;
-  sdpMid?: string;
-  sdpMLineIndex?: number;
-  usernameFragment?: string;
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment: string | null;
 
-  constructor(props: Partial<RTCIceCandidate>) {
-    Object.assign(this, props);
+  constructor(props: Partial<RTCIceCandidateInit> = {}) {
+    this.candidate = props.candidate ?? "";
+    this.sdpMid = props.sdpMid ?? null;
+    this.sdpMLineIndex = props.sdpMLineIndex ?? null;
+    this.usernameFragment = props.usernameFragment ?? null;
   }
 
   static fromSdp(sdp: string): RTCIceCandidate {
@@ -363,7 +366,7 @@ export class RTCIceCandidate {
     if (typeof o?.candidate === "string") return true;
   }
 
-  toJSON() {
+  toJSON(): RTCIceCandidateInit {
     return {
       candidate: this.candidate,
       sdpMid: this.sdpMid,

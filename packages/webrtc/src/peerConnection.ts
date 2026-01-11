@@ -514,9 +514,11 @@ export class RTCPeerConnection extends EventTarget {
     );
   }
 
-  async addIceCandidate(
-    candidateMessage: RTCIceCandidate | RTCIceCandidateInit,
-  ) {
+  async addIceCandidate(candidateMessage?: RTCIceCandidate | RTCIceCandidateInit | null) {
+    if (!candidateMessage) {
+      return;
+    }
+
     const sdp = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,

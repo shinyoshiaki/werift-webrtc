@@ -59,7 +59,33 @@ export class MediaDevices extends EventTarget {
     throw new Error("Not implemented");
   };
 
-  readonly getDisplayMedia = this.getUserMedia;
+  readonly getDisplayMedia = async (
+    constraints?: MediaStreamConstraints,
+  ): Promise<MediaStream> => {
+    // Web defaults: video=true, audio=false
+    const record = (constraints ?? {}) as MediaStreamConstraints;
+    const wantsVideo = record.video === undefined ? true : Boolean(record.video);
+    const wantsAudio = record.audio === undefined ? false : Boolean(record.audio);
+
+    const tracks: MediaStreamTrack[] = [];
+    const videoTrack = wantsVideo ? new MediaStreamTrack({ kind: "video" }) : undefined;
+    const audioTrack = wantsAudio ? new MediaStreamTrack({ kind: "audio" }) : undefined;
+
+    if (videoTrack) {
+      videoTrack.label ||= "display video";
+      tracks.push(videoTrack);
+    }
+    if (audioTrack) {
+      audioTrack.label ||= "display audio";
+      tracks.push(audioTrack);
+    }
+
+    if (tracks.length === 0) {
+      throw new Error("Not implemented");
+    }
+
+    return new MediaStream(tracks);
+  };
 
   readonly getUdpMedia = ({
     port,

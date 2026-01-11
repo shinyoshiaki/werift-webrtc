@@ -645,7 +645,9 @@ export class RTCSessionDescription {
   constructor(
     public sdp: string,
     public type: "offer" | "answer",
-  ) {}
+  ) {
+    this.sdp ??= "";
+  }
 
   static isThis(o: any) {
     if (typeof o?.sdp === "string") return true;
@@ -656,6 +658,10 @@ export class RTCSessionDescription {
       sdp: this.sdp,
       type: this.type,
     };
+  }
+
+  toJSON() {
+    return this.toSdp();
   }
 }
 
