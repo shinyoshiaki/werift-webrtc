@@ -5,14 +5,14 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "postinstall": "cd ../packages/webrtc && npm run build && cd ../../ && rm -rf node_modules",
+    "postinstall": "cd ../ && npm i && cd ./packages/webrtc && npm run build && cd ../../ && rm -rf node_modules",
     "test": "npm i && node test.mjs && cd ../ && npm i"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "werift-dev": "file:../packages/webrtc",
-    "werift": "latest"
+    "werift": "0.22.4",
+    "werift-dev": "file:../packages/webrtc"
   }
 }
