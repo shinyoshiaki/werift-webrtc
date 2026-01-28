@@ -1,0 +1,18 @@
+{
+  "name": "import-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "postinstall": "cd ../packages/webrtc && npm run build && cd ../../ && rm -rf node_modules",
+    "test": "npm i && node test.mjs && cd ../ && npm i"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "werift-dev": "file:../packages/webrtc",
+    "werift": "latest"
+  }
+}
