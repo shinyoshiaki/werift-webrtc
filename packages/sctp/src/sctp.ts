@@ -67,6 +67,8 @@ const SCTP_RTO_INITIAL = 3;
 const SCTP_RTO_MIN = 1;
 const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
+const SCTP_SACK_DELAY_MS = 200;
+const SCTP_HEARTBEAT_INTERVAL = 30;
 
 const RECONFIG_MAX_STREAMS = 135;
 
@@ -117,7 +119,9 @@ export class SCTP {
   private sackDuplicates: number[] = [];
   private sackMisOrdered = new Set<number>();
   private sackNeeded = false;
-  private sackTimeout: NodeJS.Immediate | undefined;
+  private sackPacketCount = 0;
+  private sackImmediate = false;
+  private sackTimeout: NodeJS.Timeout | undefined;
 
   // # outbound
   private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
@@ -163,6 +167,8 @@ export class SCTP {
   /**Re-configuration Timer */
   private timerReconfigHandle?: any;
   private timerReconfigFailures = 0;
+  private timerHeartbeatHandle?: any;
+  private heartbeatInterval = SCTP_HEARTBEAT_INTERVAL;
 
   // etc
   private ssthresh?: number; // slow start threshold
@@ -215,19 +221,38 @@ export class SCTP {
       return;
     }
 
+    this.heartbeatRestart();
+
     for (const chunk of chunks) {
       await this.receiveChunk(chunk);
     }
 
     if (this.sackNeeded) {
-      await this.sendSack();
+      await this.scheduleSack();
     }
   }
 
-  private async sendSack() {
+  private async scheduleSack() {
+    if (!this.sackNeeded) return;
+    if (this.sackImmediate) {
+      if (this.sackTimeout) {
+        clearTimeout(this.sackTimeout);
+        this.sackTimeout = undefined;
+      }
+      await this.sendSack();
+      return;
+    }
     if (this.sackTimeout) return;
-    await new Promise((r) => (this.sackTimeout = setImmediate(r)));
-    this.sackTimeout = undefined;
+
+    this.sackTimeout = setTimeout(() => {
+      this.sackTimeout = undefined;
+      this.sendSack().catch((err: Error) => {
+        log("send delayed sack failed", err.message);
+      });
+    }, SCTP_SACK_DELAY_MS);
+  }
+
+  private async sendSack() {
     if (!this.sackNeeded) return;
 
     const gaps: [number, number][] = [];
@@ -253,6 +278,8 @@ export class SCTP {
 
     this.sackDuplicates = [];
     this.sackNeeded = false;
+    this.sackPacketCount = 0;
+    this.sackImmediate = false;
   }
 
   private async receiveChunk(chunk: Chunk) {
@@ -539,7 +566,14 @@ export class SCTP {
   private receiveDataChunk(chunk: DataChunk) {
     this.sackNeeded = true;
 
-    if (this.markReceived(chunk.tsn)) return;
+    if (this.markReceived(chunk.tsn)) {
+      this.sackImmediate = true;
+      return;
+    }
+    this.sackPacketCount++;
+    if (this.sackPacketCount >= 2 || this.sackMisOrdered.size > 0) {
+      this.sackImmediate = true;
+    }
 
     const inboundStream = this.getInboundStream(chunk.streamId);
 
@@ -670,6 +704,7 @@ export class SCTP {
 
   receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
     this.sackNeeded = true;
+    this.sackImmediate = true;
 
     if (uint32Gte(this.lastReceivedTsn!, chunk.cumulativeTsn)) {
       return;
@@ -1022,8 +1057,8 @@ export class SCTP {
 
   private timer3Restart() {
     this.timer3Cancel();
-    // for performance
-    this.timer3Handle = setTimeout(this.timer3Expired, this.rto);
+    // rto is kept in seconds and converted to milliseconds for JS timers.
+    this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
   private timer3Expired = () => {
@@ -1098,6 +1133,56 @@ export class SCTP {
       // Reset failures counter when timer is successfully cancelled
       this.timerReconfigFailures = 0;
     }
+  }
+
+  private heartbeatStart() {
+    if (
+      this.timerHeartbeatHandle ||
+      this.associationState !== SCTP_STATE.ESTABLISHED
+    ) {
+      return;
+    }
+    this.timerHeartbeatHandle = setTimeout(
+      this.timerHeartbeatExpired,
+      (this.rto + this.heartbeatInterval) * 1000,
+    );
+  }
+
+  private heartbeatRestart() {
+    this.heartbeatCancel();
+    this.heartbeatStart();
+  }
+
+  private heartbeatCancel() {
+    if (this.timerHeartbeatHandle) {
+      clearTimeout(this.timerHeartbeatHandle);
+      this.timerHeartbeatHandle = undefined;
+    }
+  }
+
+  private timerHeartbeatExpired = async () => {
+    this.timerHeartbeatHandle = undefined;
+    if (this.associationState !== SCTP_STATE.ESTABLISHED) return;
+
+    if (this.flightSize === 0 && this.outboundQueue.length === 0) {
+      const heartbeat = new HeartbeatChunk();
+      heartbeat.params.push([
+        1,
+        Buffer.from(jspack.Pack("!L", [Math.floor(Date.now() / 1000)])),
+      ]);
+      await this.sendChunk(heartbeat).catch((err: Error) => {
+        log("send heartbeat failed", err.message);
+      });
+    }
+    this.heartbeatStart();
+  };
+
+  setHeartbeatInterval(interval: number) {
+    if (interval <= 0) {
+      throw new Error("heartbeat interval must be > 0");
+    }
+    this.heartbeatInterval = interval;
+    this.heartbeatRestart();
   }
 
   private updateAdvancedPeerAckPoint() {
@@ -1227,6 +1312,7 @@ export class SCTP {
       chunk,
     );
     await this.transport.send(packet);
+    this.heartbeatRestart();
   }
 
   setState(state: SCTP_STATE) {
@@ -1235,11 +1321,17 @@ export class SCTP {
     }
     if (state === SCTP_STATE.ESTABLISHED) {
       this.setConnectionState("connected");
+      this.heartbeatStart();
     } else if (state === SCTP_STATE.CLOSED) {
       this.timer1Cancel();
       this.timer2Cancel();
       this.timer3Cancel();
       this.timerReconfigCancel();
+      this.heartbeatCancel();
+      if (this.sackTimeout) {
+        clearTimeout(this.sackTimeout);
+        this.sackTimeout = undefined;
+      }
       this.setConnectionState("closed");
       this.removeAllListeners();
     }
@@ -1260,6 +1352,8 @@ export class SCTP {
     clearTimeout(this.timer2Handle);
     clearTimeout(this.timer3Handle);
     clearTimeout(this.timerReconfigHandle);
+    clearTimeout(this.timerHeartbeatHandle);
+    clearTimeout(this.sackTimeout);
   }
 
   async abort() {

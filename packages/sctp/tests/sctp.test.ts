@@ -1,8 +1,11 @@
 import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
+import { vi } from "vitest";
 
 import { SCTP, SCTP_STATE } from "../src";
+import { DataChunk } from "../src/chunk";
 import { StreamAddOutgoingParam } from "../src/param";
+import type { Transport } from "../src/transport";
 import { createUdpTransport } from "../src/transport";
 
 describe("sctp", () => {
@@ -54,5 +57,91 @@ describe("sctp", () => {
     expect(server.associationState).toBe(SCTP_STATE.CLOSED);
 
     socket.close();
+  });
+});
+
+describe("sctp timers and ack policy", () => {
+  const createMockSctp = () => {
+    const transport: Transport = {
+      send: vi.fn(async () => {}),
+      close: vi.fn(),
+    };
+    const sctp = SCTP.client(transport, 5000);
+    sctp.setRemotePort(5001);
+    return { sctp, transport };
+  };
+
+  const createDataChunk = (tsn: number) => {
+    const chunk = new DataChunk(0, undefined);
+    chunk.tsn = tsn;
+    chunk.streamId = 1;
+    chunk.streamSeqNum = 0;
+    chunk.protocol = 51;
+    chunk.userData = Buffer.from("x");
+    return chunk;
+  };
+
+  test("timer3Restart converts rto seconds to milliseconds", () => {
+    const { sctp } = createMockSctp();
+    const spy = vi.spyOn(global, "setTimeout");
+
+    (sctp as any).rto = 5;
+    (sctp as any).timer3Restart();
+
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), 5000);
+    (sctp as any).timer3Cancel();
+    spy.mockRestore();
+  });
+
+  test("delayed sack sends by 200ms and immediate on second packet", async () => {
+    vi.useFakeTimers();
+    const { sctp, transport } = createMockSctp();
+    (sctp as any).lastReceivedTsn = 0;
+
+    (sctp as any).receiveDataChunk(createDataChunk(1));
+    await (sctp as any).scheduleSack();
+    expect((transport.send as any).mock.calls.length).toBe(0);
+
+    vi.advanceTimersByTime(199);
+    await vi.runAllTicks();
+    expect((transport.send as any).mock.calls.length).toBe(0);
+
+    vi.advanceTimersByTime(1);
+    await vi.runAllTicks();
+    expect((transport.send as any).mock.calls.length).toBe(1);
+
+    (sctp as any).receiveDataChunk(createDataChunk(2));
+    await (sctp as any).scheduleSack();
+    (sctp as any).receiveDataChunk(createDataChunk(3));
+    await (sctp as any).scheduleSack();
+
+    expect((transport.send as any).mock.calls.length).toBe(2);
+    vi.useRealTimers();
+  });
+
+  test("gap/loss-signaled data triggers immediate sack", async () => {
+    const { sctp, transport } = createMockSctp();
+    (sctp as any).lastReceivedTsn = 0;
+
+    (sctp as any).receiveDataChunk(createDataChunk(2));
+    await (sctp as any).scheduleSack();
+
+    expect((transport.send as any).mock.calls.length).toBe(1);
+  });
+
+  test("heartbeat timer uses rto + heartbeat interval", () => {
+    const { sctp } = createMockSctp();
+    const spy = vi.spyOn(global, "setTimeout");
+    (sctp as any).associationState = SCTP_STATE.ESTABLISHED;
+    (sctp as any).rto = 2;
+
+    sctp.setHeartbeatInterval(30);
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), 32000);
+
+    sctp.setHeartbeatInterval(5);
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), 7000);
+
+    (sctp as any).heartbeatCancel();
+    spy.mockRestore();
   });
 });
