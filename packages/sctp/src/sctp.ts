@@ -63,11 +63,14 @@ const SCTP_MAX_ASSOCIATION_RETRANS = 10;
 const SCTP_MAX_INIT_RETRANS = 8;
 const SCTP_RTO_ALPHA = 1 / 8;
 const SCTP_RTO_BETA = 1 / 4;
+// RFC 9260 RTO.Initial/RTO.Min/RTO.Max defaults and bounds are in seconds.
 const SCTP_RTO_INITIAL = 3;
 const SCTP_RTO_MIN = 1;
 const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
+// RFC 9260 delayed ACK guidance: send SACK within 200ms at the latest.
 const SCTP_SACK_DELAY_MS = 200;
+// RFC 9260 HB.interval recommended default is 30 seconds.
 const SCTP_HEARTBEAT_INTERVAL = 30;
 
 const RECONFIG_MAX_STREAMS = 135;
@@ -244,6 +247,7 @@ export class SCTP {
     }
     if (this.sackTimeout) return;
 
+    // RFC 9260 delayed ACK path: defer SACK, but never beyond 200ms.
     this.sackTimeout = setTimeout(() => {
       this.sackTimeout = undefined;
       this.sendSack().catch((err: Error) => {
@@ -571,7 +575,9 @@ export class SCTP {
       return;
     }
     this.sackPacketCount++;
+    // RFC 9260 delayed ACK guidance allows SACK at least every second DATA chunk.
     if (this.sackPacketCount >= 2 || this.sackMisOrdered.size > 0) {
+      // RFC 9260 permits immediate SACK on gap/loss indicators.
       this.sackImmediate = true;
     }
 
@@ -1052,12 +1058,13 @@ export class SCTP {
   /**t3 is wait for data sack */
   private timer3Start() {
     if (this.timer3Handle) throw new Error();
+    // RFC 9260 T3-rtx runs on current RTO; rto is stored in seconds.
     this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
   private timer3Restart() {
     this.timer3Cancel();
-    // rto is kept in seconds and converted to milliseconds for JS timers.
+    // RFC 9260 requires restarting T3-rtx with current RTO (seconds -> JS ms).
     this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
@@ -1142,6 +1149,7 @@ export class SCTP {
     ) {
       return;
     }
+    // RFC 9260 heartbeat timer is based on RTO + HB.interval for idle paths.
     this.timerHeartbeatHandle = setTimeout(
       this.timerHeartbeatExpired,
       (this.rto + this.heartbeatInterval) * 1000,
