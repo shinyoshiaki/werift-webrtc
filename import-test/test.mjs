@@ -1,4 +1,4 @@
-import { assert } from 'node:test';
+import { equal } from 'node:assert';
 import { RTCPeerConnection } from 'werift';
 
 const pcA = new RTCPeerConnection();
@@ -33,6 +33,6 @@ setImmediate(() => {
 const [msg] = await dcB.onMessage.asPromise()
 console.log("message received:", msg);
 
-assert.equal(msg, message);
+equal(msg, message);
 
 process.exit(0);
