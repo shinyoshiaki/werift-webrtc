@@ -144,6 +144,8 @@ export class SCTP {
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
   private sentQueue: DataChunk[] = [];
+  private transmitting = false;
+  private transmitRequested = false;
 
   // # reconfiguration
 
@@ -878,24 +880,30 @@ export class SCTP {
       this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
     }
 
-    if (!this.timer3Handle) {
-      await this.transmit();
-      while (this.outboundQueue.length) {
-        await this.flush.asPromise();
-      }
-    } else {
-      if (this.outboundQueue.length) {
-        while (this.outboundQueue.length) {
-          await this.flush.asPromise();
-        }
-      } else {
-        // unreachable?
-        await new Promise((r) => setImmediate(r));
-      }
+    await this.transmit();
+    while (this.outboundQueue.length) {
+      await this.flush.asPromise();
     }
   };
 
   private async transmit() {
+    if (this.transmitting) {
+      this.transmitRequested = true;
+      return;
+    }
+
+    this.transmitting = true;
+    try {
+      do {
+        this.transmitRequested = false;
+        await this.transmitOnce();
+      } while (this.transmitRequested);
+    } finally {
+      this.transmitting = false;
+    }
+  }
+
+  private async transmitOnce() {
     // """
     // Transmit outbound data.
     // """
@@ -924,7 +932,7 @@ export class SCTP {
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
         } else if (this.flightSize >= cwnd) {
-          return;
+          break;
         }
         this.flightSizeIncrease(dataChunk);
 
@@ -949,7 +957,7 @@ export class SCTP {
       this.peerRwnd > 0
     ) {
       const chunk = this.outboundQueue.shift();
-      if (!chunk) return;
+      if (!chunk) break;
       if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
         this.outboundQueue.unshift(chunk);
         break;
