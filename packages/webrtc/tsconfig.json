@@ -8,6 +8,8 @@
     "declaration": true,
     "outDir": "lib",
     "strict": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
     "pretty": true,
     "sourceMap": true,
     "inlineSources": true,

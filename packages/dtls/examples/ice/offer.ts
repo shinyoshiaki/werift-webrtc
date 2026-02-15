@@ -1,4 +1,4 @@
-import * as readline from "node:readline";
+import readline from "readline";
 import { Connection, Candidate } from "../../../ice/src";
 import { DtlsServer } from "../../src";
 import { readFileSync } from "fs";

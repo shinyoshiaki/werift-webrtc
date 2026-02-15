@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "crypto";
 import { createDecode } from "@shinyoshiaki/binary-data";
-import * as nacl from "tweetnacl";
+import nacl from "tweetnacl";
 
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256PreMasterSecret } from "./ec";

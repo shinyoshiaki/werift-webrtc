@@ -1,5 +1,5 @@
-import * as os from "node:os";
-import * as nodeIp from "ip";
+import os from "os";
+import nodeIp from "ip";
 import {
   type Address,
   type InterfaceAddresses,

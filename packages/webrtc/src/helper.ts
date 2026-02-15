@@ -1,4 +1,4 @@
-import { EventEmitter } from "node:events";
+import EventEmitter from "events";
 
 export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);

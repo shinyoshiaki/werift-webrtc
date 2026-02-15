@@ -1,5 +1,5 @@
 import { Connection, Candidate } from "../../../ice/src";
-import * as readline from "node:readline";
+import readline from "readline";
 import { DtlsClient } from "../../src";
 import { createIceTransport } from "../transport/ice";
 

@@ -1,4 +1,4 @@
-import * as nodeCrypto from "node:crypto";
+import nodeCrypto from "crypto";
 import * as x509 from "@peculiar/x509";
 import { createSocket } from "dgram";
 
