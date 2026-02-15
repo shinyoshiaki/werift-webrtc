@@ -157,6 +157,38 @@ describe("sctp timers and ack policy", () => {
     spy.mockRestore();
   });
 
+  test("larger heartbeat interval delays no-response probe timing", async () => {
+    vi.useFakeTimers();
+    try {
+      const fast = createMockSctp().sctp;
+      const slow = createMockSctp().sctp;
+      (fast as any).associationState = SCTP_STATE.ESTABLISHED;
+      (slow as any).associationState = SCTP_STATE.ESTABLISHED;
+      (fast as any).rto = 1;
+      (slow as any).rto = 1;
+      fast.setHeartbeatInterval(1);
+      slow.setHeartbeatInterval(5);
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(((fast as any).transport.send as any).mock.calls.length).toBe(0);
+      expect(((slow as any).transport.send as any).mock.calls.length).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(((fast as any).transport.send as any).mock.calls.length).toBe(1);
+      expect(((slow as any).transport.send as any).mock.calls.length).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(3999);
+      expect(((fast as any).transport.send as any).mock.calls.length).toBe(2);
+      expect(((slow as any).transport.send as any).mock.calls.length).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(((fast as any).transport.send as any).mock.calls.length).toBe(3);
+      expect(((slow as any).transport.send as any).mock.calls.length).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("larger heartbeat interval increases no-response detection cadence and abort is handled", async () => {
     vi.useFakeTimers();
     try {

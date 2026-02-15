@@ -908,7 +908,7 @@ export class SCTP {
       retransmitEarliest = false;
     }
 
-    // for performance todo fix
+    // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
     while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.shift();
       if (!chunk) return;
