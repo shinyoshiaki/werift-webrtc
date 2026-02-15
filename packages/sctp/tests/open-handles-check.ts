@@ -35,26 +35,29 @@ const main = async () => {
       serverSocket.bind(port, resolve);
     });
 
-    let receivedByServer = false;
-    let receivedByClient = false;
+    const messageCount = 50;
+    let receivedByServer = 0;
+    let receivedByClient = 0;
     let resolveDone!: () => void;
     const exchanged = new Promise<void>((resolve) => {
       resolveDone = resolve;
     });
 
     const maybeDone = () => {
-      if (receivedByServer && receivedByClient) resolveDone();
+      if (receivedByServer === messageCount && receivedByClient === messageCount) {
+        resolveDone();
+      }
     };
 
     server.onReceive.subscribe((_, __, data) => {
-      if (data.toString() === "from-client") {
-        receivedByServer = true;
+      if (data.toString().startsWith("from-client-")) {
+        receivedByServer += 1;
         maybeDone();
       }
     });
     client.onReceive.subscribe((_, __, data) => {
-      if (data.toString() === "from-server") {
-        receivedByClient = true;
+      if (data.toString().startsWith("from-server-")) {
+        receivedByClient += 1;
         maybeDone();
       }
     });
@@ -67,10 +70,14 @@ const main = async () => {
 
     const baseline = activeTimerHandles();
     await Promise.all([
-      client.send(0, WEBRTC_PPID.STRING, Buffer.from("from-client")),
-      server.send(0, WEBRTC_PPID.STRING, Buffer.from("from-server")),
+      ...Array.from({ length: messageCount }, (_, i) =>
+        client.send(0, WEBRTC_PPID.STRING, Buffer.from(`from-client-${i}`))
+      ),
+      ...Array.from({ length: messageCount }, (_, i) =>
+        server.send(0, WEBRTC_PPID.STRING, Buffer.from(`from-server-${i}`))
+      ),
     ]);
-    await withTimeout(exchanged, 3000);
+    await withTimeout(exchanged, 5000);
 
     await Promise.all([client.stop(), server.stop()]);
     client.transport.close();
