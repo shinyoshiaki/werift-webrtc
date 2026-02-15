@@ -15,10 +15,10 @@ const socket = createSocket("udp4");
 socket.bind(port);
 
 const server = SCTP.server(createUdpTransport(socket));
-server.onReceive = (_, __, data) => {
+server.onReceive.subscribe((streamId, ppId, data) => {
   console.log(data.toString());
   server.send(0, WEBRTC_PPID.STRING, Buffer.from("pong"));
-};
+});
 
 const client = SCTP.client(
   createUdpTransport(createSocket("udp4"), {
@@ -26,9 +26,9 @@ const client = SCTP.client(
     address: "127.0.0.1",
   })
 );
-client.onReceive = (_, __, data) => {
+client.onReceive.subscribe((streamId, ppId, data) => {
   console.log(data.toString());
-};
+});
 
 await Promise.all([client.start(5000), server.start(5000)]);
 await Promise.all([
@@ -40,6 +40,7 @@ client.send(0, WEBRTC_PPID.STRING, Buffer.from("ping"));
 ```
 
 `SCTP.stop()` stops the SCTP association only. It does not close the underlying transport automatically, so close your UDP socket (or transport) explicitly when your application is done with it.
+`onReceive` is an `Event<[streamId, ppId, data]>`; use `subscribe`, `once`, or `asPromise` (not assignment).
 
 # reference
 

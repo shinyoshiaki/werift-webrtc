@@ -476,10 +476,21 @@ export class SDPManager {
     transceivers: RTCRtpTransceiver[],
     sctpTransport?: { dtlsTransport: RTCDtlsTransport; mid?: string },
   ) {
+    const transceiverByMLineIndex = new Map(
+      transceivers.map((transceiver) => [transceiver?.mLineIndex, transceiver]),
+    );
+    const fallbackDtlsTransport =
+      transceivers.find((transceiver) => transceiver?.dtlsTransport)?.dtlsTransport ??
+      sctpTransport?.dtlsTransport;
     description.media
       .filter((m) => ["audio", "video"].includes(m.kind))
       .forEach((m, i) => {
-        this.addTransportDescription(m, transceivers[i].dtlsTransport);
+        const transceiver = transceiverByMLineIndex.get(i) ?? transceivers[i];
+        const dtlsTransport = transceiver?.dtlsTransport ?? fallbackDtlsTransport;
+        if (!dtlsTransport) {
+          throw new Error(`dtls transport not found for media index ${i}`);
+        }
+        this.addTransportDescription(m, dtlsTransport);
       });
     const sctpMedia = description.media.find((m) => m.kind === "application");
     if (sctpTransport && sctpMedia) {

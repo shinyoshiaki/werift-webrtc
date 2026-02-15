@@ -401,7 +401,7 @@ export class RTCPeerConnection extends EventTarget {
         media: this._localDescription.media[0],
         transceiver: this.transceiverManager
           .getTransceivers()
-          .find((t) => t.dtlsTransport.iceTransport.id === iceTransport.id),
+          .find((t) => t?.dtlsTransport?.iceTransport.id === iceTransport.id),
         sctpTransport:
           this.sctpTransport?.dtlsTransport.iceTransport.id === iceTransport.id
             ? this.sctpTransport
