@@ -24,6 +24,7 @@
     "format": "biome check --write src",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
     "test": "npm run type && vitest run ./tests",
+    "test:open-handles": "tsx --tsconfig ./tsconfig.json ./tests/open-handles-check.ts",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli **/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"

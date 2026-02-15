@@ -103,6 +103,8 @@ export class SCTP {
   started = false;
   state: SCTPConnectionState = "new";
   isServer = true;
+  private isStopping = false;
+  private isClosed = false;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -195,6 +197,10 @@ export class SCTP {
     };
   }
 
+  private get isStopped() {
+    return this.isStopping || this.isClosed;
+  }
+
   get maxChannels() {
     if (this._inboundStreamsCount > 0) {
       return Math.min(this._inboundStreamsCount, this._outboundStreamsCount);
@@ -216,6 +222,7 @@ export class SCTP {
 
   // call from dtls transport
   private async handleData(data: Buffer) {
+    if (this.isStopped) return;
     let expectedTag: number;
 
     const [, , verificationTag, chunks] = parsePacket(data);
@@ -251,6 +258,7 @@ export class SCTP {
   }
 
   private async scheduleSack() {
+    if (this.isStopped) return;
     if (!this.sackNeeded) return;
     if (this.sackImmediate) {
       if (this.sackTimeout) {
@@ -272,6 +280,7 @@ export class SCTP {
   }
 
   private async sendSack() {
+    if (this.isStopped) return;
     if (!this.sackNeeded) return;
 
     const gaps: [number, number][] = [];
@@ -886,6 +895,7 @@ export class SCTP {
   };
 
   private async transmit() {
+    if (this.isStopped) return;
     if (this.transmitting) {
       this.transmitRequested = true;
       return;
@@ -903,6 +913,7 @@ export class SCTP {
   }
 
   private async transmitOnce() {
+    if (this.isStopped) return;
     // """
     // Transmit outbound data.
     // """
@@ -1047,16 +1058,19 @@ export class SCTP {
   }
 
   private timer1Expired = () => {
+    if (this.isStopped) return;
     this.timer1Failures++;
     this.timer1Handle = undefined;
     if (this.timer1Failures > SCTP_MAX_INIT_RETRANS) {
       this.setState(SCTP_STATE.CLOSED);
     } else {
       setImmediate(() => {
+        if (this.isStopped) return;
         this.sendChunk(this.timer1Chunk!).catch((err: Error) => {
           log("send timer1 chunk failed", err.message);
         });
       });
+      if (this.isStopped) return;
       this.timer1Handle = setTimeout(this.timer1Expired, this.rto * 1000);
     }
   };
@@ -1078,16 +1092,19 @@ export class SCTP {
   }
 
   private timer2Expired = () => {
+    if (this.isStopped) return;
     this.timer2Failures++;
     this.timer2Handle = undefined;
     if (this.timer2Failures > SCTP_MAX_ASSOCIATION_RETRANS) {
       this.setState(SCTP_STATE.CLOSED);
     } else {
       setImmediate(() => {
+        if (this.isStopped) return;
         this.sendChunk(this.timer2Chunk!).catch((err: Error) => {
           log("send timer2Chunk failed", err.message);
         });
       });
+      if (this.isStopped) return;
       this.timer2Handle = setTimeout(this.timer2Expired, this.rto * 1000);
     }
   };
@@ -1102,18 +1119,21 @@ export class SCTP {
 
   /**t3 is wait for data sack */
   private timer3Start() {
+    if (this.isStopped) return;
     if (this.timer3Handle) throw new Error();
     // RFC 9260 T3-rtx runs on current RTO; rto is stored in seconds.
     this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
   private timer3Restart() {
+    if (this.isStopped) return;
     this.timer3Cancel();
     // RFC 9260 requires restarting T3-rtx with current RTO (seconds -> JS ms).
     this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
   private timer3Expired = () => {
+    if (this.isStopped) return;
     this.timer3Handle = undefined;
 
     // # mark retransmit or abandoned chunks
@@ -1147,6 +1167,7 @@ export class SCTP {
 
   /**Re-configuration Timer */
   private timerReconfigHandleStart() {
+    if (this.isStopped) return;
     if (this.timerReconfigHandle) return;
     log("timerReconfigHandleStart", { rto: this.rto });
     this.timerReconfigFailures = 0;
@@ -1157,6 +1178,7 @@ export class SCTP {
   }
 
   private timerReconfigHandleExpired = async () => {
+    if (this.isStopped) return;
     this.timerReconfigFailures++;
     // back off
     this.rto = Math.ceil(this.rto * 1.5);
@@ -1169,6 +1191,7 @@ export class SCTP {
     } else if (this.reconfigRequest) {
       log("timerReconfigHandleExpired", this.timerReconfigFailures, this.rto);
       await this.sendReconfigParam(this.reconfigRequest);
+      if (this.isStopped) return;
 
       this.timerReconfigHandle = setTimeout(
         this.timerReconfigHandleExpired,
@@ -1372,9 +1395,12 @@ export class SCTP {
       this.associationState = state;
     }
     if (state === SCTP_STATE.ESTABLISHED) {
+      this.isStopping = false;
+      this.isClosed = false;
       this.setConnectionState("connected");
       this.heartbeatStart();
     } else if (state === SCTP_STATE.CLOSED) {
+      this.isClosed = true;
       this.timer1Cancel();
       this.timer2Cancel();
       this.timer3Cancel();
@@ -1396,6 +1422,16 @@ export class SCTP {
   }
 
   async stop() {
+    if (this.isStopped) {
+      this.setState(SCTP_STATE.CLOSED);
+      return;
+    }
+    this.isStopping = true;
+    this.transport.onData = undefined;
+    if (this.sackTimeout) {
+      clearTimeout(this.sackTimeout);
+      this.sackTimeout = undefined;
+    }
     if (this.associationState !== SCTP_STATE.CLOSED) {
       await this.abort();
     }
