@@ -46,18 +46,10 @@
 
 ## 5. 完了条件
 
-- [x] `timer3Restart` が `this.rto * 1000` へ統一され、単位境界コメントに更新されている。  
-- [x] `timer1/timer2/timer3/reconfig` で RTO秒→ms 変換の一貫性が確認できる。  
-- [x] 遅延SACK実装が入り、`<=200ms` 上限・2パケット方針・即時ACK条件をテストで確認できる。  
-- [x] Heartbeat 送信側の interval 制御（`RTO + HB.interval`）と副作用（検知遅延）を設計・テスト・設定値で説明できる。  
-- [x] `packages/sctp` の関連テストが通る。  
-- [x] チケット本文に RFC 9260 §6.3.1/§6.3.2/§8.2（および delayed ACK要件）を根拠として明記できている。  
-- [x] 「for performance」の実態が、最適化ではなく単位不整合＋RFC乖離であることを調査結果として明記できている。
-
-## 6. 実施結果（実装・検証）
-
-- `timer3Restart` は `setTimeout(this.timer3Expired, this.rto * 1000)` に修正し、`rto` が秒で保持されることを明示するコメントへ更新した。これにより T1/T2/T3/reconfig の秒→ms 変換が統一された。  
-- SACK は `setImmediate` 即時送信を廃止し、RFC 9260 の delayed ACK 方針に合わせて `SCTP_SACK_DELAY_MS=200` の遅延タイマへ変更した。2パケット到着時、重複TSN、Gap（mis-order）や `FORWARD TSN` 受信時は即時SACKへ昇格し、recovery 応答性を維持した。  
-- Heartbeat 送信側タイマを追加し、`(RTO + heartbeatInterval) * 1000` でスケジュールするようにした。`setHeartbeatInterval()` で運用側が interval を調整でき、interval 増加時に障害検知遅延が増える RFC 9260 §8.2 のトレードオフを制御可能にした。  
-- テストを追加し、(1) `timer3Restart` の ms スケジュール、(2) delayed SACK の 200ms 上限と 2パケット/Gap 時の即時送信、(3) Heartbeat の `RTO + HB.interval` 算出を検証した。  
-- 「for performance」は実測上の最適化ではなく、`timer3Restart` の単位不整合と delayed ACK 未実装という RFC 乖離が主因であることをコード・テストで明確化した。
+- [ ] `timer3Restart` が `this.rto * 1000` へ統一され、単位境界コメントに更新されている。  
+- [ ] `timer1/timer2/timer3/reconfig` で RTO秒→ms 変換の一貫性が確認できる。  
+- [ ] 遅延SACK実装が入り、`<=200ms` 上限・2パケット方針・即時ACK条件をテストで確認できる。  
+- [ ] Heartbeat 送信側の interval 制御（`RTO + HB.interval`）と副作用（検知遅延）を設計・テスト・設定値で説明できる。  
+- [ ] `packages/sctp` の関連テストが通る。  
+- [ ] チケット本文に RFC 9260 §6.3.1/§6.3.2/§8.2（および delayed ACK要件）を根拠として明記できている。  
+- [ ] 「for performance」の実態が、最適化ではなく単位不整合＋RFC乖離であることを調査結果として明記できている。

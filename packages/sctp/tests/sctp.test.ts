@@ -3,7 +3,7 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
 import { SCTP, SCTP_STATE } from "../src";
-import { DataChunk } from "../src/chunk";
+import { AbortChunk, DataChunk } from "../src/chunk";
 import { StreamAddOutgoingParam } from "../src/param";
 import type { Transport } from "../src/transport";
 import { createUdpTransport } from "../src/transport";
@@ -129,6 +129,18 @@ describe("sctp timers and ack policy", () => {
     expect((transport.send as any).mock.calls.length).toBe(1);
   });
 
+  test("duplicate tsn triggers immediate sack", async () => {
+    const { sctp, transport } = createMockSctp();
+    (sctp as any).lastReceivedTsn = 1;
+
+    (sctp as any).receiveDataChunk(createDataChunk(1));
+    expect((sctp as any).sackImmediate).toBe(true);
+    expect((sctp as any).sackDuplicates).toEqual([1]);
+
+    await (sctp as any).scheduleSack();
+    expect((transport.send as any).mock.calls.length).toBe(1);
+  });
+
   test("heartbeat timer uses rto + heartbeat interval", () => {
     const { sctp } = createMockSctp();
     const spy = vi.spyOn(global, "setTimeout");
@@ -143,5 +155,35 @@ describe("sctp timers and ack policy", () => {
 
     (sctp as any).heartbeatCancel();
     spy.mockRestore();
+  });
+
+  test("larger heartbeat interval increases no-response detection cadence and abort is handled", async () => {
+    vi.useFakeTimers();
+    try {
+      const fast = createMockSctp().sctp;
+      const slow = createMockSctp().sctp;
+      (fast as any).associationState = SCTP_STATE.ESTABLISHED;
+      (slow as any).associationState = SCTP_STATE.ESTABLISHED;
+      (fast as any).rto = 1;
+      (slow as any).rto = 1;
+      fast.setHeartbeatInterval(1);
+      slow.setHeartbeatInterval(5);
+
+      await vi.advanceTimersByTimeAsync(6000);
+
+      const fastHeartbeats = ((fast as any).transport.send as any).mock.calls
+        .length;
+      const slowHeartbeats = ((slow as any).transport.send as any).mock.calls
+        .length;
+      expect(fastHeartbeats).toBeGreaterThanOrEqual(3);
+      expect(slowHeartbeats).toBe(1);
+
+      await (fast as any).receiveChunk(new AbortChunk());
+      await (slow as any).receiveChunk(new AbortChunk());
+      expect(fast.associationState).toBe(SCTP_STATE.CLOSED);
+      expect(slow.associationState).toBe(SCTP_STATE.CLOSED);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
