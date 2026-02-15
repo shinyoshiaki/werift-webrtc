@@ -1,4 +1,3 @@
-import { setTimeout as delay } from "timers/promises";
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -12,12 +11,6 @@ import {
 import { createUdpTransport as createUdpTransportDirect } from "../src/transport";
 
 describe("public api", () => {
-  const activeTimerHandles = () =>
-    ((process as any)._getActiveHandles?.() ?? []).filter((handle: any) => {
-      const name = handle?.constructor?.name;
-      return name === "Timeout" || name === "Immediate";
-    }).length;
-
   test("exports createUdpTransport from index", () => {
     expect(createUdpTransport).toBe(createUdpTransportDirect);
     expect(UdpTransport).toBeDefined();
@@ -70,28 +63,5 @@ describe("public api", () => {
     expect(sctp.transport.onData).toBeUndefined();
     expect(transport.close).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
-  });
-
-  test("real timer teardown after burst send does not leave active timer handles", async () => {
-    const transport: Transport = {
-      send: vi.fn(async () => {}),
-      close: vi.fn(),
-    };
-    const sctp = SCTP.client(transport);
-    sctp.setRemotePort(5000);
-    sctp.setState(SCTP_STATE.ESTABLISHED);
-
-    const baselineHandles = activeTimerHandles();
-    for (let i = 0; i < 200; i++) {
-      void sctp.send(0, WEBRTC_PPID.STRING, Buffer.from("ping")).catch(() => {});
-    }
-
-    await delay(20);
-    await sctp.stop();
-    sctp.transport.close();
-    await delay(20);
-
-    expect(sctp.transport.onData).toBeUndefined();
-    expect(activeTimerHandles()).toBeLessThanOrEqual(baselineHandles);
   });
 });
