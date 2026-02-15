@@ -4,6 +4,7 @@ import { vi } from "vitest";
 
 import { SCTP, SCTP_STATE } from "../src";
 import { AbortChunk, DataChunk } from "../src/chunk";
+import { serializePacket } from "../src/chunk";
 import { StreamAddOutgoingParam } from "../src/param";
 import type { Transport } from "../src/transport";
 import { createUdpTransport } from "../src/transport";
@@ -82,6 +83,23 @@ describe("sctp timers and ack policy", () => {
     return chunk;
   };
 
+  const receiveDataPacket = async (
+    sctp: SCTP,
+    tsn: number,
+    flags = 0x03,
+    verificationTag?: number,
+  ) => {
+    const chunk = createDataChunk(tsn);
+    chunk.flags = flags;
+    const packet = serializePacket(
+      5001,
+      5000,
+      verificationTag ?? (sctp as any).localVerificationTag,
+      chunk,
+    );
+    await (sctp as any).handleData(packet);
+  };
+
   test("timer3Restart converts rto seconds to milliseconds", () => {
     const { sctp } = createMockSctp();
     const spy = vi.spyOn(global, "setTimeout");
@@ -99,17 +117,15 @@ describe("sctp timers and ack policy", () => {
     const { sctp, transport } = createMockSctp();
     (sctp as any).lastReceivedTsn = 0;
 
-    (sctp as any).receiveDataChunk(createDataChunk(1));
-    await (sctp as any).scheduleSack();
+    await receiveDataPacket(sctp, 1);
     expect((transport.send as any).mock.calls.length).toBe(0);
 
     await vi.advanceTimersByTimeAsync(200);
     expect((transport.send as any).mock.calls.length).toBe(1);
 
-    (sctp as any).receiveDataChunk(createDataChunk(2));
-    await (sctp as any).scheduleSack();
-    (sctp as any).receiveDataChunk(createDataChunk(3));
-    await (sctp as any).scheduleSack();
+    await receiveDataPacket(sctp, 2);
+    expect((transport.send as any).mock.calls.length).toBe(1);
+    await receiveDataPacket(sctp, 3);
 
     expect((transport.send as any).mock.calls.length).toBe(2);
     vi.useRealTimers();

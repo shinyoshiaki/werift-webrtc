@@ -124,6 +124,7 @@ export class SCTP {
   private sackMisOrdered = new Set<number>();
   private sackNeeded = false;
   private sackPacketCount = 0;
+  private sackHasNewDataInPacket = false;
   private sackImmediate = false;
   private sackTimeout: NodeJS.Timeout | undefined;
 
@@ -227,11 +228,19 @@ export class SCTP {
 
     this.heartbeatRestart();
 
+    this.sackHasNewDataInPacket = false;
     for (const chunk of chunks) {
       await this.receiveChunk(chunk);
     }
 
     if (this.sackNeeded) {
+      // RFC 9260 delayed ACK guidance is per packet ("every second packet").
+      if (this.sackHasNewDataInPacket) {
+        this.sackPacketCount++;
+      }
+      if (this.sackPacketCount >= 2) {
+        this.sackImmediate = true;
+      }
       await this.scheduleSack();
     }
   }
@@ -575,13 +584,12 @@ export class SCTP {
       this.sackImmediate = true;
       return;
     }
-    this.sackPacketCount++;
+    this.sackHasNewDataInPacket = true;
     if ((chunk.flags & SCTP_DATA_LAST_FRAG) === 0) {
       // Keep fragmented-message feedback prompt to avoid long tail-loss recovery.
       this.sackImmediate = true;
     }
-    // RFC 9260 delayed ACK guidance allows SACK at least every second DATA chunk.
-    if (this.sackPacketCount >= 2 || this.sackMisOrdered.size > 0) {
+    if (this.sackMisOrdered.size > 0) {
       // RFC 9260 permits immediate SACK on gap/loss indicators.
       this.sackImmediate = true;
     }
