@@ -5,9 +5,9 @@ import {
   createSocket,
 } from "dgram";
 
-import net from "net";
+import * as net from "node:net";
 
-import { type AddressInfo, type Socket as TcpSocket, connect } from "net";
+import { type AddressInfo, type Socket as TcpSocket, connect } from "node:net";
 import { debug } from "./log";
 import {
   type Address,
