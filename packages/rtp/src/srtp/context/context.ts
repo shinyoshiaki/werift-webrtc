@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import * as AES from "aes-js";
+import AES from "aes-js";
 
 import type { CipherAesBase } from "../cipher";
 import { CipherAesCtr } from "../cipher/ctr";

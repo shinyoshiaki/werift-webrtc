@@ -480,13 +480,14 @@ export class SDPManager {
       transceivers.map((transceiver) => [transceiver?.mLineIndex, transceiver]),
     );
     const fallbackDtlsTransport =
-      transceivers.find((transceiver) => transceiver?.dtlsTransport)?.dtlsTransport ??
-      sctpTransport?.dtlsTransport;
+      transceivers.find((transceiver) => transceiver?.dtlsTransport)
+        ?.dtlsTransport ?? sctpTransport?.dtlsTransport;
     description.media
       .filter((m) => ["audio", "video"].includes(m.kind))
       .forEach((m, i) => {
         const transceiver = transceiverByMLineIndex.get(i) ?? transceivers[i];
-        const dtlsTransport = transceiver?.dtlsTransport ?? fallbackDtlsTransport;
+        const dtlsTransport =
+          transceiver?.dtlsTransport ?? fallbackDtlsTransport;
         if (!dtlsTransport) {
           throw new Error(`dtls transport not found for media index ${i}`);
         }

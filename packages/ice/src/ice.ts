@@ -3,8 +3,8 @@ import { isIPv4 } from "net";
 
 import * as Int64 from "int64-buffer";
 
-import isEqual = require("fast-deep-equal");
 import * as timers from "node:timers/promises";
+import isEqual from "fast-deep-equal";
 import { type Address, Event, debug } from "./imports/common";
 
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";

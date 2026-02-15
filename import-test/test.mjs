@@ -1,5 +1,5 @@
-import { assert } from 'node:test';
-import { RTCPeerConnection } from 'werift';
+import { equal } from 'node:assert';
+import { RTCPeerConnection } from 'werift-dev';
 
 const pcA = new RTCPeerConnection();
 const pcB = new RTCPeerConnection();
@@ -33,6 +33,6 @@ setImmediate(() => {
 const [msg] = await dcB.onMessage.asPromise()
 console.log("message received:", msg);
 
-assert.equal(msg, message);
+equal(msg, message);
 
 process.exit(0);
