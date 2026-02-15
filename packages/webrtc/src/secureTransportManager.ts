@@ -63,7 +63,7 @@ export class SecureTransportManager {
 
   get dtlsTransports() {
     const transports = [
-      ...this.transceiverManager.getTransceivers().map((t) => t.dtlsTransport),
+      ...this.transceiverManager.getTransceivers().map((t) => t?.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
     ].filter((t) => t != undefined);
 
