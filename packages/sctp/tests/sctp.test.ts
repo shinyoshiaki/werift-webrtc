@@ -73,6 +73,7 @@ describe("sctp timers and ack policy", () => {
 
   const createDataChunk = (tsn: number) => {
     const chunk = new DataChunk(0, undefined);
+    chunk.flags = 0x03;
     chunk.tsn = tsn;
     chunk.streamId = 1;
     chunk.streamSeqNum = 0;
@@ -112,6 +113,18 @@ describe("sctp timers and ack policy", () => {
 
     expect((transport.send as any).mock.calls.length).toBe(2);
     vi.useRealTimers();
+  });
+
+  test("fragmented data chunk triggers immediate sack", async () => {
+    const { sctp, transport } = createMockSctp();
+    (sctp as any).lastReceivedTsn = 0;
+    const fragment = createDataChunk(1);
+    fragment.flags = 0x02;
+
+    (sctp as any).receiveDataChunk(fragment);
+    await (sctp as any).scheduleSack();
+
+    expect((transport.send as any).mock.calls.length).toBe(1);
   });
 
   test("gap/loss-signaled data triggers immediate sack", async () => {

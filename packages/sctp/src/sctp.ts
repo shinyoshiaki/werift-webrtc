@@ -576,6 +576,10 @@ export class SCTP {
       return;
     }
     this.sackPacketCount++;
+    if ((chunk.flags & SCTP_DATA_LAST_FRAG) === 0) {
+      // Prompt SACK feedback for in-progress fragmented messages avoids slow loss recovery.
+      this.sackImmediate = true;
+    }
     // RFC 9260 delayed ACK guidance allows SACK at least every second DATA chunk.
     if (this.sackPacketCount >= 2 || this.sackMisOrdered.size > 0) {
       // RFC 9260 permits immediate SACK on gap/loss indicators.
@@ -857,9 +861,14 @@ export class SCTP {
 
     if (!this.timer3Handle) {
       await this.transmit();
+      while (this.outboundQueue.length) {
+        await this.flush.asPromise();
+      }
     } else {
       if (this.outboundQueue.length) {
-        await this.flush.asPromise();
+        while (this.outboundQueue.length) {
+          await this.flush.asPromise();
+        }
       } else {
         // unreachable?
         await new Promise((r) => setImmediate(r));
@@ -916,7 +925,7 @@ export class SCTP {
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
-    while (this.outboundQueue.length > 0) {
+    while (this.outboundQueue.length > 0 && this.flightSize < cwnd) {
       const chunk = this.outboundQueue.shift();
       if (!chunk) return;
 
@@ -934,8 +943,10 @@ export class SCTP {
         this.timer3Start();
       }
     }
-    // Resetting the queue to empty array mitigates this.
-    this.outboundQueue = [];
+    if (!this.outboundQueue.length) {
+      // Resetting the queue to empty array mitigates this.
+      this.outboundQueue = [];
+    }
     this.flush.execute();
   }
 
