@@ -1,5 +1,5 @@
 import * as Int64 from "int64-buffer";
-import nodeIp from "ip";
+import * as nodeIp from "ip";
 
 import type { Address } from "../imports/common";
 import {
