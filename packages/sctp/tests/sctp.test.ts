@@ -3,7 +3,7 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
 import { SCTP, SCTP_STATE } from "../src";
-import { AbortChunk, DataChunk } from "../src/chunk";
+import { AbortChunk, DataChunk, SackChunk } from "../src/chunk";
 import { serializePacket } from "../src/chunk";
 import { StreamAddOutgoingParam } from "../src/param";
 import type { Transport } from "../src/transport";
@@ -110,6 +110,23 @@ describe("sctp timers and ack policy", () => {
     expect(spy).toHaveBeenCalledWith(expect.any(Function), 5000);
     (sctp as any).timer3Cancel();
     spy.mockRestore();
+  });
+
+  test("peer rwnd is derived from latest advertised rwnd and flight size", async () => {
+    const { sctp } = createMockSctp();
+    (sctp as any).lastSackedTsn = 0;
+    const sent = createDataChunk(1);
+    sent.bookSize = 100;
+    (sctp as any).sentQueue = [sent];
+    (sctp as any).flightSize = 100;
+
+    const sack = new SackChunk(0, undefined);
+    sack.cumulativeTsn = 0;
+    sack.advertisedRwnd = 150;
+
+    await (sctp as any).receiveSackChunk(sack);
+    expect((sctp as any).peerAdvertisedRwnd).toBe(150);
+    expect((sctp as any).peerRwnd).toBe(50);
   });
 
   test("single-packet DATA is acked immediately and delayed fallback stays within 200ms", async () => {

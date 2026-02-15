@@ -116,7 +116,11 @@ export class SCTP {
 
   // inbound
   private advertisedRwnd = 1024 * 1024; // Receiver Window
-  private peerRwnd = this.advertisedRwnd;
+  private peerAdvertisedRwnd = this.advertisedRwnd;
+  private get peerRwnd() {
+    // RFC 9260 §6.2.1(D-ii): available receiver window = a_rwnd - outstanding DATA.
+    return Math.max(0, this.peerAdvertisedRwnd - this.flightSize);
+  }
   private inboundStreams: { [key: number]: InboundStream } = {};
   _inboundStreamsCount = 0;
   _inboundStreamsMax = MAX_STREAMS;
@@ -314,7 +318,7 @@ export class SCTP {
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
           this.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
-          this.peerRwnd = init.advertisedRwnd;
+          this.peerAdvertisedRwnd = init.advertisedRwnd;
           this.getExtensions(init.params);
 
           this._inboundStreamsCount = Math.min(
@@ -357,7 +361,7 @@ export class SCTP {
           this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
           this.remoteVerificationTag = initAck.initiateTag;
           this.ssthresh = initAck.advertisedRwnd;
-          this.peerRwnd = initAck.advertisedRwnd;
+          this.peerAdvertisedRwnd = initAck.advertisedRwnd;
           this.getExtensions(initAck.params);
 
           this._inboundStreamsCount = Math.min(
@@ -721,11 +725,8 @@ export class SCTP {
       this.timer3Restart();
     }
 
-    // RFC 9260 §6.2.1(D-ii): rwnd := peer a_rwnd - outstanding bytes.
-    const outstandingBytes = this.sentQueue.reduce((sum, sChunk) => {
-      return sum + (sChunk.acked ? 0 : sChunk.bookSize);
-    }, 0);
-    this.peerRwnd = Math.max(0, chunk.advertisedRwnd - outstandingBytes);
+    // RFC 9260 §6.2.1(D-ii): keep latest peer a_rwnd; available window is derived via flightSize.
+    this.peerAdvertisedRwnd = chunk.advertisedRwnd;
 
     this.updateAdvancedPeerAckPoint();
     await this.onSackReceived();
@@ -963,7 +964,6 @@ export class SCTP {
 
       this.sentQueue.push(chunk);
       this.flightSizeIncrease(chunk);
-      this.peerRwnd = Math.max(0, this.peerRwnd - chunk.bookSize);
 
       // # update counters
       chunk.sentCount++;
