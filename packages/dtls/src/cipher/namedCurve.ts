@@ -1,4 +1,4 @@
-import nacl from "tweetnacl";
+import * as nacl from "tweetnacl";
 
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256Keypair } from "./ec";

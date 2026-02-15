@@ -8,7 +8,6 @@
       "DOM"
     ],
     "strict": true,
-    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "pretty": true,
     "sourceMap": true,

@@ -1,4 +1,4 @@
-import nodeCrypto from "crypto";
+import * as nodeCrypto from "node:crypto";
 import * as x509 from "@peculiar/x509";
 
 import {
