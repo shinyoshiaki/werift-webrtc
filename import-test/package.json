@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "cd ../ && npm i && cd import-test && node test.mjs"
+    "test": "cd ../packages/webrtc && npm run build && cd ../../ && npm i && cd import-test && node test.mjs"
   },
   "keywords": [],
   "author": "",
