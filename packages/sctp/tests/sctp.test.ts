@@ -112,21 +112,19 @@ describe("sctp timers and ack policy", () => {
     spy.mockRestore();
   });
 
-  test("delayed sack sends within RFC 200ms and immediate on second packet", async () => {
+  test("single-packet DATA is acked immediately and delayed fallback stays within 200ms", async () => {
     vi.useFakeTimers();
     const { sctp, transport } = createMockSctp();
     (sctp as any).lastReceivedTsn = 0;
 
     await receiveDataPacket(sctp, 1);
-    expect((transport.send as any).mock.calls.length).toBe(0);
+    expect((transport.send as any).mock.calls.length).toBe(1);
 
+    (sctp as any).sackNeeded = true;
+    (sctp as any).sackImmediate = false;
+    await (sctp as any).scheduleSack();
+    expect((transport.send as any).mock.calls.length).toBe(1);
     await vi.advanceTimersByTimeAsync(200);
-    expect((transport.send as any).mock.calls.length).toBe(1);
-
-    await receiveDataPacket(sctp, 2);
-    expect((transport.send as any).mock.calls.length).toBe(1);
-    await receiveDataPacket(sctp, 3);
-
     expect((transport.send as any).mock.calls.length).toBe(2);
     vi.useRealTimers();
   });

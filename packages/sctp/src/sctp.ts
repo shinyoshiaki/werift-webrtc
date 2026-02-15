@@ -70,7 +70,7 @@ const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
 // RFC 9260 delayed ACK guidance: send SACK within 200ms at the latest.
 // Use a small default delay to keep request/response latency low while still delaying ACKs.
-const SCTP_SACK_DELAY_MS = 2;
+const SCTP_SACK_DELAY_MS = 200;
 // RFC 9260 HB.interval recommended default is 30 seconds.
 const SCTP_HEARTBEAT_INTERVAL = 30;
 
@@ -116,6 +116,7 @@ export class SCTP {
 
   // inbound
   private advertisedRwnd = 1024 * 1024; // Receiver Window
+  private peerRwnd = this.advertisedRwnd;
   private inboundStreams: { [key: number]: InboundStream } = {};
   _inboundStreamsCount = 0;
   _inboundStreamsMax = MAX_STREAMS;
@@ -313,6 +314,7 @@ export class SCTP {
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
           this.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
+          this.peerRwnd = init.advertisedRwnd;
           this.getExtensions(init.params);
 
           this._inboundStreamsCount = Math.min(
@@ -355,6 +357,7 @@ export class SCTP {
           this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
           this.remoteVerificationTag = initAck.initiateTag;
           this.ssthresh = initAck.advertisedRwnd;
+          this.peerRwnd = initAck.advertisedRwnd;
           this.getExtensions(initAck.params);
 
           this._inboundStreamsCount = Math.min(
@@ -585,6 +588,8 @@ export class SCTP {
       return;
     }
     this.sackHasNewDataInPacket = true;
+    // RFC 9260 delayed ACK is optional; prefer immediate DATA ACK to keep ACK-clock responsive.
+    this.sackImmediate = true;
     if ((chunk.flags & SCTP_DATA_LAST_FRAG) === 0) {
       // Keep fragmented-message feedback prompt to avoid long tail-loss recovery.
       this.sackImmediate = true;
@@ -715,6 +720,12 @@ export class SCTP {
     } else if (done > 0) {
       this.timer3Restart();
     }
+
+    // RFC 9260 §6.2.1(D-ii): rwnd := peer a_rwnd - outstanding bytes.
+    const outstandingBytes = this.sentQueue.reduce((sum, sChunk) => {
+      return sum + (sChunk.acked ? 0 : sChunk.bookSize);
+    }, 0);
+    this.peerRwnd = Math.max(0, chunk.advertisedRwnd - outstandingBytes);
 
     this.updateAdvancedPeerAckPoint();
     await this.onSackReceived();
@@ -932,12 +943,21 @@ export class SCTP {
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
-    while (this.outboundQueue.length > 0 && this.flightSize < cwnd) {
+    while (
+      this.outboundQueue.length > 0 &&
+      this.flightSize < cwnd &&
+      this.peerRwnd > 0
+    ) {
       const chunk = this.outboundQueue.shift();
       if (!chunk) return;
+      if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
+        this.outboundQueue.unshift(chunk);
+        break;
+      }
 
       this.sentQueue.push(chunk);
       this.flightSizeIncrease(chunk);
+      this.peerRwnd = Math.max(0, this.peerRwnd - chunk.bookSize);
 
       // # update counters
       chunk.sentCount++;
