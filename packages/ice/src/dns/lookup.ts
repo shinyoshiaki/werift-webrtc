@@ -1,5 +1,5 @@
+import * as worker_thread from "node:worker_threads";
 import mdns from "multicast-dns";
-import worker_thread from "worker_threads";
 
 interface DnsLookupRequest {
   host: string;

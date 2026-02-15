@@ -1,4 +1,4 @@
-import os from "os";
+import * as os from "node:os";
 import nodeIp from "ip";
 import {
   type Address,

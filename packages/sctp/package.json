@@ -1,6 +1,6 @@
 {
   "name": "werift-sctp",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "SCTP protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-sctp",
   "repository": {
