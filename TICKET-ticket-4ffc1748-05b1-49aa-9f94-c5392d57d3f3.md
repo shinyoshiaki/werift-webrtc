@@ -1,53 +1,55 @@
 ## 1. タスクの目的と背景
 
-- 対象は `packages/sctp/src/sctp.ts` の `timer3Start` と `timer3Restart` で、`setTimeout` の第2引数に `this.rto * 1000` を使う箇所と `this.rto` のままの箇所が混在しています。  
-- `this.rto` は RTT 計算 (`Date.now() / 1000`) と `updateRto` のクランプで管理され、`SCTP_RTO_MIN=1`, `SCTP_RTO_MAX=60` と合わせて「秒」スケールで扱われています。  
-- RFC 9260 §6.3.2 (R1/R3) は T3-rtx を「その宛先の current RTO で開始/再開始」することを要求し、§6.3.1 (C6/C7) でも RTO.Min / RTO.Max を秒で規定しています。  
-- JavaScript の `setTimeout` はミリ秒単位のため、`timer3Restart` で `* 1000` が無い現状は、T3-rtx を想定より約1000倍短い 1–60ms で発火させる不整合です。
-- 旧実装の `// for performance` は根拠となる計測や設計コメントが見当たらず、`git blame` 上はリファクタ時に追加された TODO コメントです。実際には「性能最適化」ではなく、秒→ms変換の適用漏れが残った可能性が高い状態です。
+- `packages/sctp/src/sctp.ts` では `rto` を秒で保持している一方、`timer3Restart` のみ `setTimeout(this.timer3Expired, this.rto)` となっており、`timer3Start`/timer1/timer2/reconfig の `* 1000` と不整合です。  
+- この不整合により T3-rtx 再開始が 1–60ms で過剰発火し、再送・キュー再走査・タイマ再登録が高頻度化して CPU 負荷を押し上げます（「performance」対策ではなく逆効果）。  
+- 一方で単純に「interval頻度を落とす」だけだと、再送検知・障害検知が遅延し得ます。RFC 9260 はこの副作用を明示しており、特に Heartbeat 間隔増加時は ABORT ロスト検知遅延が増えるとしています（§8.2, HB.interval）。  
+- よって本タスクは、**RFC準拠で単位不整合を是正したうえで、性能課題は RFC が許容する遅延ACK/Heartbeat運用で吸収**する方針へ詳細化する。
 
 ## 2. 実装すべき具体的な機能や変更内容
 
-- `packages/sctp/src/sctp.ts` の `timer3Restart` を以下に統一する。  
-  - 現在: `setTimeout(this.timer3Expired, this.rto)`  
-  - 変更: `setTimeout(this.timer3Expired, this.rto * 1000)`  
-- `timer3Restart` 直上の `// for performance` コメントは削除し、「RTOは秒管理、`setTimeout` 投入時にmsへ変換する」という単位境界コメントへ置換する。  
-- 回帰防止として、`packages/sctp/tests` に「T3 restartがRTO(ms)でスケジュールされること」を検証するテストを追加。
-- あわせて `timer3Start` / `timer3Restart` / `timerReconfigHandleStart`（および timer1/timer2）で、RTO利用時の `* 1000` 有無を網羅確認し、単位変換ルールを統一する。
+- T3-rtx 単位整合の修正（必須）  
+  - `timer3Restart`: `setTimeout(this.timer3Expired, this.rto * 1000)` に統一。  
+  - `// for performance` は削除し、「`rto` は秒、JS タイマ投入時に ms へ変換する」コメントへ置換。  
+- RFC乖離を埋める性能対策（同時実施）  
+  - 現状の `sendSack()` は `setImmediate` でほぼ即時ACK。これを RFC 9260 の遅延ACK方針（「少なくとも2パケットごと」「未ACK DATA 到着から200ms以内」）に合わせ、遅延SACKタイマを導入。  
+  - Gap Ack/重複/ロス兆候時は即時SACKを許容し、輻輳制御・fast retransmit の応答性を維持。  
+  - Heartbeat 送信側タイマ（idle時 `RTO + HB.interval`、推奨 HB.interval=30s）未実装/不足箇所を補完し、頻度調整時の副作用（障害検知遅延）を設定で制御可能にする。  
+- 検証追加  
+  - `timer3Restart` が ms 単位でスケジュールされるテスト。  
+  - SACK 遅延の上限（<=200ms）と即時送信条件（ロス兆候時）テスト。  
+  - Heartbeat 間隔変更時の検知遅延が想定どおり増減するテスト（少なくとも単体でタイマ算出検証）。
 
 ## 3. 技術的な実装アプローチ（調査結果サマリ）
 
-- RFC 9260 根拠:
-  - §6.3.2 R1: DATA送信時、T3-rtx は「RTO after」で開始する。  
-  - §6.3.2 R3: earliest outstanding TSN がACKされたとき、T3-rtx を「current RTO」で再開始する。  
-  - §6.3.1 C6/C7: RTO.Min / RTO.Max は秒で扱う。  
-- コード調査結果:
-  - RTT測定値は `Date.now()/1000` 系で秒。
-  - `updateRto` のクランプは `SCTP_RTO_MIN=1`, `SCTP_RTO_MAX=60`。
-  - `timer3Start` は `this.rto * 1000`、`timer3Restart` のみ未変換。  
-  - `git show 4bfa7297a (refactor)` では、旧 `t3Start/t3Restart` からの改名時に `timer3Start` だけ `* 1000` 化され、`timer3Restart` は `this.rto` のまま残存。ここで `// for performance` が付与されている。  
-  - さらに元の vendored 実装 (`c55e3f26a:src/vendor/sctp/sctp.ts`) では `t3Start` と `t3Restart` がどちらも `this.rto` で、今回の不整合は「片側のみ変換された移植残り」と整合する。  
-- 実装方針:
-  - 本体修正は `timer3Restart` の1行を `* 1000` に統一（最小差分）。
-  - `for performance` の説明は削除し、RFC準拠の単位境界（秒→ms）に置き換える。
-  - 単位ミス再発防止として、`setTimeout` 呼び出しms値の検証テストを追加する。
+- RFC全文確認で本件に直接効く要件  
+  - §6.3.1 C6/C7: RTO は Min/Max の範囲（秒）で管理。  
+  - §6.3.2 R1/R3: T3-rtx は送信時/earliest outstanding TSN ACK時に current RTO で開始・再開始。  
+  - §6（delayed ACKガイド）: SACK は少なくとも2パケットごと、かつ未ACK DATA 到着から 200ms 以内。  
+  - §8.2: HB.interval を上げると ABORT ロスト検知が遅れる副作用あり。  
+- 現状実装との乖離  
+  - `timer3Restart` のみ秒→ms変換漏れ（過剰発火）。  
+  - 受信ACKは `setImmediate` ベースで、RFC の遅延ACK運用（SACK.Delay=200ms 推奨）を活用できておらず、高トラフィック時にACK頻度が高い。  
+  - Heartbeat は受信応答（HB ACK返送）はあるが、送信側の定期HB運用がコード上で確認できず、パス障害検知の設計余地が残る。  
+- 実装順序  
+  1. T3単位バグ修正（正しさ回復）。  
+  2. 遅延SACK導入で制御パケット頻度を抑制。  
+  3. HB.interval 管理を導入/補強し、運用で検知速度と負荷のトレードオフを調整可能にする。  
+  4. テストで「RFC要件を満たしつつ性能面を悪化させない」ことを固定化。
 
 ## 4. 考慮すべき制約や注意点
 
-- 既存挙動への影響:
-  - タイムアウトが実質1000倍（ms換算の正常値）へ補正されるため、過剰再送は抑制される一方、再送までの待機は現状より長くなる。  
-- 変更範囲はSCTPタイマー単位整合に限定し、他の輻輳制御ロジックには触れない。  
-- privateメソッド検証時はテスト実装上のアクセス方法（`as any` 等）を最小限にし、型安全性を過度に崩さない。
-- 「performance」の名目で RFC のタイマ規則（R1/R3）を逸脱しないこと。性能調整が必要なら、RTO計算式や最小値パラメータ側で議論し、タイマ単位変換の欠落で代替しない。  
-- RFC実装上の注意:
-  - RFCは「RTO値でタイマーを扱う」ことを要求しており、内部単位（秒/ミリ秒）の選択は実装依存。  
-  - ただし同一実装内で単位は一貫させる必要があり、JSタイマー境界（`setTimeout`）での秒→ms変換漏れを防ぐこと。
+- T3を正しい秒スケールへ戻すと、現状（誤って短すぎるタイマ）より再送開始は遅くなるが、これは RFC 準拠の正常化であり、過剰再送抑制に寄与する。  
+- 性能最適化は「タイマ単位の崩し」ではなく、RFC許容の遅延ACK/HB設定で行うこと。  
+- SACK遅延はやり過ぎると recovery/cwnd 成長が鈍るため、200ms上限と即時ACK条件を必須にする。  
+- HB.interval 調整は障害検知遅延とトレードオフになるため、既定値と設定範囲を明確化する。  
+- 変更は SCTP タイマ・ACK 制御に限定し、データ再送アルゴリズム本体（misses=3 の fast retransmit 等）の意味論は維持する。
 
 ## 5. 完了条件
 
-- [ ] `timer3Restart` が `this.rto * 1000` でスケジュールされる。  
-- [ ] `// for performance` が削除され、単位境界を説明する記述へ置換される。  
-- [ ] 回帰テストが追加され、`packages/sctp` のテストが通る。  
-- [ ] T1/T2/T3/reconfig のRTO単位（秒→ms変換）がコード上で一貫していることを確認できる。  
-- [ ] チケット本文に RFC 9260 §6.3.1 / §6.3.2 を根拠として明記できている。
-- [ ] 旧実装の原因が「性能最適化」ではなく「リファクタ時の部分的単位変換残り」であることを、調査結果（`git show`/`git blame`）として明記できている。
+- [ ] `timer3Restart` が `this.rto * 1000` へ統一され、単位境界コメントに更新されている。  
+- [ ] `timer1/timer2/timer3/reconfig` で RTO秒→ms 変換の一貫性が確認できる。  
+- [ ] 遅延SACK実装が入り、`<=200ms` 上限・2パケット方針・即時ACK条件をテストで確認できる。  
+- [ ] Heartbeat 送信側の interval 制御（`RTO + HB.interval`）と副作用（検知遅延）を設計・テスト・設定値で説明できる。  
+- [ ] `packages/sctp` の関連テストが通る。  
+- [ ] チケット本文に RFC 9260 §6.3.1/§6.3.2/§8.2（および delayed ACK要件）を根拠として明記できている。  
+- [ ] 「for performance」の実態が、最適化ではなく単位不整合＋RFC乖離であることを調査結果として明記できている。
