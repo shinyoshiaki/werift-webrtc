@@ -70,7 +70,7 @@ const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
 // RFC 9260 delayed ACK guidance: send SACK within 200ms at the latest.
 // Use a small default delay to keep request/response latency low while still delaying ACKs.
-const SCTP_SACK_DELAY_MS = 10;
+const SCTP_SACK_DELAY_MS = 2;
 // RFC 9260 HB.interval recommended default is 30 seconds.
 const SCTP_HEARTBEAT_INTERVAL = 30;
 
@@ -577,7 +577,7 @@ export class SCTP {
     }
     this.sackPacketCount++;
     if ((chunk.flags & SCTP_DATA_LAST_FRAG) === 0) {
-      // Prompt SACK feedback for in-progress fragmented messages avoids slow loss recovery.
+      // Keep fragmented-message feedback prompt to avoid long tail-loss recovery.
       this.sackImmediate = true;
     }
     // RFC 9260 delayed ACK guidance allows SACK at least every second DATA chunk.
@@ -897,7 +897,6 @@ export class SCTP {
       this.fastRecoveryExit != undefined
         ? 2 * USERDATA_MAX_LENGTH
         : 4 * USERDATA_MAX_LENGTH;
-
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
     let retransmitEarliest = true;

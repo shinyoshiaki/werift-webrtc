@@ -123,7 +123,6 @@ describe("sctp timers and ack policy", () => {
 
     (sctp as any).receiveDataChunk(fragment);
     await (sctp as any).scheduleSack();
-
     expect((transport.send as any).mock.calls.length).toBe(1);
   });
 
