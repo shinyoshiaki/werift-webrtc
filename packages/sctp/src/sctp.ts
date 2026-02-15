@@ -229,8 +229,6 @@ export class SCTP {
       return;
     }
 
-    this.heartbeatRestart();
-
     this.sackHasNewDataInPacket = false;
     for (const chunk of chunks) {
       await this.receiveChunk(chunk);
@@ -1367,7 +1365,6 @@ export class SCTP {
       chunk,
     );
     await this.transport.send(packet);
-    this.heartbeatRestart();
   }
 
   setState(state: SCTP_STATE) {
