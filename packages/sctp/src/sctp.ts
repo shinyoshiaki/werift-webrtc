@@ -63,10 +63,16 @@ const SCTP_MAX_ASSOCIATION_RETRANS = 10;
 const SCTP_MAX_INIT_RETRANS = 8;
 const SCTP_RTO_ALPHA = 1 / 8;
 const SCTP_RTO_BETA = 1 / 4;
+// RFC 9260 RTO.Initial/RTO.Min/RTO.Max defaults and bounds are in seconds.
 const SCTP_RTO_INITIAL = 3;
 const SCTP_RTO_MIN = 1;
 const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
+// RFC 9260 delayed ACK guidance: send SACK within 200ms at the latest.
+// Use a small default delay to keep request/response latency low while still delaying ACKs.
+const SCTP_SACK_DELAY_MS = 200;
+// RFC 9260 HB.interval recommended default is 30 seconds.
+const SCTP_HEARTBEAT_INTERVAL = 30;
 
 const RECONFIG_MAX_STREAMS = 135;
 
@@ -110,6 +116,11 @@ export class SCTP {
 
   // inbound
   private advertisedRwnd = 1024 * 1024; // Receiver Window
+  private peerAdvertisedRwnd = this.advertisedRwnd;
+  private get peerRwnd() {
+    // RFC 9260 §6.2.1(D-ii): available receiver window = a_rwnd - outstanding DATA.
+    return Math.max(0, this.peerAdvertisedRwnd - this.flightSize);
+  }
   private inboundStreams: { [key: number]: InboundStream } = {};
   _inboundStreamsCount = 0;
   _inboundStreamsMax = MAX_STREAMS;
@@ -117,7 +128,10 @@ export class SCTP {
   private sackDuplicates: number[] = [];
   private sackMisOrdered = new Set<number>();
   private sackNeeded = false;
-  private sackTimeout: NodeJS.Immediate | undefined;
+  private sackPacketCount = 0;
+  private sackHasNewDataInPacket = false;
+  private sackImmediate = false;
+  private sackTimeout: NodeJS.Timeout | undefined;
 
   // # outbound
   private cwnd = 3 * USERDATA_MAX_LENGTH; // Congestion Window
@@ -134,6 +148,8 @@ export class SCTP {
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
   private sentQueue: DataChunk[] = [];
+  private transmitting = false;
+  private transmitRequested = false;
 
   // # reconfiguration
 
@@ -163,6 +179,8 @@ export class SCTP {
   /**Re-configuration Timer */
   private timerReconfigHandle?: any;
   private timerReconfigFailures = 0;
+  private timerHeartbeatHandle?: any;
+  private heartbeatInterval = SCTP_HEARTBEAT_INTERVAL;
 
   // etc
   private ssthresh?: number; // slow start threshold
@@ -215,19 +233,45 @@ export class SCTP {
       return;
     }
 
+    this.sackHasNewDataInPacket = false;
     for (const chunk of chunks) {
       await this.receiveChunk(chunk);
     }
 
     if (this.sackNeeded) {
-      await this.sendSack();
+      // RFC 9260 delayed ACK guidance is per packet ("every second packet").
+      if (this.sackHasNewDataInPacket) {
+        this.sackPacketCount++;
+      }
+      if (this.sackPacketCount >= 2) {
+        this.sackImmediate = true;
+      }
+      await this.scheduleSack();
     }
   }
 
-  private async sendSack() {
+  private async scheduleSack() {
+    if (!this.sackNeeded) return;
+    if (this.sackImmediate) {
+      if (this.sackTimeout) {
+        clearTimeout(this.sackTimeout);
+        this.sackTimeout = undefined;
+      }
+      await this.sendSack();
+      return;
+    }
     if (this.sackTimeout) return;
-    await new Promise((r) => (this.sackTimeout = setImmediate(r)));
-    this.sackTimeout = undefined;
+
+    // RFC 9260 delayed ACK path: defer SACK, but never beyond 200ms.
+    this.sackTimeout = setTimeout(() => {
+      this.sackTimeout = undefined;
+      this.sendSack().catch((err: Error) => {
+        log("send delayed sack failed", err.message);
+      });
+    }, SCTP_SACK_DELAY_MS);
+  }
+
+  private async sendSack() {
     if (!this.sackNeeded) return;
 
     const gaps: [number, number][] = [];
@@ -253,6 +297,8 @@ export class SCTP {
 
     this.sackDuplicates = [];
     this.sackNeeded = false;
+    this.sackPacketCount = 0;
+    this.sackImmediate = false;
   }
 
   private async receiveChunk(chunk: Chunk) {
@@ -272,6 +318,7 @@ export class SCTP {
           this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
           this.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
+          this.peerAdvertisedRwnd = init.advertisedRwnd;
           this.getExtensions(init.params);
 
           this._inboundStreamsCount = Math.min(
@@ -314,6 +361,7 @@ export class SCTP {
           this.reconfigResponseSeq = tsnMinusOne(initAck.initialTsn);
           this.remoteVerificationTag = initAck.initiateTag;
           this.ssthresh = initAck.advertisedRwnd;
+          this.peerAdvertisedRwnd = initAck.advertisedRwnd;
           this.getExtensions(initAck.params);
 
           this._inboundStreamsCount = Math.min(
@@ -539,7 +587,21 @@ export class SCTP {
   private receiveDataChunk(chunk: DataChunk) {
     this.sackNeeded = true;
 
-    if (this.markReceived(chunk.tsn)) return;
+    if (this.markReceived(chunk.tsn)) {
+      this.sackImmediate = true;
+      return;
+    }
+    this.sackHasNewDataInPacket = true;
+    // RFC 9260 delayed ACK is optional; prefer immediate DATA ACK to keep ACK-clock responsive.
+    this.sackImmediate = true;
+    if ((chunk.flags & SCTP_DATA_LAST_FRAG) === 0) {
+      // Keep fragmented-message feedback prompt to avoid long tail-loss recovery.
+      this.sackImmediate = true;
+    }
+    if (this.sackMisOrdered.size > 0) {
+      // RFC 9260 permits immediate SACK on gap/loss indicators.
+      this.sackImmediate = true;
+    }
 
     const inboundStream = this.getInboundStream(chunk.streamId);
 
@@ -663,6 +725,9 @@ export class SCTP {
       this.timer3Restart();
     }
 
+    // RFC 9260 §6.2.1(D-ii): keep latest peer a_rwnd; available window is derived via flightSize.
+    this.peerAdvertisedRwnd = chunk.advertisedRwnd;
+
     this.updateAdvancedPeerAckPoint();
     await this.onSackReceived();
     await this.transmit();
@@ -670,6 +735,7 @@ export class SCTP {
 
   receiveForwardTsnChunk(chunk: ForwardTsnChunk) {
     this.sackNeeded = true;
+    this.sackImmediate = true;
 
     if (uint32Gte(this.lastReceivedTsn!, chunk.cumulativeTsn)) {
       return;
@@ -813,19 +879,30 @@ export class SCTP {
       this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
     }
 
-    if (!this.timer3Handle) {
-      await this.transmit();
-    } else {
-      if (this.outboundQueue.length) {
-        await this.flush.asPromise();
-      } else {
-        // unreachable?
-        await new Promise((r) => setImmediate(r));
-      }
+    await this.transmit();
+    while (this.outboundQueue.length) {
+      await this.flush.asPromise();
     }
   };
 
   private async transmit() {
+    if (this.transmitting) {
+      this.transmitRequested = true;
+      return;
+    }
+
+    this.transmitting = true;
+    try {
+      do {
+        this.transmitRequested = false;
+        await this.transmitOnce();
+      } while (this.transmitRequested);
+    } finally {
+      this.transmitting = false;
+    }
+  }
+
+  private async transmitOnce() {
     // """
     // Transmit outbound data.
     // """
@@ -846,7 +923,6 @@ export class SCTP {
       this.fastRecoveryExit != undefined
         ? 2 * USERDATA_MAX_LENGTH
         : 4 * USERDATA_MAX_LENGTH;
-
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
     let retransmitEarliest = true;
@@ -855,7 +931,7 @@ export class SCTP {
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
         } else if (this.flightSize >= cwnd) {
-          return;
+          break;
         }
         this.flightSizeIncrease(dataChunk);
 
@@ -873,10 +949,18 @@ export class SCTP {
       retransmitEarliest = false;
     }
 
-    // for performance todo fix
-    while (this.outboundQueue.length > 0) {
+    // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
+    while (
+      this.outboundQueue.length > 0 &&
+      this.flightSize < cwnd &&
+      this.peerRwnd > 0
+    ) {
       const chunk = this.outboundQueue.shift();
-      if (!chunk) return;
+      if (!chunk) break;
+      if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
+        this.outboundQueue.unshift(chunk);
+        break;
+      }
 
       this.sentQueue.push(chunk);
       this.flightSizeIncrease(chunk);
@@ -892,8 +976,10 @@ export class SCTP {
         this.timer3Start();
       }
     }
-    // Resetting the queue to empty array mitigates this.
-    this.outboundQueue = [];
+    if (!this.outboundQueue.length) {
+      // Resetting the queue to empty array mitigates this.
+      this.outboundQueue = [];
+    }
     this.flush.execute();
   }
 
@@ -1017,13 +1103,14 @@ export class SCTP {
   /**t3 is wait for data sack */
   private timer3Start() {
     if (this.timer3Handle) throw new Error();
+    // RFC 9260 T3-rtx runs on current RTO; rto is stored in seconds.
     this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
   private timer3Restart() {
     this.timer3Cancel();
-    // for performance
-    this.timer3Handle = setTimeout(this.timer3Expired, this.rto);
+    // RFC 9260 requires restarting T3-rtx with current RTO (seconds -> JS ms).
+    this.timer3Handle = setTimeout(this.timer3Expired, this.rto * 1000);
   }
 
   private timer3Expired = () => {
@@ -1098,6 +1185,57 @@ export class SCTP {
       // Reset failures counter when timer is successfully cancelled
       this.timerReconfigFailures = 0;
     }
+  }
+
+  private heartbeatStart() {
+    if (
+      this.timerHeartbeatHandle ||
+      this.associationState !== SCTP_STATE.ESTABLISHED
+    ) {
+      return;
+    }
+    // RFC 9260 heartbeat timer is based on RTO + HB.interval for idle paths.
+    this.timerHeartbeatHandle = setTimeout(
+      this.timerHeartbeatExpired,
+      (this.rto + this.heartbeatInterval) * 1000,
+    );
+  }
+
+  private heartbeatRestart() {
+    this.heartbeatCancel();
+    this.heartbeatStart();
+  }
+
+  private heartbeatCancel() {
+    if (this.timerHeartbeatHandle) {
+      clearTimeout(this.timerHeartbeatHandle);
+      this.timerHeartbeatHandle = undefined;
+    }
+  }
+
+  private timerHeartbeatExpired = async () => {
+    this.timerHeartbeatHandle = undefined;
+    if (this.associationState !== SCTP_STATE.ESTABLISHED) return;
+
+    if (this.flightSize === 0 && this.outboundQueue.length === 0) {
+      const heartbeat = new HeartbeatChunk();
+      heartbeat.params.push([
+        1,
+        Buffer.from(jspack.Pack("!L", [Math.floor(Date.now() / 1000)])),
+      ]);
+      await this.sendChunk(heartbeat).catch((err: Error) => {
+        log("send heartbeat failed", err.message);
+      });
+    }
+    this.heartbeatStart();
+  };
+
+  setHeartbeatInterval(interval: number) {
+    if (interval <= 0) {
+      throw new Error("heartbeat interval must be > 0");
+    }
+    this.heartbeatInterval = interval;
+    this.heartbeatRestart();
   }
 
   private updateAdvancedPeerAckPoint() {
@@ -1235,11 +1373,17 @@ export class SCTP {
     }
     if (state === SCTP_STATE.ESTABLISHED) {
       this.setConnectionState("connected");
+      this.heartbeatStart();
     } else if (state === SCTP_STATE.CLOSED) {
       this.timer1Cancel();
       this.timer2Cancel();
       this.timer3Cancel();
       this.timerReconfigCancel();
+      this.heartbeatCancel();
+      if (this.sackTimeout) {
+        clearTimeout(this.sackTimeout);
+        this.sackTimeout = undefined;
+      }
       this.setConnectionState("closed");
       this.removeAllListeners();
     }
@@ -1260,6 +1404,8 @@ export class SCTP {
     clearTimeout(this.timer2Handle);
     clearTimeout(this.timer3Handle);
     clearTimeout(this.timerReconfigHandle);
+    clearTimeout(this.timerHeartbeatHandle);
+    clearTimeout(this.sackTimeout);
   }
 
   async abort() {
