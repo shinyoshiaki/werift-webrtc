@@ -26,7 +26,7 @@
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
     "doc": "npm run doc --workspaces --if-present && rm -rf doc && cd packages/webrtc && mv doc ../..",
-    "e2e": "cd e2e && npm run ci:silent",
+    "e2e": "cd e2e && npm i && npm run ci:silent",
     "e2e:verbose": "cd e2e && npm run ci",
     "example": "tsx watch examples/ice/restart/offer.ts",
     "format": "npm run format --workspaces --if-present && run-s format:examples format:e2e",
