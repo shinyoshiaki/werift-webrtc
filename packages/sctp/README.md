@@ -39,6 +39,8 @@ await Promise.all([
 client.send(0, WEBRTC_PPID.STRING, Buffer.from("ping"));
 ```
 
+`SCTP.stop()` stops the SCTP association only. It does not close the underlying transport automatically, so close your UDP socket (or transport) explicitly when your application is done with it.
+
 # reference
 
 -
