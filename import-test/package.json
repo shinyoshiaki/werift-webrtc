@@ -5,8 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "postinstall": "cd ../ && npm i && cd ./packages/webrtc && npm run build && cd ../../ && rm -rf node_modules",
-    "test": "npm i && node test.mjs && cd ../ && npm i"
+    "test": "cd ../ && npm i && cd import-test && node test.mjs"
   },
   "keywords": [],
   "author": "",

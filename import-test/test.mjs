@@ -1,5 +1,5 @@
 import { equal } from 'node:assert';
-import { RTCPeerConnection } from 'werift';
+import { RTCPeerConnection } from 'werift-dev';
 
 const pcA = new RTCPeerConnection();
 const pcB = new RTCPeerConnection();

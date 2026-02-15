@@ -16,7 +16,8 @@
   "author": "shinyoshiaki <shinyoshiaki2012@gmail.com>",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "import-test"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
