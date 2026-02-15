@@ -6,7 +6,8 @@
   "scripts": {
     "simple": "ts-node datachannel-simple.ts",
     "size": "ts-node datachannel-size.ts",
-    "options": "ts-node datachannel-options.ts"
+    "options": "ts-node datachannel-options.ts",
+    "issue540": "ts-node issue540-repro.ts"
   },
   "dependencies": {
     "werift": "file:../packages/webrtc"
