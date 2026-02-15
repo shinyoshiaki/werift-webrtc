@@ -1,6 +1,6 @@
 {
   "name": "werift-sctp",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "SCTP protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-sctp",
   "repository": {
@@ -24,7 +24,6 @@
     "format": "biome check --write src",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
     "test": "npm run type && vitest run ./tests",
-    "test:open-handles": "tsx --tsconfig ./tsconfig.json ./tests/open-handles-check.ts",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli **/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
