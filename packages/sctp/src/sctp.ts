@@ -69,7 +69,8 @@ const SCTP_RTO_MIN = 1;
 const SCTP_RTO_MAX = 60;
 const SCTP_TSN_MODULO = 2 ** 32;
 // RFC 9260 delayed ACK guidance: send SACK within 200ms at the latest.
-const SCTP_SACK_DELAY_MS = 200;
+// Use a small default delay to keep request/response latency low while still delaying ACKs.
+const SCTP_SACK_DELAY_MS = 10;
 // RFC 9260 HB.interval recommended default is 30 seconds.
 const SCTP_HEARTBEAT_INTERVAL = 30;
 

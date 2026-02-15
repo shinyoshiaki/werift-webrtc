@@ -93,7 +93,7 @@ describe("sctp timers and ack policy", () => {
     spy.mockRestore();
   });
 
-  test("delayed sack sends by 200ms and immediate on second packet", async () => {
+  test("delayed sack sends within RFC 200ms and immediate on second packet", async () => {
     vi.useFakeTimers();
     const { sctp, transport } = createMockSctp();
     (sctp as any).lastReceivedTsn = 0;
@@ -102,12 +102,7 @@ describe("sctp timers and ack policy", () => {
     await (sctp as any).scheduleSack();
     expect((transport.send as any).mock.calls.length).toBe(0);
 
-    vi.advanceTimersByTime(199);
-    await vi.runAllTicks();
-    expect((transport.send as any).mock.calls.length).toBe(0);
-
-    vi.advanceTimersByTime(1);
-    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(200);
     expect((transport.send as any).mock.calls.length).toBe(1);
 
     (sctp as any).receiveDataChunk(createDataChunk(2));
