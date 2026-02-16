@@ -1,8 +1,7 @@
 import { createHmac } from "crypto";
-//@ts-ignore
-import crc32 from "buffer-crc32";
+import { crc32 } from "@se-oss/crc32";
 
-import { bufferXor, randomTransactionId } from "../helper";
+import { randomTransactionId } from "../helper";
 import {
   ATTRIBUTES_BY_NAME,
   ATTRIBUTES_BY_TYPE,
@@ -178,11 +177,7 @@ function messageFingerprint(data: Buffer) {
     data,
     data.length - HEADER_LENGTH + FINGERPRINT_LENGTH,
   );
-  const crc32Buf = crc32(checkData);
-  const xorBuf = Buffer.alloc(4);
-  xorBuf.writeInt32BE(FINGERPRINT_XOR, 0);
-  const fingerprint = bufferXor(crc32Buf, xorBuf);
-  return fingerprint.readUInt32BE(0);
+  return (crc32(checkData) ^ FINGERPRINT_XOR) >>> 0;
 }
 
 function messageIntegrity(data: Buffer, key: Buffer) {

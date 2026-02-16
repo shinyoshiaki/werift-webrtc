@@ -29,8 +29,8 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6",
-    "turbo-crc32": "^1.0.1"
+    "@se-oss/crc32": "^1.0.0",
+    "@shinyoshiaki/jspack": "^0.0.6"
   },
   "engines": {
     "node": ">=10"

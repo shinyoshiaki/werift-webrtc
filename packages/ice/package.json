@@ -30,8 +30,8 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
+    "@se-oss/crc32": "^1.0.0",
     "@shinyoshiaki/jspack": "^0.0.6",
-    "buffer-crc32": "^1.0.0",
     "fast-deep-equal": "^3.1.3",
     "int64-buffer": "1.1.0",
     "ip": "^2.0.1",
