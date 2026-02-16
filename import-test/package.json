@@ -5,13 +5,14 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "cd ../packages/webrtc && npm run build && cd ../../ && npm i && cd import-test && node test.mjs"
+    "test": "cd ../packages/webrtc && npm run build && cd ../sctp && npm run build && cd ../../ && npm i && cd import-test && node test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "werift": "0.22.7",
-    "werift-dev": "file:../packages/webrtc"
+    "werift-dev": "file:../packages/webrtc",
+    "werift-sctp": "file:../packages/sctp"
   }
 }
