@@ -1,4 +1,5 @@
 export * from "./binary";
+export * from "./crc";
 export * from "./number";
 export * from "./promise";
 export * from "./network";

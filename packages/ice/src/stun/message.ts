@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { crc32 } from "@se-oss/crc32";
+import { crc32 } from "../../../common/src";
 
 import { randomTransactionId } from "../helper";
 import {
