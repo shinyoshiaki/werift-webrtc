@@ -25,7 +25,7 @@
 // 192 to 254 - available
 // 255        - reserved for IETF-defined Chunk Extensions
 
-import { crc32c } from "../../common/src";
+import { crc32c } from "./imports/common";
 
 export class Chunk {
   public get body(): Buffer | undefined {

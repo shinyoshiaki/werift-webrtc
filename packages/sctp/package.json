@@ -1,6 +1,6 @@
 {
   "name": "werift-sctp",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "SCTP protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-sctp",
   "repository": {
@@ -29,8 +29,7 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6",
-    "turbo-crc32": "^1.0.1"
+    "@shinyoshiaki/jspack": "^0.0.6"
   },
   "engines": {
     "node": ">=10"
