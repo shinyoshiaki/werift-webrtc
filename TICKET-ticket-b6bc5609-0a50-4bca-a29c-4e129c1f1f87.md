@@ -39,3 +39,14 @@
 - `@ts-ignore` が不要になり、型/ビルドが通る  
 - STUN FINGERPRINT と SCTP checksum の計算結果が既存と一致（テスト通過）  
 - `npm run build` / `npm run test:small` / `packages/webrtc` の ESM ビルドが成功
+
+# 6. レビュー反映メモ
+- `package-lock.json` に残る `buffer-crc32` / `turbo-crc32` は `import-test/node_modules/werift@0.22.7` 由来の記録であり、今回の変更対象ワークスペース（`packages/ice` / `packages/sctp` / `packages/webrtc`）の実装経路には未使用。  
+- 依存の完全整理を厳密に行う場合は、`import-test` 側の参照バージョン更新を別チケットで実施する。  
+- 追跡性のため、今回の checksum/fingerprint 影響確認テストは以下を記録する。  
+  - STUN: `packages/ice/tests/stun/stun.test.ts`  
+    - `test_binding_request_ice_controlled`（FINGERPRINT 値検証）  
+    - `test_binding_request_ice_controlled_bad_fingerprint`（不正 fingerprint 検知）  
+  - SCTP: `packages/sctp/tests/packet.test.ts`  
+    - `test_parse_init`（roundtrip で checksum 整合）  
+    - `test_parse_init_invalid_checksum`（不正 checksum 検知）
