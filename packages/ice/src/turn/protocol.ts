@@ -12,6 +12,7 @@ import {
   EventDisposer,
   type InterfaceAddresses,
   TcpTransport,
+  TlsTransport,
   type Transport,
   UdpTransport,
   bufferReader,
@@ -470,6 +471,7 @@ export async function createTurnClient(
   { address, username, password }: TurnClientConfig,
   {
     lifetime,
+    ssl,
     portRange,
     interfaceAddresses,
     transport: transportType,
@@ -481,7 +483,9 @@ export async function createTurnClient(
   const transport =
     transportType === "udp"
       ? await UdpTransport.init("udp4", { portRange, interfaceAddresses })
-      : await TcpTransport.init(address);
+      : ssl
+        ? await TlsTransport.init(address)
+        : await TcpTransport.init(address);
 
   const turn = new TurnProtocol(
     address,
@@ -507,6 +511,7 @@ export async function createStunOverTurnClient(
   },
   {
     lifetime,
+    ssl,
     portRange,
     interfaceAddresses,
     transport: transportType,
@@ -526,6 +531,7 @@ export async function createStunOverTurnClient(
     },
     {
       lifetime,
+      ssl,
       portRange,
       interfaceAddresses,
       transport: transportType,

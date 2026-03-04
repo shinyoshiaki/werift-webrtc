@@ -8,6 +8,7 @@ import {
 import * as net from "node:net";
 
 import { type AddressInfo, type Socket as TcpSocket, connect } from "node:net";
+import { type TLSSocket, connect as tlsConnect } from "node:tls";
 import { debug } from "./log";
 import {
   type Address,
@@ -188,6 +189,80 @@ export class TcpTransport implements Transport {
     this.client.write(data, (err) => {
       if (err) {
         console.log("err", err);
+      }
+    });
+  };
+
+  close = async () => {
+    this.closed = true;
+    this.client.destroy();
+  };
+}
+
+export class TlsTransport implements Transport {
+  readonly type = "tls";
+  private connecting!: Promise<void>;
+  private client!: TLSSocket;
+  onData: (data: Buffer, addr: Address) => void = () => {};
+  closed = false;
+
+  private constructor(private addr: Address) {
+    this.connect();
+  }
+
+  private connect() {
+    if (this.closed) {
+      return;
+    }
+
+    if (this.client) {
+      this.client.destroy();
+    }
+    this.connecting = new Promise((r, f) => {
+      try {
+        this.client = tlsConnect(
+          { port: this.addr[1], host: this.addr[0], rejectUnauthorized: false },
+          r,
+        );
+      } catch (error) {
+        f(error);
+      }
+    });
+
+    this.client.on("data", (data) => {
+      const addr = [
+        this.client.remoteAddress!,
+        this.client.remotePort!,
+      ] as Address;
+      this.onData(data, addr);
+    });
+    this.client.on("end", () => {
+      this.connect();
+    });
+    this.client.on("error", (error) => {
+      log("tls error", error);
+    });
+  }
+
+  private async init() {
+    await this.connecting;
+  }
+
+  static async init(addr: Address) {
+    const transport = new TlsTransport(addr);
+    await transport.init();
+    return transport;
+  }
+
+  get address() {
+    return {} as AddressInfo;
+  }
+
+  send = async (data: Buffer, addr?: Address) => {
+    await this.connecting;
+    this.client.write(data, (err) => {
+      if (err) {
+        log("tls send error", err);
       }
     });
   };

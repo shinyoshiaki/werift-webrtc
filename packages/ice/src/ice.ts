@@ -403,6 +403,7 @@ export class Connection implements IceConnection {
             portRange: this.options.portRange,
             interfaceAddresses: this.options.interfaceAddresses,
             transport: this.options.turnTransport === "tcp" ? "tcp" : "udp",
+            ssl: this.options.turnSsl,
           },
         ).catch(async (e) => {
           if (this.options.turnTransport !== "tcp") {
@@ -416,6 +417,7 @@ export class Connection implements IceConnection {
                 portRange: this.options.portRange,
                 interfaceAddresses: this.options.interfaceAddresses,
                 transport: "tcp",
+                ssl: this.options.turnSsl,
               },
             );
           } else {

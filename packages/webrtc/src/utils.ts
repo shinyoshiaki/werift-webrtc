@@ -84,24 +84,32 @@ export const compactNtp = (ntp: bigint) => {
 export function parseIceServers(iceServers: RTCIceServer[]) {
   const url2Address = (url?: string) => {
     if (!url) return;
-    const [address, port] = url.split(":");
+    // Strip query params (e.g. ?transport=tcp) before parsing host:port
+    const [urlWithoutQuery] = url.split("?");
+    const [address, port] = urlWithoutQuery.split(":");
     return [address, Number.parseInt(port)] as Address;
   };
 
   const stunServer = url2Address(
     iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5),
   );
-  const turnServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5),
-  );
-  const { credential, username } =
-    iceServers.find(({ urls }) => urls.includes("turn:")) || {};
+
+  // Check for turns: first (6-char prefix), then fall back to turn: (5-char prefix).
+  // Must use startsWith to avoid turns: matching the turn: check via substring.
+  const turnsEntry = iceServers.find(({ urls }) => urls.startsWith("turns:"));
+  const turnEntry =
+    turnsEntry || iceServers.find(({ urls }) => urls.startsWith("turn:"));
+  const turnSsl = !!turnsEntry;
+  const prefixLen = turnSsl ? 6 : 5; // "turns:" = 6, "turn:" = 5
+  const turnServer = url2Address(turnEntry?.urls.slice(prefixLen));
+  const { credential, username } = turnEntry || {};
 
   const options = {
     stunServer,
     turnServer,
     turnUsername: username,
     turnPassword: credential,
+    turnSsl,
   };
   log("iceOptions", options);
   return options;
