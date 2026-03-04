@@ -147,6 +147,9 @@ export class TcpTransport implements Transport {
     if (this.client) {
       this.client.destroy();
     }
+    // TODO: error events during initial connect don't reject the promise,
+    // so TcpTransport.init() hangs if the connection fails (e.g. ECONNREFUSED).
+    // See TlsTransport.connect() for the fixed pattern.
     this.connecting = new Promise((r, f) => {
       try {
         this.client = connect({ port: this.addr[1], host: this.addr[0] }, r);
