@@ -402,11 +402,18 @@ export class Connection implements IceConnection {
           {
             portRange: this.options.portRange,
             interfaceAddresses: this.options.interfaceAddresses,
-            transport: this.options.turnTransport === "tcp" ? "tcp" : "udp",
+            transport:
+              this.options.turnSsl ||
+              this.options.turnTransport === "tcp"
+                ? "tcp"
+                : "udp",
             ssl: this.options.turnSsl,
           },
         ).catch(async (e) => {
-          if (this.options.turnTransport !== "tcp") {
+          if (
+            !this.options.turnSsl &&
+            this.options.turnTransport !== "tcp"
+          ) {
             return await createStunOverTurnClient(
               {
                 address: turnServer,

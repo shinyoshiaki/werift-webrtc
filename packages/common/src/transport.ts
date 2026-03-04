@@ -252,6 +252,11 @@ export class TlsTransport implements Transport {
     });
     this.client.on("end", () => {
       this.connect();
+      // Prevent unhandled promise rejection if reconnect fails
+      // (nobody may be awaiting this.connecting during reconnect)
+      this.connecting.catch((error) => {
+        log("tls reconnection failed", error);
+      });
     });
   }
 
