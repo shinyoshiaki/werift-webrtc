@@ -39,12 +39,76 @@ describe("utils", () => {
         },
         { urls: "stun:stun.l.google.com:19302" },
       ];
-      const { stunServer, turnPassword, turnServer, turnUsername } =
+      const { stunServer, turnPassword, turnServer, turnUsername, turnSsl } =
         parseIceServers(iceServers);
       expect(stunServer).toEqual(["stun.l.google.com", 19302]);
       expect(turnServer).toEqual(["turn.l.google.com", 19302]);
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
+      expect(turnSsl).toBe(false);
+    });
+
+    test("turns (TURN-over-TLS)", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:global.relay.metered.ca:443",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnUsername, turnPassword, turnSsl } =
+        parseIceServers(iceServers);
+      expect(turnServer).toEqual(["global.relay.metered.ca", 443]);
+      expect(turnUsername).toBe("username");
+      expect(turnPassword).toBe("credential");
+      expect(turnSsl).toBe(true);
+    });
+
+    test("turns with query params", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:global.relay.metered.ca:443?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["global.relay.metered.ca", 443]);
+      expect(turnSsl).toBe(true);
+    });
+
+    test("turn with query params", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:relay.example.com:3478?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 3478]);
+      expect(turnSsl).toBe(false);
+    });
+
+    test("turns preferred over turn when both present", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:plain.relay.com:3478",
+          credential: "plain-cred",
+          username: "plain-user",
+        },
+        {
+          urls: "turns:secure.relay.com:443",
+          credential: "tls-cred",
+          username: "tls-user",
+        },
+      ];
+      const { turnServer, turnUsername, turnPassword, turnSsl } =
+        parseIceServers(iceServers);
+      expect(turnServer).toEqual(["secure.relay.com", 443]);
+      expect(turnUsername).toBe("tls-user");
+      expect(turnPassword).toBe("tls-cred");
+      expect(turnSsl).toBe(true);
     });
   });
 
