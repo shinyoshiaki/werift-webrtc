@@ -222,8 +222,19 @@ export class TlsTransport implements Transport {
       try {
         this.client = tlsConnect(
           { port: this.addr[1], host: this.addr[0], rejectUnauthorized: false },
-          r,
+          () => {
+            // Once connected, switch error handler to non-rejecting log-only
+            this.client.removeAllListeners("error");
+            this.client.on("error", (error) => {
+              log("tls error", error);
+            });
+            r();
+          },
         );
+        // Reject the init promise if error occurs during handshake
+        this.client.on("error", (error) => {
+          f(error);
+        });
       } catch (error) {
         f(error);
       }
@@ -238,9 +249,6 @@ export class TlsTransport implements Transport {
     });
     this.client.on("end", () => {
       this.connect();
-    });
-    this.client.on("error", (error) => {
-      log("tls error", error);
     });
   }
 

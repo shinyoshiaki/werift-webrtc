@@ -218,7 +218,7 @@ export class TurnProtocol implements Protocol {
       }
     };
 
-    if (this.transport.type === "tcp") {
+    if (this.transport.type === "tcp" || this.transport.type === "tls") {
       this.tcpBuffer = Buffer.concat([this.tcpBuffer, data]);
       while (this.tcpBuffer.length >= 4) {
         let [, length] = bufferReader(this.tcpBuffer.subarray(0, 4), [2, 2]);
@@ -243,7 +243,7 @@ export class TurnProtocol implements Protocol {
       return;
     }
 
-    if (this.transport.type === "tcp") {
+    if (this.transport.type === "tcp" || this.transport.type === "tls") {
       const padding = paddingLength(data.length);
       await this.transport.send(
         padding > 0 ? Buffer.concat([data, Buffer.alloc(padding)]) : data,

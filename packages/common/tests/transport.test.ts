@@ -147,6 +147,47 @@ describe("TlsTransport", () => {
       server.close();
     }
   });
+
+  // pion gather.go: if TLS handshake fails, connection is closed and candidate abandoned
+  test("rejects when connection is refused", async () => {
+    // Connect to a port with nothing listening — ECONNREFUSED should reject init
+    await expect(
+      TlsTransport.init(["127.0.0.1", 1]),
+    ).rejects.toThrow();
+  });
+
+  // Verify TLS delivers stream data that may be coalesced (relevant to Bug 1 fix)
+  test("handles coalesced stream data", async () => {
+    const { server, port } = await createTlsEchoServer(
+      testCert.key,
+      testCert.cert,
+    );
+
+    try {
+      const transport = await TlsTransport.init(["127.0.0.1", port]);
+
+      const messages: Buffer[] = [];
+      transport.onData = (data) => messages.push(data);
+
+      // Send multiple small messages rapidly — TLS may coalesce them
+      const sendPromises: Promise<void>[] = [];
+      for (let i = 0; i < 10; i++) {
+        sendPromises.push(transport.send(Buffer.from(`m${i}`)));
+      }
+      await Promise.all(sendPromises);
+
+      await new Promise((r) => setTimeout(r, 200));
+
+      const combined = Buffer.concat(messages).toString();
+      for (let i = 0; i < 10; i++) {
+        expect(combined).toContain(`m${i}`);
+      }
+
+      await transport.close();
+    } finally {
+      server.close();
+    }
+  });
 });
 
 describe("TcpTransport", () => {

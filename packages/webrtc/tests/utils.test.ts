@@ -90,6 +90,76 @@ describe("utils", () => {
       expect(turnSsl).toBe(false);
     });
 
+    // RFC 7065 §3.2: default port for turns: is 5349 (pion, libwebrtc, aiortc all implement this)
+    test("turns without port defaults to 5349 (RFC 7065)", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:global.relay.metered.ca",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["global.relay.metered.ca", 5349]);
+      expect(turnSsl).toBe(true);
+    });
+
+    // RFC 7065 §3.2: default port for turn: is 3478
+    test("turn without port defaults to 3478 (RFC 7065)", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:relay.example.com",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 3478]);
+      expect(turnSsl).toBe(false);
+    });
+
+    // RFC 7065: default port for stun: is 3478
+    test("stun without port defaults to 3478 (RFC 7065)", () => {
+      const iceServers = [{ urls: "stun:stun.l.google.com" }];
+      const { stunServer } = parseIceServers(iceServers);
+      expect(stunServer).toEqual(["stun.l.google.com", 3478]);
+    });
+
+    // pion uri_test.go: explicit port overrides default
+    test("turns with explicit port overrides default 5349", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:relay.example.com:443",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 443]);
+    });
+
+    // pion uri_test.go: turns without port + query params
+    test("turns without port but with query params defaults to 5349", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:relay.example.com?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 5349]);
+      expect(turnSsl).toBe(true);
+    });
+
+    // libwebrtc: empty ice servers returns no servers
+    test("empty ice servers", () => {
+      const { stunServer, turnServer, turnSsl } = parseIceServers([]);
+      expect(stunServer).toBeUndefined();
+      expect(turnServer).toBeUndefined();
+      expect(turnSsl).toBe(false);
+    });
+
     test("turns preferred over turn when both present", () => {
       const iceServers: RTCIceServer[] = [
         {
