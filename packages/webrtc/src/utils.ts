@@ -108,7 +108,10 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   const turnSsl = !!turnsEntry;
   const prefixLen = turnSsl ? 6 : 5; // "turns:" = 6, "turn:" = 5
   const defaultTurnPort = turnSsl ? DEFAULT_STUNS_PORT : DEFAULT_STUN_PORT;
-  const turnServer = url2Address(turnEntry?.urls.slice(prefixLen), defaultTurnPort);
+  const turnServer = url2Address(
+    turnEntry?.urls.slice(prefixLen),
+    defaultTurnPort,
+  );
   const { credential, username } = turnEntry || {};
 
   const options = {
