@@ -245,25 +245,24 @@ export class TlsTransport implements Transport {
             this.client.on("error", (error) => {
               log("tls error", error);
             });
+            this.client.on("data", (data) => {
+              const addr = [
+                this.client.remoteAddress!,
+                this.client.remotePort!,
+              ] as Address;
+              this.onData(data, addr);
+            });
+            this.client.on("end", () => {
+              this.onReconnect();
+              this.connect();
+              this.connecting.catch((error) => {
+                log("tls reconnection failed", error);
+              });
+            });
             r();
           },
         );
         this.client.on("error", handshakeErrorHandler);
-
-        this.client.on("data", (data) => {
-          const addr = [
-            this.client.remoteAddress!,
-            this.client.remotePort!,
-          ] as Address;
-          this.onData(data, addr);
-        });
-        this.client.on("end", () => {
-          this.onReconnect();
-          this.connect();
-          this.connecting.catch((error) => {
-            log("tls reconnection failed", error);
-          });
-        });
       } catch (error) {
         f(error);
       }
@@ -286,7 +285,11 @@ export class TlsTransport implements Transport {
 
   send = async (data: Buffer, addr?: Address) => {
     await this.connecting;
-    this.client.write(data, (err) => {
+    const client = this.client;
+    if (client.destroyed) {
+      return;
+    }
+    client.write(data, (err) => {
       if (err) {
         log("tls send error", err);
       }
