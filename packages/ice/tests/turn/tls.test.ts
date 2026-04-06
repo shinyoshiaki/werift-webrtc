@@ -181,7 +181,7 @@ describe("TURN over TLS (TURNS)", () => {
           username: "testuser",
           password: "testpass",
         },
-        { ssl: true, transport: "tcp" },
+        { ssl: true, sslVerifyCert: false, transport: "tcp" },
       );
 
       // Verify allocation succeeded
@@ -214,7 +214,7 @@ describe("TURN over TLS (TURNS)", () => {
           username: "testuser",
           password: "testpass",
         },
-        { ssl: true, transport: "tcp" },
+        { ssl: true, sslVerifyCert: false, transport: "tcp" },
       );
 
       // Verify TLS transport was selected

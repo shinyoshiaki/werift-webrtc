@@ -96,7 +96,7 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   };
 
   const stunServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5),
+    iceServers.find(({ urls }) => urls.startsWith("stun:"))?.urls.slice(5),
     DEFAULT_STUN_PORT,
   );
 

@@ -151,6 +151,9 @@ export class TurnProtocol implements Protocol {
     this.transport.onData = (data, addr) => {
       this.dataReceived(data, addr);
     };
+    this.transport.onReconnect = () => {
+      this.tcpBuffer = Buffer.alloc(0);
+    };
 
     const request = new Message(methods.ALLOCATE, classes.REQUEST);
     request
@@ -462,6 +465,8 @@ export interface TurnClientConfig {
 export interface TurnClientOptions {
   lifetime?: number;
   ssl?: boolean;
+  /** Skip TLS server certificate validation. Default: true (certificates are verified). */
+  sslVerifyCert?: boolean;
   transport?: "udp" | "tcp";
   portRange?: [number, number];
   interfaceAddresses?: InterfaceAddresses;
@@ -472,6 +477,7 @@ export async function createTurnClient(
   {
     lifetime,
     ssl,
+    sslVerifyCert,
     portRange,
     interfaceAddresses,
     transport: transportType,
@@ -480,11 +486,17 @@ export async function createTurnClient(
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
   transportType ??= "udp";
 
+  if (ssl && transportType === "udp") {
+    transportType = "tcp";
+  }
+
   const transport =
     transportType === "udp"
       ? await UdpTransport.init("udp4", { portRange, interfaceAddresses })
       : ssl
-        ? await TlsTransport.init(address)
+        ? await TlsTransport.init(address, {
+            rejectUnauthorized: sslVerifyCert ?? true,
+          })
         : await TcpTransport.init(address);
 
   const turn = new TurnProtocol(
@@ -512,12 +524,14 @@ export async function createStunOverTurnClient(
   {
     lifetime,
     ssl,
+    sslVerifyCert,
     portRange,
     interfaceAddresses,
     transport: transportType,
   }: {
     lifetime?: number;
     ssl?: boolean;
+    sslVerifyCert?: boolean;
     transport?: "udp" | "tcp";
     portRange?: [number, number];
     interfaceAddresses?: InterfaceAddresses;
@@ -532,6 +546,7 @@ export async function createStunOverTurnClient(
     {
       lifetime,
       ssl,
+      sslVerifyCert,
       portRange,
       interfaceAddresses,
       transport: transportType,

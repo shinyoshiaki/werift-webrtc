@@ -160,6 +160,21 @@ describe("utils", () => {
       expect(turnSsl).toBe(false);
     });
 
+    // Regression: "stun:" must not match "stuns:" URLs
+    test("turns-only does not produce a spurious stunServer", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:secure.relay.com:443",
+          credential: "cred",
+          username: "user",
+        },
+      ];
+      const { stunServer, turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(stunServer).toBeUndefined();
+      expect(turnServer).toEqual(["secure.relay.com", 443]);
+      expect(turnSsl).toBe(true);
+    });
+
     test("turns preferred over turn when both present", () => {
       const iceServers: RTCIceServer[] = [
         {

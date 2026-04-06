@@ -83,7 +83,7 @@ describe("TlsTransport", () => {
     );
 
     try {
-      const transport = await TlsTransport.init(["127.0.0.1", port]);
+      const transport = await TlsTransport.init(["127.0.0.1", port], { rejectUnauthorized: false });
       expect(transport.type).toBe("tls");
       expect(transport.closed).toBe(false);
 
@@ -109,7 +109,7 @@ describe("TlsTransport", () => {
     );
 
     try {
-      const transport = await TlsTransport.init(["127.0.0.1", port]);
+      const transport = await TlsTransport.init(["127.0.0.1", port], { rejectUnauthorized: false });
 
       const messages: Buffer[] = [];
       transport.onData = (data) => messages.push(data);
@@ -139,10 +139,26 @@ describe("TlsTransport", () => {
     );
 
     try {
-      const transport = await TlsTransport.init(["127.0.0.1", port]);
+      const transport = await TlsTransport.init(["127.0.0.1", port], { rejectUnauthorized: false });
       expect(transport.closed).toBe(false);
       await transport.close();
       expect(transport.closed).toBe(true);
+    } finally {
+      server.close();
+    }
+  });
+
+  // RFC 7350: TLS certificate must be verified by default
+  test("rejects self-signed cert when rejectUnauthorized is not disabled", async () => {
+    const { server, port } = await createTlsEchoServer(
+      testCert.key,
+      testCert.cert,
+    );
+
+    try {
+      await expect(
+        TlsTransport.init(["127.0.0.1", port]),
+      ).rejects.toThrow();
     } finally {
       server.close();
     }
@@ -152,7 +168,7 @@ describe("TlsTransport", () => {
   test("rejects when connection is refused", async () => {
     // Connect to a port with nothing listening — ECONNREFUSED should reject init
     await expect(
-      TlsTransport.init(["127.0.0.1", 1]),
+      TlsTransport.init(["127.0.0.1", 1], { rejectUnauthorized: false }),
     ).rejects.toThrow();
   });
 
@@ -164,7 +180,7 @@ describe("TlsTransport", () => {
     );
 
     try {
-      const transport = await TlsTransport.init(["127.0.0.1", port]);
+      const transport = await TlsTransport.init(["127.0.0.1", port], { rejectUnauthorized: false });
 
       const messages: Buffer[] = [];
       transport.onData = (data) => messages.push(data);
