@@ -81,27 +81,45 @@ export const compactNtp = (ntp: bigint) => {
   return bufferWriter([2, 2], [sec, msec]).readUInt32BE();
 };
 
+// RFC 7065 default ports
+const DEFAULT_STUN_PORT = 3478;
+const DEFAULT_STUNS_PORT = 5349;
+
 export function parseIceServers(iceServers: RTCIceServer[]) {
-  const url2Address = (url?: string) => {
+  const url2Address = (url: string | undefined, defaultPort: number) => {
     if (!url) return;
-    const [address, port] = url.split(":");
-    return [address, Number.parseInt(port)] as Address;
+    // Strip query params (e.g. ?transport=tcp) before parsing host:port
+    const [urlWithoutQuery] = url.split("?");
+    const [address, portStr] = urlWithoutQuery.split(":");
+    const port = portStr ? Number.parseInt(portStr) : defaultPort;
+    return [address, port] as Address;
   };
 
   const stunServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5),
+    iceServers.find(({ urls }) => urls.startsWith("stun:"))?.urls.slice(5),
+    DEFAULT_STUN_PORT,
   );
+
+  // Check for turns: first (6-char prefix), then fall back to turn: (5-char prefix).
+  // Must use startsWith to avoid turns: matching the turn: check via substring.
+  const turnsEntry = iceServers.find(({ urls }) => urls.startsWith("turns:"));
+  const turnEntry =
+    turnsEntry || iceServers.find(({ urls }) => urls.startsWith("turn:"));
+  const turnSsl = !!turnsEntry;
+  const prefixLen = turnSsl ? 6 : 5; // "turns:" = 6, "turn:" = 5
+  const defaultTurnPort = turnSsl ? DEFAULT_STUNS_PORT : DEFAULT_STUN_PORT;
   const turnServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5),
+    turnEntry?.urls.slice(prefixLen),
+    defaultTurnPort,
   );
-  const { credential, username } =
-    iceServers.find(({ urls }) => urls.includes("turn:")) || {};
+  const { credential, username } = turnEntry || {};
 
   const options = {
     stunServer,
     turnServer,
     turnUsername: username,
     turnPassword: credential,
+    turnSsl,
   };
   log("iceOptions", options);
   return options;

@@ -36,10 +36,29 @@ jobs:
           npm i
           npx playwright install chromium
           cd ../
-      # - name: Setup tmate session
-      #   uses: mxschmitt/action-tmate@v3    
+      - name: Start TURNS server (pion/turn TLS)
+        run: |
+          cd packages/ice/docker/pion-turn-tls
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 5349 2>/dev/null; then
+              echo "TURNS server ready"
+              break
+            fi
+            echo "Waiting for TURNS server... ($i/30)"
+            sleep 1
+          done
       - name: test
         env:
           CI: true
+          TURNS_TEST_HOST: "127.0.0.1"
+          TURNS_TEST_PORT: "5349"
+          TURNS_TEST_USER: "username"
+          TURNS_TEST_PASS: "password"
         run: |
           npm run test
+      - name: Stop TURNS server
+        if: always()
+        run: |
+          cd packages/ice/docker/pion-turn-tls
+          docker compose down || true

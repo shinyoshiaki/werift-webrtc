@@ -880,6 +880,8 @@ export interface PeerConfig {
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
   forceTurnTCP: boolean;
+  /** Disable TLS certificate verification for TURNS servers (e.g. self-signed certs). Default: true (verify). */
+  turnSslVerifyCert: boolean;
   /** such as google cloud run */
   iceUseLinkLocalAddress: boolean | undefined;
   /** If provided, is called on each STUN request.
@@ -949,6 +951,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     debug: {},
     midSuffix: false,
     forceTurnTCP: false,
+    turnSslVerifyCert: true,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();

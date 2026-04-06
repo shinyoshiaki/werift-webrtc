@@ -168,6 +168,8 @@ export interface IceOptions {
   turnUsername?: string;
   turnPassword?: string;
   turnTransport?: "udp" | "tcp";
+  turnSsl?: boolean;
+  turnSslVerifyCert?: boolean;
   forceTurn?: boolean;
   localPasswordPrefix?: string;
   useIpv4: boolean;

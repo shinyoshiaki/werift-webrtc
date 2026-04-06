@@ -8,6 +8,7 @@ import {
 import * as net from "node:net";
 
 import { type AddressInfo, type Socket as TcpSocket, connect } from "node:net";
+import { type TLSSocket, connect as tlsConnect } from "node:tls";
 import { debug } from "./log";
 import {
   type Address,
@@ -146,6 +147,9 @@ export class TcpTransport implements Transport {
     if (this.client) {
       this.client.destroy();
     }
+    // TODO: error events during initial connect don't reject the promise,
+    // so TcpTransport.init() hangs if the connection fails (e.g. ECONNREFUSED).
+    // See TlsTransport.connect() for the fixed pattern.
     this.connecting = new Promise((r, f) => {
       try {
         this.client = connect({ port: this.addr[1], host: this.addr[0] }, r);
@@ -198,11 +202,115 @@ export class TcpTransport implements Transport {
   };
 }
 
+export interface TlsTransportOptions {
+  /** Skip server certificate validation. Default: false (certificates are verified). */
+  rejectUnauthorized?: boolean;
+}
+
+export class TlsTransport implements Transport {
+  readonly type = "tls";
+  private connecting!: Promise<void>;
+  private client!: TLSSocket;
+  onData: (data: Buffer, addr: Address) => void = () => {};
+  onReconnect: () => void = () => {};
+  closed = false;
+
+  private constructor(
+    private addr: Address,
+    private tlsOptions: TlsTransportOptions = {},
+  ) {
+    this.connect();
+  }
+
+  private connect() {
+    if (this.closed) {
+      return;
+    }
+
+    if (this.client) {
+      this.client.destroy();
+    }
+
+    const rejectUnauthorized = this.tlsOptions.rejectUnauthorized ?? true;
+
+    this.connecting = new Promise((r, f) => {
+      try {
+        const handshakeErrorHandler = (error: Error) => {
+          f(error);
+        };
+        this.client = tlsConnect(
+          { port: this.addr[1], host: this.addr[0], rejectUnauthorized },
+          () => {
+            this.client.removeListener("error", handshakeErrorHandler);
+            this.client.on("error", (error) => {
+              log("tls error", error);
+            });
+            this.client.on("data", (data) => {
+              const addr = [
+                this.client.remoteAddress!,
+                this.client.remotePort!,
+              ] as Address;
+              this.onData(data, addr);
+            });
+            this.client.on("end", () => {
+              this.onReconnect();
+              this.connect();
+              this.connecting.catch((error) => {
+                log("tls reconnection failed", error);
+              });
+            });
+            r();
+          },
+        );
+        this.client.on("error", handshakeErrorHandler);
+      } catch (error) {
+        f(error);
+      }
+    });
+  }
+
+  private async init() {
+    await this.connecting;
+  }
+
+  static async init(addr: Address, options?: TlsTransportOptions) {
+    const transport = new TlsTransport(addr, options);
+    await transport.init();
+    return transport;
+  }
+
+  get address() {
+    return {} as AddressInfo;
+  }
+
+  send = async (data: Buffer, addr?: Address) => {
+    if (this.closed) {
+      return;
+    }
+    await this.connecting;
+    const client = this.client;
+    if (client.destroyed) {
+      return;
+    }
+    client.write(data, (err) => {
+      if (err) {
+        log("tls send error", err);
+      }
+    });
+  };
+
+  close = async () => {
+    this.closed = true;
+    this.client.destroy();
+  };
+}
+
 export interface Transport {
   type: string;
   address: AddressInfo;
   closed: boolean;
   onData: (data: Buffer, addr: Address) => void;
+  onReconnect?: () => void;
   send: (data: Buffer, addr?: Address) => Promise<void>;
   close: () => Promise<void>;
 }

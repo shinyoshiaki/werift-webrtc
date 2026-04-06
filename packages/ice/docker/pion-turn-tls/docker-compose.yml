@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+# SPDX-License-Identifier: MIT
+
+services:
+  pion-turn-tls:
+    container_name: "pion-turn-tls"
+    image: pion-turn-tls:${VERSION:-latest}
+    build:
+      context: ./
+    stdin_open: true
+    environment:
+      - VERSION=${PION_TURN_VERSION:-main}
+      - REALM=${PION_TURN_REALM:-localhost}
+      - USERS=${PION_TURN_USERS:-username=password}
+      - PUBLIC_IP=${PION_TURN_PUBLIC_IP:-127.0.0.1}
+      - TLS_PORT=${PION_TURN_TLS_PORT:-5349}
+    network_mode: host
+    ports:
+      # TURNS
+      - "${PION_TURN_TLS_PORT:-5349}:${PION_TURN_TLS_PORT:-5349}"
+      # TURN relay
+      - "49152-65535:49152-65535"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW

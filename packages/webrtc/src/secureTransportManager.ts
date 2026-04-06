@@ -102,6 +102,7 @@ export class SecureTransportManager {
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
       turnTransport: this.config.forceTurnTCP === true ? "tcp" : "udp",
+      turnSslVerifyCert: this.config.turnSslVerifyCert,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
 

@@ -39,12 +39,161 @@ describe("utils", () => {
         },
         { urls: "stun:stun.l.google.com:19302" },
       ];
-      const { stunServer, turnPassword, turnServer, turnUsername } =
+      const { stunServer, turnPassword, turnServer, turnUsername, turnSsl } =
         parseIceServers(iceServers);
       expect(stunServer).toEqual(["stun.l.google.com", 19302]);
       expect(turnServer).toEqual(["turn.l.google.com", 19302]);
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
+      expect(turnSsl).toBe(false);
+    });
+
+    test("turns (TURN-over-TLS)", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:global.relay.metered.ca:443",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnUsername, turnPassword, turnSsl } =
+        parseIceServers(iceServers);
+      expect(turnServer).toEqual(["global.relay.metered.ca", 443]);
+      expect(turnUsername).toBe("username");
+      expect(turnPassword).toBe("credential");
+      expect(turnSsl).toBe(true);
+    });
+
+    test("turns with query params", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:global.relay.metered.ca:443?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["global.relay.metered.ca", 443]);
+      expect(turnSsl).toBe(true);
+    });
+
+    test("turn with query params", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:relay.example.com:3478?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 3478]);
+      expect(turnSsl).toBe(false);
+    });
+
+    // RFC 7065 §3.2: default port for turns: is 5349 (pion, libwebrtc, aiortc all implement this)
+    test("turns without port defaults to 5349 (RFC 7065)", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:global.relay.metered.ca",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["global.relay.metered.ca", 5349]);
+      expect(turnSsl).toBe(true);
+    });
+
+    // RFC 7065 §3.2: default port for turn: is 3478
+    test("turn without port defaults to 3478 (RFC 7065)", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:relay.example.com",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 3478]);
+      expect(turnSsl).toBe(false);
+    });
+
+    // RFC 7065: default port for stun: is 3478
+    test("stun without port defaults to 3478 (RFC 7065)", () => {
+      const iceServers = [{ urls: "stun:stun.l.google.com" }];
+      const { stunServer } = parseIceServers(iceServers);
+      expect(stunServer).toEqual(["stun.l.google.com", 3478]);
+    });
+
+    // pion uri_test.go: explicit port overrides default
+    test("turns with explicit port overrides default 5349", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:relay.example.com:443",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 443]);
+    });
+
+    // pion uri_test.go: turns without port + query params
+    test("turns without port but with query params defaults to 5349", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:relay.example.com?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["relay.example.com", 5349]);
+      expect(turnSsl).toBe(true);
+    });
+
+    // libwebrtc: empty ice servers returns no servers
+    test("empty ice servers", () => {
+      const { stunServer, turnServer, turnSsl } = parseIceServers([]);
+      expect(stunServer).toBeUndefined();
+      expect(turnServer).toBeUndefined();
+      expect(turnSsl).toBe(false);
+    });
+
+    // Regression: "stun:" must not match "stuns:" URLs
+    test("turns-only does not produce a spurious stunServer", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:secure.relay.com:443",
+          credential: "cred",
+          username: "user",
+        },
+      ];
+      const { stunServer, turnServer, turnSsl } = parseIceServers(iceServers);
+      expect(stunServer).toBeUndefined();
+      expect(turnServer).toEqual(["secure.relay.com", 443]);
+      expect(turnSsl).toBe(true);
+    });
+
+    test("turns preferred over turn when both present", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:plain.relay.com:3478",
+          credential: "plain-cred",
+          username: "plain-user",
+        },
+        {
+          urls: "turns:secure.relay.com:443",
+          credential: "tls-cred",
+          username: "tls-user",
+        },
+      ];
+      const { turnServer, turnUsername, turnPassword, turnSsl } =
+        parseIceServers(iceServers);
+      expect(turnServer).toEqual(["secure.relay.com", 443]);
+      expect(turnUsername).toBe("tls-user");
+      expect(turnPassword).toBe("tls-cred");
+      expect(turnSsl).toBe(true);
     });
   });
 
