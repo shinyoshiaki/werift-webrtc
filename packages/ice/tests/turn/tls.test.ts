@@ -28,32 +28,36 @@ import { createTurnClient } from "../../src/turn/protocol";
  * - RFC 5766 (TURN), RFC 7065 (TURN URI)
  */
 
-function generateTestCert(): { key: string; cert: string } {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "werift-turn-tls-"));
-  const keyPath = path.join(tmpDir, "key.pem");
-  const certPath = path.join(tmpDir, "cert.pem");
+function generateTestCert(): { key: string; cert: string } | null {
+  try {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "werift-turn-tls-"));
+    const keyPath = path.join(tmpDir, "key.pem");
+    const certPath = path.join(tmpDir, "cert.pem");
 
-  execFileSync("openssl", [
-    "req",
-    "-x509",
-    "-newkey",
-    "rsa:2048",
-    "-nodes",
-    "-keyout",
-    keyPath,
-    "-out",
-    certPath,
-    "-days",
-    "1",
-    "-subj",
-    "/CN=localhost",
-  ]);
+    execFileSync("openssl", [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+    ]);
 
-  const key = fs.readFileSync(keyPath, "utf-8");
-  const cert = fs.readFileSync(certPath, "utf-8");
+    const key = fs.readFileSync(keyPath, "utf-8");
+    const cert = fs.readFileSync(certPath, "utf-8");
 
-  fs.rmSync(tmpDir, { recursive: true });
-  return { key, cert };
+    fs.rmSync(tmpDir, { recursive: true });
+    return { key, cert };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -154,11 +158,13 @@ function createMockTurnTlsServer(
   });
 }
 
-describe("TURN over TLS (TURNS)", () => {
+const hasOpenssl = generateTestCert() !== null;
+
+describe.skipIf(!hasOpenssl)("TURN over TLS (TURNS)", () => {
   let testCert: { key: string; cert: string };
 
   beforeAll(() => {
-    testCert = generateTestCert();
+    testCert = generateTestCert()!;
   });
 
   test("allocates relay address over TLS", async () => {

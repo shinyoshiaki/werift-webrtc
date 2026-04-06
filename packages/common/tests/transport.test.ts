@@ -7,36 +7,36 @@ import * as tls from "node:tls";
 
 import { TcpTransport, TlsTransport } from "../src/transport";
 
-/**
- * Generate a self-signed cert+key pair in a temp directory.
- * Used for TLS transport tests only.
- */
-function generateTestCert(): { key: string; cert: string } {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "werift-test-"));
-  const keyPath = path.join(tmpDir, "key.pem");
-  const certPath = path.join(tmpDir, "cert.pem");
+function generateTestCert(): { key: string; cert: string } | null {
+  try {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "werift-test-"));
+    const keyPath = path.join(tmpDir, "key.pem");
+    const certPath = path.join(tmpDir, "cert.pem");
 
-  execFileSync("openssl", [
-    "req",
-    "-x509",
-    "-newkey",
-    "rsa:2048",
-    "-nodes",
-    "-keyout",
-    keyPath,
-    "-out",
-    certPath,
-    "-days",
-    "1",
-    "-subj",
-    "/CN=localhost",
-  ]);
+    execFileSync("openssl", [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+    ]);
 
-  const key = fs.readFileSync(keyPath, "utf-8");
-  const cert = fs.readFileSync(certPath, "utf-8");
+    const key = fs.readFileSync(keyPath, "utf-8");
+    const cert = fs.readFileSync(certPath, "utf-8");
 
-  fs.rmSync(tmpDir, { recursive: true });
-  return { key, cert };
+    fs.rmSync(tmpDir, { recursive: true });
+    return { key, cert };
+  } catch {
+    return null;
+  }
 }
 
 function createTlsEchoServer(
@@ -69,11 +69,13 @@ function createTcpEchoServer(): Promise<{
   });
 }
 
-describe("TlsTransport", () => {
+const hasOpenssl = generateTestCert() !== null;
+
+describe.skipIf(!hasOpenssl)("TlsTransport", () => {
   let testCert: { key: string; cert: string };
 
   beforeAll(() => {
-    testCert = generateTestCert();
+    testCert = generateTestCert()!;
   });
 
   test("connects and exchanges data over TLS", async () => {

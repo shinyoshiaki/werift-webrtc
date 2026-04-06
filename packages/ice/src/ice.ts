@@ -408,6 +408,7 @@ export class Connection implements IceConnection {
                 ? "tcp"
                 : "udp",
             ssl: this.options.turnSsl,
+            sslVerifyCert: this.options.turnSslVerifyCert,
           },
         ).catch(async (e) => {
           if (

@@ -284,6 +284,9 @@ export class TlsTransport implements Transport {
   }
 
   send = async (data: Buffer, addr?: Address) => {
+    if (this.closed) {
+      return;
+    }
     await this.connecting;
     const client = this.client;
     if (client.destroyed) {
