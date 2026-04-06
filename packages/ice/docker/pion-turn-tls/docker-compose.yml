@@ -9,7 +9,7 @@ services:
       context: ./
     stdin_open: true
     environment:
-      - VERSION=${PION_TURN_VERSION:-master}
+      - VERSION=${PION_TURN_VERSION:-main}
       - REALM=${PION_TURN_REALM:-localhost}
       - USERS=${PION_TURN_USERS:-username=password}
       - PUBLIC_IP=${PION_TURN_PUBLIC_IP:-127.0.0.1}
