@@ -1,0 +1,34 @@
+FROM nestybox/ubuntu-noble-systemd-docker
+ENV DEBIAN_FRONTEND=noninteractive
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN apt-get update \
+  && apt-get install -y bash ca-certificates curl dbus dbus-user-session git gnome-keyring gnupg libsecret-1-0 libsecret-tools sudo uidmap \
+  && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+  && apt-get install -y nodejs \
+  && npm install -g @anthropic-ai/claude-code @google/gemini-cli @github/copilot @openai/codex opencode-ai \
+  && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  if ! getent group "$HOST_GID" >/dev/null; then \
+    if getent group sakhost >/dev/null; then \
+      groupmod -g "$HOST_GID" sakhost; \
+    else \
+      groupadd --gid "$HOST_GID" sakhost; \
+    fi; \
+  fi; \
+  if ! getent passwd "$HOST_UID" >/dev/null; then \
+    if id -u sak >/dev/null 2>&1; then \
+      usermod -u "$HOST_UID" -g "$HOST_GID" -m sak; \
+    else \
+      useradd --uid "$HOST_UID" --gid "$HOST_GID" -m -s /bin/bash sak; \
+    fi; \
+  fi; \
+  mkdir -p /workspace /var/lib/docker; \
+  chown -R "$HOST_UID:$HOST_GID" /workspace /var/lib/docker; \
+  user_home="$(getent passwd "$HOST_UID" | cut -d: -f6 || true)"; \
+  if [ -n "$user_home" ] && [ -d "$user_home" ]; then \
+    chown -R "$HOST_UID:$HOST_GID" "$user_home"; \
+  fi
+WORKDIR /workspace
+
+  CMD ["/sbin/init"]
