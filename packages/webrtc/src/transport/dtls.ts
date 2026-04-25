@@ -22,6 +22,7 @@ import {
   type RtpHeader,
   RtpPacket,
   SrtcpSession,
+  SrtpAuthenticationError,
   type SrtpProfile,
   SrtpSession,
   debug,
@@ -253,7 +254,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.packetsReceived++;
 
       if (isRtcp(data)) {
-        const dec = this.srtcp.decrypt(data);
+        let dec: Buffer;
+        try {
+          dec = this.srtcp.decrypt(data);
+        } catch (error) {
+          if (error instanceof SrtpAuthenticationError) {
+            log("dropping invalid SRTCP packet", error);
+            return;
+          }
+          throw error;
+        }
         const rtcpPackets = RtcpPacketConverter.deSerialize(dec);
         for (const rtcp of rtcpPackets) {
           try {
@@ -263,7 +273,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           }
         }
       } else {
-        const dec = this.srtp.decrypt(data);
+        let dec: Buffer;
+        try {
+          dec = this.srtp.decrypt(data);
+        } catch (error) {
+          if (error instanceof SrtpAuthenticationError) {
+            log("dropping invalid SRTP packet", error);
+            return;
+          }
+          throw error;
+        }
         const rtp = RtpPacket.deSerialize(dec);
         try {
           this.onRtp.execute(rtp);

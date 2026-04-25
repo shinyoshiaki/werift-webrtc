@@ -19,9 +19,11 @@ export class SrtpContext extends Context {
     const header = RtpHeader.deSerialize(cipherText);
 
     const s = this.getSrtpSsrcState(header.ssrc);
-    this.updateRolloverCount(header.sequenceNumber, s);
+    const nextState = { ...s };
+    this.updateRolloverCount(header.sequenceNumber, nextState);
 
-    const dec = this.cipher.decryptRtp(cipherText, s.rolloverCounter);
+    const dec = this.cipher.decryptRtp(cipherText, nextState.rolloverCounter);
+    Object.assign(s, nextState);
     return dec;
   }
 }

@@ -1,8 +1,14 @@
-import { createCipheriv, createDecipheriv, createHmac } from "crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  timingSafeEqual,
+} from "crypto";
 
 import { CipherAesBase } from ".";
 import { RtcpHeader } from "../../rtcp/header";
 import { RtpHeader } from "../../rtp/rtp";
+import { SrtpAuthenticationError } from "../error";
 
 export class CipherAesCtr extends CipherAesBase {
   readonly authTagLength = 10;
@@ -41,10 +47,20 @@ export class CipherAesCtr extends CipherAesBase {
 
   decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
     const header = RtpHeader.deSerialize(cipherText);
+    const authTagOffset = cipherText.length - this.authTagLength;
+    const encryptedPacket = cipherText.subarray(0, authTagOffset);
+    const actualAuthTag = cipherText.subarray(authTagOffset);
 
-    const size = cipherText.length - this.authTagLength;
-
-    cipherText = cipherText.subarray(0, cipherText.length - this.authTagLength);
+    const expectedAuthTag = this.generateSrtpAuthTag(
+      rolloverCounter,
+      encryptedPacket.subarray(0, header.payloadOffset),
+      encryptedPacket.subarray(header.payloadOffset),
+    );
+    assertAuthTag(
+      actualAuthTag,
+      expectedAuthTag,
+      "Failed to authenticate SRTP packet",
+    );
 
     const counter = this.generateCounter(
       header.sequenceNumber,
@@ -57,13 +73,12 @@ export class CipherAesCtr extends CipherAesBase {
       this.srtpSessionKey,
       counter,
     );
-    const payload = cipherText.subarray(header.payloadOffset);
+    const payload = encryptedPacket.subarray(header.payloadOffset);
     const buf = cipher.update(payload);
 
     const dst = Buffer.concat([
-      cipherText.subarray(0, header.payloadOffset),
+      encryptedPacket.subarray(0, header.payloadOffset),
       buf,
-      Buffer.alloc(size - header.payloadOffset - buf.length),
     ]);
 
     return [dst, header];
@@ -96,18 +111,27 @@ export class CipherAesCtr extends CipherAesBase {
     const header = RtcpHeader.deSerialize(encrypted);
 
     const tailOffset = encrypted.length - (this.authTagLength + srtcpIndexSize);
+    const authenticatedPortion = encrypted.subarray(
+      0,
+      encrypted.length - this.authTagLength,
+    );
+    const actualTag = encrypted.subarray(encrypted.length - this.authTagLength);
+    const expectedTag = this.generateSrtcpAuthTag(authenticatedPortion);
+    assertAuthTag(
+      actualTag,
+      expectedTag,
+      "Failed to authenticate SRTCP packet",
+    );
+
     const out = Buffer.from(encrypted).slice(0, tailOffset);
 
-    const isEncrypted = encrypted[tailOffset] >> 7;
+    const isEncrypted = encrypted[tailOffset] >>> 7;
     if (isEncrypted === 0) return [out, header];
 
     let srtcpIndex = encrypted.readUInt32BE(tailOffset);
     srtcpIndex &= ~(1 << 31);
 
     const ssrc = encrypted.readUInt32BE(4);
-
-    // todo impl compare
-    const actualTag = encrypted.subarray(encrypted.length - 10);
 
     const counter = this.generateCounter(
       srtcpIndex & 0xffff,
@@ -160,3 +184,9 @@ export class CipherAesCtr extends CipherAesBase {
 }
 
 const srtcpIndexSize = 4;
+
+function assertAuthTag(actual: Buffer, expected: Buffer, message: string) {
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new SrtpAuthenticationError(message);
+  }
+}

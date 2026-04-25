@@ -5,6 +5,7 @@ import { createBufferWriter } from "../../../../common/src";
 import { growBufferSize } from "../../helper";
 import { RtcpHeader } from "../../rtcp/header";
 import { RtpHeader } from "../../rtp/rtp";
+import { SrtpAuthenticationError } from "../error";
 
 export class CipherAesGcm extends CipherAesBase {
   readonly aeadAuthTagLen = 16;
@@ -39,20 +40,23 @@ export class CipherAesGcm extends CipherAesBase {
 
   decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
     const header = RtpHeader.deSerialize(cipherText);
+    const headerBuffer = cipherText.subarray(0, header.payloadOffset);
+    const authTagOffset = cipherText.length - this.aeadAuthTagLen;
+    const authTag = cipherText.subarray(authTagOffset);
 
     let dst = Buffer.from([]);
     dst = growBufferSize(dst, cipherText.length - this.aeadAuthTagLen);
-    cipherText.slice(0, header.payloadOffset).copy(dst);
+    headerBuffer.copy(dst);
 
     const iv = this.rtpInitializationVector(header, rolloverCounter);
 
-    const enc = cipherText.slice(
-      header.payloadOffset,
-      cipherText.length - this.aeadAuthTagLen,
-    );
+    const enc = cipherText.slice(header.payloadOffset, authTagOffset);
 
-    const cipher = createDecipheriv("aes-128-gcm", this.srtpSessionKey, iv);
-    const dec = cipher.update(enc);
+    const decipher = createDecipheriv("aes-128-gcm", this.srtpSessionKey, iv);
+    decipher.setAAD(headerBuffer);
+    decipher.setAuthTag(authTag);
+    const dec = decipher.update(enc);
+    finalizeAuthenticatedDecryption(decipher, "SRTP");
 
     dec.copy(dst, header.payloadOffset);
 
@@ -85,22 +89,28 @@ export class CipherAesGcm extends CipherAesBase {
 
   decryptRTCP(encrypted: Buffer): [Buffer, RtcpHeader] {
     const header = RtcpHeader.deSerialize(encrypted);
-    const aadPos = encrypted.length - srtcpIndexSize;
+    const srtcpIndexOffset = encrypted.length - srtcpIndexSize;
+    const authTagOffset = srtcpIndexOffset - this.aeadAuthTagLen;
 
-    const dst = Buffer.alloc(aadPos - this.aeadAuthTagLen);
+    const dst = Buffer.alloc(authTagOffset);
     encrypted.slice(0, 8).copy(dst);
 
     const ssrc = encrypted.readUInt32BE(4);
 
-    let srtcpIndex = encrypted.readUInt32BE(encrypted.length - 4);
+    let srtcpIndex = encrypted.readUInt32BE(srtcpIndexOffset);
     srtcpIndex &= ~(rtcpEncryptionFlag << 24);
 
     const iv = this.rtcpInitializationVector(ssrc, srtcpIndex);
-    const aad = this.rtcpAdditionalAuthenticatedData(encrypted, srtcpIndex);
+    const aad = Buffer.concat([
+      encrypted.subarray(0, 8),
+      encrypted.subarray(srtcpIndexOffset),
+    ]);
 
-    const cipher = createDecipheriv("aes-128-gcm", this.srtcpSessionKey, iv);
-    cipher.setAAD(aad);
-    const dec = cipher.update(encrypted.slice(8, aadPos));
+    const decipher = createDecipheriv("aes-128-gcm", this.srtcpSessionKey, iv);
+    decipher.setAAD(aad);
+    decipher.setAuthTag(encrypted.subarray(authTagOffset, srtcpIndexOffset));
+    const dec = decipher.update(encrypted.slice(8, authTagOffset));
+    finalizeAuthenticatedDecryption(decipher, "SRTCP");
 
     dec.copy(dst, 8);
 
@@ -146,3 +156,16 @@ export class CipherAesGcm extends CipherAesBase {
 
 const srtcpIndexSize = 4;
 const rtcpEncryptionFlag = 0x80;
+
+function finalizeAuthenticatedDecryption(
+  decipher: ReturnType<typeof createDecipheriv>,
+  packetType: "SRTP" | "SRTCP",
+) {
+  try {
+    decipher.final();
+  } catch {
+    throw new SrtpAuthenticationError(
+      `Failed to authenticate ${packetType} packet`,
+    );
+  }
+}

@@ -2,8 +2,15 @@ import { RtpPacket } from "../../../src";
 import { ProtectionProfileAeadAes128Gcm } from "../../../src/srtp/const";
 import { SrtcpContext } from "../../../src/srtp/context/srtcp";
 import { SrtpContext } from "../../../src/srtp/context/srtp";
+import { SrtpAuthenticationError } from "../../../src/srtp/error";
 
 describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
+  function tamper(buffer: Buffer, index: number, mask = 0x01) {
+    const tampered = Buffer.from(buffer);
+    tampered[index] ^= mask;
+    return tampered;
+  }
+
   const masterKey = Buffer.from([
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
     0x0c, 0x0d, 0x0e, 0x0f,
@@ -77,5 +84,58 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
 
     const [dec] = ctx.decryptRTCP(encryptedRtcpPacket);
     expect(dec).toEqual(decryptedRtcpPacket);
+  });
+
+  test("Rejects RTP auth tag tampering and keeps receiving valid packets", () => {
+    const ctx = new SrtpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+
+    expect(() =>
+      ctx.decryptRtp(tamper(encryptedRTPPacket, encryptedRTPPacket.length - 1)),
+    ).toThrowError(SrtpAuthenticationError);
+
+    const [dec] = ctx.decryptRtp(encryptedRTPPacket);
+    expect(dec).toEqual(decryptedRTPPacket);
+  });
+
+  test("Rejects RTP ciphertext tampering", () => {
+    const ctx = new SrtpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+
+    expect(() => ctx.decryptRtp(tamper(encryptedRTPPacket, 12))).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects RTP header tampering covered by AAD", () => {
+    const ctx = new SrtpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+
+    expect(() => ctx.decryptRtp(tamper(encryptedRTPPacket, 1))).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects RTCP E-bit tampering covered by AAD", () => {
+    const ctx = new SrtcpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+    const tamperedEncryptionFlag = Buffer.from(encryptedRtcpPacket);
+    tamperedEncryptionFlag[encryptedRtcpPacket.length - 4] &= 0x7f;
+
+    expect(() => ctx.decryptRTCP(tamperedEncryptionFlag)).toThrowError(
+      SrtpAuthenticationError,
+    );
   });
 });

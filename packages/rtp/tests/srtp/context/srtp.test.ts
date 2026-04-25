@@ -1,5 +1,6 @@
 import { RtpHeader, RtpPacket } from "../../../src/rtp/rtp";
 import { SrtpContext } from "../../../src/srtp/context/srtp";
+import { SrtpAuthenticationError } from "../../../src/srtp/error";
 
 describe("srtp/context/srtp", () => {
   function buildTestContext() {
@@ -13,6 +14,11 @@ describe("srtp/context/srtp", () => {
     ]);
 
     return new SrtpContext(masterKey, masterSalt, 1);
+  }
+  function tamper(buffer: Buffer, index: number, mask = 0x01) {
+    const tampered = Buffer.from(buffer);
+    tampered[index] ^= mask;
+    return tampered;
   }
   const rtpTestCaseDecrypted = Buffer.from([
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
@@ -112,5 +118,68 @@ describe("srtp/context/srtp", () => {
       expect(decryptHeader.sequenceNumber).toBe(sequenceNumber);
       expect(actualDecrypted).toEqual(decryptedRaw);
     });
+  });
+
+  test("Rejects tampered SRTP auth tag without advancing rollover state", () => {
+    const encryptContext = buildTestContext();
+    const decryptContext = buildTestContext();
+    const ssrc = 5000;
+
+    const beforeRolloverPacket = new RtpPacket(
+      new RtpHeader({ sequenceNumber: 65535, ssrc, version: 0 }),
+      rtpTestCaseDecrypted,
+    );
+    const rolloverPacket = new RtpPacket(
+      new RtpHeader({ sequenceNumber: 0, ssrc, version: 0 }),
+      rtpTestCaseDecrypted,
+    );
+
+    const encryptedBeforeRollover = encryptContext.encryptRtp(
+      beforeRolloverPacket.payload,
+      beforeRolloverPacket.header,
+    );
+    const encryptedRollover = encryptContext.encryptRtp(
+      rolloverPacket.payload,
+      rolloverPacket.header,
+    );
+
+    const [decryptedBeforeRollover] = decryptContext.decryptRtp(
+      encryptedBeforeRollover,
+    );
+    expect(decryptedBeforeRollover).toEqual(beforeRolloverPacket.serialize());
+
+    const stateBeforeFailure = {
+      ...decryptContext.srtpSSRCStates[ssrc],
+    };
+    const tamperedAuthTag = tamper(
+      encryptedRollover,
+      encryptedRollover.length - 1,
+    );
+
+    expect(() => decryptContext.decryptRtp(tamperedAuthTag)).toThrowError(
+      SrtpAuthenticationError,
+    );
+    expect(decryptContext.srtpSSRCStates[ssrc]).toEqual(stateBeforeFailure);
+
+    const [decryptedAfterFailure] =
+      decryptContext.decryptRtp(encryptedRollover);
+    expect(decryptedAfterFailure).toEqual(rolloverPacket.serialize());
+    expect(decryptContext.srtpSSRCStates[ssrc]).toMatchObject({
+      lastSequenceNumber: 0,
+      rolloverCounter: 1,
+    });
+  });
+
+  test("Rejects tampered SRTP ciphertext", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const encryptedRaw = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+
+    expect(() =>
+      decryptContext.decryptRtp(tamper(encryptedRaw, 12)),
+    ).toThrowError(SrtpAuthenticationError);
   });
 });
