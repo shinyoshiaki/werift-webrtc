@@ -242,13 +242,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       throw new Error("remote certificate not available");
     }
 
-    const expectedFingerprints = this.remoteParameters.fingerprints.map(
+    const supportedFingerprints = this.remoteParameters.fingerprints.flatMap(
       ({ algorithm, value }) => {
         const normalizedAlgorithm = normalizeFingerprintAlgorithm(algorithm);
         if (!normalizedAlgorithm) {
-          throw new Error(
-            `unsupported remote fingerprint algorithm: ${algorithm}`,
-          );
+          return [];
         }
 
         const normalizedValue = normalizeFingerprintValue(value);
@@ -256,8 +254,18 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           throw new Error("remote fingerprint value is empty");
         }
 
-        return { normalizedAlgorithm, normalizedValue };
+        return [{ normalizedAlgorithm, normalizedValue }];
       },
+    );
+    if (supportedFingerprints.length === 0) {
+      throw new Error("no supported remote fingerprint algorithms");
+    }
+
+    const preferredAlgorithm = selectPreferredFingerprintAlgorithm(
+      supportedFingerprints,
+    );
+    const expectedFingerprints = supportedFingerprints.filter(
+      ({ normalizedAlgorithm }) => normalizedAlgorithm === preferredAlgorithm,
     );
 
     const actualFingerprints = expectedFingerprints.reduce(
@@ -565,6 +573,26 @@ const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
     seen.add(key);
     return true;
   });
+};
+
+const preferredFingerprintAlgorithms = [
+  "sha512",
+  "sha384",
+  "sha256",
+  "sha224",
+  "sha1",
+] as const;
+
+const selectPreferredFingerprintAlgorithm = (
+  fingerprints: { normalizedAlgorithm: string }[],
+) => {
+  return (
+    preferredFingerprintAlgorithms.find((algorithm) =>
+      fingerprints.some(
+        ({ normalizedAlgorithm }) => normalizedAlgorithm === algorithm,
+      ),
+    ) ?? fingerprints[0].normalizedAlgorithm
+  );
 };
 
 class IceTransport implements Transport {
