@@ -182,4 +182,51 @@ describe("srtp/context/srtp", () => {
       decryptContext.decryptRtp(tamper(encryptedRaw, 12)),
     ).toThrowError(SrtpAuthenticationError);
   });
+
+  test("Rejects malformed SRTP packet with oversized CSRC list", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const malformed = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+    malformed[0] = (malformed[0] & 0xf0) | 0x0f;
+
+    expect(() => decryptContext.decryptRtp(malformed)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects malformed SRTP packet with oversized header extension", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const malformed = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+    malformed[0] |= 0x10;
+    malformed[12] = 0x00;
+    malformed[13] = 0x01;
+    malformed[14] = 0xff;
+    malformed[15] = 0xff;
+
+    expect(() => decryptContext.decryptRtp(malformed)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Does not create SRTP state for unknown SSRC when authentication fails", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const forged = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+    forged.writeUInt32BE(0x11223344, 8);
+
+    expect(() => decryptContext.decryptRtp(forged)).toThrowError(
+      SrtpAuthenticationError,
+    );
+    expect(decryptContext.srtpSSRCStates).toEqual({});
+  });
 });

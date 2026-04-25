@@ -120,4 +120,30 @@ describe("srtp/context/srtcp", () => {
     const [decrypted] = decryptContext.decryptRTCP(rtcpTestEncrypted);
     expect(decrypted).toEqual(rtcpTestDecrypted);
   });
+
+  test("Rejects tampered SRTCP index", () => {
+    const decryptContext = new SrtcpContext(
+      rtcpTestMasterKey,
+      rtcpTestMasterSalt,
+      1,
+    );
+
+    expect(() =>
+      decryptContext.decryptRTCP(
+        tamper(rtcpTestEncrypted, rtcpTestEncrypted.length - 12),
+      ),
+    ).toThrowError(SrtpAuthenticationError);
+  });
+
+  test("Rejects short SRTCP packet as authentication failure", () => {
+    const decryptContext = new SrtcpContext(
+      rtcpTestMasterKey,
+      rtcpTestMasterSalt,
+      1,
+    );
+
+    expect(() =>
+      decryptContext.decryptRTCP(Buffer.from([0x80, 0xc8])),
+    ).toThrowError(SrtpAuthenticationError);
+  });
 });

@@ -6,9 +6,10 @@ import {
 } from "crypto";
 
 import { CipherAesBase } from ".";
-import { RtcpHeader } from "../../rtcp/header";
-import { RtpHeader } from "../../rtp/rtp";
+import type { RtcpHeader } from "../../rtcp/header";
+import type { RtpHeader } from "../../rtp/rtp";
 import { SrtpAuthenticationError } from "../error";
+import { parseSrtcpHeader, parseSrtpRtpHeader } from "../packet";
 
 export class CipherAesCtr extends CipherAesBase {
   readonly authTagLength = 10;
@@ -45,8 +46,11 @@ export class CipherAesCtr extends CipherAesBase {
     return Buffer.concat([headerBuffer, enc, authTag]);
   }
 
-  decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
-    const header = RtpHeader.deSerialize(cipherText);
+  decryptRtp(
+    cipherText: Buffer,
+    rolloverCounter: number,
+    header = parseSrtpRtpHeader(cipherText, this.authTagLength),
+  ): [Buffer, RtpHeader] {
     const authTagOffset = cipherText.length - this.authTagLength;
     const encryptedPacket = cipherText.subarray(0, authTagOffset);
     const actualAuthTag = cipherText.subarray(authTagOffset);
@@ -108,7 +112,11 @@ export class CipherAesCtr extends CipherAesBase {
   }
 
   decryptRTCP(encrypted: Buffer): [Buffer, RtcpHeader] {
-    const header = RtcpHeader.deSerialize(encrypted);
+    const header = parseSrtcpHeader(
+      encrypted,
+      this.authTagLength,
+      srtcpIndexSize,
+    );
 
     const tailOffset = encrypted.length - (this.authTagLength + srtcpIndexSize);
     const authenticatedPortion = encrypted.subarray(

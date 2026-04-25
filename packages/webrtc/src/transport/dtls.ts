@@ -264,7 +264,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           }
           throw error;
         }
-        const rtcpPackets = RtcpPacketConverter.deSerialize(dec);
+        let rtcpPackets;
+        try {
+          rtcpPackets = RtcpPacketConverter.deSerialize(dec);
+        } catch (error) {
+          log("dropping malformed SRTCP packet", error);
+          return;
+        }
         for (const rtcp of rtcpPackets) {
           try {
             this.onRtcp.execute(rtcp);
@@ -283,7 +289,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           }
           throw error;
         }
-        const rtp = RtpPacket.deSerialize(dec);
+        let rtp;
+        try {
+          rtp = RtpPacket.deSerialize(dec);
+        } catch (error) {
+          log("dropping malformed SRTP packet", error);
+          return;
+        }
         try {
           this.onRtp.execute(rtp);
         } catch (error) {

@@ -3,9 +3,10 @@ import { createCipheriv, createDecipheriv } from "crypto";
 import { CipherAesBase } from ".";
 import { createBufferWriter } from "../../../../common/src";
 import { growBufferSize } from "../../helper";
-import { RtcpHeader } from "../../rtcp/header";
-import { RtpHeader } from "../../rtp/rtp";
+import type { RtcpHeader } from "../../rtcp/header";
+import type { RtpHeader } from "../../rtp/rtp";
 import { SrtpAuthenticationError } from "../error";
+import { parseSrtcpHeader, parseSrtpRtpHeader } from "../packet";
 
 export class CipherAesGcm extends CipherAesBase {
   readonly aeadAuthTagLen = 16;
@@ -38,8 +39,11 @@ export class CipherAesGcm extends CipherAesBase {
     return dst;
   }
 
-  decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
-    const header = RtpHeader.deSerialize(cipherText);
+  decryptRtp(
+    cipherText: Buffer,
+    rolloverCounter: number,
+    header = parseSrtpRtpHeader(cipherText, this.aeadAuthTagLen),
+  ): [Buffer, RtpHeader] {
     const headerBuffer = cipherText.subarray(0, header.payloadOffset);
     const authTagOffset = cipherText.length - this.aeadAuthTagLen;
     const authTag = cipherText.subarray(authTagOffset);
@@ -88,7 +92,11 @@ export class CipherAesGcm extends CipherAesBase {
   }
 
   decryptRTCP(encrypted: Buffer): [Buffer, RtcpHeader] {
-    const header = RtcpHeader.deSerialize(encrypted);
+    const header = parseSrtcpHeader(
+      encrypted,
+      this.aeadAuthTagLen,
+      srtcpIndexSize,
+    );
     const srtcpIndexOffset = encrypted.length - srtcpIndexSize;
     const authTagOffset = srtcpIndexOffset - this.aeadAuthTagLen;
 

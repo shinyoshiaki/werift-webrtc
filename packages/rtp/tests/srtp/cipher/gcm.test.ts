@@ -125,6 +125,51 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     );
   });
 
+  test("Rejects malformed RTP packet with oversized CSRC list", () => {
+    const ctx = new SrtpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+    const malformed = Buffer.from(encryptedRTPPacket);
+    malformed[0] = (malformed[0] & 0xf0) | 0x0f;
+
+    expect(() => ctx.decryptRtp(malformed)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects malformed RTP packet with oversized header extension", () => {
+    const ctx = new SrtpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+    const malformed = Buffer.from(encryptedRTPPacket);
+    malformed[0] |= 0x10;
+    malformed[12] = 0x00;
+    malformed[13] = 0x01;
+    malformed[14] = 0xff;
+    malformed[15] = 0xff;
+
+    expect(() => ctx.decryptRtp(malformed)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Does not create SRTP state for unknown SSRC when authentication fails", () => {
+    const ctx = new SrtpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+    const forged = Buffer.from(encryptedRTPPacket);
+    forged.writeUInt32BE(0x11223344, 8);
+
+    expect(() => ctx.decryptRtp(forged)).toThrowError(SrtpAuthenticationError);
+    expect(ctx.srtpSSRCStates).toEqual({});
+  });
+
   test("Rejects RTCP E-bit tampering covered by AAD", () => {
     const ctx = new SrtcpContext(
       masterKey,
@@ -135,6 +180,34 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     tamperedEncryptionFlag[encryptedRtcpPacket.length - 4] &= 0x7f;
 
     expect(() => ctx.decryptRTCP(tamperedEncryptionFlag)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects RTCP index tampering covered by AAD", () => {
+    const ctx = new SrtcpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+    const tamperedIndex = tamper(
+      encryptedRtcpPacket,
+      encryptedRtcpPacket.length - 1,
+    );
+
+    expect(() => ctx.decryptRTCP(tamperedIndex)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects short RTCP packet as authentication failure", () => {
+    const ctx = new SrtcpContext(
+      masterKey,
+      masterSalt,
+      ProtectionProfileAeadAes128Gcm,
+    );
+
+    expect(() => ctx.decryptRTCP(Buffer.from([0x81, 0xc8]))).toThrowError(
       SrtpAuthenticationError,
     );
   });

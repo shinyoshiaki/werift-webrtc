@@ -17,7 +17,11 @@ export abstract class CipherAesBase {
     return Buffer.from([]);
   }
 
-  decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
+  decryptRtp(
+    cipherText: Buffer,
+    rolloverCounter: number,
+    header?: RtpHeader,
+  ): [Buffer, RtpHeader] {
     return [] as any;
   }
 
