@@ -13,6 +13,10 @@ export interface DataChannelStats {
   bytesReceived: number;
 }
 
+export function getDataChannelMessageSize(data: Buffer | string) {
+  return Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+}
+
 export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
@@ -139,10 +143,9 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   }
 
   send(data: Buffer | string) {
-    const size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+    const size = this.sctp.datachannelSend(this, data);
     this.messagesSent++;
     this.bytesSent += size;
-    this.sctp.datachannelSend(this, data);
   }
 
   close() {

@@ -18,10 +18,12 @@ import {
   type DCState,
   RTCDataChannel,
   RTCDataChannelParameters,
+  getDataChannelMessageSize,
 } from "../dataChannel";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
+export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;
@@ -34,6 +36,7 @@ export class RTCSctpTransport {
   mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
+  remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
@@ -317,13 +320,25 @@ export class RTCSctpTransport {
     this.dataChannelQueue = [];
   }
 
+  private assertSendableMessageSize(size: number) {
+    if (this.remoteMaxMessageSize !== 0 && size > this.remoteMaxMessageSize) {
+      throw new Error(
+        `max-message-size exceeded: ${size} > ${this.remoteMaxMessageSize}`,
+      );
+    }
+  }
+
   datachannelSend = (channel: RTCDataChannel, data: Buffer | string) => {
-    channel.addBufferedAmount(data.length);
+    const userData = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const size = getDataChannelMessageSize(data);
+
+    this.assertSendableMessageSize(size);
+    channel.addBufferedAmount(size);
 
     this.dataChannelQueue.push(
       typeof data === "string"
-        ? [channel, WEBRTC_STRING, Buffer.from(data)]
-        : [channel, WEBRTC_BINARY, data],
+        ? [channel, WEBRTC_STRING, userData]
+        : [channel, WEBRTC_BINARY, userData],
     );
 
     if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
@@ -331,10 +346,16 @@ export class RTCSctpTransport {
     }
 
     this.dataChannelFlush();
+
+    return size;
   };
 
   static getCapabilities() {
-    return new RTCSctpCapabilities(65536);
+    return new RTCSctpCapabilities(DEFAULT_MAX_MESSAGE_SIZE);
+  }
+
+  setRemoteMaxMessageSize(maxMessageSize?: number) {
+    this.remoteMaxMessageSize = maxMessageSize ?? DEFAULT_MAX_MESSAGE_SIZE;
   }
 
   setRemotePort(port: number) {

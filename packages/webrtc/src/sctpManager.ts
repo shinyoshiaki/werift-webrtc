@@ -104,6 +104,9 @@ export class SctpTransportManager {
     }
 
     // # configure sctp
+    this.sctpTransport.setRemoteMaxMessageSize(
+      remoteMedia.sctpCapabilities?.maxMessageSize,
+    );
     this.sctpRemotePort = remoteMedia.sctpPort;
     if (!this.sctpRemotePort) {
       throw new Error("sctpRemotePort not exist");
