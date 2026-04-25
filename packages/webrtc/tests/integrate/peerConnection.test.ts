@@ -185,7 +185,11 @@ describe("peerConnection", () => {
 
     try {
       expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(65536);
-      expect(() => dc.send(Buffer.from("hello"))).not.toThrow();
+      const withinDefaultLimit = Buffer.alloc(65536, 1);
+      expect(() => dc.send(withinDefaultLimit)).not.toThrow();
+      expect(() => dc.send(Buffer.alloc(65537, 1))).toThrow(
+        "max-message-size exceeded",
+      );
     } finally {
       await pc1.close();
       await pc2.close();
@@ -204,6 +208,32 @@ describe("peerConnection", () => {
       expect(dc.messagesSent).toBe(1);
       expect(dc.bytesSent).toBe(payload.length);
       expect(dc.bufferedAmount).toBe(payload.length);
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("updates remote max-message-size when a renegotiated answer changes it", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 10),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(10);
+      expect(() => dc.send(Buffer.alloc(11, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+
+      await renegotiateDataChannelWithRemoteAnswer(pc1, pc2, (sdp) =>
+        replaceMaxMessageSize(sdp, 20),
+      );
+
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(20);
+      expect(() => dc.send(Buffer.alloc(11, 1))).not.toThrow();
+      expect(() => dc.send(Buffer.alloc(21, 1))).toThrow(
+        "max-message-size exceeded",
+      );
     } finally {
       await pc1.close();
       await pc2.close();
@@ -377,14 +407,24 @@ async function prepareDataChannelWithRemoteAnswer(
   const pc2 = new RTCPeerConnection({});
   const dc = pc1.createDataChannel("chat");
 
+  await renegotiateDataChannelWithRemoteAnswer(pc1, pc2, mutateAnswerSdp);
+
+  return { pc1, pc2, dc };
+}
+
+async function renegotiateDataChannelWithRemoteAnswer(
+  pc1: RTCPeerConnection,
+  pc2: RTCPeerConnection,
+  mutateAnswerSdp: (sdp: string) => string,
+) {
   await pc1.setLocalDescription(await pc1.createOffer());
   await pc2.setRemoteDescription(pc1.localDescription!);
 
   const answer = await pc2.createAnswer();
-  await pc1.setRemoteDescription({
-    type: "answer",
+  const mutatedAnswer = {
+    type: "answer" as const,
     sdp: mutateAnswerSdp(answer.sdp),
-  });
-
-  return { pc1, pc2, dc };
+  };
+  await pc1.setRemoteDescription(mutatedAnswer);
+  await pc2.setLocalDescription(mutatedAnswer);
 }
