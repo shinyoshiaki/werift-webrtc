@@ -229,4 +229,37 @@ describe("srtp/context/srtp", () => {
     );
     expect(decryptContext.srtpSSRCStates).toEqual({});
   });
+
+  test("Decrypts padded SRTP packets without reading pad count before authentication", () => {
+    const encryptContext = buildTestContext();
+    const decryptContext = buildTestContext();
+    const header = new RtpHeader({
+      sequenceNumber: 5000,
+      ssrc: 1,
+      version: 2,
+      padding: true,
+      paddingSize: 4,
+    });
+    const payload = Buffer.from([
+      0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x04,
+    ]);
+    const expected = new RtpPacket(
+      new RtpHeader({
+        sequenceNumber: 5000,
+        ssrc: 1,
+        version: 2,
+        padding: true,
+        paddingSize: 4,
+      }),
+      Buffer.from([0xde, 0xad, 0xbe, 0xef]),
+    ).serialize();
+
+    const encrypted = encryptContext.encryptRtp(payload, header);
+    const [decrypted] = decryptContext.decryptRtp(encrypted);
+
+    expect(decrypted).toEqual(expected);
+    expect(RtpPacket.deSerialize(decrypted).payload).toEqual(
+      Buffer.from([0xde, 0xad, 0xbe, 0xef]),
+    );
+  });
 });

@@ -9,7 +9,11 @@ import { CipherAesBase } from ".";
 import type { RtcpHeader } from "../../rtcp/header";
 import type { RtpHeader } from "../../rtp/rtp";
 import { SrtpAuthenticationError } from "../error";
-import { parseSrtcpHeader, parseSrtpRtpHeader } from "../packet";
+import {
+  finalizeSrtpRtpHeader,
+  parseSrtcpHeader,
+  parseSrtpRtpHeader,
+} from "../packet";
 
 export class CipherAesCtr extends CipherAesBase {
   readonly authTagLength = 10;
@@ -85,7 +89,10 @@ export class CipherAesCtr extends CipherAesBase {
       buf,
     ]);
 
-    return [dst, header];
+    return [
+      dst,
+      finalizeSrtpRtpHeader(header, dst, "Failed to authenticate SRTP packet"),
+    ];
   }
 
   encryptRTCP(rtcpPacket: Buffer, srtcpIndex: number): Buffer {

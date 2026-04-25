@@ -6,7 +6,11 @@ import { growBufferSize } from "../../helper";
 import type { RtcpHeader } from "../../rtcp/header";
 import type { RtpHeader } from "../../rtp/rtp";
 import { SrtpAuthenticationError } from "../error";
-import { parseSrtcpHeader, parseSrtpRtpHeader } from "../packet";
+import {
+  finalizeSrtpRtpHeader,
+  parseSrtcpHeader,
+  parseSrtpRtpHeader,
+} from "../packet";
 
 export class CipherAesGcm extends CipherAesBase {
   readonly aeadAuthTagLen = 16;
@@ -64,7 +68,10 @@ export class CipherAesGcm extends CipherAesBase {
 
     dec.copy(dst, header.payloadOffset);
 
-    return [dst, header];
+    return [
+      dst,
+      finalizeSrtpRtpHeader(header, dst, "Failed to authenticate SRTP packet"),
+    ];
   }
 
   encryptRTCP(rtcpPacket: Buffer, srtcpIndex: number): Buffer {
@@ -100,27 +107,40 @@ export class CipherAesGcm extends CipherAesBase {
     const srtcpIndexOffset = encrypted.length - srtcpIndexSize;
     const authTagOffset = srtcpIndexOffset - this.aeadAuthTagLen;
 
-    const dst = Buffer.alloc(authTagOffset);
-    encrypted.slice(0, 8).copy(dst);
-
     const ssrc = encrypted.readUInt32BE(4);
-
-    let srtcpIndex = encrypted.readUInt32BE(srtcpIndexOffset);
-    srtcpIndex &= ~(rtcpEncryptionFlag << 24);
+    const encodedSrtcpIndex = encrypted.readUInt32BE(srtcpIndexOffset);
+    const isEncrypted = encodedSrtcpIndex >>> 31 === 1;
+    const srtcpIndex = encodedSrtcpIndex & ~(rtcpEncryptionFlag << 24);
 
     const iv = this.rtcpInitializationVector(ssrc, srtcpIndex);
-    const aad = Buffer.concat([
-      encrypted.subarray(0, 8),
-      encrypted.subarray(srtcpIndexOffset),
-    ]);
+    const aad = isEncrypted
+      ? Buffer.concat([
+          encrypted.subarray(0, 8),
+          encrypted.subarray(srtcpIndexOffset),
+        ])
+      : Buffer.concat([
+          encrypted.subarray(0, authTagOffset),
+          encrypted.subarray(srtcpIndexOffset),
+        ]);
+    const cipherText = isEncrypted
+      ? encrypted.slice(8, authTagOffset)
+      : Buffer.alloc(0);
+    const dst = isEncrypted
+      ? Buffer.alloc(authTagOffset)
+      : Buffer.from(encrypted.subarray(0, authTagOffset));
+    if (isEncrypted) {
+      encrypted.slice(0, 8).copy(dst);
+    }
 
     const decipher = createDecipheriv("aes-128-gcm", this.srtcpSessionKey, iv);
     decipher.setAAD(aad);
     decipher.setAuthTag(encrypted.subarray(authTagOffset, srtcpIndexOffset));
-    const dec = decipher.update(encrypted.slice(8, authTagOffset));
+    const dec = decipher.update(cipherText);
     finalizeAuthenticatedDecryption(decipher, "SRTCP");
 
-    dec.copy(dst, 8);
+    if (isEncrypted) {
+      dec.copy(dst, 8);
+    }
 
     return [dst, header];
   }

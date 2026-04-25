@@ -10,29 +10,23 @@ export function parseSrtpRtpHeader(
   authTagLength: number,
   message = "Failed to authenticate SRTP packet",
 ) {
+  const authTagOffset = packet.length - authTagLength;
   assertAuthenticatedPacketLength(
     packet.length >= minRtpHeaderSize + authTagLength,
     message,
   );
 
   const header = wrapAuthenticationError(
-    () => RtpHeader.deSerialize(packet),
+    () => RtpHeader.deSerialize(packet.subarray(0, authTagOffset)),
     message,
   );
-  const authTagOffset = packet.length - authTagLength;
+  header.paddingSize = 0;
 
   assertAuthenticatedPacketLength(
     header.payloadOffset >= minRtpHeaderSize &&
       header.payloadOffset <= authTagOffset,
     message,
   );
-  if (header.padding) {
-    assertAuthenticatedPacketLength(
-      header.paddingSize > 0 &&
-        header.paddingSize <= authTagOffset - header.payloadOffset,
-      message,
-    );
-  }
 
   return header;
 }
@@ -66,4 +60,29 @@ function wrapAuthenticationError<T>(parse: () => T, message: string) {
   } catch {
     throw new SrtpAuthenticationError(message);
   }
+}
+
+export function finalizeSrtpRtpHeader(
+  header: RtpHeader,
+  packet: Buffer,
+  message = "Failed to authenticate SRTP packet",
+) {
+  if (!header.padding) {
+    header.paddingSize = 0;
+    return header;
+  }
+
+  assertAuthenticatedPacketLength(
+    packet.length > header.payloadOffset,
+    message,
+  );
+
+  const paddingSize = packet[packet.length - 1];
+  assertAuthenticatedPacketLength(
+    paddingSize > 0 && paddingSize <= packet.length - header.payloadOffset,
+    message,
+  );
+
+  header.paddingSize = paddingSize;
+  return header;
 }
