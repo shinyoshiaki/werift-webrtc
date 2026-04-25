@@ -27,7 +27,7 @@
   "dependencies": {
     "airpc": "^0.3.1",
     "ts-worker-register": "^0.0.1",
-    "werift": "^0.12.3",
+    "werift": "^0.22.9",
     "ws": "^7.5.3"
   },
   "devDependencies": {
