@@ -78,7 +78,8 @@ app.put("/stop", (_, res) => {
   res.send();
   process.exit();
 });
-const http = app.listen("8886");
+const port = Number(process.env.E2E_PORT ?? 8886);
+const http = app.listen(port);
 
 const server = new WebSocketServer(http);
 const room = new Room();
@@ -137,4 +138,4 @@ server.on("connectionrequest", async (_, accept) => {
   });
 });
 
-console.log("start");
+console.log("start", { port });
