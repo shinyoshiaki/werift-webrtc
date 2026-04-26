@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "child_process";
-import { createSocket } from "dgram";
+import { createSocket, type Socket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
   MediaStreamTrack,
@@ -12,24 +12,53 @@ import { peerConfig } from "../../fixture";
 export class mediachannel_removetrack_answer_base {
   pc!: RTCPeerConnection;
   process!: ChildProcess;
-  udp = createSocket("udp4");
+  udp?: Socket;
+  private tracks = new Set<MediaStreamTrack>();
+
+  private bindTrack(track: MediaStreamTrack) {
+    this.tracks.add(track);
+  }
+
+  private async cleanup() {
+    this.tracks.clear();
+
+    this.udp?.removeAllListeners();
+    this.udp?.close();
+    this.udp = undefined;
+
+    if (this.pc) {
+      this.pc.close();
+    }
+
+    if (this.process) {
+      try {
+        this.process.kill("SIGINT");
+      } catch {}
+    }
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
+          await this.cleanup();
+
           const port = await randomPort();
+          this.udp = createSocket("udp4");
           this.udp.bind(port);
 
           this.pc = new RTCPeerConnection(await peerConfig);
           const track = new MediaStreamTrack({ kind: "video" });
+          this.bindTrack(track);
           this.pc.addTransceiver(track, { direction: "sendonly" });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
 
           this.udp.on("message", (data) => {
             const rtp = RtpPacket.deSerialize(data);
-            track.writeRtp(rtp);
+            for (const track of this.tracks) {
+              track.writeRtp(rtp);
+            }
           });
 
           const args = [
@@ -60,6 +89,9 @@ export class mediachannel_removetrack_answer_base {
             .getTransceivers()
             .find((t) => t.mLineIndex === payload)!.sender;
 
+          if (sender.track) {
+            this.tracks.delete(sender.track);
+          }
           this.pc.removeTrack(sender);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -68,23 +100,15 @@ export class mediachannel_removetrack_answer_base {
       case "addTrack":
         {
           const track = new MediaStreamTrack({ kind: "video" });
+          this.bindTrack(track);
           this.pc.addTransceiver(track, { direction: "sendonly" });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
-
-          this.udp.on("message", (data) => {
-            const rtp = RtpPacket.deSerialize(data);
-            track.writeRtp(rtp);
-          });
         }
         break;
       case "done":
         {
-          this.udp.close();
-          this.pc.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
+          await this.cleanup();
           accept({});
         }
         break;
