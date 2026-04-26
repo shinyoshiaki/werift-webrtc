@@ -59,7 +59,7 @@ describe("mediachannel_removeTrack", () => {
         track = await new Promise<MediaStreamTrack>(
           (r) => (pc.ontrack = (e) => r(e.track)),
         );
-        await sleep(500);
+        await waitVideoPlay(track);
 
         await peer.request(mediachannel_removetrack_addtrack, {
           type: "done",
@@ -69,7 +69,7 @@ describe("mediachannel_removeTrack", () => {
       }));
   }
 
-  if (browserName != "Firefox" && browserName !== "Chrome") {
+  if (browserName != "Firefox") {
     it(mediachannel_addtrack_removefirst_addtrack, async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
@@ -133,7 +133,7 @@ describe("mediachannel_removeTrack", () => {
         track = await new Promise<MediaStreamTrack>(
           (r) => (pc.ontrack = (e) => r(e.track)),
         );
-        await sleep(500);
+        await waitVideoPlay(track);
 
         await peer.request(mediachannel_addtrack_removefirst_addtrack, {
           type: "done",

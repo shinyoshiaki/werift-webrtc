@@ -1,99 +1,90 @@
 import { type ChildProcess, spawn } from "child_process";
+import { createSocket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
   MediaStreamTrack,
-  MediaStreamTrackFactory,
   RTCPeerConnection,
+  RtpPacket,
+  randomPort,
 } from "../../";
 import { peerConfig } from "../../fixture";
 
 export class mediachannel_removetrack_answer_base {
-  pc?: RTCPeerConnection;
-  processes: ChildProcess[] = [];
-  disposers: (() => void)[] = [];
-
-  private async cleanup() {
-    for (const dispose of this.disposers) {
-      dispose();
-    }
-    this.disposers = [];
-
-    await this.pc?.close();
-    this.pc = undefined;
-
-    for (const process of this.processes) {
-      if (!process.killed) {
-        process.kill("SIGINT");
-      }
-    }
-    this.processes = [];
-  }
-
-  private async createVideoTrackSource() {
-    const [track, port, dispose] = await MediaStreamTrackFactory.rtpSource({
-      kind: "video",
-    });
-    this.disposers.push(dispose);
-
-    const args = [
-      `videotestsrc`,
-      "video/x-raw,width=640,height=480,format=I420",
-      "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
-      "rtpvp8pay",
-      `udpsink host=127.0.0.1 port=${port}`,
-    ].join(" ! ");
-    this.processes.push(spawn("gst-launch-1.0", args.split(" ")));
-
-    return track;
-  }
+  pc!: RTCPeerConnection;
+  process!: ChildProcess;
+  udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          await this.cleanup();
+          const port = await randomPort();
+          this.udp.bind(port);
 
           this.pc = new RTCPeerConnection(await peerConfig);
-          const track = await this.createVideoTrackSource();
+          const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTransceiver(track, { direction: "sendonly" });
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
+
+          this.udp.on("message", (data) => {
+            const rtp = RtpPacket.deSerialize(data);
+            track.writeRtp(rtp);
+          });
+
+          const args = [
+            `videotestsrc`,
+            "video/x-raw,width=640,height=480,format=I420",
+            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+            "rtpvp8pay",
+            `udpsink host=127.0.0.1 port=${port}`,
+          ].join(" ! ");
+          this.process = spawn("gst-launch-1.0", args.split(" "));
         }
         break;
       case "candidate":
         {
-          await this.pc!.addIceCandidate(payload);
+          await this.pc.addIceCandidate(payload);
           accept({});
         }
         break;
       case "answer":
         {
-          await this.pc!.setRemoteDescription(payload);
+          await this.pc.setRemoteDescription(payload);
           accept({});
         }
         break;
       case "removeTrack":
         {
-          const sender = this.pc!
+          const sender = this.pc
             .getTransceivers()
             .find((t) => t.mLineIndex === payload)!.sender;
 
-          this.pc!.removeTrack(sender);
-          await this.pc!.setLocalDescription(await this.pc!.createOffer());
-          accept(this.pc!.localDescription);
+          this.pc.removeTrack(sender);
+          await this.pc.setLocalDescription(await this.pc.createOffer());
+          accept(this.pc.localDescription);
         }
         break;
       case "addTrack":
         {
-          const track = await this.createVideoTrackSource();
-          this.pc!.addTransceiver(track, { direction: "sendonly" });
-          await this.pc!.setLocalDescription(await this.pc!.createOffer());
-          accept(this.pc!.localDescription);
+          const track = new MediaStreamTrack({ kind: "video" });
+          this.pc.addTransceiver(track, { direction: "sendonly" });
+          await this.pc.setLocalDescription(await this.pc.createOffer());
+          accept(this.pc.localDescription);
+
+          this.udp.on("message", (data) => {
+            const rtp = RtpPacket.deSerialize(data);
+            track.writeRtp(rtp);
+          });
         }
         break;
       case "done":
         {
-          await this.cleanup();
+          this.udp.close();
+          this.pc.close();
+          try {
+            this.process.kill("SIGINT");
+          } catch (error) {}
           accept({});
         }
         break;
