@@ -3,10 +3,11 @@ import { Peer, WebSocketTransport } from "protoo-client";
 
 const browser = Bowser.getParser(window.navigator.userAgent);
 export const browserName = browser.getBrowserName();
+const e2ePort = import.meta.env.VITE_E2E_PORT ?? "8886";
 
 console.log({ browserName, version: browser.getBrowserVersion() });
 
-const transport = new WebSocketTransport("ws://localhost:8886");
+const transport = new WebSocketTransport(`ws://localhost:${e2ePort}`);
 export const peer = new Peer(transport);
 
 export async function waitVideoPlay(track: MediaStreamTrack) {

@@ -22,6 +22,7 @@ import {
   type RtpHeader,
   RtpPacket,
   SrtcpSession,
+  SrtpAuthenticationError,
   type SrtpProfile,
   SrtpSession,
   debug,
@@ -339,8 +340,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.packetsReceived++;
 
       if (isRtcp(data)) {
-        const dec = this.srtcp.decrypt(data);
-        const rtcpPackets = RtcpPacketConverter.deSerialize(dec);
+        let dec: Buffer;
+        try {
+          dec = this.srtcp.decrypt(data);
+        } catch (error) {
+          if (error instanceof SrtpAuthenticationError) {
+            log("dropping invalid SRTCP packet", error);
+            return;
+          }
+          throw error;
+        }
+        let rtcpPackets;
+        try {
+          rtcpPackets = RtcpPacketConverter.deSerialize(dec);
+        } catch (error) {
+          log("dropping malformed SRTCP packet", error);
+          return;
+        }
         for (const rtcp of rtcpPackets) {
           try {
             this.onRtcp.execute(rtcp);
@@ -349,8 +365,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           }
         }
       } else {
-        const dec = this.srtp.decrypt(data);
-        const rtp = RtpPacket.deSerialize(dec);
+        let dec: Buffer;
+        try {
+          dec = this.srtp.decrypt(data);
+        } catch (error) {
+          if (error instanceof SrtpAuthenticationError) {
+            log("dropping invalid SRTP packet", error);
+            return;
+          }
+          throw error;
+        }
+        let rtp;
+        try {
+          rtp = RtpPacket.deSerialize(dec);
+        } catch (error) {
+          log("dropping malformed SRTP packet", error);
+          return;
+        }
         try {
           this.onRtp.execute(rtp);
         } catch (error) {
