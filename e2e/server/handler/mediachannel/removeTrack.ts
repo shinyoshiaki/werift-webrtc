@@ -1,39 +1,56 @@
 import { type ChildProcess, spawn } from "child_process";
-import { createSocket, type Socket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
   MediaStreamTrack,
+  MediaStreamTrackFactory,
   RTCPeerConnection,
-  RtpPacket,
-  randomPort,
 } from "../../";
 import { peerConfig } from "../../fixture";
 
 export class mediachannel_removetrack_answer_base {
   pc!: RTCPeerConnection;
-  process!: ChildProcess;
-  udp?: Socket;
-  private tracks = new Set<MediaStreamTrack>();
+  private trackSources = new Map<
+    MediaStreamTrack,
+    { dispose: () => void; process: ChildProcess }
+  >();
 
-  private bindTrack(track: MediaStreamTrack) {
-    this.tracks.add(track);
+  private async createTrackSource() {
+    const [track, port, dispose] =
+      await MediaStreamTrackFactory.rtpSource({ kind: "video" });
+
+    const args = [
+      `videotestsrc`,
+      "video/x-raw,width=640,height=480,format=I420",
+      "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+      "rtpvp8pay",
+      `udpsink host=127.0.0.1 port=${port}`,
+    ].join(" ! ");
+    const process = spawn("gst-launch-1.0", args.split(" "));
+
+    this.trackSources.set(track, { dispose, process });
+    return track;
+  }
+
+  private disposeTrack(track: MediaStreamTrack) {
+    const source = this.trackSources.get(track);
+    if (!source) {
+      return;
+    }
+
+    source.dispose();
+    try {
+      source.process.kill("SIGINT");
+    } catch {}
+    this.trackSources.delete(track);
   }
 
   private async cleanup() {
-    this.tracks.clear();
-
-    this.udp?.removeAllListeners();
-    this.udp?.close();
-    this.udp = undefined;
-
     if (this.pc) {
       this.pc.close();
     }
 
-    if (this.process) {
-      try {
-        this.process.kill("SIGINT");
-      } catch {}
+    for (const track of this.trackSources.keys()) {
+      this.disposeTrack(track);
     }
   }
 
@@ -43,31 +60,11 @@ export class mediachannel_removetrack_answer_base {
         {
           await this.cleanup();
 
-          const port = await randomPort();
-          this.udp = createSocket("udp4");
-          this.udp.bind(port);
-
           this.pc = new RTCPeerConnection(await peerConfig);
-          const track = new MediaStreamTrack({ kind: "video" });
-          this.bindTrack(track);
-          this.pc.addTransceiver(track, { direction: "sendonly" });
+          const track = await this.createTrackSource();
+          this.pc.addTrack(track);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
-
-          this.udp.on("message", (data) => {
-            for (const track of this.tracks) {
-              track.writeRtp(RtpPacket.deSerialize(Buffer.from(data)));
-            }
-          });
-
-          const args = [
-            `videotestsrc`,
-            "video/x-raw,width=640,height=480,format=I420",
-            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
-            "rtpvp8pay",
-            `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
         }
         break;
       case "candidate":
@@ -89,7 +86,7 @@ export class mediachannel_removetrack_answer_base {
             .find((t) => t.mLineIndex === payload)!.sender;
 
           if (sender.track) {
-            this.tracks.delete(sender.track);
+            this.disposeTrack(sender.track);
           }
           this.pc.removeTrack(sender);
           await this.pc.setLocalDescription(await this.pc.createOffer());
@@ -98,9 +95,8 @@ export class mediachannel_removetrack_answer_base {
         break;
       case "addTrack":
         {
-          const track = new MediaStreamTrack({ kind: "video" });
-          this.bindTrack(track);
-          this.pc.addTransceiver(track, { direction: "sendonly" });
+          const track = await this.createTrackSource();
+          this.pc.addTrack(track);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
         }
