@@ -28,6 +28,27 @@ export function fingerprint(file: Buffer, hashName: string) {
   return colon(upper(hash));
 }
 
+const fingerprintHashAlgorithms: Record<string, string> = {
+  sha1: "sha1",
+  "sha-1": "sha1",
+  sha224: "sha224",
+  "sha-224": "sha224",
+  sha256: "sha256",
+  "sha-256": "sha256",
+  sha384: "sha384",
+  "sha-384": "sha384",
+  sha512: "sha512",
+  "sha-512": "sha512",
+};
+
+export function normalizeFingerprintAlgorithm(algorithm: string) {
+  return fingerprintHashAlgorithms[algorithm.trim().toLowerCase()];
+}
+
+export function normalizeFingerprintValue(value: string) {
+  return value.replace(/[^0-9a-f]/gi, "").toLowerCase();
+}
+
 export function isDtls(buf: Buffer) {
   const firstByte = buf[0];
   return firstByte > 19 && firstByte < 64;

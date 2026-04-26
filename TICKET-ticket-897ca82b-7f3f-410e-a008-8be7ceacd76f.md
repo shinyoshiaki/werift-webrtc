@@ -1,0 +1,112 @@
+## 1. タスクの目的と背景
+
+本タスクの目的は、**DTLS ハンドシェイクで受信した相手証明書のハッシュが、シグナリングで受け取った SDP の `a=fingerprint` と一致することを必ず検証し、不一致なら接続を失敗させる**ようにすることです。
+
+現状のコード調査では、以下の状態です。
+
+- `packages/webrtc/src/sdp.ts` で SDP の `a=fingerprint` は正しくパースされ、`RTCDtlsParameters.fingerprints` に保持されている
+- `packages/webrtc/src/peerConnection.ts` で、その `dtlsParams` は `RTCDtlsTransport.setRemoteParams()` に渡されている
+- しかし `packages/webrtc/src/transport/dtls.ts` の `RTCDtlsTransport.start()` は、**fingerprint が存在するか**しか見ておらず、**実際にハンドシェイクで受信した相手証明書との照合をしていない**
+- さらに `packages/dtls` 側では、client / server で peer certificate の取得・保持が揃っておらず、**DTLS role によっては検証材料が欠ける**
+- そのまま `connected` 状態に遷移し、SRTP/SCTP 利用に進むため、**MITM によるなりすましと、その後の SRTP 鍵悪用リスク**につながる
+
+仕様上も、DTLS-SRTP では **受信した証明書の fingerprint と SDP の fingerprint を比較し、一致しなければ接続を終了する**ことが期待されます。したがって、これは単なる改善ではなく**認証バインディング不足によるセキュリティ修正**です。
+
+---
+
+## 2. 実装すべき具体的な機能や変更内容
+
+1. **相手証明書 fingerprint の照合処理を追加する**
+   - DTLS ハンドシェイク完了後、相手証明書の DER バイト列から fingerprint を計算する
+   - SDP から受け取った `RTCDtlsParameters.fingerprints` と比較する
+   - **RFC 8122 に従い、サポートする最優先 hash algorithm の fingerprint 群で照合し、その中で1件も一致しなければ失敗**とする
+
+2. **照合失敗時の失敗処理を明確化する**
+   - `RTCDtlsTransport` を `failed` にする
+   - `connected` に遷移させない
+   - `startSrtp()` / `updateSrtpSession()` / SCTP 接続開始を行わせない
+   - `RTCPeerConnection.connectionState` が最終的に `failed` になるように既存の失敗伝播に乗せる
+
+3. **複数 fingerprint・アルゴリズム差異に対応する**
+   - `fingerprints[0]` 固定ではなく、**相手が提示した fingerprint のうち、実装がサポートする最優先 hash algorithm 群を選び、その群のいずれかに一致すれば成功**とする
+   - SDP 表記 (`sha-256`) と Node.js の `createHash` 名 (`sha256`) の差を吸収する
+   - 未対応アルゴリズムは **RFC 8122 に従って無視** し、**サポート対象が1件も残らない場合に失敗**させる
+
+4. **DTLS パッケージ側も含めて peer certificate を取得・保持できるようにする**
+   - `packages/dtls/src/flight/client/flight5.ts` で保持している `cipher.remoteCertificate` は、そのまままたは同等の経路で WebRTC 層から参照できるようにする
+   - `packages/dtls/src/flight/server/flight4.ts` / `flight6.ts` で `certificateRequest` を有効にし、`certificate_11` / `certificate_verify_15` を処理して peer certificate を保存する
+   - 必要なら `CipherContext` / `DtlsContext` に peer certificate を保持するフィールドを追加し、`RTCDtlsTransport` が role に依存せず照合できるようにする
+   - これにより、**client / server の両 role で SDP fingerprint 検証を成立させる**ことを目指す
+
+5. **回帰テスト・再現テストを追加する**
+   - transport レベル: 改ざん fingerprint を与えたとき `RTCDtlsTransport.start()` が失敗する
+   - PeerConnection レベル: SDP の fingerprint を改ざんした offer/answer を設定すると接続が `failed` になり、DataChannel/メディアが開かない
+   - 正常系: 既存の DTLS/DataChannel/SDP 系テストは維持する
+
+---
+
+## 3. 技術的な実装アプローチを調査し結果を簡潔にまとめる
+
+### 調査結果
+- fingerprint の入力元はすでにある  
+  - `packages/webrtc/src/sdp.ts`
+- fingerprint の受け渡し経路もある  
+  - `packages/webrtc/src/peerConnection.ts` → `RTCDtlsTransport.setRemoteParams()`
+- 欠けているのは**ハンドシェイク後の照合処理**
+  - `packages/webrtc/src/transport/dtls.ts`
+- DTLS client 側では相手証明書の生データを保持している
+  - `packages/dtls/src/flight/client/flight5.ts`
+- ただし DTLS server 側は相手証明書取得が未完成で、`certificateRequest` の有効化と `certificate_11` / `certificate_verify_15` の処理が必要
+  - `packages/dtls/src/flight/server/flight4.ts`
+  - `packages/dtls/src/flight/server/flight6.ts`
+
+### 推奨アプローチ
+- `packages/webrtc/src/transport/dtls.ts` に、たとえば `verifyRemoteCertificateFingerprint()` のような内部ヘルパーを追加する
+- 既存の `packages/webrtc/src/utils.ts` の `fingerprint()` を再利用しつつ、**SDP アルゴリズム名 → Node ハッシュ名**の変換と、**RFC 8122 に基づく優先アルゴリズム選択**を追加する
+- 検証タイミングは、**DTLS 接続確立直後かつ SRTP/SCTP 利用開始前**
+- ただし**本来の完了ラインは双方向検証**なので、`packages/dtls` 側で peer certificate を取得できない role が残らないようにする
+
+### テスト観点の補足
+- 既存の `packages/webrtc/tests/transport/dtls.test.ts` や `packages/webrtc/tests/integrate/peerConnection.test.ts` は正常系中心
+- `packages/webrtc/tests/issue/141.test.ts` / `142.test.ts` は SDP 互換系で、**fingerprint 不一致の拒否は未検証**
+- 現在の既存テスト群は通るが、**今回の脆弱性を直接防ぐ負ケースが不足**している
+
+---
+
+## 4. 考慮すべき制約や注意点
+
+- **BUNDLE 対応**
+  - 同一 `RTCDtlsTransport` が複数 media で共有されるため、media ごとに上書きされる `remoteParameters` の扱いに注意する
+  - `fingerprints` は session-level と media-level が混在・重複し得るので、**先頭1件前提にしない**
+
+- **アルゴリズム名の正規化**
+  - `sha-256` / `sha256` の差異を吸収する
+  - 大文字小文字・コロン区切り表記も比較前に正規化する
+  - 複数 fingerprint がある場合は **RFC 8122 の優先 hash ルール**に従う
+
+- **失敗を握り潰さない**
+  - 不一致・相手証明書未取得・**サポート対象 fingerprint 不在**は、曖昧に通さず明示的に失敗にする
+  - **未対応アルゴリズム単体は RFC 8122 上は即失敗条件ではない**ため、サポート対象が残る場合は無視する
+
+- **部分修正で終わらせない**
+  - `RTCDtlsTransport.start()` だけ直しても、**DTLS server 側が相手証明書を取得できないままなら片方向検証止まり**になる
+  - セキュリティ修正としては、**どの DTLS role でも peer certificate を検証できること**をゴールに置くべき
+
+- **関連しない改善は混ぜない**
+  - たとえば remote certificate stats の拡張は今回の本筋ではないため、必要最小限に留める
+
+---
+
+## 5. 完了条件
+
+以下をすべて満たしたら完了です。
+
+1. **相手証明書 fingerprint と SDP `a=fingerprint` の照合が実装されている**
+2. **不一致時に DTLS/PeerConnection が失敗し、接続成功扱いにならない**
+3. **不一致時に SRTP/SCTP/DataChannel/メディア送受信へ進まない**
+4. **複数 fingerprint・アルゴリズム正規化・RFC 8122 の優先 hash 選択を考慮している**
+5. **正常系の既存接続は維持される**
+6. **fingerprint 改ざん時の負ケーステストが追加されている**
+7. **DTLS パッケージ側の client / server で peer certificate を保持できる**
+8. **可能なら DTLS client / server の両 role で peer certificate 検証が成立している**
+   - もし段階対応にするなら、少なくとも「現時点でどちらの role まで保護できるか」をコードとテストで明確にすること

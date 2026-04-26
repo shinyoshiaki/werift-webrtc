@@ -1,4 +1,5 @@
 import { createSocket } from "dgram";
+import { Certificate } from "@fidm/x509";
 
 import { UdpTransport, randomPort } from "../../../../common/src";
 import { DtlsClient, DtlsServer } from "../../../src";
@@ -11,6 +12,7 @@ test(
     new Promise<void>(async (done) => {
       const word = "self";
       const port = await randomPort();
+      const remoteCertificate = Certificate.fromPEM(Buffer.from(certPem)).raw;
 
       const server = new DtlsServer({
         cert: certPem,
@@ -24,6 +26,7 @@ test(
       });
       server.onData.subscribe((data) => {
         expect(data.toString()).toBe(word);
+        expect(server.remoteCertificate).toEqual(remoteCertificate);
         server.send(Buffer.from(word + "_server"));
       });
       const transport = await UdpTransport.init("udp4");
@@ -41,6 +44,7 @@ test(
         },
       });
       client.onConnect.subscribe(() => {
+        expect(client.remoteCertificate).toEqual(remoteCertificate);
         client.send(Buffer.from(word));
       });
       client.onData.subscribe((data) => {

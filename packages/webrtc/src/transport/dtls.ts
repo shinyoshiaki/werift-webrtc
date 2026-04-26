@@ -41,7 +41,12 @@ import {
   getStatsTimestamp,
 } from "../media/stats";
 import type { PeerConfig } from "../peerConnection";
-import { fingerprint, isDtls } from "../utils";
+import {
+  fingerprint,
+  isDtls,
+  normalizeFingerprintAlgorithm,
+  normalizeFingerprintValue,
+} from "../utils";
 import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
@@ -125,14 +130,25 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   setRemoteParams(remoteParameters: RTCDtlsParameters) {
-    this.remoteParameters = remoteParameters;
+    const fingerprints = deduplicateFingerprints([
+      ...(this.remoteParameters?.fingerprints ?? []),
+      ...remoteParameters.fingerprints,
+    ]);
+    const role =
+      remoteParameters.role === "auto" && this.remoteParameters?.role
+        ? this.remoteParameters.role
+        : remoteParameters.role;
+    this.remoteParameters = new RTCDtlsParameters(fingerprints, role);
   }
 
   async start() {
     if (this.state !== "new") {
       throw new Error("state must be new");
     }
-    if (this.remoteParameters?.fingerprints.length === 0) {
+    if (
+      !this.remoteParameters ||
+      this.remoteParameters.fingerprints.length === 0
+    ) {
       throw new Error("remote fingerprint not exist");
     }
 
@@ -155,7 +171,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           transport: createIceTransport(this.iceTransport.connection),
           srtpProfiles: this.srtpProfiles,
           extendedMasterSecret: true,
-          // certificateRequest: true,
+          certificateRequest: true,
         });
       } else {
         this.dtls = new DtlsClient({
@@ -177,7 +193,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.dataReceiver(buf);
       });
       this.dtls.onClose.subscribe(() => {
-        this.setState("closed");
+        if (this.state !== "failed") {
+          this.setState("closed");
+        }
       });
       this.dtls.onConnect.once(r);
       this.dtls.onError.once((error) => {
@@ -196,16 +214,84 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
     });
 
+    try {
+      this.verifyRemoteCertificateFingerprint();
+    } catch (error) {
+      this.setState("failed");
+      this.dtls?.close();
+      throw error;
+    }
+
     if (this.srtpProfiles.length > 0) {
       this.startSrtp();
     }
-    this.dtls!.onConnect.subscribe(() => {
-      this.updateSrtpSession();
-      this.setState("connected");
-    });
     this.setState("connected");
 
     log("dtls connected");
+  }
+
+  private verifyRemoteCertificateFingerprint() {
+    if (
+      !this.remoteParameters ||
+      this.remoteParameters.fingerprints.length === 0
+    ) {
+      throw new Error("remote fingerprint not exist");
+    }
+
+    const remoteCertificate = this.dtls?.remoteCertificate;
+    if (!remoteCertificate) {
+      throw new Error("remote certificate not available");
+    }
+
+    const supportedFingerprints = this.remoteParameters.fingerprints.flatMap(
+      ({ algorithm, value }) => {
+        const normalizedAlgorithm = normalizeFingerprintAlgorithm(algorithm);
+        if (!normalizedAlgorithm) {
+          return [];
+        }
+
+        const normalizedValue = normalizeFingerprintValue(value);
+        if (!normalizedValue) {
+          throw new Error("remote fingerprint value is empty");
+        }
+
+        return [{ normalizedAlgorithm, normalizedValue }];
+      },
+    );
+    if (supportedFingerprints.length === 0) {
+      throw new Error("no supported remote fingerprint algorithms");
+    }
+
+    const preferredAlgorithm = selectPreferredFingerprintAlgorithm(
+      supportedFingerprints,
+    );
+    const expectedFingerprints = supportedFingerprints.filter(
+      ({ normalizedAlgorithm }) => normalizedAlgorithm === preferredAlgorithm,
+    );
+
+    const actualFingerprints = expectedFingerprints.reduce(
+      (acc, { normalizedAlgorithm }) => {
+        if (!acc.has(normalizedAlgorithm)) {
+          acc.set(
+            normalizedAlgorithm,
+            normalizeFingerprintValue(
+              fingerprint(remoteCertificate, normalizedAlgorithm),
+            ),
+          );
+        }
+        return acc;
+      },
+      new Map<string, string>(),
+    );
+
+    const matched = expectedFingerprints.some(
+      ({ normalizedAlgorithm, normalizedValue }) =>
+        actualFingerprints.get(normalizedAlgorithm) === normalizedValue,
+    );
+
+    if (!matched) {
+      throw new Error("remote certificate fingerprint mismatch");
+    }
   }
 
   updateSrtpSession() {
@@ -505,6 +591,40 @@ export class RTCDtlsParameters {
     public role: "auto" | "client" | "server",
   ) {}
 }
+
+const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
+  const seen = new Set<string>();
+  return fingerprints.filter(({ algorithm, value }) => {
+    const key = `${
+      normalizeFingerprintAlgorithm(algorithm) ?? algorithm.trim().toLowerCase()
+    }:${normalizeFingerprintValue(value)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const preferredFingerprintAlgorithms = [
+  "sha512",
+  "sha384",
+  "sha256",
+  "sha224",
+  "sha1",
+] as const;
+
+const selectPreferredFingerprintAlgorithm = (
+  fingerprints: { normalizedAlgorithm: string }[],
+) => {
+  return (
+    preferredFingerprintAlgorithms.find((algorithm) =>
+      fingerprints.some(
+        ({ normalizedAlgorithm }) => normalizedAlgorithm === algorithm,
+      ),
+    ) ?? fingerprints[0].normalizedAlgorithm
+  );
+};
 
 class IceTransport implements Transport {
   closed: boolean = false;

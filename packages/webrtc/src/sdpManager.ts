@@ -310,7 +310,7 @@ export class SDPManager {
 
     if (this.bundlePolicy !== "disable") {
       const mids = description.media
-        .map((m) => (m.direction !== "inactive" ? m.rtp.muxId : undefined))
+        .map((m) => m.rtp.muxId)
         .filter((v) => v) as string[];
       if (mids.length) {
         const bundle = new GroupDescription("BUNDLE", mids);
@@ -403,7 +403,7 @@ export class SDPManager {
     if (this.bundlePolicy !== "disable") {
       const bundle = new GroupDescription("BUNDLE", []);
       for (const media of description.media) {
-        if (media.direction !== "inactive") {
+        if (media.rtp.muxId) {
           bundle.items.push(media.rtp.muxId!);
         }
       }

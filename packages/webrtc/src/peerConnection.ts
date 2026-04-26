@@ -67,6 +67,7 @@ export class RTCPeerConnection extends EventTarget {
   private readonly secureManager: SecureTransportManager;
   private isClosed = false;
   private shouldNegotiationneeded = false;
+  private remoteBundleNegotiated = false;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -345,16 +346,20 @@ export class RTCPeerConnection extends EventTarget {
   };
 
   private findOrCreateTransport() {
-    const [existing] = this.iceTransports;
+    const existingDtlsTransport = this.dtlsTransports.find(
+      (transport) => transport.state !== "closed",
+    );
+    const existing = existingDtlsTransport?.iceTransport;
 
     // Gather ICE candidates for only one track. If the remote endpoint is not bundle-aware, negotiate only one media track.
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
     if (
       this.sdpManager.bundlePolicy === "max-bundle" ||
-      (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled)
+      (this.sdpManager.bundlePolicy !== "disable" &&
+        (this.remoteIsBundled || this.remoteBundleNegotiated))
     ) {
-      if (existing) {
-        return this.dtlsTransports[0];
+      if (existingDtlsTransport) {
+        return existingDtlsTransport;
       }
     }
 
@@ -586,6 +591,13 @@ export class RTCPeerConnection extends EventTarget {
       sessionDescription,
       this.signalingState,
     );
+    if (
+      remoteSdp.group.some(
+        (group) => group.semantic === "BUNDLE" && group.items.length > 0,
+      )
+    ) {
+      this.remoteBundleNegotiated = true;
+    }
 
     let bundleTransport: RTCDtlsTransport | undefined;
 

@@ -49,8 +49,6 @@ export class Flight6 extends Flight {
     if (message) {
       const handler = handlers[message.msgType];
       if (!handler) {
-        // todo handle certificate_11
-        // todo handle certificate_verify_15
         return;
       }
       handler({ dtls: this.dtls, cipher: this.cipher })(message);
@@ -151,6 +149,22 @@ handlers[HandshakeType.client_key_exchange_16] =
       cipher.remoteRandom.serialize(),
     );
     log(dtls.sessionId, "setup cipher", cipher.cipher.summary);
+  };
+
+handlers[HandshakeType.certificate_11] =
+  ({ cipher, dtls }) =>
+  (message: Certificate) => {
+    log(dtls.sessionId, "handshake certificate", message);
+    cipher.remoteCertificate = message.certificateList[0];
+  };
+
+handlers[HandshakeType.certificate_verify_15] =
+  ({ cipher, dtls }) =>
+  (message: CertificateVerify) => {
+    if (!cipher.remoteCertificate) {
+      throw new Error("client certificate missing before certificate verify");
+    }
+    log(dtls.sessionId, "certificate_verify", message.algorithm);
   };
 
 handlers[HandshakeType.finished_20] =
