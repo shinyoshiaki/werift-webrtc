@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "child_process";
 import type { AcceptFn } from "protoo-server";
 import {
-  MediaStreamTrack,
+  type MediaStreamTrack,
   MediaStreamTrackFactory,
   RTCPeerConnection,
 } from "../../";

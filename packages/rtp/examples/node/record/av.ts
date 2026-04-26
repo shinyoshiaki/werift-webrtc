@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
 import { appendFile, open, stat, unlink } from "fs/promises";
-import { ReadableStreamDefaultReadResult } from "stream/web";
+import type { ReadableStreamDefaultReadResult } from "stream/web";
 
 import {
   depacketizeTransformer,
@@ -12,7 +12,7 @@ import {
   RtpSourceStream,
   SegmentSizePosition,
   WebmStream,
-  WebmStreamOutput,
+  type WebmStreamOutput,
 } from "../../../src";
 
 const path = "./webmAV.webm";

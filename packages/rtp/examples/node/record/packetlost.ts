@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { createSocket } from "dgram";
 import { appendFile, open, unlink } from "fs/promises";
 import Event from "rx.mini";
-import { ReadableStreamDefaultReadResult } from "stream/web";
+import type { ReadableStreamDefaultReadResult } from "stream/web";
 import { setTimeout } from "timers/promises";
 
 import {
@@ -11,8 +11,8 @@ import {
   randomPort,
   RtpPacket,
   RtpSourceStream,
-  WebmLiveOutput,
   WebmLiveSink,
+  type WebmLiveOutput,
 } from "../../src";
 
 const onReceiveVideo = new Event<[RtpPacket]>();

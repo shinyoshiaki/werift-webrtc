@@ -1,5 +1,5 @@
 import { appendFile, open, stat, unlink, writeFile } from "fs/promises";
-import { ReadableStreamDefaultReadResult } from "stream/web";
+import type { ReadableStreamDefaultReadResult } from "stream/web";
 
 import { getUserMedia } from "../../../webrtc/src";
 import {
@@ -10,7 +10,7 @@ import {
   RtpSourceStream,
   SegmentSizePosition,
   WebmStream,
-  WebmStreamOutput,
+  type WebmStreamOutput,
 } from "../../src";
 
 const path = "./webm_enc_video.webm";

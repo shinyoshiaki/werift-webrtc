@@ -1,6 +1,6 @@
-import { AddressInfo } from 'net';
-import { Address, Transport } from '../../../common/src';
-import { Connection } from '../../../ice/src';
+import type { AddressInfo } from "net";
+import type { Address, Transport } from "../../../common/src";
+import type { Connection } from "../../../ice/src";
 
 export class IceTransport implements Transport {
   closed: boolean = false;
@@ -19,7 +19,7 @@ export class IceTransport implements Transport {
     return {} as AddressInfo;
   }
 
-  type = 'ice';
+  type = "ice";
 
   async close() {
     this.closed = true;

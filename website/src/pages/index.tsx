@@ -9,6 +9,7 @@ import Translate from "@docusaurus/Translate";
 
 const features = [
   {
+    id: "pure-ts",
     title: <Translate id="features__title__pure_ts">Pure TypeScript</Translate>,
     imageUrl: "img/undraw_docusaurus_tree.svg",
     description: (
@@ -20,6 +21,7 @@ const features = [
     ),
   },
   {
+    id: "easy-to-use",
     title: <Translate id="features__title__easy_to_use">Easy to Use</Translate>,
     imageUrl: "img/undraw_docusaurus_mountain.svg",
     description: (
@@ -31,6 +33,7 @@ const features = [
   },
 
   {
+    id: "learn",
     title: (
       <Translate id="features__title__learn">Ideal for learning</Translate>
     ),
@@ -90,8 +93,8 @@ function Home() {
           <section className={styles.features}>
             <div className="container">
               <div className="row">
-                {features.map((props, idx) => (
-                  <Feature key={idx} {...props} />
+                {features.map(({ id, ...props }) => (
+                  <Feature key={id} {...props} />
                 ))}
               </div>
             </div>
