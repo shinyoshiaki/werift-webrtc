@@ -1,3 +1,5 @@
+import { setTimeout } from "timers/promises";
+
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
   type RTCDataChannel,
@@ -130,6 +132,40 @@ describe("peerConnection", () => {
       await assertIceCompleted(pcOffer, pcAnswer);
       await assertDataChannelOpen(dc);
     }));
+
+  test("rejects_tampered_remote_fingerprint", async () => {
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    const channel = caller.createDataChannel("chat");
+    let remoteChannelOpened = false;
+
+    callee.onDataChannel.subscribe((remoteChannel) => {
+      remoteChannel.stateChanged.subscribe((state) => {
+        if (state === "open") {
+          remoteChannelOpened = true;
+        }
+      });
+    });
+
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+
+    const answer = await callee.createAnswer()!;
+    await callee.setLocalDescription({
+      type: answer.type,
+      sdp: tamperFingerprints(answer.sdp),
+    });
+    await caller.setRemoteDescription(callee.localDescription!);
+
+    await waitForConnectionState(caller, "failed");
+    await setTimeout(200);
+
+    expect(caller.connectionState).toBe("failed");
+    expect(channel.readyState).not.toBe("open");
+    expect(remoteChannelOpened).toBeFalsy();
+
+    await Promise.allSettled([caller.close(), callee.close()]);
+  });
 
   test.skip("portRange", async () => {
     const peer = new RTCPeerConnection({ icePortRange: [44444, 44455] });
@@ -427,4 +463,35 @@ async function renegotiateDataChannelWithRemoteAnswer(
   };
   await pc1.setRemoteDescription(mutatedAnswer);
   await pc2.setLocalDescription(mutatedAnswer);
+}
+
+async function waitForConnectionState(
+  pc: RTCPeerConnection,
+  expected: "failed" | "connected",
+) {
+  if (pc.connectionState === expected) {
+    return;
+  }
+
+  return new Promise<void>((resolve) => {
+    pc.connectionStateChange.subscribe((state) => {
+      if (state === expected) {
+        resolve();
+      }
+    });
+  });
+}
+
+function tamperFingerprints(sdp: string) {
+  return sdp.replace(
+    /a=fingerprint:([^\s]+) ([0-9A-Fa-f:]+)/g,
+    (_, algorithm: string, value: string) =>
+      `a=fingerprint:${algorithm} ${mutateFingerprint(value)}`,
+  );
+}
+
+function mutateFingerprint(value: string) {
+  const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
+  const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
+  return flipped.match(/.{2}/g)!.join(":");
 }

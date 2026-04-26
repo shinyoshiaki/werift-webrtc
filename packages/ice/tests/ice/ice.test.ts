@@ -11,6 +11,7 @@ import { Connection } from "../../src/ice";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
+import { getHostAddresses } from "../../src/utils";
 import { assertCandidateTypes, inviteAccept } from "../utils";
 
 class ProtocolMock implements Protocol {
@@ -39,6 +40,12 @@ class ProtocolMock implements Protocol {
   async sendData() {}
   async close() {}
 }
+
+const testWithIpv6Host = getHostAddresses(false, true, {
+  useLinkLocalAddress: true,
+}).length
+  ? test
+  : test.skip;
 
 describe("ice", () => {
   test("test_peer_reflexive", async () => {
@@ -223,7 +230,7 @@ describe("ice", () => {
   //   await b.close();
   // });
 
-  test("test_connect_ipv6", async () => {
+  testWithIpv6Host("test_connect_ipv6", async () => {
     const a = new Connection(true, {
       useIpv4: false,
       useIpv6: true,
@@ -539,7 +546,7 @@ describe("ice", () => {
     1000 * 60,
   );
 
-  test(
+  testWithIpv6Host(
     "test_connect_with_stun_server_ipv6",
     async () => {
       const a = new Connection(true, {

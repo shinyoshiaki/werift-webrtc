@@ -98,14 +98,15 @@ export class TransceiverManager {
 
     // reuse inactive
     const inactiveTransceiverIndex = this.transceivers.findIndex(
-      (t) => t.currentDirection === "inactive",
+      (t) => t.currentDirection === "inactive" && !t.usedForSender,
     );
     const inactiveTransceiver = this.transceivers.find(
-      (t) => t.currentDirection === "inactive",
+      (t) => t.currentDirection === "inactive" && !t.usedForSender,
     );
     if (inactiveTransceiverIndex > -1 && inactiveTransceiver) {
       this.replaceTransceiver(newTransceiver, inactiveTransceiverIndex);
       newTransceiver.mLineIndex = inactiveTransceiver.mLineIndex;
+      newTransceiver.mid = inactiveTransceiver.mid;
       inactiveTransceiver.setCurrentDirection(undefined);
     } else {
       this.pushTransceiver(newTransceiver);

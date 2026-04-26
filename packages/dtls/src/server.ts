@@ -77,7 +77,14 @@ export class DtlsServer extends DtlsSocket {
             await this.waitForReady(() => !!this.flight6);
             this.flight6?.handleHandshake(handshake);
 
-            await this.waitForReady(() => this.dtls.checkHandshakesExist([16]));
+            const requiredHandshakes = [
+              16,
+              this.options.certificateRequest && 11,
+              this.options.certificateRequest && 15,
+            ].filter((type): type is number => typeof type === "number");
+            await this.waitForReady(() =>
+              this.dtls.checkHandshakesExist(requiredHandshakes),
+            );
             await this.flight6?.exec();
 
             this.connected = true;

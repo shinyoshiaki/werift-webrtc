@@ -88,7 +88,9 @@ export class SecureTransportManager {
   }
 
   createTransport() {
-    const [existing] = this.iceTransports;
+    const existing = this.iceTransports.find(
+      (transport) => transport.state !== "closed",
+    );
 
     const iceGatherer = new RTCIceGatherer({
       ...parseIceServers(this.config.iceServers),

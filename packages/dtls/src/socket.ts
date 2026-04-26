@@ -247,6 +247,10 @@ export class DtlsSocket {
       this.sessionType === SessionType.CLIENT,
     );
   }
+
+  get remoteCertificate() {
+    return this.cipher.remoteCertificate;
+  }
 }
 
 export interface Options {
