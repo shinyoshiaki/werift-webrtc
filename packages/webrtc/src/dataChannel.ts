@@ -1,15 +1,26 @@
-import debug from "debug";
-import { Event } from "rx.mini";
+import { Event, debug } from "./imports/common";
 
 import { EventTarget } from "./helper";
-import { RTCSctpTransport } from "./transport/sctp";
-import { Callback, CallbackWithValue } from "./types/util";
+import type { RTCSctpTransport } from "./transport/sctp";
+import type { Callback, CallbackWithValue } from "./types/util";
 
 const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
-export class RTCDataChannel extends EventTarget {
+export interface DataChannelStats {
+  messagesSent: number;
+  bytesSent: number;
+  messagesReceived: number;
+  bytesReceived: number;
+}
+
+export function getDataChannelMessageSize(data: Buffer | string) {
+  return Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+}
+
+export class RTCDataChannel extends EventTarget implements DataChannelStats {
+  readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
-  readonly message = new Event<[string | Buffer]>();
+  readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
   readonly error = new Event<[Error]>();
   readonly bufferedAmountLow = new Event();
@@ -26,10 +37,16 @@ export class RTCDataChannel extends EventTarget {
   bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
 
+  // Statistics
+  messagesSent = 0;
+  bytesSent = 0;
+  messagesReceived = 0;
+  bytesReceived = 0;
+
   constructor(
-    private readonly transport: RTCSctpTransport,
+    readonly sctp: RTCSctpTransport,
     private readonly parameters: RTCDataChannelParameters,
-    public readonly sendOpen = true
+    public readonly sendOpen = true,
   ) {
     super();
 
@@ -38,14 +55,14 @@ export class RTCDataChannel extends EventTarget {
     if (parameters.negotiated) {
       if (this.id == undefined || this.id < 0 || this.id > 65534) {
         throw new Error(
-          "ID must be in range 0-65534 if data channel is negotiated out-of-band"
+          "ID must be in range 0-65534 if data channel is negotiated out-of-band",
         );
       }
-      this.transport.dataChannelAddNegotiated(this);
+      this.sctp.dataChannelAddNegotiated(this);
     } else {
       if (sendOpen) {
         this.sendOpen = false;
-        this.transport.dataChannelOpen(this);
+        this.sctp.dataChannelOpen(this);
       }
     }
   }
@@ -81,7 +98,7 @@ export class RTCDataChannel extends EventTarget {
   set bufferedAmountLowThreshold(value: number) {
     if (value < 0 || value > 4294967295) {
       throw new Error(
-        "bufferedAmountLowThreshold must be in range 0 - 4294967295"
+        "bufferedAmountLowThreshold must be in range 0 - 4294967295",
       );
     }
     this._bufferedAmountLowThreshold = value;
@@ -94,6 +111,7 @@ export class RTCDataChannel extends EventTarget {
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
+      this.stateChange.execute(state);
       this.stateChanged.execute(state);
 
       switch (state) {
@@ -125,11 +143,13 @@ export class RTCDataChannel extends EventTarget {
   }
 
   send(data: Buffer | string) {
-    this.transport.datachannelSend(this, data);
+    const size = this.sctp.datachannelSend(this, data);
+    this.messagesSent++;
+    this.bytesSent += size;
   }
 
   close() {
-    this.transport.dataChannelClose(this);
+    this.sctp.dataChannelClose(this);
   }
 }
 

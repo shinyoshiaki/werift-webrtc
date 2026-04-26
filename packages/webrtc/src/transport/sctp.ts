@@ -1,9 +1,9 @@
-import debug from "debug";
-import { jspack } from "jspack";
-import { Event } from "rx.mini";
-import * as uuid from "uuid";
+import { randomUUID } from "crypto";
+import { jspack } from "@shinyoshiaki/jspack";
 
-import { SCTP, SCTP_STATE, Transport } from "../../../sctp/src";
+import { Event, debug } from "../imports/common";
+
+import { SCTP, SCTP_STATE, type Transport } from "../../../sctp/src";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
@@ -15,31 +15,37 @@ import {
   WEBRTC_STRING_EMPTY,
 } from "../const";
 import {
-  DCState,
+  type DCState,
   RTCDataChannel,
   RTCDataChannelParameters,
+  getDataChannelMessageSize,
 } from "../dataChannel";
-import { RTCDtlsTransport } from "./dtls";
+import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
+export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
-  readonly id = uuid.v4();
+  readonly id = randomUUID().toString();
 
   mid?: string;
   mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
+  remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
   private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
 
-  constructor(public port = 5000) {}
+  constructor(
+    public port = 5000,
+    public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+  ) {}
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
     if (this.dtlsTransport && this.dtlsTransport.id === dtlsTransport.id) {
@@ -103,7 +109,7 @@ export class RTCSctpTransport {
   private datachannelReceive = async (
     streamId: number,
     ppId: number,
-    data: Buffer
+    data: Buffer,
   ) => {
     if (ppId === WEBRTC_DCEP && data.length > 0) {
       log("DCEP", streamId, ppId, data);
@@ -174,12 +180,14 @@ export class RTCSctpTransport {
           }
           break;
         case DATA_CHANNEL_ACK:
-          log("DATA_CHANNEL_ACK", streamId, ppId);
-          const channel = this.dataChannels[streamId];
-          if (!channel) {
-            throw new Error("channel not found");
+          {
+            log("DATA_CHANNEL_ACK", streamId, ppId);
+            const channel = this.dataChannels[streamId];
+            if (!channel) {
+              throw new Error("channel not found");
+            }
+            channel.setReadyState("open");
           }
-          channel.setReadyState("open");
           break;
       }
     } else {
@@ -200,7 +208,11 @@ export class RTCSctpTransport {
           }
         })();
 
-        channel.message.execute(msg);
+        // Update reception statistics
+        channel.messagesReceived++;
+        channel.bytesReceived += data.length;
+
+        channel.onMessage.execute(msg);
         channel.emit("message", { data: msg });
         if (channel.onmessage) {
           channel.onmessage({ data: msg });
@@ -228,7 +240,7 @@ export class RTCSctpTransport {
     if (channel.id) {
       if (this.dataChannels[channel.id])
         throw new Error(
-          `Data channel with ID ${channel.id} already registered`
+          `Data channel with ID ${channel.id} already registered`,
         );
       this.dataChannels[channel.id] = channel;
     }
@@ -276,7 +288,6 @@ export class RTCSctpTransport {
     // """
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
-    if (this.sctp.outboundQueue.length > 0) return;
 
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
@@ -308,15 +319,29 @@ export class RTCSctpTransport {
         channel.addBufferedAmount(-userData.length);
       }
     }
+    // Resetting the queue to empty array mitigates this.
+    this.dataChannelQueue = [];
+  }
+
+  private assertSendableMessageSize(size: number) {
+    if (this.remoteMaxMessageSize !== 0 && size > this.remoteMaxMessageSize) {
+      throw new Error(
+        `max-message-size exceeded: ${size} > ${this.remoteMaxMessageSize}`,
+      );
+    }
   }
 
   datachannelSend = (channel: RTCDataChannel, data: Buffer | string) => {
-    channel.addBufferedAmount(data.length);
+    const userData = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const size = getDataChannelMessageSize(data);
+
+    this.assertSendableMessageSize(size);
+    channel.addBufferedAmount(size);
 
     this.dataChannelQueue.push(
       typeof data === "string"
-        ? [channel, WEBRTC_STRING, Buffer.from(data)]
-        : [channel, WEBRTC_BINARY, data]
+        ? [channel, WEBRTC_STRING, userData]
+        : [channel, WEBRTC_BINARY, userData],
     );
 
     if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
@@ -324,10 +349,20 @@ export class RTCSctpTransport {
     }
 
     this.dataChannelFlush();
+
+    return size;
   };
 
-  static getCapabilities() {
-    return new RTCSctpCapabilities(65536);
+  getCapabilities() {
+    return RTCSctpTransport.getCapabilities(this.maxMessageSize);
+  }
+
+  static getCapabilities(maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE) {
+    return new RTCSctpCapabilities(maxMessageSize);
+  }
+
+  setRemoteMaxMessageSize(maxMessageSize?: number) {
+    this.remoteMaxMessageSize = maxMessageSize ?? DEFAULT_MAX_MESSAGE_SIZE;
   }
 
   setRemotePort(port: number) {
@@ -355,13 +390,20 @@ export class RTCSctpTransport {
       channel.setReadyState("closing");
 
       if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
-        this.sctp.reconfigQueue.push(channel.id);
+        // Check if channel.id is already in reconfigQueue to prevent duplicates
+        if (!this.sctp.reconfigQueue.includes(channel.id)) {
+          this.sctp.reconfigQueue.push(channel.id);
+        }
         if (this.sctp.reconfigQueue.length === 1) {
           this.sctp.transmitReconfigRequest();
         }
       } else {
         this.dataChannelQueue = this.dataChannelQueue.filter(
-          (queueItem) => queueItem[0].id !== channel.id
+          (queueItem) => queueItem[0].id !== channel.id,
+        );
+        // Remove any pending reconfiguration requests for this channel
+        this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
+          (streamId) => streamId !== channel.id,
         );
         if (channel.id) {
           delete this.dataChannels[channel.id];

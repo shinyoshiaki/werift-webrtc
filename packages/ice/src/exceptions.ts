@@ -1,5 +1,5 @@
-import { Message } from "./stun/message";
-import { Address } from "./types/model";
+import type { Address } from "./imports/common";
+import type { Message } from "./stun/message";
 
 export class TransactionError extends Error {
   response?: Message;
@@ -7,7 +7,10 @@ export class TransactionError extends Error {
 }
 
 export class TransactionFailed extends TransactionError {
-  constructor(public response: Message, public addr: Address) {
+  constructor(
+    public response: Message,
+    public addr: Address,
+  ) {
     super();
   }
 

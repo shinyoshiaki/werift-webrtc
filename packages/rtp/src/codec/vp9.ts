@@ -1,8 +1,8 @@
 // RTP Payload Format for VP9 Video draft-ietf-payload-vp9-16 https://datatracker.ietf.org/doc/html/draft-ietf-payload-vp9
 
 import { getBit, paddingByte } from "../../../common/src";
-import { RtpHeader } from "../rtp/rtp";
-import { DePacketizerBase } from "./base";
+import type { RtpHeader } from "../rtp/rtp";
+import type { DePacketizerBase } from "./base";
 
 //          0 1 2 3 4 5 6 7
 //         +-+-+-+-+-+-+-+-+
@@ -66,7 +66,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
   g?: number;
   width: number[] = [];
   height: number[] = [];
-  n_g: number = 0;
+  n_g = 0;
   pgT: number[] = [];
   pgU: number[] = [];
   pgP_Diff: number[][] = [];
@@ -98,7 +98,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
       if (p.m) {
         const _7 = paddingByte(getBit(buf[offset], 1, 7));
         const _8 = paddingByte(buf[offset + 1]);
-        p.pictureId = parseInt(_7 + _8, 2);
+        p.pictureId = Number.parseInt(_7 + _8, 2);
         offset += 2;
       } else {
         p.pictureId = getBit(buf[offset], 1, 7);

@@ -1,45 +1,70 @@
-import { ChildProcess, spawn } from "child_process";
-import { createSocket } from "dgram";
-import { AcceptFn } from "protoo-server";
+import { type ChildProcess, spawn } from "child_process";
+import type { AcceptFn } from "protoo-server";
 import {
-  RTCPeerConnection,
   MediaStreamTrack,
-  RtpPacket,
-  randomPort,
+  MediaStreamTrackFactory,
+  RTCPeerConnection,
 } from "../../";
 import { peerConfig } from "../../fixture";
 
 export class mediachannel_removetrack_answer_base {
   pc!: RTCPeerConnection;
-  process!: ChildProcess;
-  udp = createSocket("udp4");
+  private trackSources = new Map<
+    MediaStreamTrack,
+    { dispose: () => void; process: ChildProcess }
+  >();
+
+  private async createTrackSource() {
+    const [track, port, dispose] =
+      await MediaStreamTrackFactory.rtpSource({ kind: "video" });
+
+    const args = [
+      `videotestsrc`,
+      "video/x-raw,width=640,height=480,format=I420",
+      "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
+      "rtpvp8pay",
+      `udpsink host=127.0.0.1 port=${port}`,
+    ].join(" ! ");
+    const process = spawn("gst-launch-1.0", args.split(" "));
+
+    this.trackSources.set(track, { dispose, process });
+    return track;
+  }
+
+  private disposeTrack(track: MediaStreamTrack) {
+    const source = this.trackSources.get(track);
+    if (!source) {
+      return;
+    }
+
+    source.dispose();
+    try {
+      source.process.kill("SIGINT");
+    } catch {}
+    this.trackSources.delete(track);
+  }
+
+  private async cleanup() {
+    if (this.pc) {
+      this.pc.close();
+    }
+
+    for (const track of this.trackSources.keys()) {
+      this.disposeTrack(track);
+    }
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
+          await this.cleanup();
 
           this.pc = new RTCPeerConnection(await peerConfig);
-          const track = new MediaStreamTrack({ kind: "video" });
-          this.pc.addTransceiver(track, { direction: "sendonly" });
+          const track = await this.createTrackSource();
+          this.pc.addTrack(track);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
-
-          this.udp.on("message", (data) => {
-            const rtp = RtpPacket.deSerialize(data);
-            track.writeRtp(rtp);
-          });
-
-          const args = [
-            `videotestsrc`,
-            "video/x-raw,width=640,height=480,format=I420",
-            "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
-            "rtpvp8pay",
-            `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
         }
         break;
       case "candidate":
@@ -60,6 +85,9 @@ export class mediachannel_removetrack_answer_base {
             .getTransceivers()
             .find((t) => t.mLineIndex === payload)!.sender;
 
+          if (sender.track) {
+            this.disposeTrack(sender.track);
+          }
           this.pc.removeTrack(sender);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
@@ -67,24 +95,15 @@ export class mediachannel_removetrack_answer_base {
         break;
       case "addTrack":
         {
-          const track = new MediaStreamTrack({ kind: "video" });
-          this.pc.addTransceiver(track, { direction: "sendonly" });
+          const track = await this.createTrackSource();
+          this.pc.addTrack(track);
           await this.pc.setLocalDescription(await this.pc.createOffer());
           accept(this.pc.localDescription);
-
-          this.udp.on("message", (data) => {
-            const rtp = RtpPacket.deSerialize(data);
-            track.writeRtp(rtp);
-          });
         }
         break;
       case "done":
         {
-          this.udp.close();
-          this.pc.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
+          await this.cleanup();
           accept({});
         }
         break;

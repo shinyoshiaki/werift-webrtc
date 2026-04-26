@@ -20,7 +20,7 @@ export function createTestTrack(width: number, height: number) {
     ctx.fillText(
       `${hours}:${minutes}:${seconds}.${milliseconds}`,
       canvas.width / 2,
-      85
+      85,
     );
 
     requestAnimationFrame(drawAnimation);

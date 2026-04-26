@@ -20,7 +20,7 @@ describe("rtcp/sdes", () => {
       0x00, 0x00,
     ]);
     const [sdes] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpSourceDescriptionPacket
+      RtcpSourceDescriptionPacket,
     ];
     expect(sdes).toEqual(
       new RtcpSourceDescriptionPacket({
@@ -33,7 +33,7 @@ describe("rtcp/sdes", () => {
             ],
           }),
         ],
-      })
+      }),
     );
     const d = sdes.serialize();
     expect(d).toEqual(data);
@@ -59,7 +59,7 @@ describe("rtcp/sdes", () => {
       0x00, 0x00, 0x00,
     ]);
     const [sdes] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpSourceDescriptionPacket
+      RtcpSourceDescriptionPacket,
     ];
     expect(sdes).toEqual(
       new RtcpSourceDescriptionPacket({
@@ -73,7 +73,7 @@ describe("rtcp/sdes", () => {
             items: [new SourceDescriptionItem({ type: 1, text: "BCD" })],
           }),
         ],
-      })
+      }),
     );
     const to = sdes.serialize();
     expect(to).toEqual(data);

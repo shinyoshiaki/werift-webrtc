@@ -1,6 +1,6 @@
 import { bufferWriter, bufferWriterLE } from "../../../common/src";
-import { RtpHeader } from "../rtp/rtp";
-import { DePacketizerBase } from "./base";
+import type { RtpHeader } from "../rtp/rtp";
+import type { DePacketizerBase } from "./base";
 
 export class OpusRtpPayload implements DePacketizerBase {
   payload!: Buffer;
@@ -19,7 +19,7 @@ export class OpusRtpPayload implements DePacketizerBase {
     return true;
   }
 
-  static createCodecPrivate(samplingFrequency: number = 48000) {
+  static createCodecPrivate(samplingFrequency = 48000) {
     return Buffer.concat([
       Buffer.from("OpusHead"),
       bufferWriter([1, 1], [1, 2]),

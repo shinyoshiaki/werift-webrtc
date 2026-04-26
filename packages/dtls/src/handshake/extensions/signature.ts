@@ -1,6 +1,6 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
+import type { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
 
 export class Signature {
   static type = 13;
@@ -9,7 +9,7 @@ export class Signature {
     data: types.array(
       { hash: types.uint8, signature: types.uint8 },
       types.uint16be,
-      "bytes"
+      "bytes",
     ),
   };
 

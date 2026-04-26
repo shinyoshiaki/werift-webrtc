@@ -1,6 +1,6 @@
 import { RtcpPacketConverter } from "../../../src";
-import { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
-import { ReceiverEstimatedMaxBitrate } from "../../../src/rtcp/psfb/remb";
+import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
+import type { ReceiverEstimatedMaxBitrate } from "../../../src/rtcp/psfb/remb";
 
 describe("rtcp/psfb/remb", () => {
   test("remb", () => {
@@ -9,7 +9,7 @@ describe("rtcp/psfb/remb", () => {
       72, 116, 237, 22,
     ]);
     const [psfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpPayloadSpecificFeedback
+      RtcpPayloadSpecificFeedback,
     ];
     const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
     expect(remb.senderSsrc).toBe(1);

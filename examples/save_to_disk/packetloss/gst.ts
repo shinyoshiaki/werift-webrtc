@@ -1,13 +1,13 @@
+import { spawn } from "child_process";
+import { createSocket } from "dgram";
+import { Server } from "ws";
 import {
-  randomPort,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  randomPort,
   useNACK,
   usePLI,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
-import { spawn } from "child_process";
-import { createSocket } from "dgram";
 
 // open ./answer.html
 

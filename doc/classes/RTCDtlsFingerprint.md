@@ -1,39 +1,35 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCDtlsFingerprint
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCDtlsFingerprint
 
 # Class: RTCDtlsFingerprint
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCDtlsFingerprint.md#constructor)
-
-### Properties
-
-- [algorithm](RTCDtlsFingerprint.md#algorithm)
-- [value](RTCDtlsFingerprint.md#value)
-
 ## Constructors
 
-### constructor
+### new RTCDtlsFingerprint()
 
-• **new RTCDtlsFingerprint**(`algorithm`, `value`)
+> **new RTCDtlsFingerprint**(`algorithm`, `value`): [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `algorithm` | `string` |
-| `value` | `string` |
+• **algorithm**: `string`
+
+• **value**: `string`
+
+#### Returns
+
+[`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)
 
 ## Properties
 
 ### algorithm
 
-• **algorithm**: `string`
+> **algorithm**: `string`
 
-___
+***
 
 ### value
 
-• **value**: `string`
+> **value**: `string`

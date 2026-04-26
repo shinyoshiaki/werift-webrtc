@@ -1,4 +1,4 @@
-import { createSocket, SocketType } from "dgram";
+import { type SocketType, createSocket } from "dgram";
 
 export type InterfaceAddresses = {
   [K in SocketType]?: string;
@@ -6,12 +6,12 @@ export type InterfaceAddresses = {
 
 export const interfaceAddress = (
   type: SocketType,
-  interfaceAddresses: InterfaceAddresses | undefined
+  interfaceAddresses: InterfaceAddresses | undefined,
 ) => (interfaceAddresses ? interfaceAddresses[type] : undefined);
 
 export async function randomPort(
   protocol: SocketType = "udp4",
-  interfaceAddresses?: InterfaceAddresses
+  interfaceAddresses?: InterfaceAddresses,
 ) {
   const socket = createSocket(protocol);
 
@@ -19,7 +19,7 @@ export async function randomPort(
     socket.bind({
       port: 0,
       address: interfaceAddress(protocol, interfaceAddresses),
-    })
+    }),
   );
 
   await new Promise<void>((r) => {
@@ -35,10 +35,10 @@ export async function randomPort(
 export async function randomPorts(
   num: number,
   protocol: SocketType = "udp4",
-  interfaceAddresses?: InterfaceAddresses
+  interfaceAddresses?: InterfaceAddresses,
 ) {
   return Promise.all(
-    [...Array(num)].map(() => randomPort(protocol, interfaceAddresses))
+    [...Array(num)].map(() => randomPort(protocol, interfaceAddresses)),
   );
 }
 
@@ -46,7 +46,7 @@ export async function findPort(
   min: number,
   max: number,
   protocol: SocketType = "udp4",
-  interfaceAddresses?: InterfaceAddresses
+  interfaceAddresses?: InterfaceAddresses,
 ) {
   let port: number | undefined;
 
@@ -57,7 +57,7 @@ export async function findPort(
       socket.bind({
         port: i,
         address: interfaceAddress(protocol, interfaceAddresses),
-      })
+      }),
     );
 
     const err = await new Promise<Error | void>((r) => {
@@ -79,4 +79,13 @@ export async function findPort(
   if (!port) throw new Error("port not found");
 
   return port;
+}
+
+export type Address = Readonly<[string, number]>;
+
+export function normalizeFamilyNodeV18(family: string | number): 4 | 6 {
+  if (family === "IPv4") return 4;
+  if (family === "IPv6") return 6;
+
+  return family as 4 | 6;
 }

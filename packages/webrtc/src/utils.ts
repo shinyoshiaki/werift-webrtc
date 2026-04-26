@@ -1,22 +1,21 @@
 /* eslint-disable prefer-const */
 import { createHash } from "crypto";
-import debug from "debug";
+import { createSocket } from "dgram";
+
 import { performance } from "perf_hooks";
 
 import {
+  type Address,
   bufferReader,
   bufferWriter,
-  random16,
-  random32,
-  uint16Add,
-  uint32Add,
-} from "../../common/src";
-import { CipherContext } from "../../dtls/src/context/cipher";
-import { Address } from "../../ice/src";
-import { RtpHeader, RtpPacket } from "../../rtp/src";
-import { Direction, Directions } from "./media/rtpTransceiver";
-import { RTCIceServer } from "./peerConnection";
-const now = require("nano-time");
+  debug,
+  randomPort,
+} from "./imports/common";
+import { CipherContext } from "./imports/dtls";
+
+import { Directions, type MediaDirection } from "./media/rtpTransceiver";
+import { MediaStreamTrack } from "./media/track";
+import type { RTCIceServer } from "./peerConnection";
 
 const log = debug("werift:packages/webrtc/src/utils.ts");
 
@@ -29,18 +28,30 @@ export function fingerprint(file: Buffer, hashName: string) {
   return colon(upper(hash));
 }
 
+const fingerprintHashAlgorithms: Record<string, string> = {
+  sha1: "sha1",
+  "sha-1": "sha1",
+  sha224: "sha224",
+  "sha-224": "sha224",
+  sha256: "sha256",
+  "sha-256": "sha256",
+  sha384: "sha384",
+  "sha-384": "sha384",
+  sha512: "sha512",
+  "sha-512": "sha512",
+};
+
+export function normalizeFingerprintAlgorithm(algorithm: string) {
+  return fingerprintHashAlgorithms[algorithm.trim().toLowerCase()];
+}
+
+export function normalizeFingerprintValue(value: string) {
+  return value.replace(/[^0-9a-f]/gi, "").toLowerCase();
+}
+
 export function isDtls(buf: Buffer) {
   const firstByte = buf[0];
   return firstByte > 19 && firstByte < 64;
-}
-
-export function isMedia(buf: Buffer) {
-  const firstByte = buf[0];
-  return firstByte > 127 && firstByte < 192;
-}
-
-export function isRtcp(buf: Buffer) {
-  return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
 }
 
 export function reverseSimulcastDirection(dir: "recv" | "send") {
@@ -48,18 +59,23 @@ export function reverseSimulcastDirection(dir: "recv" | "send") {
   return "recv";
 }
 
-export const andDirection = (a: Direction, b: Direction) =>
+export const andDirection = (a: MediaDirection, b: MediaDirection) =>
   Directions[Directions.indexOf(a) & Directions.indexOf(b)];
 
-export function reverseDirection(dir: Direction): Direction {
+export function reverseDirection(dir: MediaDirection): MediaDirection {
   if (dir === "sendonly") return "recvonly";
   if (dir === "recvonly") return "sendonly";
   return dir;
 }
 
-export const microTime = () => now.micro() as number;
+export const milliTime = Date.now;
 
-export const milliTime = () => new Date().getTime();
+const startupTimestampInMicroseconds =
+  BigInt(Date.now()) * 1000n - process.hrtime.bigint() / 1000n;
+
+export const microTime = () => {
+  return startupTimestampInMicroseconds + process.hrtime.bigint() / 1000n;
+};
 
 export const timestampSeconds = () => Date.now() / 1000;
 
@@ -90,14 +106,14 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   const url2Address = (url?: string) => {
     if (!url) return;
     const [address, port] = url.split(":");
-    return [address, parseInt(port)] as Address;
+    return [address, Number.parseInt(port)] as Address;
   };
 
   const stunServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5)
+    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5),
   );
   const turnServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5)
+    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5),
   );
   const { credential, username } =
     iceServers.find(({ urls }) => urls.includes("turn:")) || {};
@@ -112,27 +128,6 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   return options;
 }
 
-export class RtpBuilder {
-  sequenceNumber = random16();
-  timestamp = random32();
-
-  create(payload: Buffer) {
-    this.sequenceNumber = uint16Add(this.sequenceNumber, 1);
-    this.timestamp = uint32Add(this.timestamp, 960);
-
-    const header = new RtpHeader({
-      sequenceNumber: this.sequenceNumber,
-      timestamp: Number(this.timestamp),
-      payloadType: 96,
-      extension: true,
-      marker: false,
-      padding: false,
-    });
-    const rtp = new RtpPacket(header, payload);
-    return rtp;
-  }
-}
-
 /**
  *
  * @param signatureHash
@@ -140,3 +135,70 @@ export class RtpBuilder {
  */
 export const createSelfSignedCertificate =
   CipherContext.createSelfSignedCertificateWithKey;
+
+export class MediaStreamTrackFactory {
+  static async rtpSource({
+    port,
+    kind,
+    cb,
+  }: {
+    port?: number;
+    kind: "audio" | "video";
+    cb?: (buf: Buffer) => Buffer;
+  }) {
+    port ??= await randomPort();
+    const track = new MediaStreamTrack({ kind });
+
+    const udp = createSocket("udp4");
+    udp.bind(port);
+    const onMessage = (msg: Buffer) => {
+      if (cb) {
+        msg = cb(msg);
+      }
+      track.writeRtp(msg);
+    };
+    udp.addListener("message", onMessage);
+
+    const dispose = () => {
+      udp.removeListener("message", onMessage);
+      try {
+        udp.close();
+      } catch (error) {}
+    };
+
+    return [track, port, dispose] as const;
+  }
+}
+
+/**
+ * Merge two objects. If a property value in the source object is undefined or
+ * when casted is equal to undefined (== undefined), then it will not overwrite
+ * the value of the property in the destination object.
+ */
+export const deepMerge = <T>(dst: T, src: T) => {
+  if (!dst || typeof dst !== "object") {
+    if (src !== null && typeof src === "object") {
+      return src;
+    } else {
+      return dst;
+    }
+  }
+
+  if (!src || typeof src !== "object") {
+    if (src == undefined) {
+      return dst;
+    }
+    return src;
+  }
+
+  for (const key in src) {
+    if (Object.prototype.hasOwnProperty.call(src, key)) {
+      const sourceValue = src[key];
+
+      if (sourceValue != undefined) {
+        dst[key] = sourceValue;
+      }
+    }
+  }
+  return dst;
+};

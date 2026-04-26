@@ -1,8 +1,8 @@
-import express from "express";
-import { RTCPeerConnection } from "../../packages/webrtc/src";
-import * as yargs from "yargs";
-import https from "https";
 import { readFileSync } from "fs";
+import https from "https";
+import express from "express";
+import * as yargs from "yargs";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 
 (async () => {
   const args = await yargs
@@ -30,7 +30,7 @@ import { readFileSync } from "fs";
           cert: readFileSync(args["cert-file"] as string),
           key: readFileSync(args["key-file"] as string),
         },
-        app
+        app,
       )
       .listen(args.port, args.host);
   } else {
@@ -49,7 +49,7 @@ import { readFileSync } from "fs";
       pc.addTrack(track);
     });
     pc.onDataChannel.subscribe((dc) => {
-      dc.message.subscribe((msg) => dc.send(msg));
+      dc.onMessage.subscribe((msg) => dc.send(msg));
     });
 
     await pc.setRemoteDescription(offer);

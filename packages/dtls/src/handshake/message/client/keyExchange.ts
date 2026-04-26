@@ -1,7 +1,7 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { Handshake } from "../../../typings/domain";
+import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
 
 export class ClientKeyExchange implements Handshake {
@@ -22,7 +22,7 @@ export class ClientKeyExchange implements Handshake {
     const res = decode(buf, ClientKeyExchange.spec);
     return new ClientKeyExchange(
       //@ts-ignore
-      ...Object.values(res)
+      ...Object.values(res),
     );
   }
 
@@ -39,7 +39,7 @@ export class ClientKeyExchange implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

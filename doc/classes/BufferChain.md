@@ -1,69 +1,58 @@
-[werift](../README.md) / [Exports](../modules.md) / BufferChain
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / BufferChain
 
 # Class: BufferChain
 
-## Table of contents
-
-### Constructors
-
-- [constructor](BufferChain.md#constructor)
-
-### Properties
-
-- [buffer](BufferChain.md#buffer)
-
-### Methods
-
-- [writeInt16BE](BufferChain.md#writeint16be)
-- [writeUInt8](BufferChain.md#writeuint8)
-
 ## Constructors
 
-### constructor
+### new BufferChain()
 
-• **new BufferChain**(`size`)
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `size` | `number` |
-
-## Properties
-
-### buffer
-
-• **buffer**: `Buffer`
-
-## Methods
-
-### writeInt16BE
-
-▸ **writeInt16BE**(`value`, `offset?`): [`BufferChain`](BufferChain.md)
+> **new BufferChain**(`size`): [`BufferChain`](BufferChain.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `value` | `number` |
-| `offset?` | `number` |
+• **size**: `number`
 
 #### Returns
 
 [`BufferChain`](BufferChain.md)
 
-___
+## Properties
 
-### writeUInt8
+### buffer
 
-▸ **writeUInt8**(`value`, `offset?`): [`BufferChain`](BufferChain.md)
+> **buffer**: `Buffer`
+
+## Methods
+
+### writeInt16BE()
+
+> **writeInt16BE**(`value`, `offset`?): [`BufferChain`](BufferChain.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `value` | `number` |
-| `offset?` | `number` |
+• **value**: `number`
+
+• **offset?**: `number`
+
+#### Returns
+
+[`BufferChain`](BufferChain.md)
+
+***
+
+### writeUInt8()
+
+> **writeUInt8**(`value`, `offset`?): [`BufferChain`](BufferChain.md)
+
+#### Parameters
+
+• **value**: `number`
+
+• **offset?**: `number`
 
 #### Returns
 

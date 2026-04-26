@@ -1,13 +1,13 @@
 import {
-  isMedia,
   MediaStreamTrack,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
+  deserializeAudioLevelIndication,
+  isMedia,
+  serializeAudioLevelIndication,
   useSdesMid,
 } from "../../src";
-
-jest.setTimeout(10_000);
 
 describe("media", () => {
   test("test_sendonly_recvonly", async () =>
@@ -20,7 +20,7 @@ describe("media", () => {
         .then(() => {
           const rtpPacket = new RtpPacket(
             new RtpHeader(),
-            Buffer.from("test")
+            Buffer.from("test"),
           ).serialize();
           expect(isMedia(rtpPacket)).toBe(true);
           track.writeRtp(rtpPacket);
@@ -62,7 +62,7 @@ describe("media", () => {
             transceiver.sender.onReady.subscribe(() => {
               const rtpPacket = new RtpPacket(
                 new RtpHeader(),
-                Buffer.from("pc1")
+                Buffer.from("pc1"),
               ).serialize();
               expect(isMedia(rtpPacket)).toBe(true);
               track.writeRtp(rtpPacket);
@@ -74,7 +74,7 @@ describe("media", () => {
             transceiver.sender.onReady.subscribe(() => {
               const rtpPacket = new RtpPacket(
                 new RtpHeader(),
-                Buffer.from("pc2")
+                Buffer.from("pc2"),
               ).serialize();
               expect(isMedia(rtpPacket)).toBe(true);
               track.writeRtp(rtpPacket);
@@ -108,18 +108,58 @@ describe("media", () => {
     });
 
     await pc1.setLocalDescription(await pc1.createOffer());
-    //@ts-expect-error
     const pc1Local = pc1._localDescription!;
     expect(pc1Local.media[0].rtp.headerExtensions[0].uri).toBe(
-      useSdesMid().uri
+      useSdesMid().uri,
     );
     await pc2.setRemoteDescription(pc1.localDescription!);
     await pc2.setLocalDescription(await pc2.createAnswer());
-    //@ts-expect-error
     const pc2Local = pc2._localDescription!;
     expect(pc2Local.media[0].rtp.headerExtensions[0].uri).toBe(
-      useSdesMid().uri
+      useSdesMid().uri,
     );
     await pc1.setRemoteDescription(pc2.localDescription!);
   });
+
+  test("test_sendonly_recvonly_audioLevel", async () =>
+    new Promise<void>(async (done) => {
+      const sendonly = new RTCPeerConnection();
+      const track = new MediaStreamTrack({ kind: "audio" });
+      sendonly.addTransceiver(track, { direction: "sendonly" });
+      sendonly.connectionStateChange
+        .watch((v) => v === "connected")
+        .then(() => {
+          const rtpPacket = new RtpPacket(
+            new RtpHeader({
+              extensions: [
+                { id: 10, payload: serializeAudioLevelIndication(25) },
+              ],
+            }),
+            Buffer.from("test"),
+          ).serialize();
+          expect(isMedia(rtpPacket)).toBe(true);
+          track.writeRtp(rtpPacket);
+        });
+
+      const recvonly = new RTCPeerConnection();
+      recvonly.onRemoteTransceiverAdded.subscribe((transceiver) => {
+        transceiver.onTrack.subscribe((track) => {
+          track.onReceiveRtp.subscribe(async (rtp) => {
+            expect(rtp.header.extensions[0].id).toBe(10);
+            expect(
+              deserializeAudioLevelIndication(rtp.header.extensions[0].payload)
+                .level,
+            ).toEqual(25);
+            expect(rtp.payload).toEqual(Buffer.from("test"));
+            await Promise.all([sendonly.close(), recvonly.close()]);
+            done();
+          });
+        });
+      });
+
+      await sendonly.setLocalDescription(await sendonly.createOffer());
+      await recvonly.setRemoteDescription(sendonly.localDescription!);
+      await recvonly.setLocalDescription(await recvonly.createAnswer());
+      await sendonly.setRemoteDescription(recvonly.localDescription!);
+    }));
 });

@@ -1,14 +1,12 @@
-import inRange from "lodash/inRange";
+import { setTimeout } from "timers/promises";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
-  createSelfSignedCertificate,
-  RTCDataChannel,
+  type RTCDataChannel,
   RTCPeerConnection,
+  createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
-
-jest.setTimeout(10_000);
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
@@ -17,7 +15,7 @@ describe("peerConnection", () => {
       const pc2 = new RTCPeerConnection({});
 
       pc2.onDataChannel.subscribe((channel) => {
-        channel.message.subscribe((data) => {
+        channel.onMessage.subscribe((data) => {
           expect(data.toString()).toBe("hello");
           done();
         });
@@ -50,7 +48,7 @@ describe("peerConnection", () => {
 
       expect(pc1.localDescription!.sdp.includes("m=application ")).toBeTruthy();
       expect(
-        pc1.localDescription!.sdp.includes("a=sctp-port:5000")
+        pc1.localDescription!.sdp.includes("a=sctp-port:5000"),
       ).toBeTruthy();
       assertHasIceCandidate(pc1.localDescription!.sdp);
       assertHasDtls(pc1.localDescription!.sdp, "actpass");
@@ -70,7 +68,7 @@ describe("peerConnection", () => {
       // expect(pc2.iceGatheringState).toBe("complete");
       expect(pc2.localDescription!.sdp.includes("m=application ")).toBeTruthy();
       expect(
-        pc2.localDescription!.sdp.includes("a=sctp-port:5000")
+        pc2.localDescription!.sdp.includes("a=sctp-port:5000"),
       ).toBeTruthy();
       assertHasIceCandidate(pc2.localDescription!.sdp);
       assertHasDtls(pc2.localDescription!.sdp, "active");
@@ -94,7 +92,7 @@ describe("peerConnection", () => {
       const dc = pcOffer.createDataChannel("chat");
 
       pcAnswer.onDataChannel.subscribe((channel) => {
-        channel.message.subscribe(async (data) => {
+        channel.onMessage.subscribe(async (data) => {
           expect(data.toString()).toBe("hello");
           channel.close();
           await Promise.all([
@@ -135,15 +133,49 @@ describe("peerConnection", () => {
       await assertDataChannelOpen(dc);
     }));
 
-  xtest("portRange", async () => {
+  test("rejects_tampered_remote_fingerprint", async () => {
+    const caller = new RTCPeerConnection({});
+    const callee = new RTCPeerConnection({});
+    const channel = caller.createDataChannel("chat");
+    let remoteChannelOpened = false;
+
+    callee.onDataChannel.subscribe((remoteChannel) => {
+      remoteChannel.stateChanged.subscribe((state) => {
+        if (state === "open") {
+          remoteChannelOpened = true;
+        }
+      });
+    });
+
+    await caller.setLocalDescription(await caller.createOffer());
+    await callee.setRemoteDescription(caller.localDescription!);
+
+    const answer = await callee.createAnswer()!;
+    await callee.setLocalDescription({
+      type: answer.type,
+      sdp: tamperFingerprints(answer.sdp),
+    });
+    await caller.setRemoteDescription(callee.localDescription!);
+
+    await waitForConnectionState(caller, "failed");
+    await setTimeout(200);
+
+    expect(caller.connectionState).toBe("failed");
+    expect(channel.readyState).not.toBe("open");
+    expect(remoteChannelOpened).toBeFalsy();
+
+    await Promise.allSettled([caller.close(), callee.close()]);
+  });
+
+  test.skip("portRange", async () => {
     const peer = new RTCPeerConnection({ icePortRange: [44444, 44455] });
     peer.createDataChannel("test");
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
 
-    const candidates = peer.iceTransports[0].iceGather.localCandidates;
+    const candidates = peer.iceTransports[0].localCandidates;
     for (const candidate of candidates) {
-      expect(inRange(candidate.port, 44444, 44455)).toBeTruthy();
+      expect(candidate.port >= 44444 && candidate.port < 44455).toBeTruthy();
     }
     await peer.close();
   });
@@ -164,6 +196,107 @@ describe("peerConnection", () => {
 
     a.close();
     b.close();
+  });
+
+  test("advertises configured local max-message-size in offer and answer", async () => {
+    const caller = new RTCPeerConnection({ maxMessageSize: 1234 });
+    const callee = new RTCPeerConnection({ maxMessageSize: 0 });
+    caller.createDataChannel("chat");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      expect(caller.localDescription!.sdp).toContain("a=max-message-size:1234");
+
+      await callee.setRemoteDescription(caller.localDescription!);
+      expect(callee.sctpTransport!.remoteMaxMessageSize).toBe(1234);
+
+      await callee.setLocalDescription(await callee.createAnswer());
+      expect(callee.localDescription!.sdp).toContain("a=max-message-size:0");
+
+      await caller.setRemoteDescription(callee.localDescription!);
+      expect(caller.sctpTransport!.remoteMaxMessageSize).toBe(0);
+    } finally {
+      await caller.close();
+      await callee.close();
+    }
+  });
+
+  test("respects remote max-message-size advertised in answer", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 10),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(10);
+      expect(() => dc.send(Buffer.from("hello world"))).toThrow(
+        "max-message-size exceeded",
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("defaults remote max-message-size to 65536 when omitted from answer", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      removeMaxMessageSize(sdp),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(65536);
+      const withinDefaultLimit = Buffer.alloc(65536, 1);
+      expect(() => dc.send(withinDefaultLimit)).not.toThrow();
+      expect(() => dc.send(Buffer.alloc(65537, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("treats remote max-message-size 0 as unlimited", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 0),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(0);
+      const payload = Buffer.alloc(1024, 1);
+      expect(() => dc.send(payload)).not.toThrow();
+      expect(dc.messagesSent).toBe(1);
+      expect(dc.bytesSent).toBe(payload.length);
+      expect(dc.bufferedAmount).toBe(payload.length);
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("updates remote max-message-size when a renegotiated answer changes it", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 10),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(10);
+      expect(() => dc.send(Buffer.alloc(11, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+
+      await renegotiateDataChannelWithRemoteAnswer(pc1, pc2, (sdp) =>
+        replaceMaxMessageSize(sdp, 20),
+      );
+
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(20);
+      expect(() => dc.send(Buffer.alloc(11, 1))).not.toThrow();
+      expect(() => dc.send(Buffer.alloc(21, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
   });
 });
 
@@ -189,7 +322,7 @@ describe("initial config", () => {
         };
 
         callee.onDataChannel.subscribe((channel) => {
-          channel.message.once(() => {
+          channel.onMessage.once(() => {
             caller.close();
             callee.close();
             done();
@@ -222,7 +355,7 @@ describe("initial config", () => {
         };
 
         callee.onDataChannel.subscribe((channel) => {
-          channel.message.once(() => {
+          channel.onMessage.once(() => {
             caller.close();
             callee.close();
             done();
@@ -255,7 +388,7 @@ describe("initial config", () => {
         };
 
         callee.onDataChannel.subscribe((channel) => {
-          channel.message.once(() => {
+          channel.onMessage.once(() => {
             caller.close();
             callee.close();
             done();
@@ -282,21 +415,30 @@ function assertHasDtls(sdp: string, setup: string) {
 
 async function assertIceCompleted(
   pc1: RTCPeerConnection,
-  pc2: RTCPeerConnection
+  pc2: RTCPeerConnection,
 ) {
-  const wait = (pc: RTCPeerConnection) =>
-    new Promise<void>((r) => {
+  const wait = (pc: RTCPeerConnection) => {
+    if (pc.iceConnectionState === "completed") {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((r) => {
       pc.iceConnectionStateChange.subscribe((v) => {
         if (v === "completed") {
           r();
         }
       });
     });
+  };
 
   await Promise.all([wait(pc1), wait(pc2)]);
 }
 
 async function assertDataChannelOpen(dc: RTCDataChannel) {
+  if (dc.readyState === "open") {
+    return;
+  }
+
   return new Promise<void>((r) => {
     dc.stateChanged.subscribe((v) => {
       if (v === "open") {
@@ -304,4 +446,75 @@ async function assertDataChannelOpen(dc: RTCDataChannel) {
       }
     });
   });
+}
+
+function removeMaxMessageSize(sdp: string) {
+  return sdp
+    .split(/\r\n|\n/)
+    .filter((line) => !line.startsWith("a=max-message-size:"))
+    .join("\r\n");
+}
+
+function replaceMaxMessageSize(sdp: string, size: number) {
+  return sdp.replace(/a=max-message-size:\d+/, `a=max-message-size:${size}`);
+}
+
+async function prepareDataChannelWithRemoteAnswer(
+  mutateAnswerSdp: (sdp: string) => string,
+) {
+  const pc1 = new RTCPeerConnection({});
+  const pc2 = new RTCPeerConnection({});
+  const dc = pc1.createDataChannel("chat");
+
+  await renegotiateDataChannelWithRemoteAnswer(pc1, pc2, mutateAnswerSdp);
+
+  return { pc1, pc2, dc };
+}
+
+async function renegotiateDataChannelWithRemoteAnswer(
+  pc1: RTCPeerConnection,
+  pc2: RTCPeerConnection,
+  mutateAnswerSdp: (sdp: string) => string,
+) {
+  await pc1.setLocalDescription(await pc1.createOffer());
+  await pc2.setRemoteDescription(pc1.localDescription!);
+
+  const answer = await pc2.createAnswer();
+  const mutatedAnswer = {
+    type: "answer" as const,
+    sdp: mutateAnswerSdp(answer.sdp),
+  };
+  await pc1.setRemoteDescription(mutatedAnswer);
+  await pc2.setLocalDescription(mutatedAnswer);
+}
+
+async function waitForConnectionState(
+  pc: RTCPeerConnection,
+  expected: "failed" | "connected",
+) {
+  if (pc.connectionState === expected) {
+    return;
+  }
+
+  return new Promise<void>((resolve) => {
+    pc.connectionStateChange.subscribe((state) => {
+      if (state === expected) {
+        resolve();
+      }
+    });
+  });
+}
+
+function tamperFingerprints(sdp: string) {
+  return sdp.replace(
+    /a=fingerprint:([^\s]+) ([0-9A-Fa-f:]+)/g,
+    (_, algorithm: string, value: string) =>
+      `a=fingerprint:${algorithm} ${mutateFingerprint(value)}`,
+  );
+}
+
+function mutateFingerprint(value: string) {
+  const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
+  const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
+  return flipped.match(/.{2}/g)!.join(":");
 }

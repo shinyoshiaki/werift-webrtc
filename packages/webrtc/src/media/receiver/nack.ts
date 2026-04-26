@@ -1,14 +1,13 @@
-import debug from "debug";
-import range from "lodash/range";
-import Event from "rx.mini";
+import { Event } from "../../imports/common";
 
-import { uint16Add } from "../../../../common/src";
+import { uint16Add } from "../../imports/common";
 import {
   GenericNack,
   RtcpTransportLayerFeedback,
-  RtpPacket,
-} from "../../../../rtp/src";
-import { RTCRtpReceiver } from "../rtpReceiver";
+  type RtpPacket,
+  debug,
+} from "../../imports/rtp";
+import type { RTCRtpReceiver } from "../rtpReceiver";
 
 const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
 
@@ -30,11 +29,11 @@ export class NackHandler {
     return Object.keys(this._lost).map(Number).sort();
   }
 
-  getLost(seq: number) {
+  private getLost(seq: number) {
     return this._lost[seq];
   }
 
-  setLost(seq: number, count: number) {
+  private setLost(seq: number, count: number) {
     this._lost[seq] = count;
 
     if (this.nackLoop || this.closed) {
@@ -53,7 +52,7 @@ export class NackHandler {
     }, 5);
   }
 
-  removeLost(sequenceNumber: number) {
+  private removeLost(sequenceNumber: number) {
     delete this._lost[sequenceNumber];
   }
 
@@ -76,9 +75,13 @@ export class NackHandler {
       this.newEstSeqNum = sequenceNumber;
     } else if (sequenceNumber > uint16Add(this.newEstSeqNum, 1)) {
       // packet lost detected
-      range(uint16Add(this.newEstSeqNum, 1), sequenceNumber).forEach((seq) => {
-        this.setLost(seq, 1);
-      });
+      for (
+        let i = uint16Add(this.newEstSeqNum, 1);
+        i < sequenceNumber;
+        i = uint16Add(i, 1)
+      ) {
+        this.setLost(i, 1);
+      }
       // this.receiver.sendRtcpPLI(this.mediaSourceSsrc);
 
       this.newEstSeqNum = sequenceNumber;
@@ -90,10 +93,13 @@ export class NackHandler {
     if (this.lostSeqNumbers.length > LOST_SIZE) {
       this._lost = Object.entries(this._lost)
         .slice(-LOST_SIZE)
-        .reduce((acc, [key, v]) => {
-          acc[key] = v;
-          return acc;
-        }, {} as { [seqNum: number]: number });
+        .reduce(
+          (acc, [key, v]) => {
+            acc[key] = v;
+            return acc;
+          },
+          {} as { [seqNum: number]: number },
+        );
     }
   }
 
@@ -121,7 +127,7 @@ export class NackHandler {
           mediaSourceSsrc: this.mediaSourceSsrc,
           lost: this.lostSeqNumbers,
         });
-        // log("sendNack", nack.toJSON());
+
         const rtcp = new RtcpTransportLayerFeedback({
           feedback: nack,
         });

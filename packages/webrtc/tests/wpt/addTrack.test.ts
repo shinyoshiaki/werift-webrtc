@@ -1,8 +1,6 @@
 import { MediaStreamTrack, RTCPeerConnection } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 
-jest.setTimeout(10_000);
-
 // https://github.com/web-platform-tests/wpt/blob/master/webrtc/RTCPeerConnection-addTrack.https.html
 
 describe("peerConnection/addTrack", () => {
@@ -46,7 +44,7 @@ describe("peerConnection/addTrack", () => {
     const track = new MediaStreamTrack({ kind: "audio" });
 
     pc.addTrack(track);
-    expect(() => pc.addTrack(track)).toThrowError("track exist");
+    expect(() => pc.addTrack(track)).toThrowError("Track already added");
 
     await pc.close();
   });

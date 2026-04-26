@@ -1,12 +1,9 @@
-import {
-  HashAlgorithms,
-  SignatureAlgorithm,
-} from "../../dtls/src/cipher/const";
+import { type HashAlgorithms, SignatureAlgorithm } from "./imports/dtls";
 import {
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
-} from "../../dtls/src/context/srtp";
-import { DtlsRole } from "./transport/dtls";
+} from "./imports/rtp";
+import type { DtlsRole } from "./transport/dtls";
 
 // data channel export constants
 export const DATA_CHANNEL_ACK = 2;
@@ -37,7 +34,7 @@ export const DTLS_ROLE_SETUP = {
   server: "passive",
 };
 export const DTLS_SETUP_ROLE: { [key: string]: DtlsRole } = Object.keys(
-  DTLS_ROLE_SETUP
+  DTLS_ROLE_SETUP,
 ).reduce((acc, cur) => {
   const key = (DTLS_ROLE_SETUP as any)[cur];
   acc[key] = cur;
@@ -63,4 +60,4 @@ export const SRTP_PROFILE = {
 export const SenderDirections = ["sendonly", "sendrecv"];
 export const ReceiverDirection = ["sendrecv", "recvonly"];
 
-export { HashAlgorithms, SignatureAlgorithm };
+export { type HashAlgorithms, SignatureAlgorithm };

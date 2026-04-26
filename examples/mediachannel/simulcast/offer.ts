@@ -1,9 +1,9 @@
+import { Server } from "ws";
 import {
   RTCPeerConnection,
-  useSdesRTPStreamId,
   useRepairedRtpStreamId,
+  useSdesRTPStreamId,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -16,7 +16,7 @@ server.on("connection", async (socket) => {
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
+    console.log("pc.iceConnectionStateChange", v),
   );
 
   const transceiver = pc.addTransceiver("video", {

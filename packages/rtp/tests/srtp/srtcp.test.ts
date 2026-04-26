@@ -1,13 +1,13 @@
 import { RtcpReceiverInfo, RtcpRrPacket } from "../../src/rtcp/rr";
 import { RtcpPacketConverter } from "../../src/rtcp/rtcp";
-import { Config } from "../../src/srtp/session";
+import type { Config } from "../../src/srtp/session";
 import { SrtcpSession } from "../../src/srtp/srtcp";
-import { Transport } from "../../src/transport";
+import type { Transport } from "../../src/transport";
 import { createMockTransportPair } from "../utils";
 
 function buildSessionSRTCPPair(): [
   { session: SrtcpSession; transport: Transport },
-  { session: SrtcpSession; transport: Transport }
+  { session: SrtcpSession; transport: Transport },
 ] {
   const config: Config = {
     profile: 0x0001,

@@ -1,5 +1,4 @@
-import debug from "debug";
-
+import { debug } from "../imports/common";
 import { RTCP_HEADER_SIZE, RtcpHeader } from "./header";
 import { RtcpPayloadSpecificFeedback } from "./psfb";
 import { RtcpRrPacket } from "./rr";
@@ -17,29 +16,13 @@ export type RtcpPacket =
   | RtcpTransportLayerFeedback;
 
 export class RtcpPacketConverter {
-  static serialize(
-    type: number,
-    count: number,
-    payload: Buffer,
-    length: number
-  ) {
-    const header = new RtcpHeader({
-      type,
-      count,
-      version: 2,
-      length,
-    });
-    const buf = header.serialize();
-    return Buffer.concat([buf, payload]);
-  }
-
   static deSerialize(data: Buffer) {
     let pos = 0;
     const packets: RtcpPacket[] = [];
 
     while (pos < data.length) {
       const header = RtcpHeader.deSerialize(
-        data.subarray(pos, pos + RTCP_HEADER_SIZE)
+        data.subarray(pos, pos + RTCP_HEADER_SIZE),
       );
       pos += RTCP_HEADER_SIZE;
 
@@ -60,17 +43,17 @@ export class RtcpPacketConverter {
             break;
           case RtcpSourceDescriptionPacket.type:
             packets.push(
-              RtcpSourceDescriptionPacket.deSerialize(payload, header)
+              RtcpSourceDescriptionPacket.deSerialize(payload, header),
             );
             break;
           case RtcpTransportLayerFeedback.type:
             packets.push(
-              RtcpTransportLayerFeedback.deSerialize(payload, header)
+              RtcpTransportLayerFeedback.deSerialize(payload, header),
             );
             break;
           case RtcpPayloadSpecificFeedback.type:
             packets.push(
-              RtcpPayloadSpecificFeedback.deSerialize(payload, header)
+              RtcpPayloadSpecificFeedback.deSerialize(payload, header),
             );
             break;
           default:
@@ -84,4 +67,8 @@ export class RtcpPacketConverter {
 
     return packets;
   }
+}
+
+export function isRtcp(buf: Buffer) {
+  return buf.length >= 2 && buf[1] >= 192 && buf[1] <= 208;
 }

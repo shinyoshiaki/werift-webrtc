@@ -1,5 +1,5 @@
-import { RTCPeerConnection } from "../../packages/webrtc/src";
 import io from "socket.io-client";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 
 const socket = io("https://serene-anchorage-28732.herokuapp.com/");
 
@@ -21,7 +21,7 @@ socket.on("sdp", async (data: any) => {
   });
 
   pc.onDataChannel.subscribe((channel) => {
-    channel.message.subscribe((data) => {
+    channel.onMessage.subscribe((data) => {
       console.log("answer message", data.toString());
     });
     setInterval(() => channel.send(Buffer.from("ping")), 1000);

@@ -1,28 +1,25 @@
+import { createSign, randomBytes, webcrypto } from "crypto";
 import { Certificate, PrivateKey } from "@fidm/x509";
-import { Crypto } from "@peculiar/webcrypto";
 import * as x509 from "@peculiar/x509";
-import { decode, encode, types } from "binary-data";
-import nodeCrypto, { createSign } from "crypto";
-import addYears from "date-fns/addYears";
+import { encode, types } from "@shinyoshiaki/binary-data";
 
 import {
-  CipherSuites,
+  type CipherSuites,
   CurveType,
   HashAlgorithm,
   NamedCurveAlgorithm,
-  NamedCurveAlgorithms,
+  type NamedCurveAlgorithms,
   SignatureAlgorithm,
-  SignatureHash,
+  type SignatureHash,
 } from "../cipher/const";
-import { NamedCurveKeyPair } from "../cipher/namedCurve";
+import type { NamedCurveKeyPair } from "../cipher/namedCurve";
 import { prfVerifyDataClient, prfVerifyDataServer } from "../cipher/prf";
-import { SessionType, SessionTypes } from "../cipher/suites/abstract";
-import AEADCipher from "../cipher/suites/aead";
-import { ProtocolVersion } from "../handshake/binary";
-import { DtlsRandom } from "../handshake/random";
-import { DtlsPlaintext } from "../record/message/plaintext";
+import { SessionType, type SessionTypes } from "../cipher/suites/abstract";
+import type AEADCipher from "../cipher/suites/aead";
+import type { DtlsRandom } from "../handshake/random";
+import type { DtlsPlaintext } from "../record/message/plaintext";
 
-const crypto = new Crypto();
+const crypto = webcrypto;
 x509.cryptoProvider.set(crypto as any);
 
 export class CipherContext {
@@ -43,7 +40,7 @@ export class CipherContext {
     public sessionType: SessionTypes,
     public certPem?: string,
     public keyPem?: string,
-    signatureHashAlgorithm?: SignatureHash
+    signatureHashAlgorithm?: SignatureHash,
   ) {
     if (certPem && keyPem && signatureHashAlgorithm) {
       this.parseX509(certPem, keyPem, signatureHashAlgorithm);
@@ -57,7 +54,7 @@ export class CipherContext {
    */
   static createSelfSignedCertificateWithKey = async (
     signatureHash: SignatureHash,
-    namedCurveAlgorithm?: NamedCurveAlgorithms
+    namedCurveAlgorithm?: NamedCurveAlgorithms,
   ) => {
     const signatureAlgorithmName = (() => {
       switch (signatureHash.signature) {
@@ -103,13 +100,16 @@ export class CipherContext {
       }
     })();
 
-    const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
+    const keys = (await crypto.subtle.generateKey(alg, true, [
+      "sign",
+      "verify",
+    ])) as webcrypto.CryptoKeyPair;
 
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      serialNumber: nodeCrypto.randomBytes(8).toString("hex"),
+      serialNumber: randomBytes(8).toString("hex"),
       name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
       notBefore: new Date(),
-      notAfter: addYears(Date.now(), 10),
+      notAfter: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
       signingAlgorithm: alg,
       keys,
     });
@@ -117,7 +117,7 @@ export class CipherContext {
     const certPem = cert.toString("pem");
     const keyPem = x509.PemConverter.encode(
       await crypto.subtle.exportKey("pkcs8", keys.privateKey as any),
-      "private key"
+      "private key",
     );
 
     return { certPem, keyPem, signatureHash };
@@ -125,12 +125,11 @@ export class CipherContext {
 
   encryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;
+    const version =
+      (header.protocolVersion.major << 8) | header.protocolVersion.minor;
     const enc = this.cipher.encrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
-      version: decode(
-        Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
-        { version: types.uint16be }
-      ).version,
+      version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
     });
@@ -141,12 +140,11 @@ export class CipherContext {
 
   decryptPacket(pkt: DtlsPlaintext) {
     const header = pkt.recordLayerHeader;
+    const version =
+      (header.protocolVersion.major << 8) | header.protocolVersion.minor;
     const dec = this.cipher.decrypt(this.sessionType, pkt.fragment, {
       type: header.contentType,
-      version: decode(
-        Buffer.from(encode(header.protocolVersion, ProtocolVersion).slice()),
-        { version: types.uint16be }
-      ).version,
+      version,
       epoch: header.epoch,
       sequenceNumber: header.sequenceNumber,
     });
@@ -180,7 +178,7 @@ export class CipherContext {
       clientRandom.serialize(),
       serverRandom.serialize(),
       this.localKeyPair.publicKey,
-      this.namedCurve
+      this.namedCurve,
     );
 
     const enc = this.localPrivateKey.sign(sig, hashAlgorithm);
@@ -199,7 +197,7 @@ export class CipherContext {
     clientRandom: Buffer,
     serverRandom: Buffer,
     publicKey: Buffer,
-    namedCurve: number
+    namedCurve: number,
   ) {
     const serverParams = Buffer.from(
       encode(
@@ -208,8 +206,8 @@ export class CipherContext {
           curve: namedCurve,
           len: publicKey.length,
         },
-        { type: types.uint8, curve: types.uint16be, len: types.uint8 }
-      ).slice()
+        { type: types.uint8, curve: types.uint16be, len: types.uint8 },
+      ).slice(),
     );
     return Buffer.concat([clientRandom, serverRandom, serverParams, publicKey]);
   }

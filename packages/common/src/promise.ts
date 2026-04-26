@@ -31,4 +31,8 @@ export class PromiseQueue {
       this.running = false;
     }
   }
+
+  cancel() {
+    this.queue = [];
+  }
 }

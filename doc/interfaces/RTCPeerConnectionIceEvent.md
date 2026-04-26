@@ -1,15 +1,13 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCPeerConnectionIceEvent
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCPeerConnectionIceEvent
 
 # Interface: RTCPeerConnectionIceEvent
 
-## Table of contents
-
-### Properties
-
-- [candidate](RTCPeerConnectionIceEvent.md#candidate)
-
 ## Properties
 
-### candidate
+### candidate?
 
-• **candidate**: [`RTCIceCandidate`](../classes/RTCIceCandidate.md)
+> `optional` **candidate**: [`RTCIceCandidate`](../classes/RTCIceCandidate.md)

@@ -1,90 +1,106 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RtcpSrPacket
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RtcpSrPacket
 
 # Class: RtcpSrPacket
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpSrPacket.md#constructor)
-
-### Properties
-
-- [reports](RtcpSrPacket.md#reports)
-- [senderInfo](RtcpSrPacket.md#senderinfo)
-- [ssrc](RtcpSrPacket.md#ssrc)
-- [type](RtcpSrPacket.md#type)
-- [type](RtcpSrPacket.md#type-1)
-
-### Methods
-
-- [serialize](RtcpSrPacket.md#serialize)
-- [deSerialize](RtcpSrPacket.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpSrPacket()
 
-• **new RtcpSrPacket**(`props`)
+> **new RtcpSrPacket**(`props`): [`RtcpSrPacket`](RtcpSrPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Pick`<[`RtcpSrPacket`](RtcpSrPacket.md), ``"senderInfo"``\> & `Partial`<[`RtcpSrPacket`](RtcpSrPacket.md)\> |
+• **props**: `Pick`\<[`RtcpSrPacket`](RtcpSrPacket.md), `"senderInfo"`\> & `Partial`\<[`RtcpSrPacket`](RtcpSrPacket.md)\>
+
+#### Returns
+
+[`RtcpSrPacket`](RtcpSrPacket.md)
 
 ## Properties
 
 ### reports
 
-• **reports**: [`RtcpReceiverInfo`](RtcpReceiverInfo.md)[] = `[]`
+> **reports**: [`RtcpReceiverInfo`](RtcpReceiverInfo.md)[] = `[]`
 
-___
+***
 
 ### senderInfo
 
-• **senderInfo**: [`RtcpSenderInfo`](RtcpSenderInfo.md)
+> **senderInfo**: [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
-___
+***
 
 ### ssrc
 
-• **ssrc**: `number` = `0`
+> **ssrc**: `number` = `0`
 
-___
-
-### type
-
-• `Readonly` **type**: ``200``
-
-___
+***
 
 ### type
 
-▪ `Static` `Readonly` **type**: ``200``
+> `readonly` **type**: `200` = `RtcpSrPacket.type`
+
+***
+
+### type
+
+> `readonly` `static` **type**: `200` = `200`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### toJSON()
 
-▸ `Static` **deSerialize**(`payload`, `count`): [`RtcpSrPacket`](RtcpSrPacket.md)
+> **toJSON**(): `object`
+
+#### Returns
+
+`object`
+
+##### reports
+
+> **reports**: `object`[]
+
+##### senderInfo
+
+> **senderInfo**: `object`
+
+##### senderInfo.ntpTimestamp
+
+> **ntpTimestamp**: `number`
+
+##### senderInfo.rtpTimestamp
+
+> **rtpTimestamp**: `number`
+
+##### ssrc
+
+> **ssrc**: `number`
+
+***
+
+### deSerialize()
+
+> `static` **deSerialize**(`payload`, `count`): [`RtcpSrPacket`](RtcpSrPacket.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `payload` | `Buffer` |
-| `count` | `number` |
+• **payload**: `Buffer`
+
+• **count**: `number`
 
 #### Returns
 

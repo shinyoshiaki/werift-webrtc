@@ -1,224 +1,172 @@
-[werift](../README.md) / [Exports](../modules.md) / MediaStreamTrack
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / MediaStreamTrack
 
 # Class: MediaStreamTrack
 
-## Hierarchy
+## Extends
 
 - `EventTarget`
 
-  ↳ **`MediaStreamTrack`**
-
-## Table of contents
-
-### Constructors
-
-- [constructor](MediaStreamTrack.md#constructor)
-
-### Properties
-
-- [codec](MediaStreamTrack.md#codec)
-- [enabled](MediaStreamTrack.md#enabled)
-- [header](MediaStreamTrack.md#header)
-- [id](MediaStreamTrack.md#id)
-- [kind](MediaStreamTrack.md#kind)
-- [label](MediaStreamTrack.md#label)
-- [muted](MediaStreamTrack.md#muted)
-- [onReceiveRtcp](MediaStreamTrack.md#onreceivertcp)
-- [onReceiveRtp](MediaStreamTrack.md#onreceivertp)
-- [onSourceChanged](MediaStreamTrack.md#onsourcechanged)
-- [remote](MediaStreamTrack.md#remote)
-- [rid](MediaStreamTrack.md#rid)
-- [ssrc](MediaStreamTrack.md#ssrc)
-- [stopped](MediaStreamTrack.md#stopped)
-- [streamId](MediaStreamTrack.md#streamid)
-- [uuid](MediaStreamTrack.md#uuid)
-- [captureRejectionSymbol](MediaStreamTrack.md#capturerejectionsymbol)
-- [captureRejections](MediaStreamTrack.md#capturerejections)
-- [defaultMaxListeners](MediaStreamTrack.md#defaultmaxlisteners)
-- [errorMonitor](MediaStreamTrack.md#errormonitor)
-
-### Methods
-
-- [addEventListener](MediaStreamTrack.md#addeventlistener)
-- [addListener](MediaStreamTrack.md#addlistener)
-- [emit](MediaStreamTrack.md#emit)
-- [eventNames](MediaStreamTrack.md#eventnames)
-- [getMaxListeners](MediaStreamTrack.md#getmaxlisteners)
-- [listenerCount](MediaStreamTrack.md#listenercount)
-- [listeners](MediaStreamTrack.md#listeners)
-- [off](MediaStreamTrack.md#off)
-- [on](MediaStreamTrack.md#on)
-- [once](MediaStreamTrack.md#once)
-- [prependListener](MediaStreamTrack.md#prependlistener)
-- [prependOnceListener](MediaStreamTrack.md#prependoncelistener)
-- [rawListeners](MediaStreamTrack.md#rawlisteners)
-- [removeAllListeners](MediaStreamTrack.md#removealllisteners)
-- [removeEventListener](MediaStreamTrack.md#removeeventlistener)
-- [removeListener](MediaStreamTrack.md#removelistener)
-- [setMaxListeners](MediaStreamTrack.md#setmaxlisteners)
-- [stop](MediaStreamTrack.md#stop)
-- [writeRtp](MediaStreamTrack.md#writertp)
-- [getEventListeners](MediaStreamTrack.md#geteventlisteners)
-- [listenerCount](MediaStreamTrack.md#listenercount-1)
-- [on](MediaStreamTrack.md#on-1)
-- [once](MediaStreamTrack.md#once-1)
-- [setMaxListeners](MediaStreamTrack.md#setmaxlisteners-1)
-
 ## Constructors
 
-### constructor
+### new MediaStreamTrack()
 
-• **new MediaStreamTrack**(`props`)
+> **new MediaStreamTrack**(`props`): [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`<[`MediaStreamTrack`](MediaStreamTrack.md)\> & `Pick`<[`MediaStreamTrack`](MediaStreamTrack.md), ``"kind"``\> |
+• **props**: `Partial`\<[`MediaStreamTrack`](MediaStreamTrack.md)\> & `Pick`\<[`MediaStreamTrack`](MediaStreamTrack.md), `"kind"`\>
+
+#### Returns
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Overrides
 
-EventTarget.constructor
+`EventTarget.constructor`
 
 ## Properties
 
-### codec
+### codec?
 
-• `Optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> `optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
-___
+***
 
 ### enabled
 
-• **enabled**: `boolean` = `true`
+> **enabled**: `boolean` = `true`
 
 todo impl
 
-___
+***
 
-### header
+### header?
 
-• `Optional` **header**: [`RtpHeader`](RtpHeader.md)
+> `optional` **header**: [`RtpHeader`](RtpHeader.md)
 
-___
+***
 
-### id
+### id?
 
-• `Optional` **id**: `string`
+> `optional` **id**: `string`
 
-___
+***
 
 ### kind
 
-• **kind**: [`Kind`](../modules.md#kind)
+> **kind**: [`Kind`](../type-aliases/Kind.md)
 
-___
+***
 
 ### label
 
-• **label**: `string`
+> **label**: `string`
 
-___
+***
 
 ### muted
 
-• **muted**: `boolean` = `true`
+> **muted**: `boolean` = `true`
 
-___
+***
 
 ### onReceiveRtcp
 
-• `Readonly` **onReceiveRtcp**: `Event`<[[`RtcpPacket`](../modules.md#rtcppacket)]\>
+> `readonly` **onReceiveRtcp**: [`Event`](Event.md)\<[[`RtcpPacket`](../type-aliases/RtcpPacket.md)]\>
 
-___
+***
 
 ### onReceiveRtp
 
-• `Readonly` **onReceiveRtp**: `Event`<[[`RtpPacket`](RtpPacket.md)]\>
+> `readonly` **onReceiveRtp**: [`Event`](Event.md)\<[[`RtpPacket`](RtpPacket.md), `Extensions?`]\>
 
-___
+***
 
 ### onSourceChanged
 
-• `Readonly` **onSourceChanged**: `Event`<[`Pick`<[`RtpHeader`](RtpHeader.md), ``"sequenceNumber"`` \| ``"timestamp"``\>]\>
+> `readonly` **onSourceChanged**: [`Event`](Event.md)\<[`Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>]\>
 
-___
+***
 
 ### remote
 
-• **remote**: `boolean` = `false`
+> **remote**: `boolean` = `false`
 
-___
+***
 
-### rid
+### rid?
 
-• `Optional` **rid**: `string`
+> `optional` **rid**: `string`
 
-___
+***
 
-### ssrc
+### ssrc?
 
-• `Optional` **ssrc**: `number`
+> `optional` **ssrc**: `number`
 
 mediaSsrc
 
-___
+***
 
 ### stopped
 
-• **stopped**: `boolean` = `false`
+> **stopped**: `boolean` = `false`
 
-___
+***
 
-### streamId
+### streamId?
 
-• `Optional` **streamId**: `string`
+> `optional` **streamId**: `string`
 
 MediaStream ID
 
-___
+***
 
 ### uuid
 
-• `Readonly` **uuid**: `string`
+> `readonly` **uuid**: `string`
 
-___
+***
 
 ### captureRejectionSymbol
 
-▪ `Static` `Readonly` **captureRejectionSymbol**: typeof [`captureRejectionSymbol`](RTCDataChannel.md#capturerejectionsymbol)
+> `readonly` `static` **captureRejectionSymbol**: *typeof* [`captureRejectionSymbol`](RTCDataChannel.md#capturerejectionsymbol)
 
 #### Inherited from
 
-EventTarget.captureRejectionSymbol
+`EventTarget.captureRejectionSymbol`
 
-___
+***
 
 ### captureRejections
 
-▪ `Static` **captureRejections**: `boolean`
+> `static` **captureRejections**: `boolean`
 
 Sets or gets the default captureRejection value for all emitters.
 
 #### Inherited from
 
-EventTarget.captureRejections
+`EventTarget.captureRejections`
 
-___
+***
 
 ### defaultMaxListeners
 
-▪ `Static` **defaultMaxListeners**: `number`
+> `static` **defaultMaxListeners**: `number`
 
 #### Inherited from
 
-EventTarget.defaultMaxListeners
+`EventTarget.defaultMaxListeners`
 
-___
+***
 
 ### errorMonitor
 
-▪ `Static` `Readonly` **errorMonitor**: typeof [`errorMonitor`](RTCDataChannel.md#errormonitor)
+> `readonly` `static` **errorMonitor**: *typeof* [`errorMonitor`](RTCDataChannel.md#errormonitor)
 
 This symbol shall be used to install a listener for only monitoring `'error'`
 events. Listeners installed using this symbol are called before the regular
@@ -230,20 +178,21 @@ regular `'error'` listener is installed.
 
 #### Inherited from
 
-EventTarget.errorMonitor
+`EventTarget.errorMonitor`
 
 ## Methods
 
-### addEventListener
+### \[captureRejectionSymbol\]()?
 
-▸ **addEventListener**(`type`, `listener`): `void`
+> `optional` **\[captureRejectionSymbol\]**(`error`, `event`, ...`args`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `type` | `string` |
-| `listener` | (...`args`: `any`[]) => `void` |
+• **error**: `Error`
+
+• **event**: `string`
+
+• ...**args**: `any`[]
 
 #### Returns
 
@@ -251,40 +200,59 @@ EventTarget.errorMonitor
 
 #### Inherited from
 
-EventTarget.addEventListener
+`EventTarget.[captureRejectionSymbol]`
 
-___
+***
 
-### addListener
+### addEventListener()
 
-▸ **addListener**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
-
-Alias for `emitter.on(eventName, listener)`.
-
-**`Since`**
-
-v0.1.26
+> **addEventListener**(`type`, `listener`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `eventName` | `string` \| `symbol` |
-| `listener` | (...`args`: `any`[]) => `void` |
+• **type**: `string`
+
+• **listener**
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`void`
 
 #### Inherited from
 
-EventTarget.addListener
+`EventTarget.addEventListener`
 
-___
+***
 
-### emit
+### addListener()
 
-▸ **emit**(`eventName`, `...args`): `boolean`
+> **addListener**(`eventName`, `listener`): `this`
+
+Alias for `emitter.on(eventName, listener)`.
+
+#### Parameters
+
+• **eventName**: `string` \| `symbol`
+
+• **listener**
+
+#### Returns
+
+`this`
+
+#### Since
+
+v0.1.26
+
+#### Inherited from
+
+`EventTarget.addListener`
+
+***
+
+### emit()
+
+> **emit**(`eventName`, ...`args`): `boolean`
 
 Synchronously calls each of the listeners registered for the event named`eventName`, in the order they were registered, passing the supplied arguments
 to each.
@@ -324,30 +292,29 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 // event with parameters 1, 2, 3, 4, 5 in third listener
 ```
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `eventName` | `string` \| `symbol` |
-| `...args` | `any`[] |
+• **eventName**: `string` \| `symbol`
+
+• ...**args**: `any`[]
 
 #### Returns
 
 `boolean`
 
+#### Since
+
+v0.1.26
+
 #### Inherited from
 
-EventTarget.emit
+`EventTarget.emit`
 
-___
+***
 
-### eventNames
+### eventNames()
 
-▸ **eventNames**(): (`string` \| `symbol`)[]
+> **eventNames**(): (`string` \| `symbol`)[]
 
 Returns an array listing the events for which the emitter has registered
 listeners. The values in the array are strings or `Symbol`s.
@@ -365,70 +332,77 @@ console.log(myEE.eventNames());
 // Prints: [ 'foo', 'bar', Symbol(symbol) ]
 ```
 
-**`Since`**
-
-v6.0.0
-
 #### Returns
 
 (`string` \| `symbol`)[]
 
+#### Since
+
+v6.0.0
+
 #### Inherited from
 
-EventTarget.eventNames
+`EventTarget.eventNames`
 
-___
+***
 
-### getMaxListeners
+### getMaxListeners()
 
-▸ **getMaxListeners**(): `number`
+> **getMaxListeners**(): `number`
 
 Returns the current max listener value for the `EventEmitter` which is either
 set by `emitter.setMaxListeners(n)` or defaults to [defaultMaxListeners](MediaStreamTrack.md#defaultmaxlisteners).
 
-**`Since`**
+#### Returns
+
+`number`
+
+#### Since
 
 v1.0.0
 
-#### Returns
-
-`number`
-
 #### Inherited from
 
-EventTarget.getMaxListeners
+`EventTarget.getMaxListeners`
 
-___
+***
 
-### listenerCount
+### listenerCount()
 
-▸ **listenerCount**(`eventName`): `number`
+> **listenerCount**(`eventName`, `listener`?): `number`
 
 Returns the number of listeners listening to the event named `eventName`.
 
-**`Since`**
-
-v3.2.0
+If `listener` is provided, it will return how many times the listener
+is found in the list of the listeners of the event.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` \| `symbol` | The name of the event being listened for |
+• **eventName**: `string` \| `symbol`
+
+The name of the event being listened for
+
+• **listener?**: `Function`
+
+The event handler function
 
 #### Returns
 
 `number`
 
+#### Since
+
+v3.2.0
+
 #### Inherited from
 
-EventTarget.listenerCount
+`EventTarget.listenerCount`
 
-___
+***
 
-### listeners
+### listeners()
 
-▸ **listeners**(`eventName`): `Function`[]
+> **listeners**(`eventName`): `Function`[]
 
 Returns a copy of the array of listeners for the event named `eventName`.
 
@@ -440,56 +414,53 @@ console.log(util.inspect(server.listeners('connection')));
 // Prints: [ [Function] ]
 ```
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `eventName` | `string` \| `symbol` |
+• **eventName**: `string` \| `symbol`
 
 #### Returns
 
 `Function`[]
 
+#### Since
+
+v0.1.26
+
 #### Inherited from
 
-EventTarget.listeners
+`EventTarget.listeners`
 
-___
+***
 
-### off
+### off()
 
-▸ **off**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **off**(`eventName`, `listener`): `this`
 
 Alias for `emitter.removeListener()`.
 
-**`Since`**
-
-v10.0.0
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `eventName` | `string` \| `symbol` |
-| `listener` | (...`args`: `any`[]) => `void` |
+• **eventName**: `string` \| `symbol`
+
+• **listener**
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v10.0.0
 
 #### Inherited from
 
-EventTarget.off
+`EventTarget.off`
 
-___
+***
 
-### on
+### on()
 
-▸ **on**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **on**(`eventName`, `listener`): `this`
 
 Adds the `listener` function to the end of the listeners array for the
 event named `eventName`. No checks are made to see if the `listener` has
@@ -517,30 +488,33 @@ myEE.emit('foo');
 //   a
 ```
 
-**`Since`**
-
-v0.1.101
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` \| `symbol` | The name of the event. |
-| `listener` | (...`args`: `any`[]) => `void` | The callback function |
+• **eventName**: `string` \| `symbol`
+
+The name of the event.
+
+• **listener**
+
+The callback function
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v0.1.101
 
 #### Inherited from
 
-EventTarget.on
+`EventTarget.on`
 
-___
+***
 
-### once
+### once()
 
-▸ **once**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **once**(`eventName`, `listener`): `this`
 
 Adds a **one-time**`listener` function for the event named `eventName`. The
 next time `eventName` is triggered, this listener is removed and then invoked.
@@ -566,30 +540,33 @@ myEE.emit('foo');
 //   a
 ```
 
-**`Since`**
-
-v0.3.0
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` \| `symbol` | The name of the event. |
-| `listener` | (...`args`: `any`[]) => `void` | The callback function |
+• **eventName**: `string` \| `symbol`
+
+The name of the event.
+
+• **listener**
+
+The callback function
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v0.3.0
 
 #### Inherited from
 
-EventTarget.once
+`EventTarget.once`
 
-___
+***
 
-### prependListener
+### prependListener()
 
-▸ **prependListener**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **prependListener**(`eventName`, `listener`): `this`
 
 Adds the `listener` function to the _beginning_ of the listeners array for the
 event named `eventName`. No checks are made to see if the `listener` has
@@ -604,30 +581,33 @@ server.prependListener('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v6.0.0
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` \| `symbol` | The name of the event. |
-| `listener` | (...`args`: `any`[]) => `void` | The callback function |
+• **eventName**: `string` \| `symbol`
+
+The name of the event.
+
+• **listener**
+
+The callback function
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v6.0.0
 
 #### Inherited from
 
-EventTarget.prependListener
+`EventTarget.prependListener`
 
-___
+***
 
-### prependOnceListener
+### prependOnceListener()
 
-▸ **prependOnceListener**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **prependOnceListener**(`eventName`, `listener`): `this`
 
 Adds a **one-time**`listener` function for the event named `eventName` to the _beginning_ of the listeners array. The next time `eventName` is triggered, this
 listener is removed, and then invoked.
@@ -640,30 +620,33 @@ server.prependOnceListener('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v6.0.0
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` \| `symbol` | The name of the event. |
-| `listener` | (...`args`: `any`[]) => `void` | The callback function |
+• **eventName**: `string` \| `symbol`
+
+The name of the event.
+
+• **listener**
+
+The callback function
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v6.0.0
 
 #### Inherited from
 
-EventTarget.prependOnceListener
+`EventTarget.prependOnceListener`
 
-___
+***
 
-### rawListeners
+### rawListeners()
 
-▸ **rawListeners**(`eventName`): `Function`[]
+> **rawListeners**(`eventName`): `Function`[]
 
 Returns a copy of the array of listeners for the event named `eventName`,
 including any wrappers (such as those created by `.once()`).
@@ -692,29 +675,27 @@ newListeners[0]();
 emitter.emit('log');
 ```
 
-**`Since`**
-
-v9.4.0
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `eventName` | `string` \| `symbol` |
+• **eventName**: `string` \| `symbol`
 
 #### Returns
 
 `Function`[]
 
+#### Since
+
+v9.4.0
+
 #### Inherited from
 
-EventTarget.rawListeners
+`EventTarget.rawListeners`
 
-___
+***
 
-### removeAllListeners
+### removeAllListeners()
 
-▸ **removeAllListeners**(`event?`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **removeAllListeners**(`event`?): `this`
 
 Removes all listeners, or those of the specified `eventName`.
 
@@ -724,36 +705,33 @@ component or module (e.g. sockets or file streams).
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `event?` | `string` \| `symbol` |
+• **event?**: `string` \| `symbol`
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v0.1.26
 
 #### Inherited from
 
-EventTarget.removeAllListeners
+`EventTarget.removeAllListeners`
 
-___
+***
 
-### removeEventListener
+### removeEventListener()
 
-▸ **removeEventListener**(`type`, `listener`): `void`
+> **removeEventListener**(`type`, `listener`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `type` | `string` |
-| `listener` | (...`args`: `any`[]) => `void` |
+• **type**: `string`
+
+• **listener**
 
 #### Returns
 
@@ -761,13 +739,13 @@ ___
 
 #### Inherited from
 
-EventTarget.removeEventListener
+`EventTarget.removeEventListener`
 
-___
+***
 
-### removeListener
+### removeListener()
 
-▸ **removeListener**(`eventName`, `listener`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **removeListener**(`eventName`, `listener`): `this`
 
 Removes the specified `listener` from the listener array for the event named`eventName`.
 
@@ -846,30 +824,29 @@ ee.emit('ping');
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
-
-v0.1.26
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `eventName` | `string` \| `symbol` |
-| `listener` | (...`args`: `any`[]) => `void` |
+• **eventName**: `string` \| `symbol`
+
+• **listener**
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`this`
+
+#### Since
+
+v0.1.26
 
 #### Inherited from
 
-EventTarget.removeListener
+`EventTarget.removeListener`
 
-___
+***
 
-### setMaxListeners
+### setMaxListeners()
 
-▸ **setMaxListeners**(`n`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **setMaxListeners**(`n`): `this`
 
 By default `EventEmitter`s will print a warning if more than `10` listeners are
 added for a particular event. This is a useful default that helps finding
@@ -878,55 +855,109 @@ modified for this specific `EventEmitter` instance. The value can be set to`Infi
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-**`Since`**
+#### Parameters
+
+• **n**: `number`
+
+#### Returns
+
+`this`
+
+#### Since
 
 v0.3.5
 
-#### Parameters
+#### Inherited from
 
-| Name | Type |
-| :------ | :------ |
-| `n` | `number` |
+`EventTarget.setMaxListeners`
+
+***
+
+### stop()
+
+> **stop**(): `void`
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`void`
+
+***
+
+### writeRtp()
+
+> **writeRtp**(`rtp`): `void`
+
+#### Parameters
+
+• **rtp**: `Buffer` \| [`RtpPacket`](RtpPacket.md)
+
+#### Returns
+
+`void`
+
+***
+
+### addAbortListener()
+
+> `static` **addAbortListener**(`signal`, `resource`): `Disposable`
+
+**`Experimental`**
+
+Listens once to the `abort` event on the provided `signal`.
+
+Listening to the `abort` event on abort signals is unsafe and may
+lead to resource leaks since another third party with the signal can
+call `e.stopImmediatePropagation()`. Unfortunately Node.js cannot change
+this since it would violate the web standard. Additionally, the original
+API makes it easy to forget to remove listeners.
+
+This API allows safely using `AbortSignal`s in Node.js APIs by solving these
+two issues by listening to the event such that `stopImmediatePropagation` does
+not prevent the listener from running.
+
+Returns a disposable so that it may be unsubscribed from more easily.
+
+```js
+import { addAbortListener } from 'node:events';
+
+function example(signal) {
+  let disposable;
+  try {
+    signal.addEventListener('abort', (e) => e.stopImmediatePropagation());
+    disposable = addAbortListener(signal, (e) => {
+      // Do something when signal is aborted.
+    });
+  } finally {
+    disposable?.[Symbol.dispose]();
+  }
+}
+```
+
+#### Parameters
+
+• **signal**: `AbortSignal`
+
+• **resource**
+
+#### Returns
+
+`Disposable`
+
+Disposable that removes the `abort` listener.
+
+#### Since
+
+v18.18.0
 
 #### Inherited from
 
-EventTarget.setMaxListeners
+`EventTarget.addAbortListener`
 
-___
+***
 
-### stop
+### getEventListeners()
 
-▸ **stop**(): `void`
-
-#### Returns
-
-`void`
-
-___
-
-### writeRtp
-
-▸ **writeRtp**(`rtp`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `rtp` | `Buffer` \| [`RtpPacket`](RtpPacket.md) |
-
-#### Returns
-
-`void`
-
-___
-
-### getEventListeners
-
-▸ `Static` **getEventListeners**(`emitter`, `name`): `Function`[]
+> `static` **getEventListeners**(`emitter`, `name`): `Function`[]
 
 Returns a copy of the array of listeners for the event named `eventName`.
 
@@ -953,30 +984,77 @@ const { getEventListeners, EventEmitter } = require('events');
 }
 ```
 
-**`Since`**
-
-v15.2.0, v14.17.0
-
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `EventEmitter` \| `_DOMEventTarget` |
-| `name` | `string` \| `symbol` |
+• **emitter**: `EventEmitter` \| `_DOMEventTarget`
+
+• **name**: `string` \| `symbol`
 
 #### Returns
 
 `Function`[]
 
+#### Since
+
+v15.2.0, v14.17.0
+
 #### Inherited from
 
-EventTarget.getEventListeners
+`EventTarget.getEventListeners`
 
-___
+***
 
-### listenerCount
+### getMaxListeners()
 
-▸ `Static` **listenerCount**(`emitter`, `eventName`): `number`
+> `static` **getMaxListeners**(`emitter`): `number`
+
+Returns the currently set max amount of listeners.
+
+For `EventEmitter`s this behaves exactly the same as calling `.getMaxListeners` on
+the emitter.
+
+For `EventTarget`s this is the only way to get the max event listeners for the
+event target. If the number of event handlers on a single EventTarget exceeds
+the max set, the EventTarget will print a warning.
+
+```js
+import { getMaxListeners, setMaxListeners, EventEmitter } from 'node:events';
+
+{
+  const ee = new EventEmitter();
+  console.log(getMaxListeners(ee)); // 10
+  setMaxListeners(11, ee);
+  console.log(getMaxListeners(ee)); // 11
+}
+{
+  const et = new EventTarget();
+  console.log(getMaxListeners(et)); // 10
+  setMaxListeners(11, et);
+  console.log(getMaxListeners(et)); // 11
+}
+```
+
+#### Parameters
+
+• **emitter**: `EventEmitter` \| `_DOMEventTarget`
+
+#### Returns
+
+`number`
+
+#### Since
+
+v18.17.0
+
+#### Inherited from
+
+`EventTarget.getMaxListeners`
+
+***
+
+### ~~listenerCount()~~
+
+> `static` **listenerCount**(`emitter`, `eventName`): `number`
 
 A class method that returns the number of listeners for the given `eventName`registered on the given `emitter`.
 
@@ -989,34 +1067,37 @@ console.log(listenerCount(myEmitter, 'event'));
 // Prints: 2
 ```
 
-**`Since`**
-
-v0.9.12
-
-**`Deprecated`**
-
-Since v3.2.0 - Use `listenerCount` instead.
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `emitter` | `EventEmitter` | The emitter to query |
-| `eventName` | `string` \| `symbol` | The event name |
+• **emitter**: `EventEmitter`
+
+The emitter to query
+
+• **eventName**: `string` \| `symbol`
+
+The event name
 
 #### Returns
 
 `number`
 
+#### Since
+
+v0.9.12
+
+#### Deprecated
+
+Since v3.2.0 - Use `listenerCount` instead.
+
 #### Inherited from
 
-EventTarget.listenerCount
+`EventTarget.listenerCount`
 
-___
+***
 
-### on
+### on()
 
-▸ `Static` **on**(`emitter`, `eventName`, `options?`): `AsyncIterableIterator`<`any`\>
+> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterableIterator`\<`any`\>
 
 ```js
 const { on, EventEmitter } = require('events');
@@ -1072,33 +1153,37 @@ const ac = new AbortController();
 process.nextTick(() => ac.abort());
 ```
 
-**`Since`**
-
-v13.6.0, v12.16.0
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `emitter` | `EventEmitter` | - |
-| `eventName` | `string` | The name of the event being listened for |
-| `options?` | `StaticEventEmitterOptions` | - |
+• **emitter**: `EventEmitter`
+
+• **eventName**: `string`
+
+The name of the event being listened for
+
+• **options?**: `StaticEventEmitterOptions`
 
 #### Returns
 
-`AsyncIterableIterator`<`any`\>
+`AsyncIterableIterator`\<`any`\>
 
 that iterates `eventName` events emitted by the `emitter`
 
+#### Since
+
+v13.6.0, v12.16.0
+
 #### Inherited from
 
-EventTarget.on
+`EventTarget.on`
 
-___
+***
 
-### once
+### once()
 
-▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
+#### once(emitter, eventName, options)
+
+> `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
 
 Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
 event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
@@ -1180,49 +1265,51 @@ ac.abort(); // Abort waiting for the event
 ee.emit('foo'); // Prints: Waiting for the event was canceled!
 ```
 
-**`Since`**
+##### Parameters
+
+• **emitter**: `_NodeEventTarget`
+
+• **eventName**: `string` \| `symbol`
+
+• **options?**: `StaticEventEmitterOptions`
+
+##### Returns
+
+`Promise`\<`any`[]\>
+
+##### Since
 
 v11.13.0, v10.16.0
 
-#### Parameters
+##### Inherited from
 
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `_NodeEventTarget` |
-| `eventName` | `string` \| `symbol` |
-| `options?` | `StaticEventEmitterOptions` |
+`EventTarget.once`
 
-#### Returns
+#### once(emitter, eventName, options)
 
-`Promise`<`any`[]\>
+> `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
 
-#### Inherited from
+##### Parameters
 
-EventTarget.once
+• **emitter**: `_DOMEventTarget`
 
-▸ `Static` **once**(`emitter`, `eventName`, `options?`): `Promise`<`any`[]\>
+• **eventName**: `string`
 
-#### Parameters
+• **options?**: `StaticEventEmitterOptions`
 
-| Name | Type |
-| :------ | :------ |
-| `emitter` | `_DOMEventTarget` |
-| `eventName` | `string` |
-| `options?` | `StaticEventEmitterOptions` |
+##### Returns
 
-#### Returns
+`Promise`\<`any`[]\>
 
-`Promise`<`any`[]\>
+##### Inherited from
 
-#### Inherited from
+`EventTarget.once`
 
-EventTarget.once
+***
 
-___
+### setMaxListeners()
 
-### setMaxListeners
-
-▸ `Static` **setMaxListeners**(`n?`, `...eventTargets`): `void`
+> `static` **setMaxListeners**(`n`?, ...`eventTargets`?): `void`
 
 ```js
 const {
@@ -1236,21 +1323,22 @@ const emitter = new EventEmitter();
 setMaxListeners(5, target, emitter);
 ```
 
-**`Since`**
-
-v15.4.0
-
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `n?` | `number` | A non-negative number. The maximum number of listeners per `EventTarget` event. |
-| `...eventTargets` | (`EventEmitter` \| `_DOMEventTarget`)[] | - |
+• **n?**: `number`
+
+A non-negative number. The maximum number of listeners per `EventTarget` event.
+
+• ...**eventTargets?**: (`EventEmitter` \| `_DOMEventTarget`)[]
 
 #### Returns
 
 `void`
 
+#### Since
+
+v15.4.0
+
 #### Inherited from
 
-EventTarget.setMaxListeners
+`EventTarget.setMaxListeners`

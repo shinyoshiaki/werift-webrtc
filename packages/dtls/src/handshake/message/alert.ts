@@ -1,4 +1,4 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 export class Alert {
   static readonly spec = {
@@ -6,12 +6,15 @@ export class Alert {
     description: types.uint8,
   };
 
-  constructor(public level: number, public description: number) {}
+  constructor(
+    public level: number,
+    public description: number,
+  ) {}
 
   static deSerialize(buf: Buffer) {
     return new Alert(
       //@ts-ignore
-      ...Object.values(decode(buf, Alert.spec))
+      ...Object.values(decode(buf, Alert.spec)),
     );
   }
 

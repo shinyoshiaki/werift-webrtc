@@ -1,9 +1,9 @@
-import express from "express";
-import cors from "cors";
-import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
-import * as yargs from "yargs";
-import axios from "axios";
 import { createSocket } from "dgram";
+import axios from "axios";
+import cors from "cors";
+import express from "express";
+import * as yargs from "yargs";
+import { MediaStreamTrack, RTCPeerConnection } from "../../packages/webrtc/src";
 
 const udp = createSocket("udp4");
 udp.bind(5000);
@@ -59,14 +59,14 @@ udp.bind(5000);
 
     await receiver.setRemoteDescription(offer);
     const answer = await receiver.setLocalDescription(
-      await receiver.createAnswer()
+      await receiver.createAnswer(),
     );
     res.send(answer);
 
     await sender.setLocalDescription(await sender.createOffer());
     const { data } = await axios.post(
       "http://localhost:8080" + "/offer",
-      sender.localDescription
+      sender.localDescription,
     );
     sender.setRemoteDescription(data);
   });

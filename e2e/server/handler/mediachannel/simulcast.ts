@@ -1,5 +1,5 @@
-import { AcceptFn } from "protoo-server";
-import { useSdesRTPStreamId, RTCPeerConnection } from "../../";
+import type { AcceptFn } from "protoo-server";
+import { RTCPeerConnection, useSdesRTPStreamId } from "../../";
 import { DtlsKeysContext } from "../../fixture";
 
 export class mediachannel_simulcast_answer {

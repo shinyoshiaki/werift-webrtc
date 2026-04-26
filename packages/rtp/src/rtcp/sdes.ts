@@ -1,6 +1,5 @@
 import { bufferWriter } from "../../../common/src";
 import { RtcpHeader } from "./header";
-import { RtcpPacketConverter } from "./rtcp";
 
 export class RtcpSourceDescriptionPacket {
   static readonly type = 202;
@@ -21,11 +20,11 @@ export class RtcpSourceDescriptionPacket {
     let payload = Buffer.concat(this.chunks.map((chunk) => chunk.serialize()));
     while (payload.length % 4)
       payload = Buffer.concat([payload, Buffer.from([0])]);
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       this.type,
       this.chunks.length,
       payload,
-      payload.length / 4
+      payload.length / 4,
     );
   }
 

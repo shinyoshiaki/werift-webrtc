@@ -18,7 +18,7 @@ describe("RedEncoder", () => {
           extensionProfile: 48862,
           extensions: [],
         }),
-        Buffer.from([248])
+        Buffer.from([248]),
       ),
       new RtpPacket(
         new RtpHeader({
@@ -35,7 +35,7 @@ describe("RedEncoder", () => {
           extensionProfile: 48862,
           extensions: [],
         }),
-        Buffer.from([248])
+        Buffer.from([248]),
       ),
     ];
     const present = new RtpPacket(
@@ -53,7 +53,7 @@ describe("RedEncoder", () => {
         extensionProfile: 48862,
         extensions: [],
       }),
-      Buffer.from([248])
+      Buffer.from([248]),
     );
 
     const redEncoder = new RedEncoder(3);
@@ -62,7 +62,7 @@ describe("RedEncoder", () => {
         block: p.payload,
         timestamp: p.header.timestamp,
         blockPT: p.header.payloadType,
-      })
+      }),
     );
     redEncoder.push({
       block: present.payload,
@@ -90,7 +90,7 @@ describe("RedEncoder", () => {
           extensionProfile: 48862,
           extensions: [],
         }),
-        Buffer.from([248])
+        Buffer.from([248]),
       ),
       new RtpPacket(
         new RtpHeader({
@@ -107,7 +107,7 @@ describe("RedEncoder", () => {
           extensionProfile: 48862,
           extensions: [],
         }),
-        Buffer.from([248])
+        Buffer.from([248]),
       ),
     ];
     const present = new RtpPacket(
@@ -125,7 +125,7 @@ describe("RedEncoder", () => {
         extensionProfile: 48862,
         extensions: [],
       }),
-      Buffer.from([248])
+      Buffer.from([248]),
     );
 
     const redEncoder = new RedEncoder(3);
@@ -134,7 +134,7 @@ describe("RedEncoder", () => {
         block: p.payload,
         timestamp: p.header.timestamp,
         blockPT: p.header.payloadType,
-      })
+      }),
     );
     redEncoder.push({
       block: present.payload,

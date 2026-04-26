@@ -1,38 +1,33 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCRtpSimulcastParameters
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCRtpSimulcastParameters
 
 # Class: RTCRtpSimulcastParameters
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCRtpSimulcastParameters.md#constructor)
-
-### Properties
-
-- [direction](RTCRtpSimulcastParameters.md#direction)
-- [rid](RTCRtpSimulcastParameters.md#rid)
-
 ## Constructors
 
-### constructor
+### new RTCRtpSimulcastParameters()
 
-• **new RTCRtpSimulcastParameters**(`props`)
+> **new RTCRtpSimulcastParameters**(`props`): [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md) |
+• **props**: [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
+
+#### Returns
+
+[`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
 
 ## Properties
 
 ### direction
 
-• **direction**: ``"recv"`` \| ``"send"``
+> **direction**: `"send"` \| `"recv"`
 
-___
+***
 
 ### rid
 
-• **rid**: `string`
+> **rid**: `string`

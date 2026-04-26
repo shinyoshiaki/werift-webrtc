@@ -1,5 +1,5 @@
 import { RtcpPacketConverter } from "../../../src";
-import { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
+import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
 import { PictureLossIndication } from "../../../src/rtcp/psfb/pictureLossIndication";
 
 describe("fullIntraRequest", () => {
@@ -14,7 +14,7 @@ describe("fullIntraRequest", () => {
     ]);
 
     const [psfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpPayloadSpecificFeedback
+      RtcpPayloadSpecificFeedback,
     ];
     const pli = psfb.feedback as PictureLossIndication;
     expect(pli.count).toBe(PictureLossIndication.count);

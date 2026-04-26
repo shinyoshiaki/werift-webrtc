@@ -1,8 +1,6 @@
-import range from "lodash/range";
-
 import { bufferReader, bufferWriter } from "../../../common/src";
+import { RtcpHeader } from "./header";
 import { RtcpReceiverInfo } from "./rr";
-import { RtcpPacketConverter } from "./rtcp";
 
 // https://datatracker.ietf.org/doc/html/rfc3550#section-6.4.1
 //         0                   1                   2                   3
@@ -42,7 +40,7 @@ import { RtcpPacketConverter } from "./rtcp";
 //        +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 export class RtcpSrPacket {
-  ssrc: number = 0;
+  ssrc = 0;
   senderInfo!: RtcpSenderInfo;
   reports: RtcpReceiverInfo[] = [];
   static readonly type = 200;
@@ -50,6 +48,14 @@ export class RtcpSrPacket {
 
   constructor(props: Pick<RtcpSrPacket, "senderInfo"> & Partial<RtcpSrPacket>) {
     Object.assign(this, props);
+  }
+
+  toJSON() {
+    return {
+      ssrc: this.ssrc,
+      senderInfo: this.senderInfo.toJSON(),
+      reports: this.reports.map((r) => r.toJSON()),
+    };
   }
 
   serialize() {
@@ -60,21 +66,23 @@ export class RtcpSrPacket {
       payload,
       ...this.reports.map((report) => report.serialize()),
     ]);
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       RtcpSrPacket.type,
       this.reports.length,
       payload,
-      Math.floor(payload.length / 4)
+      Math.floor(payload.length / 4),
     );
   }
 
   static deSerialize(payload: Buffer, count: number) {
     const ssrc = payload.readUInt32BE();
-    const senderInfo = RtcpSenderInfo.deSerialize(payload.slice(4, 24));
+    const senderInfo = RtcpSenderInfo.deSerialize(payload.subarray(4, 24));
     let pos = 24;
     const reports: RtcpReceiverInfo[] = [];
-    for (const _ of range(count)) {
-      reports.push(RtcpReceiverInfo.deSerialize(payload.slice(pos, pos + 24)));
+    for (let _ = 0; _ < count; _++) {
+      reports.push(
+        RtcpReceiverInfo.deSerialize(payload.subarray(pos, pos + 24)),
+      );
       pos += 24;
     }
     const packet = new RtcpSrPacket({ ssrc, senderInfo, reports });
@@ -92,17 +100,24 @@ export class RtcpSenderInfo {
     Object.assign(this, props);
   }
 
+  toJSON() {
+    return {
+      ntpTimestamp: ntpTime2Sec(this.ntpTimestamp),
+      rtpTimestamp: this.rtpTimestamp,
+    };
+  }
+
   serialize() {
     return bufferWriter(
       [8, 4, 4, 4],
-      [this.ntpTimestamp, this.rtpTimestamp, this.packetCount, this.octetCount]
+      [this.ntpTimestamp, this.rtpTimestamp, this.packetCount, this.octetCount],
     );
   }
 
   static deSerialize(data: Buffer) {
     const [ntpTimestamp, rtpTimestamp, packetCount, octetCount] = bufferReader(
       data,
-      [8, 4, 4, 4]
+      [8, 4, 4, 4],
     );
 
     return new RtcpSenderInfo({
@@ -113,3 +128,9 @@ export class RtcpSenderInfo {
     });
   }
 }
+
+export const ntpTime2Sec = (ntp: bigint) => {
+  const [ntpSec, ntpMsec] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
+
+  return Number(`${ntpSec}.${ntpMsec}`);
+};

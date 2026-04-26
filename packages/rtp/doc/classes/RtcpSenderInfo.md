@@ -1,82 +1,86 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RtcpSenderInfo
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RtcpSenderInfo
 
 # Class: RtcpSenderInfo
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpSenderInfo.md#constructor)
-
-### Properties
-
-- [ntpTimestamp](RtcpSenderInfo.md#ntptimestamp)
-- [octetCount](RtcpSenderInfo.md#octetcount)
-- [packetCount](RtcpSenderInfo.md#packetcount)
-- [rtpTimestamp](RtcpSenderInfo.md#rtptimestamp)
-
-### Methods
-
-- [serialize](RtcpSenderInfo.md#serialize)
-- [deSerialize](RtcpSenderInfo.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpSenderInfo()
 
-• **new RtcpSenderInfo**(`props?`)
+> **new RtcpSenderInfo**(`props`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> |
+• **props**: `Partial`\<[`RtcpSenderInfo`](RtcpSenderInfo.md)\> = `{}`
+
+#### Returns
+
+[`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 ## Properties
 
 ### ntpTimestamp
 
-• **ntpTimestamp**: `bigint`
+> **ntpTimestamp**: `bigint`
 
-___
+***
 
 ### octetCount
 
-• **octetCount**: `number`
+> **octetCount**: `number`
 
-___
+***
 
 ### packetCount
 
-• **packetCount**: `number`
+> **packetCount**: `number`
 
-___
+***
 
 ### rtpTimestamp
 
-• **rtpTimestamp**: `number`
+> **rtpTimestamp**: `number`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### toJSON()
 
-▸ `Static` **deSerialize**(`data`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
+> **toJSON**(): `object`
+
+#### Returns
+
+`object`
+
+##### ntpTimestamp
+
+> **ntpTimestamp**: `number`
+
+##### rtpTimestamp
+
+> **rtpTimestamp**: `number`
+
+***
+
+### deSerialize()
+
+> `static` **deSerialize**(`data`): [`RtcpSenderInfo`](RtcpSenderInfo.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
+• **data**: `Buffer`
 
 #### Returns
 

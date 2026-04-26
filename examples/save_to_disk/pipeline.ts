@@ -1,13 +1,16 @@
+import { unlink } from "fs/promises";
+import { Server } from "ws";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 import {
   DepacketizeCallback,
   JitterBufferCallback,
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
+  LipsyncCallback,
+  NtpTimeCallback,
+  RtcpSourceCallback,
   RtpSourceCallback,
-  saveToFileSystem,
   WebmCallback,
-} from "../../packages/webrtc/src";
-import { Server } from "ws";
+  saveToFileSystem,
+} from "../../packages/webrtc/src/nonstandard";
 
 // open ./answer.html
 
@@ -15,85 +18,91 @@ const server = new Server({ port: 8878 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const pc = new RTCPeerConnection({
-    codecs: {
-      video: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/AV1X",
-          clockRate: 90000,
-          rtcpFeedback: [
-            { type: "nack" },
-            { type: "nack", parameter: "pli" },
-            { type: "goog-remb" },
-          ],
-        }),
-      ],
-    },
-  });
+  const output = `./output-${Date.now()}.webm`;
+  console.log("connected", output);
+  const pc = new RTCPeerConnection();
+
+  const webm = new WebmCallback(
+    [
+      {
+        kind: "audio",
+        codec: "OPUS",
+        clockRate: 48000,
+        trackNumber: 1,
+      },
+      {
+        width: 640,
+        height: 360,
+        kind: "video",
+        codec: "VP8",
+        clockRate: 90000,
+        trackNumber: 2,
+      },
+    ],
+    { duration: 1000 * 60 * 60 },
+  );
 
   const audio = new RtpSourceCallback();
   const video = new RtpSourceCallback();
-
-  const webm = new WebmCallback([
-    {
-      width: 640,
-      height: 360,
-      kind: "video",
-      codec: "AV1",
-      clockRate: 90000,
-      trackNumber: 1,
-    },
-    {
-      kind: "audio",
-      codec: "OPUS",
-      clockRate: 48000,
-      trackNumber: 2,
-    },
-  ]);
+  const audioRtcp = new RtcpSourceCallback();
+  const videoRtcp = new RtcpSourceCallback();
+  const lipsync = new LipsyncCallback({
+    syncInterval: 3000,
+    bufferLength: 5,
+    fillDummyAudioPacket: Buffer.from([0xf8, 0xff, 0xfe]),
+  });
 
   {
     const depacketizer = new DepacketizeCallback("opus");
+    const ntpTime = new NtpTimeCallback(48000);
 
-    audio.pipe(depacketizer.input);
-    depacketizer.pipe(webm.inputAudio);
+    audio.pipe(ntpTime.input);
+    audioRtcp.pipe(ntpTime.input);
+
+    ntpTime.pipe(depacketizer.input);
+    depacketizer.pipe(lipsync.inputAudio);
+    lipsync.pipeAudio(webm.inputAudio);
   }
   {
     const jitterBuffer = new JitterBufferCallback(90000);
+    const ntpTime = new NtpTimeCallback(jitterBuffer.clockRate);
     const depacketizer = new DepacketizeCallback("vp8", {
       isFinalPacketInSequence: (h) => h.marker,
     });
 
     video.pipe(jitterBuffer.input);
-    jitterBuffer.pipe(depacketizer.input);
-    depacketizer.pipe(webm.inputVideo);
+    videoRtcp.pipe(ntpTime.input);
+
+    jitterBuffer.pipe(ntpTime.input);
+    ntpTime.pipe(depacketizer.input);
+    depacketizer.pipe(lipsync.inputVideo);
+    lipsync.pipeVideo(webm.inputVideo);
   }
 
-  webm.pipe(saveToFileSystem("./test.webm"));
+  await unlink(output).catch(() => {});
+  webm.pipe(saveToFileSystem(output));
 
-  setTimeout(() => {
-    console.log("stop");
-    audio.stop();
-    video.stop();
-  }, 5_000);
-
-  {
-    const transceiver = pc.addTransceiver("video");
-
-    transceiver.onTrack.subscribe((track) => {
-      transceiver.sender.replaceTrack(track);
-      track.onReceiveRtp.subscribe(video.input);
-      setInterval(() => {
-        transceiver.receiver.sendRtcpPLI(track.ssrc);
-      }, 2_000);
+  pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
+    transceiver.sender.replaceTrack(track);
+    track.onReceiveRtp.subscribe((rtp) => {
+      video.input(rtp);
     });
-  }
-  {
-    const transceiver = pc.addTransceiver("audio");
-    transceiver.onTrack.subscribe((track) => {
-      transceiver.sender.replaceTrack(track);
-      track.onReceiveRtp.subscribe(audio.input);
+    track.onReceiveRtcp.once((rtcp) => {
+      videoRtcp.input(rtcp);
     });
-  }
+    setInterval(() => {
+      transceiver.receiver.sendRtcpPLI(track.ssrc);
+    }, 2_000);
+  });
+  pc.addTransceiver("audio").onTrack.subscribe((track, transceiver) => {
+    transceiver.sender.replaceTrack(track);
+    track.onReceiveRtp.subscribe((rtp) => {
+      audio.input(rtp);
+    });
+    track.onReceiveRtcp.once((rtcp) => {
+      audioRtcp.input(rtcp);
+    });
+  });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
@@ -102,4 +111,11 @@ server.on("connection", async (socket) => {
   socket.on("message", (data: any) => {
     pc.setRemoteDescription(JSON.parse(data));
   });
+
+  setTimeout(async () => {
+    console.log("stop");
+    audio.stop();
+    video.stop();
+    await pc.close();
+  }, 20_000);
 });

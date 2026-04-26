@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 
-import { RTCDataChannel, RTCPeerConnection } from "../src";
+import { type RTCDataChannel, RTCPeerConnection } from "../src";
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);
@@ -18,7 +18,7 @@ export async function createDataChannelPair(
       }>
     | undefined,
   pc1 = new RTCPeerConnection(),
-  pc2 = new RTCPeerConnection()
+  pc2 = new RTCPeerConnection(),
 ) {
   let pair: RTCDataChannel[] = [],
     bothOpen: Promise<void[]>;
@@ -31,8 +31,8 @@ export async function createDataChannelPair(
             new Promise<void>((r, e) => {
               dc.onopen = r;
               dc.onerror = ({ error }) => e(error);
-            })
-        )
+            }),
+        ),
       );
     } else {
       pair = [pc1.createDataChannel("", options)];
@@ -51,7 +51,7 @@ export async function createDataChannelPair(
                 r();
               };
               channel.onerror = ({ error }) => e(error);
-            })
+            }),
         ),
       ]);
     }
@@ -70,6 +70,9 @@ function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
   // private function
   function doExchange(localPc: RTCPeerConnection, remotePc: RTCPeerConnection) {
     localPc.onIceCandidate.subscribe((candidate) => {
+      if (!candidate) {
+        return;
+      }
       if (remotePc.signalingState !== "closed") {
         remotePc.addIceCandidate(candidate);
       }
@@ -82,7 +85,7 @@ function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
 
 async function exchangeOfferAnswer(
   caller: RTCPeerConnection,
-  callee: RTCPeerConnection
+  callee: RTCPeerConnection,
 ) {
   await exchangeOffer(caller, callee);
   await exchangeAnswer(caller, callee);
@@ -90,7 +93,7 @@ async function exchangeOfferAnswer(
 
 async function exchangeOffer(
   caller: RTCPeerConnection,
-  callee: RTCPeerConnection
+  callee: RTCPeerConnection,
 ) {
   await caller.setLocalDescription(await caller.createOffer());
   await callee.setRemoteDescription(caller.localDescription!);
@@ -98,7 +101,7 @@ async function exchangeOffer(
 // Performs an answer exchange caller -> callee.
 async function exchangeAnswer(
   caller: RTCPeerConnection,
-  callee: RTCPeerConnection
+  callee: RTCPeerConnection,
 ) {
   // Note that caller's remote description must be set first; if not,
   // there's a chance that candidates from callee arrive at caller before
@@ -114,9 +117,9 @@ export function awaitMessage(channel: RTCDataChannel) {
       new Promise<any>((r) =>
         channel.addEventListener("message", (e) => {
           r(e.data);
-        })
+        }),
       ),
-      channel.message.asPromise(),
+      channel.onMessage.asPromise(),
     ]).then(([msg]) => resolve(msg));
 
     channel.error.once(reject);
@@ -135,7 +138,7 @@ function waitUntilEvent(obj, name) {
 export function addEventListenerPromise(
   obj,
   type,
-  listener?: (...args: any[]) => any
+  listener?: (...args: any[]) => any,
 ) {
   if (!listener) {
     return waitUntilEvent(obj, type);
@@ -146,8 +149,8 @@ export function addEventListenerPromise(
       (e) => {
         r(listener(e));
       },
-      { once: true }
-    )
+      { once: true },
+    ),
   );
 }
 

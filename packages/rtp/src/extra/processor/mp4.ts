@@ -1,0 +1,172 @@
+import { Event } from "../../imports/common";
+
+import { OpusRtpPayload, buffer2ArrayBuffer } from "../..";
+import {
+  type DataType,
+  Mp4Container,
+  type Mp4SupportedCodec,
+  annexb2avcc,
+} from "../container/mp4";
+import type { AVProcessor } from "./interface";
+
+export type Mp4Input = {
+  frame?: {
+    data: Buffer;
+    isKeyframe: boolean;
+    /**ms */
+    time: number;
+  };
+  eol?: boolean;
+};
+
+export interface Mp4Output {
+  type: DataType;
+  timestamp: number;
+  duration: number;
+  data: Uint8Array;
+  eol?: boolean;
+  kind: "audio" | "video";
+}
+
+export interface MP4Option {
+  /**ms */
+  duration?: number;
+  encryptionKey?: Buffer;
+  strictTimestamp?: boolean;
+}
+
+export class MP4Base implements AVProcessor<Mp4Input> {
+  private internalStats = {};
+  private container: Mp4Container;
+  stopped = false;
+  onStopped = new Event();
+
+  constructor(
+    public tracks: Track[],
+    private output: (output: Mp4Output) => void,
+    private options: MP4Option = {},
+  ) {
+    this.container = new Mp4Container({
+      track: {
+        audio: !!this.tracks.find((t) => t.kind === "audio"),
+        video: !!this.tracks.find((t) => t.kind === "video"),
+      },
+    });
+    this.container.onData.subscribe((data) => {
+      this.output(data);
+    });
+  }
+
+  toJSON(): Record<string, any> {
+    return {
+      ...this.internalStats,
+    };
+  }
+
+  processAudioInput = ({ frame }: Mp4Input) => {
+    const track = this.tracks.find((t) => t.kind === "audio")!;
+
+    if (frame) {
+      if (!this.container.audioTrack) {
+        this.container.write({
+          codec: track.codec,
+          description: buffer2ArrayBuffer(
+            OpusRtpPayload.createCodecPrivate(),
+          ) as ArrayBuffer,
+          numberOfChannels: 2,
+          sampleRate: track.clockRate,
+          track: "audio",
+        });
+      } else {
+        this.container.write({
+          byteLength: frame.data.length,
+          duration: null,
+          timestamp: frame.time * 1000,
+          type: "key",
+          copyTo: (destination) => {
+            //@ts-expect-error
+            frame.data.copy(destination);
+          },
+          track: "audio",
+        });
+      }
+    }
+  };
+
+  processVideoInput = ({ frame }: Mp4Input) => {
+    const track = this.tracks.find((t) => t.kind === "video")!;
+
+    if (frame) {
+      if (!this.container.videoTrack) {
+        if (frame.isKeyframe) {
+          const avcc = annexb2avcc(frame.data);
+
+          const [displayAspectWidth, displayAspectHeight] = computeRatio(
+            track.width!,
+            track.height!,
+          );
+
+          this.container.write({
+            codec: track.codec,
+            codedWidth: track.width,
+            codedHeight: track.height,
+            description: avcc.buffer as ArrayBuffer,
+            displayAspectWidth,
+            displayAspectHeight,
+            track: "video",
+          });
+          this.container.write({
+            byteLength: frame.data.length,
+            duration: null,
+            timestamp: frame.time * 1000,
+            type: "key",
+            copyTo: (destination) => {
+              //@ts-expect-error
+              frame.data.copy(destination);
+            },
+            track: "video",
+          });
+        }
+      } else {
+        this.container.write({
+          byteLength: frame.data.length,
+          duration: null,
+          timestamp: frame.time * 1000,
+          type: frame.isKeyframe ? "key" : "delta",
+          copyTo: (destination) => {
+            //@ts-expect-error
+            frame.data.copy(destination);
+          },
+          track: "video",
+        });
+      }
+    }
+  };
+
+  protected start() {}
+
+  stop() {}
+}
+
+function computeRatio(a: number, b: number) {
+  function gcd(x: number, y: number) {
+    while (y !== 0) {
+      const temp = y;
+      y = x % y;
+      x = temp;
+    }
+    return x;
+  }
+
+  const divisor = gcd(a, b);
+  return [a / divisor, b / divisor];
+}
+
+export interface Track {
+  width?: number;
+  height?: number;
+  kind: "audio" | "video";
+  codec: Mp4SupportedCodec;
+  clockRate: number;
+  trackNumber: number;
+}

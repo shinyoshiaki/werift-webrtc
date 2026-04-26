@@ -75,24 +75,24 @@ async function runTests() {
   suite
     .add("werift", {
       defer: true,
-      fn: function (deferred) {
+      fn: (deferred) => {
         const { dc1, dc2 } = testData.werift;
 
-        dc2.message.once((m) => {
+        dc2.onMessage.once((m) => {
           dc2.send(m);
         });
 
-        dc1.message.once((e) => {
+        dc1.onMessage.once((e) => {
           deferred.resolve();
         });
 
         dc1.send(message);
       },
     })
-    .on("cycle", function (event) {
+    .on("cycle", (event) => {
       console.log(String(event.target));
     })
-    .on("complete", function () {})
+    .on("complete", () => {})
     .run({ async: false });
 }
 

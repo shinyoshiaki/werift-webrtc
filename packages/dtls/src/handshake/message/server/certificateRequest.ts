@@ -1,8 +1,11 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { HashAlgorithms, SignatureAlgorithms } from "../../../cipher/const";
+import type {
+  HashAlgorithms,
+  SignatureAlgorithms,
+} from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { Handshake } from "../../../typings/domain";
+import type { Handshake } from "../../../typings/domain";
 import {
   ClientCertificateType,
   DistinguishedName,
@@ -27,21 +30,21 @@ export class ServerCertificateRequest implements Handshake {
       hash: HashAlgorithms;
       signature: SignatureAlgorithms;
     }[],
-    public authorities: number[]
+    public authorities: number[],
   ) {}
 
   static createEmpty() {
     return new ServerCertificateRequest(
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new ServerCertificateRequest(
       //@ts-ignore
-      ...Object.values(decode(buf, ServerCertificateRequest.spec))
+      ...Object.values(decode(buf, ServerCertificateRequest.spec)),
     );
   }
 
@@ -58,7 +61,7 @@ export class ServerCertificateRequest implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

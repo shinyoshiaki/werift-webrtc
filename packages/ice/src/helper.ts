@@ -1,9 +1,6 @@
 import { randomBytes } from "crypto";
-import debug from "debug";
-import PCancelable from "p-cancelable";
-import { Event } from "rx.mini";
 
-const log = debug("werift-ice:packages/ice/src/helper.ts");
+import { Event } from "./imports/common";
 
 export function randomString(length: number) {
   return randomBytes(length).toString("hex").substring(0, length);
@@ -16,7 +13,7 @@ export function randomTransactionId() {
 export function bufferXor(a: Buffer, b: Buffer): Buffer {
   if (a.length !== b.length) {
     throw new TypeError(
-      "[webrtc-stun] You can not XOR buffers which length are different"
+      "[webrtc-stun] You can not XOR buffers which length are different",
     );
   }
 
@@ -60,24 +57,33 @@ export class PQueue<T> {
   }
 }
 
-export const future = (pCancel: PCancelable<any>) => {
-  const state = { done: false };
+export const cancelable = <T>(
+  ex: (
+    resolve: (value: T | PromiseLike<T>) => void,
+    reject: (reason?: any) => void,
+    onCancel: Event<[any]>,
+  ) => Promise<void>,
+) => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: any) => void;
 
-  const cancel = () => pCancel.cancel();
+  const p = new Promise<T>((r, f) => {
+    resolve = r;
+    reject = f;
+  });
+  p.then(() => {
+    onCancel.execute(undefined);
+    onCancel.complete();
+  }).catch((e) => {
+    onCancel.execute(e ?? new Error());
+    onCancel.complete();
+  });
 
-  const done = () => state.done;
+  const onCancel = new Event<[any]>();
 
-  pCancel
-    .then(() => {
-      state.done = true;
-    })
-    .catch((error) => {
-      if (error !== "cancel") {
-        log("future", error);
-      }
-    });
+  ex(resolve, reject, onCancel).catch(() => {});
 
-  return { cancel, promise: pCancel, done };
+  return { awaitable: p, resolve, reject };
 };
 
-export type Future = ReturnType<typeof future>;
+export type Cancelable<T> = ReturnType<typeof cancelable<T>>;

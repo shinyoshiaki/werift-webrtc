@@ -1,6 +1,6 @@
 {
   "name": "werift-rtp",
-  "version": "0.6.0",
+  "version": "0.8.8",
   "description": "RTP,RTCP,SRTP,SRTCP implementation for TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
@@ -11,20 +11,29 @@
   "author": {
     "name": "shinyoshiaki"
   },
+  "exports": {
+    ".": {
+      "types": "./lib/rtp/src/index.d.ts",
+      "default": "./lib/rtp/src/index.js"
+    },
+    "./extra": {
+      "types": "./lib/rtp/src/extra/index.d.ts",
+      "default": "./lib/rtp/src/extra/index.js"
+    }
+  },
   "main": "lib/rtp/src/index.js",
   "types": "lib/rtp/src/index.d.ts",
   "files": [
-    "lib",
-    "src"
+    "lib"
   ],
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "ci": "npm run type && npm run lint && npm run test",
     "deploy": "npm run build && npm publish",
+    "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
-    "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
-    "lint": "eslint ./src --fix && eslint ./tests --fix",
-    "test": "npm run type && jest --forceExit",
+    "format": "biome check --write src tests",
+    "test": "npm run type && vitest run ./tests",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
@@ -32,21 +41,12 @@
   "dependencies": {
     "@minhducsun2002/leb128": "^1.0.0",
     "aes-js": "^3.1.2",
-    "binary-data": "^0.6.0",
     "buffer": "^6.0.3",
-    "debug": "^4.3.4",
-    "jspack": "^0.0.4",
-    "lodash": "^4.17.21",
-    "rx.mini": "^1.2.2"
+    "@shinyoshiaki/jspack": "^0.0.6",
+    "mp4box": "^0.5.3"
   },
   "devDependencies": {
-    "@types/aes-js": "^3.1.1",
-    "@types/debug": "^4.1.7",
-    "@types/lodash": "^4.14.191",
-    "@types/react": "^18.0.26",
-    "@types/react-dom": "^18.0.10",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@types/aes-js": "^3.1.4"
   },
   "engines": {
     "node": ">=10"

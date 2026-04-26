@@ -1,38 +1,66 @@
-import { ChildProcess, exec } from "child_process";
+import { type ChildProcess, exec } from "child_process";
+import { randomUUID } from "crypto";
 import { createSocket } from "dgram";
 import { setImmediate } from "timers/promises";
-import { v4 } from "uuid";
 
-import { randomPort, uint32Add } from "../../../common/src";
-import { RtpPacket } from "../../../rtp/src";
+import { randomPort } from "../imports/common";
+import { RtpPacket } from "../imports/rtp";
 import { MediaStreamTrack } from "../media/track";
 
-export const getUserMedia = async (path: string, loop?: boolean) => {
+export const getUserMedia = async ({
+  path,
+  loop,
+  width,
+  height,
+}: {
+  path: string;
+  loop?: boolean;
+  width?: number;
+  height?: number;
+}) => {
   const audioPort = await randomPort();
   const videoPort = await randomPort();
 
   if (path.endsWith(".mp4")) {
-    return new MediaPlayerMp4(audioPort, videoPort, path, loop);
+    return new MediaPlayerMp4({
+      audioPort,
+      videoPort,
+      path,
+      loop,
+      width,
+      height,
+    });
   } else {
-    return new MediaPlayerWebm(audioPort, videoPort, path, loop);
+    return new MediaPlayerWebm({
+      audioPort,
+      videoPort,
+      path,
+      loop,
+      width,
+      height,
+    });
   }
 };
 
-export class MediaPlayerMp4 {
-  private streamId = v4();
+abstract class MediaPlayer {
+  protected streamId = randomUUID().toString();
   audio = new MediaStreamTrack({ kind: "audio", streamId: this.streamId });
   video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
-  private process!: ChildProcess;
+  protected process!: ChildProcess;
   stopped = false;
 
   constructor(
-    private videoPort: number,
-    private audioPort: number,
-    private path: string,
-    private loop?: boolean
+    protected props: {
+      videoPort: number;
+      audioPort: number;
+      path: string;
+      loop?: boolean;
+      width?: number;
+      height?: number;
+    },
   ) {
-    this.setupTrack(audioPort, this.audio);
-    this.setupTrack(videoPort, this.video);
+    this.setupTrack(props.audioPort, this.audio);
+    this.setupTrack(props.videoPort, this.video);
   }
 
   private setupTrack = (port: number, track: MediaStreamTrack) => {
@@ -56,95 +84,39 @@ export class MediaPlayerMp4 {
     });
   };
 
-  async start() {
-    let payloadType = 96;
-    const run = async () => {
-      if (payloadType > 100) payloadType = 96;
-
-      const cmd = `gst-launch-1.0 filesrc location= ${this.path} ! \
-qtdemux name=d ! \
-queue ! h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.videoPort} d. ! \
-queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.audioPort}`;
-      this.process = exec(cmd);
-
-      if (this.loop) {
-        await new Promise((r) => this.process.on("close", r));
-        if (!this.stopped) {
-          run();
-        }
-      }
-    };
-    await setImmediate();
-    run();
-  }
-
   stop() {
     this.stopped = true;
     this.process.kill("SIGINT");
   }
 }
 
-export class MediaPlayerWebm {
-  private streamId = v4();
-  audio = new MediaStreamTrack({ kind: "audio", streamId: this.streamId });
-  video = new MediaStreamTrack({ kind: "video", streamId: this.streamId });
-  private process!: ChildProcess;
-  stopped = false;
-
-  constructor(
-    private videoPort: number,
-    private audioPort: number,
-    private path: string,
-    private loop?: boolean
-  ) {
-    this.setupTrack(audioPort, this.audio);
-    this.setupTrack(videoPort, this.video);
-  }
-
-  private setupTrack = (port: number, track: MediaStreamTrack) => {
-    let payloadType = 0;
-    let latestTimestamp = 0;
-    let timestampDiff = 0;
-
-    const socket = createSocket("udp4");
-    socket.bind(port);
-    socket.on("message", async (buf) => {
-      const rtp = RtpPacket.deSerialize(buf);
-      if (!payloadType) {
-        payloadType = rtp.header.payloadType;
-      }
-
-      // detect gStreamer restarted
-      if (payloadType !== rtp.header.payloadType) {
-        payloadType = rtp.header.payloadType;
-        track.onSourceChanged.execute(rtp.header);
-        timestampDiff = uint32Add(rtp.header.timestamp, -latestTimestamp);
-        console.log({ timestampDiff });
-      }
-      latestTimestamp = rtp.header.timestamp;
-      rtp.header.timestamp = uint32Add(rtp.header.timestamp, -timestampDiff);
-      track.writeRtp(rtp.serialize());
-    });
-  };
-
+export class MediaPlayerMp4 extends MediaPlayer {
   async start() {
     let payloadType = 96;
     const run = async () => {
       if (payloadType > 100) payloadType = 96;
 
-      const cmd = `gst-launch-1.0 filesrc location=${
-        this.path
-      } ! matroskademux name=d \
-d.video_0 ! queue ! rtpvp8pay pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.videoPort} \
-d.audio_0 ! queue ! rtpopuspay pt=${payloadType++} ! \
-udpsink host=127.0.0.1 port=${this.audioPort}`;
-      this.process = exec(cmd);
+      let cmd = "";
+      if (this.props.width && this.props.height) {
+        cmd = `gst-launch-1.0 filesrc location= ${this.props.path} ! \
+decodebin ! videoscale ! video/x-raw,width=${this.props.width},height=${
+          this.props.height
+        } ! x264enc ! \
+h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! \
+udpsink host=127.0.0.1 port=${this.props.videoPort}`;
+      } else {
+        cmd = `gst-launch-1.0 filesrc location= ${this.props.path} ! \
+qtdemux name=d ! \
+queue ! h264parse ! rtph264pay config-interval=10 pt=${payloadType++} ! \
+udpsink host=127.0.0.1 port=${this.props.videoPort} d. ! \
+queue ! aacparse ! avdec_aac ! audioresample ! audioconvert ! opusenc ! rtpopuspay pt=${payloadType++} ! \
+udpsink host=127.0.0.1 port=${this.props.audioPort}`;
+      }
       console.log(cmd);
+      this.process = exec(cmd);
+      this.process.on("error", (e) => console.error("gst error", e));
 
-      if (this.loop) {
+      if (this.props.loop) {
         await new Promise((r) => this.process.on("close", r));
         if (!this.stopped) {
           run();
@@ -154,9 +126,29 @@ udpsink host=127.0.0.1 port=${this.audioPort}`;
     await setImmediate();
     run();
   }
+}
 
-  stop() {
-    this.stopped = true;
-    this.process.kill("SIGINT");
+export class MediaPlayerWebm extends MediaPlayer {
+  async start() {
+    let payloadType = 96;
+    const run = async () => {
+      if (payloadType > 100) payloadType = 96;
+
+      const cmd = `gst-launch-1.0 filesrc location=${this.props.path} ! matroskademux name=d \
+d.video_0 ! queue ! rtpvp8pay pt=${payloadType++} ! \
+udpsink host=127.0.0.1 port=${this.props.videoPort} \
+d.audio_0 ! queue ! rtpopuspay pt=${payloadType++} ! \
+udpsink host=127.0.0.1 port=${this.props.audioPort}`;
+      this.process = exec(cmd);
+
+      if (this.props.loop) {
+        await new Promise((r) => this.process.on("close", r));
+        if (!this.stopped) {
+          run();
+        }
+      }
+    };
+    await setImmediate();
+    run();
   }
 }

@@ -1,107 +1,174 @@
-[werift](../README.md) / [Exports](../modules.md) / PeerConfig
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / PeerConfig
 
 # Interface: PeerConfig
-
-## Table of contents
-
-### Properties
-
-- [bundlePolicy](PeerConfig.md#bundlepolicy)
-- [codecs](PeerConfig.md#codecs)
-- [debug](PeerConfig.md#debug)
-- [dtls](PeerConfig.md#dtls)
-- [headerExtensions](PeerConfig.md#headerextensions)
-- [iceAdditionalHostAddresses](PeerConfig.md#iceadditionalhostaddresses)
-- [iceFilterStunResponse](PeerConfig.md#icefilterstunresponse)
-- [iceInterfaceAddresses](PeerConfig.md#iceinterfaceaddresses)
-- [icePortRange](PeerConfig.md#iceportrange)
-- [iceServers](PeerConfig.md#iceservers)
-- [iceTransportPolicy](PeerConfig.md#icetransportpolicy)
-- [iceUseIpv4](PeerConfig.md#iceuseipv4)
-- [iceUseIpv6](PeerConfig.md#iceuseipv6)
 
 ## Properties
 
 ### bundlePolicy
 
-• **bundlePolicy**: [`BundlePolicy`](../modules.md#bundlepolicy)
+> **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
 
-___
+***
 
 ### codecs
 
-• **codecs**: `Partial`<{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] ; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]  }\>
+> **codecs**: `Partial`\<`object`\>
 
-___
+#### Type declaration
+
+##### audio
+
+> **audio**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+
+When specifying a codec with a fixed payloadType such as PCMU,
+it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
+
+##### video
+
+> **video**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+
+***
 
 ### debug
 
-• **debug**: `Partial`<{ `disableRecvRetransmit`: `boolean` ; `disableSendNack`: `boolean` ; `inboundPacketLoss`: `number` ; `outboundPacketLoss`: `number` ; `receiverReportDelay`: `number`  }\>
+> **debug**: `Partial`\<`object`\>
 
-___
+#### Type declaration
+
+##### disableRecvRetransmit
+
+> **disableRecvRetransmit**: `boolean`
+
+##### disableSendNack
+
+> **disableSendNack**: `boolean`
+
+##### inboundPacketLoss
+
+> **inboundPacketLoss**: `number`
+
+%
+
+##### outboundPacketLoss
+
+> **outboundPacketLoss**: `number`
+
+%
+
+##### receiverReportDelay
+
+> **receiverReportDelay**: `number`
+
+ms
+
+***
 
 ### dtls
 
-• **dtls**: `Partial`<{ `keys`: [`DtlsKeys`](../modules.md#dtlskeys)  }\>
+> **dtls**: `Partial`\<`object`\>
 
-___
+#### Type declaration
+
+##### keys
+
+> **keys**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+***
+
+### forceTurnTCP
+
+> **forceTurnTCP**: `boolean`
+
+***
 
 ### headerExtensions
 
-• **headerExtensions**: `Partial`<{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[] ; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]  }\>
+> **headerExtensions**: `Partial`\<`object`\>
 
-___
+#### Type declaration
+
+##### audio
+
+> **audio**: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]
+
+##### video
+
+> **video**: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]
+
+***
 
 ### iceAdditionalHostAddresses
 
-• **iceAdditionalHostAddresses**: `undefined` \| `string`[]
+> **iceAdditionalHostAddresses**: `undefined` \| `string`[]
 
 Add additional host (local) addresses to use for candidate gathering.
 Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
 
-___
+***
+
+### iceFilterCandidatePair
+
+> **iceFilterCandidatePair**: `undefined` \| (`pair`) => `boolean`
+
+***
 
 ### iceFilterStunResponse
 
-• **iceFilterStunResponse**: `undefined` \| (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: `Protocol`) => `boolean`
+> **iceFilterStunResponse**: `undefined` \| (`message`, `addr`, `protocol`) => `boolean`
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
 
-___
+***
 
 ### iceInterfaceAddresses
 
-• **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../modules.md#interfaceaddresses)
+> **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
-___
+***
+
+### icePasswordPrefix
+
+> **icePasswordPrefix**: `undefined` \| `string`
+
+***
 
 ### icePortRange
 
-• **icePortRange**: `undefined` \| [`number`, `number`]
+> **icePortRange**: `undefined` \| [`number`, `number`]
 
 Minimum port and Maximum port must not be the same value
 
-___
+***
 
 ### iceServers
 
-• **iceServers**: [`RTCIceServer`](../modules.md#rtciceserver)[]
+> **iceServers**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
 
-___
+***
 
 ### iceTransportPolicy
 
-• **iceTransportPolicy**: ``"relay"`` \| ``"all"``
+> **iceTransportPolicy**: `"relay"` \| `"all"`
 
-___
+***
 
 ### iceUseIpv4
 
-• **iceUseIpv4**: `boolean`
+> **iceUseIpv4**: `boolean`
 
-___
+***
 
 ### iceUseIpv6
 
-• **iceUseIpv6**: `boolean`
+> **iceUseIpv6**: `boolean`
+
+***
+
+### midSuffix
+
+> **midSuffix**: `boolean`

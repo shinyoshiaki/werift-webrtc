@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import React, { FC, useRef } from "react";
+import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 
 function toBase64(u8arr) {
-  "use strict";
   return btoa(String.fromCharCode.apply(null, u8arr))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -11,13 +11,12 @@ function toBase64(u8arr) {
 }
 
 function generateLicense(message: ArrayBuffer) {
-  "use strict";
   // Parse the clearkey license request.
   const request = JSON.parse(new TextDecoder().decode(message));
   // We expect to only have one key requested at a time
   if (request.kids.length != 1) {
     console.log(
-      `Got more than one key requested (got ${request.kids.length})! We don't expect this!`
+      `Got more than one key requested (got ${request.kids.length})! We don't expect this!`,
     );
   }
 
@@ -30,13 +29,13 @@ function generateLicense(message: ArrayBuffer) {
       new Uint8Array([
         0xef, 0xac, 0xdf, 0x21, 0xef, 0xbd, 0xaa, 0xe1, 0xd3, 0x81, 0xa4, 0x56,
         0x94, 0xf4, 0x5f, 0x5e,
-      ])
+      ]),
     ),
   };
   return new TextEncoder().encode(
     JSON.stringify({
       keys: [keyObj],
-    })
+    }),
   );
 }
 
@@ -54,7 +53,7 @@ const App: FC = () => {
           videoCapabilities: [{ contentType: `video/webm; codecs="vp8"` }],
           audioCapabilities: [{ contentType: `audio/webm; codecs="opus"` }],
         },
-      ]
+      ],
     );
     const mediaKeys = await keySystemAccess.createMediaKeys();
     await elm.setMediaKeys(mediaKeys);
@@ -75,7 +74,7 @@ const App: FC = () => {
     await new Promise((r) => (mediaSource.onsourceopen = r));
 
     const sourceBuffer = mediaSource.addSourceBuffer(
-      `video/webm;codecs="vp8,opus"`
+      `video/webm;codecs="vp8,opus"`,
     );
     sourceBuffer.appendBuffer(ab);
   };
@@ -95,4 +94,6 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const container = document.getElementById("root");
+const root = createRoot(container!);
+root.render(<App />);

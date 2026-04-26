@@ -1,10 +1,8 @@
-import range from "lodash/range";
-
 import { bufferReader, bufferWriter } from "../../../common/src";
-import { RtcpPacketConverter } from "./rtcp";
+import { RtcpHeader } from "./header";
 
 export class RtcpRrPacket {
-  ssrc: number = 0;
+  ssrc = 0;
   reports: RtcpReceiverInfo[] = [];
   static readonly type = 201;
   readonly type = RtcpRrPacket.type;
@@ -19,11 +17,11 @@ export class RtcpRrPacket {
       payload,
       ...this.reports.map((report) => report.serialize()),
     ]);
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       RtcpRrPacket.type,
       this.reports.length,
       payload,
-      Math.floor(payload.length / 4)
+      Math.floor(payload.length / 4),
     );
   }
 
@@ -31,10 +29,10 @@ export class RtcpRrPacket {
     const [ssrc] = bufferReader(data, [4]);
     let pos = 4;
     const reports: RtcpReceiverInfo[] = [];
-    range(count).forEach(() => {
+    for (let _ = 0; _ < count; _++) {
       reports.push(RtcpReceiverInfo.deSerialize(data.slice(pos, pos + 24)));
       pos += 24;
-    });
+    }
     return new RtcpRrPacket({ ssrc, reports });
   }
 }
@@ -54,6 +52,18 @@ export class RtcpReceiverInfo {
     Object.assign(this, props);
   }
 
+  toJSON() {
+    return {
+      ssrc: this.ssrc,
+      fractionLost: this.fractionLost,
+      packetsLost: this.packetsLost,
+      highestSequence: this.highestSequence,
+      jitter: this.jitter,
+      lsr: this.lsr,
+      dlsr: this.dlsr,
+    };
+  }
+
   serialize() {
     return bufferWriter(
       [4, 1, 3, 4, 4, 4, 4],
@@ -65,7 +75,7 @@ export class RtcpReceiverInfo {
         this.jitter,
         this.lsr,
         this.dlsr,
-      ]
+      ],
     );
   }
 

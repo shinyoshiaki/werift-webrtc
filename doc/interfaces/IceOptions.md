@@ -1,122 +1,111 @@
-[werift](../README.md) / [Exports](../modules.md) / IceOptions
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / IceOptions
 
 # Interface: IceOptions
 
-## Table of contents
-
-### Properties
-
-- [additionalHostAddresses](IceOptions.md#additionalhostaddresses)
-- [components](IceOptions.md#components)
-- [filterStunResponse](IceOptions.md#filterstunresponse)
-- [forceTurn](IceOptions.md#forceturn)
-- [interfaceAddresses](IceOptions.md#interfaceaddresses)
-- [portRange](IceOptions.md#portrange)
-- [stunServer](IceOptions.md#stunserver)
-- [turnPassword](IceOptions.md#turnpassword)
-- [turnServer](IceOptions.md#turnserver)
-- [turnSsl](IceOptions.md#turnssl)
-- [turnTransport](IceOptions.md#turntransport)
-- [turnUsername](IceOptions.md#turnusername)
-- [useIpv4](IceOptions.md#useipv4)
-- [useIpv6](IceOptions.md#useipv6)
-
 ## Properties
 
-### additionalHostAddresses
+### additionalHostAddresses?
 
-• `Optional` **additionalHostAddresses**: `string`[]
+> `optional` **additionalHostAddresses**: `string`[]
 
-___
+***
 
-### components
+### filterCandidatePair()?
 
-• **components**: `number`
+> `optional` **filterCandidatePair**: (`pair`) => `boolean`
 
-___
+#### Parameters
 
-### filterStunResponse
+• **pair**: [`CandidatePair`](../classes/CandidatePair.md)
 
-• `Optional` **filterStunResponse**: (`message`: `Message`, `addr`: readonly [`string`, `number`], `protocol`: `Protocol`) => `boolean`
-
-#### Type declaration
-
-▸ (`message`, `addr`, `protocol`): `boolean`
-
-##### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `message` | `Message` |
-| `addr` | readonly [`string`, `number`] |
-| `protocol` | `Protocol` |
-
-##### Returns
+#### Returns
 
 `boolean`
 
-___
+***
 
-### forceTurn
+### filterStunResponse()?
 
-• `Optional` **forceTurn**: `boolean`
+> `optional` **filterStunResponse**: (`message`, `addr`, `protocol`) => `boolean`
 
-___
+#### Parameters
 
-### interfaceAddresses
+• **message**: [`Message`](../classes/Message.md)
 
-• `Optional` **interfaceAddresses**: [`InterfaceAddresses`](../modules.md#interfaceaddresses)
+• **addr**: readonly [`string`, `number`]
 
-___
+• **protocol**: [`Protocol`](Protocol.md)
 
-### portRange
+#### Returns
 
-• `Optional` **portRange**: [`number`, `number`]
+`boolean`
 
-___
+***
 
-### stunServer
+### forceTurn?
 
-• `Optional` **stunServer**: readonly [`string`, `number`]
+> `optional` **forceTurn**: `boolean`
 
-___
+***
 
-### turnPassword
+### interfaceAddresses?
 
-• `Optional` **turnPassword**: `string`
+> `optional` **interfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
-___
+***
 
-### turnServer
+### localPasswordPrefix?
 
-• `Optional` **turnServer**: readonly [`string`, `number`]
+> `optional` **localPasswordPrefix**: `string`
 
-___
+***
 
-### turnSsl
+### portRange?
 
-• `Optional` **turnSsl**: `boolean`
+> `optional` **portRange**: [`number`, `number`]
 
-___
+***
 
-### turnTransport
+### stunServer?
 
-• `Optional` **turnTransport**: `string`
+> `optional` **stunServer**: readonly [`string`, `number`]
 
-___
+***
 
-### turnUsername
+### turnPassword?
 
-• `Optional` **turnUsername**: `string`
+> `optional` **turnPassword**: `string`
 
-___
+***
+
+### turnServer?
+
+> `optional` **turnServer**: readonly [`string`, `number`]
+
+***
+
+### turnTransport?
+
+> `optional` **turnTransport**: `"udp"` \| `"tcp"`
+
+***
+
+### turnUsername?
+
+> `optional` **turnUsername**: `string`
+
+***
 
 ### useIpv4
 
-• **useIpv4**: `boolean`
+> **useIpv4**: `boolean`
 
-___
+***
 
 ### useIpv6
 
-• **useIpv6**: `boolean`
+> **useIpv6**: `boolean`

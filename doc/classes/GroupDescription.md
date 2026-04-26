@@ -1,52 +1,44 @@
-[werift](../README.md) / [Exports](../modules.md) / GroupDescription
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / GroupDescription
 
 # Class: GroupDescription
 
-## Table of contents
-
-### Constructors
-
-- [constructor](GroupDescription.md#constructor)
-
-### Properties
-
-- [items](GroupDescription.md#items)
-- [semantic](GroupDescription.md#semantic)
-
-### Accessors
-
-- [str](GroupDescription.md#str)
-
 ## Constructors
 
-### constructor
+### new GroupDescription()
 
-• **new GroupDescription**(`semantic`, `items`)
+> **new GroupDescription**(`semantic`, `items`): [`GroupDescription`](GroupDescription.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `semantic` | `string` |
-| `items` | `string`[] |
+• **semantic**: `string`
+
+• **items**: `string`[]
+
+#### Returns
+
+[`GroupDescription`](GroupDescription.md)
 
 ## Properties
 
 ### items
 
-• **items**: `string`[]
+> **items**: `string`[]
 
-___
+***
 
 ### semantic
 
-• **semantic**: `string`
+> **semantic**: `string`
 
 ## Accessors
 
 ### str
 
-• `get` **str**(): `string`
+> `get` **str**(): `string`
 
 #### Returns
 

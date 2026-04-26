@@ -1,21 +1,21 @@
-import debug from "debug";
 import { setTimeout } from "timers/promises";
 
-import { uint8Add, uint16Add, uint24 } from "../../../../common/src";
+import { uint8Add, uint16Add, uint24 } from "../../imports/common";
 import {
-  PacketStatus,
+  type PacketStatus,
   RecvDelta,
   RtcpTransportLayerFeedback,
   RunLengthChunk,
-  StatusVectorChunk,
+  type StatusVectorChunk,
   TransportWideCC,
-} from "../../../../rtp/src";
-import { RTCDtlsTransport } from "../../transport/dtls";
+  debug,
+} from "../../imports/rtp";
+import type { RTCDtlsTransport } from "../../transport/dtls";
 import { microTime } from "../../utils";
 
 const log = debug("werift:packages/webrtc/media/receiver/receiverTwcc");
 
-type ExtensionInfo = { tsn: number; timestamp: number };
+type ExtensionInfo = { tsn: number; timestamp: bigint };
 
 export class ReceiverTWCC {
   extensionInfo: {
@@ -24,12 +24,12 @@ export class ReceiverTWCC {
   twccRunning = false;
   /** uint8 */
   fbPktCount = 0;
-  lastTimestamp?: number;
+  lastTimestamp?: bigint;
 
   constructor(
     private dtlsTransport: RTCDtlsTransport,
     private rtcpSsrc: number,
-    private mediaSourceSsrc: number
+    private mediaSourceSsrc: number,
   ) {
     this.runTWCC();
   }
@@ -55,7 +55,7 @@ export class ReceiverTWCC {
   private sendTWCC() {
     if (Object.keys(this.extensionInfo).length === 0) return;
     const extensionsArr = Object.values(this.extensionInfo).sort(
-      (a, b) => a.tsn - b.tsn
+      (a, b) => a.tsn - b.tsn,
     );
 
     const minTSN = extensionsArr[0].tsn;
@@ -65,7 +65,7 @@ export class ReceiverTWCC {
     const baseSequenceNumber = extensionsArr[0].tsn;
     const packetStatusCount = uint16Add(maxTSN - minTSN, 1);
     /**micro sec */
-    let referenceTime!: number;
+    let referenceTime!: bigint;
     let lastPacketStatus: { status: PacketStatus; minTSN: number } | undefined;
     const recvDeltas: RecvDelta[] = [];
 
@@ -99,7 +99,7 @@ export class ReceiverTWCC {
             new RunLengthChunk({
               packetStatus: lastPacketStatus.status,
               runLength: i - lastPacketStatus.minTSN,
-            })
+            }),
           );
           lastPacketStatus = { minTSN: i, status: recvDelta.type! };
         }
@@ -110,14 +110,14 @@ export class ReceiverTWCC {
               new RunLengthChunk({
                 packetStatus: lastPacketStatus.status,
                 runLength: i - lastPacketStatus.minTSN + 1,
-              })
+              }),
             );
           } else {
             packetChunks.push(
               new RunLengthChunk({
                 packetStatus: recvDelta.type,
                 runLength: 1,
-              })
+              }),
             );
           }
         }
@@ -138,7 +138,7 @@ export class ReceiverTWCC {
         mediaSourceSsrc: this.mediaSourceSsrc,
         baseSequenceNumber,
         packetStatusCount,
-        referenceTime: uint24(Math.floor(referenceTime / 1000 / 64)),
+        referenceTime: uint24(Math.floor(Number(referenceTime / 1000n / 64n))),
         fbPktCount: this.fbPktCount,
         recvDeltas,
         packetChunks,

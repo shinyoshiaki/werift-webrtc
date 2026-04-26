@@ -1,13 +1,12 @@
-import debug from "debug";
-
 import { SessionType } from "./cipher/suites/abstract";
 import { flight2 } from "./flight/server/flight2";
 import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { HandshakeType } from "./handshake/const";
 import { ClientHello } from "./handshake/message/client/hello";
-import { FragmentedHandshake } from "./record/message/fragment";
-import { DtlsSocket, Options } from "./socket";
+import { debug } from "./imports/common";
+import type { FragmentedHandshake } from "./record/message/fragment";
+import { DtlsSocket, type Options } from "./socket";
 
 const log = debug("werift-dtls : packages/dtls/src/server.ts : log");
 
@@ -23,7 +22,7 @@ export class DtlsServer extends DtlsSocket {
     log(
       this.dtls.sessionId,
       "handleHandshakes",
-      assembled.map((a) => a.msg_type)
+      assembled.map((a) => a.msg_type),
     );
 
     for (const handshake of assembled) {
@@ -42,7 +41,7 @@ export class DtlsServer extends DtlsSocket {
                 this.transport,
                 this.dtls,
                 this.cipher,
-                this.srtp
+                this.srtp,
               )(clientHello);
             } else if (
               this.dtls.cookie &&
@@ -53,7 +52,7 @@ export class DtlsServer extends DtlsSocket {
                 this.transport,
                 this.dtls,
                 this.cipher,
-                this.srtp
+                this.srtp,
               ).exec(handshake, this.options.certificateRequest);
             } else {
               log("wrong state", {
@@ -78,7 +77,14 @@ export class DtlsServer extends DtlsSocket {
             await this.waitForReady(() => !!this.flight6);
             this.flight6?.handleHandshake(handshake);
 
-            await this.waitForReady(() => this.dtls.checkHandshakesExist([16]));
+            const requiredHandshakes = [
+              16,
+              this.options.certificateRequest && 11,
+              this.options.certificateRequest && 15,
+            ].filter((type): type is number => typeof type === "number");
+            await this.waitForReady(() =>
+              this.dtls.checkHandshakesExist(requiredHandshakes),
+            );
             await this.flight6?.exec();
 
             this.connected = true;

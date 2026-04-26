@@ -1,14 +1,14 @@
-import {
-  getUserMedia,
-  randomPorts,
-  RTCPeerConnection,
-  RTCRtpCodecParameters,
-  RtcpSrPacket,
-} from "../../../packages/webrtc/src";
-import { Server } from "ws";
 import { exec } from "child_process";
 import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
+import { Server } from "ws";
+import {
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+  RtcpSrPacket,
+  randomPorts,
+} from "../../../packages/webrtc/src";
+import { getUserMedia } from "../../../packages/webrtc/src/nonstandard";
 
 console.log("start", __dirname);
 
@@ -29,7 +29,10 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
     },
   });
 
-  const stream = await getUserMedia("~/Downloads/test.mp4", true);
+  const stream = await getUserMedia({
+    path: "~/Downloads/test.mp4",
+    loop: true,
+  });
 
   pc.addTransceiver(stream.audio, { direction: "sendonly" });
   pc.addTransceiver(stream.video, { direction: "sendonly" });

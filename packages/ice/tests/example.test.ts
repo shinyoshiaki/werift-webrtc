@@ -11,13 +11,13 @@ test("example", async () => {
   // # invite
   await a.gatherCandidates();
   b.remoteCandidates = a.localCandidates;
-  b.remoteUsername = a.localUserName;
+  b.remoteUsername = a.localUsername;
   b.remotePassword = a.localPassword;
 
   // # accept
   await b.gatherCandidates();
   a.remoteCandidates = b.localCandidates;
-  a.remoteUsername = b.localUserName;
+  a.remoteUsername = b.localUsername;
   a.remotePassword = b.localPassword;
 
   // # connect

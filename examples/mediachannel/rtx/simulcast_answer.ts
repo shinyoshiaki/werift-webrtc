@@ -1,3 +1,4 @@
+import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
@@ -6,14 +7,13 @@ import {
   useSdesMid,
   useSdesRTPStreamId,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", (socket) => {
   socket.on("message", async (data) => {
-    const offer = JSON.parse(data as string);
+    const offer = JSON.parse(data as unknown as string);
 
     const pc = new RTCPeerConnection({
       codecs: {

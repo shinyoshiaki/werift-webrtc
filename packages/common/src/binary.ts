@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { jspack } from "jspack";
+import { jspack } from "@shinyoshiaki/jspack";
 
 export function random16() {
   return jspack.Unpack("!H", randomBytes(2))[0];
@@ -12,7 +12,7 @@ export function random32() {
 export function bufferXor(a: Buffer, b: Buffer): Buffer {
   if (a.length !== b.length) {
     throw new TypeError(
-      "[webrtc-stun] You can not XOR buffers which length are different"
+      "[webrtc-stun] You can not XOR buffers which length are different",
     );
   }
 
@@ -71,7 +71,7 @@ export class BitWriter2 {
    */
   constructor(
     /**Max 32bit */
-    private bitLength: number
+    private bitLength: number,
   ) {
     if (bitLength > 32) {
       throw new Error();
@@ -104,7 +104,7 @@ export function getBit(bits: number, startIndex: number, length: number = 1) {
   let bin = bits.toString(2).split("");
   bin = [...Array(8 - bin.length).fill("0"), ...bin];
   const s = bin.slice(startIndex, startIndex + length).join("");
-  const v = parseInt(s, 2);
+  const v = Number.parseInt(s, 2);
   return v;
 }
 
@@ -116,7 +116,7 @@ export function paddingByte(bits: number) {
 export function paddingBits(bits: number, expectLength: number) {
   const dec = bits.toString(2);
   return [...[...Array(expectLength - dec.length)].map(() => "0"), ...dec].join(
-    ""
+    "",
   );
 }
 
@@ -247,7 +247,11 @@ export class BitStream {
     return this;
   }
 
-  readBits(bits: number, bitBuffer?: number): any {
+  readBits(bits: number) {
+    return this._readBits(bits);
+  }
+
+  private _readBits(bits: number, bitBuffer?: number): number {
     if (typeof bitBuffer == "undefined") {
       bitBuffer = 0;
     }
@@ -269,7 +273,7 @@ export class BitStream {
     }
     bits -= bitsConsumed;
     bitBuffer = (bitBuffer << bitsConsumed) | partial;
-    return bits > 0 ? this.readBits(bits, bitBuffer) : bitBuffer;
+    return bits > 0 ? this._readBits(bits, bitBuffer) : bitBuffer;
   }
 
   seekTo(bitPos: number) {

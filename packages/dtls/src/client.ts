@@ -1,13 +1,12 @@
-import debug from "debug";
-
 import { SessionType } from "./cipher/suites/abstract";
 import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
 import { HandshakeType } from "./handshake/const";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
-import { FragmentedHandshake } from "./record/message/fragment";
-import { DtlsSocket, Options } from "./socket";
+import { debug } from "./imports/common";
+import type { FragmentedHandshake } from "./record/message/fragment";
+import { DtlsSocket, type Options } from "./socket";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
@@ -20,7 +19,7 @@ export class DtlsClient extends DtlsSocket {
 
   async connect() {
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
-      this.extensions
+      this.extensions,
     );
   }
 
@@ -29,7 +28,7 @@ export class DtlsClient extends DtlsSocket {
     log(
       this.dtls.sessionId,
       "handleHandshakes",
-      assembled.map((a) => a.msg_type)
+      assembled.map((a) => a.msg_type),
     );
 
     for (const handshake of assembled) {
@@ -38,7 +37,7 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.hello_verify_request_3:
           {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
-              handshake.fragment
+              handshake.fragment,
             );
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
@@ -51,7 +50,7 @@ export class DtlsClient extends DtlsSocket {
               this.transport,
               this.dtls,
               this.cipher,
-              this.srtp
+              this.srtp,
             );
             this.flight5.handleHandshake(handshake);
           }
@@ -75,7 +74,7 @@ export class DtlsClient extends DtlsSocket {
               this.options.certificateRequest && 13,
             ].filter((n): n is number => typeof n === "number");
             await this.waitForReady(() =>
-              this.dtls.checkHandshakesExist(targets)
+              this.dtls.checkHandshakesExist(targets),
             );
             await this.flight5?.exec();
           }

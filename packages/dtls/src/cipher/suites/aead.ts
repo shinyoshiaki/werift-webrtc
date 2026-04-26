@@ -1,28 +1,16 @@
-import * as crypto from "crypto";
-import debug from "debug";
+import { createCipheriv, createDecipheriv } from "crypto";
 
 import { dumpBuffer, getObjectSummary } from "../../helper";
+import { debug } from "../../imports/common";
 import { prfEncryptionKeys } from "../prf";
-import Cipher, { CipherHeader, SessionType, SessionTypes } from "./abstract";
-const {
-  createDecode,
-  encode,
-  types: { uint8, uint16be, uint48be },
-} = require("binary-data");
-
-const ContentType = uint8;
-const ProtocolVersion = uint16be;
-
-const AEADAdditionalData = {
-  epoch: uint16be,
-  sequence: uint48be,
-  type: ContentType,
-  version: ProtocolVersion,
-  length: uint16be,
-};
+import Cipher, {
+  type CipherHeader,
+  SessionType,
+  type SessionTypes,
+} from "./abstract";
 
 const err = debug(
-  "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err"
+  "werift-dtls : packages/dtls/src/cipher/suites/aead.ts : err",
 );
 
 /**
@@ -59,7 +47,7 @@ export default class AEADCipher extends Cipher {
       this.keyLength,
       this.ivLength,
       this.nonceLength,
-      this.hashAlgorithm
+      this.hashAlgorithm,
     );
 
     this.clientWriteKey = keys.clientWriteKey;
@@ -82,24 +70,11 @@ export default class AEADCipher extends Cipher {
 
     const explicitNonce = iv.slice(this.nonceImplicitLength);
 
-    const additionalData = {
-      epoch: header.epoch,
-      sequence: header.sequenceNumber,
-      type: header.type,
-      version: header.version,
-      length: data.length,
-    };
+    const additionalBuffer = this.encodeAdditionalBuffer(header, data.length);
 
-    const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
-
-    const cipher = crypto.createCipheriv(
-      this.blockAlgorithm as crypto.CipherCCMTypes,
-      writeKey,
-      iv,
-      {
-        authTagLength: this.authTagLength,
-      }
-    );
+    const cipher = createCipheriv(this.blockAlgorithm!, writeKey, iv, {
+      authTagLength: this.authTagLength,
+    });
 
     cipher.setAAD(additionalBuffer, {
       plaintextLength: data.length,
@@ -112,6 +87,18 @@ export default class AEADCipher extends Cipher {
     return Buffer.concat([explicitNonce, headPart, finalPart, authTag]);
   }
 
+  encodeAdditionalBuffer(header: CipherHeader, dataLength: number) {
+    const additionalBuffer = Buffer.alloc(13);
+
+    additionalBuffer.writeUInt16BE(header.epoch, 0);
+    additionalBuffer.writeUintBE(header.sequenceNumber, 2, 6);
+    additionalBuffer.writeUInt8(header.type, 8);
+    additionalBuffer.writeUInt16BE(header.version, 9);
+    additionalBuffer.writeUInt16BE(dataLength, 11);
+
+    return additionalBuffer;
+  }
+
   /**
    * Decrypt message.
    */
@@ -121,32 +108,24 @@ export default class AEADCipher extends Cipher {
     const writeKey = isClient ? this.serverWriteKey : this.clientWriteKey;
     if (!iv || !writeKey) throw new Error();
 
-    const final = createDecode(data);
+    const explicitNonce = data.subarray(0, this.nonceExplicitLength);
 
-    const explicitNonce = final.readBuffer(this.nonceExplicitLength);
     explicitNonce.copy(iv, this.nonceImplicitLength);
 
-    const encrypted = final.readBuffer(final.length - this.authTagLength);
-    const authTag = final.readBuffer(this.authTagLength);
-
-    const additionalData = {
-      epoch: header.epoch,
-      sequence: header.sequenceNumber,
-      type: header.type,
-      version: header.version,
-      length: encrypted.length,
-    };
-
-    const additionalBuffer = encode(additionalData, AEADAdditionalData).slice();
-
-    const decipher = crypto.createDecipheriv(
-      this.blockAlgorithm as crypto.CipherCCMTypes,
-      writeKey,
-      iv,
-      {
-        authTagLength: this.authTagLength,
-      }
+    const encrypted = data.subarray(
+      this.nonceExplicitLength,
+      data.length - this.authTagLength,
     );
+    const authTag = data.subarray(data.length - this.authTagLength);
+
+    const additionalBuffer = this.encodeAdditionalBuffer(
+      header,
+      encrypted.length,
+    );
+
+    const decipher = createDecipheriv(this.blockAlgorithm!, writeKey, iv, {
+      authTagLength: this.authTagLength,
+    });
 
     decipher.setAuthTag(authTag);
     decipher.setAAD(additionalBuffer, {
@@ -166,7 +145,7 @@ export default class AEADCipher extends Cipher {
         type,
         dumpBuffer(data),
         header,
-        this.summary
+        this.summary,
       );
       throw error;
     }

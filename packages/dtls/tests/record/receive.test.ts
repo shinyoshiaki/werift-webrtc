@@ -2,7 +2,7 @@ import { SessionType } from "../../src/cipher/suites/abstract";
 import AEADCipher from "../../src/cipher/suites/aead";
 
 describe("packages/dtls/tests/record/receive.test.ts", () => {
-  xtest("test", () => {
+  test.skip("test", () => {
     const cipher = new AEADCipher();
     cipher.clientNonce = Buffer.from([
       0xb9, 0x38, 0x24, 0x51, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05,

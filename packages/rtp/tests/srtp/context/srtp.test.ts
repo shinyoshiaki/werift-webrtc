@@ -1,5 +1,6 @@
 import { RtpHeader, RtpPacket } from "../../../src/rtp/rtp";
 import { SrtpContext } from "../../../src/srtp/context/srtp";
+import { SrtpAuthenticationError } from "../../../src/srtp/error";
 
 describe("srtp/context/srtp", () => {
   function buildTestContext() {
@@ -13,6 +14,11 @@ describe("srtp/context/srtp", () => {
     ]);
 
     return new SrtpContext(masterKey, masterSalt, 1);
+  }
+  function tamper(buffer: Buffer, index: number, mask = 0x01) {
+    const tampered = Buffer.from(buffer);
+    tampered[index] ^= mask;
+    return tampered;
   }
   const rtpTestCaseDecrypted = Buffer.from([
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
@@ -61,18 +67,18 @@ describe("srtp/context/srtp", () => {
 
       const decryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        rtpTestCaseDecrypted
+        rtpTestCaseDecrypted,
       );
       const decryptedRaw = decryptedPkt.serialize();
       const encryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        encrypted
+        encrypted,
       );
       const encryptedRaw = encryptedPkt.serialize();
 
       const actualEncrypted = encryptContext.encryptRtp(
         rtpTestCaseDecrypted,
-        decryptedPkt.header
+        decryptedPkt.header,
       );
       expect(actualEncrypted).toEqual(encryptedRaw);
 
@@ -89,19 +95,19 @@ describe("srtp/context/srtp", () => {
 
       const decryptPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        rtpTestCaseDecrypted
+        rtpTestCaseDecrypted,
       );
       const decryptedRaw = decryptPkt.serialize();
 
       const encryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
-        encrypted
+        encrypted,
       );
       const encryptedRaw = encryptedPkt.serialize();
 
       const actualEncrypted = encryptContext.encryptRtp(
         rtpTestCaseDecrypted,
-        decryptPkt.header
+        decryptPkt.header,
       );
       expect(actualEncrypted).toEqual(encryptedRaw);
 
@@ -112,5 +118,148 @@ describe("srtp/context/srtp", () => {
       expect(decryptHeader.sequenceNumber).toBe(sequenceNumber);
       expect(actualDecrypted).toEqual(decryptedRaw);
     });
+  });
+
+  test("Rejects tampered SRTP auth tag without advancing rollover state", () => {
+    const encryptContext = buildTestContext();
+    const decryptContext = buildTestContext();
+    const ssrc = 5000;
+
+    const beforeRolloverPacket = new RtpPacket(
+      new RtpHeader({ sequenceNumber: 65535, ssrc, version: 0 }),
+      rtpTestCaseDecrypted,
+    );
+    const rolloverPacket = new RtpPacket(
+      new RtpHeader({ sequenceNumber: 0, ssrc, version: 0 }),
+      rtpTestCaseDecrypted,
+    );
+
+    const encryptedBeforeRollover = encryptContext.encryptRtp(
+      beforeRolloverPacket.payload,
+      beforeRolloverPacket.header,
+    );
+    const encryptedRollover = encryptContext.encryptRtp(
+      rolloverPacket.payload,
+      rolloverPacket.header,
+    );
+
+    const [decryptedBeforeRollover] = decryptContext.decryptRtp(
+      encryptedBeforeRollover,
+    );
+    expect(decryptedBeforeRollover).toEqual(beforeRolloverPacket.serialize());
+
+    const stateBeforeFailure = {
+      ...decryptContext.srtpSSRCStates[ssrc],
+    };
+    const tamperedAuthTag = tamper(
+      encryptedRollover,
+      encryptedRollover.length - 1,
+    );
+
+    expect(() => decryptContext.decryptRtp(tamperedAuthTag)).toThrowError(
+      SrtpAuthenticationError,
+    );
+    expect(decryptContext.srtpSSRCStates[ssrc]).toEqual(stateBeforeFailure);
+
+    const [decryptedAfterFailure] =
+      decryptContext.decryptRtp(encryptedRollover);
+    expect(decryptedAfterFailure).toEqual(rolloverPacket.serialize());
+    expect(decryptContext.srtpSSRCStates[ssrc]).toMatchObject({
+      lastSequenceNumber: 0,
+      rolloverCounter: 1,
+    });
+  });
+
+  test("Rejects tampered SRTP ciphertext", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const encryptedRaw = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+
+    expect(() =>
+      decryptContext.decryptRtp(tamper(encryptedRaw, 12)),
+    ).toThrowError(SrtpAuthenticationError);
+  });
+
+  test("Rejects malformed SRTP packet with oversized CSRC list", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const malformed = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+    malformed[0] = (malformed[0] & 0xf0) | 0x0f;
+
+    expect(() => decryptContext.decryptRtp(malformed)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Rejects malformed SRTP packet with oversized header extension", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const malformed = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+    malformed[0] |= 0x10;
+    malformed[12] = 0x00;
+    malformed[13] = 0x01;
+    malformed[14] = 0xff;
+    malformed[15] = 0xff;
+
+    expect(() => decryptContext.decryptRtp(malformed)).toThrowError(
+      SrtpAuthenticationError,
+    );
+  });
+
+  test("Does not create SRTP state for unknown SSRC when authentication fails", () => {
+    const decryptContext = buildTestContext();
+    const [sequenceNumber, encrypted] = rtpTestCases[0];
+    const forged = new RtpPacket(
+      new RtpHeader({ sequenceNumber, version: 0 }),
+      encrypted,
+    ).serialize();
+    forged.writeUInt32BE(0x11223344, 8);
+
+    expect(() => decryptContext.decryptRtp(forged)).toThrowError(
+      SrtpAuthenticationError,
+    );
+    expect(decryptContext.srtpSSRCStates).toEqual({});
+  });
+
+  test("Decrypts padded SRTP packets without reading pad count before authentication", () => {
+    const encryptContext = buildTestContext();
+    const decryptContext = buildTestContext();
+    const header = new RtpHeader({
+      sequenceNumber: 5000,
+      ssrc: 1,
+      version: 2,
+      padding: true,
+      paddingSize: 4,
+    });
+    const payload = Buffer.from([
+      0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x04,
+    ]);
+    const expected = new RtpPacket(
+      new RtpHeader({
+        sequenceNumber: 5000,
+        ssrc: 1,
+        version: 2,
+        padding: true,
+        paddingSize: 4,
+      }),
+      Buffer.from([0xde, 0xad, 0xbe, 0xef]),
+    ).serialize();
+
+    const encrypted = encryptContext.encryptRtp(payload, header);
+    const [decrypted] = decryptContext.decryptRtp(encrypted);
+
+    expect(decrypted).toEqual(expected);
+    expect(RtpPacket.deSerialize(decrypted).payload).toEqual(
+      Buffer.from([0xde, 0xad, 0xbe, 0xef]),
+    );
   });
 });

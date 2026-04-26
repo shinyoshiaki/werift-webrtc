@@ -1,76 +1,64 @@
-[werift-rtp](../README.md) / [Exports](../modules.md) / RtcpPayloadSpecificFeedback
+[**werift-rtp**](../README.md) • **Docs**
+
+***
+
+[werift-rtp](../globals.md) / RtcpPayloadSpecificFeedback
 
 # Class: RtcpPayloadSpecificFeedback
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RtcpPayloadSpecificFeedback.md#constructor)
-
-### Properties
-
-- [feedback](RtcpPayloadSpecificFeedback.md#feedback)
-- [type](RtcpPayloadSpecificFeedback.md#type)
-- [type](RtcpPayloadSpecificFeedback.md#type-1)
-
-### Methods
-
-- [serialize](RtcpPayloadSpecificFeedback.md#serialize)
-- [deSerialize](RtcpPayloadSpecificFeedback.md#deserialize)
-
 ## Constructors
 
-### constructor
+### new RtcpPayloadSpecificFeedback()
 
-• **new RtcpPayloadSpecificFeedback**(`props?`)
+> **new RtcpPayloadSpecificFeedback**(`props`): [`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `props` | `Partial`<[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)\> |
+• **props**: `Partial`\<[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)\> = `{}`
+
+#### Returns
+
+[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
 
 ## Properties
 
 ### feedback
 
-• **feedback**: `Feedback`
+> **feedback**: `Feedback`
 
-___
-
-### type
-
-• `Readonly` **type**: ``206``
-
-___
+***
 
 ### type
 
-▪ `Static` `Readonly` **type**: ``206``
+> `readonly` **type**: `206` = `RtcpPayloadSpecificFeedback.type`
+
+***
+
+### type
+
+> `readonly` `static` **type**: `206` = `206`
 
 ## Methods
 
-### serialize
+### serialize()
 
-▸ **serialize**(): `Buffer`
+> **serialize**(): `Buffer`
 
 #### Returns
 
 `Buffer`
 
-___
+***
 
-### deSerialize
+### deSerialize()
 
-▸ `Static` **deSerialize**(`data`, `header`): [`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
+> `static` **deSerialize**(`data`, `header`): [`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `header` | [`RtcpHeader`](RtcpHeader.md) |
+• **data**: `Buffer`
+
+• **header**: [`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

@@ -1,8 +1,13 @@
-import { DtlsContext } from "../../context/dtls";
-import { TransportContext } from "../../context/transport";
-import { ClientHello } from "../../handshake/message/client/hello";
-import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
+import type { DtlsContext } from "../../context/dtls";
+import type { TransportContext } from "../../context/transport";
+import type { ClientHello } from "../../handshake/message/client/hello";
+import type { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
+import { debug } from "../../imports/common";
 import { Flight } from "../flight";
+
+const log = debug(
+  "werift-dtls : packages/dtls/src/flight/client/flight3.ts : log",
+);
 
 export class Flight3 extends Flight {
   constructor(udp: TransportContext, dtls: DtlsContext) {
@@ -16,6 +21,7 @@ export class Flight3 extends Flight {
     this.dtls.handshakeCache = [];
 
     const [clientHello] = this.dtls.lastFlight as [ClientHello];
+    log("dtls version", clientHello.clientVersion);
     clientHello.cookie = verifyReq.cookie;
     this.dtls.cookie = verifyReq.cookie;
 

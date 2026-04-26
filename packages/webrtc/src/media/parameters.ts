@@ -1,4 +1,4 @@
-import { Direction } from "./rtpTransceiver";
+import type { MediaDirection } from "./rtpTransceiver";
 
 export interface RTCRtpParameters {
   codecs: RTCRtpCodecParameters[];
@@ -22,11 +22,11 @@ export class RTCRtpCodecParameters {
   channels?: number;
   rtcpFeedback: RTCPFB[] = [];
   parameters?: string;
-  direction: Direction | "all" = "all";
+  direction: MediaDirection | "all" = "all";
 
   constructor(
     props: Pick<RTCRtpCodecParameters, "mimeType" | "clockRate"> &
-      Partial<RTCRtpCodecParameters>
+      Partial<RTCRtpCodecParameters>,
   ) {
     Object.assign(this, props);
   }
@@ -52,7 +52,7 @@ export class RTCRtpHeaderExtensionParameters {
 
   constructor(
     props: Partial<RTCRtpHeaderExtensionParameters> &
-      Pick<RTCRtpHeaderExtensionParameters, "uri">
+      Pick<RTCRtpHeaderExtensionParameters, "uri">,
   ) {
     Object.assign(this, props);
   }
@@ -60,7 +60,7 @@ export class RTCRtpHeaderExtensionParameters {
 
 export class RTCRtcpParameters {
   cname?: string;
-  mux: boolean = false;
+  mux = false;
   ssrc?: number;
 
   constructor(props: Partial<RTCRtcpParameters> = {}) {
@@ -91,7 +91,7 @@ export class RTCRtpCodingParameters {
 
   constructor(
     props: Partial<RTCRtpCodingParameters> &
-      Pick<RTCRtpCodingParameters, "ssrc" | "payloadType">
+      Pick<RTCRtpCodingParameters, "ssrc" | "payloadType">,
   ) {
     Object.assign(this, props);
   }
@@ -101,7 +101,7 @@ export interface RTCRtpReceiveParameters extends RTCRtpParameters {
   encodings: RTCRtpCodingParameters[];
 }
 
-export interface RTCRtpSendParameters extends RTCRtpParameters {}
+export type RTCRtpSendParameters = RTCRtpParameters;
 
 export class RTCRtpSimulcastParameters {
   rid!: string;

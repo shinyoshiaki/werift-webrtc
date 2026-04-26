@@ -3,31 +3,32 @@ import { enumerate } from "../src/helper";
 import { InboundStream } from "../src/sctp";
 
 describe("SctpStreamTest", () => {
-  test("test_duplicate", (done) => {
-    const factory = new ChunkFactory();
+  test("test_duplicate", (done) =>
+    new Promise<void>((done) => {
+      const factory = new ChunkFactory();
 
-    const stream = new InboundStream();
-    const chunks = factory.create([
-      Buffer.from("foo"),
-      Buffer.from("bar"),
-      Buffer.from("baz"),
-    ]);
+      const stream = new InboundStream();
+      const chunks = factory.create([
+        Buffer.from("foo"),
+        Buffer.from("bar"),
+        Buffer.from("baz"),
+      ]);
 
-    stream.addChunk(chunks[0]);
-    expect(stream.reassembly).toEqual([chunks[0]]);
-    expect(stream.streamSequenceNumber).toBe(0);
-
-    stream.popMessages();
-    expect(stream.reassembly).toEqual([chunks[0]]);
-    expect(stream.streamSequenceNumber).toEqual(0);
-
-    try {
       stream.addChunk(chunks[0]);
-    } catch (error: any) {
-      expect(error.message).toBe("duplicate chunk in reassembly");
-      done();
-    }
-  });
+      expect(stream.reassembly).toEqual([chunks[0]]);
+      expect(stream.streamSequenceNumber).toBe(0);
+
+      stream.popMessages();
+      expect(stream.reassembly).toEqual([chunks[0]]);
+      expect(stream.streamSequenceNumber).toEqual(0);
+
+      try {
+        stream.addChunk(chunks[0]);
+      } catch (error: any) {
+        expect(error.message).toBe("duplicate chunk in reassembly");
+        done();
+      }
+    }));
 
   test("test_whole_in_order", () => {
     const factory = new ChunkFactory();

@@ -1,5 +1,6 @@
 import { parseIceServers } from "../src";
-import { RTCIceServer } from "../src/peerConnection";
+import { deepMerge } from "../src";
+import type { RTCIceServer } from "../src/peerConnection";
 
 describe("utils", () => {
   describe("parseIceServers", () => {
@@ -44,6 +45,81 @@ describe("utils", () => {
       expect(turnServer).toEqual(["turn.l.google.com", 19302]);
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
+    });
+  });
+
+  describe("deepMerge", () => {
+    test("merges two objects", () => {
+      const obj1 = { a: 1, b: { c: 2, d: 3 } };
+      const obj2 = { b: { c: 20, e: 5 }, f: 6 };
+      const result = deepMerge(obj1, obj2 as any);
+      expect(result).toEqual({ a: 1, b: { c: 20, e: 5 }, f: 6 });
+    });
+
+    test("does not overwrite with undefined", () => {
+      const obj1 = { a: 1, b: 2 };
+      const obj2 = { a: undefined, b: 3 };
+      const result = deepMerge(obj1, obj2 as any);
+      expect(result).toEqual({ a: 1, b: 3 });
+    });
+
+    test("handles nested objects", () => {
+      const obj1 = { a: { b: { c: 1 } } };
+      const obj2 = { a: { b: { d: 2 }, e: 3 } };
+      const result = deepMerge(obj1, obj2 as any);
+      expect(result).toEqual({ a: { b: { d: 2 }, e: 3 } });
+    });
+
+    test("arrays are replaced, not merged", () => {
+      const obj1 = { a: [1, 2, 3], b: { c: [4, 5] } };
+      const obj2 = { a: [6, 7], b: { c: [8] } };
+      const result = deepMerge(obj1, obj2);
+      expect(result).toEqual({ a: [6, 7], b: { c: [8] } });
+    });
+
+    test("handles non-object inputs accordingly", () => {
+      expect(deepMerge(null as any, { a: 1 })).toEqual({ a: 1 });
+      expect(deepMerge({ a: 1 }, null as any)).toEqual({ a: 1 });
+      // lodash mergeWith treats non-objects as Datatype Objects
+      // and assigns attributes to them, which makes no sense
+      // following test would fail, as it would expect
+      // the result equal to Object(42) with attribute 'a' = 1
+      expect(deepMerge(42 as any, { a: 1 })).toEqual({ a: 1 });
+      expect(deepMerge({ a: 1 }, 42 as any)).toEqual(42);
+    });
+
+    test("merges complex nested structures", () => {
+      const obj1 = { a: { b: 1, c: { d: 2 } }, e: 3 };
+      const obj2 = { a: { c: { f: 4 } }, g: 5 };
+      const result = deepMerge(obj1, obj2 as any);
+      expect(result).toEqual({ a: { c: { f: 4 } }, e: 3, g: 5 });
+    });
+
+    test("Date objects are replaced, not merged", () => {
+      const date1 = new Date("2020-01-01");
+      const date2 = new Date("2021-01-01");
+      const obj1 = { a: date1 };
+      const obj2 = { a: date2 };
+      const result = deepMerge(obj1, obj2);
+      expect(result).toEqual({ a: date2 });
+    });
+
+    test("functions are replaced, not merged", () => {
+      const func1 = () => 1;
+      const func2 = () => 2;
+      const obj1 = { a: func1 };
+      const obj2 = { a: func2 };
+      const result = deepMerge(obj1, obj2);
+      expect(result.a).toBe(func2);
+    });
+
+    test("symbol properties are ignored", () => {
+      const sym1 = Symbol("a");
+      const sym2 = Symbol("b");
+      const obj1 = { [sym1]: 1 };
+      const obj2 = { [sym2]: 2 };
+      const result = deepMerge(obj1, obj2 as any);
+      expect(result).toEqual({ [sym1]: 1 });
     });
   });
 });

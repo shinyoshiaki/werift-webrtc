@@ -1,25 +1,40 @@
-import { createTurnEndpoint } from "../src/turn/turn";
+import { createTurnClient } from "../src/turn/protocol";
+import type { Address } from "../src/types/model";
+import { url2Address } from "../src/utils";
+
+const address: Address = url2Address("127.0.0.1:3478")!;
+const username = "username";
+const password = "password";
 
 (async () => {
-  const turn1 = await createTurnEndpoint(
-    ["127.0.0.1", 55555],
-    "username",
-    "password",
-    6
+  const receiver = await createTurnClient(
+    { address, username, password },
+    { transport: "udp" },
   );
-  console.log("turn1", turn1.relayedAddress, turn1.mappedAddress);
-  const turn2 = await createTurnEndpoint(
-    ["127.0.0.1", 55555],
-    "username",
-    "password",
-    6
+
+  const sender = await createTurnClient(
+    { address, username, password },
+    { transport: "udp" },
   );
-  console.log("turn2", turn2.relayedAddress, turn2.mappedAddress);
 
-  // await turn1.sendData(Buffer.from("bind channel"), turn2.mappedAddress!);
-  // await turn2.sendData(Buffer.from("bind channel"), turn1.mappedAddress!);
+  await sender.getChannel(receiver.relayedAddress).catch((e) => e);
+  await receiver.getChannel(sender.relayedAddress).catch((e) => e);
 
-  setInterval(() => {
-    turn2.sendData(Buffer.from("ping"), turn1.mappedAddress!);
-  }, 5000);
+  receiver.onData.subscribe((data, addr) => {
+    console.log("receiver onData", data.toString(), addr);
+    receiver.sendData(
+      Buffer.from("pong " + new Date().toISOString()),
+      sender.relayedAddress,
+    );
+  });
+  sender.onData.subscribe((data, addr) => {
+    console.log("sender onData", data.toString(), addr);
+  });
+
+  setInterval(async () => {
+    await sender.sendData(
+      Buffer.from("ping " + new Date().toISOString()),
+      receiver.relayedAddress,
+    );
+  }, 2000);
 })();

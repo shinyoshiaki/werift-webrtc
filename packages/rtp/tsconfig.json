@@ -1,12 +1,13 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ESNext",
     "module": "commonjs",
-    "lib": ["esnext"],
+    "lib": [
+      "esnext"
+    ],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
-    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "pretty": true,
     "sourceMap": true,
@@ -15,7 +16,13 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": false,
-    "useDefineForClassFields": true
+    "useDefineForClassFields": true,
+    "types": [
+      "vitest/globals"
+    ]
   },
-  "include": ["src", "tests"]
+  "include": [
+    "src",
+    "tests"
+  ]
 }

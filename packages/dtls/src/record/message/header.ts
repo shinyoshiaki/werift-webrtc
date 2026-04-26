@@ -1,45 +1,15 @@
-import { decode, encode, types } from "binary-data";
-
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 import { ProtocolVersion } from "../../handshake/binary";
 
-export class DtlsPlaintextHeader {
-  static readonly spec = {
-    contentType: types.uint8,
-    protocolVersion: ProtocolVersion,
-    epoch: types.uint16be,
-    sequenceNumber: types.uint48be,
-    contentLen: types.uint16be,
+export interface DtlsPlaintextHeader {
+  contentType: number;
+  protocolVersion: {
+    major: number;
+    minor: number;
   };
-
-  constructor(
-    public contentType: number,
-    public protocolVersion: { major: number; minor: number },
-    public epoch: number,
-    public sequenceNumber: number,
-    public contentLen: number
-  ) {}
-
-  static createEmpty() {
-    return new DtlsPlaintextHeader(
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any
-    );
-  }
-
-  static deSerialize(buf: Buffer) {
-    return new DtlsPlaintextHeader(
-      //@ts-ignore
-      ...Object.values(decode(buf, DtlsPlaintextHeader.spec))
-    );
-  }
-
-  serialize() {
-    const res = encode(this, DtlsPlaintextHeader.spec).slice();
-    return Buffer.from(res);
-  }
+  epoch: number;
+  sequenceNumber: number;
+  contentLen: number;
 }
 
 export class MACHeader {
@@ -56,7 +26,7 @@ export class MACHeader {
     public sequenceNumber: number,
     public contentType: number,
     public protocolVersion: { major: number; minor: number },
-    public contentLen: number
+    public contentLen: number,
   ) {}
 
   static createEmpty() {
@@ -65,14 +35,14 @@ export class MACHeader {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new MACHeader(
       //@ts-ignore
-      ...Object.values(decode(buf, MACHeader.spec))
+      ...Object.values(decode(buf, MACHeader.spec)),
     );
   }
 

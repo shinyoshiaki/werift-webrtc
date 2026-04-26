@@ -1,8 +1,8 @@
-import { decode, types } from "binary-data";
+import { decode, types } from "@shinyoshiaki/binary-data";
 
-import { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
+import type { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { Handshake } from "../../../typings/domain";
+import type { Handshake } from "../../../typings/domain";
 import { encodeBuffer } from "../../../util/binary";
 import { HandshakeType } from "../../const";
 
@@ -29,7 +29,7 @@ export class ServerKeyExchange implements Handshake {
     public hashAlgorithm: number,
     public signatureAlgorithm: number,
     public signatureLength: number,
-    public signature: Buffer
+    public signature: Buffer,
   ) {}
 
   static createEmpty() {
@@ -41,7 +41,7 @@ export class ServerKeyExchange implements Handshake {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
@@ -49,7 +49,7 @@ export class ServerKeyExchange implements Handshake {
     const res = decode(buf, ServerKeyExchange.spec);
     return new ServerKeyExchange(
       //@ts-ignore
-      ...Object.values(res)
+      ...Object.values(res),
     );
   }
 
@@ -66,7 +66,7 @@ export class ServerKeyExchange implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

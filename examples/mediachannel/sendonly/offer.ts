@@ -1,13 +1,13 @@
+import { spawn } from "child_process";
+import { createSocket } from "dgram";
+import { Server } from "ws";
 import {
   MediaStreamTrack,
-  randomPort,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   RtpPacket,
+  randomPort,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
-import { createSocket } from "dgram";
-import { spawn } from "child_process";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -38,7 +38,6 @@ server.on("connection", async (socket) => {
       "rtpvp8pay",
       `udpsink host=127.0.0.1 port=${port}`,
     ].join(" ! ");
-
     spawn("gst-launch-1.0", args.split(" "));
     udp.on("message", (data) => {
       const rtp = RtpPacket.deSerialize(data);

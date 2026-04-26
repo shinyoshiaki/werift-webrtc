@@ -1,5 +1,5 @@
-import React, { FC, useEffect, useRef } from "react";
-import ReactDOM from "react-dom";
+import React, { type FC, useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
 import { createTestTrack } from "./util";
 
 const App: FC = () => {
@@ -10,7 +10,7 @@ const App: FC = () => {
       const socket = new WebSocket("ws://localhost:8888");
 
       const offer = await new Promise<any>(
-        (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+        (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data))),
       );
       console.log("offer", offer.sdp);
 
@@ -35,4 +35,5 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);

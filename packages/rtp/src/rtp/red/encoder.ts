@@ -26,7 +26,7 @@ export class RedEncoder {
     redundantPayloads.forEach((redundant) => {
       const timestampOffset = uint32Add(
         presentPayload.timestamp,
-        -redundant.timestamp
+        -redundant.timestamp,
       );
       if (timestampOffset > Max14Uint) {
         return;

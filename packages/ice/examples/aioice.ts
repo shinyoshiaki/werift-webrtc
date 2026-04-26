@@ -1,5 +1,5 @@
 import WS from "ws";
-import { Connection, Candidate } from "../src";
+import { Candidate, Connection } from "../src";
 
 const WEBSOCKET_URI = "ws://127.0.0.1:8765";
 
@@ -14,12 +14,12 @@ const WEBSOCKET_URI = "ws://127.0.0.1:8765";
   await new Promise((r) => ws.once("open", r));
 
   const message: string = await new Promise((r) =>
-    ws.once("message", (data) => r(data))
+    ws.once("message", (data) => r(data)),
   );
   console.log("received offer", message);
   const { candidates, username, password } = JSON.parse(message);
   connection.remoteCandidates = candidates.map((v: string) =>
-    Candidate.fromSdp(v)
+    Candidate.fromSdp(v),
   );
   connection.remoteUsername = username;
   connection.remotePassword = password;
@@ -29,7 +29,7 @@ const WEBSOCKET_URI = "ws://127.0.0.1:8765";
       candidates: connection.localCandidates.map((v) => v.toSdp()),
       password: connection.localPassword,
       username: connection.localUserName,
-    })
+    }),
   );
 
   await new Promise((r) => {

@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.17.7",
+  "version": "0.22.9",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -15,21 +15,34 @@
   "author": {
     "name": "shinyoshiaki"
   },
+  "exports": {
+    ".": {
+      "types": "./lib/webrtc/src/index.d.ts",
+      "require": "./lib/webrtc/src/index.js",
+      "import": "./lib/index.mjs"
+    },
+    "./nonstandard": {
+      "types": "./lib/webrtc/src/nonstandard/index.d.ts",
+      "require": "./lib/webrtc/src/nonstandard/index.js",
+      "import": "./lib/nonstandard/index.mjs"
+    }
+  },
   "main": "lib/webrtc/src/index.js",
   "types": "lib/webrtc/src/index.d.ts",
   "files": [
-    "lib",
-    "src"
+    "lib"
   ],
   "scripts": {
-    "build": "npm i && rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "npm i && rm -rf lib && run-s format compile:*",
+    "compile:cjs": "tsc -p ./tsconfig.production.json",
+    "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
-    "deploy": "npm run build && npm publish",
+    "deploy": "npm run build && npm publish && cd ../../import-test && npm test",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
-    "format": "npm run unused && npm run lint && prettier --write src/**/*.ts",
-    "lint": "eslint ./src --fix",
-    "test": "npm run type && jest --runInBand --forceExit --coverage",
+    "format": "biome check --write src tests",
+    "knip": "knip",
+    "test": "vitest run ./tests",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
@@ -37,36 +50,24 @@
   "dependencies": {
     "@fidm/x509": "^1.2.1",
     "@minhducsun2002/leb128": "^1.0.0",
-    "@peculiar/webcrypto": "^1.4.1",
-    "@peculiar/x509": "^1.9.2",
-    "@shinyoshiaki/ebml-builder": "^0.0.1",
+    "@noble/curves": "^1.8.1",
+    "@peculiar/x509": "^1.12.3",
+    "@shinyoshiaki/binary-data": "^0.6.1",
+    "@shinyoshiaki/jspack": "^0.0.6",
+    "fast-deep-equal": "^3.1.3",
     "aes-js": "^3.1.2",
-    "binary-data": "^0.6.0",
-    "buffer-crc32": "^0.2.13",
-    "date-fns": "^2.29.3",
-    "debug": "^4.3.4",
-    "elliptic": "^6.5.4",
-    "int64-buffer": "^1.0.1",
-    "ip": "^1.1.8",
-    "jspack": "^0.0.4",
-    "lodash": "^4.17.21",
-    "nano-time": "^1.0.0",
-    "p-cancelable": "^2.1.1",
-    "rx.mini": "^1.2.2",
-    "turbo-crc32": "^1.0.1",
+    "buffer": "^6.0.3",
+    "debug": "4.4.0",
+    "int64-buffer": "1.1.0",
+    "ip": "^2.0.1",
+    "mp4box": "^0.5.3",
+    "multicast-dns": "^7.2.5",
     "tweetnacl": "^1.0.3",
-    "uuid": "^9.0.0"
-  },
-  "devDependencies": {
-    "@types/aes-js": "^3.1.1",
-    "@types/buffer-crc32": "^0.2.2",
-    "@types/debug": "^4.1.7",
-    "@types/elliptic": "^6.4.14",
-    "@types/ip": "^1.1.0",
-    "@types/jest": "^29.2.4",
-    "@types/lodash": "^4.14.191",
-    "@types/node": "^18.11.18",
-    "@types/uuid": "^9.0.0"
+    "werift-common": "*",
+    "werift-dtls": "*",
+    "werift-ice": "*",
+    "werift-rtp": "*",
+    "werift-sctp": "*"
   },
   "engines": {
     "node": ">=16"

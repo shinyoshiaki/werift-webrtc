@@ -1,6 +1,6 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { Extension } from "../../typings/domain";
+import type { Extension } from "../../typings/domain";
 
 // rfc4492
 export class EllipticCurves {

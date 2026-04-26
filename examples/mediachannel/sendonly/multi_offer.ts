@@ -1,10 +1,10 @@
+import { createSocket } from "dgram";
+import { Server } from "ws";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
-import { createSocket } from "dgram";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -27,7 +27,7 @@ server.on("connection", async (socket) => {
     },
   });
   pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
+    console.log("pc.iceConnectionStateChange", v),
   );
   const track1 = new MediaStreamTrack({ kind: "video" });
   pc.addTransceiver(track1, { direction: "sendonly" });

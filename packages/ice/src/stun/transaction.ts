@@ -1,16 +1,15 @@
-import debug from "debug";
-import { Event } from "rx.mini";
+import { type Address, Event, debug } from "../imports/common";
 
 import { TransactionFailed, TransactionTimeout } from "../exceptions";
-import { Address, Protocol } from "../types/model";
-import { classes, RETRY_MAX, RETRY_RTO } from "./const";
-import { Message } from "./message";
+import type { Protocol } from "../types/model";
+import { RETRY_MAX, RETRY_RTO, classes } from "./const";
+import type { Message } from "./message";
 
 const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
 
 export class Transaction {
   private timeoutDelay = RETRY_RTO;
-  private timeoutHandle?: any;
+  ended = false;
   private tries = 0;
   private readonly triesMax: number;
   private readonly onResponse = new Event<[Message, Address]>();
@@ -19,7 +18,7 @@ export class Transaction {
     private request: Message,
     private addr: Address,
     private protocol: Protocol,
-    private retransmissions?: number
+    private retransmissions?: number,
   ) {
     this.triesMax =
       1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
@@ -38,28 +37,37 @@ export class Transaction {
 
   run = async () => {
     try {
-      this.retry();
-      return await this.onResponse.asPromise();
+      this.retry().catch((e) => {
+        log("retry failed", e);
+      });
+      const res = await this.onResponse.asPromise();
+      return res;
+    } catch (error) {
+      throw error;
     } finally {
-      if (this.timeoutHandle) {
-        clearTimeout(this.timeoutHandle);
-      }
+      this.cancel();
     }
   };
 
-  private retry = () => {
+  private retry = async () => {
+    while (this.tries < this.triesMax && !this.ended) {
+      this.protocol.sendStun(this.request, this.addr).catch((e) => {
+        log("send stun failed", e);
+      });
+      await new Promise((r) => setTimeout(r, this.timeoutDelay));
+      if (this.ended) {
+        break;
+      }
+      this.timeoutDelay *= 2;
+      this.tries++;
+    }
     if (this.tries >= this.triesMax) {
       log(`retry failed times:${this.tries} maxLimit:${this.triesMax}`);
       this.onResponse.error(new TransactionTimeout());
-      return;
     }
-    this.protocol.sendStun(this.request, this.addr);
-    this.timeoutHandle = setTimeout(this.retry, this.timeoutDelay);
-    this.timeoutDelay *= 2;
-    this.tries++;
   };
 
   cancel() {
-    if (this.timeoutHandle) clearTimeout(this.timeoutHandle);
+    this.ended = true;
   }
 }

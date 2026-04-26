@@ -1,5 +1,5 @@
-import { RTCPeerConnection } from "../../packages/webrtc/src";
 import io from "socket.io-client";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 
 const socket = io("https://serene-anchorage-28732.herokuapp.com/");
 
@@ -14,7 +14,7 @@ const socket = io("https://serene-anchorage-28732.herokuapp.com/");
       }, 1000);
     }
   });
-  dc.message.subscribe((data) => {
+  dc.onMessage.subscribe((data) => {
     console.log("message", data.toString());
   });
 

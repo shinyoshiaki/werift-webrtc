@@ -1,19 +1,18 @@
-import debug from "debug";
-import { Event } from "rx.mini";
+import { Event, UdpTransport, debug } from "../imports/common";
 
-import { InterfaceAddresses } from "../../../common/src/network";
-import { Candidate } from "../candidate";
-import { Connection } from "../ice";
-import { UdpTransport } from "../transport";
-import { Address, Protocol } from "../types/model";
+import type { Address, InterfaceAddresses } from "../../../common/src/network";
+import type { Candidate } from "../candidate";
+
+import type { Protocol } from "../types/model";
 import { classes } from "./const";
-import { Message, parseMessage } from "./message";
+import { type Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
 
-const log = debug("packages/ice/src/stun/protocol.ts");
+const log = debug("werift-ice : packages/ice/src/stun/protocol.ts");
 
 export class StunProtocol implements Protocol {
-  readonly type = "stun";
+  static readonly type = "stun";
+  readonly type = StunProtocol.type;
   transport!: UdpTransport;
   transactions: { [key: string]: Transaction } = {};
   get transactionsKeys() {
@@ -21,66 +20,70 @@ export class StunProtocol implements Protocol {
   }
   localCandidate?: Candidate;
   sentMessage?: Message;
-  localAddress?: string;
+  localIp?: string;
 
-  private readonly closed = new Event();
+  readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
+  readonly onDataReceived = new Event<[Buffer]>();
 
-  constructor(public receiver: Connection) {}
-
-  connectionLost() {
-    this.closed.execute();
-    this.closed.complete();
-  }
+  constructor() {}
 
   connectionMade = async (
     useIpv4: boolean,
     portRange?: [number, number],
-    interfaceAddresses?: InterfaceAddresses
+    interfaceAddresses?: InterfaceAddresses,
   ) => {
     if (useIpv4) {
-      this.transport = await UdpTransport.init(
-        "udp4",
+      this.transport = await UdpTransport.init("udp4", {
         portRange,
-        interfaceAddresses
-      );
+        interfaceAddresses,
+      });
     } else {
-      this.transport = await UdpTransport.init(
-        "udp6",
+      this.transport = await UdpTransport.init("udp6", {
         portRange,
-        interfaceAddresses
-      );
+        interfaceAddresses,
+      });
     }
 
-    this.transport.onData = (data, addr) => this.datagramReceived(data, addr);
+    this.transport.onData = (data, addr) => {
+      this.datagramReceived(data, addr);
+    };
   };
 
   private datagramReceived(data: Buffer, addr: Address) {
-    if (!this.localCandidate) throw new Error("not exist");
-
-    const message = parseMessage(data);
-    if (!message) {
-      this.receiver.dataReceived(data, this.localCandidate.component);
-      return;
-    }
-    // log("parseMessage", addr, message);
-    if (
-      (message.messageClass === classes.RESPONSE ||
-        message.messageClass === classes.ERROR) &&
-      this.transactionsKeys.includes(message.transactionIdHex)
-    ) {
-      const transaction = this.transactions[message.transactionIdHex];
-      transaction.responseReceived(message, addr);
-    } else if (message.messageClass === classes.REQUEST) {
-      this.receiver.requestReceived(message, addr, this, data);
+    try {
+      const message = parseMessage(data);
+      if (!message) {
+        if (this.localCandidate) {
+          this.onDataReceived.execute(data);
+        }
+        return;
+      }
+      // log("parseMessage", addr, message.toJSON());
+      if (
+        (message.messageClass === classes.RESPONSE ||
+          message.messageClass === classes.ERROR) &&
+        this.transactionsKeys.includes(message.transactionIdHex)
+      ) {
+        const transaction = this.transactions[message.transactionIdHex];
+        transaction.responseReceived(message, addr);
+      } else if (message.messageClass === classes.REQUEST) {
+        this.onRequestReceived.execute(message, addr, data);
+      }
+    } catch (error) {
+      log("datagramReceived error", error);
     }
   }
 
   getExtraInfo(): Address {
-    const { address: host, port } = this.transport.address();
+    const { address: host, port } = this.transport.address;
     return [host, port];
   }
 
   async sendStun(message: Message, addr: Address) {
+    if (this.transport.closed) {
+      return;
+    }
+
     const data = message.bytes;
     await this.transport.send(data, addr).catch(() => {
       log("sendStun failed", addr, message);
@@ -88,6 +91,10 @@ export class StunProtocol implements Protocol {
   }
 
   async sendData(data: Buffer, addr: Address) {
+    if (this.transport.closed) {
+      return;
+    }
+
     await this.transport.send(data, addr);
   }
 
@@ -95,7 +102,7 @@ export class StunProtocol implements Protocol {
     request: Message,
     addr: Address,
     integrityKey?: Buffer,
-    retransmissions?: number
+    retransmissions?: number,
   ) {
     // """
     // Execute a STUN transaction and return the response.
@@ -112,12 +119,14 @@ export class StunProtocol implements Protocol {
       request,
       addr,
       this,
-      retransmissions
+      retransmissions,
     );
     this.transactions[request.transactionIdHex] = transaction;
 
     try {
       return await transaction.run();
+    } catch (e) {
+      throw e;
     } finally {
       delete this.transactions[request.transactionIdHex];
     }
@@ -128,5 +137,7 @@ export class StunProtocol implements Protocol {
       transaction.cancel();
     });
     await this.transport.close();
+    this.onRequestReceived.complete();
+    this.onDataReceived.complete();
   }
 }

@@ -1,4 +1,4 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 export class RenegotiationIndication {
   static type = 65281;
@@ -21,7 +21,7 @@ export class RenegotiationIndication {
 
   static deSerialize(buf: Buffer) {
     return new RenegotiationIndication(
-      decode(buf, RenegotiationIndication.spec)
+      decode(buf, RenegotiationIndication.spec),
     );
   }
 

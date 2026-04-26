@@ -1,12 +1,12 @@
 import { RtpHeader, RtpPacket } from "../../src/rtp/rtp";
-import { Config } from "../../src/srtp/session";
+import type { Config } from "../../src/srtp/session";
 import { SrtpSession } from "../../src/srtp/srtp";
-import { Transport } from "../../src/transport";
+import type { Transport } from "../../src/transport";
 import { createMockTransportPair } from "../utils";
 
 function buildSessionSRTPPair(): [
   { session: SrtpSession; transport: Transport },
-  { session: SrtpSession; transport: Transport }
+  { session: SrtpSession; transport: Transport },
 ] {
   const config: Config = {
     profile: 0x0001,
@@ -53,7 +53,7 @@ describe("srtp", () => {
 
     const enc = aPair.session.encrypt(
       testPayload,
-      new RtpHeader({ ssrc: 5000 })
+      new RtpHeader({ ssrc: 5000 }),
     );
     aPair.transport.send(enc);
   });

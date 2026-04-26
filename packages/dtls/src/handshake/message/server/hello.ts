@@ -1,8 +1,13 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { CipherSuites } from "../../../cipher/const";
+import type { CipherSuites } from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { Extension, Handshake, Random, Version } from "../../../typings/domain";
+import type {
+  Extension,
+  Handshake,
+  Random,
+  Version,
+} from "../../../typings/domain";
 import { ExtensionList, ProtocolVersion } from "../../binary";
 import { HandshakeType } from "../../const";
 import { DtlsRandom } from "../../random";
@@ -26,7 +31,7 @@ export class ServerHello implements Handshake {
     public sessionId: Buffer,
     public cipherSuite: CipherSuites,
     public compressionMethod: number,
-    public extensions: Extension[]
+    public extensions: Extension[],
   ) {}
 
   static createEmpty() {
@@ -36,7 +41,7 @@ export class ServerHello implements Handshake {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
@@ -44,15 +49,15 @@ export class ServerHello implements Handshake {
     const res = decode(buf, ServerHello.spec);
     const cls = new ServerHello(
       //@ts-ignore
-      ...Object.values(res)
+      ...Object.values(res),
     );
     const expect = cls.serialize();
     if (expect.length < buf.length) {
       return new ServerHello(
         //@ts-ignore
         ...Object.values(
-          decode(buf, { ...ServerHello.spec, extensions: ExtensionList })
-        )
+          decode(buf, { ...ServerHello.spec, extensions: ExtensionList }),
+        ),
       );
     }
     return cls;
@@ -77,7 +82,7 @@ export class ServerHello implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

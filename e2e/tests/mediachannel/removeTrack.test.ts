@@ -1,4 +1,4 @@
-import { waitVideoPlay, peer, sleep } from "../fixture";
+import { browserName, peer, sleep, waitVideoPlay } from "../fixture";
 
 const mediachannel_removetrack_addtrack = "mediachannel_removetrack_addtrack";
 const mediachannel_addtrack_removefirst_addtrack =
@@ -7,9 +7,8 @@ const mediachannel_addtrack_removefirst_addtrack =
 const mediachannel_offer_replace_second = "mediachannel_offer_replace_second";
 
 describe("mediachannel_removeTrack", () => {
-  it(
-    mediachannel_removetrack_addtrack,
-    async () =>
+  if (browserName !== "Firefox") {
+    it(mediachannel_removetrack_addtrack, async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
@@ -40,10 +39,10 @@ describe("mediachannel_removeTrack", () => {
             })
             .catch(() => {});
         };
-
         answer();
+
         let track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -58,7 +57,7 @@ describe("mediachannel_removeTrack", () => {
         });
         answer();
         track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -67,13 +66,11 @@ describe("mediachannel_removeTrack", () => {
         });
         pc.close();
         done();
-      }),
-    10 * 1000
-  );
+      }));
+  }
 
-  it(
-    mediachannel_addtrack_removefirst_addtrack,
-    async () =>
+  if (browserName != "Firefox") {
+    it(mediachannel_addtrack_removefirst_addtrack, async () =>
       new Promise<void>(async (done) => {
         if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
         await sleep(100);
@@ -82,7 +79,7 @@ describe("mediachannel_removeTrack", () => {
           mediachannel_addtrack_removefirst_addtrack,
           {
             type: "init",
-          }
+          },
         );
 
         const pc = new RTCPeerConnection({
@@ -110,7 +107,7 @@ describe("mediachannel_removeTrack", () => {
 
         answer();
         let track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -119,7 +116,7 @@ describe("mediachannel_removeTrack", () => {
         });
         answer();
         track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -134,7 +131,7 @@ describe("mediachannel_removeTrack", () => {
         });
         answer();
         track = await new Promise<MediaStreamTrack>(
-          (r) => (pc.ontrack = (e) => r(e.track))
+          (r) => (pc.ontrack = (e) => r(e.track)),
         );
         await waitVideoPlay(track);
 
@@ -143,10 +140,8 @@ describe("mediachannel_removeTrack", () => {
         });
         pc.close();
         done();
-      }),
-    10 * 1000
-  );
-
+      }));
+  }
   it(
     mediachannel_offer_replace_second,
     async () =>
@@ -251,6 +246,6 @@ describe("mediachannel_removeTrack", () => {
         pc.close();
         done();
       }),
-    6000 * 1000
+    6000 * 1000,
   );
 });

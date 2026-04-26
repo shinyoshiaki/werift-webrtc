@@ -30,7 +30,7 @@ const reader = readline.createInterface({
     const listen = async (line: string) => {
       const { candidates, name, pass } = JSON.parse(line);
       connection.remoteCandidates = candidates.map((v: any) =>
-        Candidate.fromSdp(v)
+        Candidate.fromSdp(v),
       );
       connection.remoteUsername = name;
       connection.remotePassword = pass;

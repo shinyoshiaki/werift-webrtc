@@ -1,7 +1,5 @@
 import { RTCPeerConnection } from "../../src";
 
-jest.setTimeout(10_000);
-
 describe("trickle", () => {
   test(
     "half trickle",
@@ -14,13 +12,17 @@ describe("trickle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pcAnswer.onDataChannel.subscribe((dc) => {
-          dc.message.subscribe((data) => {
+          dc.onMessage.subscribe((data) => {
             expect(data.toString()).toBe("hello");
             done();
           });
         });
 
         pcOffer.onIceCandidate.subscribe((candidate) => {
+          if (!candidate) {
+            expect(pcOffer._localDescription?.media.length).toBe(1);
+            return;
+          }
           pcAnswer.addIceCandidate(candidate);
         });
 
@@ -32,14 +34,16 @@ describe("trickle", () => {
         });
 
         const offer = await pcOffer.createOffer();
-        pcOffer.setLocalDescription(offer);
+        pcOffer.setLocalDescription(offer).then(() => {
+          expect(pcOffer._localDescription?.media.length).toBe(1);
+        });
 
         await pcAnswer.setRemoteDescription(offer);
         await pcAnswer.setLocalDescription(await pcAnswer.createAnswer());
 
         await pcOffer.setRemoteDescription(pcAnswer.localDescription!);
       }),
-    15 * 1000
+    15 * 1000,
   );
 
   test(
@@ -53,16 +57,22 @@ describe("trickle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pcAnswer.onDataChannel.subscribe((dc) => {
-          dc.message.subscribe((data) => {
+          dc.onMessage.subscribe((data) => {
             expect(data.toString()).toBe("hello");
             done();
           });
         });
 
         pcOffer.onIceCandidate.subscribe((candidate) => {
+          if (!candidate) {
+            return;
+          }
           pcAnswer.addIceCandidate(candidate);
         });
         pcAnswer.onIceCandidate.subscribe((candidate) => {
+          if (!candidate) {
+            return;
+          }
           pcOffer.addIceCandidate(candidate);
         });
 
@@ -81,6 +91,6 @@ describe("trickle", () => {
         pcAnswer.setLocalDescription(answer);
         await pcOffer.setRemoteDescription(answer);
       }),
-    15 * 1000
+    15 * 1000,
   );
 });

@@ -1,12 +1,10 @@
-import debug from "debug";
-import range from "lodash/range";
-
 import {
   BitWriter2,
   bufferReader,
   bufferWriter,
+  debug,
   getBit,
-} from "../../../../common/src";
+} from "../../imports/common";
 import { RtcpHeader } from "../header";
 
 const log = debug("werift/rtp/rtcp/rtpfb/twcc");
@@ -85,19 +83,19 @@ export class TransportWideCC {
       const type = getBit(
         data.slice(packetStatusPos, packetStatusPos + 1)[0],
         0,
-        1
+        1,
       );
       let iPacketStatus: RunLengthChunk | StatusVectorChunk | undefined;
       switch (type) {
         case PacketChunk.TypeTCCRunLengthChunk:
           {
             const packetStatus = RunLengthChunk.deSerialize(
-              data.slice(packetStatusPos, packetStatusPos + 2)
+              data.slice(packetStatusPos, packetStatusPos + 2),
             );
             iPacketStatus = packetStatus;
             const packetNumberToProcess = Math.min(
               packetStatusCount - processedPacketNum,
-              packetStatus.runLength
+              packetStatus.runLength,
             );
             if (
               packetStatus.packetStatus ===
@@ -105,11 +103,11 @@ export class TransportWideCC {
               packetStatus.packetStatus ===
                 PacketStatus.TypeTCCPacketReceivedLargeDelta
             ) {
-              range(packetNumberToProcess).forEach(() => {
+              for (let _ = 0; _ < packetNumberToProcess; _++) {
                 recvDeltas.push(
-                  new RecvDelta({ type: packetStatus.packetStatus as any })
+                  new RecvDelta({ type: packetStatus.packetStatus as any }),
                 );
-              });
+              }
             }
             processedPacketNum += packetNumberToProcess;
           }
@@ -117,7 +115,7 @@ export class TransportWideCC {
         case PacketChunk.TypeTCCStatusVectorChunk:
           {
             const packetStatus = StatusVectorChunk.deSerialize(
-              data.slice(packetStatusPos, packetStatusPos + 2)
+              data.slice(packetStatusPos, packetStatusPos + 2),
             );
             iPacketStatus = packetStatus;
             if (packetStatus.symbolSize === 0) {
@@ -126,7 +124,7 @@ export class TransportWideCC {
                   recvDeltas.push(
                     new RecvDelta({
                       type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
-                    })
+                    }),
                   );
                 }
               });
@@ -140,7 +138,7 @@ export class TransportWideCC {
                   recvDeltas.push(
                     new RecvDelta({
                       type: v,
-                    })
+                    }),
                   );
                 }
               });
@@ -189,11 +187,11 @@ export class TransportWideCC {
         this.packetStatusCount,
         this.referenceTime,
         this.fbPktCount,
-      ]
+      ],
     );
 
     const chunks = Buffer.concat(
-      this.packetChunks.map((chunk) => chunk.serialize())
+      this.packetChunks.map((chunk) => chunk.serialize()),
     );
 
     const deltas = Buffer.concat(
@@ -206,7 +204,7 @@ export class TransportWideCC {
             return undefined;
           }
         })
-        .filter((v) => v) as Buffer[]
+        .filter((v) => v) as Buffer[],
     );
 
     const buf = Buffer.concat([constBuf, chunks, deltas]);
@@ -228,8 +226,9 @@ export class TransportWideCC {
     const currentSequenceNumber = this.baseSequenceNumber - 1;
     const results = this.packetChunks
       .filter((v) => v instanceof RunLengthChunk)
-      .map((chunk) => (chunk as RunLengthChunk).results(currentSequenceNumber))
-      .flatMap((v) => v);
+      .flatMap((chunk) =>
+        (chunk as RunLengthChunk).results(currentSequenceNumber),
+      );
 
     let deltaIdx = 0;
     const referenceTime = BigInt(this.referenceTime) * 64n;
@@ -288,7 +287,7 @@ export class RunLengthChunk {
     const results: PacketResult[] = [];
     for (let i = 0; i <= this.runLength; ++i) {
       results.push(
-        new PacketResult({ sequenceNumber: ++currentSequenceNumber, received })
+        new PacketResult({ sequenceNumber: ++currentSequenceNumber, received }),
       );
     }
     return results;
@@ -313,14 +312,20 @@ export class StatusVectorChunk {
     let symbolSize = getBit(data[0], 1, 1);
     const symbolList: number[] = [];
 
+    function range(n: number, cb: (i: number) => void) {
+      for (let i = 0; i < n; i++) {
+        cb(i);
+      }
+    }
+
     switch (symbolSize) {
       case 0:
-        range(6).forEach((_, i) => symbolList.push(getBit(data[0], 2 + i, 1)));
-        range(8).forEach((_, i) => symbolList.push(getBit(data[1], i, 1)));
+        range(6, (i) => symbolList.push(getBit(data[0], 2 + i, 1)));
+        range(8, (i) => symbolList.push(getBit(data[1], i, 1)));
         break;
       case 1:
-        range(3).forEach((i) => symbolList.push(getBit(data[0], 2 + i * 2, 2)));
-        range(4).forEach((i) => symbolList.push(getBit(data[1], i * 2, 2)));
+        range(3, (i) => symbolList.push(getBit(data[0], 2 + i * 2, 2)));
+        range(4, (i) => symbolList.push(getBit(data[1], i * 2, 2)));
         break;
       default:
         symbolSize = (getBit(data[0], 2, 6) << 8) + data[1];
@@ -408,16 +413,16 @@ export class RecvDelta {
 }
 
 export enum PacketChunk {
-  TypeTCCRunLengthChunk,
-  TypeTCCStatusVectorChunk,
-  packetStatusChunkLength,
+  TypeTCCRunLengthChunk = 0,
+  TypeTCCStatusVectorChunk = 1,
+  packetStatusChunkLength = 2,
 }
 
 export enum PacketStatus {
-  TypeTCCPacketNotReceived,
-  TypeTCCPacketReceivedSmallDelta,
-  TypeTCCPacketReceivedLargeDelta,
-  TypeTCCPacketReceivedWithoutDelta,
+  TypeTCCPacketNotReceived = 0,
+  TypeTCCPacketReceivedSmallDelta = 1,
+  TypeTCCPacketReceivedLargeDelta = 2,
+  TypeTCCPacketReceivedWithoutDelta = 3,
 }
 
 export class PacketResult {

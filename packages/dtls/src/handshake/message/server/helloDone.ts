@@ -1,7 +1,7 @@
-import { decode, encode } from "binary-data";
+import { decode, encode } from "@shinyoshiaki/binary-data";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { Handshake } from "../../../typings/domain";
+import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
 
 // 7.4.5.  Server Hello Done
@@ -18,7 +18,7 @@ export class ServerHelloDone implements Handshake {
   static deSerialize(buf: Buffer) {
     return new ServerHelloDone(
       //@ts-ignore
-      ...Object.values(decode(buf, ServerHelloDone.spec))
+      ...Object.values(decode(buf, ServerHelloDone.spec)),
     );
   }
 
@@ -35,7 +35,7 @@ export class ServerHelloDone implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

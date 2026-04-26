@@ -1,5 +1,6 @@
-import React, { FC, useEffect } from "react";
+import React, { type FC, useEffect } from "react";
 import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 
 const App: FC = () => {
   useEffect(() => {
@@ -8,7 +9,7 @@ const App: FC = () => {
       const peer = new RTCPeerConnection({});
 
       const offer = await new Promise<any>(
-        (r) => (sender.onmessage = (ev) => r(JSON.parse(ev.data)))
+        (r) => (sender.onmessage = (ev) => r(JSON.parse(ev.data))),
       );
 
       peer.onicecandidate = ({ candidate }) => {
@@ -40,7 +41,7 @@ const App: FC = () => {
       const peer = new RTCPeerConnection({});
 
       const offer = await new Promise<any>(
-        (r) => (receiver.onmessage = (ev) => r(JSON.parse(ev.data)))
+        (r) => (receiver.onmessage = (ev) => r(JSON.parse(ev.data))),
       );
 
       peer.onicecandidate = ({ candidate }) => {
@@ -70,4 +71,5 @@ const App: FC = () => {
   return <div>lipsync</div>;
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);

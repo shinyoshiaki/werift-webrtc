@@ -1,4 +1,4 @@
-import { AcceptFn } from "protoo-server";
+import type { AcceptFn } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 
@@ -11,7 +11,7 @@ export class datachannel_answer {
         {
           this.pc = new RTCPeerConnection(await peerConfig);
           const dc = this.pc.createDataChannel("dc");
-          dc.message.subscribe((msg) => {
+          dc.onMessage.subscribe((msg) => {
             dc.send(msg + "pong");
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
@@ -46,7 +46,7 @@ export class datachannel_offer {
           await this.pc.setLocalDescription(await this.pc.createAnswer());
 
           this.pc.onDataChannel.subscribe((dc) => {
-            dc.message.subscribe((msg) => {
+            dc.onMessage.subscribe((msg) => {
               dc.send(msg + "pong");
             });
           });

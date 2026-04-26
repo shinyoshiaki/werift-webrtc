@@ -1,15 +1,15 @@
+import { Server } from "ws";
 import {
   RTCPeerConnection,
   useSdesRTPStreamId,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", (socket) => {
   socket.on("message", async (data) => {
-    const offer = JSON.parse(data as string);
+    const offer = JSON.parse(data as unknown as string);
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -26,7 +26,7 @@ server.on("connection", (socket) => {
     };
 
     pc.iceConnectionStateChange.subscribe((v) =>
-      console.log("pc.iceConnectionStateChange", v)
+      console.log("pc.iceConnectionStateChange", v),
     );
     transceiver.onTrack.subscribe((track) => {
       const sender = multiCast[track.rid as keyof typeof multiCast];

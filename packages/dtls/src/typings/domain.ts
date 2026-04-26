@@ -1,5 +1,5 @@
-import { HandshakeType } from "../handshake/const";
-import { FragmentedHandshake } from "../record/message/fragment";
+import type { HandshakeType } from "../handshake/const";
+import type { FragmentedHandshake } from "../record/message/fragment";
 
 export type Version = { major: number; minor: number };
 export type Random = { gmt_unix_time: number; random_bytes: Buffer };

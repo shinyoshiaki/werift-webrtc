@@ -1,12 +1,10 @@
-import debug from "debug";
-
+import { debug } from "../../imports/common";
 import { RtcpHeader } from "../header";
-import { RtcpPacketConverter } from "../rtcp";
 import { FullIntraRequest } from "./fullIntraRequest";
 import { PictureLossIndication } from "./pictureLossIndication";
 import { ReceiverEstimatedMaxBitrate } from "./remb";
 
-const log = debug("werift/rtp/rtcp/psfb/index");
+const log = debug("werift-rtp: /rtcp/psfb/index");
 
 type Feedback =
   | FullIntraRequest
@@ -25,11 +23,11 @@ export class RtcpPayloadSpecificFeedback {
 
   serialize() {
     const payload = this.feedback.serialize();
-    return RtcpPacketConverter.serialize(
+    return RtcpHeader.serialize(
       this.type,
       this.feedback.count,
       payload,
-      this.feedback.length
+      this.feedback.length,
     );
   }
 

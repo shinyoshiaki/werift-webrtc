@@ -1,5 +1,5 @@
 import { create } from "xmlbuilder2";
-import { XMLBuilder } from "xmlbuilder2/lib/interfaces";
+import type { XMLBuilder } from "xmlbuilder2/lib/interfaces";
 
 export class MPD {
   private root: XMLBuilder;
@@ -7,7 +7,15 @@ export class MPD {
   media: string = "media$Time$.webm";
   availabilityStartTime = new Date().toISOString();
   publishTime = new Date().toISOString();
-  segmentationTimeLine: { d: number; t?: number }[] = [];
+  segmentationTimeLine: {
+    /**duration ms */
+    d: number;
+    /**
+     * timestamp ms
+     * dの合計値
+     */
+    t?: number;
+  }[] = [];
   codecs = ["vp8", "opus"];
   minimumUpdatePeriod = 1;
   minBufferTime = 2;

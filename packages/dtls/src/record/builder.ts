@@ -1,5 +1,5 @@
-import { DtlsContext } from "../context/dtls";
-import { Handshake } from "../typings/domain";
+import type { DtlsContext } from "../context/dtls";
+import type { Handshake } from "../typings/domain";
 import { DtlsPlaintext } from "./message/plaintext";
 
 export type Message = { type: number; fragment: Buffer };
@@ -8,14 +8,12 @@ export const createFragments =
   (dtls: DtlsContext) => (handshakes: Handshake[]) => {
     dtls.lastFlight = handshakes;
 
-    return handshakes
-      .map((handshake) => {
-        handshake.messageSeq = dtls.sequenceNumber++;
-        const fragment = handshake.toFragment();
-        const fragments = fragment.chunk();
-        return fragments;
-      })
-      .flatMap((v) => v);
+    return handshakes.flatMap((handshake) => {
+      handshake.messageSeq = dtls.sequenceNumber++;
+      const fragment = handshake.toFragment();
+      const fragments = fragment.chunk();
+      return fragments;
+    });
   };
 
 export const createPlaintext =
@@ -30,7 +28,7 @@ export const createPlaintext =
           sequenceNumber: recordSequenceNumber,
           contentLen: msg.fragment.length,
         },
-        msg.fragment
+        msg.fragment,
       );
       return plaintext;
     });

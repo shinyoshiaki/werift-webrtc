@@ -9,3 +9,8 @@ dist
 *.log
 *.key
 *.mpd
+*.mp3
+*.mp4
+*.m4a
+credential.env
+__screenshots__

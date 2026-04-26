@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
-import { RTCPeerConnection, randomPort } from "../../../packages/webrtc/src";
-import { Server } from "ws";
 import { createSocket } from "dgram";
+import { Server } from "ws";
+import { RTCPeerConnection, randomPort } from "../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
 console.log("start");

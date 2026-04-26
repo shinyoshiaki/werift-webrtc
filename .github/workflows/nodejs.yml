@@ -1,6 +1,7 @@
 name: Node CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -9,7 +10,7 @@ on:
       - "maintain/*"
       - "shinyoshiaki/*"
   pull_request:
-    types: [opened]
+    types: [opened, synchronize, reopened, closed]
     branches: [develop]
 
 jobs:
@@ -18,34 +19,27 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16.x, 18.x]
+        node-version: [18.x]
 
     steps:
-      - uses: actions/checkout@v1
-      - uses: browser-actions/setup-chrome@latest
-        with:
-          chrome-version: dev
+      - uses: actions/checkout@v4
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-
       - name: prepare
         run: |
           sudo apt-get update
-          sudo apt-get install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev -y
-          sudo apt-get -y install libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio
+          sudo apt-get -y install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio
           npm i
           cd e2e
           npm i
+          npx playwright install chromium
           cd ../
+      # - name: Setup tmate session
+      #   uses: mxschmitt/action-tmate@v3    
       - name: test
         env:
           CI: true
         run: |
           npm run test
-      - name: e2e
-        env:
-          CI: true
-        run: |
-          npm run e2e

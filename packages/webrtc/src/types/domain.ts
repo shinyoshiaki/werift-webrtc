@@ -9,7 +9,7 @@ export const SignalingStates = [
   "closed",
 ] as const;
 
-export type RTCSignalingState = typeof SignalingStates[number];
+export type RTCSignalingState = (typeof SignalingStates)[number];
 
 export const ConnectionStates = [
   "closed",
@@ -20,4 +20,4 @@ export const ConnectionStates = [
   "connected",
 ] as const;
 
-export type ConnectionState = typeof ConnectionStates[number];
+export type ConnectionState = (typeof ConnectionStates)[number];

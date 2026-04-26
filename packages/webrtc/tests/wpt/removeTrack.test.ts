@@ -1,8 +1,6 @@
 import { MediaStreamTrack, RTCPeerConnection } from "../../src";
 import { generateAnswer } from "../fixture";
 
-jest.setTimeout(10_000);
-
 // webrtc/RTCPeerConnection-removeTrack.https.html
 describe("peerConnection/removeTrack", () => {
   test("addTransceiver - Calling removeTrack when connection is closed should throw InvalidStateError", async () => {
@@ -57,7 +55,7 @@ describe("peerConnection/removeTrack", () => {
     const { sender } = transceiver;
 
     const pc2 = new RTCPeerConnection();
-    expect(() => pc2.removeTrack(sender)).toThrowError("unExist");
+    expect(() => pc2.removeTrack(sender)).toThrowError("Sender does not exist");
 
     await pc.close();
     await pc2.close();
@@ -70,7 +68,7 @@ describe("peerConnection/removeTrack", () => {
     const sender = pc.addTrack(track);
 
     const pc2 = new RTCPeerConnection();
-    expect(() => pc2.removeTrack(sender)).toThrowError("unExist");
+    expect(() => pc2.removeTrack(sender)).toThrowError("Sender does not exist");
 
     await pc.close();
     await pc2.close();
@@ -216,7 +214,7 @@ describe("peerConnection/removeTrack", () => {
   });
 
   // todo fix
-  xtest("Calling removeTrack on a stopped transceiver should be a no-op", async () => {
+  test.skip("Calling removeTrack on a stopped transceiver should be a no-op", async () => {
     const pc = new RTCPeerConnection();
 
     const track = new MediaStreamTrack({ kind: "audio" });

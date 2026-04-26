@@ -1,13 +1,18 @@
-import Event from "rx.mini";
-import { v4 } from "uuid";
+import { randomUUID } from "crypto";
+import { Event } from "../imports/common";
 
-import { RtcpPacket, RtpHeader, RtpPacket } from "../../../rtp/src";
 import { EventTarget } from "../helper";
-import { Kind } from "../types/domain";
-import { RTCRtpCodecParameters } from "./parameters";
+import {
+  type Extensions,
+  type RtcpPacket,
+  type RtpHeader,
+  RtpPacket,
+} from "../imports/rtp";
+import type { Kind } from "../types/domain";
+import type { RTCRtpCodecParameters } from "./parameters";
 
 export class MediaStreamTrack extends EventTarget {
-  readonly uuid = v4();
+  readonly uuid = randomUUID().toString();
   /**MediaStream ID*/
   streamId?: string;
   remote = false;
@@ -22,7 +27,7 @@ export class MediaStreamTrack extends EventTarget {
   /**todo impl */
   enabled = true;
 
-  readonly onReceiveRtp = new Event<[RtpPacket]>();
+  readonly onReceiveRtp = new Event<[RtpPacket, Extensions?]>();
   readonly onReceiveRtcp = new Event<[RtcpPacket]>();
   readonly onSourceChanged = new Event<
     [Pick<RtpHeader, "sequenceNumber" | "timestamp">]
@@ -32,7 +37,7 @@ export class MediaStreamTrack extends EventTarget {
   muted = true;
 
   constructor(
-    props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">
+    props: Partial<MediaStreamTrack> & Pick<MediaStreamTrack, "kind">,
   ) {
     super();
     Object.assign(this, props);
@@ -49,6 +54,7 @@ export class MediaStreamTrack extends EventTarget {
     this.stopped = true;
     this.muted = true;
     this.onReceiveRtp.complete();
+    this.emit("ended");
   };
 
   writeRtp = (rtp: RtpPacket | Buffer) => {
@@ -70,8 +76,13 @@ export class MediaStream {
   id!: string;
   tracks: MediaStreamTrack[] = [];
 
-  constructor(props: Partial<MediaStream> & Pick<MediaStream, "id">) {
-    Object.assign(this, props);
+  constructor(props: Partial<MediaStream> | MediaStreamTrack[]) {
+    if (Array.isArray(props)) {
+      this.tracks = props;
+    } else {
+      Object.assign(this, props);
+    }
+    this.id ??= randomUUID().toString();
   }
 
   addTrack(track: MediaStreamTrack) {
@@ -81,5 +92,13 @@ export class MediaStream {
 
   getTracks() {
     return this.tracks;
+  }
+
+  getAudioTracks() {
+    return this.tracks.filter((track) => track.kind === "audio");
+  }
+
+  getVideoTracks() {
+    return this.tracks.filter((track) => track.kind === "video");
   }
 }

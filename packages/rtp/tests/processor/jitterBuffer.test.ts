@@ -1,11 +1,11 @@
 import { RtpHeader, RtpPacket } from "../../src";
-import { JitterBufferTransformer } from "../../src/processor/jitterBufferTransformer";
+import { JitterBufferTransformer } from "../../src/extra/processor/jitterBufferTransformer";
 
 describe("test JitterBuffer", () => {
   const createRtpPacket = (sequenceNumber: number, timestamp: number) =>
     new RtpPacket(
       new RtpHeader({ sequenceNumber, timestamp }),
-      Buffer.from([1, 2, 3])
+      Buffer.from([1, 2, 3]),
     );
 
   it("handle continues packet", async () => {

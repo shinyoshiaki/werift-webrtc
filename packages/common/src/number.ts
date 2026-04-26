@@ -36,4 +36,4 @@ export function uint32Gte(a: number, b: number) {
   return a === b || uint32Gt(a, b);
 }
 
-export const int = (n: number) => parseInt(n as any, 10);
+export const int = (n: number) => Number.parseInt(n as any, 10);

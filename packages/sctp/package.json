@@ -1,6 +1,6 @@
 {
   "name": "werift-sctp",
-  "version": "0.0.5",
+  "version": "0.0.11",
   "description": "SCTP protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-sctp",
   "repository": {
@@ -13,28 +13,23 @@
   },
   "main": "./lib/sctp/src/index.js",
   "types": "lib/sctp/src/index.d.ts",
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
     "ci": "npm run type && npm run lint && npm run test",
-    "deploy": "npm run build && npm publish",
     "client": "ts-node --files --project tsconfig.json examples/client.ts",
-    "format": "npm run lint && prettier --write src/**/*.ts",
-    "lint": "eslint ./src --fix",
+    "deploy": "npm run build && npm publish",
+    "format": "biome check --write src",
     "server": "ts-node --files --project tsconfig.json examples/server.ts",
-    "test": "npm run type && jest --forceExit",
+    "test": "npm run type && vitest run ./tests",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli **/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "binary-data": "^0.6.0",
-    "jspack": "^0.0.4",
-    "lodash": "^4.17.21",
-    "rx.mini": "^1.2.2",
-    "turbo-crc32": "^1.0.1"
-  },
-  "devDependencies": {
-    "@types/lodash": "^4.14.191"
+    "@shinyoshiaki/jspack": "^0.0.6"
   },
   "engines": {
     "node": ">=10"

@@ -1,5 +1,5 @@
-import { Connection } from "../src";
 import readline from "readline";
+import { Connection } from "../src";
 import { Candidate } from "../src/candidate";
 
 const reader = readline.createInterface({
@@ -18,7 +18,7 @@ const reader = readline.createInterface({
     const listen = async (line: string) => {
       let { candidates, name, pass } = JSON.parse(line);
       connection.remoteCandidates = candidates.map((v: any) =>
-        Candidate.fromSdp(v)
+        Candidate.fromSdp(v),
       );
       connection.remoteUsername = name;
       connection.remotePassword = pass;

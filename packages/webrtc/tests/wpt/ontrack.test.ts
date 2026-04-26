@@ -10,8 +10,6 @@ import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { MediaStream } from "../../src/media/track";
 import { addEventListenerPromise, assert_equals, assert_true } from "../utils";
 
-jest.setTimeout(10_000);
-
 describe("wpt/ontrack", () => {
   it("setRemoteDescription should trigger ontrack event when the MSID of the stream is parsed.", async () => {
     const pc = new RTCPeerConnection();
@@ -46,7 +44,7 @@ a=ssrc:1001 cname:some`;
     assert_equals(
       stream.id,
       "stream1",
-      "Expect stream.id to be the same as specified in the a=msid line"
+      "Expect stream.id to be the same as specified in the a=msid line",
     );
 
     assert_equals(track.kind, "audio", "Expect track.kind to be audio");
@@ -56,7 +54,7 @@ a=ssrc:1001 cname:some`;
     assert_equals(
       transceiver.direction,
       "recvonly",
-      "Expect transceiver.direction to be reverse of sendonly (recvonly)"
+      "Expect transceiver.direction to be reverse of sendonly (recvonly)",
     );
 
     await pc.close();
@@ -107,7 +105,7 @@ a=ssrc:1001 cname:some
     assert_equals(
       trackEvent.track.kind,
       "audio",
-      "Expect track.kind to be audio"
+      "Expect track.kind to be audio",
     );
     validateTrackEvent(trackEvent);
     await Promise.all([pc1.close(), pc2.close()]);
@@ -156,7 +154,7 @@ function validateTrackEvent(trackEvent) {
 
   assert_true(
     track instanceof MediaStreamTrack,
-    "Expect track to be instance of MediaStreamTrack"
+    "Expect track to be instance of MediaStreamTrack",
   );
 
   assert_true(Array.isArray(streams), "Expect streams to be an array");
@@ -164,34 +162,34 @@ function validateTrackEvent(trackEvent) {
   for (const mediaStream of streams) {
     assert_true(
       mediaStream instanceof MediaStream,
-      "Expect elements in streams to be instance of MediaStream"
+      "Expect elements in streams to be instance of MediaStream",
     );
 
     assert_true(
       mediaStream.getTracks().includes(track),
-      "Expect each mediaStream to have track as one of their tracks"
+      "Expect each mediaStream to have track as one of their tracks",
     );
   }
 
   assert_true(
     receiver instanceof RTCRtpReceiver,
-    "Expect trackEvent.receiver to be defined and is instance of RTCRtpReceiver"
+    "Expect trackEvent.receiver to be defined and is instance of RTCRtpReceiver",
   );
 
   assert_equals(
     receiver.track,
     track,
-    "Expect trackEvent.receiver.track to be the same as trackEvent.track"
+    "Expect trackEvent.receiver.track to be the same as trackEvent.track",
   );
 
   assert_true(
     transceiver instanceof RTCRtpTransceiver,
-    "Expect trackEvent.transceiver to be defined and is instance of RTCRtpTransceiver"
+    "Expect trackEvent.transceiver to be defined and is instance of RTCRtpTransceiver",
   );
 
   assert_equals(
     transceiver.receiver,
     receiver,
-    "Expect trackEvent.transceiver.receiver to be the same as trackEvent.receiver"
+    "Expect trackEvent.transceiver.receiver to be the same as trackEvent.receiver",
   );
 }

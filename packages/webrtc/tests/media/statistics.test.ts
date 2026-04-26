@@ -96,7 +96,7 @@ function createRtpPackets(count: number, seq = 0) {
           ssrc: 1234,
           timestamp: i * 160,
         }),
-        Buffer.alloc(0)
-      )
+        Buffer.alloc(0),
+      ),
   );
 }

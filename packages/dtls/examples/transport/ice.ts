@@ -1,16 +1,28 @@
-import { Connection } from "../../../ice/src";
-import { Transport } from "../../src";
+import { AddressInfo } from 'net';
+import { Address, Transport } from '../../../common/src';
+import { Connection } from '../../../ice/src';
+
 export class IceTransport implements Transport {
+  closed: boolean = false;
   constructor(private ice: Connection) {
     ice.onData.subscribe((buf) => {
       if (this.onData) this.onData(buf);
     });
   }
-  onData?: (buf: Buffer) => void;
+  onData: (data: Buffer, addr?: Address) => void = () => {};
 
-  readonly send = this.ice.send;
+  send = async (data: Buffer) => {
+    await this.ice.send(data);
+  };
 
-  close() {
+  get address() {
+    return {} as AddressInfo;
+  }
+
+  type = 'ice';
+
+  async close() {
+    this.closed = true;
     this.ice.close();
   }
 }

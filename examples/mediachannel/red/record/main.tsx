@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import React, { FC, useRef } from "react";
+import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import {
   Red,
-  buffer2ArrayBuffer,
   RedEncoder,
+  buffer2ArrayBuffer,
 } from "../../../../packages/rtp/src";
 import { getAudioStream } from "./util";
 
@@ -15,7 +16,7 @@ const peer = new RTCPeerConnection({
 });
 
 const App: FC = () => {
-  const remoteRef = useRef<HTMLAudioElement>();
+  const remoteRef = useRef<HTMLAudioElement>(null);
 
   const onFile = async (file: File) => {
     const socket = new WebSocket("ws://127.0.0.1:8888");
@@ -23,7 +24,7 @@ const App: FC = () => {
     console.log("open websocket");
 
     const offer = await new Promise<any>(
-      (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+      (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data))),
     );
     console.log("offer", offer.sdp);
 
@@ -66,7 +67,8 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);
 
 const redEncoder = new RedEncoder(3);
 

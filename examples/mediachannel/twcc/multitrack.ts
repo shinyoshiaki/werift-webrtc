@@ -1,10 +1,10 @@
+import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -29,7 +29,7 @@ server.on("connection", async (socket) => {
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
   const senders = [...Array(2)].map(() =>
-    pc.addTransceiver("video", { direction: "sendonly" })
+    pc.addTransceiver("video", { direction: "sendonly" }),
   );
   senders.map((sender) => {
     const receiver = pc.addTransceiver("video", { direction: "recvonly" });

@@ -1,5 +1,5 @@
-import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import { Server } from "ws";
+import { RTCPeerConnection } from "../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -12,7 +12,7 @@ server.on("connection", async (socket) => {
 
   const transceiver = pc.addTransceiver("video");
   transceiver.onTrack.subscribe((track) =>
-    transceiver.sender.replaceTrack(track)
+    transceiver.sender.replaceTrack(track),
   );
 
   pc.setLocalDescription(await pc.createOffer());

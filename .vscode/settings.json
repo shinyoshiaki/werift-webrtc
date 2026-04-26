@@ -2,6 +2,8 @@
   "cSpell.words": [
     "ack",
     "acked",
+    "annexb",
+    "avcc",
     "cwnd",
     "dcep",
     "Depacketize",
@@ -10,6 +12,7 @@
     "ebml",
     "examples",
     "extmap",
+    "ffffffn",
     "files",
     "hdrext",
     "howdee",
@@ -20,6 +23,8 @@
     "length",
     "lipsync",
     "max",
+    "Mbps",
+    "Mdns",
     "mediachannel",
     "milli",
     "misorder",
@@ -32,8 +37,10 @@
     "Packetized",
     "Packetizer",
     "parse",
+    "PCMU",
     "pranswer",
     "prflx",
+    "protoo",
     "psfb",
     "raddr",
     "reconfig",
@@ -45,6 +52,7 @@
     "rtpfb",
     "rttvar",
     "rwnd",
+    "SAVPF",
     "sctp",
     "sendonly",
     "sendrecv",
@@ -68,8 +76,10 @@
     "xffffffffn"
   ],
   "liveServer.settings.port": 5501,
-  "liveServer.settings.ignoreFiles": ["**"],
+  "liveServer.settings.ignoreFiles": [
+    "**"
+  ],
   "typescript.tsdk": "node_modules/typescript/lib",
-  "python.formatting.provider": "black",
-  "commentTranslate.source": "intellsmi.deepl-translate-deepl"
+  "biome.lsp.bin": "node_modules/@biomejs/biome/bin/biome",
+  "prettier.enable": false
 }

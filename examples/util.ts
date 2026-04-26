@@ -1,16 +1,23 @@
 export async function getVideoStream(ab: ArrayBuffer) {
   const video = document.createElement("video");
   video.src = URL.createObjectURL(new Blob([ab]));
-  video.muted = true;
+  video.volume = 0.001;
   video.loop = true;
-  video.style.display = "none";
-  video.play();
-  document.body.appendChild(video);
+  await video.play();
 
-  await new Promise((r) => video.addEventListener("loadeddata", r));
+  const stream = (video as any).captureStream();
 
-  const [track] = (video as any).captureStream().getVideoTracks();
+  return stream as MediaStream;
+}
 
-  const stream = new MediaStream([track]);
-  return { stream };
+export async function getVideoStreamFromFile(file: File) {
+  const video = document.createElement("video");
+  video.src = URL.createObjectURL(file);
+  video.volume = 0.001;
+  video.loop = true;
+  await video.play();
+
+  const stream = (video as any).captureStream();
+
+  return stream as MediaStream;
 }

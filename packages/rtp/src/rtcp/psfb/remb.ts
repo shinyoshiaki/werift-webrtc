@@ -25,7 +25,7 @@ export class ReceiverEstimatedMaxBitrate {
   static deSerialize(data: Buffer) {
     const [senderSsrc, mediaSsrc, uniqueID, ssrcNum, e_m] = bufferReader(
       data,
-      [4, 4, 4, 1, 1]
+      [4, 4, 4, 1, 1],
     );
 
     const brExp = getBit(e_m, 0, 6);
@@ -62,7 +62,7 @@ export class ReceiverEstimatedMaxBitrate {
     const writer = new BitWriter(24);
     writer.set(6, 0, this.brExp).set(18, 6, this.brMantissa);
     const feedbacks = Buffer.concat(
-      this.ssrcFeedbacks.map((feedback) => bufferWriter([4], [feedback]))
+      this.ssrcFeedbacks.map((feedback) => bufferWriter([4], [feedback])),
     );
 
     const buf = Buffer.concat([

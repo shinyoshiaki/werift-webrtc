@@ -1,7 +1,7 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 import { FragmentedHandshake } from "../../record/message/fragment";
-import { Handshake } from "../../typings/domain";
+import type { Handshake } from "../../typings/domain";
 import { ASN11Cert } from "../binary";
 import { HandshakeType } from "../const";
 
@@ -24,7 +24,7 @@ export class Certificate implements Handshake {
   static deSerialize(buf: Buffer) {
     return new Certificate(
       //@ts-ignore
-      ...Object.values(decode(buf, Certificate.spec))
+      ...Object.values(decode(buf, Certificate.spec)),
     );
   }
 
@@ -41,7 +41,7 @@ export class Certificate implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

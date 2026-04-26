@@ -1,7 +1,7 @@
-import Event from "rx.mini";
+import { Event } from "../../imports/common";
 
-import { TransportWideCC } from "../../../../rtp/src";
-import { Int } from "../../../../rtp/src/helper";
+import { Int, type TransportWideCC } from "../../imports/rtp";
+
 import { milliTime } from "../../utils";
 import { CumulativeResult } from "./cumulativeResult";
 
@@ -70,14 +70,14 @@ export class SenderBandwidthEstimator {
       this.cumulativeResult.addPacket(
         info.size,
         info.sendingAtMs,
-        result.receivedAtMs
+        result.receivedAtMs,
       );
     }
 
     if (elapsedMs >= 100 && this.cumulativeResult.numPackets >= 20) {
       this.availableBitrate = Math.min(
         this.cumulativeResult.sendBitrate,
-        this.cumulativeResult.receiveBitrate
+        this.cumulativeResult.receiveBitrate,
       );
       this.cumulativeResult.reset();
 

@@ -1,412 +1,467 @@
-[werift](../README.md) / [Exports](../modules.md) / Connection
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / Connection
 
 # Class: Connection
 
-## Table of contents
+## Implements
 
-### Constructors
-
-- [constructor](Connection.md#constructor)
-
-### Properties
-
-- [\_components](Connection.md#_components)
-- [\_localCandidatesEnd](Connection.md#_localcandidatesend)
-- [\_tieBreaker](Connection.md#_tiebreaker)
-- [checkList](Connection.md#checklist)
-- [dnsLookup](Connection.md#dnslookup)
-- [iceControlling](Connection.md#icecontrolling)
-- [localCandidates](Connection.md#localcandidates)
-- [localPassword](Connection.md#localpassword)
-- [localUserName](Connection.md#localusername)
-- [onData](Connection.md#ondata)
-- [options](Connection.md#options)
-- [remoteCandidatesEnd](Connection.md#remotecandidatesend)
-- [remoteIsLite](Connection.md#remoteislite)
-- [remotePassword](Connection.md#remotepassword)
-- [remoteUsername](Connection.md#remoteusername)
-- [state](Connection.md#state)
-- [stateChanged](Connection.md#statechanged)
-- [stunServer](Connection.md#stunserver)
-- [turnServer](Connection.md#turnserver)
-- [useIpv4](Connection.md#useipv4)
-- [useIpv6](Connection.md#useipv6)
-
-### Accessors
-
-- [nominatedKeys](Connection.md#nominatedkeys)
-- [remoteCandidates](Connection.md#remotecandidates)
-
-### Methods
-
-- [addRemoteCandidate](Connection.md#addremotecandidate)
-- [checkIncoming](Connection.md#checkincoming)
-- [checkStart](Connection.md#checkstart)
-- [close](Connection.md#close)
-- [connect](Connection.md#connect)
-- [dataReceived](Connection.md#datareceived)
-- [gatherCandidates](Connection.md#gathercandidates)
-- [getDefaultCandidate](Connection.md#getdefaultcandidate)
-- [requestReceived](Connection.md#requestreceived)
-- [resetNominatedPair](Connection.md#resetnominatedpair)
-- [send](Connection.md#send)
-- [setRemoteParams](Connection.md#setremoteparams)
+- [`IceConnection`](../interfaces/IceConnection.md)
 
 ## Constructors
 
-### constructor
+### new Connection()
 
-• **new Connection**(`iceControlling`, `options?`)
+> **new Connection**(`_iceControlling`, `options`?): [`Connection`](Connection.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `iceControlling` | `boolean` |
-| `options?` | `Partial`<[`IceOptions`](../interfaces/IceOptions.md)\> |
+• **\_iceControlling**: `boolean`
 
-## Properties
-
-### \_components
-
-• **\_components**: `Set`<`number`\>
-
-コンポーネントはデータストリームの一部です. データストリームには複数のコンポーネントが必要な場合があり、
-データストリーム全体が機能するには、それぞれが機能する必要があります.
- RTP / RTCPデータストリームの場合、RTPとRTCPが同じポートで多重化されていない限り、データストリームごとに2つのコンポーネントがあります.
-1つはRTP用、もう1つはRTCP用です. コンポーネントには候補ペアがあり、他のコンポーネントでは使用できません.
-
-___
-
-### \_localCandidatesEnd
-
-• **\_localCandidatesEnd**: `boolean` = `false`
-
-___
-
-### \_tieBreaker
-
-• **\_tieBreaker**: `BigInt`
-
-___
-
-### checkList
-
-• **checkList**: `CandidatePair`[] = `[]`
-
-___
-
-### dnsLookup
-
-• `Optional` **dnsLookup**: `DnsLookup`
-
-___
-
-### iceControlling
-
-• **iceControlling**: `boolean`
-
-___
-
-### localCandidates
-
-• **localCandidates**: [`Candidate`](Candidate.md)[] = `[]`
-
-___
-
-### localPassword
-
-• **localPassword**: `string`
-
-___
-
-### localUserName
-
-• **localUserName**: `string`
-
-___
-
-### onData
-
-• `Readonly` **onData**: `Event`<[`Buffer`, `number`]\>
-
-___
-
-### options
-
-• **options**: [`IceOptions`](../interfaces/IceOptions.md)
-
-___
-
-### remoteCandidatesEnd
-
-• **remoteCandidatesEnd**: `boolean` = `false`
-
-___
-
-### remoteIsLite
-
-• **remoteIsLite**: `boolean` = `false`
-
-___
-
-### remotePassword
-
-• **remotePassword**: `string` = `""`
-
-___
-
-### remoteUsername
-
-• **remoteUsername**: `string` = `""`
-
-___
-
-### state
-
-• **state**: `IceState` = `"new"`
-
-___
-
-### stateChanged
-
-• `Readonly` **stateChanged**: `Event`<[`IceState`]\>
-
-___
-
-### stunServer
-
-• `Optional` **stunServer**: readonly [`string`, `number`]
-
-___
-
-### turnServer
-
-• `Optional` **turnServer**: readonly [`string`, `number`]
-
-___
-
-### useIpv4
-
-• **useIpv4**: `boolean`
-
-___
-
-### useIpv6
-
-• **useIpv6**: `boolean`
-
-## Accessors
-
-### nominatedKeys
-
-• `get` **nominatedKeys**(): `string`[]
+• **options?**: `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
 
 #### Returns
 
-`string`[]
+[`Connection`](Connection.md)
 
-___
+## Properties
+
+### checkList
+
+> **checkList**: [`CandidatePair`](CandidatePair.md)[] = `[]`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`checkList`](../interfaces/IceConnection.md#checklist)
+
+***
+
+### generation
+
+> **generation**: `number` = `-1`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`generation`](../interfaces/IceConnection.md#generation)
+
+***
+
+### localCandidates
+
+> **localCandidates**: [`Candidate`](Candidate.md)[] = `[]`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localCandidates`](../interfaces/IceConnection.md#localcandidates)
+
+***
+
+### localCandidatesEnd
+
+> **localCandidatesEnd**: `boolean` = `false`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localCandidatesEnd`](../interfaces/IceConnection.md#localcandidatesend)
+
+***
+
+### localPassword
+
+> **localPassword**: `string`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localPassword`](../interfaces/IceConnection.md#localpassword)
+
+***
+
+### localUsername
+
+> **localUsername**: `string`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localUsername`](../interfaces/IceConnection.md#localusername)
+
+***
+
+### lookup?
+
+> `optional` **lookup**: `MdnsLookup`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`lookup`](../interfaces/IceConnection.md#lookup)
+
+***
+
+### nominated?
+
+> `optional` **nominated**: [`CandidatePair`](CandidatePair.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`nominated`](../interfaces/IceConnection.md#nominated)
+
+***
+
+### onData
+
+> `readonly` **onData**: [`Event`](Event.md)\<[`Buffer`]\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onData`](../interfaces/IceConnection.md#ondata)
+
+***
+
+### onIceCandidate
+
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<[[`Candidate`](Candidate.md)]\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceCandidate`](../interfaces/IceConnection.md#onicecandidate)
+
+***
+
+### options
+
+> **options**: [`IceOptions`](../interfaces/IceOptions.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`options`](../interfaces/IceConnection.md#options)
+
+***
+
+### remoteCandidatesEnd
+
+> **remoteCandidatesEnd**: `boolean` = `false`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidatesEnd`](../interfaces/IceConnection.md#remotecandidatesend)
+
+***
+
+### remoteIsLite
+
+> **remoteIsLite**: `boolean` = `false`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIsLite`](../interfaces/IceConnection.md#remoteislite)
+
+***
+
+### remotePassword
+
+> **remotePassword**: `string` = `""`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remotePassword`](../interfaces/IceConnection.md#remotepassword)
+
+***
+
+### remoteUsername
+
+> **remoteUsername**: `string` = `""`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteUsername`](../interfaces/IceConnection.md#remoteusername)
+
+***
+
+### state
+
+> **state**: [`IceState`](../type-aliases/IceState.md) = `"new"`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`state`](../interfaces/IceConnection.md#state)
+
+***
+
+### stateChanged
+
+> `readonly` **stateChanged**: [`Event`](Event.md)\<[[`IceState`](../type-aliases/IceState.md)]\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stateChanged`](../interfaces/IceConnection.md#statechanged)
+
+***
+
+### stunServer?
+
+> `optional` **stunServer**: readonly [`string`, `number`]
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServer`](../interfaces/IceConnection.md#stunserver)
+
+***
+
+### turnServer?
+
+> `optional` **turnServer**: readonly [`string`, `number`]
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServer`](../interfaces/IceConnection.md#turnserver)
+
+***
+
+### userHistory
+
+> **userHistory**: `object` = `{}`
+
+#### Index Signature
+
+ \[`username`: `string`\]: `string`
+
+## Accessors
+
+### iceControlling
+
+> `get` **iceControlling**(): `boolean`
+
+> `set` **iceControlling**(`value`): `void`
+
+#### Parameters
+
+• **value**: `boolean`
+
+#### Returns
+
+`boolean`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`iceControlling`](../interfaces/IceConnection.md#icecontrolling)
+
+***
 
 ### remoteCandidates
 
-• `get` **remoteCandidates**(): [`Candidate`](Candidate.md)[]
+> `get` **remoteCandidates**(): [`Candidate`](Candidate.md)[]
+
+> `set` **remoteCandidates**(`value`): `void`
+
+#### Parameters
+
+• **value**: [`Candidate`](Candidate.md)[]
 
 #### Returns
 
 [`Candidate`](Candidate.md)[]
 
-• `set` **remoteCandidates**(`value`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `value` | [`Candidate`](Candidate.md)[] |
-
-#### Returns
-
-`void`
-
 ## Methods
 
-### addRemoteCandidate
+### addRemoteCandidate()
 
-▸ **addRemoteCandidate**(`remoteCandidate`): `Promise`<`void`\>
+> **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `remoteCandidate` | `undefined` \| [`Candidate`](Candidate.md) |
+• **remoteCandidate**: `undefined` \| [`Candidate`](Candidate.md)
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
-___
+#### Implementation of
 
-### checkIncoming
+[`IceConnection`](../interfaces/IceConnection.md).[`addRemoteCandidate`](../interfaces/IceConnection.md#addremotecandidate)
 
-▸ **checkIncoming**(`message`, `addr`, `protocol`): `void`
+***
+
+### checkIncoming()
+
+> **checkIncoming**(`message`, `addr`, `protocol`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `message` | `Message` |
-| `addr` | readonly [`string`, `number`] |
-| `protocol` | `Protocol` |
+• **message**: [`Message`](Message.md)
+
+• **addr**: readonly [`string`, `number`]
+
+• **protocol**: [`Protocol`](../interfaces/Protocol.md)
 
 #### Returns
 
 `void`
 
-___
+***
 
-### checkStart
+### checkStart()
 
-▸ **checkStart**(`pair`): `PCancelable`<`unknown`\>
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `pair` | `CandidatePair` |
-
-#### Returns
-
-`PCancelable`<`unknown`\>
-
-___
-
-### close
-
-▸ **close**(): `Promise`<`void`\>
-
-#### Returns
-
-`Promise`<`void`\>
-
-___
-
-### connect
-
-▸ **connect**(): `Promise`<`void`\>
-
-#### Returns
-
-`Promise`<`void`\>
-
-___
-
-### dataReceived
-
-▸ **dataReceived**(`data`, `component`): `void`
+> **checkStart**(`pair`): `object`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-| `component` | `number` |
+• **pair**: [`CandidatePair`](CandidatePair.md)
+
+#### Returns
+
+`object`
+
+##### awaitable
+
+> **awaitable**: `Promise`\<`void`\> = `p`
+
+##### reject()
+
+> **reject**: (`reason`?) => `void`
+
+###### Parameters
+
+• **reason?**: `any`
+
+###### Returns
+
+`void`
+
+##### resolve()
+
+> **resolve**: (`value`) => `void`
+
+###### Parameters
+
+• **value**: `void` \| `PromiseLike`\<`void`\>
+
+###### Returns
+
+`void`
+
+***
+
+### close()
+
+> **close**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`close`](../interfaces/IceConnection.md#close)
+
+***
+
+### connect()
+
+> **connect**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`connect`](../interfaces/IceConnection.md#connect)
+
+***
+
+### gatherCandidates()
+
+> **gatherCandidates**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`gatherCandidates`](../interfaces/IceConnection.md#gathercandidates)
+
+***
+
+### getDefaultCandidate()
+
+> **getDefaultCandidate**(): [`Candidate`](Candidate.md)
+
+#### Returns
+
+[`Candidate`](Candidate.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`getDefaultCandidate`](../interfaces/IceConnection.md#getdefaultcandidate)
+
+***
+
+### resetNominatedPair()
+
+> **resetNominatedPair**(): `void`
 
 #### Returns
 
 `void`
 
-___
+#### Implementation of
 
-### gatherCandidates
+[`IceConnection`](../interfaces/IceConnection.md).[`resetNominatedPair`](../interfaces/IceConnection.md#resetnominatedpair)
 
-▸ **gatherCandidates**(`cb?`): `Promise`<`void`\>
+***
 
-#### Parameters
+### restart()
 
-| Name | Type |
-| :------ | :------ |
-| `cb?` | (`candidate`: [`Candidate`](Candidate.md)) => `void` |
+> **restart**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>
 
-___
+#### Implementation of
 
-### getDefaultCandidate
+[`IceConnection`](../interfaces/IceConnection.md).[`restart`](../interfaces/IceConnection.md#restart)
 
-▸ **getDefaultCandidate**(`component`): `undefined` \| [`Candidate`](Candidate.md)
+***
+
+### send()
+
+> **send**(`data`): `Promise`\<`void`\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `component` | `number` |
+• **data**: `Buffer`
 
 #### Returns
 
-`undefined` \| [`Candidate`](Candidate.md)
+`Promise`\<`void`\>
 
-___
+#### Implementation of
 
-### requestReceived
+[`IceConnection`](../interfaces/IceConnection.md).[`send`](../interfaces/IceConnection.md#send)
 
-▸ **requestReceived**(`message`, `addr`, `protocol`, `rawData`): `void`
+***
+
+### setRemoteParams()
+
+> **setRemoteParams**(`__namedParameters`): `void`
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `message` | `Message` |
-| `addr` | readonly [`string`, `number`] |
-| `protocol` | `Protocol` |
-| `rawData` | `Buffer` |
+• **\_\_namedParameters**
+
+• **\_\_namedParameters.iceLite**: `boolean`
+
+• **\_\_namedParameters.password**: `string`
+
+• **\_\_namedParameters.usernameFragment**: `string`
 
 #### Returns
 
 `void`
 
-___
+#### Implementation of
 
-### resetNominatedPair
-
-▸ **resetNominatedPair**(): `void`
-
-#### Returns
-
-`void`
-
-___
-
-### send
-
-▸ **send**(`data`): `Promise`<`void`\>
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `data` | `Buffer` |
-
-#### Returns
-
-`Promise`<`void`\>
-
-___
-
-### setRemoteParams
-
-▸ **setRemoteParams**(`«destructured»`): `void`
-
-#### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `«destructured»` | `Object` |
-| › `iceLite` | `boolean` |
-| › `password` | `string` |
-| › `usernameFragment` | `string` |
-
-#### Returns
-
-`void`
+[`IceConnection`](../interfaces/IceConnection.md).[`setRemoteParams`](../interfaces/IceConnection.md#setremoteparams)

@@ -1,76 +1,54 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCIceGatherer
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCIceGatherer
 
 # Class: RTCIceGatherer
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RTCIceGatherer.md#constructor)
-
-### Properties
-
-- [connection](RTCIceGatherer.md#connection)
-- [gatheringState](RTCIceGatherer.md#gatheringstate)
-- [onGatheringStateChange](RTCIceGatherer.md#ongatheringstatechange)
-- [onIceCandidate](RTCIceGatherer.md#onicecandidate)
-
-### Accessors
-
-- [localCandidates](RTCIceGatherer.md#localcandidates)
-- [localParameters](RTCIceGatherer.md#localparameters)
-
-### Methods
-
-- [gather](RTCIceGatherer.md#gather)
-
 ## Constructors
 
-### constructor
+### new RTCIceGatherer()
 
-• **new RTCIceGatherer**(`options?`)
+> **new RTCIceGatherer**(`options`): [`RTCIceGatherer`](RTCIceGatherer.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `options` | `Partial`<[`IceOptions`](../interfaces/IceOptions.md)\> |
+• **options**: `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\> = `{}`
+
+#### Returns
+
+[`RTCIceGatherer`](RTCIceGatherer.md)
 
 ## Properties
 
 ### connection
 
-• `Readonly` **connection**: [`Connection`](Connection.md)
+> `readonly` **connection**: [`IceConnection`](../interfaces/IceConnection.md)
 
-___
+***
 
 ### gatheringState
 
-• **gatheringState**: ``"new"`` \| ``"complete"`` \| ``"gathering"`` = `"new"`
+> **gatheringState**: `"complete"` \| `"new"` \| `"gathering"` = `"new"`
 
-___
+***
 
 ### onGatheringStateChange
 
-• `Readonly` **onGatheringStateChange**: `Event`<[``"new"`` \| ``"complete"`` \| ``"gathering"``]\>
+> `readonly` **onGatheringStateChange**: [`Event`](Event.md)\<[`"complete"` \| `"new"` \| `"gathering"`]\>
 
-___
+***
 
-### onIceCandidate
+### onIceCandidate()
 
-• **onIceCandidate**: (`candidate`: [`IceCandidate`](IceCandidate.md)) => `void`
+> **onIceCandidate**: (`candidate`) => `void`
 
-#### Type declaration
+#### Parameters
 
-▸ (`candidate`): `void`
+• **candidate**: `undefined` \| [`IceCandidate`](IceCandidate.md)
 
-##### Parameters
-
-| Name | Type |
-| :------ | :------ |
-| `candidate` | [`IceCandidate`](IceCandidate.md) |
-
-##### Returns
+#### Returns
 
 `void`
 
@@ -78,17 +56,17 @@ ___
 
 ### localCandidates
 
-• `get` **localCandidates**(): [`IceCandidate`](IceCandidate.md)[]
+> `get` **localCandidates**(): [`IceCandidate`](IceCandidate.md)[]
 
 #### Returns
 
 [`IceCandidate`](IceCandidate.md)[]
 
-___
+***
 
 ### localParameters
 
-• `get` **localParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
+> `get` **localParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
 
 #### Returns
 
@@ -96,10 +74,10 @@ ___
 
 ## Methods
 
-### gather
+### gather()
 
-▸ **gather**(): `Promise`<`void`\>
+> **gather**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`<`void`\>
+`Promise`\<`void`\>

@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import React, { FC, useEffect } from "react";
+import React, { type FC, useEffect } from "react";
 import ReactDOM from "react-dom";
 import "buffer";
+import { createRoot } from "react-dom/client";
 import { uint16Add } from "../../../packages/common/src";
 import { RtpHeader, RtpPacket } from "../../../packages/rtp/src";
 
@@ -28,7 +29,7 @@ const senderTransform = (sender: RTCRtpSender) => {
             sequenceNumber,
             marker: encodedFrame.type === "key",
           }),
-          Buffer.from(encodedFrame.data)
+          Buffer.from(encodedFrame.data),
         );
         try {
           socket.send(rtp.serialize());
@@ -56,7 +57,7 @@ const App: FC = () => {
       console.log("open websocket");
 
       const offer = await new Promise<any>(
-        (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+        (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data))),
       );
       console.log("offer", offer.sdp);
 
@@ -80,7 +81,9 @@ const App: FC = () => {
     })();
   }, []);
 
-  return <div></div>;
+  return <div />;
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const container = document.getElementById("root");
+const root = createRoot(container!);
+root.render(<App />);

@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 
-import { Transport } from "../src/transport";
+import type { Transport } from "../src/transport";
 
 export function load(name: string) {
   const base = __dirname;

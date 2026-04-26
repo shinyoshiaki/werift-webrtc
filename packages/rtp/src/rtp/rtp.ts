@@ -7,7 +7,7 @@ export const ExtensionProfiles = {
   TwoByte: 0x1000, // 4096
 } as const;
 type ExtensionProfile =
-  typeof ExtensionProfiles[keyof typeof ExtensionProfiles];
+  (typeof ExtensionProfiles)[keyof typeof ExtensionProfiles];
 
 const seqNumOffset = 2;
 const timestampOffset = 4;
@@ -31,18 +31,18 @@ const csrcSize = 4;
  */
 
 export class RtpHeader {
-  version: number = 2;
-  padding: boolean = false;
-  paddingSize: number = 0;
-  extension: boolean = false;
-  marker: boolean = false;
-  payloadOffset: number = 0;
-  payloadType: number = 0;
-  /**16bit */
-  sequenceNumber: number = 0;
-  /**32bit microsec (milli/1000) */
-  timestamp: number = 0;
-  ssrc: number = 0;
+  version = 2;
+  padding = false;
+  paddingSize = 0;
+  extension = false;
+  marker = false;
+  payloadOffset = 0;
+  payloadType = 0;
+  /**16bit, 初期値はランダムである必要があります*/
+  sequenceNumber = 0;
+  /**32bit microsec (milli/1000), 初期値はランダムである必要があります*/
+  timestamp = 0;
+  ssrc = 0;
   csrcLength = 0;
   csrc: number[] = [];
   extensionProfile: ExtensionProfile = ExtensionProfiles.OneByte;
@@ -145,7 +145,7 @@ export class RtpHeader {
               id: 0,
               payload: rawPacket.subarray(
                 currOffset,
-                currOffset + extensionLength
+                currOffset + extensionLength,
               ),
             };
             h.extensions = [...h.extensions, extension];
@@ -229,7 +229,7 @@ export class RtpHeader {
           for (const extension of this.extensions) {
             buf.writeUInt8(
               (extension.id << 4) | (extension.payload.length - 1),
-              offset++
+              offset++,
             );
             extension.payload.copy(buf, offset);
             offset += extension.payload.length;
@@ -243,13 +243,14 @@ export class RtpHeader {
             offset += extension.payload.length;
           }
           break;
-        default:
+        default: {
           const extLen = this.extensions[0].payload.length;
           if (extLen % 4 != 0) {
             throw new Error();
           }
           this.extensions[0].payload.copy(buf, offset);
           offset += extLen;
+        }
       }
 
       const extSize = offset - startExtensionsPos;
@@ -268,7 +269,10 @@ export class RtpHeader {
 }
 
 export class RtpPacket {
-  constructor(public header: RtpHeader, public payload: Buffer) {}
+  constructor(
+    public header: RtpHeader,
+    public payload: Buffer,
+  ) {}
 
   get serializeSize() {
     return this.header.serializeSize + this.payload.length;
@@ -280,7 +284,7 @@ export class RtpPacket {
 
   serialize() {
     let buf = this.header.serialize(
-      this.header.serializeSize + this.payload.length
+      this.header.serializeSize + this.payload.length,
     );
     const { payloadOffset } = this.header;
     this.payload.copy(buf, payloadOffset);
@@ -297,7 +301,7 @@ export class RtpPacket {
     const header = RtpHeader.deSerialize(buf);
     const p = new RtpPacket(
       header,
-      buf.subarray(header.payloadOffset, buf.length - header.paddingSize)
+      buf.subarray(header.payloadOffset, buf.length - header.paddingSize),
     );
     return p;
   }

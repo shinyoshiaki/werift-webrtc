@@ -1,35 +1,32 @@
-[werift](../README.md) / [Exports](../modules.md) / RedHandler
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RedHandler
 
 # Class: RedHandler
 
-## Table of contents
-
-### Constructors
-
-- [constructor](RedHandler.md#constructor)
-
-### Methods
-
-- [push](RedHandler.md#push)
-
 ## Constructors
 
-### constructor
+### new RedHandler()
 
-• **new RedHandler**()
+> **new RedHandler**(): [`RedHandler`](RedHandler.md)
+
+#### Returns
+
+[`RedHandler`](RedHandler.md)
 
 ## Methods
 
-### push
+### push()
 
-▸ **push**(`red`, `base`): [`RtpPacket`](RtpPacket.md)[]
+> **push**(`red`, `base`): [`RtpPacket`](RtpPacket.md)[]
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `red` | [`Red`](Red.md) |
-| `base` | [`RtpPacket`](RtpPacket.md) |
+• **red**: [`Red`](Red.md)
+
+• **base**: [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 

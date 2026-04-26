@@ -1,19 +1,19 @@
 // client side is ./offer.html
 
-import { RTCPeerConnection } from "../../packages/webrtc/src";
 import { Server } from "ws";
+import { RTCPeerConnection } from "../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", (socket) => {
   socket.on("message", async (data) => {
-    const offer = JSON.parse(data as string);
+    const offer = JSON.parse(data as unknown as string);
     console.log(offer);
 
     const pc = new RTCPeerConnection({});
     pc.iceConnectionStateChange.subscribe((v) =>
-      console.log("pc.iceConnectionStateChange", v)
+      console.log("pc.iceConnectionStateChange", v),
     );
     pc.onDataChannel.subscribe((channel) => {
       let index = 0;
@@ -21,11 +21,11 @@ server.on("connection", (socket) => {
         channel.send(Buffer.from("ping" + index++));
       }, 1000);
 
-      channel.message.subscribe((data) => {
+      channel.onMessage.subscribe((data) => {
         console.log("answer message", data.toString());
       });
       channel.stateChanged.subscribe((v) =>
-        console.log("channel.stateChanged", v)
+        console.log("channel.stateChanged", v),
       );
     });
 

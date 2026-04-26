@@ -1,10 +1,9 @@
-import { debug } from "debug";
-
-import { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
-import { SessionTypes } from "../cipher/suites/abstract";
-import { FragmentedHandshake } from "../record/message/fragment";
-import { Options } from "../socket";
-import { Handshake } from "../typings/domain";
+import type { HashAlgorithms, SignatureAlgorithms } from "../cipher/const";
+import type { SessionTypes } from "../cipher/suites/abstract";
+import { debug } from "../imports/common";
+import type { FragmentedHandshake } from "../record/message/fragment";
+import type { Options } from "../socket";
+import type { Handshake } from "../typings/domain";
 
 const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
@@ -32,7 +31,10 @@ export class DtlsContext {
   }[] = [];
   remoteExtendedMasterSecret = false;
 
-  constructor(public options: Options, public sessionType: SessionTypes) {}
+  constructor(
+    public options: Options,
+    public sessionType: SessionTypes,
+  ) {}
 
   get sessionId() {
     return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";
@@ -41,20 +43,21 @@ export class DtlsContext {
   get sortedHandshakeCache() {
     return Object.entries(this.handshakeCache)
       .sort(([a], [b]) => Number(a) - Number(b))
-      .map(([, { data }]) => data.sort((a, b) => a.message_seq - b.message_seq))
-      .flatMap((v) => v);
+      .flatMap(([, { data }]) =>
+        data.sort((a, b) => a.message_seq - b.message_seq),
+      );
   }
 
   checkHandshakesExist = (handshakes: number[]) =>
     !handshakes.find(
       (type) =>
-        this.sortedHandshakeCache.find((h) => h.msg_type === type) == undefined
+        this.sortedHandshakeCache.find((h) => h.msg_type === type) == undefined,
     );
 
   bufferHandshakeCache(
     handshakes: FragmentedHandshake[],
     isLocal: boolean,
-    flight: number
+    flight: number,
   ) {
     if (!this.handshakeCache[flight]) {
       this.handshakeCache[flight] = { data: [], isLocal, flight };
@@ -62,7 +65,7 @@ export class DtlsContext {
 
     const filtered = handshakes.filter((h) => {
       const exist = this.handshakeCache[flight].data.find(
-        (t) => t.msg_type === h.msg_type
+        (t) => t.msg_type === h.msg_type,
       );
       if (exist) {
         log(this.sessionId, "exist", exist.summary, isLocal, flight);

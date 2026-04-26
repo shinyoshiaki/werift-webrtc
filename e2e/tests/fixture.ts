@@ -1,14 +1,21 @@
-import { WebSocketTransport, Peer } from "protoo-client";
+import Bowser from "bowser";
+import { Peer, WebSocketTransport } from "protoo-client";
 
-const transport = new WebSocketTransport("ws://localhost:8886");
+const browser = Bowser.getParser(window.navigator.userAgent);
+export const browserName = browser.getBrowserName();
+const e2ePort = import.meta.env.VITE_E2E_PORT ?? "8886";
+
+console.log({ browserName, version: browser.getBrowserVersion() });
+
+const transport = new WebSocketTransport(`ws://localhost:${e2ePort}`);
 export const peer = new Peer(transport);
 
 export async function waitVideoPlay(track: MediaStreamTrack) {
   const video = document.createElement("video");
-  const media = new MediaStream();
-  media.addTrack(track);
+  const media = new MediaStream([track]);
   video.srcObject = media;
   video.autoplay = true;
+  video.muted = true;
   video.load();
   video.width = 100;
   video.height = 100;
@@ -19,18 +26,21 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
   canvas.height = video.height;
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
   const snapshot = await digestMessage(
-    context.getImageData(0, 0, canvas.width, canvas.height).data
+    context.getImageData(0, 0, canvas.width, canvas.height).data,
   );
 
   for (;;) {
     await new Promise((r) => setTimeout(r, 100));
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const data = await digestMessage(
-      context.getImageData(0, 0, canvas.width, canvas.height).data
+      context.getImageData(0, 0, canvas.width, canvas.height).data,
     );
 
     if (snapshot !== data) break;
   }
+
+  video.pause();
+  video.srcObject = null;
 }
 
 async function digestMessage(data: Uint8ClampedArray) {
@@ -46,7 +56,10 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class Counter {
   private now = 0;
-  constructor(private times: number, private finished: () => void) {}
+  constructor(
+    private times: number,
+    private finished: () => void,
+  ) {}
 
   done() {
     if (++this.now === this.times) {

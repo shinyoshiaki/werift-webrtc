@@ -1,4 +1,7 @@
-import { RTCPeerConnection, RTCDataChannel } from "../../packages/webrtc/src";
+import {
+  type RTCDataChannel,
+  RTCPeerConnection,
+} from "../../packages/webrtc/src";
 
 (async () => {
   const pcOffer = new RTCPeerConnection({});
@@ -13,10 +16,10 @@ import { RTCPeerConnection, RTCDataChannel } from "../../packages/webrtc/src";
       console.log("offer sent");
     }
   });
-  dc.message.subscribe((v) => console.log("offer", v.toString()));
+  dc.onMessage.subscribe((v) => console.log("offer", v.toString()));
 
   pcAnswer.onDataChannel.subscribe((channel) => {
-    channel.message.subscribe((v) => console.log("answer", v.toString()));
+    channel.onMessage.subscribe((v) => console.log("answer", v.toString()));
     console.log("answer send", Buffer.from("hi"));
     channel.send(Buffer.from("hi"));
     console.log("answer sent");
@@ -36,7 +39,7 @@ import { RTCPeerConnection, RTCDataChannel } from "../../packages/webrtc/src";
 
 async function assertIceCompleted(
   pc1: RTCPeerConnection,
-  pc2: RTCPeerConnection
+  pc2: RTCPeerConnection,
 ) {
   const wait = (pc: RTCPeerConnection) =>
     new Promise<void>((r) => {

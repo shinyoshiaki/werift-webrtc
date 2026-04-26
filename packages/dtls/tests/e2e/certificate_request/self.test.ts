@@ -1,7 +1,8 @@
 import { createSocket } from "dgram";
+import { Certificate } from "@fidm/x509";
 
-import { randomPort } from "../../../../common/src";
-import { createUdpTransport, DtlsClient, DtlsServer } from "../../../src";
+import { UdpTransport, randomPort } from "../../../../common/src";
+import { DtlsClient, DtlsServer } from "../../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
 import { certPem, keyPem } from "../../fixture";
 
@@ -11,8 +12,8 @@ test(
     new Promise<void>(async (done) => {
       const word = "self";
       const port = await randomPort();
-      const socket = createSocket("udp4");
-      socket.bind(port);
+      const remoteCertificate = Certificate.fromPEM(Buffer.from(certPem)).raw;
+
       const server = new DtlsServer({
         cert: certPem,
         key: keyPem,
@@ -20,18 +21,21 @@ test(
           hash: HashAlgorithm.sha256_4,
           signature: SignatureAlgorithm.rsa_1,
         },
-        transport: createUdpTransport(socket),
+        transport: await UdpTransport.init("udp4", { port }),
         certificateRequest: true,
       });
       server.onData.subscribe((data) => {
         expect(data.toString()).toBe(word);
+        expect(server.remoteCertificate).toEqual(remoteCertificate);
         server.send(Buffer.from(word + "_server"));
       });
+      const transport = await UdpTransport.init("udp4");
+      transport.rinfo = {
+        address: "127.0.0.1",
+        port,
+      };
       const client = new DtlsClient({
-        transport: createUdpTransport(createSocket("udp4"), {
-          address: "127.0.0.1",
-          port,
-        }),
+        transport,
         cert: certPem,
         key: keyPem,
         signatureHash: {
@@ -40,6 +44,7 @@ test(
         },
       });
       client.onConnect.subscribe(() => {
+        expect(client.remoteCertificate).toEqual(remoteCertificate);
         client.send(Buffer.from(word));
       });
       client.onData.subscribe((data) => {
@@ -48,5 +53,5 @@ test(
       });
       client.connect();
     }),
-  10_000
+  10_000,
 );

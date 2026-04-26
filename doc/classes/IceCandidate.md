@@ -1,144 +1,144 @@
-[werift](../README.md) / [Exports](../modules.md) / IceCandidate
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / IceCandidate
 
 # Class: IceCandidate
 
-## Table of contents
-
-### Constructors
-
-- [constructor](IceCandidate.md#constructor)
-
-### Properties
-
-- [component](IceCandidate.md#component)
-- [foundation](IceCandidate.md#foundation)
-- [ip](IceCandidate.md#ip)
-- [port](IceCandidate.md#port)
-- [priority](IceCandidate.md#priority)
-- [protocol](IceCandidate.md#protocol)
-- [relatedAddress](IceCandidate.md#relatedaddress)
-- [relatedPort](IceCandidate.md#relatedport)
-- [sdpMLineIndex](IceCandidate.md#sdpmlineindex)
-- [sdpMid](IceCandidate.md#sdpmid)
-- [tcpType](IceCandidate.md#tcptype)
-- [type](IceCandidate.md#type)
-
-### Methods
-
-- [toJSON](IceCandidate.md#tojson)
-- [fromJSON](IceCandidate.md#fromjson)
-
 ## Constructors
 
-### constructor
+### new IceCandidate()
 
-• **new IceCandidate**(`component`, `foundation`, `ip`, `port`, `priority`, `protocol`, `type`)
+> **new IceCandidate**(`component`, `foundation`, `ip`, `port`, `priority`, `protocol`, `type`, `generation`?, `ufrag`?): [`IceCandidate`](IceCandidate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `component` | `number` |
-| `foundation` | `string` |
-| `ip` | `string` |
-| `port` | `number` |
-| `priority` | `number` |
-| `protocol` | `string` |
-| `type` | `string` |
+• **component**: `number`
+
+• **foundation**: `string`
+
+• **ip**: `string`
+
+• **port**: `number`
+
+• **priority**: `number`
+
+• **protocol**: `string`
+
+• **type**: `string`
+
+• **generation?**: `number`
+
+• **ufrag?**: `string`
+
+#### Returns
+
+[`IceCandidate`](IceCandidate.md)
 
 ## Properties
 
 ### component
 
-• **component**: `number`
+> **component**: `number`
 
-___
+***
 
 ### foundation
 
-• **foundation**: `string`
+> **foundation**: `string`
 
-___
+***
+
+### generation?
+
+> `optional` **generation**: `number`
+
+***
 
 ### ip
 
-• **ip**: `string`
+> **ip**: `string`
 
-___
+***
 
 ### port
 
-• **port**: `number`
+> **port**: `number`
 
-___
+***
 
 ### priority
 
-• **priority**: `number`
+> **priority**: `number`
 
-___
+***
 
 ### protocol
 
-• **protocol**: `string`
+> **protocol**: `string`
 
-___
+***
 
-### relatedAddress
+### relatedAddress?
 
-• `Optional` **relatedAddress**: `string`
+> `optional` **relatedAddress**: `string`
 
-___
+***
 
-### relatedPort
+### relatedPort?
 
-• `Optional` **relatedPort**: `number`
+> `optional` **relatedPort**: `number`
 
-___
+***
 
-### sdpMLineIndex
+### sdpMLineIndex?
 
-• `Optional` **sdpMLineIndex**: `number`
+> `optional` **sdpMLineIndex**: `number`
 
-___
+***
 
-### sdpMid
+### sdpMid?
 
-• `Optional` **sdpMid**: `string`
+> `optional` **sdpMid**: `string`
 
-___
+***
 
-### tcpType
+### tcpType?
 
-• `Optional` **tcpType**: `string`
+> `optional` **tcpType**: `string`
 
-___
+***
 
 ### type
 
-• **type**: `string`
+> **type**: `string`
+
+***
+
+### ufrag?
+
+> `optional` **ufrag**: `string`
 
 ## Methods
 
-### toJSON
+### toJSON()
 
-▸ **toJSON**(): [`RTCIceCandidate`](RTCIceCandidate.md)
+> **toJSON**(): [`RTCIceCandidate`](RTCIceCandidate.md)
 
 #### Returns
 
 [`RTCIceCandidate`](RTCIceCandidate.md)
 
-___
+***
 
-### fromJSON
+### fromJSON()
 
-▸ `Static` **fromJSON**(`data`): `undefined` \| [`IceCandidate`](IceCandidate.md)
+> `static` **fromJSON**(`data`): `undefined` \| [`IceCandidate`](IceCandidate.md)
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `data` | [`RTCIceCandidate`](RTCIceCandidate.md) |
+• **data**: [`RTCIceCandidate`](RTCIceCandidate.md)
 
 #### Returns
 

@@ -1,5 +1,5 @@
 import { FragmentedHandshake } from "../../record/message/fragment";
-import { Handshake } from "../../typings/domain";
+import type { Handshake } from "../../typings/domain";
 import { HandshakeType } from "../const";
 
 // 7.4.9.  Finished
@@ -30,7 +30,7 @@ export class Finished implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

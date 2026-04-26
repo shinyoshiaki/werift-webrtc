@@ -1,30 +1,27 @@
-import debug from "debug";
-
-import { bufferReader } from "../../../common/src";
 import {
-  Extension,
+  type Extensions,
+  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
-  RtcpPacket,
+  type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
-  RtpPacket,
-} from "../../../rtp/src";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
-import {
+  type RtpPacket,
+  debug,
+  rtpHeaderExtensionsParser,
+} from "../imports/rtp";
+import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
 } from "./parameters";
 import { RTCRtpReceiver } from "./rtpReceiver";
-import { RTCRtpSender } from "./rtpSender";
-import { RTCRtpTransceiver } from "./rtpTransceiver";
+import type { RTCRtpSender } from "./rtpSender";
+import type { RTCRtpTransceiver } from "./rtpTransceiver";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
-
-export type Extensions = { [uri: string]: number | string };
 
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
@@ -44,7 +41,7 @@ export class RtpRouter {
 
   registerRtpReceiverBySsrc(
     transceiver: RTCRtpTransceiver,
-    params: RTCRtpReceiveParameters
+    params: RTCRtpReceiveParameters,
   ) {
     log("registerRtpReceiverBySsrc", params);
 
@@ -59,7 +56,7 @@ export class RtpRouter {
             id: transceiver.sender.trackId,
             remote: true,
             codec: params.codecs[i],
-          })
+          }),
         );
         if (encode.rtx) {
           this.registerRtpReceiver(transceiver.receiver, encode.rtx.ssrc);
@@ -74,7 +71,7 @@ export class RtpRouter {
   registerRtpReceiverByRid(
     transceiver: RTCRtpTransceiver,
     param: RTCRtpSimulcastParameters,
-    params: RTCRtpReceiveParameters
+    params: RTCRtpReceiveParameters,
   ) {
     // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
     const [codec] = params.codecs;
@@ -87,44 +84,15 @@ export class RtpRouter {
         id: transceiver.sender.trackId,
         remote: true,
         codec,
-      })
+      }),
     );
     this.ridTable[param.rid] = transceiver.receiver;
   }
 
-  static rtpHeaderExtensionsParser(
-    extensions: Extension[],
-    extIdUriMap: { [id: number]: string }
-  ): Extensions {
-    return extensions
-      .map((extension) => {
-        const uri = extIdUriMap[extension.id];
-        switch (uri) {
-          case RTP_EXTENSION_URI.sdesMid:
-          case RTP_EXTENSION_URI.sdesRTPStreamID:
-          case RTP_EXTENSION_URI.repairedRtpStreamId:
-            return { uri, value: extension.payload.toString() };
-          case RTP_EXTENSION_URI.transportWideCC:
-            return { uri, value: extension.payload.readUInt16BE() };
-          case RTP_EXTENSION_URI.absSendTime:
-            return {
-              uri,
-              value: bufferReader(extension.payload, [3])[0],
-            };
-          default:
-            return { uri, value: 0 };
-        }
-      })
-      .reduce((acc: { [uri: string]: any }, cur) => {
-        if (cur) acc[cur.uri] = cur.value;
-        return acc;
-      }, {});
-  }
-
   routeRtp = (packet: RtpPacket) => {
-    const extensions = RtpRouter.rtpHeaderExtensionsParser(
+    const extensions: Extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
-      this.extIdUriMap
+      this.extIdUriMap,
     );
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
@@ -207,11 +175,16 @@ export class RtpRouter {
           const psfb = packet as RtcpPayloadSpecificFeedback;
           switch (psfb.feedback.count) {
             case ReceiverEstimatedMaxBitrate.count:
-              const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
-              recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
+              {
+                const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
+                recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
+              }
               break;
             default:
-              recipients.push(this.ssrcTable[psfb.feedback.senderSsrc]);
+              recipients.push(
+                this.ssrcTable[psfb.feedback.senderSsrc] ||
+                  this.ssrcTable[psfb.feedback.mediaSsrc],
+              );
           }
         }
         break;

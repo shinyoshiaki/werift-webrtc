@@ -1,11 +1,11 @@
+import { Server } from "ws";
 import {
-  MediaRecorder,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useNACK,
   usePLI,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
+import { MediaRecorder } from "../../../packages/webrtc/src/nonstandard";
 
 // open ./answer.html
 
@@ -13,10 +13,11 @@ const server = new Server({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
-  const recorder = new MediaRecorder([], "./werift.webm", {
+  const recorder = new MediaRecorder({
+    path: "./werift.webm",
+    numOfTracks: 1,
     width: 640,
     height: 360,
-    jitterBufferLatency: 50,
   });
 
   const pc = new RTCPeerConnection({
@@ -31,10 +32,9 @@ server.on("connection", async (socket) => {
     },
   });
 
-  pc.addTransceiver("video").onTrack.subscribe((track, transceiver) => {
+  pc.addTransceiver("video").onTrack.subscribe(async (track, transceiver) => {
     transceiver.sender.replaceTrack(track);
-    recorder.addTrack(track);
-    recorder.start();
+    await recorder.addTrack(track);
 
     setInterval(() => {
       transceiver.receiver.sendRtcpPLI(track.ssrc);

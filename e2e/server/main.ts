@@ -1,6 +1,22 @@
 import express from "express";
 
-import { WebSocketServer, Room } from "protoo-server";
+import { Room, WebSocketServer } from "protoo-server";
+import {
+  bundle_disable_answer,
+  bundle_disable_offer,
+} from "./handler/bundle/disable";
+import {
+  bundle_max_bundle_answer,
+  bundle_max_bundle_offer,
+} from "./handler/bundle/max-bundle";
+import {
+  bundle_max_compat_answer,
+  bundle_max_compat_offer,
+} from "./handler/bundle/max-compat";
+import {
+  combination_all_media_answer,
+  combination_all_media_offer,
+} from "./handler/combination/allmedia";
 import {
   datachannel_close_client_create_close,
   datachannel_close_client_create_server_close,
@@ -11,19 +27,32 @@ import {
   datachannel_answer,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
+import {
+  ice_restart_node_trigger,
+  ice_restart_web_trigger,
+} from "./handler/ice/restart";
 import { ice_trickle_answer, ice_trickle_offer } from "./handler/ice/trickle";
 import {
   mediachannel_addTrack_answer,
   mediachannel_addTrack_offer,
 } from "./handler/mediachannel/addTrack";
 import {
-  mediachannel_rtx_client_answer,
-  mediachannel_rtx_client_offer,
-} from "./handler/mediachannel/rtx";
-import {
   mediachannel_oneway_answer,
   mediachannel_oneway_offer,
 } from "./handler/mediachannel/oneway";
+import {
+  mediachannel_red_client_answer,
+  mediachannel_red_client_offer,
+} from "./handler/mediachannel/red";
+import {
+  mediachannel_addtrack_removefirst_addtrack,
+  mediachannel_offer_replace_second,
+  mediachannel_removetrack_addtrack,
+} from "./handler/mediachannel/removeTrack";
+import {
+  mediachannel_rtx_client_answer,
+  mediachannel_rtx_client_offer,
+} from "./handler/mediachannel/rtx";
 import {
   mediachannel_sendrecv_answer,
   mediachannel_sendrecv_offer,
@@ -32,31 +61,6 @@ import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
-import {
-  mediachannel_red_client_answer,
-  mediachannel_red_client_offer,
-} from "./handler/mediachannel/red";
-import {
-  combination_all_media_answer,
-  combination_all_media_offer,
-} from "./handler/combination/allmedia";
-import {
-  bundle_max_compat_answer,
-  bundle_max_compat_offer,
-} from "./handler/bundle/max-compat";
-import {
-  bundle_disable_answer,
-  bundle_disable_offer,
-} from "./handler/bundle/disable";
-import {
-  bundle_max_bundle_answer,
-  bundle_max_bundle_offer,
-} from "./handler/bundle/max-bundle";
-import {
-  mediachannel_addtrack_removefirst_addtrack,
-  mediachannel_removetrack_addtrack,
-  mediachannel_offer_replace_second,
-} from "./handler/mediachannel/removeTrack";
 
 const app = express();
 app.use(express.json() as never);
@@ -65,7 +69,7 @@ app.use((_, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
     "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
+    "Origin, X-Requested-With, Content-Type, Accept",
   );
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   next();
@@ -74,7 +78,8 @@ app.put("/stop", (_, res) => {
   res.send();
   process.exit();
 });
-const http = app.listen("8886");
+const port = Number(process.env.E2E_PORT ?? 8886);
+const http = app.listen(port);
 
 const server = new WebSocketServer(http);
 const room = new Room();
@@ -116,6 +121,8 @@ server.on("connectionrequest", async (_, accept) => {
     mediachannel_addtrack_removefirst_addtrack:
       new mediachannel_addtrack_removefirst_addtrack(),
     mediachannel_offer_replace_second: new mediachannel_offer_replace_second(),
+    ice_restart_web_trigger: new ice_restart_web_trigger(),
+    ice_restart_node_trigger: new ice_restart_node_trigger(),
   };
 
   const transport = accept();
@@ -131,4 +138,4 @@ server.on("connectionrequest", async (_, accept) => {
   });
 });
 
-console.log("start");
+console.log("start", { port });

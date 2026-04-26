@@ -2,8 +2,6 @@ import { RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
 
-jest.setTimeout(10_000);
-
 describe("RTCSctpTransportTest", () => {
   function trackChannels(transport: RTCSctpTransport) {
     const channels: RTCDataChannel[] = [];
@@ -17,7 +15,7 @@ describe("RTCSctpTransportTest", () => {
 
   async function waitForOutcome(
     client: RTCSctpTransport,
-    server: RTCSctpTransport
+    server: RTCSctpTransport,
   ) {
     await Promise.all([
       client.sctp.stateChanged.connected.asPromise(),
@@ -42,7 +40,7 @@ describe("RTCSctpTransportTest", () => {
       const serverChannels = trackChannels(server);
       serverChannels.event.subscribe((channel) => {
         channel.send(Buffer.from("ping"));
-        channel.message.subscribe((data) => {
+        channel.onMessage.subscribe((data) => {
           expect(data.toString()).toBe("pong");
           done();
         });
@@ -50,9 +48,9 @@ describe("RTCSctpTransportTest", () => {
 
       const channel = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "chat", id: 1 })
+        new RTCDataChannelParameters({ label: "chat", id: 1 }),
       );
-      channel.message.subscribe((data) => {
+      channel.onMessage.subscribe((data) => {
         expect(data.toString()).toBe("ping");
         channel.send(Buffer.from("pong"));
       });

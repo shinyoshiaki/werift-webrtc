@@ -1,13 +1,13 @@
-import { AES } from "aes-js";
-import { createHmac, Hmac } from "crypto";
+import { createHmac } from "crypto";
+import AES from "aes-js";
 
-import { CipherAesBase } from "../cipher";
+import type { CipherAesBase } from "../cipher";
 import { CipherAesCtr } from "../cipher/ctr";
 import { CipherAesGcm } from "../cipher/gcm";
 import {
-  Profile,
   ProtectionProfileAeadAes128Gcm,
   ProtectionProfileAes128CmHmacSha1_80,
+  type SrtpProfile,
 } from "../const";
 
 export class Context {
@@ -15,19 +15,19 @@ export class Context {
   srtpSessionKey: Buffer;
   srtpSessionSalt: Buffer;
   srtpSessionAuthTag: Buffer;
-  srtpSessionAuth: Hmac;
+  srtpSessionAuth: ReturnType<typeof createHmac>;
   srtcpSSRCStates: { [ssrc: number]: SrtcpSSRCState } = {};
   srtcpSessionKey: Buffer;
   srtcpSessionSalt: Buffer;
   srtcpSessionAuthTag: Buffer;
-  srtcpSessionAuth: Hmac;
+  srtcpSessionAuth: ReturnType<typeof createHmac>;
 
   cipher: CipherAesBase;
 
   constructor(
     public masterKey: Buffer,
     public masterSalt: Buffer,
-    public profile: Profile
+    public profile: SrtpProfile,
   ) {
     {
       // aes-js plaintext require 16byte
@@ -56,7 +56,7 @@ export class Context {
           this.srtcpSessionKey,
           this.srtcpSessionSalt,
           this.srtpSessionAuthTag,
-          this.srtcpSessionAuthTag
+          this.srtcpSessionAuthTag,
         );
         break;
       case ProtectionProfileAeadAes128Gcm:
@@ -64,7 +64,7 @@ export class Context {
           this.srtpSessionKey,
           this.srtpSessionSalt,
           this.srtcpSessionKey,
-          this.srtcpSessionSalt
+          this.srtcpSessionSalt,
         );
         break;
     }
@@ -91,12 +91,12 @@ export class Context {
     }
 
     sessionKey = Buffer.concat([sessionKey, Buffer.from([0x00, 0x00])]);
-    const block = new AES(this.masterKey);
+    const block = new AES.AES(this.masterKey);
     return Buffer.from(block.encrypt(sessionKey) as ArrayBuffer);
   }
 
   generateSessionSalt(label: number) {
-    let sessionSalt = Buffer.from(this.masterSalt);
+    let sessionSalt: Buffer = Buffer.from(this.masterSalt);
     const labelAndIndexOverKdr = Buffer.from([
       label,
       0x00,
@@ -114,9 +114,9 @@ export class Context {
       sessionSalt[j] = sessionSalt[j] ^ labelAndIndexOverKdr[i];
     }
     sessionSalt = Buffer.concat([sessionSalt, Buffer.from([0x00, 0x00])]);
-    const block = new AES(this.masterKey);
+    const block = new AES.AES(this.masterKey);
     sessionSalt = Buffer.from(block.encrypt(sessionSalt) as ArrayBuffer);
-    return sessionSalt.slice(0, 14);
+    return sessionSalt.subarray(0, 14);
   }
 
   generateSessionAuthTag(label: number) {
@@ -137,12 +137,18 @@ export class Context {
     ) {
       sessionAuthTag[j] = sessionAuthTag[j] ^ labelAndIndexOverKdr[i];
     }
-    let firstRun = Buffer.concat([sessionAuthTag, Buffer.from([0x00, 0x00])]);
-    let secondRun = Buffer.concat([sessionAuthTag, Buffer.from([0x00, 0x01])]);
-    const block = new AES(this.masterKey);
+    let firstRun: Buffer = Buffer.concat([
+      sessionAuthTag,
+      Buffer.from([0x00, 0x00]),
+    ]);
+    let secondRun: Buffer = Buffer.concat([
+      sessionAuthTag,
+      Buffer.from([0x00, 0x01]),
+    ]);
+    const block = new AES.AES(this.masterKey);
     firstRun = Buffer.from(block.encrypt(firstRun) as ArrayBuffer);
     secondRun = Buffer.from(block.encrypt(secondRun) as ArrayBuffer);
-    return Buffer.concat([firstRun, secondRun.slice(0, 4)]);
+    return Buffer.concat([firstRun, secondRun.subarray(0, 4)]);
   }
 
   getSrtpSsrcState(ssrc: number) {

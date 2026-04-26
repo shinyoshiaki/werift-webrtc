@@ -1,33 +1,37 @@
 import { createSocket } from "dgram";
-import { createTurnEndpoint } from "../src/turn/turn";
+import { randomPort } from "../../common/src";
+import { getGlobalIp, url2Address } from "../src";
+import { createTurnClient } from "../src/turn/protocol";
+import type { Address } from "../src/types/model";
 
-const socket = createSocket("udp4");
-socket.bind();
+const address: Address = url2Address("127.0.0.1:3478")!;
+const username = "username";
+const password = "password";
 
 (async () => {
-  const turn = await createTurnEndpoint(
-    ["127.0.0.1", 55555],
-    "username",
-    "password",
-    6
+  const turn = await createTurnClient(
+    { address, username, password },
+    {
+      transport: "udp",
+    },
   );
-
-  console.log("connected", turn.relayedAddress, turn.mappedAddress);
-
-  turn.onData.subscribe(([data]) => {
-    console.log("onData", data.toString());
+  turn.onData.subscribe((data, addr) => {
+    console.log("turn onData", data.toString(), addr);
   });
 
-  turn.sendData(Buffer.from("bind channel"), [
-    "127.0.0.1",
-    socket.address().port,
-  ]);
+  console.log("turn", turn.relayedAddress, turn.mappedAddress);
+
+  const ip = address[0] === "127.0.0.1" ? address[0] : await getGlobalIp();
+  const port = await randomPort();
+  const socket = createSocket("udp4");
+  socket.bind(port);
+  await turn.getChannel([ip, port]);
 
   setInterval(() => {
     socket.send(
-      Buffer.from("hi"),
-      turn.relayedAddress![1],
-      turn.relayedAddress![0]
+      Buffer.from("ping"),
+      turn.relayedAddress[1],
+      turn.relayedAddress[0],
     );
-  }, 1500);
+  }, 1000);
 })();

@@ -1,15 +1,13 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCErrorEvent
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCErrorEvent
 
 # Interface: RTCErrorEvent
-
-## Table of contents
-
-### Properties
-
-- [error](RTCErrorEvent.md#error)
 
 ## Properties
 
 ### error
 
-• **error**: `any`
+> **error**: `any`

@@ -1,14 +1,14 @@
+import type { BasicPeerConnection } from "ring-client-api/lib/streaming/peer-connection";
+import { Observable, ReplaySubject, Subject } from "rxjs";
 import {
-  RTCPeerConnection,
+  type ConnectionState,
   MediaStreamTrack,
+  type RTCIceCandidate,
+  RTCPeerConnection,
   RTCRtpCodecParameters,
-  RtpPacket,
-  ConnectionState,
-  RtcpPacket,
-  RTCIceCandidate,
+  type RtcpPacket,
+  type RtpPacket,
 } from "../../packages/webrtc/src";
-import { Subject, ReplaySubject, Observable } from "rxjs";
-import { BasicPeerConnection } from "ring-client-api/lib/streaming/peer-connection";
 
 export class CustomPeerConnection implements BasicPeerConnection {
   private pc;
@@ -71,7 +71,7 @@ export class CustomPeerConnection implements BasicPeerConnection {
       track.onReceiveRtp.once(() => {
         setInterval(
           () => videoTransceiver.receiver.sendRtcpPLI(track.ssrc!),
-          2000
+          2000,
         );
       });
     });

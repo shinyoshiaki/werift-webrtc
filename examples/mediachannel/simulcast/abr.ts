@@ -1,3 +1,5 @@
+import { Event } from "rx.mini";
+import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
@@ -7,11 +9,9 @@ import {
   usePLI,
   useREMB,
   useSdesRTPStreamId,
-  useTransportWideCC,
   useTWCC,
+  useTransportWideCC,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
-import { Event } from "rx.mini";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -79,7 +79,7 @@ server.on("connection", async (socket) => {
         console.log("low");
         state = "low";
         senderTransceiver.sender.replaceTrack(
-          receiverTransceiver.receiver.trackByRID["low"]
+          receiverTransceiver.receiver.trackByRID["low"],
         );
       }
     } else {
@@ -87,7 +87,7 @@ server.on("connection", async (socket) => {
         console.log("high");
         state = "high";
         senderTransceiver.sender.replaceTrack(
-          receiverTransceiver.receiver.trackByRID["high"]
+          receiverTransceiver.receiver.trackByRID["high"],
         );
       }
     }

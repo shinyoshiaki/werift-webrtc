@@ -1,8 +1,8 @@
+import { Server } from "ws";
 import {
   RTCPeerConnection,
-  RTCRtpTransceiver,
+  type RTCRtpTransceiver,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -27,7 +27,7 @@ server.on("connection", async (socket) => {
   socket.send(sdp);
 
   const data = await new Promise<string>(
-    (r) => (socket.onmessage = (ev) => r(ev.data.toString()))
+    (r) => (socket.onmessage = (ev) => r(ev.data.toString())),
   );
   await pc.setRemoteDescription(JSON.parse(data));
 

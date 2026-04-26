@@ -1,9 +1,9 @@
+import { createSocket } from "dgram";
+import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
-import { createSocket } from "dgram";
 
 const udp = createSocket("udp4");
 const server = new Server({ port: 8888 });
@@ -33,7 +33,7 @@ server.on("connection", async (socket) => {
       track.onReceiveRtp.subscribe((rtp) => {
         udp.send(rtp.serialize(), 4005);
       });
-    }
+    },
   );
 
   await pc.setLocalDescription(await pc.createOffer());

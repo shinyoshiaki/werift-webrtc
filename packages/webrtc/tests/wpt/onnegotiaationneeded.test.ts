@@ -4,8 +4,6 @@ import { RTCPeerConnection } from "../../src";
 import { generateAnswer, generateOffer } from "../fixture";
 import { generateAudioReceiveOnlyOffer } from "../utils";
 
-jest.setTimeout(10_000);
-
 describe("onnegotiationneeded", () => {
   test("Creating first data channel should fire negotiationneeded event", async () => {
     const pc = new RTCPeerConnection();
@@ -83,14 +81,12 @@ describe("onnegotiationneeded", () => {
   test("negotiationneeded event should not fire if signaling state is not stable", async () =>
     new Promise<void>(async (done) => {
       const pc = new RTCPeerConnection();
-      let negotiated;
 
-      generateAudioReceiveOnlyOffer(pc)
+      const offerPromise = generateAudioReceiveOnlyOffer(pc);
+      const negotiated = awaitNegotiation(pc);
+      offerPromise
         .then((offer) => {
           pc.setLocalDescription(offer);
-          negotiated = awaitNegotiation(pc);
-        })
-        .then(() => {
           return negotiated;
         })
         .then(({ nextPromise }) => {
@@ -165,7 +161,7 @@ describe("onnegotiationneeded", () => {
 function awaitNegotiation(pc: RTCPeerConnection) {
   if (pc.onnegotiationneeded) {
     throw new Error(
-      "connection is already attached with onnegotiationneeded event handler"
+      "connection is already attached with onnegotiationneeded event handler",
     );
   }
 

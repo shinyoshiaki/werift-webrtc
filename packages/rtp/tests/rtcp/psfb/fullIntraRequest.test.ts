@@ -1,6 +1,6 @@
 import { RtcpPacketConverter } from "../../../src";
-import { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
-import { FullIntraRequest } from "../../../src/rtcp/psfb/fullIntraRequest";
+import type { RtcpPayloadSpecificFeedback } from "../../../src/rtcp/psfb";
+import type { FullIntraRequest } from "../../../src/rtcp/psfb/fullIntraRequest";
 
 describe("fullIntraRequest", () => {
   test("valid", () => {
@@ -18,7 +18,7 @@ describe("fullIntraRequest", () => {
     ]);
 
     const [psfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpPayloadSpecificFeedback
+      RtcpPayloadSpecificFeedback,
     ];
     const fir = psfb.feedback as FullIntraRequest;
     expect(fir.senderSsrc).toBe(0);

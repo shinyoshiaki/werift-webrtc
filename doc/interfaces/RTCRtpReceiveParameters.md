@@ -1,87 +1,77 @@
-[werift](../README.md) / [Exports](../modules.md) / RTCRtpReceiveParameters
+[**werift**](../README.md) • **Docs**
+
+***
+
+[werift](../globals.md) / RTCRtpReceiveParameters
 
 # Interface: RTCRtpReceiveParameters
 
-## Hierarchy
+## Extends
 
 - [`RTCRtpParameters`](RTCRtpParameters.md)
-
-  ↳ **`RTCRtpReceiveParameters`**
-
-## Table of contents
-
-### Properties
-
-- [codecs](RTCRtpReceiveParameters.md#codecs)
-- [encodings](RTCRtpReceiveParameters.md#encodings)
-- [headerExtensions](RTCRtpReceiveParameters.md#headerextensions)
-- [muxId](RTCRtpReceiveParameters.md#muxid)
-- [repairedRtpStreamId](RTCRtpReceiveParameters.md#repairedrtpstreamid)
-- [rtcp](RTCRtpReceiveParameters.md#rtcp)
-- [rtpStreamId](RTCRtpReceiveParameters.md#rtpstreamid)
 
 ## Properties
 
 ### codecs
 
-• **codecs**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+> **codecs**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
 
 #### Inherited from
 
-[RTCRtpParameters](RTCRtpParameters.md).[codecs](RTCRtpParameters.md#codecs)
+[`RTCRtpParameters`](RTCRtpParameters.md).[`codecs`](RTCRtpParameters.md#codecs)
 
-___
+***
 
 ### encodings
 
-• **encodings**: [`RTCRtpCodingParameters`](../classes/RTCRtpCodingParameters.md)[]
+> **encodings**: [`RTCRtpCodingParameters`](../classes/RTCRtpCodingParameters.md)[]
 
-___
+***
 
 ### headerExtensions
 
-• **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]
 
 #### Inherited from
 
-[RTCRtpParameters](RTCRtpParameters.md).[headerExtensions](RTCRtpParameters.md#headerextensions)
+[`RTCRtpParameters`](RTCRtpParameters.md).[`headerExtensions`](RTCRtpParameters.md#headerextensions)
 
-___
+***
 
-### muxId
+### muxId?
 
-• `Optional` **muxId**: `string`
-
-#### Inherited from
-
-[RTCRtpParameters](RTCRtpParameters.md).[muxId](RTCRtpParameters.md#muxid)
-
-___
-
-### repairedRtpStreamId
-
-• `Optional` **repairedRtpStreamId**: `string`
+> `optional` **muxId**: `string`
 
 #### Inherited from
 
-[RTCRtpParameters](RTCRtpParameters.md).[repairedRtpStreamId](RTCRtpParameters.md#repairedrtpstreamid)
+[`RTCRtpParameters`](RTCRtpParameters.md).[`muxId`](RTCRtpParameters.md#muxid)
 
-___
+***
 
-### rtcp
+### repairedRtpStreamId?
 
-• `Optional` **rtcp**: [`RTCRtcpParameters`](../classes/RTCRtcpParameters.md)
-
-#### Inherited from
-
-[RTCRtpParameters](RTCRtpParameters.md).[rtcp](RTCRtpParameters.md#rtcp)
-
-___
-
-### rtpStreamId
-
-• `Optional` **rtpStreamId**: `string`
+> `optional` **repairedRtpStreamId**: `string`
 
 #### Inherited from
 
-[RTCRtpParameters](RTCRtpParameters.md).[rtpStreamId](RTCRtpParameters.md#rtpstreamid)
+[`RTCRtpParameters`](RTCRtpParameters.md).[`repairedRtpStreamId`](RTCRtpParameters.md#repairedrtpstreamid)
+
+***
+
+### rtcp?
+
+> `optional` **rtcp**: [`RTCRtcpParameters`](../classes/RTCRtcpParameters.md)
+
+#### Inherited from
+
+[`RTCRtpParameters`](RTCRtpParameters.md).[`rtcp`](RTCRtpParameters.md#rtcp)
+
+***
+
+### rtpStreamId?
+
+> `optional` **rtpStreamId**: `string`
+
+#### Inherited from
+
+[`RTCRtpParameters`](RTCRtpParameters.md).[`rtpStreamId`](RTCRtpParameters.md#rtpstreamid)

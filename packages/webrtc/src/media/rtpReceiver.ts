@@ -1,32 +1,44 @@
-import { debug } from "debug";
-import { jspack } from "jspack";
-import Event from "rx.mini";
+import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { v4 as uuid } from "uuid";
+import { Event, int } from "../imports/common";
 
-import { int } from "../../../common/src";
 import {
+  type Extensions,
   PictureLossIndication,
+  RTP_EXTENSION_URI,
   Red,
   RedHandler,
-  RtcpPacket,
+  type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
   RtcpRrPacket,
   RtcpSrPacket,
-  RtpHeader,
-  RtpPacket,
-} from "../../../rtp/src";
-import { codecParametersFromString, PeerConfig, usePLI, useTWCC } from "..";
-import { RTCDtlsTransport } from "../transport/dtls";
-import { Kind } from "../types/domain";
+  type RtpPacket,
+  type TransportWideCCPayload,
+  debug,
+  unwrapRtx,
+} from "../imports/rtp";
+import type { PeerConfig } from "../peerConnection";
+import type { RTCDtlsTransport } from "../transport/dtls";
+import type { Kind } from "../types/domain";
 import { compactNtp, timestampSeconds } from "../utils";
-import { RTP_EXTENSION_URI } from "./extension/rtpExtension";
-import { RTCRtpCodecParameters, RTCRtpReceiveParameters } from "./parameters";
+import type {
+  RTCRtpCodecParameters,
+  RTCRtpReceiveParameters,
+} from "./parameters";
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
-import { Extensions } from "./router";
+
+import { codecParametersFromString } from "../sdp";
+import { usePLI, useTWCC } from "./extension/rtcpFeedback";
+import {
+  type RTCInboundRtpStreamStats,
+  type RTCRemoteOutboundRtpStreamStats,
+  type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
+} from "./stats";
 import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
@@ -35,7 +47,7 @@ export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private get codecArray() {
     return Object.values(this.codecs).sort(
-      (a, b) => a.payloadType - b.payloadType
+      (a, b) => a.payloadType - b.payloadType,
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
@@ -43,7 +55,7 @@ export class RTCRtpReceiver {
   private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
-  readonly uuid = uuid();
+  readonly uuid = randomUUID().toString();
   readonly tracks: MediaStreamTrack[] = [];
   readonly trackBySSRC: { [ssrc: string]: MediaStreamTrack } = {};
   readonly trackByRID: { [rid: string]: MediaStreamTrack } = {};
@@ -73,7 +85,7 @@ export class RTCRtpReceiver {
   constructor(
     readonly config: PeerConfig,
     public kind: Kind,
-    public rtcpSsrc: number
+    public rtcpSsrc: number,
   ) {}
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
@@ -82,7 +94,7 @@ export class RTCRtpReceiver {
 
   // todo fix
   get track() {
-    return this.tracks[0];
+    return this.tracks[0] ?? new MediaStreamTrack({ kind: this.kind });
   }
 
   get nackEnabled() {
@@ -91,13 +103,13 @@ export class RTCRtpReceiver {
 
   get twccEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find(
-      (f) => f.type === useTWCC().type
+      (f) => f.type === useTWCC().type,
     );
   }
 
   get pliEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find(
-      (f) => f.type === usePLI().type
+      (f) => f.type === usePLI().type,
     );
   }
 
@@ -120,7 +132,7 @@ export class RTCRtpReceiver {
       this.receiverTWCC = new ReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
-        mediaSourceSsrc
+        mediaSourceSsrc,
       );
     }
   }
@@ -188,7 +200,7 @@ export class RTCRtpReceiver {
               lsr: lastSRtimestamp,
               dlsr: delaySinceLastSR,
             });
-          }
+          },
         );
 
         const packet = new RtcpRrPacket({ ssrc: this.rtcpSsrc, reports });
@@ -206,8 +218,61 @@ export class RTCRtpReceiver {
     } catch (error) {}
   }
 
-  /**todo impl */
-  getStats() {}
+  async getStats(): Promise<RTCStats[]> {
+    const timestamp = getStatsTimestamp();
+    const stats: RTCStats[] = [];
+
+    if (!this.dtlsTransport) {
+      return stats;
+    }
+
+    const transportId = generateStatsId("transport", this.dtlsTransport.id);
+
+    // Collect stats for each track
+    for (const track of this.tracks) {
+      if (!track.ssrc) continue;
+
+      const streamStats = this.remoteStreams[track.ssrc];
+      if (!streamStats) continue;
+
+      // Inbound RTP stats
+      const inboundRtpStats: RTCInboundRtpStreamStats = {
+        type: "inbound-rtp",
+        id: generateStatsId("inbound-rtp", track.ssrc),
+        timestamp,
+        ssrc: track.ssrc,
+        kind: this.kind,
+        transportId,
+        codecId: this.codecs[0]
+          ? generateStatsId("codec", this.codecs[0].payloadType, transportId)
+          : undefined,
+        mid: this.sdesMid,
+        trackIdentifier: track.id,
+        packetsReceived: streamStats.packets_received,
+        packetsLost: streamStats.packets_lost,
+        jitter: streamStats.jitter,
+      };
+      stats.push(inboundRtpStats);
+
+      // Remote outbound RTP stats (if we have SR info)
+      if (this.lastSRtimestamp[track.ssrc]) {
+        const remoteOutboundStats: RTCRemoteOutboundRtpStreamStats = {
+          type: "remote-outbound-rtp",
+          id: generateStatsId("remote-outbound-rtp", track.ssrc),
+          timestamp,
+          ssrc: track.ssrc,
+          kind: this.kind,
+          transportId,
+          codecId: inboundRtpStats.codecId,
+          localId: inboundRtpStats.id,
+          remoteTimestamp: this.receiveLastSRTimestamp[track.ssrc] * 1000, // Convert to ms
+        };
+        stats.push(remoteOutboundStats);
+      }
+    }
+
+    return stats;
+  }
 
   async sendRtcpPLI(mediaSsrc: number) {
     if (!this.pliEnabled) {
@@ -240,7 +305,7 @@ export class RTCRtpReceiver {
         {
           const sr = packet as RtcpSrPacket;
           this.lastSRtimestamp[sr.ssrc] = compactNtp(
-            sr.senderInfo.ntpTimestamp
+            sr.senderInfo.ntpTimestamp,
           );
           this.receiveLastSRTimestamp[sr.ssrc] = timestampSeconds();
 
@@ -272,7 +337,7 @@ export class RTCRtpReceiver {
   private handleRTP(
     packet: RtpPacket,
     extensions: Extensions,
-    track?: MediaStreamTrack
+    track?: MediaStreamTrack,
   ) {
     if (this.stopped) {
       return;
@@ -292,7 +357,8 @@ export class RTCRtpReceiver {
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
-      ] as number;
+      ] as TransportWideCCPayload;
+
       if (!transportSequenceNumber == undefined) {
         throw new Error("undefined");
       }
@@ -317,7 +383,7 @@ export class RTCRtpReceiver {
       red = Red.deSerialize(packet.payload);
       if (
         !Object.keys(this.codecs).includes(
-          red.header.fields[0].blockPT.toString()
+          red.header.fields[0].blockPT.toString(),
         )
       ) {
         return;
@@ -333,29 +399,15 @@ export class RTCRtpReceiver {
         if (track.kind === "audio") {
           const payloads = this.audioRedHandler.push(red, packet);
           for (const packet of payloads) {
-            track.onReceiveRtp.execute(packet.clone());
+            track.onReceiveRtp.execute(packet.clone(), extensions);
           }
         } else {
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone());
+        track.onReceiveRtp.execute(packet.clone(), extensions);
       }
     }
 
     this.runRtcp();
   }
-}
-
-export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
-  const packet = new RtpPacket(
-    new RtpHeader({
-      payloadType,
-      marker: rtx.header.marker,
-      sequenceNumber: jspack.Unpack("!H", rtx.payload.subarray(0, 2))[0],
-      timestamp: rtx.header.timestamp,
-      ssrc,
-    }),
-    rtx.payload.subarray(2)
-  );
-  return packet;
 }

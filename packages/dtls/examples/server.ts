@@ -1,8 +1,7 @@
-import { Crypto } from "@peculiar/webcrypto";
+import * as nodeCrypto from "node:crypto";
 import * as x509 from "@peculiar/x509";
 import { createSocket } from "dgram";
 
-import { createUdpTransport } from "../src";
 import {
   HashAlgorithm,
   NamedCurveAlgorithm,
@@ -10,8 +9,9 @@ import {
 } from "../src/cipher/const";
 import { CipherContext } from "../src/context/cipher";
 import { DtlsServer } from "../src/server";
+import { UdpTransport } from "../../common/src";
 
-const crypto = new Crypto();
+const crypto = nodeCrypto.webcrypto;
 x509.cryptoProvider.set(crypto as any);
 
 const port = 4444;
@@ -27,10 +27,10 @@ console.log("start");
         signature: SignatureAlgorithm.ecdsa_3,
         hash: HashAlgorithm.sha256_4,
       },
-      NamedCurveAlgorithm.secp256r1_23
+      NamedCurveAlgorithm.secp256r1_23,
     );
   const server = new DtlsServer({
-    transport: createUdpTransport(socket),
+    transport: await UdpTransport.init("udp4"),
     extendedMasterSecret: true,
     cert: certPem,
     key: keyPem,
@@ -39,6 +39,6 @@ console.log("start");
 
   server.onData.subscribe((data) => console.log(data.toString()));
   server.onConnect.once(() =>
-    setTimeout(() => server.send(Buffer.from("hello from server")), 1000)
+    setTimeout(() => server.send(Buffer.from("hello from server")), 1000),
   );
 })();

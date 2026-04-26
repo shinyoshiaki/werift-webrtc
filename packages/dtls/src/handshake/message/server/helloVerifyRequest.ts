@@ -1,7 +1,7 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
-import { Handshake } from "../../../typings/domain";
+import type { Handshake } from "../../../typings/domain";
 import { ProtocolVersion } from "../../binary";
 import { HandshakeType } from "../../const";
 
@@ -17,7 +17,7 @@ export class ServerHelloVerifyRequest implements Handshake {
 
   constructor(
     public serverVersion: { major: number; minor: number },
-    public cookie: Buffer
+    public cookie: Buffer,
   ) {}
 
   static createEmpty() {
@@ -27,7 +27,7 @@ export class ServerHelloVerifyRequest implements Handshake {
   static deSerialize(buf: Buffer) {
     return new ServerHelloVerifyRequest(
       //@ts-ignore
-      ...Object.values(decode(buf, ServerHelloVerifyRequest.spec))
+      ...Object.values(decode(buf, ServerHelloVerifyRequest.spec)),
     );
   }
 
@@ -51,7 +51,7 @@ export class ServerHelloVerifyRequest implements Handshake {
       this.messageSeq!,
       0,
       body.length,
-      body
+      body,
     );
   }
 }

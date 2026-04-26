@@ -1,23 +1,27 @@
-import { RtcpHeader } from "../../rtcp/header";
-import { RtpHeader } from "../../rtp/rtp";
+import type { RtcpHeader } from "../../rtcp/header";
+import type { RtpHeader } from "../../rtp/rtp";
 
 export abstract class CipherAesBase {
   constructor(
     public srtpSessionKey: Buffer,
     public srtpSessionSalt: Buffer,
     public srtcpSessionKey: Buffer,
-    public srtcpSessionSalt: Buffer
+    public srtcpSessionSalt: Buffer,
   ) {}
 
   encryptRtp(
     header: RtpHeader,
     payload: Buffer,
-    rolloverCounter: number
+    rolloverCounter: number,
   ): Buffer {
     return Buffer.from([]);
   }
 
-  decryptRtp(cipherText: Buffer, rolloverCounter: number): [Buffer, RtpHeader] {
+  decryptRtp(
+    cipherText: Buffer,
+    rolloverCounter: number,
+    header?: RtpHeader,
+  ): [Buffer, RtpHeader] {
     return [] as any;
   }
 

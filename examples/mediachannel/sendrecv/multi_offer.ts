@@ -1,5 +1,5 @@
-import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import { Server } from "ws";
+import { RTCPeerConnection } from "../../../packages/webrtc/src";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -7,7 +7,7 @@ console.log("start");
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({});
   pc.iceConnectionStateChange.subscribe((v) =>
-    console.log("pc.iceConnectionStateChange", v)
+    console.log("pc.iceConnectionStateChange", v),
   );
 
   const transceiver1 = pc.addTransceiver("video");

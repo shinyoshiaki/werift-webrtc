@@ -3,7 +3,7 @@ import {
   RtcpHeader,
   RtcpPacketConverter,
 } from "../../../src";
-import { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb";
+import type { RtcpTransportLayerFeedback } from "../../../src/rtcp/rtpfb";
 import { GenericNack } from "../../../src/rtcp/rtpfb/nack";
 import { load } from "../../utils";
 
@@ -11,7 +11,7 @@ describe("rtcp/rtpfb/nack", () => {
   test("test", () => {
     const data = load("rtcp_rtpfb.bin");
     const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-      RtcpTransportLayerFeedback
+      RtcpTransportLayerFeedback,
     ];
     const nack = rtpfb.feedback as GenericNack;
     expect(nack.lost).toEqual([

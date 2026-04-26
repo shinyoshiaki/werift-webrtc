@@ -1,4 +1,5 @@
-import { KeyExchange } from "../key-exchange";
+import type { CipherGCMTypes } from "crypto";
+import type { KeyExchange } from "../key-exchange";
 
 export type CipherHeader = {
   type: number;
@@ -11,7 +12,7 @@ export const SessionType = {
   CLIENT: 1,
   SERVER: 2,
 } as const;
-export type SessionTypes = typeof SessionType[keyof typeof SessionType];
+export type SessionTypes = (typeof SessionType)[keyof typeof SessionType];
 
 export default abstract class AbstractCipher {
   id = 0;
@@ -19,7 +20,7 @@ export default abstract class AbstractCipher {
   hashAlgorithm?: string;
   verifyDataLength = 12;
 
-  blockAlgorithm?: string;
+  blockAlgorithm?: CipherGCMTypes;
   kx?: KeyExchange;
 
   /**

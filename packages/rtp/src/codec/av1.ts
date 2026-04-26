@@ -1,10 +1,9 @@
 // RTP Payload Format For AV1 https://aomediacodec.github.io/av1-rtp-spec/
 
 import { LEB128 } from "@minhducsun2002/leb128";
-import { debug } from "debug";
 
-import { BitWriter2, getBit } from "../../../common/src";
-import { RtpHeader } from "..";
+import type { RtpHeader } from "..";
+import { BitWriter2, debug, getBit } from "../imports/common";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
 
@@ -140,12 +139,12 @@ export class AV1RtpPayload {
         (
           acc: Record<number, { data: Buffer; isFragment: boolean }>,
           cur,
-          i
+          i,
         ) => {
           acc[i] = cur;
           return acc;
         },
-        {}
+        {},
       );
     const length = Object.keys(objects).length;
 
@@ -250,11 +249,11 @@ const OBU_TYPES = {
   8: "OBU_TILE_LIST",
   15: "OBU_PADDING",
 } as const;
-type OBU_TYPE = typeof OBU_TYPES[keyof typeof OBU_TYPES];
+type OBU_TYPE = (typeof OBU_TYPES)[keyof typeof OBU_TYPES];
 const OBU_TYPE_IDS: Record<OBU_TYPE, number> = Object.entries(OBU_TYPES).reduce(
   (acc: any, [key, value]) => {
     acc[value] = Number(key);
     return acc;
   },
-  {}
+  {},
 );

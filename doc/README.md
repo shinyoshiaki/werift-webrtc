@@ -1,4 +1,6 @@
-werift / [Exports](modules.md)
+**werift** • [**Docs**](globals.md)
+
+***
 
 # werift
 

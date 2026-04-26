@@ -1,57 +1,58 @@
 import { spawn } from "child_process";
-import { createSocket } from "dgram";
 
-import { createUdpTransport } from "../../src";
+import { UdpTransport } from "../../../common/src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { CipherContext } from "../../src/context/cipher";
 import { DtlsServer } from "../../src/server";
 import { certPem, keyPem } from "../fixture";
 
 describe("e2e/server", () => {
-  test("openssl", (done) => {
-    const port = 55556;
-    const socket = createSocket("udp4");
-    socket.bind(port);
-    const server = new DtlsServer({
-      cert: certPem,
-      key: keyPem,
-      signatureHash: {
-        hash: HashAlgorithm.sha256_4,
-        signature: SignatureAlgorithm.rsa_1,
-      },
-      transport: createUdpTransport(socket),
-    });
-    server.onConnect.subscribe(() => {
-      server.send(Buffer.from("my_dtls_server"));
-    });
+  test(
+    "openssl",
+    () =>
+      new Promise<void>(async (done) => {
+        const transport = await UdpTransport.init("udp4");
+        const server = new DtlsServer({
+          cert: certPem,
+          key: keyPem,
+          signatureHash: {
+            hash: HashAlgorithm.sha256_4,
+            signature: SignatureAlgorithm.rsa_1,
+          },
+          transport,
+        });
+        server.onConnect.subscribe(() => {
+          server.send(Buffer.from("my_dtls_server"));
+        });
 
-    setTimeout(() => {
-      const client = spawn("openssl", [
-        "s_client",
-        "-dtls1_2",
-        "-connect",
-        "127.0.0.1:55556",
-      ]);
-      client.stdout.setEncoding("ascii");
-      client.stdout.on("data", (data: string) => {
-        if (data.includes("my_dtls_server")) {
-          socket.close();
-          server.close();
-          done();
-        }
-      });
-    }, 100);
-  }, 10_000);
+        setTimeout(() => {
+          const client = spawn("openssl", [
+            "s_client",
+            "-dtls1_2",
+            "-connect",
+            `127.0.0.1:${transport.port}`,
+          ]);
+          client.stdout.setEncoding("ascii");
+          client.stdout.on("data", (data: string) => {
+            if (data.includes("my_dtls_server")) {
+              transport.close();
+              server.close();
+              done();
+            }
+          });
+        }, 100);
+      }),
+    10_000,
+  );
 
   test(
     "openssl use self sign certificate",
     async () =>
       new Promise<void>(async (done) => {
-        const port = 55556;
-        const socket = createSocket("udp4");
-        socket.bind(port);
+        const transport = await UdpTransport.init("udp4");
+
         const server = new DtlsServer({
-          transport: createUdpTransport(socket),
+          transport,
         });
         server.onConnect.subscribe(() => {
           server.send(Buffer.from("my_dtls_server"));
@@ -68,18 +69,18 @@ describe("e2e/server", () => {
             "s_client",
             "-dtls1_2",
             "-connect",
-            "127.0.0.1:55556",
+            `127.0.0.1:${transport.port}`,
           ]);
           client.stdout.setEncoding("ascii");
           client.stdout.on("data", (data: string) => {
             if (data.includes("my_dtls_server")) {
-              socket.close();
+              transport.close();
               server.close();
               done();
             }
           });
         }, 100);
       }),
-    10_000
+    10_000,
   );
 });

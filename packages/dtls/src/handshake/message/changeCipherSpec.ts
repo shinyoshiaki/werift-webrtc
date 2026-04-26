@@ -1,4 +1,4 @@
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
 // 7.1.  Change Cipher Spec Protocol
 
@@ -16,7 +16,7 @@ export class ChangeCipherSpec {
   static deSerialize(buf: Buffer) {
     return new ChangeCipherSpec(
       //@ts-ignore
-      ...Object.values(decode(buf, ChangeCipherSpec.spec))
+      ...Object.values(decode(buf, ChangeCipherSpec.spec)),
     );
   }
 

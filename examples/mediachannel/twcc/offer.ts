@@ -1,11 +1,11 @@
+import { Event } from "rx.mini";
+import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
-import { Server } from "ws";
-import { Event } from "rx.mini";
 
 const server = new Server({ port: 8888 });
 console.log("start");
@@ -59,7 +59,7 @@ server.on("connection", async (socket) => {
     direction: "sendonly",
   });
   senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) =>
-    console.log("congestion", b)
+    console.log("congestion", b),
   );
 
   receiverTransceiver.onTrack.subscribe(async (track) => {

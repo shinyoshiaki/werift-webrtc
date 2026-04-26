@@ -1,5 +1,4 @@
-import { jspack } from "jspack";
-import range from "lodash/range";
+import { jspack } from "@shinyoshiaki/jspack";
 
 // This parameter is used by the sender to request the reset of some or
 // all outgoing streams.
@@ -28,7 +27,7 @@ export class OutgoingSSNResetRequestParam {
     public requestSequence: number,
     public responseSequence: number,
     public lastTsn: number,
-    public streams: number[]
+    public streams: number[],
   ) {}
 
   get type() {
@@ -41,7 +40,7 @@ export class OutgoingSSNResetRequestParam {
         this.requestSequence,
         this.responseSequence,
         this.lastTsn,
-      ])
+      ]),
     );
 
     return Buffer.concat([
@@ -53,17 +52,19 @@ export class OutgoingSSNResetRequestParam {
   static parse(data: Buffer) {
     const [requestSequence, responseSequence, lastTsn] = jspack.Unpack(
       "!LLL",
-      data
+      data,
     );
-    const stream = range(12, data.length, 2).map(
-      (pos) => jspack.Unpack("!H", data.slice(pos))[0]
-    );
+    const stream: number[] = [];
+
+    for (let pos = 12; pos < data.length; pos += 2) {
+      stream.push(jspack.Unpack("!H", data.slice(pos))[0]);
+    }
 
     return new OutgoingSSNResetRequestParam(
       requestSequence,
       responseSequence,
       lastTsn,
-      stream
+      stream,
     );
   }
 }
@@ -71,7 +72,10 @@ export class OutgoingSSNResetRequestParam {
 export class StreamAddOutgoingParam {
   static type = 17; // Add Outgoing Streams Request Parameter
 
-  constructor(public requestSequence: number, public newStreams: number) {}
+  constructor(
+    public requestSequence: number,
+    public newStreams: number,
+  ) {}
 
   get type() {
     return StreamAddOutgoingParam.type;
@@ -79,7 +83,7 @@ export class StreamAddOutgoingParam {
 
   get bytes() {
     return Buffer.from(
-      jspack.Pack("!LHH", [this.requestSequence, this.newStreams, 0])
+      jspack.Pack("!LHH", [this.requestSequence, this.newStreams, 0]),
     );
   }
 
@@ -110,11 +114,14 @@ export const reconfigResult = {
   ReconfigResultSuccessPerformed: 1,
   BadSequenceNumber: 5,
 } as const;
-type ReconfigResult = typeof reconfigResult[keyof typeof reconfigResult];
+type ReconfigResult = (typeof reconfigResult)[keyof typeof reconfigResult];
 
 export class ReconfigResponseParam {
   static type = 16; // Re-configuration Response Parameter
-  constructor(public responseSequence: number, public result: ReconfigResult) {}
+  constructor(
+    public responseSequence: number,
+    public result: ReconfigResult,
+  ) {}
 
   get type() {
     return ReconfigResponseParam.type;
@@ -122,7 +129,7 @@ export class ReconfigResponseParam {
 
   get bytes() {
     return Buffer.from(
-      jspack.Pack("!LL", [this.responseSequence, this.result])
+      jspack.Pack("!LL", [this.responseSequence, this.result]),
     );
   }
 

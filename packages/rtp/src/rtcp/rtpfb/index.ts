@@ -1,6 +1,6 @@
-import debug from "debug";
-
-import { RtcpHeader } from "../header";
+import { debug } from "../../imports/common";
+import type { RtcpHeader } from "../header";
+import { RtcpTransportLayerFeedbackType } from "./const";
 import { GenericNack } from "./nack";
 import { TransportWideCC } from "./twcc";
 
@@ -21,7 +21,7 @@ const log = debug("werift-rtp:packages/rtp/rtcp/rtpfb/index");
 type Feedback = GenericNack | TransportWideCC;
 
 export class RtcpTransportLayerFeedback {
-  static readonly type = 205;
+  static readonly type = RtcpTransportLayerFeedbackType;
   readonly type = RtcpTransportLayerFeedback.type;
   feedback!: Feedback;
   header!: RtcpHeader;

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { decode, encode, types } from "binary-data";
+import { decode, encode, types } from "@shinyoshiaki/binary-data";
 
-import { HandshakeType } from "../../handshake/const";
+import type { HandshakeType } from "../../handshake/const";
 import { getObjectSummary } from "../../helper";
 
 export class FragmentedHandshake {
@@ -20,7 +20,7 @@ export class FragmentedHandshake {
     public message_seq: number,
     public fragment_offset: number,
     public fragment_length: number,
-    public fragment: Buffer
+    public fragment: Buffer,
   ) {}
 
   get summary() {
@@ -34,14 +34,14 @@ export class FragmentedHandshake {
       undefined as any,
       undefined as any,
       undefined as any,
-      undefined as any
+      undefined as any,
     );
   }
 
   static deSerialize(buf: Buffer) {
     return new FragmentedHandshake(
       //@ts-ignore
-      ...Object.values(decode(buf, FragmentedHandshake.spec))
+      ...Object.values(decode(buf, FragmentedHandshake.spec)),
     );
   }
 
@@ -62,7 +62,7 @@ export class FragmentedHandshake {
           this.message_seq,
           start,
           0,
-          this.fragment
+          this.fragment,
         ),
       ];
 
@@ -76,12 +76,12 @@ export class FragmentedHandshake {
       const fragmentLength = Math.min(maxFragmentLength, totalLength - start);
       // slice and dice
       const data = Buffer.from(
-        this.fragment.slice(start, start + fragmentLength)
+        this.fragment.slice(start, start + fragmentLength),
       );
       if (data.length <= 0) {
         // this shouldn't happen, but we don't want to introduce an infinite loop
         throw new Error(
-          `Zero or less bytes processed while fragmenting handshake message.`
+          `Zero or less bytes processed while fragmenting handshake message.`,
         );
       }
       // create the message
@@ -92,8 +92,8 @@ export class FragmentedHandshake {
           this.message_seq,
           start,
           data.length,
-          data
-        )
+          data,
+        ),
       );
       // step forward by the actual fragment length
       start += data.length;
@@ -104,7 +104,7 @@ export class FragmentedHandshake {
 
   static assemble(messages: FragmentedHandshake[]): FragmentedHandshake {
     // cannot reassemble empty arrays
-    if (!(messages && messages.length)) {
+    if (!messages?.length) {
       throw new Error("cannot reassemble handshake from empty array");
     }
 
@@ -123,19 +123,19 @@ export class FragmentedHandshake {
       messages[0].message_seq,
       0,
       combined.length,
-      combined
+      combined,
     );
   }
 
   static findAllFragments(
     fragments: FragmentedHandshake[],
-    type: HandshakeType
+    type: HandshakeType,
   ): FragmentedHandshake[] {
     const reference = fragments.find((v) => v.msg_type === type);
     if (!reference) return [];
 
     // ignore empty arrays
-    if (!(fragments && fragments.length)) return [];
+    if (!fragments?.length) return [];
 
     // return all fragments with matching msg_type, message_seq and total length
     return fragments.filter((f) => {

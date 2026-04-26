@@ -1,5 +1,5 @@
-import React, { FC, useEffect, useRef } from "react";
-import ReactDOM from "react-dom";
+import React, { type FC, useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
 
 const App: FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -11,7 +11,7 @@ const App: FC = () => {
       console.log("open websocket");
 
       const offer = await new Promise<any>(
-        (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+        (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data))),
       );
       console.log({ offer });
 
@@ -42,4 +42,5 @@ const App: FC = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("root"));
+const root = createRoot(document.getElementById("root") as HTMLElement);
+root.render(<App />);

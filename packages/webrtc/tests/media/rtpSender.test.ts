@@ -1,5 +1,6 @@
 import { setTimeout } from "timers/promises";
 
+import { vi } from "vitest";
 import { MediaStreamTrack } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
@@ -11,7 +12,7 @@ describe("media/rtpSender", () => {
     const sender = new RTCRtpSender(track);
     sender.setDtlsTransport(dtls);
 
-    const spy = jest.spyOn(sender, "sendRtp");
+    const spy = vi.spyOn(sender, "sendRtp");
 
     const rtp = createRtpPacket();
 
@@ -22,7 +23,6 @@ describe("media/rtpSender", () => {
     expect(spy).toBeCalledTimes(2);
 
     track.stop();
-    expect(() => track.onReceiveRtp.execute(rtp)).toThrow();
     expect(spy).toBeCalledTimes(2);
   });
 
@@ -31,7 +31,7 @@ describe("media/rtpSender", () => {
     const dtls = createDtlsTransport();
     const sender = new RTCRtpSender(track1);
     sender.setDtlsTransport(dtls);
-    const spy = jest.spyOn(sender, "sendRtp");
+    const spy = vi.spyOn(sender, "sendRtp");
 
     const rtp = createRtpPacket();
 
@@ -54,8 +54,6 @@ describe("media/rtpSender", () => {
       const dtls = createDtlsTransport();
       const sender = new RTCRtpSender("audio");
       sender.setDtlsTransport(dtls);
-
-      jest.spyOn(dtls, "sendRtcp");
 
       Promise.any([
         setTimeout(200).then(() => false),

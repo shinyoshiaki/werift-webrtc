@@ -1,0 +1,19 @@
+{
+  "name": "werift-webrtc-benchmark",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Benchmark tests for Werift WebRTC",
+  "scripts": {
+    "simple": "ts-node datachannel-simple.ts",
+    "size": "ts-node datachannel-size.ts",
+    "options": "ts-node datachannel-options.ts",
+    "issue540": "ts-node issue540-repro.ts"
+  },
+  "dependencies": {
+    "werift": "file:../packages/webrtc"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.0"
+  }
+}

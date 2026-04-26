@@ -1,11 +1,11 @@
-import { ChildProcess, spawn } from "child_process";
+import { type ChildProcess, spawn } from "child_process";
 import { createSocket } from "dgram";
-import { AcceptFn } from "protoo-server";
+import type { AcceptFn } from "protoo-server";
 import {
-  RTCPeerConnection,
   MediaStreamTrack,
-  RtpPacket,
+  RTCPeerConnection,
   RTCRtpCodecParameters,
+  RtpPacket,
   randomPort,
 } from "../../";
 import { DtlsKeysContext } from "../../fixture";

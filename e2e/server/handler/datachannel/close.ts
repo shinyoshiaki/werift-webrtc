@@ -1,5 +1,5 @@
-import { AcceptFn } from "protoo-server";
-import { RTCDataChannel, RTCPeerConnection } from "../../";
+import type { AcceptFn } from "protoo-server";
+import { type RTCDataChannel, RTCPeerConnection } from "../../";
 import { peerConfig } from "../../fixture";
 
 export class datachannel_close_server_create_close {
@@ -11,7 +11,7 @@ export class datachannel_close_server_create_close {
         {
           this.pc = new RTCPeerConnection(await peerConfig);
           const dc = this.pc.createDataChannel("dc");
-          dc.message.subscribe(() => {
+          dc.onMessage.subscribe(() => {
             dc.close();
           });
           dc.stateChanged.subscribe(console.log);
@@ -124,7 +124,7 @@ export class datachannel_close_client_create_server_close {
           await this.pc.setLocalDescription(await this.pc.createAnswer());
 
           this.pc.onDataChannel.subscribe((dc) => {
-            dc.message.once(() => {
+            dc.onMessage.once(() => {
               console.log("onmessage");
               dc.close();
             });

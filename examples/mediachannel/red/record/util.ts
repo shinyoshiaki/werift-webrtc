@@ -1,6 +1,7 @@
 export async function getAudioStream(ab, gain) {
-  const ctx: AudioContext = new (window.AudioContext ||
-    (window as any).webkitAudioContext)();
+  const ctx: AudioContext = new (
+    window.AudioContext || (window as any).webkitAudioContext
+  )();
 
   const audioBuffer = await ctx.decodeAudioData(ab);
   const source = ctx.createBufferSource();

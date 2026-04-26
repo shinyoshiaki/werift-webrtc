@@ -17,7 +17,7 @@ export const dumpBuffer = (data: Buffer) =>
     .join(",0x");
 
 export const getObjectSummary = (obj: any) =>
-  Object.entries({ ...obj }).reduce((acc: {}, [key, value]) => {
+  Object.entries({ ...obj }).reduce((acc: any, [key, value]) => {
     if (typeof value === "number" || typeof value === "string") {
       acc[key] = value;
     }

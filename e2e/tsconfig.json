@@ -2,12 +2,20 @@
   "compilerOptions": {
     "target": "esnext",
     "module": "commonjs",
-    "lib": ["esnext", "DOM"],
+    "lib": [
+      "esnext",
+      "DOM"
+    ],
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "importHelpers": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": [
+      "vitest/globals",
+    ]
   },
-  "include": ["tests"]
+  "include": [
+    "tests"
+  ]
 }

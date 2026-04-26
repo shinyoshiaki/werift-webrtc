@@ -1,5 +1,3 @@
-import debug from "debug";
-
 import { SignatureAlgorithm, SignatureScheme } from "../../cipher/const";
 import { createCipher } from "../../cipher/create";
 import { generateKeyPair } from "../../cipher/namedCurve";
@@ -8,10 +6,10 @@ import {
   prfMasterSecret,
   prfPreMasterSecret,
 } from "../../cipher/prf";
-import { CipherContext } from "../../context/cipher";
-import { DtlsContext } from "../../context/dtls";
-import { Profile, SrtpContext } from "../../context/srtp";
-import { TransportContext } from "../../context/transport";
+import type { CipherContext } from "../../context/cipher";
+import type { DtlsContext } from "../../context/dtls";
+import { SrtpContext } from "../../context/srtp";
+import type { TransportContext } from "../../context/transport";
 import { HandshakeType } from "../../handshake/const";
 import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
@@ -26,14 +24,14 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
-import { dumpBuffer } from "../../helper";
+import { type SrtpProfile, debug } from "../../imports/rtp";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
-import { FragmentedHandshake } from "../../record/message/fragment";
+import type { FragmentedHandshake } from "../../record/message/fragment";
 import { Flight } from "../flight";
 
 const log = debug(
-  "werift-dtls : packages/dtls/src/flight/client/flight5.ts : log"
+  "werift-dtls : packages/dtls/src/flight/client/flight5.ts : log",
 );
 
 export class Flight5 extends Flight {
@@ -41,7 +39,7 @@ export class Flight5 extends Flight {
     udp: TransportContext,
     dtls: DtlsContext,
     private cipher: CipherContext,
-    private srtp: SrtpContext
+    private srtp: SrtpContext,
   ) {
     super(udp, dtls, 5, 7);
   }
@@ -108,7 +106,7 @@ export class Flight5 extends Flight {
     if (!this.cipher.localKeyPair) throw new Error();
 
     const clientKeyExchange = new ClientKeyExchange(
-      this.cipher.localKeyPair.publicKey
+      this.cipher.localKeyPair.publicKey,
     );
     const packets = this.createPacket([clientKeyExchange]);
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
@@ -121,18 +119,18 @@ export class Flight5 extends Flight {
     const preMasterSecret = prfPreMasterSecret(
       remoteKeyPair.publicKey,
       localKeyPair.privateKey,
-      localKeyPair.curve
+      localKeyPair.curve,
     );
 
     log(
       this.dtls.sessionId,
       "extendedMasterSecret",
       this.dtls.options.extendedMasterSecret,
-      this.dtls.remoteExtendedMasterSecret
+      this.dtls.remoteExtendedMasterSecret,
     );
 
     const handshakes = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize()),
     );
     this.cipher.masterSecret =
       this.dtls.options.extendedMasterSecret &&
@@ -141,14 +139,14 @@ export class Flight5 extends Flight {
         : prfMasterSecret(
             preMasterSecret,
             this.cipher.localRandom.serialize(),
-            this.cipher.remoteRandom.serialize()
+            this.cipher.remoteRandom.serialize(),
           );
 
     this.cipher.cipher = createCipher(this.cipher.cipherSuite);
     this.cipher.cipher.init(
       this.cipher.masterSecret,
       this.cipher.remoteRandom.serialize(),
-      this.cipher.localRandom.serialize()
+      this.cipher.localRandom.serialize(),
     );
     log(this.dtls.sessionId, "cipher", this.cipher.cipher.summary);
 
@@ -157,7 +155,7 @@ export class Flight5 extends Flight {
 
   private sendCertificateVerify() {
     const cache = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize()),
     );
     const signed = this.cipher.signatureData(cache, "sha256");
     const signatureScheme = (() => {
@@ -173,7 +171,7 @@ export class Flight5 extends Flight {
       this.dtls.sessionId,
       "signatureScheme",
       this.cipher.signatureHashAlgorithm?.signature,
-      signatureScheme
+      signatureScheme,
     );
 
     const certificateVerify = new CertificateVerify(signatureScheme, signed);
@@ -186,7 +184,7 @@ export class Flight5 extends Flight {
     const changeCipherSpec = ChangeCipherSpec.createEmpty().serialize();
     const packets = createPlaintext(this.dtls)(
       [{ type: ContentType.changeCipherSpec, fragment: changeCipherSpec }],
-      ++this.dtls.recordSequenceNumber
+      ++this.dtls.recordSequenceNumber,
     );
     const buf = Buffer.concat(packets.map((v) => v.serialize()));
     return buf;
@@ -194,19 +192,19 @@ export class Flight5 extends Flight {
 
   private sendFinished() {
     const cache = Buffer.concat(
-      this.dtls.sortedHandshakeCache.map((v) => v.serialize())
+      this.dtls.sortedHandshakeCache.map((v) => v.serialize()),
     );
     const localVerifyData = this.cipher.verifyData(cache);
 
     const finish = new Finished(localVerifyData);
     this.dtls.epoch = 1;
     const [packet] = this.createPacket([finish]);
-    log(
-      this.dtls.sessionId,
-      "raw finish packet",
-      packet.summary,
-      this.dtls.sortedHandshakeCache.map((h) => h.summary)
-    );
+    // log(
+    //   this.dtls.sessionId,
+    //   "raw finish packet",
+    //   packet.summary,
+    //   this.dtls.sortedHandshakeCache.map((h) => h.summary),
+    // );
 
     this.dtls.recordSequenceNumber = 0;
 
@@ -236,14 +234,16 @@ handlers[HandshakeType.server_hello_2] =
       message.extensions.forEach((extension) => {
         switch (extension.type) {
           case UseSRTP.type:
-            const useSrtp = UseSRTP.fromData(extension.data);
-            const profile = SrtpContext.findMatchingSRTPProfile(
-              useSrtp.profiles as Profile[],
-              dtls.options.srtpProfiles || []
-            );
-            log(dtls.sessionId, "selected srtp profile", profile);
-            if (profile == undefined) return;
-            srtp.srtpProfile = profile;
+            {
+              const useSrtp = UseSRTP.fromData(extension.data);
+              const profile = SrtpContext.findMatchingSRTPProfile(
+                useSrtp.profiles as SrtpProfile[],
+                dtls.options.srtpProfiles || [],
+              );
+              log(dtls.sessionId, "selected srtp profile", profile);
+              if (profile == undefined) return;
+              srtp.srtpProfile = profile;
+            }
             break;
           case ExtendedMasterSecret.type:
             dtls.remoteExtendedMasterSecret = true;
