@@ -55,9 +55,8 @@ export class mediachannel_removetrack_answer_base {
           accept(this.pc.localDescription);
 
           this.udp.on("message", (data) => {
-            const rtp = RtpPacket.deSerialize(data);
             for (const track of this.tracks) {
-              track.writeRtp(rtp);
+              track.writeRtp(RtpPacket.deSerialize(Buffer.from(data)));
             }
           });
 
