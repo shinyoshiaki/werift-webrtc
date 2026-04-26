@@ -42,7 +42,10 @@ export class RTCSctpTransport {
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
 
-  constructor(public port = 5000) {}
+  constructor(
+    public port = 5000,
+    public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+  ) {}
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
     if (this.dtlsTransport && this.dtlsTransport.id === dtlsTransport.id) {
@@ -350,8 +353,12 @@ export class RTCSctpTransport {
     return size;
   };
 
-  static getCapabilities() {
-    return new RTCSctpCapabilities(DEFAULT_MAX_MESSAGE_SIZE);
+  getCapabilities() {
+    return RTCSctpTransport.getCapabilities(this.maxMessageSize);
+  }
+
+  static getCapabilities(maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE) {
+    return new RTCSctpCapabilities(maxMessageSize);
   }
 
   setRemoteMaxMessageSize(maxMessageSize?: number) {

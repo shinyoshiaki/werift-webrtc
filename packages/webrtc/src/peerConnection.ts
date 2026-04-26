@@ -50,6 +50,7 @@ import type {
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
+import { DEFAULT_MAX_MESSAGE_SIZE } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
@@ -229,6 +230,17 @@ export class RTCPeerConnection extends EventTarget {
       if (min >= max) throw new Error("The min must be less than max");
     }
 
+    if (
+      !Number.isInteger(this.config.maxMessageSize) ||
+      this.config.maxMessageSize < 0
+    ) {
+      throw new Error("maxMessageSize must be a non-negative integer");
+    }
+
+    if (this.sctpManager?.sctpTransport) {
+      this.sctpManager.sctpTransport.maxMessageSize = this.config.maxMessageSize;
+    }
+
     for (const [i, codecParams] of enumerate([
       ...(this.config.codecs.audio || []),
       ...(this.config.codecs.video || []),
@@ -294,7 +306,9 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private createSctpTransport() {
-    const sctp = this.sctpManager.createSctpTransport();
+    const sctp = this.sctpManager.createSctpTransport(
+      this.config.maxMessageSize,
+    );
     const dtlsTransport = this.findOrCreateTransport();
     sctp.setDtlsTransport(dtlsTransport);
     return sctp;
@@ -916,6 +930,8 @@ export interface PeerConfig {
     disableRecvRetransmit: boolean;
   }>;
   midSuffix: boolean;
+  /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
+  maxMessageSize: number;
 }
 
 export const findCodecByMimeType = (
@@ -961,6 +977,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     debug: {},
     midSuffix: false,
     forceTurnTCP: false,
+    maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();

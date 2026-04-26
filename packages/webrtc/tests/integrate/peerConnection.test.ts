@@ -198,6 +198,29 @@ describe("peerConnection", () => {
     b.close();
   });
 
+  test("advertises configured local max-message-size in offer and answer", async () => {
+    const caller = new RTCPeerConnection({ maxMessageSize: 1234 });
+    const callee = new RTCPeerConnection({ maxMessageSize: 0 });
+    caller.createDataChannel("chat");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      expect(caller.localDescription!.sdp).toContain("a=max-message-size:1234");
+
+      await callee.setRemoteDescription(caller.localDescription!);
+      expect(callee.sctpTransport!.remoteMaxMessageSize).toBe(1234);
+
+      await callee.setLocalDescription(await callee.createAnswer());
+      expect(callee.localDescription!.sdp).toContain("a=max-message-size:0");
+
+      await caller.setRemoteDescription(callee.localDescription!);
+      expect(caller.sctpTransport!.remoteMaxMessageSize).toBe(0);
+    } finally {
+      await caller.close();
+      await callee.close();
+    }
+  });
+
   test("respects remote max-message-size advertised in answer", async () => {
     const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
       replaceMaxMessageSize(sdp, 10),
