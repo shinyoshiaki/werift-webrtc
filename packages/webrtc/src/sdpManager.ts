@@ -11,7 +11,7 @@ import {
   addSDPHeader,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
-import { RTCSctpTransport } from "./transport/sctp";
+import type { RTCSctpTransport } from "./transport/sctp";
 import { andDirection } from "./utils";
 
 export class SDPManager {

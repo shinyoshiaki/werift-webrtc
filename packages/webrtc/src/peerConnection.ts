@@ -47,10 +47,10 @@ import type {
   RTCIceConnectionState,
   RTCIceTransport,
 } from "./transport/ice";
+import { DEFAULT_MAX_MESSAGE_SIZE } from "./transport/sctp";
 import type { ConnectionState, Kind, RTCSignalingState } from "./types/domain";
 import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection, deepMerge } from "./utils";
-import { DEFAULT_MAX_MESSAGE_SIZE } from "./transport/sctp";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
@@ -238,7 +238,8 @@ export class RTCPeerConnection extends EventTarget {
     }
 
     if (this.sctpManager?.sctpTransport) {
-      this.sctpManager.sctpTransport.maxMessageSize = this.config.maxMessageSize;
+      this.sctpManager.sctpTransport.maxMessageSize =
+        this.config.maxMessageSize;
     }
 
     for (const [i, codecParams] of enumerate([
