@@ -58,5 +58,29 @@ describe.each([{}, { negotiated: true, id: 0 }])(
           channel1.send(helloBuffer);
         });
       }));
+
+    test(`${mode} should reject oversized messages without changing bufferedAmount or send stats`, async () => {
+      const [channel1] = await createDataChannelPair(options);
+      channel1.sctp.setRemoteMaxMessageSize(5);
+
+      expect(() => channel1.send(Buffer.from("hello!"))).toThrow(
+        "max-message-size exceeded",
+      );
+      expect(channel1.bufferedAmount).toBe(0);
+      expect(channel1.messagesSent).toBe(0);
+      expect(channel1.bytesSent).toBe(0);
+    });
+
+    test(`${mode} should use byte length for unicode strings when enforcing max-message-size`, async () => {
+      const [channel1] = await createDataChannelPair(options);
+      channel1.sctp.setRemoteMaxMessageSize(unicodeString.length);
+
+      expect(() => channel1.send(unicodeString)).toThrow(
+        "max-message-size exceeded",
+      );
+      expect(channel1.bufferedAmount).toBe(0);
+      expect(channel1.messagesSent).toBe(0);
+      expect(channel1.bytesSent).toBe(0);
+    });
   },
 );

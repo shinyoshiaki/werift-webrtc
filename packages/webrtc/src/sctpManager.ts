@@ -23,8 +23,8 @@ export class SctpTransportManager {
 
   constructor() {}
 
-  createSctpTransport() {
-    const sctp = new RTCSctpTransport();
+  createSctpTransport(maxMessageSize?: number) {
+    const sctp = new RTCSctpTransport(5000, maxMessageSize);
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
       this.dataChannelsOpened++;
@@ -104,6 +104,9 @@ export class SctpTransportManager {
     }
 
     // # configure sctp
+    this.sctpTransport.setRemoteMaxMessageSize(
+      remoteMedia.sctpCapabilities?.maxMessageSize,
+    );
     this.sctpRemotePort = remoteMedia.sctpPort;
     if (!this.sctpRemotePort) {
       throw new Error("sctpRemotePort not exist");

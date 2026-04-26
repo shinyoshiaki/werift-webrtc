@@ -197,6 +197,107 @@ describe("peerConnection", () => {
     a.close();
     b.close();
   });
+
+  test("advertises configured local max-message-size in offer and answer", async () => {
+    const caller = new RTCPeerConnection({ maxMessageSize: 1234 });
+    const callee = new RTCPeerConnection({ maxMessageSize: 0 });
+    caller.createDataChannel("chat");
+
+    try {
+      await caller.setLocalDescription(await caller.createOffer());
+      expect(caller.localDescription!.sdp).toContain("a=max-message-size:1234");
+
+      await callee.setRemoteDescription(caller.localDescription!);
+      expect(callee.sctpTransport!.remoteMaxMessageSize).toBe(1234);
+
+      await callee.setLocalDescription(await callee.createAnswer());
+      expect(callee.localDescription!.sdp).toContain("a=max-message-size:0");
+
+      await caller.setRemoteDescription(callee.localDescription!);
+      expect(caller.sctpTransport!.remoteMaxMessageSize).toBe(0);
+    } finally {
+      await caller.close();
+      await callee.close();
+    }
+  });
+
+  test("respects remote max-message-size advertised in answer", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 10),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(10);
+      expect(() => dc.send(Buffer.from("hello world"))).toThrow(
+        "max-message-size exceeded",
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("defaults remote max-message-size to 65536 when omitted from answer", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      removeMaxMessageSize(sdp),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(65536);
+      const withinDefaultLimit = Buffer.alloc(65536, 1);
+      expect(() => dc.send(withinDefaultLimit)).not.toThrow();
+      expect(() => dc.send(Buffer.alloc(65537, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("treats remote max-message-size 0 as unlimited", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 0),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(0);
+      const payload = Buffer.alloc(1024, 1);
+      expect(() => dc.send(payload)).not.toThrow();
+      expect(dc.messagesSent).toBe(1);
+      expect(dc.bytesSent).toBe(payload.length);
+      expect(dc.bufferedAmount).toBe(payload.length);
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
+  test("updates remote max-message-size when a renegotiated answer changes it", async () => {
+    const { pc1, pc2, dc } = await prepareDataChannelWithRemoteAnswer((sdp) =>
+      replaceMaxMessageSize(sdp, 10),
+    );
+
+    try {
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(10);
+      expect(() => dc.send(Buffer.alloc(11, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+
+      await renegotiateDataChannelWithRemoteAnswer(pc1, pc2, (sdp) =>
+        replaceMaxMessageSize(sdp, 20),
+      );
+
+      expect(pc1.sctpTransport!.remoteMaxMessageSize).toBe(20);
+      expect(() => dc.send(Buffer.alloc(11, 1))).not.toThrow();
+      expect(() => dc.send(Buffer.alloc(21, 1))).toThrow(
+        "max-message-size exceeded",
+      );
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
 });
 
 describe("initial config", () => {
@@ -316,19 +417,28 @@ async function assertIceCompleted(
   pc1: RTCPeerConnection,
   pc2: RTCPeerConnection,
 ) {
-  const wait = (pc: RTCPeerConnection) =>
-    new Promise<void>((r) => {
+  const wait = (pc: RTCPeerConnection) => {
+    if (pc.iceConnectionState === "completed") {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((r) => {
       pc.iceConnectionStateChange.subscribe((v) => {
         if (v === "completed") {
           r();
         }
       });
     });
+  };
 
   await Promise.all([wait(pc1), wait(pc2)]);
 }
 
 async function assertDataChannelOpen(dc: RTCDataChannel) {
+  if (dc.readyState === "open") {
+    return;
+  }
+
   return new Promise<void>((r) => {
     dc.stateChanged.subscribe((v) => {
       if (v === "open") {
@@ -336,6 +446,46 @@ async function assertDataChannelOpen(dc: RTCDataChannel) {
       }
     });
   });
+}
+
+function removeMaxMessageSize(sdp: string) {
+  return sdp
+    .split(/\r\n|\n/)
+    .filter((line) => !line.startsWith("a=max-message-size:"))
+    .join("\r\n");
+}
+
+function replaceMaxMessageSize(sdp: string, size: number) {
+  return sdp.replace(/a=max-message-size:\d+/, `a=max-message-size:${size}`);
+}
+
+async function prepareDataChannelWithRemoteAnswer(
+  mutateAnswerSdp: (sdp: string) => string,
+) {
+  const pc1 = new RTCPeerConnection({});
+  const pc2 = new RTCPeerConnection({});
+  const dc = pc1.createDataChannel("chat");
+
+  await renegotiateDataChannelWithRemoteAnswer(pc1, pc2, mutateAnswerSdp);
+
+  return { pc1, pc2, dc };
+}
+
+async function renegotiateDataChannelWithRemoteAnswer(
+  pc1: RTCPeerConnection,
+  pc2: RTCPeerConnection,
+  mutateAnswerSdp: (sdp: string) => string,
+) {
+  await pc1.setLocalDescription(await pc1.createOffer());
+  await pc2.setRemoteDescription(pc1.localDescription!);
+
+  const answer = await pc2.createAnswer();
+  const mutatedAnswer = {
+    type: "answer" as const,
+    sdp: mutateAnswerSdp(answer.sdp),
+  };
+  await pc1.setRemoteDescription(mutatedAnswer);
+  await pc2.setLocalDescription(mutatedAnswer);
 }
 
 async function waitForConnectionState(

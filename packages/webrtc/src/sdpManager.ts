@@ -11,7 +11,7 @@ import {
   addSDPHeader,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
-import { RTCSctpTransport } from "./transport/sctp";
+import type { RTCSctpTransport } from "./transport/sctp";
 import { andDirection } from "./utils";
 
 export class SDPManager {
@@ -129,7 +129,7 @@ export class SDPManager {
     );
     media.sctpPort = sctp.port;
     media.rtp.muxId = sctp.mid;
-    media.sctpCapabilities = RTCSctpTransport.getCapabilities();
+    media.sctpCapabilities = sctp.getCapabilities();
 
     this.addTransportDescription(media, sctp.dtlsTransport);
     return media;
