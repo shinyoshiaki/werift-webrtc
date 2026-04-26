@@ -1,5 +1,6 @@
 import { RtcpHeader } from "../../../src/rtcp/header";
 import { SrtcpContext } from "../../../src/srtp/context/srtcp";
+import { SrtpAuthenticationError } from "../../../src/srtp/error";
 
 const rtcpTestMasterKey = Buffer.from([
   0xfd, 0xa6, 0x25, 0x95, 0xd7, 0xf6, 0x92, 0x6f, 0x7d, 0x9c, 0x02, 0x4c, 0xc9,
@@ -42,6 +43,12 @@ const rtcpTestDecrypted2 = Buffer.from([
 ]);
 
 describe("srtp/context/srtcp", () => {
+  function tamper(buffer: Buffer, index: number, mask = 0x01) {
+    const tampered = Buffer.from(buffer);
+    tampered[index] ^= mask;
+    return tampered;
+  }
+
   test("TestRTCPLifecycle", () => {
     const encryptContext = new SrtcpContext(
       rtcpTestMasterKey,
@@ -80,5 +87,63 @@ describe("srtp/context/srtcp", () => {
       decryptContext.decryptRTCP(decryptInput);
     expect(decryptHeader.type).toBe(200);
     expect(actualDecrypted).toEqual(rtcpTestDecrypted);
+  });
+
+  test("Rejects tampered SRTCP auth tag", () => {
+    const decryptContext = new SrtcpContext(
+      rtcpTestMasterKey,
+      rtcpTestMasterSalt,
+      1,
+    );
+
+    expect(() =>
+      decryptContext.decryptRTCP(
+        tamper(rtcpTestEncrypted, rtcpTestEncrypted.length - 1),
+      ),
+    ).toThrowError(SrtpAuthenticationError);
+  });
+
+  test("Rejects tampered SRTCP encryption flag before decrypting", () => {
+    const decryptContext = new SrtcpContext(
+      rtcpTestMasterKey,
+      rtcpTestMasterSalt,
+      1,
+    );
+    const eBitOffset = rtcpTestEncrypted.length - 14;
+    const tamperedEncryptionFlag = Buffer.from(rtcpTestEncrypted);
+    tamperedEncryptionFlag[eBitOffset] &= 0x7f;
+
+    expect(() =>
+      decryptContext.decryptRTCP(tamperedEncryptionFlag),
+    ).toThrowError(SrtpAuthenticationError);
+
+    const [decrypted] = decryptContext.decryptRTCP(rtcpTestEncrypted);
+    expect(decrypted).toEqual(rtcpTestDecrypted);
+  });
+
+  test("Rejects tampered SRTCP index", () => {
+    const decryptContext = new SrtcpContext(
+      rtcpTestMasterKey,
+      rtcpTestMasterSalt,
+      1,
+    );
+
+    expect(() =>
+      decryptContext.decryptRTCP(
+        tamper(rtcpTestEncrypted, rtcpTestEncrypted.length - 12),
+      ),
+    ).toThrowError(SrtpAuthenticationError);
+  });
+
+  test("Rejects short SRTCP packet as authentication failure", () => {
+    const decryptContext = new SrtcpContext(
+      rtcpTestMasterKey,
+      rtcpTestMasterSalt,
+      1,
+    );
+
+    expect(() =>
+      decryptContext.decryptRTCP(Buffer.from([0x80, 0xc8])),
+    ).toThrowError(SrtpAuthenticationError);
   });
 });
