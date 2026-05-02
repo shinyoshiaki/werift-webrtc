@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "child_process";
+import type { ChildProcess } from "child_process";
 import { createSocket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
@@ -8,10 +8,11 @@ import {
   randomPort,
 } from "../../";
 import { DtlsKeysContext } from "../../fixture";
+import { spawnGstreamerPipeline, stopGstreamerProcess } from "../../gstreamer";
 
 export class mediachannel_red_client_answer {
   pc!: RTCPeerConnection;
-  process!: ChildProcess;
+  process?: ChildProcess;
   udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -48,11 +49,15 @@ export class mediachannel_red_client_answer {
             track.writeRtp(data);
           });
 
-          const args = [
-            `audiotestsrc wave=ticks ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay`,
+          this.process = spawnGstreamerPipeline([
+            "audiotestsrc wave=ticks",
+            "audioconvert",
+            "audioresample",
+            "queue",
+            "opusenc",
+            "rtpopuspay",
             `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
+          ]);
         }
         break;
       case "candidate":
@@ -70,9 +75,7 @@ export class mediachannel_red_client_answer {
       case "done":
         {
           this.udp.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
+          await stopGstreamerProcess(this.process);
           this.pc.close();
           accept({});
         }
@@ -83,7 +86,7 @@ export class mediachannel_red_client_answer {
 
 export class mediachannel_red_client_offer {
   pc!: RTCPeerConnection;
-  process!: ChildProcess;
+  process?: ChildProcess;
   udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -127,11 +130,15 @@ export class mediachannel_red_client_offer {
             track.writeRtp(data);
           });
 
-          const args = [
-            `audiotestsrc wave=ticks ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay`,
+          this.process = spawnGstreamerPipeline([
+            "audiotestsrc wave=ticks",
+            "audioconvert",
+            "audioresample",
+            "queue",
+            "opusenc",
+            "rtpopuspay",
             `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
+          ]);
         }
         break;
       case "candidate":
@@ -143,9 +150,7 @@ export class mediachannel_red_client_offer {
       case "done":
         {
           this.udp.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
+          await stopGstreamerProcess(this.process);
           this.pc.close();
           accept({});
         }

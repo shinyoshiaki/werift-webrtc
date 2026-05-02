@@ -1,6 +1,7 @@
 import express from "express";
 
 import { Room, WebSocketServer } from "protoo-server";
+import { cleanupGstreamerProcesses } from "./gstreamer";
 import {
   bundle_disable_answer,
   bundle_disable_offer,
@@ -74,12 +75,61 @@ app.use((_, res, next) => {
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   next();
 });
-app.put("/stop", (_, res) => {
-  res.send();
-  process.exit();
-});
 const port = Number(process.env.E2E_PORT ?? 8886);
 const http = app.listen(port);
+let shutdownPromise: Promise<void> | undefined;
+
+const signalExitCode = (signal: NodeJS.Signals) =>
+  signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1;
+
+function closeHttpServer() {
+  if (!http.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    http.close((error) => {
+      if (!error) {
+        resolve();
+        return;
+      }
+
+      if ((error as NodeJS.ErrnoException).code === "ERR_SERVER_NOT_RUNNING") {
+        resolve();
+        return;
+      }
+
+      reject(error);
+    });
+  });
+}
+
+async function shutdown(exitCode: number) {
+  if (!shutdownPromise) {
+    shutdownPromise = (async () => {
+      let finalExitCode = exitCode;
+
+      try {
+        await cleanupGstreamerProcesses();
+        await closeHttpServer();
+      } catch (error) {
+        finalExitCode = 1;
+        console.error("failed to cleanup e2e server", error);
+      }
+
+      process.exit(finalExitCode);
+    })();
+  }
+
+  await shutdownPromise;
+}
+
+app.put("/stop", (_, res) => {
+  res.once("finish", () => {
+    void shutdown(0);
+  });
+  res.send();
+});
 
 const server = new WebSocketServer(http);
 const room = new Room();
@@ -136,6 +186,24 @@ server.on("connectionrequest", async (_, accept) => {
       console.log(error);
     }
   });
+});
+
+process.once("SIGINT", () => {
+  void shutdown(signalExitCode("SIGINT"));
+});
+
+process.once("SIGTERM", () => {
+  void shutdown(signalExitCode("SIGTERM"));
+});
+
+process.once("uncaughtException", (error) => {
+  console.error(error);
+  void shutdown(1);
+});
+
+process.once("unhandledRejection", (reason) => {
+  console.error(reason);
+  void shutdown(1);
 });
 
 console.log("start", { port });

@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "child_process";
+import type { ChildProcess } from "child_process";
 import type { AcceptFn } from "protoo-server";
 import {
   type MediaStreamTrack,
@@ -6,6 +6,7 @@ import {
   RTCPeerConnection,
 } from "../../";
 import { peerConfig } from "../../fixture";
+import { spawnGstreamerPipeline, stopGstreamerProcess } from "../../gstreamer";
 
 export class mediachannel_removetrack_answer_base {
   pc!: RTCPeerConnection;
@@ -15,43 +16,39 @@ export class mediachannel_removetrack_answer_base {
   >();
 
   private async createTrackSource() {
-    const [track, port, dispose] =
-      await MediaStreamTrackFactory.rtpSource({ kind: "video" });
+    const [track, port, dispose] = await MediaStreamTrackFactory.rtpSource({
+      kind: "video",
+    });
 
-    const args = [
-      `videotestsrc`,
+    const process = spawnGstreamerPipeline([
+      "videotestsrc",
       "video/x-raw,width=640,height=480,format=I420",
       "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
       "rtpvp8pay",
       `udpsink host=127.0.0.1 port=${port}`,
-    ].join(" ! ");
-    const process = spawn("gst-launch-1.0", args.split(" "));
+    ]);
 
     this.trackSources.set(track, { dispose, process });
     return track;
   }
 
-  private disposeTrack(track: MediaStreamTrack) {
+  private async disposeTrack(track: MediaStreamTrack) {
     const source = this.trackSources.get(track);
     if (!source) {
       return;
     }
 
     source.dispose();
-    try {
-      source.process.kill("SIGINT");
-    } catch {}
+    await stopGstreamerProcess(source.process);
     this.trackSources.delete(track);
   }
 
   private async cleanup() {
-    if (this.pc) {
-      this.pc.close();
-    }
+    await Promise.all(
+      [...this.trackSources.keys()].map((track) => this.disposeTrack(track)),
+    );
 
-    for (const track of this.trackSources.keys()) {
-      this.disposeTrack(track);
-    }
+    this.pc?.close();
   }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -86,7 +83,7 @@ export class mediachannel_removetrack_answer_base {
             .find((t) => t.mLineIndex === payload)!.sender;
 
           if (sender.track) {
-            this.disposeTrack(sender.track);
+            await this.disposeTrack(sender.track);
           }
           this.pc.removeTrack(sender);
           await this.pc.setLocalDescription(await this.pc.createOffer());

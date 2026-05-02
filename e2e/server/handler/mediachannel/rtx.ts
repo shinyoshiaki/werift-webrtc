@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "child_process";
+import type { ChildProcess } from "child_process";
 import { createSocket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
@@ -9,10 +9,11 @@ import {
   randomPort,
 } from "../../";
 import { DtlsKeysContext } from "../../fixture";
+import { spawnGstreamerPipeline, stopGstreamerProcess } from "../../gstreamer";
 
 export class mediachannel_rtx_client_answer {
   pc!: RTCPeerConnection;
-  process!: ChildProcess;
+  process?: ChildProcess;
   udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -54,14 +55,13 @@ export class mediachannel_rtx_client_answer {
             track.writeRtp(rtp);
           });
 
-          const args = [
-            `videotestsrc`,
+          this.process = spawnGstreamerPipeline([
+            "videotestsrc",
             "video/x-raw,width=640,height=480,format=I420",
             "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
             "rtpvp8pay",
             `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
+          ]);
         }
         break;
       case "candidate":
@@ -79,9 +79,7 @@ export class mediachannel_rtx_client_answer {
       case "done":
         {
           this.udp.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
+          await stopGstreamerProcess(this.process);
           this.pc.close();
           accept({});
         }
@@ -92,7 +90,7 @@ export class mediachannel_rtx_client_answer {
 
 export class mediachannel_rtx_client_offer {
   pc!: RTCPeerConnection;
-  process!: ChildProcess;
+  process?: ChildProcess;
   udp = createSocket("udp4");
 
   async exec(type: string, payload: any, accept: AcceptFn) {
@@ -141,14 +139,13 @@ export class mediachannel_rtx_client_offer {
             track.writeRtp(rtp);
           });
 
-          const args = [
-            `videotestsrc`,
+          this.process = spawnGstreamerPipeline([
+            "videotestsrc",
             "video/x-raw,width=640,height=480,format=I420",
             "vp8enc error-resilient=partitions keyframe-max-dist=10 auto-alt-ref=true cpu-used=5 deadline=1",
             "rtpvp8pay",
             `udpsink host=127.0.0.1 port=${port}`,
-          ].join(" ! ");
-          this.process = spawn("gst-launch-1.0", args.split(" "));
+          ]);
         }
         break;
       case "candidate":
@@ -160,9 +157,7 @@ export class mediachannel_rtx_client_offer {
       case "done":
         {
           this.udp.close();
-          try {
-            this.process.kill("SIGINT");
-          } catch (error) {}
+          await stopGstreamerProcess(this.process);
           this.pc.close();
           accept({});
         }
