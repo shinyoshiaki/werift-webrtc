@@ -20,6 +20,27 @@ export function readMessage(name: string) {
   return data;
 }
 
+function readTlsAsset(name: string) {
+  try {
+    return readFileSync("./packages/dtls/assets/" + name);
+  } catch (error) {
+    return readFileSync("./../dtls/assets/" + name);
+  }
+}
+
+export function getLocalTurnServerTlsOptions() {
+  return {
+    cert: readTlsAsset("cert.pem"),
+    key: readTlsAsset("key.pem"),
+  };
+}
+
+export function getLocalTurnClientTlsOptions() {
+  return {
+    rejectUnauthorized: false,
+  };
+}
+
 export async function inviteAccept(a: Connection, b: Connection) {
   // # invite
   await a.gatherCandidates();
@@ -58,7 +79,12 @@ export async function createLocalStunServer(host: string) {
   return server;
 }
 
-export async function createLocalTurnServer(host: string) {
+export async function createLocalTurnServer(
+  host: string,
+  options: {
+    tls?: boolean;
+  } = {},
+) {
   const server = new NodeTurnServer({
     host,
     port: 0,
@@ -69,6 +95,7 @@ export async function createLocalTurnServer(host: string) {
     },
     realm: "werift.local",
     software: "werift-ice-server/test",
+    tls: options.tls ? getLocalTurnServerTlsOptions() : undefined,
   });
   await server.listen();
   return server;

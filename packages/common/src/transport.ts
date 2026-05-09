@@ -6,6 +6,7 @@ import {
 } from "dgram";
 
 import * as net from "node:net";
+import * as tls from "node:tls";
 
 import { type AddressInfo, type Socket as TcpSocket, connect } from "node:net";
 import { debug } from "./log";
@@ -18,6 +19,15 @@ import {
 } from "./network";
 
 const log = debug("werift-ice:packages/ice/src/transport.ts");
+
+type StreamTransportType = "tcp" | "tls";
+type StreamSocket = TcpSocket | tls.TLSSocket;
+type StreamConnectEvent = "connect" | "secureConnect";
+
+export type TlsConnectionOptions = Omit<
+  tls.ConnectionOptions,
+  "host" | "port" | "socket"
+>;
 
 export class UdpTransport implements Transport {
   readonly type = "udp";
@@ -128,13 +138,114 @@ export class UdpTransport implements Transport {
 }
 
 export class TcpTransport implements Transport {
-  readonly type = "tcp";
+  readonly type = "tcp" as const;
+  private readonly stream: StreamTransport;
+
+  private constructor(addr: Address) {
+    this.stream = new StreamTransport("tcp", () =>
+      connect({ port: addr[1], host: addr[0] }),
+    );
+  }
+
+  static async init(addr: Address) {
+    const transport = new TcpTransport(addr);
+    await transport.init();
+    return transport;
+  }
+
+  private async init() {
+    await this.stream.waitForConnect();
+  }
+
+  get address() {
+    return this.stream.address;
+  }
+
+  get closed() {
+    return this.stream.closed;
+  }
+
+  get onData() {
+    return this.stream.onData;
+  }
+
+  set onData(handler: (data: Buffer, addr: Address) => void) {
+    this.stream.onData = handler;
+  }
+
+  send = async (data: Buffer, addr?: Address) => {
+    await this.stream.send(data, addr);
+  };
+
+  close = async () => {
+    await this.stream.close();
+  };
+}
+
+export class TlsTransport implements Transport {
+  readonly type = "tls" as const;
+  private readonly stream: StreamTransport;
+
+  private constructor(addr: Address, options: TlsConnectionOptions = {}) {
+    this.stream = new StreamTransport("tls", () =>
+      tls.connect({
+        ...options,
+        host: addr[0],
+        port: addr[1],
+      }),
+    );
+  }
+
+  static async init(addr: Address, options: TlsConnectionOptions = {}) {
+    const transport = new TlsTransport(addr, options);
+    await transport.init();
+    return transport;
+  }
+
+  private async init() {
+    await this.stream.waitForConnect();
+  }
+
+  get address() {
+    return this.stream.address;
+  }
+
+  get closed() {
+    return this.stream.closed;
+  }
+
+  get onData() {
+    return this.stream.onData;
+  }
+
+  set onData(handler: (data: Buffer, addr: Address) => void) {
+    this.stream.onData = handler;
+  }
+
+  send = async (data: Buffer, addr?: Address) => {
+    await this.stream.send(data, addr);
+  };
+
+  close = async () => {
+    await this.stream.close();
+  };
+}
+
+class StreamTransport implements Transport {
+  readonly type: StreamTransportType;
   private connecting!: Promise<void>;
-  private client!: TcpSocket;
+  private client!: StreamSocket;
   onData: (data: Buffer, addr: Address) => void = () => {};
   closed = false;
 
-  private constructor(private addr: Address) {
+  constructor(
+    type: StreamTransportType,
+    private createClient: () => StreamSocket,
+    private connectEvent: StreamConnectEvent = type === "tls"
+      ? "secureConnect"
+      : "connect",
+  ) {
+    this.type = type;
     this.connect();
   }
 
@@ -146,37 +257,38 @@ export class TcpTransport implements Transport {
     if (this.client) {
       this.client.destroy();
     }
+    const client = this.createClient();
+    this.client = client;
     this.connecting = new Promise((r, f) => {
-      try {
-        this.client = connect({ port: this.addr[1], host: this.addr[0] }, r);
-      } catch (error) {
+      const onConnect = () => {
+        client.off("error", onConnectError);
+        r();
+      };
+      const onConnectError = (error: Error) => {
+        client.off(this.connectEvent, onConnect);
         f(error);
-      }
+      };
+      client.once(this.connectEvent, onConnect);
+      client.once("error", onConnectError);
     });
 
-    this.client.on("data", (data) => {
+    client.on("data", (data) => {
       const addr = [
         this.client.remoteAddress!,
         this.client.remotePort!,
       ] as Address;
       this.onData(data, addr);
     });
-    this.client.on("end", () => {
+    client.on("end", () => {
       this.connect();
     });
-    this.client.on("error", (error) => {
-      console.log("error", error);
+    client.on("error", (error) => {
+      log(`${this.type} transport error`, error);
     });
   }
 
-  private async init() {
+  async waitForConnect() {
     await this.connecting;
-  }
-
-  static async init(addr: Address) {
-    const transport = new TcpTransport(addr);
-    await transport.init();
-    return transport;
   }
 
   get address() {
@@ -184,17 +296,22 @@ export class TcpTransport implements Transport {
   }
 
   send = async (data: Buffer, addr?: Address) => {
+    void addr;
     await this.connecting;
-    this.client.write(data, (err) => {
-      if (err) {
-        console.log("err", err);
-      }
+    await new Promise<void>((resolve, reject) => {
+      this.client.write(data, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      });
     });
   };
 
   close = async () => {
     this.closed = true;
-    this.client.destroy();
+    this.client?.destroy();
   };
 }
 

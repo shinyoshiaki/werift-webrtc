@@ -19,6 +19,12 @@ describe("chrome turn relay", () => {
         config.turn.tcpUrl,
       relayProtocol: "tcp",
     },
+    {
+      name: "tls",
+      getUrl: (config: Awaited<ReturnType<typeof getHarnessConfig>>) =>
+        config.turn.tlsUrl,
+      relayProtocol: "tls",
+    },
   ])(
     "forces relay candidates and exchanges data in both directions over $name TURN transport",
     async ({ getUrl, relayProtocol }) => {

@@ -1,7 +1,17 @@
 /// <reference types="@vitest/browser/providers/playwright" />
 
+import { existsSync } from "node:fs";
+
 import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+
+const chromiumExecutablePath = [
+  process.env.CHROME_BIN,
+  process.env.GOOGLE_CHROME_BIN,
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+].find((candidate) => candidate && existsSync(candidate));
 
 export default defineConfig({
   plugins: [nodePolyfills()],
@@ -24,6 +34,9 @@ export default defineConfig({
         {
           browser: "chromium",
           launch: {
+            ...(chromiumExecutablePath
+              ? { executablePath: chromiumExecutablePath }
+              : {}),
             args: [
               "--use-fake-ui-for-media-stream",
               "--use-fake-device-for-media-stream",

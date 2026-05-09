@@ -40,6 +40,7 @@ export interface TurnServerTcpChunk {
   data: Buffer;
   remoteAddress: Address;
   localAddress?: Address;
+  transport: Extract<StunTransport, "tcp" | "tls">;
 }
 
 export interface TurnServerRelayPacket {
@@ -253,7 +254,7 @@ export class TurnServerProtocol {
           data: frame,
           remoteAddress: input.remoteAddress,
           localAddress: input.localAddress,
-          transport: "tcp",
+          transport: input.transport,
         }),
       );
     }

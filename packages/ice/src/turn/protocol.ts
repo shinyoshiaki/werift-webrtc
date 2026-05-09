@@ -10,6 +10,8 @@ import {
   EventDisposer,
   type InterfaceAddresses,
   TcpTransport,
+  type TlsConnectionOptions,
+  TlsTransport,
   type Transport,
   UdpTransport,
   bufferReader,
@@ -34,6 +36,10 @@ const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 const DEFAULT_CHANNEL_REFRESH_TIME = 500;
 const DEFAULT_ALLOCATION_LIFETIME = 600;
 const UDP_TRANSPORT = 0x11000000;
+
+function isStreamTransport(transport: Transport) {
+  return transport.type === "tcp" || transport.type === "tls";
+}
 
 export class StunOverTurnProtocol implements Protocol {
   static type = "turn";
@@ -223,7 +229,7 @@ export class TurnProtocol implements Protocol {
       }
     };
 
-    if (this.transport.type === "tcp") {
+    if (isStreamTransport(this.transport)) {
       this.tcpBuffer = Buffer.concat([this.tcpBuffer, data]);
       const { frames, rest } = splitTurnTcpFrames(this.tcpBuffer);
       this.tcpBuffer = rest;
@@ -241,7 +247,7 @@ export class TurnProtocol implements Protocol {
     }
 
     await this.transport.send(
-      this.transport.type === "tcp" ? padTurnFrame(data) : data,
+      isStreamTransport(this.transport) ? padTurnFrame(data) : data,
       addr,
     );
   }
@@ -453,7 +459,8 @@ export interface TurnClientConfig {
 export interface TurnClientOptions {
   lifetime?: number;
   ssl?: boolean;
-  transport?: "udp" | "tcp";
+  transport?: "udp" | "tcp" | "tls";
+  tlsOptions?: TlsConnectionOptions;
   portRange?: [number, number];
   interfaceAddresses?: InterfaceAddresses;
 }
@@ -464,16 +471,20 @@ export async function createTurnClient(
     lifetime,
     portRange,
     interfaceAddresses,
+    ssl,
+    tlsOptions,
     transport: transportType,
   }: TurnClientOptions = {},
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
-  transportType ??= "udp";
+  transportType ??= ssl ? "tls" : "udp";
 
   const transport =
     transportType === "udp"
       ? await UdpTransport.init("udp4", { portRange, interfaceAddresses })
-      : await TcpTransport.init(address);
+      : transportType === "tcp"
+        ? await TcpTransport.init(address)
+        : await TlsTransport.init(address, tlsOptions);
 
   const turn = new TurnProtocol(
     address,
@@ -501,11 +512,14 @@ export async function createStunOverTurnClient(
     lifetime,
     portRange,
     interfaceAddresses,
+    ssl,
+    tlsOptions,
     transport: transportType,
   }: {
     lifetime?: number;
     ssl?: boolean;
-    transport?: "udp" | "tcp";
+    transport?: "udp" | "tcp" | "tls";
+    tlsOptions?: TlsConnectionOptions;
     portRange?: [number, number];
     interfaceAddresses?: InterfaceAddresses;
   } = {},
@@ -520,6 +534,8 @@ export async function createStunOverTurnClient(
       lifetime,
       portRange,
       interfaceAddresses,
+      ssl,
+      tlsOptions,
       transport: transportType,
     },
   );

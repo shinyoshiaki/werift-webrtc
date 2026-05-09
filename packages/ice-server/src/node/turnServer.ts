@@ -12,6 +12,12 @@ import {
   createServer,
 } from "node:net";
 import { networkInterfaces } from "node:os";
+import {
+  type TLSSocket,
+  type TlsOptions,
+  type Server as TlsServer,
+  createServer as createTlsServer,
+} from "node:tls";
 
 import type { Address } from "../../../common/src";
 
@@ -22,6 +28,10 @@ import {
   type TurnServerProtocolOptions,
 } from "../turn/protocol";
 
+export interface NodeTurnServerTlsOptions extends TlsOptions {
+  port?: number;
+}
+
 export interface NodeTurnServerOptions extends TurnServerProtocolOptions {
   host?: string;
   port?: number;
@@ -30,6 +40,7 @@ export interface NodeTurnServerOptions extends TurnServerProtocolOptions {
   credentials?: Record<string, string>;
   udp?: boolean;
   tcp?: boolean;
+  tls?: NodeTurnServerTlsOptions;
 }
 
 export class NodeTurnServer {
@@ -37,16 +48,22 @@ export class NodeTurnServer {
 
   private udpSocket?: Socket;
   private tcpServer?: TcpServer;
+  private tlsServer?: TlsServer;
   private readonly tcpConnections = new Map<string, TcpSocket>();
+  private readonly tlsConnections = new Map<string, TLSSocket>();
   private readonly relaySockets = new Map<string, Socket>();
   private timer?: NodeJS.Timeout;
   private readonly host: string;
   private readonly port: number;
   private readonly udpEnabled: boolean;
   private readonly tcpEnabled: boolean;
+  private readonly tlsEnabled: boolean;
+  private readonly tlsOptions?: NodeTurnServerTlsOptions;
+  private readonly tlsPort: number;
   private readonly relayAddress: string;
   private readonly relayBindAddress: string;
   private boundPort?: number;
+  private boundTlsPort?: number;
 
   constructor(options: NodeTurnServerOptions = {}) {
     const {
@@ -57,6 +74,7 @@ export class NodeTurnServer {
       udp = true,
       tcp = true,
       credentials,
+      tls,
       getPassword,
       software = "werift-ice-server",
       ...protocolOptions
@@ -66,6 +84,9 @@ export class NodeTurnServer {
     this.port = port;
     this.udpEnabled = udp;
     this.tcpEnabled = tcp;
+    this.tlsEnabled = tls !== undefined;
+    this.tlsOptions = tls;
+    this.tlsPort = tls?.port ?? (port === 0 ? 0 : 5349);
     this.relayAddress = relayAddress;
     this.relayBindAddress = relayBindAddress;
     this.protocol = new TurnServerProtocol({
@@ -83,13 +104,35 @@ export class NodeTurnServer {
     return [this.relayAddress, this.boundPort];
   }
 
+  get tlsAddress(): Address | undefined {
+    if (this.boundTlsPort === undefined) {
+      return undefined;
+    }
+    return [this.relayAddress, this.boundTlsPort];
+  }
+
   async listen() {
-    if (this.boundPort !== undefined) {
+    if (this.boundPort !== undefined || this.boundTlsPort !== undefined) {
       return;
     }
 
-    if (!this.udpEnabled && !this.tcpEnabled) {
-      throw new Error("NodeTurnServer requires udp or tcp to be enabled");
+    if (!this.udpEnabled && !this.tcpEnabled && !this.tlsEnabled) {
+      throw new Error("NodeTurnServer requires udp, tcp, or tls to be enabled");
+    }
+
+    if (
+      this.tcpEnabled &&
+      this.tlsEnabled &&
+      this.tlsPort !== 0 &&
+      this.tlsPort === this.port
+    ) {
+      throw new Error(
+        "NodeTurnServer cannot share the same port for tcp and tls",
+      );
+    }
+
+    if (this.tlsEnabled && (!this.tlsOptions?.key || !this.tlsOptions?.cert)) {
+      throw new Error("NodeTurnServer tls requires both key and cert");
     }
 
     if (this.udpEnabled) {
@@ -98,6 +141,10 @@ export class NodeTurnServer {
 
     if (this.tcpEnabled) {
       await this.listenTcp(this.boundPort ?? this.port);
+    }
+
+    if (this.tlsEnabled) {
+      await this.listenTls(this.tlsPort);
     }
 
     this.updateTimer();
@@ -113,6 +160,11 @@ export class NodeTurnServer {
       connection.destroy();
     }
     this.tcpConnections.clear();
+
+    for (const connection of this.tlsConnections.values()) {
+      connection.destroy();
+    }
+    this.tlsConnections.clear();
 
     const relayClosers = [...this.relaySockets.values()].map(
       (socket) =>
@@ -145,7 +197,18 @@ export class NodeTurnServer {
       );
     }
 
+    if (this.tlsServer) {
+      const tlsServer = this.tlsServer;
+      this.tlsServer = undefined;
+      closers.push(
+        new Promise<void>((resolve) => {
+          tlsServer.close(() => resolve());
+        }),
+      );
+    }
+
     this.boundPort = undefined;
+    this.boundTlsPort = undefined;
     await Promise.all([...relayClosers, ...closers]);
   }
 
@@ -184,28 +247,7 @@ export class NodeTurnServer {
 
   private async listenTcp(port: number) {
     const server = createServer((socket) => {
-      const clientId = randomUUID();
-      this.tcpConnections.set(clientId, socket);
-      socket.on("data", async (data) => {
-        await this.executeActions(
-          this.protocol.handleTcpChunk({
-            clientId,
-            data,
-            remoteAddress: [
-              normalizeAddress(socket.remoteAddress ?? ""),
-              socket.remotePort ?? 0,
-            ],
-            localAddress: this.address,
-          }),
-        );
-      });
-      socket.on("close", async () => {
-        this.tcpConnections.delete(clientId);
-        await this.executeActions(
-          this.protocol.handleClientClosed({ clientId }),
-        );
-      });
-      socket.on("error", () => {});
+      this.handleStreamConnection(socket, "tcp");
     });
     this.tcpServer = server;
 
@@ -219,6 +261,27 @@ export class NodeTurnServer {
           return;
         }
         this.boundPort = address.port;
+        resolve();
+      });
+    });
+  }
+
+  private async listenTls(port: number) {
+    const server = createTlsServer(this.tlsOptions!, (socket) => {
+      this.handleStreamConnection(socket, "tls");
+    });
+    this.tlsServer = server;
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, this.host, () => {
+        server.off("error", reject);
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("Expected TLS address info"));
+          return;
+        }
+        this.boundTlsPort = address.port;
         resolve();
       });
     });
@@ -253,8 +316,8 @@ export class NodeTurnServer {
   private async sendClient(
     action: Extract<TurnServerAction, { type: "send-client" }>,
   ) {
-    if (action.transport === "tcp") {
-      const socket = this.tcpConnections.get(action.clientId);
+    if (action.transport === "tcp" || action.transport === "tls") {
+      const socket = this.getStreamClient(action.transport, action.clientId);
       if (!socket || socket.destroyed) {
         return;
       }
@@ -276,6 +339,10 @@ export class NodeTurnServer {
           this.protocol.handleClientClosed({ clientId: action.clientId }),
         );
       });
+      return;
+    }
+
+    if (action.transport !== "udp") {
       return;
     }
 
@@ -392,10 +459,15 @@ export class NodeTurnServer {
 
   private closeClient(clientId: string) {
     const socket = this.tcpConnections.get(clientId);
-    if (!socket || socket.destroyed) {
+    if (socket && !socket.destroyed) {
+      socket.destroy();
       return;
     }
-    socket.destroy();
+
+    const tlsSocket = this.tlsConnections.get(clientId);
+    if (tlsSocket && !tlsSocket.destroyed) {
+      tlsSocket.destroy();
+    }
   }
 
   private updateTimer() {
@@ -469,6 +541,49 @@ export class NodeTurnServer {
   private socketType(address: string): SocketType {
     return address.includes(":") ? "udp6" : "udp4";
   }
+
+  private handleStreamConnection(socket: TcpSocket, transport: "tcp"): void;
+  private handleStreamConnection(socket: TLSSocket, transport: "tls"): void;
+  private handleStreamConnection(
+    socket: TcpSocket | TLSSocket,
+    transport: "tcp" | "tls",
+  ) {
+    const clientId = randomUUID();
+    if (transport === "tcp") {
+      this.tcpConnections.set(clientId, socket as TcpSocket);
+    } else {
+      this.tlsConnections.set(clientId, socket as TLSSocket);
+    }
+    socket.on("data", async (data) => {
+      await this.executeActions(
+        this.protocol.handleTcpChunk({
+          clientId,
+          data,
+          remoteAddress: [
+            normalizeAddress(socket.remoteAddress ?? ""),
+            socket.remotePort ?? 0,
+          ],
+          localAddress: transport === "tcp" ? this.address : this.tlsAddress,
+          transport,
+        }),
+      );
+    });
+    socket.on("close", async () => {
+      if (transport === "tcp") {
+        this.tcpConnections.delete(clientId);
+      } else {
+        this.tlsConnections.delete(clientId);
+      }
+      await this.executeActions(this.protocol.handleClientClosed({ clientId }));
+    });
+    socket.on("error", () => {});
+  }
+
+  private getStreamClient(transport: "tcp" | "tls", clientId: string) {
+    return transport === "tcp"
+      ? this.tcpConnections.get(clientId)
+      : this.tlsConnections.get(clientId);
+  }
 }
 
 export async function createNodeTurnServer(
@@ -493,9 +608,7 @@ function isClosedTcpWriteError(error: unknown) {
       ? (error as NodeJS.ErrnoException).code
       : undefined;
   return (
-    code === "ECONNRESET" ||
-    code === "EPIPE" ||
-    code === "ERR_STREAM_DESTROYED"
+    code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_DESTROYED"
   );
 }
 

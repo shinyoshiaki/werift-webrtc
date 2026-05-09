@@ -6,6 +6,7 @@ import {
   type Address,
   type Event,
   type InterfaceAddresses,
+  type TlsConnectionOptions,
   debug,
 } from "./imports/common";
 import { classes, methods } from "./stun/const";
@@ -167,7 +168,8 @@ export interface IceOptions {
   turnServer?: Address;
   turnUsername?: string;
   turnPassword?: string;
-  turnTransport?: "udp" | "tcp";
+  turnTransport?: "udp" | "tcp" | "tls";
+  turnTlsOptions?: TlsConnectionOptions;
   forceTurn?: boolean;
   localPasswordPrefix?: string;
   useIpv4: boolean;

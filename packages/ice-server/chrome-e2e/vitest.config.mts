@@ -1,6 +1,16 @@
 /// <reference types="@vitest/browser/providers/playwright" />
 
+import { existsSync } from "node:fs";
+
 import { defineConfig } from "vitest/config";
+
+const chromiumExecutablePath = [
+  process.env.CHROME_BIN,
+  process.env.GOOGLE_CHROME_BIN,
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+].find((candidate) => candidate && existsSync(candidate));
 
 export default defineConfig({
   test: {
@@ -16,6 +26,15 @@ export default defineConfig({
       instances: [
         {
           browser: "chromium",
+          launch: {
+            ...(chromiumExecutablePath
+              ? { executablePath: chromiumExecutablePath }
+              : {}),
+            args: [
+              "--ignore-certificate-errors",
+              "--allow-insecure-localhost",
+            ],
+          },
         },
       ],
     },

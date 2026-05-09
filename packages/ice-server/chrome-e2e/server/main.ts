@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { type ServerResponse, createServer } from "node:http";
 
 import { NodeStunServer, NodeTurnServer } from "../../src";
@@ -12,6 +13,14 @@ type HarnessMetrics = {
 const metrics: HarnessMetrics = {
   stunBindingRequests: 0,
 };
+
+function readTlsAsset(name: string) {
+  try {
+    return readFileSync("./packages/dtls/assets/" + name);
+  } catch (error) {
+    return readFileSync("./../../dtls/assets/" + name);
+  }
+}
 
 const stunServer = new NodeStunServer({
   host: "127.0.0.1",
@@ -33,6 +42,10 @@ const turnServer = new NodeTurnServer({
   fingerprint: "always",
   credentials: {
     [TURN_USERNAME]: TURN_PASSWORD,
+  },
+  tls: {
+    cert: readTlsAsset("cert.pem"),
+    key: readTlsAsset("key.pem"),
   },
 });
 
@@ -120,6 +133,7 @@ const httpServer = createServer((request, response) => {
       turn: {
         udpUrl: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=udp`,
         tcpUrl: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=tcp`,
+        tlsUrl: `turns:${turnServer.tlsAddress?.[0]}:${turnServer.tlsAddress?.[1]}?transport=tcp`,
         username: TURN_USERNAME,
         credential: TURN_PASSWORD,
       },
@@ -169,6 +183,7 @@ async function main() {
     port,
     stun: stunServer.address,
     turn: turnServer.address,
+    turns: turnServer.tlsAddress,
   });
 }
 

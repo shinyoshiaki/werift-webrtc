@@ -90,7 +90,13 @@
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"udp"` \| `"tcp"`
+> `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
+
+***
+
+### turnTlsOptions?
+
+> `optional` **turnTlsOptions**: `TlsConnectionOptions`
 
 ***
 

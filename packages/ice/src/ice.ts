@@ -393,6 +393,7 @@ export class Connection implements IceConnection {
     const { turnUsername, turnPassword } = this.options;
     if (turnServer && turnUsername && turnPassword) {
       const turnCandidatePromise = (async () => {
+        const turnTransport = this.options.turnTransport ?? "udp";
         const protocol = await createStunOverTurnClient(
           {
             address: turnServer,
@@ -402,10 +403,11 @@ export class Connection implements IceConnection {
           {
             portRange: this.options.portRange,
             interfaceAddresses: this.options.interfaceAddresses,
-            transport: this.options.turnTransport === "tcp" ? "tcp" : "udp",
+            transport: turnTransport,
+            tlsOptions: this.options.turnTlsOptions,
           },
         ).catch(async (e) => {
-          if (this.options.turnTransport !== "tcp") {
+          if (turnTransport === "udp") {
             return await createStunOverTurnClient(
               {
                 address: turnServer,

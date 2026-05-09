@@ -1,5 +1,7 @@
 import { createSocket } from "node:dgram";
-import { connect } from "node:net";
+import { readFileSync } from "node:fs";
+import { type Socket as TcpSocket, connect } from "node:net";
+import { type TLSSocket, connect as connectTls } from "node:tls";
 
 import { describe, expect, test, vi } from "vitest";
 
@@ -98,9 +100,10 @@ async function allocateRelay(
 
 async function exchangeAllocate(
   server: NodeTurnServer,
-  transport: "udp" | "tcp",
+  transport: "udp" | "tcp" | "tls",
 ) {
-  const serverAddress = server.address!;
+  const serverAddress =
+    transport === "tls" ? server.tlsAddress! : server.address!;
   if (transport === "udp") {
     const client = createSocket("udp4");
     await new Promise<void>((resolve) => {
@@ -140,16 +143,23 @@ async function exchangeAllocate(
     }
   }
 
-  const socket = connect({
-    host: serverAddress[0],
-    port: serverAddress[1],
-  });
+  const socket =
+    transport === "tls"
+      ? connectTls({
+          host: serverAddress[0],
+          port: serverAddress[1],
+          rejectUnauthorized: false,
+        })
+      : connect({
+          host: serverAddress[0],
+          port: serverAddress[1],
+        });
   const readFrame = createTurnTcpReader(socket);
 
   try {
     await new Promise<void>((resolve, reject) => {
       socket.once("error", reject);
-      socket.once("connect", () => {
+      socket.once(transport === "tls" ? "secureConnect" : "connect", () => {
         socket.off("error", reject);
         resolve();
       });
@@ -175,7 +185,7 @@ async function exchangeAllocate(
   }
 }
 
-function createTurnTcpReader(socket: ReturnType<typeof connect>) {
+function createTurnTcpReader(socket: TcpSocket | TLSSocket) {
   let buffer = Buffer.alloc(0);
   const pending: ((frame: Buffer) => void)[] = [];
   const frames: Buffer[] = [];
@@ -220,6 +230,21 @@ function findAction<TType extends TurnServerAction["type"]>(
     throw new Error(`Expected ${type} action`);
   }
   return action as Extract<TurnServerAction, { type: TType }>;
+}
+
+function readTlsAsset(name: string) {
+  try {
+    return readFileSync("./packages/dtls/assets/" + name);
+  } catch (error) {
+    return readFileSync("./../dtls/assets/" + name);
+  }
+}
+
+function getLocalTlsServerOptions() {
+  return {
+    cert: readTlsAsset("cert.pem"),
+    key: readTlsAsset("key.pem"),
+  };
 }
 
 describe("TurnServerProtocol", () => {
@@ -654,7 +679,7 @@ describe("TurnServerProtocol", () => {
 });
 
 describe("NodeTurnServer", () => {
-  test.each(["udp", "tcp"] as const)(
+  test.each(["udp", "tcp", "tls"] as const)(
     "serves Allocate over %s",
     async (transport) => {
       const server = new NodeTurnServer({
@@ -666,6 +691,7 @@ describe("NodeTurnServer", () => {
         credentials: {
           [TURN_CREDENTIALS.username]: TURN_CREDENTIALS.password,
         },
+        tls: transport === "tls" ? getLocalTlsServerOptions() : undefined,
       });
       await server.listen();
 

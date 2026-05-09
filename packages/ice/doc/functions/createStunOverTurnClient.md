@@ -28,7 +28,9 @@
 
 • **\_\_namedParameters.ssl?**: `boolean`
 
-• **\_\_namedParameters.transport?**: `"udp"` \| `"tcp"`
+• **\_\_namedParameters.tlsOptions?**: `TlsConnectionOptions`
+
+• **\_\_namedParameters.transport?**: `"udp"` \| `"tcp"` \| `"tls"`
 
 ## Returns
 
