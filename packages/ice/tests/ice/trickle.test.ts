@@ -1,14 +1,12 @@
 import { setTimeout } from "timers/promises";
 
-import { Connection } from "../../src";
-import { assertCandidateTypes } from "../utils";
+import type { Connection } from "../../src";
+import { assertCandidateTypes, createTestConnection } from "../utils";
 
 describe("IceTrickleTest", () => {
   test("test_trickle_connect", async () => {
-    const a = new Connection(true);
-    a.stunServer = undefined;
-    const b = new Connection(false);
-    b.stunServer = undefined;
+    const a = createTestConnection(true);
+    const b = createTestConnection(false);
 
     await a.gatherCandidates();
     b.remoteUsername = a.localUsername;

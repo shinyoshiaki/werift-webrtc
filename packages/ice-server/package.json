@@ -1,0 +1,37 @@
+{
+  "name": "werift-ice-server",
+  "version": "0.0.1",
+  "description": "RFC 8489 STUN server implementation for werift",
+  "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shinyoshiaki/werift-webrtc.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "shinyoshiaki"
+  },
+  "main": "lib/ice-server/src/index.js",
+  "types": "lib/ice-server/src/index.d.ts",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "deploy": "npm run build && npm publish",
+    "format": "biome check --write src tests",
+    "test": "vitest run ./tests",
+    "type": "tsc --noEmit --project ./tsconfig.json",
+    "unused": "organize-imports-cli src/**/*.ts"
+  },
+  "dependencies": {
+    "@shinyoshiaki/jspack": "^0.0.6",
+    "int64-buffer": "1.1.0",
+    "ip": "^2.0.1"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16"
+  },
+  "readme": "README.md"
+}

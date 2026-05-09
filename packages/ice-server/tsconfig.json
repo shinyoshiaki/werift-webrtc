@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "commonjs",
+    "lib": ["esnext"],
+    "declaration": true,
+    "outDir": "lib",
+    "strict": true,
+    "esModuleInterop": true,
+    "pretty": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "noUnusedLocals": false,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    "useDefineForClassFields": true,
+    "types": ["vitest/globals"]
+  },
+  "include": ["src", "tests"]
+}

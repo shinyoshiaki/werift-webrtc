@@ -1,38 +1,37 @@
-import { Connection } from "../src";
+import { getHostAddresses } from "../src";
+import {
+  createLocalStunServer,
+  createTestConnection,
+  inviteAccept,
+} from "./utils";
 
-test("example", async () => {
-  const a = new Connection(true, {
-    stunServer: ["stun.l.google.com", 19302],
-  });
-  const b = new Connection(false, {
-    stunServer: ["stun.l.google.com", 19302],
-  });
+const localStunHost = getHostAddresses(true, false)[0];
+const testWithLocalStun = localStunHost ? test : test.skip;
 
-  // # invite
-  await a.gatherCandidates();
-  b.remoteCandidates = a.localCandidates;
-  b.remoteUsername = a.localUsername;
-  b.remotePassword = a.localPassword;
+testWithLocalStun("example", async () => {
+  const server = await createLocalStunServer(localStunHost!);
+  const stunServer = server.address!;
+  const a = createTestConnection(true, { stunServer });
+  const b = createTestConnection(false, { stunServer });
 
-  // # accept
-  await b.gatherCandidates();
-  a.remoteCandidates = b.localCandidates;
-  a.remoteUsername = b.localUsername;
-  a.remotePassword = b.localPassword;
+  try {
+    await inviteAccept(a, b);
 
-  // # connect
-  await Promise.all([a.connect(), b.connect()]);
+    // # connect
+    await Promise.all([a.connect(), b.connect()]);
 
-  // # send data a -> b
-  await a.send(Buffer.from("howdee"));
-  let [data] = await b.onData.asPromise();
-  expect(data.toString()).toBe("howdee");
+    // # send data a -> b
+    await a.send(Buffer.from("howdee"));
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
 
-  // # send data b -> a
-  await b.send(Buffer.from("gotcha"));
-  [data] = await a.onData.asPromise();
-  expect(data.toString()).toBe("gotcha");
-
-  await a.close();
-  await b.close();
+    // # send data b -> a
+    await b.send(Buffer.from("gotcha"));
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
+  } finally {
+    await a.close();
+    await b.close();
+    await server.close();
+  }
 });

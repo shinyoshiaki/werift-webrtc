@@ -12,7 +12,12 @@ import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
 import { getHostAddresses } from "../../src/utils";
-import { assertCandidateTypes, inviteAccept } from "../utils";
+import {
+  assertCandidateTypes,
+  createLocalStunServer,
+  createTestConnection,
+  inviteAccept,
+} from "../utils";
 
 class ProtocolMock implements Protocol {
   type = "mock";
@@ -46,10 +51,12 @@ const testWithIpv6Host = getHostAddresses(false, true, {
 }).length
   ? test
   : test.skip;
+const localStunHost = getHostAddresses(true, false)[0];
+const testWithLocalStun = localStunHost ? test : test.skip;
 
 describe("ice", () => {
   test("test_peer_reflexive", async () => {
-    const connection = new Connection(true);
+    const connection = createTestConnection(true);
     connection.remotePassword = "remote-password";
     connection.remoteUsername = "remote-username";
     const protocol = new ProtocolMock() as any;
@@ -85,7 +92,7 @@ describe("ice", () => {
   });
 
   test("test_response_with_invalid_address", async () => {
-    const connection = new Connection(true);
+    const connection = createTestConnection(true);
     connection.remotePassword = "remote-password";
     connection.remoteUsername = "remote-username";
 
@@ -104,10 +111,8 @@ describe("ice", () => {
   });
 
   test("test_connect", async () => {
-    const a = new Connection(true, {});
-    const b = new Connection(false, {});
-    a.stunServer = undefined;
-    b.stunServer = undefined;
+    const a = createTestConnection(true);
+    const b = createTestConnection(false);
 
     await inviteAccept(a, b);
 
@@ -264,8 +269,8 @@ describe("ice", () => {
   });
 
   test("test_connect_reverse_order", async () => {
-    const a = new Connection(true);
-    const b = new Connection(false);
+    const a = createTestConnection(true);
+    const b = createTestConnection(false);
 
     // # invite / accept
     await inviteAccept(a, b);
@@ -297,8 +302,8 @@ describe("ice", () => {
 
   test("test_connect_invalid_password", async () =>
     new Promise<void>(async (done) => {
-      const a = new Connection(true);
-      const b = new Connection(false);
+      const a = createTestConnection(true);
+      const b = createTestConnection(false);
 
       await a.gatherCandidates();
       b.remoteCandidates = a.localCandidates;
@@ -322,8 +327,8 @@ describe("ice", () => {
 
   test("test_connect_invalid_username", async () =>
     new Promise<void>(async (done) => {
-      const a = new Connection(true);
-      const b = new Connection(false);
+      const a = createTestConnection(true);
+      const b = createTestConnection(false);
 
       await a.gatherCandidates();
       b.remoteCandidates = a.localCandidates;
@@ -351,7 +356,7 @@ describe("ice", () => {
       // If local candidates gathering was not performed, connect fails.
       // """
 
-      const conn = new Connection(true);
+      const conn = createTestConnection(true);
       conn.remoteCandidates = [
         Candidate.fromSdp(
           "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",
@@ -372,7 +377,7 @@ describe("ice", () => {
 
   test("test_connect_no_local_candidates", async () =>
     new Promise<void>(async (done) => {
-      const conn = new Connection(true);
+      const conn = createTestConnection(true);
 
       conn.localCandidatesEnd = true;
       conn.remoteCandidates = [
@@ -393,7 +398,7 @@ describe("ice", () => {
 
   test("test_connect_no_remote_candidates", async () =>
     new Promise<void>(async (done) => {
-      const conn = new Connection(true);
+      const conn = createTestConnection(true);
 
       await conn.gatherCandidates();
       conn.remoteCandidates = [];
@@ -410,7 +415,7 @@ describe("ice", () => {
 
   test("test_connect_no_remote_credentials", async () =>
     new Promise<void>(async (done) => {
-      const conn = new Connection(true);
+      const conn = createTestConnection(true);
 
       await conn.gatherCandidates();
       conn.remoteCandidates = [
@@ -430,8 +435,8 @@ describe("ice", () => {
   test(
     "test_connect_role_conflict_both_controlling",
     async () => {
-      const a = new Connection(true);
-      const b = new Connection(true);
+      const a = createTestConnection(true);
+      const b = createTestConnection(true);
 
       //@ts-ignore
       a.tieBreaker = BigInt(1);
@@ -455,8 +460,8 @@ describe("ice", () => {
   test(
     "test_connect_role_conflict_both_controlled",
     async () => {
-      const a = new Connection(false);
-      const b = new Connection(false);
+      const a = createTestConnection(false);
+      const b = createTestConnection(false);
 
       //@ts-ignore
       a.tieBreaker = BigInt(1);
@@ -475,41 +480,43 @@ describe("ice", () => {
     1000 * 60 * 60,
   );
 
-  test("test_connect_with_stun_server", async () => {
-    const a = new Connection(true, {
-      stunServer: ["stun.l.google.com", 19302],
-    });
-    const b = new Connection(false);
-    b.stunServer = undefined;
+  testWithLocalStun("test_connect_with_stun_server", async () => {
+    const server = await createLocalStunServer(localStunHost!);
+    const stunServer = server.address!;
+    const a = createTestConnection(true, { stunServer });
+    const b = createTestConnection(false, { stunServer });
 
-    // # invite / accept
-    await inviteAccept(a, b);
+    try {
+      await inviteAccept(a, b);
 
-    // # we would have both host and server-reflexive candidates
-    assertCandidateTypes(a, ["host", "srflx"]);
-    assertCandidateTypes(b, ["host"]);
+      assertCandidateTypes(a, ["host", "srflx"]);
+      assertCandidateTypes(b, ["host", "srflx"]);
 
-    const candidate = a.getDefaultCandidate()!;
-    expect(candidate).not.toBeUndefined();
-    expect(candidate.type).toBe("srflx");
-    expect(candidate.relatedAddress).not.toBeUndefined();
-    expect(candidate.relatedPort).not.toBeUndefined();
+      const candidateA = a.getDefaultCandidate()!;
+      expect(candidateA).not.toBeUndefined();
+      expect(candidateA.type).toBe("srflx");
+      expect(candidateA.relatedAddress).not.toBeUndefined();
+      expect(candidateA.relatedPort).not.toBeUndefined();
 
-    // # connect
-    await Promise.all([a.connect(), b.connect()]);
+      const candidateB = b.getDefaultCandidate()!;
+      expect(candidateB.type).toBe("srflx");
+      expect(candidateB.relatedAddress).not.toBeUndefined();
+      expect(candidateB.relatedPort).not.toBeUndefined();
 
-    // # send data a -> b
-    await a.send(Buffer.from("howdee"));
-    let [data] = await b.onData.asPromise();
-    expect(data.toString()).toBe("howdee");
+      await Promise.all([a.connect(), b.connect()]);
 
-    // # send data b -> a
-    await b.send(Buffer.from("gotcha"));
-    [data] = await a.onData.asPromise();
-    expect(data.toString()).toBe("gotcha");
+      await a.send(Buffer.from("howdee"));
+      let [data] = await b.onData.asPromise();
+      expect(data.toString()).toBe("howdee");
 
-    await a.close();
-    await b.close();
+      await b.send(Buffer.from("gotcha"));
+      [data] = await a.onData.asPromise();
+      expect(data.toString()).toBe("gotcha");
+    } finally {
+      await a.close();
+      await b.close();
+      await server.close();
+    }
   });
 
   test(
@@ -518,8 +525,7 @@ describe("ice", () => {
       const a = new Connection(true, {
         stunServer: ["invalid", 19302],
       });
-      const b = new Connection(false, {});
-      b.stunServer = undefined;
+      const b = createTestConnection(false);
 
       // # invite / accept
       await inviteAccept(a, b);
@@ -550,13 +556,13 @@ describe("ice", () => {
     "test_connect_with_stun_server_ipv6",
     async () => {
       const a = new Connection(true, {
-        stunServer: ["stun.l.google.com", 19302],
+        stunServer: undefined,
         useIpv4: false,
         useIpv6: true,
         useLinkLocalAddress: true,
       });
       const b = new Connection(false, {
-        stunServer: ["stun.l.google.com", 19302],
+        stunServer: undefined,
         useIpv4: false,
         useIpv6: true,
         useLinkLocalAddress: true,
@@ -589,11 +595,9 @@ describe("ice", () => {
   );
 
   test("test_connect_to_ice_lite", async () => {
-    const a = new Connection(true, {});
+    const a = createTestConnection(true);
     a.remoteIsLite = true;
-    const b = new Connection(false, {});
-    a.stunServer = undefined;
-    b.stunServer = undefined;
+    const b = createTestConnection(false);
 
     // # invite / accept
     await inviteAccept(a, b);
