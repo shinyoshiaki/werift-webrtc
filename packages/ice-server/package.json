@@ -19,7 +19,7 @@
     "chrome-e2e": "cd chrome-e2e && npm i && npm run ci:silent",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
-    "test": "vitest run --config ./vitest.config.mts",
+    "test": "vitest run --config ./vitest.config.mts && npm run chrome-e2e",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },
