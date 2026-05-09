@@ -288,7 +288,11 @@ export class Connection implements IceConnection {
   }
 
   private getCandidatePromises(addresses: string[], timeout = 5) {
-    let candidatePromises: Promise<Candidate | void>[] = [];
+    const candidatePromises: Promise<Candidate | void>[] = [];
+    const { stunServer, turnServer } = this;
+    const { turnUsername, turnPassword } = this.options;
+    const gatherRelayOnly =
+      this.options.forceTurn && turnServer && turnUsername && turnPassword;
 
     addresses = addresses.filter((address) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
@@ -298,58 +302,63 @@ export class Connection implements IceConnection {
       return true;
     });
 
-    const localStunPromises = addresses.map(async (address) => {
-      // # create transport
-      const protocol = new StunProtocol();
-      this.ensureProtocol(protocol);
-      try {
-        await protocol.connectionMade(
-          isIPv4(address),
-          this.options.portRange,
-          this.options.interfaceAddresses,
-        );
+    const localStunPromises = gatherRelayOnly
+      ? []
+      : addresses.map(async (address) => {
+          // # create transport
+          const protocol = new StunProtocol();
+          this.ensureProtocol(protocol);
+          try {
+            await protocol.connectionMade(
+              isIPv4(address),
+              this.options.portRange,
+              this.options.interfaceAddresses,
+            );
 
-        protocol.localIp = address;
-        this.protocols.push(protocol);
+            protocol.localIp = address;
+            this.protocols.push(protocol);
 
-        log("protocol", protocol.localIp);
+            log("protocol", protocol.localIp);
 
-        // # add host candidate
-        const candidateAddress: Address = [address, protocol.getExtraInfo()[1]];
+            // # add host candidate
+            const candidateAddress: Address = [
+              address,
+              protocol.getExtraInfo()[1],
+            ];
 
-        protocol.localCandidate = new Candidate(
-          candidateFoundation("host", "udp", candidateAddress[0]),
-          1,
-          "udp",
-          candidatePriority("host"),
-          candidateAddress[0],
-          candidateAddress[1],
-          "host",
-          undefined,
-          undefined,
-          undefined,
-          this.generation,
-          this.localUsername,
-        );
+            protocol.localCandidate = new Candidate(
+              candidateFoundation("host", "udp", candidateAddress[0]),
+              1,
+              "udp",
+              candidatePriority("host"),
+              candidateAddress[0],
+              candidateAddress[1],
+              "host",
+              undefined,
+              undefined,
+              undefined,
+              this.generation,
+              this.localUsername,
+            );
 
-        this.pairLocalProtocol(protocol);
-        this.appendLocalCandidate(protocol.localCandidate);
+            this.pairLocalProtocol(protocol);
+            this.appendLocalCandidate(protocol.localCandidate);
 
-        return protocol;
-      } catch (error) {
-        log("error protocol STUN", error);
-      }
-    });
+            return protocol;
+          } catch (error) {
+            log("error protocol STUN", error);
+          }
+        });
 
-    candidatePromises.push(
-      ...localStunPromises.map((localPromise) =>
-        localPromise.then((l) => l?.localCandidate),
-      ),
-    );
+    if (!gatherRelayOnly) {
+      candidatePromises.push(
+        ...localStunPromises.map((localPromise) =>
+          localPromise.then((protocol) => protocol?.localCandidate),
+        ),
+      );
+    }
 
-    const { stunServer, turnServer } = this;
-
-    if (stunServer) {
+    if (!gatherRelayOnly && stunServer) {
       const stunCandidatePromises = localStunPromises.map(
         async (protocolPromise) => {
           const protocol = await protocolPromise;
@@ -390,7 +399,6 @@ export class Connection implements IceConnection {
       candidatePromises.push(...stunCandidatePromises);
     }
 
-    const { turnUsername, turnPassword } = this.options;
     if (turnServer && turnUsername && turnPassword) {
       const turnCandidatePromise = (async () => {
         const turnTransport = this.options.turnTransport ?? "udp";
@@ -452,10 +460,6 @@ export class Connection implements IceConnection {
       })().catch((error) => {
         log("query TURN server", error);
       });
-
-      if (this.options.forceTurn) {
-        candidatePromises = [];
-      }
 
       candidatePromises.push(turnCandidatePromise);
     }

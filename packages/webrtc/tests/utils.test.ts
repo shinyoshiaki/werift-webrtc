@@ -1,5 +1,4 @@
-import { parseIceServers } from "../src";
-import { deepMerge } from "../src";
+import { deepMerge, parseIceServers, resolveTurnTransport } from "../src";
 import type { RTCIceServer } from "../src/peerConnection";
 
 describe("utils", () => {
@@ -30,6 +29,35 @@ describe("utils", () => {
       expect(turnPassword).toBe("credential");
     });
 
+    test("turn with transport query", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:turn.l.google.com:19302?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnServer, turnTransport } = parseIceServers(iceServers);
+      expect(turnServer).toEqual(["turn.l.google.com", 19302]);
+      expect(turnTransport).toBe("tcp");
+    });
+
+    test("turns with tcp query resolves to tls transport", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:turn.l.google.com:5349?transport=tcp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnPassword, turnServer, turnTransport, turnUsername } =
+        parseIceServers(iceServers);
+      expect(turnServer).toEqual(["turn.l.google.com", 5349]);
+      expect(turnUsername).toBe("username");
+      expect(turnPassword).toBe("credential");
+      expect(turnTransport).toBe("tls");
+    });
+
     test("turn & stun", () => {
       const iceServers: RTCIceServer[] = [
         {
@@ -45,6 +73,32 @@ describe("utils", () => {
       expect(turnServer).toEqual(["turn.l.google.com", 19302]);
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
+    });
+  });
+
+  describe("resolveTurnTransport", () => {
+    test("prefers the transport parsed from the ICE server URL", () => {
+      expect(
+        resolveTurnTransport({
+          parsedTurnTransport: "tls",
+          configuredTurnTransport: "udp",
+          forceTurnTCP: true,
+        }),
+      ).toBe("tls");
+    });
+
+    test("falls back to explicit config and legacy forceTurnTCP", () => {
+      expect(
+        resolveTurnTransport({
+          configuredTurnTransport: "tcp",
+          forceTurnTCP: false,
+        }),
+      ).toBe("tcp");
+      expect(
+        resolveTurnTransport({
+          forceTurnTCP: true,
+        }),
+      ).toBe("tcp");
     });
   });
 

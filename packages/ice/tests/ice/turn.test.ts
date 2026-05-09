@@ -44,12 +44,14 @@ async function assertConnectWithTurnServer(
     a.remoteUsername = b.localUsername;
     a.remotePassword = b.localPassword;
 
-    // 接続前に relay 候補を取得できていることを確認する。
+    // 接続前から relay-only の設定どおり relay 候補だけが収集されていることを確認する。
+    expect(a.localCandidates.length).toBeGreaterThan(0);
+    expect(b.localCandidates.length).toBeGreaterThan(0);
     expect(
-      a.localCandidates.some((candidate) => candidate.type === "relay"),
+      a.localCandidates.every((candidate) => candidate.type === "relay"),
     ).toBe(true);
     expect(
-      b.localCandidates.some((candidate) => candidate.type === "relay"),
+      b.localCandidates.every((candidate) => candidate.type === "relay"),
     ).toBe(true);
 
     // relay 候補だけで ICE 接続を確立する。

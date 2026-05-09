@@ -19,7 +19,7 @@ import type {
 } from "./transport/ice";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { ConnectionState } from "./types/domain";
-import { parseIceServers } from "./utils";
+import { parseIceServers, resolveTurnTransport } from "./utils";
 
 const log = debug(
   "werift:packages/webrtc/src/transport/secureTransportManager.ts",
@@ -91,9 +91,15 @@ export class SecureTransportManager {
     const existing = this.iceTransports.find(
       (transport) => transport.state !== "closed",
     );
+    const iceServerOptions = parseIceServers(this.config.iceServers);
+    const turnTransport = resolveTurnTransport({
+      parsedTurnTransport: iceServerOptions.turnTransport,
+      configuredTurnTransport: this.config.turnTransport,
+      forceTurnTCP: this.config.forceTurnTCP,
+    });
 
     const iceGatherer = new RTCIceGatherer({
-      ...parseIceServers(this.config.iceServers),
+      ...iceServerOptions,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
@@ -103,7 +109,8 @@ export class SecureTransportManager {
       localPasswordPrefix: this.config.icePasswordPrefix,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
-      turnTransport: this.config.forceTurnTCP === true ? "tcp" : "udp",
+      turnTransport,
+      turnTlsOptions: this.config.turnTlsOptions,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
 

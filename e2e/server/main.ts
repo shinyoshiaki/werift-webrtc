@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import express from "express";
 
 import { Room, WebSocketServer } from "protoo-server";
@@ -28,6 +29,7 @@ import {
   datachannel_answer,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
+import { datachannel_turn_relay } from "./handler/datachannel/turnRelay";
 import {
   ice_restart_node_trigger,
   ice_restart_web_trigger,
@@ -62,6 +64,7 @@ import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
+import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();
 app.use(express.json() as never);
@@ -76,7 +79,7 @@ app.use((_, res, next) => {
   next();
 });
 const port = Number(process.env.E2E_PORT ?? 8886);
-const http = app.listen(port);
+const http = createServer(app);
 let shutdownPromise: Promise<void> | undefined;
 
 const signalExitCode = (signal: NodeJS.Signals) =>
@@ -111,6 +114,7 @@ async function shutdown(exitCode: number) {
 
       try {
         await cleanupGstreamerProcesses();
+        await stopTurnServer();
         await closeHttpServer();
       } catch (error) {
         finalExitCode = 1;
@@ -131,62 +135,86 @@ app.put("/stop", (_, res) => {
   res.send();
 });
 
-const server = new WebSocketServer(http);
-const room = new Room();
-server.on("connectionrequest", async (_, accept) => {
-  const tests = {
-    datachannel_answer: new datachannel_answer(),
-    datachannel_offer: new datachannel_offer(),
-    mediachannel_sendrecv_answer: new mediachannel_sendrecv_answer(),
-    mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer(),
-    mediachannel_simulcast_answer: new mediachannel_simulcast_answer(),
-    mediachannel_simulcast_offer: new mediachannel_simulcast_offer(),
-    mediachannel_oneway_answer: new mediachannel_oneway_answer(),
-    mediachannel_oneway_offer: new mediachannel_oneway_offer(),
-    mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
-    mediachannel_addTrack_offer: new mediachannel_addTrack_offer(),
-    datachannel_close_server_create_close:
-      new datachannel_close_server_create_close(),
-    datachannel_close_client_create_close:
-      new datachannel_close_client_create_close(),
-    datachannel_close_client_create_server_close:
-      new datachannel_close_client_create_server_close(),
-    datachannel_close_server_create_client_close:
-      new datachannel_close_server_create_client_close(),
-    ice_trickle_answer: new ice_trickle_answer(),
-    ice_trickle_offer: new ice_trickle_offer(),
-    mediachannel_rtx_client_answer: new mediachannel_rtx_client_answer(),
-    mediachannel_rtx_client_offer: new mediachannel_rtx_client_offer(),
-    mediachannel_red_client_answer: new mediachannel_red_client_answer(),
-    mediachannel_red_client_offer: new mediachannel_red_client_offer(),
-    combination_all_media_answer: new combination_all_media_answer(),
-    combination_all_media_offer: new combination_all_media_offer(),
-    bundle_max_compat_answer: new bundle_max_compat_answer(),
-    bundle_max_compat_offer: new bundle_max_compat_offer(),
-    bundle_disable_answer: new bundle_disable_answer(),
-    bundle_disable_offer: new bundle_disable_offer(),
-    bundle_max_bundle_answer: new bundle_max_bundle_answer(),
-    bundle_max_bundle_offer: new bundle_max_bundle_offer(),
-    mediachannel_removetrack_addtrack: new mediachannel_removetrack_addtrack(),
-    mediachannel_addtrack_removefirst_addtrack:
-      new mediachannel_addtrack_removefirst_addtrack(),
-    mediachannel_offer_replace_second: new mediachannel_offer_replace_second(),
-    ice_restart_web_trigger: new ice_restart_web_trigger(),
-    ice_restart_node_trigger: new ice_restart_node_trigger(),
-  };
-
-  const transport = accept();
-  const peer = await room.createPeer(Math.random().toString(), transport);
-
-  peer.on("request", async (request, accept) => {
-    const { type, payload } = request.data;
-    try {
-      await tests[request.method].exec(type, payload, accept, peer);
-    } catch (error) {
-      console.log(error);
-    }
-  });
+app.get("/turn-config", (_, res) => {
+  res.json(getTurnRelayConfig());
 });
+
+const room = new Room();
+
+function attachWebSocketServer() {
+  const server = new WebSocketServer(http);
+  server.on("connectionrequest", async (_, accept) => {
+    const tests = {
+      datachannel_answer: new datachannel_answer(),
+      datachannel_offer: new datachannel_offer(),
+      datachannel_turn_relay: new datachannel_turn_relay(),
+      mediachannel_sendrecv_answer: new mediachannel_sendrecv_answer(),
+      mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer(),
+      mediachannel_simulcast_answer: new mediachannel_simulcast_answer(),
+      mediachannel_simulcast_offer: new mediachannel_simulcast_offer(),
+      mediachannel_oneway_answer: new mediachannel_oneway_answer(),
+      mediachannel_oneway_offer: new mediachannel_oneway_offer(),
+      mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
+      mediachannel_addTrack_offer: new mediachannel_addTrack_offer(),
+      datachannel_close_server_create_close:
+        new datachannel_close_server_create_close(),
+      datachannel_close_client_create_close:
+        new datachannel_close_client_create_close(),
+      datachannel_close_client_create_server_close:
+        new datachannel_close_client_create_server_close(),
+      datachannel_close_server_create_client_close:
+        new datachannel_close_server_create_client_close(),
+      ice_trickle_answer: new ice_trickle_answer(),
+      ice_trickle_offer: new ice_trickle_offer(),
+      mediachannel_rtx_client_answer: new mediachannel_rtx_client_answer(),
+      mediachannel_rtx_client_offer: new mediachannel_rtx_client_offer(),
+      mediachannel_red_client_answer: new mediachannel_red_client_answer(),
+      mediachannel_red_client_offer: new mediachannel_red_client_offer(),
+      combination_all_media_answer: new combination_all_media_answer(),
+      combination_all_media_offer: new combination_all_media_offer(),
+      bundle_max_compat_answer: new bundle_max_compat_answer(),
+      bundle_max_compat_offer: new bundle_max_compat_offer(),
+      bundle_disable_answer: new bundle_disable_answer(),
+      bundle_disable_offer: new bundle_disable_offer(),
+      bundle_max_bundle_answer: new bundle_max_bundle_answer(),
+      bundle_max_bundle_offer: new bundle_max_bundle_offer(),
+      mediachannel_removetrack_addtrack:
+        new mediachannel_removetrack_addtrack(),
+      mediachannel_addtrack_removefirst_addtrack:
+        new mediachannel_addtrack_removefirst_addtrack(),
+      mediachannel_offer_replace_second:
+        new mediachannel_offer_replace_second(),
+      ice_restart_web_trigger: new ice_restart_web_trigger(),
+      ice_restart_node_trigger: new ice_restart_node_trigger(),
+    };
+
+    const transport = accept();
+    const peer = await room.createPeer(Math.random().toString(), transport);
+
+    peer.on("request", async (request, accept) => {
+      const { type, payload } = request.data;
+      try {
+        await tests[request.method].exec(type, payload, accept, peer);
+      } catch (error) {
+        console.log(error);
+      }
+    });
+  });
+}
+
+async function main() {
+  await startTurnServer();
+  attachWebSocketServer();
+  await new Promise<void>((resolve, reject) => {
+    http.once("error", reject);
+    http.listen(port, () => {
+      http.off("error", reject);
+      resolve();
+    });
+  });
+
+  console.log("start", { port, turn: getTurnRelayConfig().turn });
+}
 
 process.once("SIGINT", () => {
   void shutdown(signalExitCode("SIGINT"));
@@ -206,4 +234,7 @@ process.once("unhandledRejection", (reason) => {
   void shutdown(1);
 });
 
-console.log("start", { port });
+void main().catch((error) => {
+  console.error(error);
+  void shutdown(1);
+});

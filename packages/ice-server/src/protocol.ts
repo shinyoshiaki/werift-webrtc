@@ -137,7 +137,7 @@ export class StunServerProtocol {
     }
 
     const authResult = this.authenticateRequest?.(context);
-    if (authResult && !authResult.ok) {
+    if (authResult?.ok === false) {
       return [
         this.sendAction(
           this.errorResponse(

@@ -6,6 +6,7 @@ import {
   type Address,
   Event,
   type InterfaceAddresses,
+  type TlsConnectionOptions,
   debug,
 } from "./imports/common";
 import type { CandidatePair, Message, Protocol } from "./imports/ice";
@@ -906,6 +907,9 @@ export interface PeerConfig {
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
+  turnTransport: "udp" | "tcp" | "tls" | undefined;
+  turnTlsOptions: TlsConnectionOptions | undefined;
+  /** @deprecated Prefer turn URL transport parameters or turnTransport. */
   forceTurnTCP: boolean;
   /** such as google cloud run */
   iceUseLinkLocalAddress: boolean | undefined;
@@ -969,6 +973,8 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceAdditionalHostAddresses: undefined,
     iceUseIpv4: true,
     iceUseIpv6: true,
+    turnTransport: undefined,
+    turnTlsOptions: undefined,
     iceFilterStunResponse: undefined,
     iceFilterCandidatePair: undefined,
     icePasswordPrefix: undefined,

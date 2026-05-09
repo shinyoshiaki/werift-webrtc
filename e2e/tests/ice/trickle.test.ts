@@ -6,6 +6,13 @@ function attachCandidateHandler(
   done: () => void,
 ) {
   const eventPeer = peer as typeof peer & {
+    on: (
+      event: "request",
+      listener: (
+        request: { method: string; data: RTCIceCandidateInit },
+        accept: () => void,
+      ) => void,
+    ) => void;
     removeListener: (event: string, listener: (...args: any[]) => void) => void;
   };
   const isClosed = () =>
@@ -31,7 +38,7 @@ function attachCandidateHandler(
     }
     accept();
   };
-  peer.on("request", onRequest);
+  eventPeer.on("request", onRequest);
 
   return () => {
     eventPeer.removeListener("request", onRequest);

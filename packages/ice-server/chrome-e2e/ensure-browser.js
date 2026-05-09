@@ -1,6 +1,6 @@
 const { spawnSync } = require("node:child_process");
-const { existsSync, readdirSync } = require("node:fs");
-const { join } = require("node:path");
+const { existsSync } = require("node:fs");
+const { basename, dirname, join } = require("node:path");
 
 function resolveSystemChrome() {
   return [
@@ -13,15 +13,23 @@ function resolveSystemChrome() {
 }
 
 function hasPlaywrightChromium() {
-  const home = process.env.HOME;
-  if (!home) {
-    return false;
-  }
-
   try {
-    return readdirSync(join(home, ".cache", "ms-playwright")).some((entry) =>
-      entry.startsWith("chromium-"),
+    const { chromium } = require("playwright");
+    const chromiumExecutablePath = chromium.executablePath();
+    if (!existsSync(chromiumExecutablePath)) {
+      return false;
+    }
+
+    const chromiumDir = dirname(dirname(chromiumExecutablePath));
+    const revision = basename(chromiumDir).replace("chromium-", "");
+    const headlessShellPath = join(
+      dirname(chromiumDir),
+      `chromium_headless_shell-${revision}`,
+      "chrome-linux",
+      "headless_shell",
     );
+
+    return existsSync(headlessShellPath);
   } catch (error) {
     return false;
   }
@@ -32,9 +40,13 @@ if (resolveSystemChrome() || hasPlaywrightChromium()) {
 }
 
 const command = process.platform === "win32" ? "npx.cmd" : "npx";
-const result = spawnSync(command, ["playwright", "install", "chromium"], {
-  stdio: "inherit",
-});
+const result = spawnSync(
+  command,
+  ["playwright", "install", "chromium", "chromium-headless-shell"],
+  {
+    stdio: "inherit",
+  },
+);
 
 if (result.error) {
   throw result.error;

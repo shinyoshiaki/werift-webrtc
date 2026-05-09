@@ -40,6 +40,8 @@ export default defineConfig({
             args: [
               "--use-fake-ui-for-media-stream",
               "--use-fake-device-for-media-stream",
+              "--ignore-certificate-errors",
+              "--allow-insecure-localhost",
             ],
           },
         },

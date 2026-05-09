@@ -103,29 +103,137 @@ export const compactNtp = (ntp: bigint) => {
 };
 
 export function parseIceServers(iceServers: RTCIceServer[]) {
-  const url2Address = (url?: string) => {
-    if (!url) return;
-    const [address, port] = url.split(":");
-    return [address, Number.parseInt(port)] as Address;
-  };
+  const options: {
+    stunServer?: Address;
+    turnServer?: Address;
+    turnUsername?: string;
+    turnPassword?: string;
+    turnTransport?: "udp" | "tcp" | "tls";
+  } = {};
 
-  const stunServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("stun:"))?.urls.slice(5),
-  );
-  const turnServer = url2Address(
-    iceServers.find(({ urls }) => urls.includes("turn:"))?.urls.slice(5),
-  );
-  const { credential, username } =
-    iceServers.find(({ urls }) => urls.includes("turn:")) || {};
+  for (const iceServer of iceServers) {
+    const parsed = parseIceServerUrl(iceServer.urls);
+    if (!parsed) {
+      continue;
+    }
 
-  const options = {
-    stunServer,
-    turnServer,
-    turnUsername: username,
-    turnPassword: credential,
-  };
+    if (!options.stunServer && parsed.kind === "stun") {
+      options.stunServer = parsed.address;
+    }
+
+    if (!options.turnServer && parsed.kind === "turn") {
+      options.turnServer = parsed.address;
+      options.turnTransport = parsed.transport;
+      options.turnUsername = iceServer.username;
+      options.turnPassword = iceServer.credential;
+    }
+  }
+
   log("iceOptions", options);
   return options;
+}
+
+export function resolveTurnTransport({
+  configuredTurnTransport,
+  forceTurnTCP,
+  parsedTurnTransport,
+}: {
+  parsedTurnTransport?: "udp" | "tcp" | "tls";
+  configuredTurnTransport?: "udp" | "tcp" | "tls";
+  forceTurnTCP: boolean;
+}) {
+  if (parsedTurnTransport) {
+    return parsedTurnTransport;
+  }
+
+  if (configuredTurnTransport) {
+    return configuredTurnTransport;
+  }
+
+  if (forceTurnTCP) {
+    return "tcp";
+  }
+
+  return undefined;
+}
+
+function parseIceServerUrl(url: string) {
+  const matched = /^(stun|stuns|turn|turns):(.+)$/i.exec(url.trim());
+  if (!matched) {
+    return;
+  }
+
+  const [, rawScheme, rawRest] = matched;
+  const scheme = rawScheme.toLowerCase();
+  const [authority] = rawRest.split("?", 1);
+  const [, query = ""] = rawRest.split("?");
+  const address = parseAddress(authority, defaultPort(scheme));
+  if (!address) {
+    return;
+  }
+
+  if (scheme === "stun" || scheme === "stuns") {
+    return { kind: "stun" as const, address };
+  }
+
+  const queryParams = new URLSearchParams(query);
+  const transportParam = queryParams.get("transport");
+  const transport: "udp" | "tcp" | "tls" | undefined =
+    scheme === "turns"
+      ? "tls"
+      : transportParam === "tcp" || transportParam === "udp"
+        ? transportParam
+        : undefined;
+
+  return {
+    kind: "turn" as const,
+    address,
+    transport,
+  };
+}
+
+function defaultPort(scheme: string) {
+  if (scheme === "stuns" || scheme === "turns") {
+    return 5349;
+  }
+  return 3478;
+}
+
+function parseAddress(
+  value: string,
+  fallbackPort: number,
+): Address | undefined {
+  const authority = value.startsWith("//") ? value.slice(2) : value;
+  if (!authority) {
+    return;
+  }
+
+  if (authority.startsWith("[")) {
+    const closingBracket = authority.indexOf("]");
+    if (closingBracket === -1) {
+      return;
+    }
+    const host = authority.slice(1, closingBracket);
+    const port = parsePort(authority.slice(closingBracket + 1), fallbackPort);
+    return [host, port];
+  }
+
+  const firstColon = authority.indexOf(":");
+  const lastColon = authority.lastIndexOf(":");
+  if (firstColon !== -1 && firstColon === lastColon) {
+    return [
+      authority.slice(0, firstColon),
+      parsePort(authority.slice(firstColon + 1), fallbackPort),
+    ];
+  }
+
+  return [authority, fallbackPort];
+}
+
+function parsePort(value: string, fallbackPort: number) {
+  const portString = value.startsWith(":") ? value.slice(1) : value;
+  const port = Number.parseInt(portString, 10);
+  return Number.isFinite(port) ? port : fallbackPort;
 }
 
 /**

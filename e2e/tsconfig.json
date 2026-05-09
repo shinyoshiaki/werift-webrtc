@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "esnext",
-    "module": "commonjs",
+    "module": "esnext",
     "lib": [
       "esnext",
       "DOM"
@@ -12,8 +12,10 @@
     "importHelpers": true,
     "skipLibCheck": true,
     "types": [
-      "vitest/globals"
-    ]
+      "vitest/globals",
+      "vite/client"
+    ],
+    "moduleResolution": "bundler"
   },
   "include": [
     "tests"
