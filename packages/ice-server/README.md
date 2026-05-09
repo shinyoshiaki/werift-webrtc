@@ -12,3 +12,17 @@ This package ships:
 The protocol layer stays transport-agnostic, so applications can plug it
 into their own networking stack while reusing the STUN/TURN codec,
 authentication, allocation state machine, and relay actions.
+
+## Validation
+
+Run the package unit suite with:
+
+```sh
+npm test && npm run type
+```
+
+Run the Chrome interop harness with:
+
+```sh
+npm run chrome-e2e
+```

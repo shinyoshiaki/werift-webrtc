@@ -1,0 +1,23 @@
+{
+  "name": "werift-ice-server-chrome-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "chrome": "vitest run ./tests --browser.headless --config vitest.config.mts",
+    "ci": "npm run install:browsers && node run-ci.js",
+    "ci:silent": "npm run install:browsers && node run-ci.js silent",
+    "install:browsers": "playwright install chromium",
+    "server": "tsx --tsconfig tsconfig.server.json ./server/main.ts",
+    "stop": "node stop.js",
+    "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@vitest/browser": "3.0.5",
+    "playwright": "^1.55.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "3.0.5"
+  }
+}
