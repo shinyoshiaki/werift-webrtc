@@ -237,7 +237,7 @@ export class RTCSctpTransport {
   }
 
   dataChannelOpen(channel: RTCDataChannel) {
-    if (channel.id) {
+    if (channel.id !== undefined) {
       if (this.dataChannels[channel.id])
         throw new Error(
           `Data channel with ID ${channel.id} already registered`,
@@ -405,7 +405,7 @@ export class RTCSctpTransport {
         this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
           (streamId) => streamId !== channel.id,
         );
-        if (channel.id) {
+        if (channel.id !== undefined) {
           delete this.dataChannels[channel.id];
         }
         channel.setReadyState("closed");
