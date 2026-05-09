@@ -1,9 +1,12 @@
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
 
-import { NodeStunServer } from "../../ice-server/src";
+import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Connection } from "../src/ice";
 import type { IceOptions } from "../src/iceBase";
+
+export const TURN_TEST_USERNAME = "turn-user";
+export const TURN_TEST_PASSWORD = "turn-password";
 
 export function readMessage(name: string) {
   let data!: Buffer;
@@ -49,6 +52,22 @@ export async function createLocalStunServer(host: string) {
   const server = new NodeStunServer({
     host,
     port: 0,
+    software: "werift-ice-server/test",
+  });
+  await server.listen();
+  return server;
+}
+
+export async function createLocalTurnServer(host: string) {
+  const server = new NodeTurnServer({
+    host,
+    port: 0,
+    relayAddress: host,
+    relayBindAddress: host,
+    credentials: {
+      [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+    },
+    realm: "werift.local",
     software: "werift-ice-server/test",
   });
   await server.listen();
