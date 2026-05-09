@@ -3,11 +3,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG HOST_UID=1000
 ARG HOST_GID=1000
 RUN apt-get update \
-  && apt-get install -y bash ca-certificates curl dbus dbus-user-session git gnome-keyring gnupg libsecret-1-0 libsecret-tools sudo uidmap \
+  && apt-get install -y bash ca-certificates curl dbus dbus-user-session git gnome-keyring gnupg libsecret-1-0 libsecret-tools sudo uidmap libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio \
   && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
   && apt-get install -y nodejs \
   && npm install -g @anthropic-ai/claude-code @google/gemini-cli @github/copilot @openai/codex opencode-ai \
   && rm -rf /var/lib/apt/lists/*
+
+RUN npx playwright install-deps chromium
+
 RUN set -eux; \
   if ! getent group "$HOST_GID" >/dev/null; then \
     if getent group sakhost >/dev/null; then \
