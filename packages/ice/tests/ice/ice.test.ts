@@ -53,6 +53,43 @@ const testWithIpv6Host = getHostAddresses(false, true, {
   : test.skip;
 const localStunHost = getHostAddresses(true, false)[0];
 const testWithLocalStun = localStunHost ? test : test.skip;
+const googleStunServer: Address = ["stun.l.google.com", 19302];
+
+async function assertConnectWithStunServer(stunServer: Address) {
+  const a = createTestConnection(true, { stunServer });
+  const b = createTestConnection(false, { stunServer });
+
+  try {
+    await inviteAccept(a, b);
+
+    assertCandidateTypes(a, ["host", "srflx"]);
+    assertCandidateTypes(b, ["host", "srflx"]);
+
+    const candidateA = a.getDefaultCandidate()!;
+    expect(candidateA).not.toBeUndefined();
+    expect(candidateA.type).toBe("srflx");
+    expect(candidateA.relatedAddress).not.toBeUndefined();
+    expect(candidateA.relatedPort).not.toBeUndefined();
+
+    const candidateB = b.getDefaultCandidate()!;
+    expect(candidateB.type).toBe("srflx");
+    expect(candidateB.relatedAddress).not.toBeUndefined();
+    expect(candidateB.relatedPort).not.toBeUndefined();
+
+    await Promise.all([a.connect(), b.connect()]);
+
+    await a.send(Buffer.from("howdee"));
+    let [data] = await b.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
+
+    await b.send(Buffer.from("gotcha"));
+    [data] = await a.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
+  } finally {
+    await a.close();
+    await b.close();
+  }
+}
 
 describe("ice", () => {
   test("test_peer_reflexive", async () => {
@@ -480,41 +517,20 @@ describe("ice", () => {
     1000 * 60 * 60,
   );
 
-  testWithLocalStun("test_connect_with_stun_server", async () => {
+  test(
+    "test_connect_with_stun_server",
+    async () => {
+      await assertConnectWithStunServer(googleStunServer);
+    },
+    60 * 1000,
+  );
+
+  testWithLocalStun("test_connect_with_local_stun_server", async () => {
     const server = await createLocalStunServer(localStunHost!);
-    const stunServer = server.address!;
-    const a = createTestConnection(true, { stunServer });
-    const b = createTestConnection(false, { stunServer });
 
     try {
-      await inviteAccept(a, b);
-
-      assertCandidateTypes(a, ["host", "srflx"]);
-      assertCandidateTypes(b, ["host", "srflx"]);
-
-      const candidateA = a.getDefaultCandidate()!;
-      expect(candidateA).not.toBeUndefined();
-      expect(candidateA.type).toBe("srflx");
-      expect(candidateA.relatedAddress).not.toBeUndefined();
-      expect(candidateA.relatedPort).not.toBeUndefined();
-
-      const candidateB = b.getDefaultCandidate()!;
-      expect(candidateB.type).toBe("srflx");
-      expect(candidateB.relatedAddress).not.toBeUndefined();
-      expect(candidateB.relatedPort).not.toBeUndefined();
-
-      await Promise.all([a.connect(), b.connect()]);
-
-      await a.send(Buffer.from("howdee"));
-      let [data] = await b.onData.asPromise();
-      expect(data.toString()).toBe("howdee");
-
-      await b.send(Buffer.from("gotcha"));
-      [data] = await a.onData.asPromise();
-      expect(data.toString()).toBe("gotcha");
+      await assertConnectWithStunServer(server.address!);
     } finally {
-      await a.close();
-      await b.close();
       await server.close();
     }
   });
