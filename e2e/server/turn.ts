@@ -48,7 +48,7 @@ export async function startTurnServer() {
     turn: {
       udpUrl: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=udp`,
       tcpUrl: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=tcp`,
-      tlsUrl: `turns:${turnServer.tlsAddress?.[0]}:${turnServer.tlsAddress?.[1]}?transport=tcp`,
+      tlsUrl: `turns:${turnServer.tlsAddress?.[0]}:${turnServer.tlsAddress?.[1]}`,
       username,
       credential,
     },

@@ -104,8 +104,7 @@ describe("datachannel/turn relay", () => {
         // Assert: Chrome 側ではローカル候補が relay で、選択された TURN transport が期待どおりであることを確認する。
         expect(browserStats.localCandidateType).toBe("relay");
         expect(browserStats.localRelayProtocol).toBe(relayProtocol);
-        expect(browserStats.remoteCandidateType).not.toBe("host");
-        expect(browserStats.remoteCandidateType).not.toBe("srflx");
+        expect(browserStats.remoteCandidateType).toBe("relay");
 
         // Assert: werift 側では nominated pair が TURN protocol を使い、ローカル候補も relay になっていることを確認する。
         expect(serverStats.connectionState).toBe("connected");
