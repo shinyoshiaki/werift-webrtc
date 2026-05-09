@@ -1,8 +1,6 @@
-import { createHash } from "crypto";
-import { jspack } from "@shinyoshiaki/jspack";
-
 import { setTimeout } from "timers/promises";
 
+import { makeTurnIntegrityKey } from "../../../ice-server/src/turn/auth";
 import type { Candidate } from "../candidate";
 import { TransactionFailed } from "../exceptions";
 import { type Cancelable, cancelable, randomTransactionId } from "../helper";
@@ -21,6 +19,13 @@ import {
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
 import { Transaction } from "../stun/transaction";
+import {
+  decodeChannelData,
+  encodeChannelData,
+  isChannelData,
+  padTurnFrame,
+  splitTurnTcpFrames,
+} from "./frame";
 
 import type { Protocol } from "../types/model";
 
@@ -171,12 +176,11 @@ export class TurnProtocol implements Protocol {
   }
 
   private handleChannelData(data: Buffer) {
-    const [channel, length] = jspack.Unpack("!HH", data.slice(0, 4));
-    const addr = this.addrByChannel[channel];
+    const decoded = decodeChannelData(data);
+    const addr = decoded && this.addrByChannel[decoded.channelNumber];
 
-    if (addr) {
-      const payload = data.subarray(4, 4 + length);
-      this.onData.execute(payload, addr);
+    if (addr && decoded) {
+      this.onData.execute(decoded.data, addr);
     }
   }
 
@@ -201,7 +205,9 @@ export class TurnProtocol implements Protocol {
 
       if (message.getAttributeValue("DATA")) {
         const buf: Buffer = message.getAttributeValue("DATA");
-        this.onData.execute(buf, addr);
+        const peerAddress =
+          message.getAttributeValue("XOR-PEER-ADDRESS") ?? addr;
+        this.onData.execute(buf, peerAddress);
       }
     } catch (error) {
       log("parse error", data.toString());
@@ -219,18 +225,10 @@ export class TurnProtocol implements Protocol {
 
     if (this.transport.type === "tcp") {
       this.tcpBuffer = Buffer.concat([this.tcpBuffer, data]);
-      while (this.tcpBuffer.length >= 4) {
-        let [, length] = bufferReader(this.tcpBuffer.subarray(0, 4), [2, 2]);
-        length += paddingLength(length);
-        const fullLength = isChannelData(this.tcpBuffer)
-          ? 4 + length
-          : 20 + length;
-        if (this.tcpBuffer.length < fullLength) {
-          break;
-        }
-
-        datagramReceived(this.tcpBuffer.subarray(0, fullLength), addr);
-        this.tcpBuffer = this.tcpBuffer.subarray(fullLength);
+      const { frames, rest } = splitTurnTcpFrames(this.tcpBuffer);
+      this.tcpBuffer = rest;
+      for (const frame of frames) {
+        datagramReceived(frame, addr);
       }
     } else {
       datagramReceived(data, addr);
@@ -242,15 +240,10 @@ export class TurnProtocol implements Protocol {
       return;
     }
 
-    if (this.transport.type === "tcp") {
-      const padding = paddingLength(data.length);
-      await this.transport.send(
-        padding > 0 ? Buffer.concat([data, Buffer.alloc(padding)]) : data,
-        addr,
-      );
-    } else {
-      await this.transport.send(data, addr);
-    }
+    await this.transport.send(
+      this.transport.type === "tcp" ? padTurnFrame(data) : data,
+      addr,
+    );
   }
 
   private async createPermission(peerAddress: Address) {
@@ -378,8 +371,7 @@ export class TurnProtocol implements Protocol {
       return;
     }
 
-    const header = jspack.Pack("!HH", [channel.number, data.length]);
-    await this.send(Buffer.concat([Buffer.from(header), data]), this.server);
+    await this.send(encodeChannelData(channel.number, data), this.server);
   }
 
   async getPermission(addr: Address) {
@@ -540,11 +532,5 @@ export function makeIntegrityKey(
   realm: string,
   password: string,
 ) {
-  return createHash("md5")
-    .update(Buffer.from([username, realm, password].join(":")))
-    .digest();
-}
-
-function isChannelData(data: Buffer) {
-  return (data[0] & 0xc0) == 0x40;
+  return makeTurnIntegrityKey(username, realm, password);
 }

@@ -1,7 +1,7 @@
 {
   "name": "werift-ice-server",
   "version": "0.0.1",
-  "description": "RFC 8489 STUN server implementation for werift",
+  "description": "RFC 8489 STUN / RFC 8656 TURN server implementation for werift",
   "homepage": "https://github.com/shinyoshiaki/werift-webrtc",
   "repository": {
     "type": "git",
