@@ -267,6 +267,14 @@ export class NodeTurnServer {
           }
           resolve();
         });
+      }).catch(async (error) => {
+        if (!isClosedTcpWriteError(error)) {
+          throw error;
+        }
+
+        await this.executeActions(
+          this.protocol.handleClientClosed({ clientId: action.clientId }),
+        );
       });
       return;
     }
@@ -477,6 +485,18 @@ function normalizeAddress(address: string) {
 
 function isWildcardAddress(address: string) {
   return address === "0.0.0.0" || address === "::";
+}
+
+function isClosedTcpWriteError(error: unknown) {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? (error as NodeJS.ErrnoException).code
+      : undefined;
+  return (
+    code === "ECONNRESET" ||
+    code === "EPIPE" ||
+    code === "ERR_STREAM_DESTROYED"
+  );
 }
 
 function udpClientId(remoteInfo: Pick<RemoteInfo, "address" | "port">) {

@@ -1,7 +1,7 @@
 import { createSocket } from "node:dgram";
 import { connect } from "node:net";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { Address } from "../../common/src";
 import {
@@ -797,5 +797,39 @@ describe("NodeTurnServer", () => {
       socket.destroy();
       await server.close();
     }
+  });
+
+  test("ignores tcp client write races after disconnect", async () => {
+    const server = new NodeTurnServer({
+      host: "127.0.0.1",
+      relayAddress: "127.0.0.1",
+      relayBindAddress: "127.0.0.1",
+    });
+
+    const handleClientClosed = vi.spyOn(server.protocol, "handleClientClosed");
+    (server as any).tcpConnections.set("tcp:test", {
+      destroyed: false,
+      write: (_data: Buffer, callback: (error?: Error) => void) => {
+        callback(
+          Object.assign(new Error("connection reset by peer"), {
+            code: "ECONNRESET",
+          }),
+        );
+      },
+    });
+
+    // Act: 切断済み TCP クライアントへ応答を書き戻す競合を再現し、サーバが例外で落ちないことを確認する。
+    await expect(
+      (server as any).sendClient({
+        type: "send-client",
+        clientId: "tcp:test",
+        transport: "tcp",
+        remoteAddress: ["127.0.0.1", 3478],
+        data: Buffer.from([0x00]),
+      }),
+    ).resolves.toBeUndefined();
+
+    // Assert: ECONNRESET は接続クローズとして扱い、protocol 側の後始末へ進めることを確認する。
+    expect(handleClientClosed).toHaveBeenCalledWith({ clientId: "tcp:test" });
   });
 });

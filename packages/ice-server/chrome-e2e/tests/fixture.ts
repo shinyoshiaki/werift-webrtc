@@ -3,7 +3,8 @@ export type HarnessConfig = {
     url: string;
   };
   turn: {
-    url: string;
+    udpUrl: string;
+    tcpUrl: string;
     username: string;
     credential: string;
   };
@@ -140,6 +141,10 @@ export async function getSelectedRelayCandidatePair(
   return {
     localCandidateType: readStatString(localCandidate, "candidateType"),
     remoteCandidateType: readStatString(remoteCandidate, "candidateType"),
+    localCandidateProtocol: readStatString(localCandidate, "protocol"),
+    remoteCandidateProtocol: readStatString(remoteCandidate, "protocol"),
+    localRelayProtocol: readStatString(localCandidate, "relayProtocol"),
+    remoteRelayProtocol: readStatString(remoteCandidate, "relayProtocol"),
   };
 }
 

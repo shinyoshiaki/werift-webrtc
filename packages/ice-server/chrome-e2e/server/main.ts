@@ -118,7 +118,8 @@ const httpServer = createServer((request, response) => {
         url: `stun:${stunServer.address?.[0]}:${stunServer.address?.[1]}`,
       },
       turn: {
-        url: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=udp`,
+        udpUrl: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=udp`,
+        tcpUrl: `turn:${turnServer.address?.[0]}:${turnServer.address?.[1]}?transport=tcp`,
         username: TURN_USERNAME,
         credential: TURN_PASSWORD,
       },
