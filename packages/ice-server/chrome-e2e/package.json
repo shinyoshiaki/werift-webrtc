@@ -7,7 +7,7 @@
     "chrome": "vitest run ./tests --browser.headless --config vitest.config.mts",
     "ci": "npm run install:browsers && node run-ci.js",
     "ci:silent": "npm run install:browsers && node run-ci.js silent",
-    "install:browsers": "playwright install chromium",
+    "install:browsers": "node ensure-browser.js",
     "server": "tsx --tsconfig tsconfig.server.json ./server/main.ts",
     "stop": "node stop.js",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json"

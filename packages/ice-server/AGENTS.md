@@ -17,6 +17,7 @@ Instructions for coding agents working in `packages/ice-server`.
 3. Keep Chrome E2E Arrange helpers centralized in `chrome-e2e/tests/fixture.ts`.
 4. Add Japanese comments in Chrome E2E Act / Assert phases when the operation order or expectation is not obvious at a glance.
 5. Update the package README or harness docs when package scripts or browser validation entrypoints change.
+6. Keep `chrome-e2e` browser bootstrap helpers aligned with `vitest.config.mts` so tests can use either a bundled Playwright Chromium or an explicit system Chrome path.
 
 ## Don't
 

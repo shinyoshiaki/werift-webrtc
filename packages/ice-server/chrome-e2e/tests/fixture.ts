@@ -5,6 +5,7 @@ export type HarnessConfig = {
   turn: {
     udpUrl: string;
     tcpUrl: string;
+    tlsUrl: string;
     username: string;
     credential: string;
   };

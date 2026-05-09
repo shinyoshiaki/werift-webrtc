@@ -5,13 +5,14 @@ import {
   TURN_TEST_USERNAME,
   createLocalTurnServer,
   createTestConnection,
+  getLocalTurnClientTlsOptions,
 } from "../utils";
 
 const localTurnHost = getHostAddresses(true, false)[0]!;
 
 async function assertConnectWithTurnServer(
   turnServer: Address,
-  transport: "udp" | "tcp",
+  transport: "udp" | "tcp" | "tls",
 ) {
   const connectionOptions = {
     stunServer: undefined,
@@ -19,8 +20,10 @@ async function assertConnectWithTurnServer(
     turnUsername: TURN_TEST_USERNAME,
     turnPassword: TURN_TEST_PASSWORD,
     turnTransport: transport,
+    turnTlsOptions:
+      transport === "tls" ? getLocalTurnClientTlsOptions() : undefined,
     forceTurn: true,
-  } as const;
+  };
   const a = createTestConnection(true, connectionOptions);
   const b = createTestConnection(false, connectionOptions);
 
@@ -89,6 +92,16 @@ describe("turn", () => {
 
     try {
       await assertConnectWithTurnServer(server.address!, "tcp");
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("connects through local turn server over tls", async () => {
+    const server = await createLocalTurnServer(localTurnHost!, { tls: true });
+
+    try {
+      await assertConnectWithTurnServer(server.tlsAddress!, "tls");
     } finally {
       await server.close();
     }

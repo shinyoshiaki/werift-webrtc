@@ -32,6 +32,12 @@
 
 ***
 
+### tlsOptions?
+
+> `optional` **tlsOptions**: `TlsConnectionOptions`
+
+***
+
 ### transport?
 
-> `optional` **transport**: `"udp"` \| `"tcp"`
+> `optional` **transport**: `"udp"` \| `"tcp"` \| `"tls"`
