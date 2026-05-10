@@ -25,12 +25,13 @@ const coverageDir = resolve(repoRoot, "coverage", "webrtc-wpt");
 const coverageSummaryPath = resolve(coverageDir, "coverage-summary.json");
 const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json");
 const sourceDir = resolve(packageDir, "src");
+const tsconfigPath = resolve(packageDir, "tsconfig.json");
 
 async function main() {
   const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
 
   try {
-    const result = spawnSync("npx", ["tsx", "tools/wpt-runner/run.ts"], {
+    const result = spawnSync("npx", ["tsx", "--tsconfig", tsconfigPath, "tools/wpt-runner/run.ts"], {
       cwd: packageDir,
       env: {
         ...process.env,

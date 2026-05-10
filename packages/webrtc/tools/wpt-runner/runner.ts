@@ -65,6 +65,7 @@ const repoRoot = resolve(packageDir, "..", "..");
 const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
+const tsconfigPath = resolve(packageDir, "tsconfig.json");
 export const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
 export const defaultMarkdownReportPath = resolve(
   repoRoot,
@@ -336,7 +337,7 @@ async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> 
   const timeoutMs = resolveWorkerTimeoutMs(resolveTimeoutProfile(target));
 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
-    const worker = spawn(tsxPath, [workerPath], {
+    const worker = spawn(tsxPath, ["--tsconfig", tsconfigPath, workerPath], {
       cwd: packageDir,
       detached: process.platform !== "win32",
       env: {
