@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
+import * as os from "os";
 import { dirname, resolve } from "path";
 import vm from "vm";
 
@@ -13,6 +14,7 @@ import {
   RTCRtpTransceiver,
 } from "../../src";
 import { Navigator } from "../../src/nonstandard";
+import { resolveTargetConcurrency } from "./concurrencyLogic";
 import { resolveTimeoutProfile } from "./timeoutLogic";
 
 export interface WptAllowlistFile {
@@ -54,7 +56,6 @@ const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
 const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
-const TARGET_CONCURRENCY = 2;
 const PROGRESS_MODE = process.env.WPT_PROGRESS;
 const VERBOSE_PROGRESS = PROGRESS_MODE === "verbose";
 const TARGET_FILTER = process.env.WPT_TARGET_FILTER;
@@ -159,6 +160,13 @@ export async function runSelectedWpt(options: {
 async function runTargets(targets: WptTarget[]) {
   const results: WptResultRecord[] = [];
   const executing = new Set<Promise<void>>();
+  const availableParallelism =
+    "availableParallelism" in os ? os.availableParallelism() : undefined;
+  const targetConcurrency = resolveTargetConcurrency({
+    availableParallelism,
+    cpuCount: os.cpus().length,
+    input: process.env.WPT_CONCURRENCY,
+  });
   let completed = 0;
 
   for (const target of targets) {
@@ -173,7 +181,7 @@ async function runTargets(targets: WptTarget[]) {
     task.finally(() => {
       executing.delete(task);
     });
-    if (executing.size >= TARGET_CONCURRENCY) {
+    if (executing.size >= targetConcurrency) {
       await Promise.race(executing);
     }
   }
