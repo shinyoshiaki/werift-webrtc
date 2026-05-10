@@ -198,6 +198,59 @@ describe("peerConnection", () => {
     b.close();
   });
 
+  test("local offer can advertise ice-lite and remain controlled", async () => {
+    const lite = new RTCPeerConnection({
+      iceLite: true,
+      iceServers: [],
+    });
+    const full = new RTCPeerConnection({
+      iceServers: [],
+    });
+    const channel = lite.createDataChannel("chat");
+    const remoteChannelPromise = new Promise<RTCDataChannel>((resolve) => {
+      full.onDataChannel.subscribe(resolve);
+    });
+
+    try {
+      // Arrange: ICE lite の offerer と full ICE の answerer を作る。
+      await lite.setLocalDescription(await lite.createOffer());
+
+      // Assert: local SDP に a=ice-lite が含まれ、lite 側は controlled のままである。
+      expect(lite.localDescription!.sdp).toContain("a=ice-lite");
+      expect(lite.iceTransports[0].connection.iceLite).toBeTruthy();
+      expect(lite.iceTransports[0].connection.iceControlling).toBeFalsy();
+
+      // Act: full 側で offer を受けて answer を返し、ICE/DTLS/SCTP を接続する。
+      await full.setRemoteDescription(lite.localDescription!);
+      expect(full.iceTransports[0].connection.remoteIsLite).toBeTruthy();
+      expect(full.iceTransports[0].connection.iceControlling).toBeTruthy();
+
+      await full.setLocalDescription(await full.createAnswer());
+      await lite.setRemoteDescription(full.localDescription!);
+      await Promise.all([
+        waitForConnectionState(lite, "connected"),
+        waitForConnectionState(full, "connected"),
+      ]);
+
+      const remoteChannel = await remoteChannelPromise;
+      await Promise.all([
+        assertDataChannelOpen(channel),
+        assertDataChannelOpen(remoteChannel),
+      ]);
+
+      // Assert: DataChannel が双方向に開き、送受信まで成立する。
+      channel.send(Buffer.from("from-lite"));
+      let [data] = await remoteChannel.onMessage.asPromise();
+      expect(data.toString()).toBe("from-lite");
+
+      remoteChannel.send(Buffer.from("from-full"));
+      [data] = await channel.onMessage.asPromise();
+      expect(data.toString()).toBe("from-full");
+    } finally {
+      await Promise.allSettled([lite.close(), full.close()]);
+    }
+  });
+
   test("advertises configured local max-message-size in offer and answer", async () => {
     const caller = new RTCPeerConnection({ maxMessageSize: 1234 });
     const callee = new RTCPeerConnection({ maxMessageSize: 0 });

@@ -39,3 +39,9 @@ export const peerConfig: Promise<Partial<PeerConfig>> = (async () => ({
   dtls: { keys: await DtlsKeysContext.get() },
   bundlePolicy: "max-bundle" as BundlePolicy,
 }))();
+
+export const iceLitePeerConfig: Promise<Partial<PeerConfig>> = (async () => ({
+  ...(await peerConfig),
+  iceLite: true,
+  iceServers: [],
+}))();

@@ -286,6 +286,7 @@ export class RTCIceGatherer {
 
   get localParameters() {
     const params = new RTCIceParameters({
+      iceLite: this.connection.iceLite,
       usernameFragment: this.connection.localUsername,
       password: this.connection.localPassword,
     });

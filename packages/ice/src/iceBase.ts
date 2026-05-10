@@ -16,6 +16,7 @@ import type { Protocol } from "./types/model";
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 export interface IceConnection {
+  iceLite: boolean;
   iceControlling: boolean;
   localUsername: string;
   localPassword: string;
@@ -164,6 +165,8 @@ export type IceState =
   | "connected";
 
 export interface IceOptions {
+  /** Advertise and operate as an ICE lite agent. */
+  iceLite: boolean;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
@@ -187,6 +190,7 @@ export interface IceOptions {
 }
 
 export const defaultOptions: IceOptions = {
+  iceLite: false,
   useIpv4: true,
   useIpv6: true,
 };
