@@ -79,3 +79,19 @@
 #### Returns
 
 [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+***
+
+### removeTrack()
+
+> **removeTrack**(`track`): `void`
+
+#### Parameters
+
+##### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
+
+#### Returns
+
+`void`

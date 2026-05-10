@@ -138,7 +138,7 @@ export class RTCRtpSender {
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
-  track?: MediaStreamTrack;
+  track: MediaStreamTrack | null = null;
   stopped = false;
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
@@ -233,7 +233,10 @@ export class RTCRtpSender {
 
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
-      // todo impl
+      if (this.disposeTrack) {
+        this.disposeTrack();
+      }
+      this.track = null;
       return;
     }
 
@@ -257,7 +260,7 @@ export class RTCRtpSender {
     if (this.disposeTrack) {
       this.disposeTrack();
     }
-    this.track = undefined;
+    this.track = null;
   }
 
   async runRtcp() {

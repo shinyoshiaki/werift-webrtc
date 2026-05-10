@@ -12,6 +12,28 @@ werift is a WebRTC Implementation for TypeScript (Node.js)
 
 `npm install werift`
 
+## Development setup
+
+Initialize the pinned upstream WPT checkout before running the package-level WPT tooling:
+
+```sh
+git submodule update --init --recursive
+```
+
+Run the allowlisted upstream WPT subset and coverage from the repository root or from this package:
+
+```sh
+npm run wpt --workspace packages/webrtc
+npm run wpt:coverage --workspace packages/webrtc
+```
+
+Refresh the committed baselines when intentionally expanding upstream coverage:
+
+```sh
+npm run wpt --workspace packages/webrtc -- --update-baseline
+WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
+```
+
 # Documentation (WIP)
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)

@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "ci": "run-s type:all build test doc",
+    "ci": "run-s type:all build test doc wpt wpt:coverage",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
@@ -40,9 +40,13 @@
     "type:all": "run-s type:packages type:extra",
     "type:extra": "cd e2e && npm run type",
     "type:packages": "npm run type --workspaces --if-present",
-    "upgrade-interactive": "npx npm-check-updates -i --deep"
+    "upgrade-interactive": "npx npm-check-updates -i --deep",
+    "wpt:list": "npm run wpt:list --workspace packages/webrtc",
+    "wpt": "npm run wpt --workspace packages/webrtc",
+    "wpt:coverage": "npm run wpt:coverage --workspace packages/webrtc"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "3.0.5",
     "@biomejs/biome": "1.9.4",
     "@types/node": "^22.13.4",
     "knip": "^5.44.1",

@@ -4,6 +4,14 @@ werift (**We**b**r**tc **I**mplementation **f**or **T**ypeScript)
 
 werift is a WebRTC Implementation for TypeScript (Node.js), includes ICE/DTLS/SCTP/RTP.
 
+## Repository setup
+
+Initialize the pinned upstream WPT submodule before running the WPT compatibility tooling:
+
+```sh
+git submodule update --init --recursive
+```
+
 # install
 
 `npm install werift`
