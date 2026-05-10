@@ -56,6 +56,16 @@
 
 ***
 
+### consentRequestsSent
+
+> **consentRequestsSent**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`consentRequestsSent`](../interfaces/CandidatePairStats.md#consentrequestssent)
+
+***
+
 ### handle?
 
 > `optional` **handle**: `Cancelable`\<`void`\>
@@ -115,6 +125,46 @@
 ### remoteNominated
 
 > **remoteNominated**: `boolean` = `false`
+
+***
+
+### requestsReceived
+
+> **requestsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`requestsReceived`](../interfaces/CandidatePairStats.md#requestsreceived)
+
+***
+
+### requestsSent
+
+> **requestsSent**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`requestsSent`](../interfaces/CandidatePairStats.md#requestssent)
+
+***
+
+### responsesReceived
+
+> **responsesReceived**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`responsesReceived`](../interfaces/CandidatePairStats.md#responsesreceived)
+
+***
+
+### responsesSent
+
+> **responsesSent**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`responsesSent`](../interfaces/CandidatePairStats.md#responsessent)
 
 ***
 

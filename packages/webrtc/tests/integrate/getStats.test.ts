@@ -5,6 +5,7 @@ import {
   RTCStatsReport,
 } from "../../src/media/stats";
 import { MediaStreamTrack } from "../../src/media/track";
+import { createDataChannelPair } from "../utils";
 
 describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
   describe("Basic Functionality", () => {
@@ -440,18 +441,73 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(videoOutboundStats.length).toBe(0);
     });
 
-    // セレクターで特定トラックを選択しても一般統計が含まれることを確認
-    test("selector still includes general stats", async () => {
+    // セレクター結果が peer-wide/data-channel を混ぜず、参照 closure を含むことを確認
+    test("selector only returns the selected stats graph closure", async () => {
       const audioTrack = new MediaStreamTrack({ kind: "audio" });
+      pc1.createDataChannel("unrelated-data-channel");
       pc1.addTrack(audioTrack);
+      await createDataChannelPair(undefined, pc1, pc2);
 
+      // Act: selector 付きで audio sender の stats graph を取得する。
       const audioStats = await pc1.getStats(audioTrack);
 
-      // Should still include peer-connection stats
-      const pcStats = Array.from(audioStats.values()).find(
-        (stat) => stat.type === "peer-connection",
-      );
-      expect(pcStats).toBeDefined();
+      // Assert: peer-wide / data-channel を含めず、参照先 transport は closure に含む。
+      expect(
+        Array.from(audioStats.values()).some(
+          (stat) => stat.type === "peer-connection",
+        ),
+      ).toBe(false);
+      expect(
+        Array.from(audioStats.values()).some(
+          (stat) => stat.type === "data-channel",
+        ),
+      ).toBe(false);
+
+      const outbound = Array.from(audioStats.values()).find(
+        (stat) => stat.type === "outbound-rtp",
+      ) as any;
+      expect(outbound).toBeDefined();
+      if (outbound.transportId) {
+        expect(audioStats.has(outbound.transportId)).toBe(true);
+      }
+      if (outbound.codecId) {
+        expect(audioStats.has(outbound.codecId)).toBe(true);
+      }
+      if (outbound.mediaSourceId) {
+        expect(audioStats.has(outbound.mediaSourceId)).toBe(true);
+      }
+
+      const transport = outbound.transportId
+        ? audioStats.get(outbound.transportId)
+        : undefined;
+      if ((transport as any)?.selectedCandidatePairId) {
+        expect(audioStats.has((transport as any).selectedCandidatePairId)).toBe(
+          true,
+        );
+        const pair = audioStats.get(
+          (transport as any).selectedCandidatePairId,
+        ) as any;
+        expect(audioStats.has(pair.localCandidateId)).toBe(true);
+        expect(audioStats.has(pair.remoteCandidateId)).toBe(true);
+      }
+    });
+
+    // selector 付きの report が sender/receiver API と同じく RTCStatsReport であることを確認
+    test("sender and receiver getStats return RTCStatsReport", async () => {
+      const audioTrack = new MediaStreamTrack({ kind: "audio" });
+      const sender = pc1.addTrack(audioTrack);
+      await createDataChannelPair(undefined, pc1, pc2);
+
+      // Act: sender/receiver の公開 API から stats を取得する。
+      const senderStats = await sender.getStats();
+      const receiver = pc2
+        .getReceivers()
+        .find((candidate) => candidate.kind === "audio");
+      const receiverStats = receiver ? await receiver.getStats() : undefined;
+
+      // Assert: どちらも W3C 互換の RTCStatsReport を返す。
+      expect(senderStats).toBeInstanceOf(RTCStatsReport);
+      expect(receiverStats).toBeInstanceOf(RTCStatsReport);
     });
   });
 
@@ -472,19 +528,9 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
 
       const stats = await pc1.getStats(nonExistentTrack);
 
-      // Should return stats object but with no track-specific stats
+      // Should return an empty report because no monitored object matches selector
       expect(stats).toBeInstanceOf(RTCStatsReport);
-
-      const outboundStats = Array.from(stats.values()).filter(
-        (stat) => stat.type === "outbound-rtp",
-      );
-      expect(outboundStats.length).toBe(0);
-
-      // Should still contain peer-connection stats
-      const pcStats = Array.from(stats.values()).find(
-        (stat) => stat.type === "peer-connection",
-      );
-      expect(pcStats).toBeDefined();
+      expect(stats.size).toBe(0);
     });
 
     // トラック削除後でもgetStats()が正常に動作することを確認

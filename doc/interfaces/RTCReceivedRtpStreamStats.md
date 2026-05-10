@@ -53,6 +53,12 @@
 
 ***
 
+### bytesReceived?
+
+> `optional` **bytesReceived**: `number`
+
+***
+
 ### codecId?
 
 > `optional` **codecId**: `string`

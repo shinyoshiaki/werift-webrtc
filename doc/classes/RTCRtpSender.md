@@ -170,6 +170,22 @@
 
 ## Methods
 
+### collectStats()
+
+> **collectStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]
+
+#### Parameters
+
+##### timestamp
+
+`number`
+
+#### Returns
+
+[`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
 ### getParameters()
 
 > **getParameters**(): `object`
@@ -186,11 +202,21 @@
 
 ### getStats()
 
-> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStats**(): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
 
 #### Returns
 
-`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+`Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
+
+***
+
+### getStatsRootIds()
+
+> **getStatsRootIds**(): `string`[]
+
+#### Returns
+
+`string`[]
 
 ***
 

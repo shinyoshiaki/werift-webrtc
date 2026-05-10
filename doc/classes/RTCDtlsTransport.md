@@ -206,7 +206,13 @@
 
 ### getStats()
 
-> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStats**(`timestamp`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Parameters
+
+##### timestamp
+
+`number` = `...`
 
 #### Returns
 

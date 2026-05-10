@@ -128,6 +128,22 @@
 
 ***
 
+### collectStats()
+
+> **collectStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]
+
+#### Parameters
+
+##### timestamp
+
+`number`
+
+#### Returns
+
+[`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
 ### getLocalRtpParams()
 
 > **getLocalRtpParams**(`transceiver`): [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
@@ -184,19 +200,19 @@
 
 ***
 
-### getStats()
+### getStatsRootIds()
 
-> **getStats**(`selector`?): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStatsRootIds**(`selector`): `string`[]
 
 #### Parameters
 
-##### selector?
+##### selector
 
-`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
+`undefined` | `null` | [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
-`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+`string`[]
 
 ***
 

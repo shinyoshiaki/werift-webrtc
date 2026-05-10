@@ -71,6 +71,11 @@ export interface CandidatePairStats {
   rtt?: number;
   totalRoundTripTime: number;
   roundTripTimeMeasurements: number;
+  requestsReceived: number;
+  requestsSent: number;
+  responsesReceived: number;
+  responsesSent: number;
+  consentRequestsSent: number;
 }
 
 export class CandidatePair implements CandidatePairStats {
@@ -92,6 +97,11 @@ export class CandidatePair implements CandidatePairStats {
   rtt?: number;
   totalRoundTripTime = 0;
   roundTripTimeMeasurements = 0;
+  requestsReceived = 0;
+  requestsSent = 0;
+  responsesReceived = 0;
+  responsesSent = 0;
+  consentRequestsSent = 0;
 
   toJSON() {
     return this.json;

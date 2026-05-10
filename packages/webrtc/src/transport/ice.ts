@@ -45,6 +45,7 @@ export class RTCIceTransport {
   readonly id = randomUUID().toString();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
+  iceRestarts = 0;
   private waitStart?: Event<[]>;
   private renominating = false;
 
@@ -124,6 +125,7 @@ export class RTCIceTransport {
   }
 
   restart() {
+    this.iceRestarts++;
     this.connection.restart();
     this.setState("new");
     this.iceGather.gatheringState = "new";
@@ -168,41 +170,50 @@ export class RTCIceTransport {
     this.onNegotiationNeeded.complete();
   }
 
-  async getStats(): Promise<RTCStats[]> {
-    const timestamp = getStatsTimestamp();
+  async getStats(
+    timestamp = getStatsTimestamp(),
+    transportId = generateStatsId("transport", this.id),
+  ): Promise<RTCStats[]> {
     const stats: RTCStats[] = [];
 
     // Local candidates
-    for (const candidate of this.localCandidates) {
+    for (const candidate of this.connection.localCandidates) {
       const candidateStats: RTCIceCandidateStats = {
         type: "local-candidate",
-        id: generateStatsId("local-candidate", candidate.foundation),
+        id: generateStatsId("local-candidate", candidate.id),
         timestamp,
-        transportId: generateStatsId("transport", this.id),
-        address: candidate.ip,
+        transportId,
+        address: candidate.host,
         port: candidate.port,
-        protocol: candidate.protocol,
+        protocol: candidate.transport,
         candidateType: candidate.type as any,
         priority: candidate.priority,
         foundation: candidate.foundation,
+        relatedAddress: candidate.relatedAddress,
+        relatedPort: candidate.relatedPort,
+        usernameFragment: candidate.ufrag,
+        tcpType: candidate.tcptype as any,
       };
       stats.push(candidateStats);
     }
 
     // Remote candidates
     for (const candidate of this.connection.remoteCandidates) {
-      const ice = candidateFromIce(candidate);
       const candidateStats: RTCIceCandidateStats = {
         type: "remote-candidate",
-        id: generateStatsId("remote-candidate", ice.foundation),
+        id: generateStatsId("remote-candidate", candidate.id),
         timestamp,
-        transportId: generateStatsId("transport", this.id),
-        address: ice.ip,
-        port: ice.port,
-        protocol: ice.protocol,
-        candidateType: ice.type as any,
-        priority: ice.priority,
-        foundation: ice.foundation,
+        transportId,
+        address: candidate.host,
+        port: candidate.port,
+        protocol: candidate.transport,
+        candidateType: candidate.type as any,
+        priority: candidate.priority,
+        foundation: candidate.foundation,
+        relatedAddress: candidate.relatedAddress,
+        relatedPort: candidate.relatedPort,
+        usernameFragment: candidate.ufrag,
+        tcpType: candidate.tcptype as any,
       };
       stats.push(candidateStats);
     }
@@ -217,16 +228,16 @@ export class RTCIceTransport {
     for (const pair of pairs) {
       const pairStats: RTCIceCandidatePairStats = {
         type: "candidate-pair",
-        id: generateStatsId("candidate-pair", pair.foundation),
+        id: generateStatsId("candidate-pair", pair.id),
         timestamp,
-        transportId: generateStatsId("transport", this.id),
+        transportId,
         localCandidateId: generateStatsId(
           "local-candidate",
-          pair.localCandidate.foundation,
+          pair.localCandidate.id,
         ),
         remoteCandidateId: generateStatsId(
           "remote-candidate",
-          pair.remoteCandidate.foundation,
+          pair.remoteCandidate.id,
         ),
         state: pair.state as any,
         nominated: pair.nominated,
@@ -235,6 +246,15 @@ export class RTCIceTransport {
         bytesSent: pair.bytesSent,
         bytesReceived: pair.bytesReceived,
         currentRoundTripTime: pair.rtt,
+        totalRoundTripTime: pair.roundTripTimeMeasurements
+          ? pair.totalRoundTripTime
+          : undefined,
+        roundTripTimeMeasurements: pair.roundTripTimeMeasurements || undefined,
+        requestsReceived: pair.requestsReceived || undefined,
+        requestsSent: pair.requestsSent || undefined,
+        responsesReceived: pair.responsesReceived || undefined,
+        responsesSent: pair.responsesSent || undefined,
+        consentRequestsSent: pair.consentRequestsSent || undefined,
       };
       stats.push(pairStats);
     }

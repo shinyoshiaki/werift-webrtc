@@ -51,6 +51,12 @@
 
 ***
 
+### iceRestarts
+
+> **iceRestarts**: `number` = `0`
+
+***
+
 ### id
 
 > `readonly` **id**: `string`
@@ -157,7 +163,17 @@
 
 ### getStats()
 
-> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStats**(`timestamp`, `transportId`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Parameters
+
+##### timestamp
+
+`number` = `...`
+
+##### transportId
+
+`string` = `...`
 
 #### Returns
 

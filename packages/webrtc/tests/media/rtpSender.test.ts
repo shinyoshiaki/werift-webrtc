@@ -3,6 +3,7 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 import { MediaStreamTrack } from "../../src";
 import { RTCRtpSender } from "../../src/media/rtpSender";
+import { RTCStatsReport } from "../../src/media/stats";
 import { createDtlsTransport, createRtpPacket } from "../fixture";
 
 describe("media/rtpSender", () => {
@@ -66,4 +67,34 @@ describe("media/rtpSender", () => {
       await setTimeout(10);
       sender.stop();
     }));
+
+  test("getStats returns a report rooted at outbound stats", async () => {
+    const track = new MediaStreamTrack({ kind: "audio", remote: true });
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender(track);
+    sender.setDtlsTransport(dtls);
+
+    // Act: sender 単位の stats を取得する。
+    const report = await sender.getStats();
+
+    // Assert: W3C 互換の RTCStatsReport と参照 closure が返る。
+    expect(report).toBeInstanceOf(RTCStatsReport);
+
+    const outbound = Array.from(report.values()).find(
+      (stat) => stat.type === "outbound-rtp",
+    ) as any;
+    expect(outbound).toBeDefined();
+    expect(outbound.mediaSourceId).toBeDefined();
+    expect(report.has(outbound.mediaSourceId)).toBe(true);
+
+    if (outbound.transportId) {
+      expect(report.has(outbound.transportId)).toBe(true);
+    }
+
+    expect(
+      Array.from(report.values()).some(
+        (stat) => stat.type === "peer-connection",
+      ),
+    ).toBe(false);
+  });
 });

@@ -355,57 +355,43 @@ export class TransceiverManager {
     }
   }
 
-  async getStats(selector?: MediaStreamTrack | null): Promise<RTCStats[]> {
+  collectStats(timestamp: number): RTCStats[] {
     const stats: RTCStats[] = [];
 
     for (const transceiver of this.transceivers) {
-      const includeTransceiverStats =
-        !selector ||
-        transceiver.sender.track === selector ||
-        transceiver.receiver.track === selector;
-
       if (transceiver.sender) {
-        const senderStats = await transceiver.sender.getStats();
-        if (senderStats) {
-          for (const stat of senderStats) {
-            if (stat.type === "outbound-rtp" || stat.type === "media-source") {
-              if (includeTransceiverStats) {
-                stats.push(stat);
-              }
-            } else {
-              stats.push(stat);
-            }
-          }
-        }
+        stats.push(...transceiver.sender.collectStats(timestamp));
       }
 
       if (transceiver.receiver) {
-        const receiverStats = await transceiver.receiver.getStats();
-        if (receiverStats) {
-          for (const stat of receiverStats) {
-            if (
-              stat.type === "inbound-rtp" ||
-              stat.type === "remote-outbound-rtp"
-            ) {
-              if (includeTransceiverStats) {
-                stats.push(stat);
-              }
-            } else {
-              stats.push(stat);
-            }
-          }
-        }
+        stats.push(...transceiver.receiver.collectStats(timestamp));
       }
 
-      if (includeTransceiverStats) {
-        const codecStats = transceiver.getCodecStats();
-        if (codecStats) {
-          stats.push(...codecStats);
-        }
+      const codecStats = transceiver.collectCodecStats(timestamp);
+      if (codecStats) {
+        stats.push(...codecStats);
       }
     }
 
     return stats;
+  }
+
+  getStatsRootIds(selector: MediaStreamTrack | null | undefined) {
+    if (!selector) {
+      return [];
+    }
+
+    const rootIds: string[] = [];
+    for (const transceiver of this.transceivers) {
+      if (transceiver.sender.track === selector) {
+        rootIds.push(...transceiver.sender.getStatsRootIds());
+      }
+      if (transceiver.receiver.tracks.includes(selector)) {
+        rootIds.push(...transceiver.receiver.getStatsRootIds(selector));
+      }
+    }
+
+    return rootIds;
   }
 
   /**

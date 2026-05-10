@@ -113,6 +113,10 @@ export class RTCRtpTransceiver {
 
   getCodecStats(): RTCStats[] {
     const timestamp = getStatsTimestamp();
+    return this.collectCodecStats(timestamp);
+  }
+
+  collectCodecStats(timestamp: number): RTCStats[] {
     const stats: RTCStats[] = [];
 
     if (!this.dtlsTransport) {

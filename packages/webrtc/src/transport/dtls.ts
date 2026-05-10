@@ -51,6 +51,33 @@ import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
+function formatDtlsVersion(version?: {
+  major: number;
+  minor: number;
+}) {
+  if (!version) {
+    return;
+  }
+
+  if (version.major === 0xfe && version.minor === 0xfd) {
+    return "DTLS 1.2";
+  }
+  if (version.major === 0xfe && version.minor === 0xff) {
+    return "DTLS 1.0";
+  }
+}
+
+function formatSrtpCipher(profile?: number) {
+  switch (profile) {
+    case 0x0001:
+      return "AES_CM_128_HMAC_SHA1_80";
+    case 0x0007:
+      return "AEAD_AES_128_GCM";
+    default:
+      return;
+  }
+}
+
 export interface DtlsTransportStats {
   bytesSent: number;
   bytesReceived: number;
@@ -459,8 +486,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.iceTransport.stop();
   }
 
-  async getStats(): Promise<RTCStats[]> {
-    const timestamp = getStatsTimestamp();
+  async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
     const stats: RTCStats[] = [];
 
     const transportId = generateStatsId("transport", this.id);
@@ -476,20 +502,26 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       packetsReceived: this.packetsReceived,
       dtlsState: this.state,
       iceState: this.iceTransport.state,
+      iceRole: this.iceTransport.role,
+      iceLocalUsernameFragment:
+        this.iceTransport.localParameters.usernameFragment,
       selectedCandidatePairId: this.iceTransport.connection.nominated
         ? generateStatsId(
             "candidate-pair",
-            this.iceTransport.connection.nominated.localCandidate.foundation,
-            this.iceTransport.connection.nominated.remoteCandidate.foundation,
+            this.iceTransport.connection.nominated.id,
           )
         : undefined,
       localCertificateId: this.localCertificate
-        ? generateStatsId("certificate", "local")
+        ? generateStatsId("certificate", this.id, "local")
         : undefined,
-      remoteCertificateId: this.remoteParameters
-        ? generateStatsId("certificate", "remote")
+      remoteCertificateId: this.dtls?.remoteCertificate
+        ? generateStatsId("certificate", this.id, "remote")
         : undefined,
       dtlsRole: this.role === "auto" ? undefined : this.role,
+      tlsVersion: formatDtlsVersion(this.dtls?.dtls.version),
+      dtlsCipher: this.dtls?.cipher.cipher?.name,
+      srtpCipher: formatSrtpCipher(this.dtls?.srtp.srtpProfile),
+      iceRestarts: this.iceTransport.iceRestarts,
     };
     stats.push(transportStats);
 
@@ -499,7 +531,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       if (fingerprints.length > 0) {
         const certStats: RTCCertificateStats = {
           type: "certificate",
-          id: generateStatsId("certificate", "local"),
+          id: generateStatsId("certificate", this.id, "local"),
           timestamp,
           fingerprint: fingerprints[0].value,
           fingerprintAlgorithm: fingerprints[0].algorithm,
@@ -517,17 +549,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     ) {
       const certStats: RTCCertificateStats = {
         type: "certificate",
-        id: generateStatsId("certificate", "remote"),
+        id: generateStatsId("certificate", this.id, "remote"),
         timestamp,
         fingerprint: this.remoteParameters.fingerprints[0].value,
         fingerprintAlgorithm: this.remoteParameters.fingerprints[0].algorithm,
-        base64Certificate: "", // Remote certificate content not available
+        base64Certificate: this.dtls?.remoteCertificate
+          ? Buffer.from(this.dtls.remoteCertificate).toString("base64")
+          : "",
       };
       stats.push(certStats);
     }
 
     // Get ICE stats
-    const iceStats = await this.iceTransport.getStats();
+    const iceStats = await this.iceTransport.getStats(timestamp, transportId);
     stats.push(...iceStats);
 
     return stats;

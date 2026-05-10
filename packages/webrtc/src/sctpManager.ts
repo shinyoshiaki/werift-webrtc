@@ -127,8 +127,7 @@ export class SctpTransportManager {
     this.onDataChannel.allUnsubscribe();
   }
 
-  async getStats(): Promise<RTCStats[]> {
-    const timestamp = getStatsTimestamp();
+  async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
     const stats: RTCStats[] = [];
 
     for (const channel of this.dataChannels) {

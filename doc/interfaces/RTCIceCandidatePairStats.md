@@ -154,6 +154,12 @@
 
 ***
 
+### roundTripTimeMeasurements?
+
+> `optional` **roundTripTimeMeasurements**: `number`
+
+***
+
 ### state
 
 > **state**: [`RTCStatsIceCandidatePairState`](../type-aliases/RTCStatsIceCandidatePairState.md)

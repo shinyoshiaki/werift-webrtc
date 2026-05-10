@@ -67,4 +67,42 @@ describe("iceTransport", () => {
     }
     await gatherer.connection.close();
   });
+
+  test("getStats keeps candidate ids stable until restart and does not reuse them after restart", async () => {
+    const gatherer = new RTCIceGatherer();
+    const transport = new RTCIceTransport(gatherer);
+
+    await gatherer.gather();
+
+    // Act: restart 前に 2 回 stats を取り、同じ monitored object を確認する。
+    const beforeRestart = await transport.getStats();
+    const beforeRestartAgain = await transport.getStats();
+
+    // Assert: restart 前は local candidate の id が安定している。
+    const firstIds = beforeRestart
+      .filter((stat) => stat.type === "local-candidate")
+      .map((stat) => stat.id)
+      .sort();
+    const secondIds = beforeRestartAgain
+      .filter((stat) => stat.type === "local-candidate")
+      .map((stat) => stat.id)
+      .sort();
+    expect(secondIds).toEqual(firstIds);
+
+    transport.restart();
+    await gatherer.gather();
+
+    // Act: restart 後の candidate id を取得する。
+    const afterRestart = await transport.getStats();
+
+    // Assert: restart 後は以前の id を再利用しない。
+    const restartedIds = new Set(
+      afterRestart
+        .filter((stat) => stat.type === "local-candidate")
+        .map((stat) => stat.id),
+    );
+    expect(firstIds.every((id) => !restartedIds.has(id))).toBe(true);
+
+    await transport.stop();
+  });
 });

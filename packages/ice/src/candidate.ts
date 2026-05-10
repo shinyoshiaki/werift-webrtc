@@ -1,8 +1,9 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { isIPv4 } from "net";
 
 export class Candidate {
   // An ICE candidate.
+  id = randomUUID().toString();
 
   constructor(
     public foundation: string,
@@ -18,6 +19,10 @@ export class Candidate {
     public generation?: number,
     public ufrag?: string,
   ) {}
+
+  refreshId() {
+    this.id = randomUUID().toString();
+  }
 
   static fromSdp(sdp: string) {
     // Parse a :class:`Candidate` from SDP.
