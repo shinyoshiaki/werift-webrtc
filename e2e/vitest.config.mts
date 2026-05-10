@@ -42,6 +42,8 @@ export default defineConfig({
               "--use-fake-device-for-media-stream",
               "--ignore-certificate-errors",
               "--allow-insecure-localhost",
+              "--disable-features=WebRtcHideLocalIpsWithMdns",
+              "--force-webrtc-ip-handling-policy=default_public_interface_only",
             ],
           },
         },

@@ -5,8 +5,6 @@ import {
   peer,
   sleep,
   waitForDataChannelOpen,
-  waitForIceGatheringComplete,
-  waitForPeerConnection,
 } from "../fixture";
 
 type IceLiteStats = {
@@ -34,55 +32,31 @@ describe("datachannel/ice lite", () => {
     const pc = new RTCPeerConnection({
       iceServers: [],
     });
-    const channelPromise = new Promise<RTCDataChannel>((resolve) => {
-      pc.ondatachannel = ({ channel }) => {
-        resolve(channel);
-      };
-    });
-    const serverInitiatedMessage = channelPromise.then(
-      (channel) =>
-        new Promise<string>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            channel.removeEventListener("message", handleMessage);
-            reject(new Error("timed out waiting for ICE lite server message"));
-          }, 20_000);
-
-          const handleMessage = (event: MessageEvent<string>) => {
-            clearTimeout(timer);
-            channel.removeEventListener("message", handleMessage);
-            resolve(event.data);
-          };
-
-          channel.addEventListener("message", handleMessage, { once: true });
-        }),
-    );
+    const channel = pc.createDataChannel("dc");
+    pc.onicecandidate = ({ candidate }) => {
+      peer
+        .request("datachannel_ice_lite_answer", {
+          type: "candidate",
+          payload: candidate,
+        })
+        .catch(() => {});
+    };
 
     try {
-      // Act: werift ICE lite 側の offer を受け取り、Chrome 側の answer を返す。
-      const offer = await peer.request("datachannel_ice_lite_answer", {
+      // Act: Chrome 側の offer を送り、werift ICE lite 側の answer を受け取る。
+      await pc.setLocalDescription(await pc.createOffer());
+      const answer = await peer.request("datachannel_ice_lite_answer", {
         type: "init",
-        payload: {},
-      });
-      expect(offer.sdp).toContain("a=ice-lite");
-      expect(offer.sdp).not.toContain("typ srflx");
-      expect(offer.sdp).not.toContain("typ relay");
-
-      await pc.setRemoteDescription(offer);
-      await pc.setLocalDescription(await pc.createAnswer());
-      await waitForIceGatheringComplete(pc);
-      await peer.request("datachannel_ice_lite_answer", {
-        type: "answer",
         payload: pc.localDescription,
       });
+      expect(answer.sdp).toContain("a=ice-lite");
+      expect(answer.sdp).not.toContain("typ srflx");
+      expect(answer.sdp).not.toContain("typ relay");
 
-      const channel = await channelPromise;
-      await Promise.all([
-        waitForPeerConnection(pc),
-        waitForDataChannelOpen(channel),
-      ]);
+      await pc.setRemoteDescription(answer);
+      await waitForDataChannelOpen(channel);
 
-      // Assert: werift からの初回送信を受け取れ、双方向の DataChannel 通信が成立する。
-      expect(await serverInitiatedMessage).toBe("server-to-browser-ice-lite");
+      // Assert: browser -> werift -> browser の往復で双方向の DataChannel 通信が成立する。
       await expectMessage(channel, "browser-to-server-ice-litepong", () => {
         channel.send("browser-to-server-ice-lite");
       });

@@ -147,6 +147,41 @@ describe("ice", () => {
     expect(pair.state).toBe(CandidatePairState.FAILED);
   });
 
+  test("test_ice_lite_replies_role_conflict_without_switching_role", async () => {
+    const connection = createTestConnection(false, { iceLite: true });
+    connection.remotePassword = "remote-password";
+    connection.remoteUsername = "remote-username";
+    Object.defineProperty(
+      connection as unknown as Record<string, unknown>,
+      "tieBreaker",
+      {
+        value: 1n,
+      },
+    );
+
+    const protocol = new ProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", "a:b")
+      .setAttribute("PRIORITY", 1234)
+      .setAttribute("ICE-CONTROLLED", 2n);
+
+    protocol.onRequestReceived.execute(
+      request,
+      ["2.3.4.5", 2345],
+      Buffer.alloc(0),
+    );
+
+    expect(connection.iceControlling).toBe(false);
+    expect(protocol.sentMessage?.messageClass).toBe(classes.ERROR);
+    expect(protocol.sentMessage?.getAttributeValue("ERROR-CODE")).toEqual([
+      487,
+      "Role Conflict",
+    ]);
+  });
+
   test("test_connect", async () => {
     const a = createTestConnection(true);
     const b = createTestConnection(false);

@@ -245,8 +245,12 @@ export class Connection implements IceConnection {
         !iceControlling &&
         msg.attributesKeys.includes("ICE-CONTROLLED")
       ) {
-        if (this.tieBreaker < msg.getAttributeValue("ICE-CONTROLLED")) {
+        if (
+          this.iceLite ||
+          this.tieBreaker < msg.getAttributeValue("ICE-CONTROLLED")
+        ) {
           this.respondError(msg, addr, protocol, [487, "Role Conflict"]);
+          return;
         } else {
           this.switchRole(true);
           return;

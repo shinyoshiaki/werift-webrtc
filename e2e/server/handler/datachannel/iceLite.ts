@@ -29,15 +29,14 @@ export class datachannel_ice_lite_answer {
           await this.closePeerConnection();
 
           this.pc = new RTCPeerConnection(await iceLitePeerConfig);
-          const dc = this.pc.createDataChannel("dc");
-          dc.onopen = () => {
-            dc.send("server-to-browser-ice-lite");
-          };
-          dc.onMessage.subscribe((msg) => {
-            dc.send(`${msg}pong`);
+          this.pc.onDataChannel.subscribe((dc) => {
+            dc.onMessage.subscribe((msg) => {
+              dc.send(`${msg}pong`);
+            });
           });
 
-          await this.pc.setLocalDescription(await this.pc.createOffer());
+          await this.pc.setRemoteDescription(payload);
+          await this.pc.setLocalDescription(await this.pc.createAnswer());
           accept(this.pc.localDescription);
         }
         break;
@@ -48,10 +47,7 @@ export class datachannel_ice_lite_answer {
         }
         break;
       case "answer":
-        {
-          await this.pc?.setRemoteDescription(payload);
-          accept({});
-        }
+        accept({});
         break;
       case "stats":
         accept(this.getStats());
