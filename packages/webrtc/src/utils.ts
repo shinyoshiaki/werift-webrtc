@@ -112,20 +112,25 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
   } = {};
 
   for (const iceServer of iceServers) {
-    const parsed = parseIceServerUrl(iceServer.urls);
-    if (!parsed) {
-      continue;
-    }
+    const urls = Array.isArray(iceServer.urls)
+      ? iceServer.urls
+      : [iceServer.urls];
+    for (const url of urls) {
+      const parsed = parseIceServerUrl(url);
+      if (!parsed) {
+        continue;
+      }
 
-    if (!options.stunServer && parsed.kind === "stun") {
-      options.stunServer = parsed.address;
-    }
+      if (!options.stunServer && parsed.kind === "stun") {
+        options.stunServer = parsed.address;
+      }
 
-    if (!options.turnServer && parsed.kind === "turn") {
-      options.turnServer = parsed.address;
-      options.turnTransport = parsed.transport;
-      options.turnUsername = iceServer.username;
-      options.turnPassword = iceServer.credential;
+      if (!options.turnServer && parsed.kind === "turn") {
+        options.turnServer = parsed.address;
+        options.turnTransport = parsed.transport;
+        options.turnUsername = iceServer.username;
+        options.turnPassword = iceServer.credential;
+      }
     }
   }
 

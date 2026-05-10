@@ -190,7 +190,7 @@ export class SDPManager {
     sdp: string;
     isLocal: boolean;
     signalingState: string;
-    type: "offer" | "answer";
+    type: "offer" | "answer" | "pranswer";
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
     this.validateDescription({ description, isLocal, signalingState });
@@ -211,7 +211,7 @@ export class SDPManager {
       if (description.type === "offer") {
         if (!["stable", "have-local-offer"].includes(signalingState))
           throw new Error("Cannot handle offer in signaling state");
-      } else if (description.type === "answer") {
+      } else if (["answer", "pranswer"].includes(description.type)) {
         if (
           !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
         ) {
@@ -223,7 +223,7 @@ export class SDPManager {
         if (!["stable", "have-remote-offer"].includes(signalingState)) {
           throw new Error("Cannot handle offer in signaling state");
         }
-      } else if (description.type === "answer") {
+      } else if (["answer", "pranswer"].includes(description.type)) {
         if (
           !["have-local-offer", "have-remote-pranswer"].includes(signalingState)
         ) {
@@ -414,24 +414,41 @@ export class SDPManager {
   }
 
   setLocalDescription(description: SessionDescription) {
-    this.currentLocalDescription = description;
-    if (description.type === "answer") {
-      this.pendingLocalDescription = undefined;
-    } else {
+    if (description.type === "offer" || description.type === "pranswer") {
       this.pendingLocalDescription = description;
+      return;
     }
+
+    this.currentLocalDescription = description;
+    if (this.pendingRemoteDescription) {
+      this.currentRemoteDescription = this.pendingRemoteDescription;
+    }
+    this.pendingLocalDescription = undefined;
+    this.pendingRemoteDescription = undefined;
   }
 
   setRemoteDescription(
     sessionDescription: RTCSessionDescriptionInit,
     signalingState: string,
   ) {
-    if (
-      !sessionDescription.sdp ||
-      !sessionDescription.type ||
-      sessionDescription.type === "rollback" ||
-      sessionDescription.type === "pranswer"
-    ) {
+    if (!sessionDescription.type) {
+      throw new Error("invalid sessionDescription");
+    }
+
+    if (sessionDescription.type === "rollback") {
+      if (
+        !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
+      ) {
+        throw new Error(
+          "Cannot rollback remote description in signaling state",
+        );
+      }
+      this.pendingLocalDescription = undefined;
+      this.pendingRemoteDescription = undefined;
+      return;
+    }
+
+    if (!sessionDescription.sdp) {
       throw new Error("invalid sessionDescription");
     }
 
@@ -443,14 +460,28 @@ export class SDPManager {
       type: sessionDescription.type,
     });
 
-    if (remoteSdp.type === "answer") {
+    if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
+      this.pendingRemoteDescription = remoteSdp;
+    } else {
+      if (this.pendingLocalDescription) {
+        this.currentLocalDescription = this.pendingLocalDescription;
+      }
       this.currentRemoteDescription = remoteSdp;
       this.pendingRemoteDescription = undefined;
-    } else {
-      this.pendingRemoteDescription = remoteSdp;
+      this.pendingLocalDescription = undefined;
     }
 
     return remoteSdp;
+  }
+
+  rollbackLocalDescription(signalingState: string) {
+    if (
+      !["have-local-offer", "have-remote-pranswer"].includes(signalingState)
+    ) {
+      throw new Error("Cannot rollback local description in signaling state");
+    }
+    this.pendingLocalDescription = undefined;
+    this.pendingRemoteDescription = undefined;
   }
 
   registerMid(mid: string): void {
@@ -504,6 +535,6 @@ export class SDPManager {
 
 export interface RTCSessionDescriptionInit {
   sdp?: string;
-  type: RTCSdpType;
+  type?: RTCSdpType;
 }
 export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";

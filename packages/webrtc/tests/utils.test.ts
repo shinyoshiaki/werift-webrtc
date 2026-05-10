@@ -122,6 +122,35 @@ describe("utils", () => {
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
     });
+
+    test("string array urls", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: [
+            "turn:turn.l.google.com:19302?transport=tcp",
+            "stun:stun.l.google.com:19302",
+          ],
+          credential: "credential",
+          username: "username",
+        },
+      ];
+
+      // 実行: W3C 互換の urls 配列を parseIceServers に渡す
+      const {
+        stunServer,
+        turnPassword,
+        turnServer,
+        turnTransport,
+        turnUsername,
+      } = parseIceServers(iceServers);
+
+      // 検証: 配列内の TURN/STUN URL を順に解釈できる
+      expect(stunServer).toEqual(["stun.l.google.com", 19302]);
+      expect(turnServer).toEqual(["turn.l.google.com", 19302]);
+      expect(turnTransport).toBe("tcp");
+      expect(turnUsername).toBe("username");
+      expect(turnPassword).toBe("credential");
+    });
   });
 
   describe("resolveTurnTransport", () => {

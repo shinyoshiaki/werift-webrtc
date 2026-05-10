@@ -41,7 +41,7 @@ export class SessionDescription {
   extMapAllowMixed = true;
   msidSemantic: GroupDescription[] = [];
   media: MediaDescription[] = [];
-  type!: "offer" | "answer";
+  type!: "offer" | "answer" | "pranswer";
   dtlsRole!: DtlsRole;
   iceOptions!: string;
   iceLite!: boolean;
@@ -644,7 +644,7 @@ export function candidateFromSdp(sdp: string) {
 export class RTCSessionDescription {
   constructor(
     public sdp: string,
-    public type: "offer" | "answer",
+    public type: "offer" | "answer" | "pranswer",
   ) {}
 
   static isThis(o: any) {

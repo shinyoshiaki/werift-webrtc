@@ -55,7 +55,9 @@ export class SecureTransportManager {
     if (this.config.dtls) {
       const { keys } = this.config.dtls;
 
-      if (keys) {
+      if (this.config.certificates[0]) {
+        this.certificate = this.config.certificates[0];
+      } else if (keys) {
         this.setupCertificate(keys);
       }
     }
@@ -189,6 +191,27 @@ export class SecureTransportManager {
   ) {
     const candidate = IceCandidate.fromJSON(candidateMessage);
     if (!candidate) {
+      const candidateTarget =
+        candidateMessage.sdpMid != undefined ||
+        candidateMessage.sdpMLineIndex != undefined
+          ? [
+              this.getTransportByMid(candidateMessage.sdpMid ?? undefined) ??
+                (typeof candidateMessage.sdpMLineIndex === "number"
+                  ? this.getTransportByMLineIndex(
+                      sdp,
+                      candidateMessage.sdpMLineIndex,
+                    )
+                  : undefined),
+            ]
+          : this.iceTransports;
+
+      await Promise.all(
+        candidateTarget
+          .filter(
+            (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
+          )
+          .map((iceTransport) => iceTransport.addRemoteCandidate(undefined)),
+      );
       return;
     }
 
@@ -216,7 +239,10 @@ export class SecureTransportManager {
     }
   }
 
-  private getTransportByMid(mid: string) {
+  private getTransportByMid(mid?: string) {
+    if (!mid) {
+      return;
+    }
     let iceTransport: RTCIceTransport | undefined;
 
     const transceiver = this.transceiverManager

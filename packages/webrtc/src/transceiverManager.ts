@@ -268,7 +268,7 @@ export class TransceiverManager {
   setRemoteRTP(
     transceiver: RTCRtpTransceiver,
     remoteMedia: MediaDescription,
-    type: "offer" | "answer",
+    type: "offer" | "answer" | "pranswer",
     mLineIndex: number,
   ): void {
     if (!transceiver.mid) {
