@@ -6,7 +6,7 @@ Instructions for coding agents working in `examples/turn-loopback`.
 
 ## Scope
 
-* Applies to the Vite React client, the TypeScript signaling server, and package-local docs.
+* Applies to the Vite React client, the TypeScript signaling server, the local Chrome E2E harness, and package-local docs.
 * This example demonstrates HTTPS signaling plus TURN over TLS on the same public port.
 * The werift server peer creates the offer and DataChannel; the browser client answers with relay-only ICE.
 
@@ -15,7 +15,7 @@ Instructions for coding agents working in `examples/turn-loopback`.
 1. Keep signaling and TLS socket multiplexing in `server/main.ts`.
 2. Keep the browser SPA in `src/` and preserve a simple one-screen flow for manual echo verification.
 3. Keep the server peer free of TURN client settings and `iceTransportPolicy: "relay"`.
-4. Update `README.md` when scripts, environment variables, or run steps change.
+4. Update `README.md` when scripts, environment variables, run steps, or Docker usage change.
 
 ## Don't
 
@@ -30,14 +30,16 @@ Instructions for coding agents working in `examples/turn-loopback`.
 | run signaling app | `npm run server`        |
 | run SPA dev app   | `npm run client`        |
 | build SPA         | `npm run build`         |
+| run Chrome E2E    | `npm run chrome-e2e`    |
 | type-check        | `npm run type`          |
 
 ## Validation
 
 * Example changes: run `npm run type` and `npm run build`.
+* Browser-hosting or client flow changes: also run `npm run chrome-e2e`.
 * If the server or TURN wiring changes, also run `cd ../../packages/ice-server && npm test`.
 
 ## Maintenance
 
-* Keep this guide aligned with `package.json`, `README.md`, and the run steps.
+* Keep this guide aligned with `package.json`, `README.md`, `chrome-e2e`, and the run steps.
 * When adding stable files or environment variables, document them here and in the README together.

@@ -71,6 +71,11 @@ pre {
   line-height: 1.5;
 }
 
+.hint {
+  margin: -0.5rem 0 1.25rem;
+  color: #94a3b8;
+}
+
 .field {
   display: grid;
   gap: 0.5rem;

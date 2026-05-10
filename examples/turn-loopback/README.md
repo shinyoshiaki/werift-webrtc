@@ -10,6 +10,7 @@ The server:
 * accepts `PUT /session` with `{ username, answer }`,
 * multiplexes HTTPS signaling and TURN over TLS on the same public port,
 * echoes every received DataChannel message back to the client.
+* serves the built SPA itself so a single HTTPS address can host both the UI and TURN/TLS signaling.
 
 The client:
 
@@ -18,8 +19,9 @@ The client:
 * waits for ICE gathering to complete before the `PUT /session`,
 * receives the server-created DataChannel with `ondatachannel`,
 * sends one echo message when the channel opens and shows the loopback result.
+* can target any signaling/TURN server URL in dev mode, while production builds are pinned to the hosting origin.
 
-## Run
+## Run in dev
 
 ```sh
 cd examples/turn-loopback
@@ -34,7 +36,43 @@ cd examples/turn-loopback
 npm run client
 ```
 
-Then open the Vite URL, keep the default signaling base URL, and click **Start echo session**.
+Then open the Vite URL, enter any HTTPS signaling base URL that serves this example's `/session` API, and click **Start echo session**.
+
+## Build and host from the server
+
+```sh
+cd examples/turn-loopback
+npm install
+npm run build
+npm run server
+```
+
+Open `https://127.0.0.1:8443/` and the server-hosted SPA will use the same origin for both HTTPS signaling and the returned `turns:` URI.
+
+## Docker
+
+Build from the repository root so the example can access the workspace packages it imports directly:
+
+```sh
+docker build -f examples/turn-loopback/Dockerfile -t werift-turn-loopback .
+docker run --rm -p 8443:8443 werift-turn-loopback
+```
+
+Then open `https://127.0.0.1:8443/`.
+
+## Chrome/Playwright E2E
+
+```sh
+cd examples/turn-loopback
+npm run chrome-e2e
+```
+
+The harness builds the SPA, starts the HTTPS/TURN server plus the Vite dev server, and verifies:
+
+* the single-address hosted SPA can complete echo,
+* multiple pages can connect concurrently with independent sessions,
+* the dev SPA can point at an arbitrary server URL,
+* Chromium runs with `--ignore-certificate-errors` and `--allow-insecure-localhost`.
 
 ## Environment variables
 
@@ -42,7 +80,7 @@ Then open the Vite URL, keep the default signaling base URL, and click **Start e
 | --- | --- | --- |
 | `TURN_LOOPBACK_HOST` | `0.0.0.0` | Bind address for the shared TLS listener |
 | `TURN_LOOPBACK_PORT` | `8443` | Shared public port for HTTPS + TURN/TLS |
-| `TURN_LOOPBACK_PUBLIC_HOST` | `127.0.0.1` | Hostname used in the returned `turns:` URL |
+| `TURN_LOOPBACK_PUBLIC_HOST` | request `Host` header, else `127.0.0.1` | Hostname or host:port authority used in the returned `turns:` URL |
 | `TURN_LOOPBACK_RELAY_ADDRESS` | `127.0.0.1` | Relay address advertised by the TURN server |
 | `TURN_LOOPBACK_RELAY_BIND_ADDRESS` | same as host | Bind address for relay UDP sockets |
 | `TURN_LOOPBACK_REALM` | `turn-loopback.local` | TURN realm |
@@ -52,11 +90,12 @@ Then open the Vite URL, keep the default signaling base URL, and click **Start e
 | `TURN_LOOPBACK_KEY_PEM` | bundled self-signed key | PEM body for the TLS private key |
 | `TURN_LOOPBACK_CERT_FILE` | none | Path to a TLS certificate PEM file |
 | `TURN_LOOPBACK_KEY_FILE` | none | Path to a TLS private key PEM file |
-| `VITE_SIGNALING_BASE_URL` | `https://127.0.0.1:8443` | Default server URL shown in the SPA |
+| `VITE_SIGNALING_BASE_URL` | `https://127.0.0.1:8443` | Default dev-mode server URL shown in the SPA |
 
 ## Notes
 
 * The werift server peer does **not** set `iceTransportPolicy: "relay"` and does **not** configure TURN client settings.
 * The browser client does force relay-only ICE and uses the server-provided `turns:` URI.
+* Production builds always call the same origin that hosted the SPA; the editable signaling URL field is only for dev mode.
 * Browsers are strict about `turns:` certificates. For local use, trust the certificate first or replace the bundled self-signed certificate with a locally trusted or publicly valid one.
 * Each `POST /session` creates unique TURN credentials, so multiple tabs or devices can run independent echo sessions concurrently.

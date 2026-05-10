@@ -1,17 +1,19 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   createServer as createHttpServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import {
   createServer as createTlsServer,
   type TLSSocket,
   type TlsOptions,
 } from "node:tls";
+import { fileURLToPath } from "node:url";
 
 type SessionState = "awaiting-answer" | "answer-applied" | "closed";
 type ChannelState = "open" | "closed" | "connecting" | "closing";
@@ -108,11 +110,16 @@ type SessionResponse = {
 
 type JsonRecord = Record<string, unknown>;
 
+const exampleRootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const distDir = resolve(exampleRootDir, "dist");
+const distIndexFile = resolve(distDir, "index.html");
+const dtlsAssetsDir = resolve(exampleRootDir, "../../packages/dtls/assets");
 const host = process.env.TURN_LOOPBACK_HOST ?? "0.0.0.0";
 const port = numberFromEnv("TURN_LOOPBACK_PORT", 8443);
 const publicHost =
   process.env.TURN_LOOPBACK_PUBLIC_HOST ??
   (host === "0.0.0.0" ? "127.0.0.1" : host);
+const defaultPublicAuthority = normalizeAuthority(publicHost, port);
 const relayAddress =
   process.env.TURN_LOOPBACK_RELAY_ADDRESS ??
   (host === "0.0.0.0" ? "127.0.0.1" : host);
@@ -201,9 +208,9 @@ async function main() {
   console.log("turn-loopback server started", {
     host,
     port,
-    publicHost,
+    publicAuthority: defaultPublicAuthority,
     relayAddress,
-    turnUrl: `turns:${publicHost}:${port}?transport=tcp`,
+    turnUrl: `turns:${defaultPublicAuthority}?transport=tcp`,
   });
 }
 
@@ -212,29 +219,44 @@ async function handleRequest(
   response: ServerResponse,
 ) {
   try {
+    const pathname = readPathname(request);
+
     if (request.method === "OPTIONS") {
       writeEmpty(response, 204);
       return;
     }
 
-    if (request.url === "/health" && request.method === "GET") {
+    if (pathname === "/health" && request.method === "GET") {
       writeJson(response, 200, {
         sessions: sessions.size,
-        turnUrl: `turns:${publicHost}:${port}?transport=tcp`,
+        turnUrl: resolveTurnUrl(request),
       });
       return;
     }
 
-    if (request.url === "/session" && request.method === "POST") {
-      const session = await createSession();
+    if (pathname === "/session" && request.method === "POST") {
+      const session = await createSession(request);
       writeJson(response, 200, session);
       return;
     }
 
-    if (request.url === "/session" && request.method === "PUT") {
+    if (pathname === "/session" && request.method === "PUT") {
       const body = await readJsonBody(request);
       await applyAnswer(body);
       writeEmpty(response, 204);
+      return;
+    }
+
+    if (pathname === "/stop" && request.method === "PUT") {
+      response.once("finish", () => {
+        void shutdown(0);
+      });
+      writeEmpty(response, 204);
+      return;
+    }
+
+    if (request.method === "GET" || request.method === "HEAD") {
+      await writeStaticResponse(response, pathname, request.method);
       return;
     }
 
@@ -248,7 +270,7 @@ async function handleRequest(
   }
 }
 
-async function createSession(): Promise<SessionResponse> {
+async function createSession(request: IncomingMessage): Promise<SessionResponse> {
   const username = `turn-loopback-${randomUUID()}`;
   const password = randomBytes(18).toString("base64url");
   const peer = new RTCPeerConnection({});
@@ -273,7 +295,7 @@ async function createSession(): Promise<SessionResponse> {
 
     return {
       offer: peer.localDescription,
-      turnUrl: `turns:${publicHost}:${port}?transport=tcp`,
+      turnUrl: resolveTurnUrl(request),
       username,
       password,
     };
@@ -387,6 +409,106 @@ function isHttpRequestChunk(chunk: Buffer) {
   return /^(GET |POST |PUT |PATCH |DELETE |OPTIONS |HEAD )/.test(prefix);
 }
 
+async function writeStaticResponse(
+  response: ServerResponse,
+  pathname: string,
+  method: string | undefined,
+) {
+  if (!existsSync(distIndexFile)) {
+    throw createHttpError(
+      503,
+      "client build was not found; run `npm run build` in examples/turn-loopback",
+    );
+  }
+
+  const resolvedPath = resolveStaticFilePath(pathname);
+  if (resolvedPath) {
+    try {
+      const body = await readFile(resolvedPath);
+      response.writeHead(200, {
+        "Content-Type": contentTypeFromPath(resolvedPath),
+        "Content-Length": String(body.byteLength),
+      });
+      response.end(method === "HEAD" ? undefined : body);
+      return;
+    } catch (error) {
+      if (!isFileNotFoundError(error)) {
+        throw error;
+      }
+      if (pathname.startsWith("/assets/") || extname(pathname).length > 0) {
+        throw createHttpError(404, `asset not found: ${pathname}`);
+      }
+    }
+  }
+
+  const body = await readFile(distIndexFile);
+  response.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": String(body.byteLength),
+  });
+  response.end(method === "HEAD" ? undefined : body);
+}
+
+function resolveStaticFilePath(pathname: string) {
+  if (pathname === "/" || pathname === "") {
+    return distIndexFile;
+  }
+
+  const decodedPath = decodeURIComponent(pathname).replace(/^\/+/, "");
+  const candidate = resolve(distDir, decodedPath);
+  if (candidate !== distDir && !candidate.startsWith(`${distDir}${sep}`)) {
+    throw createHttpError(400, `invalid path: ${pathname}`);
+  }
+  return candidate;
+}
+
+function readPathname(request: IncomingMessage) {
+  return new URL(request.url ?? "/", "https://turn-loopback.local").pathname;
+}
+
+function resolveTurnUrl(request: IncomingMessage) {
+  return `turns:${resolvePublicAuthority(request)}?transport=tcp`;
+}
+
+function resolvePublicAuthority(request: IncomingMessage) {
+  if (process.env.TURN_LOOPBACK_PUBLIC_HOST) {
+    return defaultPublicAuthority;
+  }
+
+  const requestHost = request.headers.host;
+  if (!requestHost) {
+    return defaultPublicAuthority;
+  }
+
+  return normalizeAuthority(requestHost, port);
+}
+
+function normalizeAuthority(value: string, fallbackPort: number) {
+  const normalizedValue = value.trim();
+  if (normalizedValue.length === 0) {
+    throw new Error("public host must not be empty");
+  }
+
+  try {
+    const url = new URL(
+      normalizedValue.includes("://")
+        ? normalizedValue
+        : `turns://${normalizedValue}`,
+    );
+    const hostname = url.hostname;
+    const resolvedPort = url.port || String(fallbackPort);
+    return hostname.includes(":")
+      ? `[${hostname}]:${resolvedPort}`
+      : `${hostname}:${resolvedPort}`;
+  } catch {
+    return normalizedValue.includes(":") && !normalizedValue.startsWith("[")
+      ? `[${normalizedValue}]:${fallbackPort}`
+      : normalizedValue.includes(":")
+        ? normalizedValue
+        : `${normalizedValue}:${fallbackPort}`;
+  }
+}
+
 async function waitForIceGatheringComplete(peer: PeerConnectionLike) {
   if (peer.iceGatheringState === "complete") {
     return;
@@ -435,7 +557,7 @@ function readPem(
   }
 
   return readFileSync(
-    resolve(process.cwd(), "../../packages/dtls/assets", defaultAssetName),
+    resolve(dtlsAssetsDir, defaultAssetName),
   );
 }
 
@@ -497,6 +619,35 @@ function numberFromEnv(name: string, fallback: number) {
   return parsed;
 }
 
+function contentTypeFromPath(filePath: string) {
+  switch (extname(filePath)) {
+    case ".css":
+      return "text/css; charset=utf-8";
+    case ".html":
+      return "text/html; charset=utf-8";
+    case ".ico":
+      return "image/x-icon";
+    case ".js":
+      return "text/javascript; charset=utf-8";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".png":
+      return "image/png";
+    case ".map":
+      return "application/json; charset=utf-8";
+    case ".svg":
+      return "image/svg+xml";
+    case ".webp":
+      return "image/webp";
+    case ".woff":
+      return "font/woff";
+    case ".woff2":
+      return "font/woff2";
+    default:
+      return "application/octet-stream";
+  }
+}
+
 function createHttpError(statusCode: number, message: string) {
   const error = new Error(message) as Error & { statusCode: number };
   error.statusCode = statusCode;
@@ -513,6 +664,14 @@ function statusCodeFromError(error: unknown) {
     return (error as { statusCode: number }).statusCode;
   }
   return 500;
+}
+
+function isFileNotFoundError(error: unknown) {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 function writeJson(

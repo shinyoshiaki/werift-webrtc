@@ -7,12 +7,14 @@ type SessionConfig = {
   password: string;
 };
 
-const defaultSignalingBaseUrl =
+const defaultDevSignalingBaseUrl =
   import.meta.env.VITE_SIGNALING_BASE_URL ?? "https://127.0.0.1:8443";
 
 export function App() {
+  const isDev = import.meta.env.DEV;
+  const sameOriginSignalingBaseUrl = window.location.origin;
   const [signalingBaseUrl, setSignalingBaseUrl] = useState(
-    defaultSignalingBaseUrl,
+    isDev ? defaultDevSignalingBaseUrl : sameOriginSignalingBaseUrl,
   );
   const [status, setStatus] = useState("idle");
   const [connectionState, setConnectionState] = useState("new");
@@ -32,6 +34,9 @@ export function App() {
   }, []);
 
   const canStart = useMemo(() => status !== "starting", [status]);
+  const sessionBaseUrl = isDev
+    ? trimTrailingSlash(signalingBaseUrl)
+    : trimTrailingSlash(sameOriginSignalingBaseUrl);
 
   async function startSession() {
     setStatus("starting");
@@ -48,7 +53,7 @@ export function App() {
     peerRef.current = null;
 
     try {
-      const config = await requestSession(signalingBaseUrl);
+      const config = await requestSession(sessionBaseUrl);
       setTurnUrl(config.turnUrl);
       setUsername(config.username);
 
@@ -89,7 +94,7 @@ export function App() {
       await peer.setRemoteDescription(config.offer);
       await peer.setLocalDescription(await peer.createAnswer());
       await waitForIceGatheringComplete(peer);
-      await completeSession(signalingBaseUrl, config.username, peer.localDescription);
+      await completeSession(sessionBaseUrl, config.username, peer.localDescription);
       setStatus("waiting-for-echo");
     } catch (error) {
       setStatus("failed");
@@ -107,46 +112,62 @@ export function App() {
         </p>
 
         <label className="field">
-          <span>HTTPS signaling base URL</span>
+          <span>{isDev ? "HTTPS signaling base URL" : "Hosted signaling base URL"}</span>
           <input
-            value={signalingBaseUrl}
+            data-testid="signaling-base-url"
+            value={sessionBaseUrl}
             onChange={(event) => setSignalingBaseUrl(event.target.value)}
-            placeholder="https://127.0.0.1:8443"
+            placeholder={defaultDevSignalingBaseUrl}
+            readOnly={!isDev}
           />
         </label>
+        {isDev ? null : (
+          <p className="hint">
+            Production builds always use the same HTTPS origin that hosted this
+            page.
+          </p>
+        )}
 
-        <button disabled={!canStart} onClick={() => void startSession()}>
+        <button
+          data-testid="start-session-button"
+          disabled={!canStart}
+          onClick={() => void startSession()}
+        >
           {status === "starting" ? "Starting..." : "Start echo session"}
         </button>
 
         <dl className="grid">
           <div>
             <dt>Status</dt>
-            <dd>{status}</dd>
+            <dd data-testid="status-value">{status}</dd>
           </div>
           <div>
             <dt>Connection state</dt>
-            <dd>{connectionState}</dd>
+            <dd data-testid="connection-state-value">{connectionState}</dd>
           </div>
           <div>
             <dt>TURN URL</dt>
-            <dd>{turnUrl || "-"}</dd>
+            <dd data-testid="turn-url-value">{turnUrl || "-"}</dd>
           </div>
           <div>
             <dt>Username</dt>
-            <dd>{username || "-"}</dd>
+            <dd data-testid="username-value">{username || "-"}</dd>
           </div>
           <div>
             <dt>Sent echo</dt>
-            <dd>{sentMessage || "-"}</dd>
+            <dd data-testid="sent-message-value">{sentMessage || "-"}</dd>
           </div>
           <div>
             <dt>Received loopback</dt>
-            <dd>{receivedMessage || "-"}</dd>
+            <dd data-testid="received-message-value">{receivedMessage || "-"}</dd>
           </div>
         </dl>
 
-        {errorMessage ? <pre className="error">{errorMessage}</pre> : null}
+        {errorMessage ? (
+          <pre className="error" data-testid="error-message">
+            {errorMessage}
+          </pre>
+        ) : null}
       </section>
     </main>
   );
