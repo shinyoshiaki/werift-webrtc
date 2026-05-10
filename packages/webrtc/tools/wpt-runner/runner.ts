@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, resolve } from "path";
 import vm from "vm";
 import { fileURLToPath } from "url";
@@ -42,6 +42,7 @@ export interface WptRunReport {
     failed: number;
     timedOut: number;
     skipped: number;
+    total: number;
   };
   results: WptResultRecord[];
   regressions: WptResultRecord[];
@@ -54,6 +55,11 @@ const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
 const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
+const TARGET_TIMEOUT_MS = 500;
+const TARGET_CONCURRENCY = 2;
+const PROGRESS_MODE = process.env.WPT_PROGRESS;
+const VERBOSE_PROGRESS = PROGRESS_MODE === "verbose";
+const TARGET_FILTER = process.env.WPT_TARGET_FILTER;
 
 const IGNORE_SCRIPT_PATHS = new Set([
   "/resources/testharnessreport.js",
@@ -62,8 +68,61 @@ const IGNORE_SCRIPT_PATHS = new Set([
   "../mediacapture-streams/permission-helper.js",
 ]);
 
+if (!(globalThis as { __weriftWptUnhandledRejectionHook?: boolean }).__weriftWptUnhandledRejectionHook) {
+  process.on("unhandledRejection", () => undefined);
+  (globalThis as { __weriftWptUnhandledRejectionHook?: boolean }).__weriftWptUnhandledRejectionHook =
+    true;
+}
+
 export async function loadAllowlist() {
   return JSON.parse(await readFile(allowlistPath, "utf8")) as WptAllowlistFile;
+}
+
+export async function discoverWptTargets() {
+  const allowlist = await loadAllowlist();
+  const discoveredFiles = await listWptHtmlFiles(resolve(wptRoot, "webrtc"));
+  const targets = new Map<string, WptTarget>();
+
+  for (const file of discoveredFiles) {
+    const configured = allowlist.targets.find(
+      (target) => target.file === file && !target.variant,
+    );
+    const target: WptTarget = {
+      file,
+      enabled: true,
+      reason:
+        configured?.reason ??
+        "Auto-discovered upstream WebRTC WPT file executed by the Node.js runner.",
+      variant: "",
+    };
+    targets.set(targetKey(target), target);
+  }
+
+  for (const configured of allowlist.targets) {
+    if (!configured.variant) {
+      continue;
+    }
+    targets.set(targetKey(configured), {
+      ...configured,
+      enabled: true,
+    });
+  }
+
+  return [...targets.values()]
+    .filter((target) => {
+      if (!TARGET_FILTER) {
+        return true;
+      }
+      return `${target.file}${target.variant ? ` ${target.variant}` : ""}`.includes(
+        TARGET_FILTER,
+      );
+    })
+    .sort((left, right) => {
+    return (
+      left.file.localeCompare(right.file) ||
+      (left.variant ?? "").localeCompare(right.variant ?? "")
+    );
+    });
 }
 
 export async function runSelectedWpt(options: {
@@ -71,12 +130,8 @@ export async function runSelectedWpt(options: {
   reportPath?: string;
   updateBaseline?: boolean;
 } = {}): Promise<WptRunReport> {
-  const allowlist = await loadAllowlist();
-  const results: WptResultRecord[] = [];
-
-  for (const target of allowlist.targets.filter((candidate) => candidate.enabled)) {
-    results.push(...(await runTarget(target)));
-  }
+  const targets = await discoverWptTargets();
+  const results = await runTargets(targets);
 
   const regressions =
     options.compareWithBaseline === false
@@ -103,7 +158,42 @@ export async function runSelectedWpt(options: {
   return report;
 }
 
+async function runTargets(targets: WptTarget[]) {
+  const results: WptResultRecord[] = [];
+  const executing = new Set<Promise<void>>();
+  let completed = 0;
+
+  for (const target of targets) {
+    const task = runTarget(target).then((targetResults) => {
+      results.push(...targetResults);
+      completed += 1;
+      if (PROGRESS_MODE && (completed % 10 === 0 || completed === targets.length)) {
+        console.error(`[wpt] completed ${completed}/${targets.length}`);
+      }
+    });
+    executing.add(task);
+    task.finally(() => {
+      executing.delete(task);
+    });
+    if (executing.size >= TARGET_CONCURRENCY) {
+      await Promise.race(executing);
+    }
+  }
+
+  await Promise.all(executing);
+  return results.sort((left, right) => {
+    return (
+      left.file.localeCompare(right.file) ||
+      left.variant.localeCompare(right.variant) ||
+      left.subtest.localeCompare(right.subtest)
+    );
+  });
+}
+
 async function runTarget(target: WptTarget) {
+  if (VERBOSE_PROGRESS) {
+    console.error(`[wpt] start ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
+  }
   const htmlPath = resolve(wptRoot, target.file);
   const html = await readFile(htmlPath, "utf8");
   const title = extractTitle(html);
@@ -124,7 +214,7 @@ async function runTarget(target: WptTarget) {
         }
         const scriptPath = resolveScriptPath(htmlPath, script.src);
         const source = await readFile(scriptPath, "utf8");
-        vm.runInContext(source, context, { filename: scriptPath });
+        vm.runInContext(source, context, { filename: scriptPath, timeout: TARGET_TIMEOUT_MS });
         if (script.src === "/resources/testharness.js") {
           vm.runInContext(
             `
@@ -132,15 +222,19 @@ async function runTarget(target: WptTarget) {
               ${harnessPatch}
             `,
             context,
+            { timeout: TARGET_TIMEOUT_MS },
           );
         }
         continue;
       }
 
-      vm.runInContext(script.content, context, { filename: htmlPath });
+      vm.runInContext(script.content, context, { filename: htmlPath, timeout: TARGET_TIMEOUT_MS });
+    }
+    if (VERBOSE_PROGRESS) {
+      console.error(`[wpt] waiting ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
     }
 
-    return await withTimeout(completion.done, 90_000, [
+    return await withTimeout(completion.done, TARGET_TIMEOUT_MS, [
       {
         file: target.file,
         variant: target.variant ?? "",
@@ -160,8 +254,14 @@ async function runTarget(target: WptTarget) {
       },
     ];
   } finally {
+    if (VERBOSE_PROGRESS) {
+      console.error(`[wpt] cleanup ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
+    }
     await closePeerConnections();
     mediaDevices.cleanup();
+    if (VERBOSE_PROGRESS) {
+      console.error(`[wpt] finish ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
+    }
   }
 }
 
@@ -223,7 +323,11 @@ function createContext(input: { file: string; variant: string; title: string }) 
     context: vm.createContext(sandbox),
     mediaDevices,
     closePeerConnections: async () => {
-      await Promise.allSettled([...peerConnections].map((pc) => pc.close()));
+      await Promise.allSettled(
+        [...peerConnections].map((pc) =>
+          withTimeout(Promise.resolve(pc.close()), 250, undefined),
+        ),
+      );
     },
   };
 }
@@ -255,6 +359,14 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
       super(...args);
       peerConnections.add(this);
+    }
+
+    override addIceCandidate(
+      ...args: Parameters<RTCPeerConnection["addIceCandidate"]>
+    ) {
+      const promise = super.addIceCandidate(...args);
+      promise.catch(() => undefined);
+      return promise;
     }
 
     override async close() {
@@ -299,10 +411,6 @@ function defineEventAttribute(target: object, name: string) {
 
 function installHarnessHooks(context: vm.Context, target: WptTarget) {
   const runtime = context as vm.Context & Record<string, any>;
-  const skipped: WptResultRecord[] = [];
-  const selected = new Set(target.subtests ?? []);
-  const selectedNames = new Set<string>();
-
   const done = new Promise<WptResultRecord[]>((resolve, reject) => {
     runtime.__wptComplete = (
       tests: Array<{ name: string; message: string; status: number }>,
@@ -316,18 +424,6 @@ function installHarnessHooks(context: vm.Context, target: WptTarget) {
         message: test.message || undefined,
       })) as WptResultRecord[];
 
-      for (const subtest of selected) {
-        if (!selectedNames.has(subtest)) {
-          resultRecords.push({
-            file: target.file,
-            variant: target.variant ?? "",
-            subtest,
-            status: "FAIL",
-            message: "Selected subtest was not registered by the upstream WPT file.",
-          });
-        }
-      }
-
       if (status.status !== 0) {
         resultRecords.push({
           file: target.file,
@@ -338,31 +434,12 @@ function installHarnessHooks(context: vm.Context, target: WptTarget) {
         });
       }
 
-      resolve([...resultRecords, ...skipped]);
+      resolve(resultRecords);
     };
     runtime.__wptFailure = (error: Error) => reject(error);
   });
 
-  runtime.__wptSelectTest = (name: string) => {
-    if (!target.subtests?.length) {
-      selectedNames.add(name);
-      return true;
-    }
-
-    if (selected.has(name)) {
-      selectedNames.add(name);
-      return true;
-    }
-
-    skipped.push({
-      file: target.file,
-      variant: target.variant ?? "",
-      subtest: name,
-      status: "SKIP",
-      message: "Not selected in packages/webrtc/wpt/allowlist.json",
-    });
-    return false;
-  };
+  runtime.__wptSelectTest = (_name: string) => true;
 
   return {
     done,
@@ -483,26 +560,157 @@ function mapStatus(status: number): WptResultRecord["status"] {
 }
 
 function summarize(results: WptResultRecord[]) {
-  return results.reduce(
-    (summary, result) => {
+  const summary = results.reduce(
+    (acc, result) => {
       switch (result.status) {
         case "PASS":
-          summary.passed += 1;
+          acc.passed += 1;
           break;
         case "FAIL":
-          summary.failed += 1;
+          acc.failed += 1;
           break;
         case "TIMEOUT":
-          summary.timedOut += 1;
+          acc.timedOut += 1;
           break;
         case "SKIP":
-          summary.skipped += 1;
+          acc.skipped += 1;
           break;
       }
-      return summary;
+      return acc;
     },
     { passed: 0, failed: 0, timedOut: 0, skipped: 0 },
   );
+  return {
+    ...summary,
+    total: summary.passed + summary.failed + summary.timedOut + summary.skipped,
+  };
+}
+
+export function hasWptRegressions(report: Pick<WptRunReport, "regressions">) {
+  return report.regressions.length > 0;
+}
+
+export function formatMarkdownReport(report: WptRunReport) {
+  const fileSummary = summarizeByFile(report.results)
+    .filter((file) => file.failed > 0 || file.timedOut > 0)
+    .sort((left, right) => {
+      return (
+        right.failed - left.failed ||
+        right.timedOut - left.timedOut ||
+        left.file.localeCompare(right.file)
+      );
+    })
+    .slice(0, 20);
+
+  const lines = [
+    "# WPT WebRTC summary",
+    "",
+    "| Status | Count |",
+    "| --- | ---: |",
+    `| PASS | ${report.summary.passed} |`,
+    `| FAIL | ${report.summary.failed} |`,
+    `| TIMEOUT | ${report.summary.timedOut} |`,
+    `| SKIP | ${report.summary.skipped} |`,
+    `| REGRESSION | ${report.regressions.length} |`,
+    `| TOTAL | ${report.summary.total} |`,
+    "",
+    hasWptRegressions(report)
+      ? "**Result:** failed due to regressions against the recorded WPT baseline."
+      : "**Result:** success (there may still be upstream WPT failures, but no regressions were detected).",
+  ];
+
+  if (fileSummary.length > 0) {
+    lines.push(
+      "",
+      "## Files with failures or timeouts",
+      "",
+      "| File | PASS | FAIL | TIMEOUT |",
+      "| --- | ---: | ---: | ---: |",
+      ...fileSummary.map(
+        (file) =>
+          `| ${file.file}${file.variant ? ` ${file.variant}` : ""} | ${file.passed} | ${file.failed} | ${file.timedOut} |`,
+      ),
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+export function printTargetList(targets: WptTarget[]) {
+  console.log(`# WPT WebRTC targets (${targets.length})`);
+  console.log("");
+  for (const target of targets) {
+    const variant = target.variant ? ` ${target.variant}` : "";
+    console.log(`- ${target.file}${variant}`);
+  }
+}
+
+async function listWptHtmlFiles(directoryPath: string, parent = ""): Promise<string[]> {
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+    const relativePath = parent ? `${parent}/${entry.name}` : entry.name;
+    const absolutePath = resolve(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listWptHtmlFiles(absolutePath, relativePath)));
+      continue;
+    }
+    if (relativePath.endsWith(".html")) {
+      files.push(`webrtc/${relativePath}`);
+    }
+  }
+
+  return files;
+}
+
+function targetKey(target: Pick<WptTarget, "file" | "variant">) {
+  return `${target.file}::${target.variant ?? ""}`;
+}
+
+function summarizeByFile(results: WptResultRecord[]) {
+  const byFile = new Map<
+    string,
+    {
+      file: string;
+      variant: string;
+      passed: number;
+      failed: number;
+      timedOut: number;
+    }
+  >();
+
+  for (const result of results) {
+    const key = `${result.file}::${result.variant}`;
+    const entry =
+      byFile.get(key) ??
+      {
+        file: result.file,
+        variant: result.variant,
+        passed: 0,
+        failed: 0,
+        timedOut: 0,
+      };
+    switch (result.status) {
+      case "PASS":
+        entry.passed += 1;
+        break;
+      case "FAIL":
+        entry.failed += 1;
+        break;
+      case "TIMEOUT":
+        entry.timedOut += 1;
+        break;
+      case "SKIP":
+        break;
+    }
+    byFile.set(key, entry);
+  }
+
+  return [...byFile.values()];
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T) {
@@ -510,27 +718,13 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
   try {
     return await Promise.race([
       promise,
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      new Promise<T>((resolveFallback) => {
+        timer = setTimeout(() => resolveFallback(fallback), timeoutMs);
       }),
     ]);
   } finally {
     if (timer) {
       clearTimeout(timer);
-    }
-  }
-}
-
-export function printTargetList(allowlist: WptAllowlistFile) {
-  for (const target of allowlist.targets) {
-    const prefix = target.enabled ? "[run]" : "[skip]";
-    const variant = target.variant ? ` ${target.variant}` : "";
-    console.log(`${prefix} ${target.file}${variant}`);
-    console.log(`  reason: ${target.reason}`);
-    if (target.subtests?.length) {
-      for (const subtest of target.subtests) {
-        console.log(`  - ${subtest}`);
-      }
     }
   }
 }

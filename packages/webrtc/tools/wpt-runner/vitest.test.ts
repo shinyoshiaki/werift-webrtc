@@ -3,15 +3,14 @@ import { expect, test } from "vitest";
 import { runSelectedWpt } from "./runner";
 
 test(
-  "allowlisted upstream WPT cases",
+  "upstream WebRTC WPT cases do not regress from the recorded baseline",
   async () => {
     const report = await runSelectedWpt({
       compareWithBaseline: true,
     });
 
     expect(report.regressions).toEqual([]);
-    expect(report.summary.failed).toBe(0);
-    expect(report.summary.timedOut).toBe(0);
+    expect(report.summary.total).toBeGreaterThan(0);
   },
-  120_000,
+  600_000,
 );

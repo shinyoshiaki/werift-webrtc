@@ -1,8 +1,8 @@
-import { loadAllowlist, printTargetList } from "./runner";
+import { discoverWptTargets, printTargetList } from "./runner";
 
 async function main() {
-  const allowlist = await loadAllowlist();
-  printTargetList(allowlist);
+  const targets = await discoverWptTargets();
+  printTargetList(targets);
 }
 
 main().catch((error) => {

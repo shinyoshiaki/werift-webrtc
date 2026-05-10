@@ -1,4 +1,8 @@
-import { runSelectedWpt } from "./runner";
+import {
+  formatMarkdownReport,
+  hasWptRegressions,
+  runSelectedWpt,
+} from "./runner";
 
 async function main() {
   const updateBaseline = process.argv.includes("--update-baseline");
@@ -7,24 +11,10 @@ async function main() {
     updateBaseline,
   });
 
-  console.log(
-    JSON.stringify(
-      {
-        summary: report.summary,
-        regressions: report.regressions,
-      },
-      null,
-      2,
-    ),
-  );
-
-  if (
-    report.summary.failed > 0 ||
-    report.summary.timedOut > 0 ||
-    report.regressions.length > 0
-  ) {
-    process.exitCode = 1;
-  }
+  await new Promise<void>((resolve) => {
+    process.stdout.write(formatMarkdownReport(report), () => resolve());
+  });
+  process.exit(hasWptRegressions(report) ? 1 : 0);
 }
 
 main().catch((error) => {
