@@ -228,7 +228,7 @@ export class SecureTransportManager {
 
     let iceTransport: RTCIceTransport | undefined;
 
-    if (typeof candidate.sdpMid === "number") {
+    if (typeof candidate.sdpMid === "string") {
       iceTransport = this.getTransportByMid(candidate.sdpMid);
     }
 

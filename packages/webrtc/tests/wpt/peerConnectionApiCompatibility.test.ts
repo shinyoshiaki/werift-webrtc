@@ -137,6 +137,48 @@ describe("wpt/peerConnection api compatibility", () => {
     }
   });
 
+  test("routes addIceCandidate by sdpMid without sdpMLineIndex", async () => {
+    const caller = new RTCPeerConnection({ bundlePolicy: "disable" });
+    const callee = new RTCPeerConnection({ bundlePolicy: "disable" });
+    const gatheredCandidates: any[] = [];
+
+    caller.addTransceiver("audio");
+    caller.addTransceiver("video");
+    caller.onIceCandidate.subscribe((candidate) => {
+      if (candidate) {
+        gatheredCandidates.push(candidate);
+      }
+    });
+
+    try {
+      // 実行: candidate 未含有の offer を適用しつつ、local 側では MID 付き candidate を収集する
+      const offer = await caller.createOffer();
+      await caller.setLocalDescription(offer);
+      await callee.setRemoteDescription(offer);
+
+      const videoCandidate = gatheredCandidates.find(
+        (candidate) => candidate.sdpMid === "1",
+      );
+
+      // 検証: bundle 無効時は transport が分かれ、video MID の candidate を特定できる
+      expect(callee.iceTransports).toHaveLength(2);
+      expect(videoCandidate).toBeDefined();
+      const [audioTransport, videoTransport] = callee.iceTransports;
+
+      // 実行: sdpMLineIndex を省いて sdpMid だけで candidate を追加する
+      await callee.addIceCandidate({
+        candidate: videoCandidate.candidate,
+        sdpMid: videoCandidate.sdpMid,
+      });
+
+      // 検証: candidate は対応する MID の transport にだけ追加される
+      expect(audioTransport.connection.remoteCandidates).toHaveLength(0);
+      expect(videoTransport.connection.remoteCandidates).toHaveLength(1);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
   test("accepts W3C-compatible RTCConfiguration fields", async () => {
     const certificate = await RTCDtlsTransport.SetupCertificate();
     const pc = new RTCPeerConnection({
