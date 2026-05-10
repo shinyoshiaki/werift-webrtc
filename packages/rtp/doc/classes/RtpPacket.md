@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,9 +14,13 @@
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
 
-• **payload**: `Buffer`
+[`RtpHeader`](RtpHeader.md)
+
+##### payload
+
+`Buffer`
 
 #### Returns
 
@@ -38,9 +42,11 @@
 
 ### serializeSize
 
-> `get` **serializeSize**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **serializeSize**(): `number`
+
+##### Returns
 
 `number`
 
@@ -68,11 +74,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -82,7 +88,9 @@
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **type**: `"offer"` \| `"answer"`
+### type
 
-• **description**: [`SessionDescription`](../classes/SessionDescription.md)
+`"offer"` | `"answer"`
+
+### description
+
+[`SessionDescription`](../classes/SessionDescription.md)
 
 ## Returns
 

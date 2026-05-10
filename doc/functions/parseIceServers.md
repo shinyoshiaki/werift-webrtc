@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,24 +10,30 @@
 
 ## Parameters
 
-• **iceServers**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
+### iceServers
+
+[`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
 
 ## Returns
 
 `object`
 
-### stunServer
+### stunServer?
 
-> **stunServer**: `undefined` \| readonly [`string`, `number`]
+> `optional` **stunServer**: readonly \[`string`, `number`\]
 
-### turnPassword
+### turnPassword?
 
-> **turnPassword**: `undefined` \| `string` = `credential`
+> `optional` **turnPassword**: `string`
 
-### turnServer
+### turnServer?
 
-> **turnServer**: `undefined` \| readonly [`string`, `number`]
+> `optional` **turnServer**: readonly \[`string`, `number`\]
 
-### turnUsername
+### turnTransport?
 
-> **turnUsername**: `undefined` \| `string` = `username`
+> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
+
+### turnUsername?
+
+> `optional` **turnUsername**: `string`

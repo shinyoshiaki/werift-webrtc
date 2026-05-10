@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -12,39 +12,89 @@
 
 ## Properties
 
-### closed
+### type
 
-> **closed**: `boolean` = `false`
+> `readonly` **type**: `"tcp"`
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`type`](../interfaces/Transport.md#type)
+
+## Accessors
+
+### address
+
+#### Get Signature
+
+> **get** **address**(): `AddressInfo`
+
+##### Returns
+
+`AddressInfo`
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`address`](../interfaces/Transport.md#address)
 
 ***
 
-### onData()
+### closed
 
-> **onData**: (`data`, `addr`) => `void`
+#### Get Signature
 
-#### Parameters
+> **get** **closed**(): `boolean`
 
-• **data**: `Buffer`
+##### Returns
 
-• **addr**: readonly [`string`, `number`]
+`boolean`
 
-#### Returns
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`closed`](../interfaces/Transport.md#closed)
+
+***
+
+### onData
+
+#### Get Signature
+
+> **get** **onData**(): (`data`, `addr`) => `void`
+
+##### Returns
+
+`Function`
+
+###### Parameters
+
+###### data
+
+`Buffer`
+
+###### addr
+
+readonly \[`string`, `number`\]
+
+###### Returns
+
+`void`
+
+#### Set Signature
+
+> **set** **onData**(`handler`): `void`
+
+##### Parameters
+
+###### handler
+
+(`data`, `addr`) => `void`
+
+##### Returns
 
 `void`
 
 #### Implementation of
 
 [`Transport`](../interfaces/Transport.md).[`onData`](../interfaces/Transport.md#ondata)
-
-***
-
-### type
-
-> `readonly` **type**: `"tcp"` = `"tcp"`
-
-#### Implementation of
-
-[`Transport`](../interfaces/Transport.md).[`type`](../interfaces/Transport.md#type)
 
 ## Methods
 
@@ -64,13 +114,17 @@
 
 ### send()
 
-> **send**(`data`, `addr`): `Promise`\<`void`\>
+> **send**(`data`, `addr`?): `Promise`\<`void`\>
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -88,7 +142,9 @@
 
 #### Parameters
 
-• **addr**: readonly [`string`, `number`]
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

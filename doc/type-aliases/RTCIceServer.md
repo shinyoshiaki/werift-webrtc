@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -16,7 +16,7 @@
 
 ### urls
 
-> **urls**: `string`
+> **urls**: `string` \| `string`[]
 
 ### username?
 

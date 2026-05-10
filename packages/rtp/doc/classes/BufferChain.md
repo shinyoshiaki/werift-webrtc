@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **size**: `number`
+##### size
+
+`number`
 
 #### Returns
 
@@ -34,9 +36,13 @@
 
 #### Parameters
 
-• **value**: `number`
+##### value
 
-• **offset?**: `number`
+`number`
+
+##### offset?
+
+`number`
 
 #### Returns
 
@@ -50,9 +56,13 @@
 
 #### Parameters
 
-• **value**: `number`
+##### value
 
-• **offset?**: `number`
+`number`
+
+##### offset?
+
+`number`
 
 #### Returns
 

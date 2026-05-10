@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -40,9 +40,11 @@
 
 ### length
 
-> `get` **length**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **length**(): `number`
+
+##### Returns
 
 `number`
 
@@ -50,51 +52,67 @@
 
 ### returnListener
 
-> `get` **returnListener**(): `object`
+#### Get Signature
 
-#### Returns
+> **get** **returnListener**(): `object`
+
+##### Returns
 
 `object`
 
-##### asPromise()
+###### asPromise()
 
 > **asPromise**: (`timeLimit`?) => `Promise`\<`T`\>
 
 ###### Parameters
 
-• **timeLimit?**: `number`
+###### timeLimit?
+
+`number`
 
 ###### Returns
 
 `Promise`\<`T`\>
 
-##### once()
+###### once()
 
 > **once**: (`execute`, `complete`?, `error`?) => `void`
 
 ###### Parameters
 
-• **execute**: `EventExecute`\<`T`\>
+###### execute
 
-• **complete?**: `EventComplete`
+`EventExecute`\<`T`\>
 
-• **error?**: `EventError`
+###### complete?
+
+`EventComplete`
+
+###### error?
+
+`EventError`
 
 ###### Returns
 
 `void`
 
-##### subscribe()
+###### subscribe()
 
 > **subscribe**: (`execute`, `complete`?, `error`?) => `object`
 
 ###### Parameters
 
-• **execute**: `EventExecute`\<`T`\>
+###### execute
 
-• **complete?**: `EventComplete`
+`EventExecute`\<`T`\>
 
-• **error?**: `EventError`
+###### complete?
+
+`EventComplete`
+
+###### error?
+
+`EventError`
 
 ###### Returns
 
@@ -106,7 +124,9 @@
 
 ###### Parameters
 
-• **disposer**: [`EventDisposer`](EventDisposer.md)
+###### disposer
+
+[`EventDisposer`](EventDisposer.md)
 
 ###### Returns
 
@@ -124,13 +144,15 @@
 
 ### returnTrigger
 
-> `get` **returnTrigger**(): `object`
+#### Get Signature
 
-#### Returns
+> **get** **returnTrigger**(): `object`
+
+##### Returns
 
 `object`
 
-##### complete()
+###### complete()
 
 > **complete**: () => `void`
 
@@ -138,25 +160,29 @@
 
 `void`
 
-##### error()
+###### error()
 
 > **error**: (`e`) => `void`
 
 ###### Parameters
 
-• **e**: `any`
+###### e
+
+`any`
 
 ###### Returns
 
 `void`
 
-##### execute()
+###### execute()
 
 > **execute**: (...`args`) => `void`
 
 ###### Parameters
 
-• ...**args**: `T`
+###### args
+
+...`T`
 
 ###### Returns
 
@@ -180,7 +206,9 @@
 
 #### Parameters
 
-• **timeLimit?**: `number`
+##### timeLimit?
+
+`number`
 
 #### Returns
 
@@ -204,7 +232,9 @@
 
 #### Parameters
 
-• **e**: `any`
+##### e
+
+`any`
 
 #### Returns
 
@@ -218,7 +248,9 @@
 
 #### Parameters
 
-• ...**args**: `T`
+##### args
+
+...`T`
 
 #### Returns
 
@@ -232,11 +264,17 @@
 
 #### Parameters
 
-• **execute**: `EventExecute`\<`T`\>
+##### execute
 
-• **complete?**: `EventComplete`
+`EventExecute`\<`T`\>
 
-• **error?**: `EventError`
+##### complete?
+
+`EventComplete`
+
+##### error?
+
+`EventError`
 
 #### Returns
 
@@ -250,7 +288,25 @@
 
 #### Parameters
 
-• **e**: `any`
+##### e
+
+`any`
+
+#### Returns
+
+`void`
+
+***
+
+### pipe()
+
+> **pipe**(`e`): `void`
+
+#### Parameters
+
+##### e
+
+[`Event`](Event.md)\<`T`\>
 
 #### Returns
 
@@ -264,11 +320,17 @@
 
 #### Parameters
 
-• **execute**: `PromiseEventExecute`\<`T`\>
+##### execute
 
-• **complete?**: `EventComplete`
+`PromiseEventExecute`\<`T`\>
 
-• **error?**: `EventError`
+##### complete?
+
+`EventComplete`
+
+##### error?
+
+`EventError`
 
 #### Returns
 
@@ -280,7 +342,9 @@
 
 ###### Parameters
 
-• **disposer**: [`EventDisposer`](EventDisposer.md)
+###### disposer
+
+[`EventDisposer`](EventDisposer.md)
 
 ###### Returns
 
@@ -302,11 +366,17 @@
 
 #### Parameters
 
-• **execute**: `EventExecute`\<`T`\>
+##### execute
 
-• **complete?**: `EventComplete`
+`EventExecute`\<`T`\>
 
-• **error?**: `EventError`
+##### complete?
+
+`EventComplete`
+
+##### error?
+
+`EventError`
 
 #### Returns
 
@@ -318,7 +388,9 @@
 
 ###### Parameters
 
-• **disposer**: [`EventDisposer`](EventDisposer.md)
+###### disposer
+
+[`EventDisposer`](EventDisposer.md)
 
 ###### Returns
 
@@ -340,9 +412,13 @@
 
 #### Parameters
 
-• **cb**
+##### cb
 
-• **timeLimit?**: `number`
+(...`args`) => `boolean`
+
+##### timeLimit?
+
+`number`
 
 #### Returns
 

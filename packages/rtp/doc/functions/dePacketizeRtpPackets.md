@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ## Parameters
 
-• **codec**: [`DepacketizerCodec`](../type-aliases/DepacketizerCodec.md)
+### codec
 
-• **packets**: [`RtpPacket`](../classes/RtpPacket.md)[]
+[`DepacketizerCodec`](../type-aliases/DepacketizerCodec.md)
 
-• **frameFragmentBuffer?**: `Buffer`
+### packets
+
+[`RtpPacket`](../classes/RtpPacket.md)[]
+
+### frameFragmentBuffer?
+
+`Buffer`\<`ArrayBufferLike`\>
 
 ## Returns
 
@@ -26,7 +32,7 @@
 
 ### frameFragmentBuffer?
 
-> `optional` **frameFragmentBuffer**: `Buffer`
+> `optional` **frameFragmentBuffer**: `Buffer`\<`ArrayBufferLike`\>
 
 ### isKeyframe
 

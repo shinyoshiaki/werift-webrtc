@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -18,7 +18,9 @@
 
 #### Parameters
 
-• **turn**: [`TurnProtocol`](TurnProtocol.md)
+##### turn
+
+[`TurnProtocol`](TurnProtocol.md)
 
 #### Returns
 
@@ -38,7 +40,7 @@
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<[`Buffer`]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -48,7 +50,7 @@
 
 ### onRequestReceived
 
-> **onRequestReceived**: [`Event`](Event.md)\<[[`Message`](Message.md), readonly [`string`, `number`], `Buffer`]\>
+> **onRequestReceived**: [`Event`](Event.md)\<\[[`Message`](Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -108,19 +110,25 @@
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?): `Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+> **request**(`request`, `addr`, `integrityKey`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
-• **request**: [`Message`](Message.md)
+##### request
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
 
-• **integrityKey?**: `Buffer`
+##### addr
+
+readonly \[`string`, `number`\]
+
+##### integrityKey?
+
+`Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
-`Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+`Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Implementation of
 
@@ -134,9 +142,13 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -154,9 +166,13 @@
 
 #### Parameters
 
-• **message**: [`Message`](Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

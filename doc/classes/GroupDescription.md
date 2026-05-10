@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,9 +14,13 @@
 
 #### Parameters
 
-• **semantic**: `string`
+##### semantic
 
-• **items**: `string`[]
+`string`
+
+##### items
+
+`string`[]
 
 #### Returns
 
@@ -38,8 +42,10 @@
 
 ### str
 
-> `get` **str**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **str**(): `string`
+
+##### Returns
 
 `string`

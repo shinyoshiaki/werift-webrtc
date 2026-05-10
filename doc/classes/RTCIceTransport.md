@@ -1,10 +1,31 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
 [werift](../globals.md) / RTCIceTransport
 
 # Class: RTCIceTransport
+
++------------+
+                                           |            |
+                                           |disconnected|
+                                           |            |
+                                           +------------+
+                                           ^           ^
+                                           |           |
++------+      +----------+      +-----------+      +----------+
+|      |      |          |      |           |      |          |
+| new  | ---> | checking | ---> | connected | ---> | completed|
+|      |      |          |      |           |      |          |
++------+      +----+-----+      +-----------+      +----------+
+                   |           
+                   |           
+                   v           
+               +-------+       
+               |       |      
+               | failed|      
+               |       |      
+               +-------+
 
 ## Constructors
 
@@ -14,7 +35,9 @@
 
 #### Parameters
 
-• **iceGather**: [`RTCIceGatherer`](RTCIceGatherer.md)
+##### iceGather
+
+[`RTCIceGatherer`](RTCIceGatherer.md)
 
 #### Returns
 
@@ -36,33 +59,35 @@
 
 ### onIceCandidate
 
-> `readonly` **onIceCandidate**: [`Event`](Event.md)\<[`undefined` \| [`IceCandidate`](IceCandidate.md)]\>
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`IceCandidate`](IceCandidate.md)\]\>
 
 ***
 
 ### onNegotiationNeeded
 
-> `readonly` **onNegotiationNeeded**: [`Event`](Event.md)\<[]\>
+> `readonly` **onNegotiationNeeded**: [`Event`](Event.md)\<\[\]\>
 
 ***
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<[`"disconnected"` \| `"closed"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### state
 
-> **state**: `"disconnected"` \| `"closed"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
+> **state**: `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
 
 ## Accessors
 
 ### gatheringState
 
-> `get` **gatheringState**(): `"complete"` \| `"new"` \| `"gathering"`
+#### Get Signature
 
-#### Returns
+> **get** **gatheringState**(): `"complete"` \| `"new"` \| `"gathering"`
+
+##### Returns
 
 `"complete"` \| `"new"` \| `"gathering"`
 
@@ -70,9 +95,11 @@
 
 ### localCandidates
 
-> `get` **localCandidates**(): [`IceCandidate`](IceCandidate.md)[]
+#### Get Signature
 
-#### Returns
+> **get** **localCandidates**(): [`IceCandidate`](IceCandidate.md)[]
+
+##### Returns
 
 [`IceCandidate`](IceCandidate.md)[]
 
@@ -80,9 +107,11 @@
 
 ### localParameters
 
-> `get` **localParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
+#### Get Signature
 
-#### Returns
+> **get** **localParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
+
+##### Returns
 
 [`RTCIceParameters`](RTCIceParameters.md)
 
@@ -90,9 +119,11 @@
 
 ### role
 
-> `get` **role**(): `"controlling"` \| `"controlled"`
+#### Get Signature
 
-#### Returns
+> **get** **role**(): `"controlling"` \| `"controlled"`
+
+##### Returns
 
 `"controlling"` \| `"controlled"`
 
@@ -104,7 +135,9 @@
 
 #### Parameters
 
-• **candidate?**: [`IceCandidate`](IceCandidate.md)
+##### candidate?
+
+[`IceCandidate`](IceCandidate.md)
 
 #### Returns
 
@@ -119,6 +152,16 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### getStats()
+
+> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Returns
+
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
 
 ***
 
@@ -138,9 +181,13 @@
 
 #### Parameters
 
-• **remoteParameters**: [`RTCIceParameters`](RTCIceParameters.md)
+##### remoteParameters
 
-• **renomination**: `boolean` = `false`
+[`RTCIceParameters`](RTCIceParameters.md)
+
+##### renomination
+
+`boolean` = `false`
 
 #### Returns
 

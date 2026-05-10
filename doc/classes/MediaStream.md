@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: [`MediaStreamTrack`](MediaStreamTrack.md)[] \| `Partial`\<[`MediaStream`](MediaStream.md)\>
+##### props
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] | `Partial`\<[`MediaStream`](MediaStream.md)\>
 
 #### Returns
 
@@ -40,7 +42,9 @@
 
 #### Parameters
 
-• **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+##### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 

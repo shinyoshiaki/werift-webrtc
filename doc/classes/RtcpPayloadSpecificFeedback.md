@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)\> = `{}`
+##### props
+
+`Partial`\<[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)\> = `{}`
 
 #### Returns
 
@@ -42,11 +44,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -56,9 +58,13 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+`Buffer`
+
+##### header
+
+[`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

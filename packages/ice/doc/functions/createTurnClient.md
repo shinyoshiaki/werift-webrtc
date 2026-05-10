@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **\_\_namedParameters**: [`TurnClientConfig`](../interfaces/TurnClientConfig.md)
+### \_\_namedParameters
 
-• **\_\_namedParameters**: [`TurnClientOptions`](../interfaces/TurnClientOptions.md) = `{}`
+[`TurnClientConfig`](../interfaces/TurnClientConfig.md)
+
+### \_\_namedParameters
+
+[`TurnClientOptions`](../interfaces/TurnClientOptions.md) = `{}`
 
 ## Returns
 

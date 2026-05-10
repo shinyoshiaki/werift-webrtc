@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: buffer2ArrayBuffer()
 
-> **buffer2ArrayBuffer**(`buf`): `ArrayBuffer`
+> **buffer2ArrayBuffer**(`buf`): `ArrayBuffer` \| `SharedArrayBuffer`
 
 ## Parameters
 
-• **buf**: `Buffer`
+### buf
+
+`Buffer`
 
 ## Returns
 
-`ArrayBuffer`
+`ArrayBuffer` \| `SharedArrayBuffer`

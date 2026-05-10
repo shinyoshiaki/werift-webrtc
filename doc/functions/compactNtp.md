@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -12,7 +12,9 @@ https://datatracker.ietf.org/doc/html/rfc3550#section-4
 
 ## Parameters
 
-• **ntp**: `bigint`
+### ntp
+
+`bigint`
 
 ## Returns
 

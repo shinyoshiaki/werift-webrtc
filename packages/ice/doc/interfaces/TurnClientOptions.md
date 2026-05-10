@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -22,7 +22,7 @@
 
 ### portRange?
 
-> `optional` **portRange**: [`number`, `number`]
+> `optional` **portRange**: \[`number`, `number`\]
 
 ***
 
@@ -40,4 +40,4 @@
 
 ### transport?
 
-> `optional` **transport**: `"udp"` \| `"tcp"` \| `"tls"`
+> `optional` **transport**: `"tcp"` \| `"tls"` \| `"udp"`

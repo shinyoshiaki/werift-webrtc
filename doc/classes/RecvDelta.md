@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RecvDelta`](RecvDelta.md)\> = `{}`
+##### props
+
+`Partial`\<[`RecvDelta`](RecvDelta.md)\> = `{}`
 
 #### Returns
 
@@ -50,7 +52,9 @@ optional (If undefined, it will be set automatically.)
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 
@@ -70,11 +74,11 @@ optional (If undefined, it will be set automatically.)
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -84,7 +88,9 @@ optional (If undefined, it will be set automatically.)
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 

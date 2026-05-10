@@ -1,10 +1,14 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
 [werift-ice](../globals.md) / CandidatePair
 
 # Class: CandidatePair
+
+## Implements
+
+- [`CandidatePairStats`](../interfaces/CandidatePairStats.md)
 
 ## Constructors
 
@@ -14,17 +18,43 @@
 
 #### Parameters
 
-• **protocol**: [`Protocol`](../interfaces/Protocol.md)
+##### protocol
 
-• **remoteCandidate**: [`Candidate`](Candidate.md)
+[`Protocol`](../interfaces/Protocol.md)
 
-• **iceControlling**: `boolean`
+##### remoteCandidate
+
+[`Candidate`](Candidate.md)
+
+##### iceControlling
+
+`boolean`
 
 #### Returns
 
 [`CandidatePair`](CandidatePair.md)
 
 ## Properties
+
+### bytesReceived
+
+> **bytesReceived**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`bytesReceived`](../interfaces/CandidatePairStats.md#bytesreceived)
+
+***
+
+### bytesSent
+
+> **bytesSent**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`bytesSent`](../interfaces/CandidatePairStats.md#bytessent)
+
+***
 
 ### handle?
 
@@ -40,13 +70,33 @@
 
 ### id
 
-> `readonly` **id**: \`$\{string\}-$\{string\}-$\{string\}-$\{string\}-$\{string\}\`
+> `readonly` **id**: `string`
 
 ***
 
 ### nominated
 
 > **nominated**: `boolean` = `false`
+
+***
+
+### packetsReceived
+
+> **packetsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`packetsReceived`](../interfaces/CandidatePairStats.md#packetsreceived)
+
+***
+
+### packetsSent
+
+> **packetsSent**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`packetsSent`](../interfaces/CandidatePairStats.md#packetssent)
 
 ***
 
@@ -66,35 +116,81 @@
 
 > **remoteNominated**: `boolean` = `false`
 
+***
+
+### roundTripTimeMeasurements
+
+> **roundTripTimeMeasurements**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`roundTripTimeMeasurements`](../interfaces/CandidatePairStats.md#roundtriptimemeasurements)
+
+***
+
+### rtt?
+
+> `optional` **rtt**: `number`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`rtt`](../interfaces/CandidatePairStats.md#rtt)
+
+***
+
+### totalRoundTripTime
+
+> **totalRoundTripTime**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`totalRoundTripTime`](../interfaces/CandidatePairStats.md#totalroundtriptime)
+
 ## Accessors
 
 ### component
 
-> `get` **component**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **component**(): `number`
+
+##### Returns
 
 `number`
 
 ***
 
+### foundation
+
+#### Get Signature
+
+> **get** **foundation**(): `string`
+
+##### Returns
+
+`string`
+
+***
+
 ### json
 
-> `get` **json**(): `object`
+#### Get Signature
 
-#### Returns
+> **get** **json**(): `object`
+
+##### Returns
 
 `object`
 
-##### localCandidate
+###### localCandidate
 
 > **localCandidate**: `string`
 
-##### protocol
+###### protocol
 
 > **protocol**: `string`
 
-##### remoteCandidate
+###### remoteCandidate
 
 > **remoteCandidate**: `string`
 
@@ -102,9 +198,11 @@
 
 ### localCandidate
 
-> `get` **localCandidate**(): [`Candidate`](Candidate.md)
+#### Get Signature
 
-#### Returns
+> **get** **localCandidate**(): [`Candidate`](Candidate.md)
+
+##### Returns
 
 [`Candidate`](Candidate.md)
 
@@ -112,9 +210,11 @@
 
 ### priority
 
-> `get` **priority**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **priority**(): `number`
+
+##### Returns
 
 `number`
 
@@ -122,19 +222,23 @@
 
 ### remoteAddr
 
-> `get` **remoteAddr**(): readonly [`string`, `number`]
+#### Get Signature
 
-#### Returns
+> **get** **remoteAddr**(): readonly \[`string`, `number`\]
 
-readonly [`string`, `number`]
+##### Returns
+
+readonly \[`string`, `number`\]
 
 ***
 
 ### state
 
-> `get` **state**(): [`CandidatePairState`](../enumerations/CandidatePairState.md)
+#### Get Signature
 
-#### Returns
+> **get** **state**(): [`CandidatePairState`](../enumerations/CandidatePairState.md)
+
+##### Returns
 
 [`CandidatePairState`](../enumerations/CandidatePairState.md)
 
@@ -168,7 +272,9 @@ readonly [`string`, `number`]
 
 #### Parameters
 
-• **state**: [`CandidatePairState`](../enumerations/CandidatePairState.md)
+##### state
+
+[`CandidatePairState`](../enumerations/CandidatePairState.md)
 
 #### Returns
 

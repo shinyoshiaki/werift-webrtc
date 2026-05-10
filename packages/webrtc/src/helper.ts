@@ -34,7 +34,15 @@ export class PromiseQueue {
 }
 
 export class EventTarget extends EventEmitter {
-  addEventListener = (type: string, listener: (...args: any[]) => void) => {
+  addEventListener = (
+    type: string,
+    listener: (...args: any[]) => void,
+    options?: boolean | { once?: boolean },
+  ) => {
+    if (typeof options === "object" && options?.once) {
+      this.once(type, listener);
+      return;
+    }
     this.addListener(type, listener);
   };
 

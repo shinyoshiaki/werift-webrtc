@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **distance**: `number` = `1`
+##### distance
+
+`number` = `1`
 
 #### Returns
 
@@ -50,13 +52,19 @@
 
 #### Parameters
 
-• **payload**
+##### payload
 
-• **payload.block**: `Buffer`
+###### block
 
-• **payload.blockPT**: `number`
+`Buffer`
 
-• **payload.timestamp**: `number`
+###### blockPT
+
+`number`
+
+###### timestamp
+
+`number`
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: ConnectionStates
 
-> `const` **ConnectionStates**: readonly [`"closed"`, `"failed"`, `"disconnected"`, `"new"`, `"connecting"`, `"connected"`]
+> `const` **ConnectionStates**: readonly \[`"closed"`, `"failed"`, `"disconnected"`, `"new"`, `"connecting"`, `"connected"`\]

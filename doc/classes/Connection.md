@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -18,9 +18,13 @@
 
 #### Parameters
 
-• **\_iceControlling**: `boolean`
+##### \_iceControlling
 
-• **options?**: `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+`boolean`
+
+##### options?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
 
 #### Returns
 
@@ -110,7 +114,7 @@
 
 ### onData
 
-> `readonly` **onData**: [`Event`](Event.md)\<[`Buffer`]\>
+> `readonly` **onData**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -120,7 +124,7 @@
 
 ### onIceCandidate
 
-> `readonly` **onIceCandidate**: [`Event`](Event.md)\<[[`Candidate`](Candidate.md)]\>
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[[`Candidate`](Candidate.md)\]\>
 
 #### Implementation of
 
@@ -190,7 +194,7 @@
 
 ### stateChanged
 
-> `readonly` **stateChanged**: [`Event`](Event.md)\<[[`IceState`](../type-aliases/IceState.md)]\>
+> `readonly` **stateChanged**: [`Event`](Event.md)\<\[[`IceState`](../type-aliases/IceState.md)\]\>
 
 #### Implementation of
 
@@ -200,7 +204,7 @@
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly [`string`, `number`]
+> `optional` **stunServer**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -210,7 +214,7 @@
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly [`string`, `number`]
+> `optional` **turnServer**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -224,23 +228,49 @@
 
 #### Index Signature
 
- \[`username`: `string`\]: `string`
+\[`username`: `string`\]: `string`
 
 ## Accessors
 
+### candidatePairs
+
+#### Get Signature
+
+> **get** **candidatePairs**(): [`CandidatePair`](CandidatePair.md)[]
+
+##### Returns
+
+[`CandidatePair`](CandidatePair.md)[]
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`candidatePairs`](../interfaces/IceConnection.md#candidatepairs)
+
+***
+
 ### iceControlling
 
-> `get` **iceControlling**(): `boolean`
+#### Get Signature
 
-> `set` **iceControlling**(`value`): `void`
+> **get** **iceControlling**(): `boolean`
 
-#### Parameters
-
-• **value**: `boolean`
-
-#### Returns
+##### Returns
 
 `boolean`
+
+#### Set Signature
+
+> **set** **iceControlling**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
 
 #### Implementation of
 
@@ -248,19 +278,49 @@
 
 ***
 
+### iceLite
+
+#### Get Signature
+
+> **get** **iceLite**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`iceLite`](../interfaces/IceConnection.md#icelite)
+
+***
+
 ### remoteCandidates
 
-> `get` **remoteCandidates**(): [`Candidate`](Candidate.md)[]
+#### Get Signature
 
-> `set` **remoteCandidates**(`value`): `void`
+> **get** **remoteCandidates**(): [`Candidate`](Candidate.md)[]
 
-#### Parameters
-
-• **value**: [`Candidate`](Candidate.md)[]
-
-#### Returns
+##### Returns
 
 [`Candidate`](Candidate.md)[]
+
+#### Set Signature
+
+> **set** **remoteCandidates**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+[`Candidate`](Candidate.md)[]
+
+##### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
 
 ## Methods
 
@@ -270,7 +330,9 @@
 
 #### Parameters
 
-• **remoteCandidate**: `undefined` \| [`Candidate`](Candidate.md)
+##### remoteCandidate
+
+`undefined` | [`Candidate`](Candidate.md)
 
 #### Returns
 
@@ -288,11 +350,17 @@
 
 #### Parameters
 
-• **message**: [`Message`](Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
 
-• **protocol**: [`Protocol`](../interfaces/Protocol.md)
+##### addr
+
+readonly \[`string`, `number`\]
+
+##### protocol
+
+[`Protocol`](../interfaces/Protocol.md)
 
 #### Returns
 
@@ -306,7 +374,9 @@
 
 #### Parameters
 
-• **pair**: [`CandidatePair`](CandidatePair.md)
+##### pair
+
+[`CandidatePair`](CandidatePair.md)
 
 #### Returns
 
@@ -322,7 +392,9 @@
 
 ###### Parameters
 
-• **reason?**: `any`
+###### reason?
+
+`any`
 
 ###### Returns
 
@@ -334,7 +406,9 @@
 
 ###### Parameters
 
-• **value**: `void` \| `PromiseLike`\<`void`\>
+###### value
+
+`void` | `PromiseLike`\<`void`\>
 
 ###### Returns
 
@@ -432,7 +506,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 
@@ -450,13 +526,19 @@
 
 #### Parameters
 
-• **\_\_namedParameters**
+##### \_\_namedParameters
 
-• **\_\_namedParameters.iceLite**: `boolean`
+###### iceLite
 
-• **\_\_namedParameters.password**: `string`
+`boolean`
 
-• **\_\_namedParameters.usernameFragment**: `string`
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
 
 #### Returns
 

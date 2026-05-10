@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,4 +10,4 @@
 
 ### data
 
-> **data**: `string` \| `Buffer`
+> **data**: `string` \| `Buffer`\<`ArrayBufferLike`\>

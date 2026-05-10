@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,29 +6,59 @@
 
 # Class: RTCDtlsTransport
 
+## Implements
+
+- [`DtlsTransportStats`](../interfaces/DtlsTransportStats.md)
+
 ## Constructors
 
 ### new RTCDtlsTransport()
 
-> **new RTCDtlsTransport**(`config`, `iceTransport`, `router`, `localCertificate`?, `srtpProfiles`?): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+> **new RTCDtlsTransport**(`config`, `iceTransport`, `localCertificate`?, `srtpProfiles`?): [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Parameters
 
-• **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
+##### config
 
-• **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
+[`PeerConfig`](../interfaces/PeerConfig.md)
 
-• **router**: `RtpRouter`
+##### iceTransport
 
-• **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+[`RTCIceTransport`](RTCIceTransport.md)
 
-• **srtpProfiles?**: (`1` \| `7`)[] = `[]`
+##### localCertificate?
+
+[`RTCCertificate`](RTCCertificate.md)
+
+##### srtpProfiles?
+
+(`1` \| `7`)[] = `[]`
 
 #### Returns
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 ## Properties
+
+### bytesReceived
+
+> **bytesReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesReceived`](../interfaces/DtlsTransportStats.md#bytesreceived)
+
+***
+
+### bytesSent
+
+> **bytesSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesSent`](../interfaces/DtlsTransportStats.md#bytessent)
+
+***
 
 ### config
 
@@ -42,7 +72,9 @@
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
@@ -52,7 +84,7 @@
 
 ### dtls?
 
-> `optional` **dtls**: `DtlsSocket`
+> `optional` **dtls**: [`DtlsSocket`](DtlsSocket.md)
 
 ***
 
@@ -74,21 +106,47 @@
 
 ***
 
+### onRtcp
+
+> `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
+
+***
+
+### onRtp
+
+> `readonly` **onRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md)\]\>
+
+***
+
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`\]\>
+
+***
+
+### packetsReceived
+
+> **packetsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsReceived`](../interfaces/DtlsTransportStats.md#packetsreceived)
+
+***
+
+### packetsSent
+
+> **packetsSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsSent`](../interfaces/DtlsTransportStats.md#packetssent)
 
 ***
 
 ### role
 
 > **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
-
-***
-
-### router
-
-> `readonly` **router**: `RtpRouter`
 
 ***
 
@@ -136,13 +194,25 @@
 
 ### localParameters
 
-> `get` **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+#### Get Signature
 
-#### Returns
+> **get** **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+##### Returns
 
 [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 ## Methods
+
+### getStats()
+
+> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Returns
+
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
 
 ### sendData()
 
@@ -150,7 +220,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 
@@ -164,7 +236,9 @@
 
 #### Parameters
 
-• **packets**: [`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
+##### packets
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
 
 #### Returns
 
@@ -178,9 +252,13 @@
 
 #### Parameters
 
-• **payload**: `Buffer`
+##### payload
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 
@@ -194,7 +272,9 @@
 
 #### Parameters
 
-• **remoteParameters**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
+##### remoteParameters
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 #### Returns
 

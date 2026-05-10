@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **bitLength**: `number`
+##### bitLength
+
+`number`
 
 #### Returns
 
@@ -30,11 +32,13 @@
 
 ### buffer
 
-> `get` **buffer**(): `Buffer`
+#### Get Signature
 
-#### Returns
+> **get** **buffer**(): `Buffer`\<`ArrayBuffer`\>
 
-`Buffer`
+##### Returns
+
+`Buffer`\<`ArrayBuffer`\>
 
 ## Methods
 
@@ -44,11 +48,17 @@
 
 #### Parameters
 
-• **size**: `number`
+##### size
 
-• **startIndex**: `number`
+`number`
 
-• **value**: `number`
+##### startIndex
+
+`number`
+
+##### value
+
+`number`
 
 #### Returns
 

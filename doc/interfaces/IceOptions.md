@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -20,7 +20,9 @@
 
 #### Parameters
 
-• **pair**: [`CandidatePair`](../classes/CandidatePair.md)
+##### pair
+
+[`CandidatePair`](../classes/CandidatePair.md)
 
 #### Returns
 
@@ -34,11 +36,17 @@
 
 #### Parameters
 
-• **message**: [`Message`](../classes/Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](../classes/Message.md)
 
-• **protocol**: [`Protocol`](Protocol.md)
+##### addr
+
+readonly \[`string`, `number`\]
+
+##### protocol
+
+[`Protocol`](Protocol.md)
 
 #### Returns
 
@@ -49,6 +57,14 @@
 ### forceTurn?
 
 > `optional` **forceTurn**: `boolean`
+
+***
+
+### iceLite
+
+> **iceLite**: `boolean`
+
+Advertise and operate as an ICE lite agent.
 
 ***
 
@@ -66,13 +82,13 @@
 
 ### portRange?
 
-> `optional` **portRange**: [`number`, `number`]
+> `optional` **portRange**: \[`number`, `number`\]
 
 ***
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly [`string`, `number`]
+> `optional` **stunServer**: readonly \[`string`, `number`\]
 
 ***
 
@@ -84,13 +100,19 @@
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly [`string`, `number`]
+> `optional` **turnServer**: readonly \[`string`, `number`\]
+
+***
+
+### turnTlsOptions?
+
+> `optional` **turnTlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
 
 ***
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"udp"` \| `"tcp"`
+> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
 
 ***
 
@@ -109,3 +131,9 @@
 ### useIpv6
 
 > **useIpv6**: `boolean`
+
+***
+
+### useLinkLocalAddress?
+
+> `optional` **useLinkLocalAddress**: `boolean`

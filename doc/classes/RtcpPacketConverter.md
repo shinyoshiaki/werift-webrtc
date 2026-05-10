@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -24,28 +24,10 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 
 [`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
-
-***
-
-### serialize()
-
-> `static` **serialize**(`type`, `count`, `payload`, `length`): `Buffer`
-
-#### Parameters
-
-• **type**: `number`
-
-• **count**: `number`
-
-• **payload**: `Buffer`
-
-• **length**: `number`
-
-#### Returns
-
-`Buffer`

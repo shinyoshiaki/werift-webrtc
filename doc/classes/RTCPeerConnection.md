@@ -1,10 +1,27 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
 [werift](../globals.md) / RTCPeerConnection
 
 # Class: RTCPeerConnection
+
+W3C compatibility notes kept near the public RTCPeerConnection surface so the
+reviewable diff does not depend on external PR text.
+
+- `current/pending*Description`, `canTrickleIceCandidates`, `sctp`,
+  `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
+  implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
+- `bundlePolicy: "balanced"` is accepted for input compatibility but is
+  normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
+  returns the normalized value.
+- `setLocalDescription()` keeps the historical `SessionDescription` return
+  value for non-rollback calls, while `{ type: "rollback" }` resolves `void`
+  to match the actual behavior without pretending to return a description.
+- API reference markdown is regenerated with `cd packages/webrtc && npm run doc`.
+  The generated output lives under `packages/webrtc/doc/`; compatibility
+  notes remain here and in the package README so review context is visible
+  even when generated docs are not committed in the same change.
 
 ## Extends
 
@@ -18,7 +35,9 @@
 
 #### Parameters
 
-• **config**: `Partial`\<[`PeerConfig`](../interfaces/PeerConfig.md)\> = `{}`
+##### config
+
+[`RTCPeerConnectionConfig`](../type-aliases/RTCPeerConnectionConfig.md) = `{}`
 
 #### Returns
 
@@ -42,39 +61,21 @@
 
 ***
 
-### connectionState
-
-> **connectionState**: `"disconnected"` \| `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` = `"new"`
-
-***
-
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<[`"disconnected"` \| `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`]\>
-
-***
-
-### iceConnectionState
-
-> **iceConnectionState**: `"disconnected"` \| `"closed"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<[`"disconnected"` \| `"closed"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`]\>
-
-***
-
-### iceGatheringState
-
-> **iceGatheringState**: `"complete"` \| `"new"` \| `"gathering"` = `"new"`
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### iceGatheringStateChange
 
-> `readonly` **iceGatheringStateChange**: [`Event`](Event.md)\<[`"complete"` \| `"new"` \| `"gathering"`]\>
+> `readonly` **iceGatheringStateChange**: [`Event`](Event.md)\<\[`"complete"` \| `"new"` \| `"gathering"`\]\>
 
 ***
 
@@ -90,42 +91,6 @@
 
 ***
 
-### onDataChannel
-
-> `readonly` **onDataChannel**: [`Event`](Event.md)\<[[`RTCDataChannel`](RTCDataChannel.md)]\>
-
-***
-
-### onIceCandidate
-
-> `readonly` **onIceCandidate**: [`Event`](Event.md)\<[`undefined` \| [`RTCIceCandidate`](RTCIceCandidate.md)]\>
-
-***
-
-### onNegotiationneeded
-
-> `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<[]\>
-
-***
-
-### onRemoteTransceiverAdded
-
-> `readonly` **onRemoteTransceiverAdded**: [`Event`](Event.md)\<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
-
-***
-
-### onTrack
-
-> `readonly` **onTrack**: [`Event`](Event.md)\<[[`MediaStreamTrack`](MediaStreamTrack.md)]\>
-
-***
-
-### onTransceiverAdded
-
-> `readonly` **onTransceiverAdded**: [`Event`](Event.md)\<[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
-
-***
-
 ### onconnectionstatechange?
 
 > `optional` **onconnectionstatechange**: `Callback`
@@ -138,15 +103,57 @@
 
 ***
 
+### onDataChannel
+
+> `readonly` **onDataChannel**: [`Event`](Event.md)\<\[[`RTCDataChannel`](RTCDataChannel.md)\]\>
+
+***
+
 ### onicecandidate?
 
 > `optional` **onicecandidate**: `CallbackWithValue`\<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
 
 ***
 
+### onIceCandidate
+
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`RTCIceCandidate`](RTCIceCandidate.md)\]\>
+
+***
+
+### onicecandidateerror?
+
+> `optional` **onicecandidateerror**: `CallbackWithValue`\<`any`\>
+
+***
+
+### oniceconnectionstatechange?
+
+> `optional` **oniceconnectionstatechange**: `Callback`
+
+***
+
+### onicegatheringstatechange?
+
+> `optional` **onicegatheringstatechange**: `CallbackWithValue`\<`any`\>
+
+***
+
 ### onnegotiationneeded?
 
 > `optional` **onnegotiationneeded**: `CallbackWithValue`\<`any`\>
+
+***
+
+### onNegotiationneeded
+
+> `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<\[\]\>
+
+***
+
+### onRemoteTransceiverAdded
+
+> `readonly` **onRemoteTransceiverAdded**: [`Event`](Event.md)\<\[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
 
 ***
 
@@ -162,15 +169,15 @@
 
 ***
 
-### sctpRemotePort?
+### onTrack
 
-> `optional` **sctpRemotePort**: `number`
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md)\]\>
 
 ***
 
-### sctpTransport?
+### onTransceiverAdded
 
-> `optional` **sctpTransport**: [`RTCSctpTransport`](RTCSctpTransport.md)
+> `readonly` **onTransceiverAdded**: [`Event`](Event.md)\<\[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
 
 ***
 
@@ -182,17 +189,7 @@
 
 ### signalingStateChange
 
-> `readonly` **signalingStateChange**: [`Event`](Event.md)\<[`"closed"` \| `"stable"` \| `"have-local-offer"` \| `"have-remote-offer"` \| `"have-local-pranswer"` \| `"have-remote-pranswer"`]\>
-
-***
-
-### captureRejectionSymbol
-
-> `readonly` `static` **captureRejectionSymbol**: *typeof* [`captureRejectionSymbol`](RTCDataChannel.md#capturerejectionsymbol)
-
-#### Inherited from
-
-`EventTarget.captureRejectionSymbol`
+> `readonly` **signalingStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"stable"` \| `"have-local-offer"` \| `"have-remote-offer"` \| `"have-local-pranswer"` \| `"have-remote-pranswer"`\]\>
 
 ***
 
@@ -200,7 +197,13 @@
 
 > `static` **captureRejections**: `boolean`
 
-Sets or gets the default captureRejection value for all emitters.
+Value: [boolean](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#Boolean_type)
+
+Change the default `captureRejections` option on all new `EventEmitter` objects.
+
+#### Since
+
+v13.4.0, v12.16.0
 
 #### Inherited from
 
@@ -208,9 +211,67 @@ Sets or gets the default captureRejection value for all emitters.
 
 ***
 
+### captureRejectionSymbol
+
+> `readonly` `static` **captureRejectionSymbol**: *typeof* [`captureRejectionSymbol`](RTCDataChannel.md#capturerejectionsymbol)
+
+Value: `Symbol.for('nodejs.rejection')`
+
+See how to write a custom `rejection handler`.
+
+#### Since
+
+v13.4.0, v12.16.0
+
+#### Inherited from
+
+`EventTarget.captureRejectionSymbol`
+
+***
+
 ### defaultMaxListeners
 
 > `static` **defaultMaxListeners**: `number`
+
+By default, a maximum of `10` listeners can be registered for any single
+event. This limit can be changed for individual `EventEmitter` instances
+using the `emitter.setMaxListeners(n)` method. To change the default
+for _all_`EventEmitter` instances, the `events.defaultMaxListeners` property
+can be used. If this value is not a positive number, a `RangeError` is thrown.
+
+Take caution when setting the `events.defaultMaxListeners` because the
+change affects _all_ `EventEmitter` instances, including those created before
+the change is made. However, calling `emitter.setMaxListeners(n)` still has
+precedence over `events.defaultMaxListeners`.
+
+This is not a hard limit. The `EventEmitter` instance will allow
+more listeners to be added but will output a trace warning to stderr indicating
+that a "possible EventEmitter memory leak" has been detected. For any single
+`EventEmitter`, the `emitter.getMaxListeners()` and `emitter.setMaxListeners()` methods can be used to
+temporarily avoid this warning:
+
+```js
+import { EventEmitter } from 'node:events';
+const emitter = new EventEmitter();
+emitter.setMaxListeners(emitter.getMaxListeners() + 1);
+emitter.once('event', () => {
+  // do stuff
+  emitter.setMaxListeners(Math.max(emitter.getMaxListeners() - 1, 0));
+});
+```
+
+The `--trace-warnings` command-line flag can be used to display the
+stack trace for such warnings.
+
+The emitted warning can be inspected with `process.on('warning')` and will
+have the additional `emitter`, `type`, and `count` properties, referring to
+the event emitter instance, the event's name and the number of attached
+listeners, respectively.
+Its `name` property is set to `'MaxListenersExceededWarning'`.
+
+#### Since
+
+v0.11.2
 
 #### Inherited from
 
@@ -222,13 +283,14 @@ Sets or gets the default captureRejection value for all emitters.
 
 > `readonly` `static` **errorMonitor**: *typeof* [`errorMonitor`](RTCDataChannel.md#errormonitor)
 
-This symbol shall be used to install a listener for only monitoring `'error'`
-events. Listeners installed using this symbol are called before the regular
-`'error'` listeners are called.
+This symbol shall be used to install a listener for only monitoring `'error'` events. Listeners installed using this symbol are called before the regular `'error'` listeners are called.
 
-Installing a listener using this symbol does not change the behavior once an
-`'error'` event is emitted, therefore the process will still crash if no
+Installing a listener using this symbol does not change the behavior once an `'error'` event is emitted. Therefore, the process will still crash if no
 regular `'error'` listener is installed.
+
+#### Since
+
+v13.6.0, v12.17.0
 
 #### Inherited from
 
@@ -236,11 +298,61 @@ regular `'error'` listener is installed.
 
 ## Accessors
 
+### canTrickleIceCandidates
+
+#### Get Signature
+
+> **get** **canTrickleIceCandidates**(): `null` \| `boolean`
+
+##### Returns
+
+`null` \| `boolean`
+
+***
+
+### connectionState
+
+#### Get Signature
+
+> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`
+
+##### Returns
+
+`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`
+
+***
+
+### currentLocalDescription
+
+#### Get Signature
+
+> **get** **currentLocalDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+##### Returns
+
+`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### currentRemoteDescription
+
+#### Get Signature
+
+> **get** **currentRemoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+##### Returns
+
+`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
 ### dtlsTransports
 
-> `get` **dtlsTransports**(): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+#### Get Signature
 
-#### Returns
+> **get** **dtlsTransports**(): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+
+##### Returns
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
 
@@ -248,19 +360,59 @@ regular `'error'` listener is installed.
 
 ### extIdUriMap
 
-> `get` **extIdUriMap**(): `object`
+#### Get Signature
 
-#### Returns
+> **get** **extIdUriMap**(): `object`
+
+##### Returns
 
 `object`
 
 ***
 
+### iceConnectionState
+
+#### Get Signature
+
+> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+
+##### Returns
+
+`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+
+***
+
+### iceGathererState
+
+#### Get Signature
+
+> **get** **iceGathererState**(): `"complete"` \| `"new"` \| `"gathering"`
+
+##### Returns
+
+`"complete"` \| `"new"` \| `"gathering"`
+
+***
+
+### iceGatheringState
+
+#### Get Signature
+
+> **get** **iceGatheringState**(): `"complete"` \| `"new"` \| `"gathering"`
+
+##### Returns
+
+`"complete"` \| `"new"` \| `"gathering"`
+
+***
+
 ### iceGeneration
 
-> `get` **iceGeneration**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **iceGeneration**(): `number`
+
+##### Returns
 
 `number`
 
@@ -268,9 +420,11 @@ regular `'error'` listener is installed.
 
 ### iceTransports
 
-> `get` **iceTransports**(): [`RTCIceTransport`](RTCIceTransport.md)[]
+#### Get Signature
 
-#### Returns
+> **get** **iceTransports**(): [`RTCIceTransport`](RTCIceTransport.md)[]
+
+##### Returns
 
 [`RTCIceTransport`](RTCIceTransport.md)[]
 
@@ -278,9 +432,35 @@ regular `'error'` listener is installed.
 
 ### localDescription
 
-> `get` **localDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+#### Get Signature
 
-#### Returns
+> **get** **localDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+##### Returns
+
+`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### pendingLocalDescription
+
+#### Get Signature
+
+> **get** **pendingLocalDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+##### Returns
+
+`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### pendingRemoteDescription
+
+#### Get Signature
+
+> **get** **pendingRemoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+##### Returns
 
 `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
@@ -288,25 +468,85 @@ regular `'error'` listener is installed.
 
 ### remoteDescription
 
-> `get` **remoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+#### Get Signature
 
-#### Returns
+> **get** **remoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+##### Returns
 
 `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### remoteIsBundled
+
+#### Get Signature
+
+> **get** **remoteIsBundled**(): `undefined` \| [`GroupDescription`](GroupDescription.md)
+
+##### Returns
+
+`undefined` \| [`GroupDescription`](GroupDescription.md)
+
+***
+
+### sctp
+
+#### Get Signature
+
+> **get** **sctp**(): `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+
+##### Returns
+
+`undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+
+***
+
+### sctpRemotePort
+
+#### Get Signature
+
+> **get** **sctpRemotePort**(): `undefined` \| `number`
+
+##### Returns
+
+`undefined` \| `number`
+
+***
+
+### sctpTransport
+
+#### Get Signature
+
+> **get** **sctpTransport**(): `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+
+##### Returns
+
+`undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
 
 ## Methods
 
 ### \[captureRejectionSymbol\]()?
 
-> `optional` **\[captureRejectionSymbol\]**(`error`, `event`, ...`args`): `void`
+> `optional` **\[captureRejectionSymbol\]**\<`K`\>(`error`, `event`, ...`args`): `void`
+
+#### Type Parameters
+
+• **K**
 
 #### Parameters
 
-• **error**: `Error`
+##### error
 
-• **event**: `string`
+`Error`
 
-• ...**args**: `any`[]
+##### event
+
+`string` | `symbol`
+
+##### args
+
+...`AnyRest`
 
 #### Returns
 
@@ -320,13 +560,21 @@ regular `'error'` listener is installed.
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`): `void`
+> **addEventListener**(`type`, `listener`, `options`?): `void`
 
 #### Parameters
 
-• **type**: `string`
+##### type
 
-• **listener**
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` | \{ `once`: `boolean`; \}
 
 #### Returns
 
@@ -344,7 +592,9 @@ regular `'error'` listener is installed.
 
 #### Parameters
 
-• **candidateMessage**: [`RTCIceCandidate`](RTCIceCandidate.md)
+##### candidateMessage
+
+`null` | [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md) | [`RTCIceCandidate`](RTCIceCandidate.md)
 
 #### Returns
 
@@ -354,15 +604,23 @@ regular `'error'` listener is installed.
 
 ### addListener()
 
-> **addListener**(`eventName`, `listener`): `this`
+> **addListener**\<`K`\>(`eventName`, `listener`): `this`
 
 Alias for `emitter.on(eventName, listener)`.
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 #### Returns
 
@@ -384,9 +642,13 @@ v0.1.26
 
 #### Parameters
 
-• **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+##### track
 
-• **ms?**: [`MediaStream`](MediaStream.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### ms?
+
+[`MediaStream`](MediaStream.md)
 
 todo impl
 
@@ -402,23 +664,17 @@ todo impl
 
 #### Parameters
 
-• **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+##### trackOrKind
 
-• **options**: `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
+[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### options
+
+`Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
 
 #### Returns
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
-
-***
-
-### buildOfferSdp()
-
-> **buildOfferSdp**(): [`SessionDescription`](SessionDescription.md)
-
-#### Returns
-
-[`SessionDescription`](SessionDescription.md)
 
 ***
 
@@ -448,9 +704,13 @@ todo impl
 
 #### Parameters
 
-• **label**: `string`
+##### label
 
-• **options**: `Partial`\<`object`\> = `{}`
+`string`
+
+##### options
+
+`Partial`\<\{ `id`: `number`; `maxPacketLifeTime`: `number`; `maxRetransmits`: `number`; `negotiated`: `boolean`; `ordered`: `boolean`; `protocol`: `string`; \}\> = `{}`
 
 #### Returns
 
@@ -464,9 +724,11 @@ todo impl
 
 #### Parameters
 
-• **\_\_namedParameters** = `{}`
+##### \_\_namedParameters
 
-• **\_\_namedParameters.iceRestart?**: `boolean`
+###### iceRestart?
+
+`boolean`
 
 #### Returns
 
@@ -476,15 +738,15 @@ todo impl
 
 ### emit()
 
-> **emit**(`eventName`, ...`args`): `boolean`
+> **emit**\<`K`\>(`eventName`, ...`args`): `boolean`
 
-Synchronously calls each of the listeners registered for the event named`eventName`, in the order they were registered, passing the supplied arguments
+Synchronously calls each of the listeners registered for the event named `eventName`, in the order they were registered, passing the supplied arguments
 to each.
 
 Returns `true` if the event had listeners, `false` otherwise.
 
 ```js
-const EventEmitter = require('events');
+import { EventEmitter } from 'node:events';
 const myEmitter = new EventEmitter();
 
 // First listener
@@ -516,11 +778,19 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 // event with parameters 1, 2, 3, 4, 5 in third listener
 ```
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
-• ...**args**: `any`[]
+`string` | `symbol`
+
+##### args
+
+...`AnyRest`
 
 #### Returns
 
@@ -544,7 +814,8 @@ Returns an array listing the events for which the emitter has registered
 listeners. The values in the array are strings or `Symbol`s.
 
 ```js
-const EventEmitter = require('events');
+import { EventEmitter } from 'node:events';
+
 const myEE = new EventEmitter();
 myEE.on('foo', () => {});
 myEE.on('bar', () => {});
@@ -572,11 +843,170 @@ v6.0.0
 
 ### getConfiguration()
 
-> **getConfiguration**(): `Required`\<[`PeerConfig`](../interfaces/PeerConfig.md)\>
+> **getConfiguration**(): `object`
 
 #### Returns
 
-`Required`\<[`PeerConfig`](../interfaces/PeerConfig.md)\>
+`object`
+
+##### bundlePolicy
+
+> **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
+
+##### certificates
+
+> **certificates**: [`RTCCertificate`](RTCCertificate.md)[]
+
+##### codecs
+
+> **codecs**: `object`
+
+###### codecs.audio
+
+> **audio**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+###### codecs.video
+
+> **video**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### debug
+
+> **debug**: `object`
+
+###### debug.disableRecvRetransmit?
+
+> `optional` **disableRecvRetransmit**: `boolean`
+
+###### debug.disableSendNack?
+
+> `optional` **disableSendNack**: `boolean`
+
+###### debug.inboundPacketLoss?
+
+> `optional` **inboundPacketLoss**: `number`
+
+%
+
+###### debug.outboundPacketLoss?
+
+> `optional` **outboundPacketLoss**: `number`
+
+%
+
+###### debug.receiverReportDelay?
+
+> `optional` **receiverReportDelay**: `number`
+
+ms
+
+##### dtls
+
+> **dtls**: `object`
+
+###### dtls.keys?
+
+> `optional` **keys**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+##### ~~forceTurnTCP~~
+
+> **forceTurnTCP**: `boolean`
+
+###### Deprecated
+
+Prefer turn URL transport parameters or turnTransport.
+
+##### headerExtensions
+
+> **headerExtensions**: `object`
+
+###### headerExtensions.audio
+
+> **audio**: `undefined` \| [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+###### headerExtensions.video
+
+> **video**: `undefined` \| [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+##### iceAdditionalHostAddresses
+
+> **iceAdditionalHostAddresses**: `undefined` \| `string`[]
+
+##### iceCandidatePoolSize
+
+> **iceCandidatePoolSize**: `number`
+
+##### iceFilterCandidatePair
+
+> **iceFilterCandidatePair**: `undefined` \| (`pair`) => `boolean`
+
+##### iceFilterStunResponse
+
+> **iceFilterStunResponse**: `undefined` \| (`message`, `addr`, `protocol`) => `boolean`
+
+If provided, is called on each STUN request.
+Return `true` if a STUN response should be sent, false if it should be skipped.
+
+##### iceInterfaceAddresses
+
+> **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+##### iceLite
+
+> **iceLite**: `boolean`
+
+Advertise local ICE lite and operate in the controlled role.
+
+##### icePasswordPrefix
+
+> **icePasswordPrefix**: `undefined` \| `string`
+
+##### icePortRange
+
+> **icePortRange**: `undefined` \| \[`number`, `number`\]
+
+##### iceServers
+
+> **iceServers**: `object`[]
+
+##### iceTransportPolicy
+
+> **iceTransportPolicy**: `"relay"` \| `"all"`
+
+##### iceUseIpv4
+
+> **iceUseIpv4**: `boolean`
+
+##### iceUseIpv6
+
+> **iceUseIpv6**: `boolean`
+
+##### iceUseLinkLocalAddress
+
+> **iceUseLinkLocalAddress**: `undefined` \| `boolean`
+
+such as google cloud run
+
+##### maxMessageSize
+
+> **maxMessageSize**: `number`
+
+Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
+
+##### midSuffix
+
+> **midSuffix**: `boolean`
+
+##### rtcpMuxPolicy
+
+> **rtcpMuxPolicy**: `"require"`
+
+##### turnTlsOptions
+
+> **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+
+##### turnTransport
+
+> **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
 
 ***
 
@@ -585,7 +1015,7 @@ v6.0.0
 > **getMaxListeners**(): `number`
 
 Returns the current max listener value for the `EventEmitter` which is either
-set by `emitter.setMaxListeners(n)` or defaults to [defaultMaxListeners](RTCPeerConnection.md#defaultmaxlisteners).
+set by `emitter.setMaxListeners(n)` or defaults to [EventEmitter.defaultMaxListeners](RTCDataChannel.md#defaultmaxlisteners).
 
 #### Returns
 
@@ -621,6 +1051,22 @@ v1.0.0
 
 ***
 
+### getStats()
+
+> **getStats**(`selector`?): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
+
+#### Parameters
+
+##### selector?
+
+`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
+
+#### Returns
+
+`Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
+
+***
+
 ### getTransceivers()
 
 > **getTransceivers**(): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
@@ -633,20 +1079,27 @@ v1.0.0
 
 ### listenerCount()
 
-> **listenerCount**(`eventName`, `listener`?): `number`
+> **listenerCount**\<`K`\>(`eventName`, `listener`?): `number`
 
-Returns the number of listeners listening to the event named `eventName`.
+Returns the number of listeners listening for the event named `eventName`.
+If `listener` is provided, it will return how many times the listener is found
+in the list of the listeners of the event.
 
-If `listener` is provided, it will return how many times the listener
-is found in the list of the listeners of the event.
+#### Type Parameters
+
+• **K**
 
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
 The name of the event being listened for
 
-• **listener?**: `Function`
+`string` | `symbol`
+
+##### listener?
+
+`Function`
 
 The event handler function
 
@@ -666,7 +1119,7 @@ v3.2.0
 
 ### listeners()
 
-> **listeners**(`eventName`): `Function`[]
+> **listeners**\<`K`\>(`eventName`): `Function`[]
 
 Returns a copy of the array of listeners for the event named `eventName`.
 
@@ -678,9 +1131,15 @@ console.log(util.inspect(server.listeners('connection')));
 // Prints: [ [Function] ]
 ```
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
+
+`string` | `symbol`
 
 #### Returns
 
@@ -698,15 +1157,23 @@ v0.1.26
 
 ### off()
 
-> **off**(`eventName`, `listener`): `this`
+> **off**\<`K`\>(`eventName`, `listener`): `this`
 
 Alias for `emitter.removeListener()`.
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 #### Returns
 
@@ -724,12 +1191,12 @@ v10.0.0
 
 ### on()
 
-> **on**(`eventName`, `listener`): `this`
+> **on**\<`K`\>(`eventName`, `listener`): `this`
 
-Adds the `listener` function to the end of the listeners array for the
-event named `eventName`. No checks are made to see if the `listener` has
-already been added. Multiple calls passing the same combination of `eventName`and `listener` will result in the `listener` being added, and called, multiple
-times.
+Adds the `listener` function to the end of the listeners array for the event
+named `eventName`. No checks are made to see if the `listener` has already
+been added. Multiple calls passing the same combination of `eventName` and
+`listener` will result in the `listener` being added, and called, multiple times.
 
 ```js
 server.on('connection', (stream) => {
@@ -739,10 +1206,11 @@ server.on('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-By default, event listeners are invoked in the order they are added. The`emitter.prependListener()` method can be used as an alternative to add the
+By default, event listeners are invoked in the order they are added. The `emitter.prependListener()` method can be used as an alternative to add the
 event listener to the beginning of the listeners array.
 
 ```js
+import { EventEmitter } from 'node:events';
 const myEE = new EventEmitter();
 myEE.on('foo', () => console.log('a'));
 myEE.prependListener('foo', () => console.log('b'));
@@ -752,13 +1220,21 @@ myEE.emit('foo');
 //   a
 ```
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
 The name of the event.
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 The callback function
 
@@ -778,9 +1254,9 @@ v0.1.101
 
 ### once()
 
-> **once**(`eventName`, `listener`): `this`
+> **once**\<`K`\>(`eventName`, `listener`): `this`
 
-Adds a **one-time**`listener` function for the event named `eventName`. The
+Adds a **one-time** `listener` function for the event named `eventName`. The
 next time `eventName` is triggered, this listener is removed and then invoked.
 
 ```js
@@ -791,10 +1267,11 @@ server.once('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
-By default, event listeners are invoked in the order they are added. The`emitter.prependOnceListener()` method can be used as an alternative to add the
+By default, event listeners are invoked in the order they are added. The `emitter.prependOnceListener()` method can be used as an alternative to add the
 event listener to the beginning of the listeners array.
 
 ```js
+import { EventEmitter } from 'node:events';
 const myEE = new EventEmitter();
 myEE.once('foo', () => console.log('a'));
 myEE.prependOnceListener('foo', () => console.log('b'));
@@ -804,13 +1281,21 @@ myEE.emit('foo');
 //   a
 ```
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
 The name of the event.
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 The callback function
 
@@ -830,12 +1315,12 @@ v0.3.0
 
 ### prependListener()
 
-> **prependListener**(`eventName`, `listener`): `this`
+> **prependListener**\<`K`\>(`eventName`, `listener`): `this`
 
 Adds the `listener` function to the _beginning_ of the listeners array for the
 event named `eventName`. No checks are made to see if the `listener` has
-already been added. Multiple calls passing the same combination of `eventName`and `listener` will result in the `listener` being added, and called, multiple
-times.
+already been added. Multiple calls passing the same combination of `eventName`
+and `listener` will result in the `listener` being added, and called, multiple times.
 
 ```js
 server.prependListener('connection', (stream) => {
@@ -845,13 +1330,21 @@ server.prependListener('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
 The name of the event.
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 The callback function
 
@@ -871,7 +1364,7 @@ v6.0.0
 
 ### prependOnceListener()
 
-> **prependOnceListener**(`eventName`, `listener`): `this`
+> **prependOnceListener**\<`K`\>(`eventName`, `listener`): `this`
 
 Adds a **one-time**`listener` function for the event named `eventName` to the _beginning_ of the listeners array. The next time `eventName` is triggered, this
 listener is removed, and then invoked.
@@ -884,13 +1377,21 @@ server.prependOnceListener('connection', (stream) => {
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
 The name of the event.
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 The callback function
 
@@ -910,12 +1411,13 @@ v6.0.0
 
 ### rawListeners()
 
-> **rawListeners**(`eventName`): `Function`[]
+> **rawListeners**\<`K`\>(`eventName`): `Function`[]
 
 Returns a copy of the array of listeners for the event named `eventName`,
 including any wrappers (such as those created by `.once()`).
 
 ```js
+import { EventEmitter } from 'node:events';
 const emitter = new EventEmitter();
 emitter.once('log', () => console.log('log once'));
 
@@ -939,9 +1441,15 @@ newListeners[0]();
 emitter.emit('log');
 ```
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
+
+`string` | `symbol`
 
 #### Returns
 
@@ -959,7 +1467,7 @@ v9.4.0
 
 ### removeAllListeners()
 
-> **removeAllListeners**(`event`?): `this`
+> **removeAllListeners**(`eventName`?): `this`
 
 Removes all listeners, or those of the specified `eventName`.
 
@@ -971,7 +1479,9 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Parameters
 
-• **event?**: `string` \| `symbol`
+##### eventName?
+
+`string` | `symbol`
 
 #### Returns
 
@@ -993,9 +1503,13 @@ v0.1.26
 
 #### Parameters
 
-• **type**: `string`
+##### type
 
-• **listener**
+`string`
+
+##### listener
+
+(...`args`) => `void`
 
 #### Returns
 
@@ -1009,9 +1523,9 @@ v0.1.26
 
 ### removeListener()
 
-> **removeListener**(`eventName`, `listener`): `this`
+> **removeListener**\<`K`\>(`eventName`, `listener`): `this`
 
-Removes the specified `listener` from the listener array for the event named`eventName`.
+Removes the specified `listener` from the listener array for the event named `eventName`.
 
 ```js
 const callback = (stream) => {
@@ -1028,10 +1542,12 @@ listener array for the specified `eventName`, then `removeListener()` must be
 called multiple times to remove each instance.
 
 Once an event is emitted, all listeners attached to it at the
-time of emitting are called in order. This implies that any`removeListener()` or `removeAllListeners()` calls _after_ emitting and _before_ the last listener finishes execution
+time of emitting are called in order. This implies that any `removeListener()` or `removeAllListeners()` calls _after_ emitting and _before_ the last listener finishes execution
 will not remove them from`emit()` in progress. Subsequent events behave as expected.
 
 ```js
+import { EventEmitter } from 'node:events';
+class MyEmitter extends EventEmitter {}
 const myEmitter = new MyEmitter();
 
 const callbackA = () => {
@@ -1069,9 +1585,10 @@ the `emitter.listeners()` method will need to be recreated.
 
 When a single function has been added as a handler multiple times for a single
 event (as in the example below), `removeListener()` will remove the most
-recently added instance. In the example the `once('ping')`listener is removed:
+recently added instance. In the example the `once('ping')` listener is removed:
 
 ```js
+import { EventEmitter } from 'node:events';
 const ee = new EventEmitter();
 
 function pong() {
@@ -1088,11 +1605,19 @@ ee.emit('ping');
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
+#### Type Parameters
+
+• **K**
+
 #### Parameters
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
-• **listener**
+`string` | `symbol`
+
+##### listener
+
+(...`args`) => `void`
 
 #### Returns
 
@@ -1114,7 +1639,9 @@ v0.1.26
 
 #### Parameters
 
-• **sender**: [`RTCRtpSender`](RTCRtpSender.md)
+##### sender
+
+[`RTCRtpSender`](RTCRtpSender.md)
 
 #### Returns
 
@@ -1138,7 +1665,9 @@ v0.1.26
 
 #### Parameters
 
-• **config**: `Partial`\<[`PeerConfig`](../interfaces/PeerConfig.md)\>
+##### config
+
+[`RTCPeerConnectionConfig`](../type-aliases/RTCPeerConnectionConfig.md)
 
 #### Returns
 
@@ -1148,17 +1677,33 @@ v0.1.26
 
 ### setLocalDescription()
 
-> **setLocalDescription**(`sessionDescription`): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
+#### Call Signature
 
-#### Parameters
+> **setLocalDescription**(`sessionDescription`): `Promise`\<`void`\>
 
-• **sessionDescription**
+##### Parameters
 
-• **sessionDescription.sdp**: `string`
+###### sessionDescription
 
-• **sessionDescription.type**: `"offer"` \| `"answer"`
+###### type
 
-#### Returns
+`"rollback"`
+
+##### Returns
+
+`Promise`\<`void`\>
+
+#### Call Signature
+
+> **setLocalDescription**(`sessionDescription`?): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
+
+##### Parameters
+
+###### sessionDescription?
+
+[`RTCLocalSessionDescriptionInit`](../interfaces/RTCLocalSessionDescriptionInit.md)
+
+##### Returns
 
 `Promise`\<[`SessionDescription`](SessionDescription.md)\>
 
@@ -1171,13 +1716,15 @@ v0.1.26
 By default `EventEmitter`s will print a warning if more than `10` listeners are
 added for a particular event. This is a useful default that helps finding
 memory leaks. The `emitter.setMaxListeners()` method allows the limit to be
-modified for this specific `EventEmitter` instance. The value can be set to`Infinity` (or `0`) to indicate an unlimited number of listeners.
+modified for this specific `EventEmitter` instance. The value can be set to `Infinity` (or `0`) to indicate an unlimited number of listeners.
 
 Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Parameters
 
-• **n**: `number`
+##### n
+
+`number`
 
 #### Returns
 
@@ -1199,7 +1746,9 @@ v0.3.5
 
 #### Parameters
 
-• **sessionDescription**: [`RTCSessionDescriptionInit`](../interfaces/RTCSessionDescriptionInit.md)
+##### sessionDescription
+
+[`RTCSessionDescriptionInit`](../interfaces/RTCSessionDescriptionInit.md)
 
 #### Returns
 
@@ -1245,9 +1794,13 @@ function example(signal) {
 
 #### Parameters
 
-• **signal**: `AbortSignal`
+##### signal
 
-• **resource**
+`AbortSignal`
+
+##### resource
+
+(`event`) => `void`
 
 #### Returns
 
@@ -1257,7 +1810,7 @@ Disposable that removes the `abort` listener.
 
 #### Since
 
-v18.18.0
+v20.5.0
 
 #### Inherited from
 
@@ -1278,27 +1831,31 @@ For `EventTarget`s this is the only way to get the event listeners for the
 event target. This is useful for debugging and diagnostic purposes.
 
 ```js
-const { getEventListeners, EventEmitter } = require('events');
+import { getEventListeners, EventEmitter } from 'node:events';
 
 {
   const ee = new EventEmitter();
   const listener = () => console.log('Events are fun');
   ee.on('foo', listener);
-  getEventListeners(ee, 'foo'); // [listener]
+  console.log(getEventListeners(ee, 'foo')); // [ [Function: listener] ]
 }
 {
   const et = new EventTarget();
   const listener = () => console.log('Events are fun');
   et.addEventListener('foo', listener);
-  getEventListeners(et, 'foo'); // [listener]
+  console.log(getEventListeners(et, 'foo')); // [ [Function: listener] ]
 }
 ```
 
 #### Parameters
 
-• **emitter**: `EventEmitter` \| `_DOMEventTarget`
+##### emitter
 
-• **name**: `string` \| `symbol`
+`EventEmitter`\<`DefaultEventMap`\> | `EventTarget`
+
+##### name
+
+`string` | `symbol`
 
 #### Returns
 
@@ -1346,7 +1903,9 @@ import { getMaxListeners, setMaxListeners, EventEmitter } from 'node:events';
 
 #### Parameters
 
-• **emitter**: `EventEmitter` \| `_DOMEventTarget`
+##### emitter
+
+`EventEmitter`\<`DefaultEventMap`\> | `EventTarget`
 
 #### Returns
 
@@ -1354,7 +1913,7 @@ import { getMaxListeners, setMaxListeners, EventEmitter } from 'node:events';
 
 #### Since
 
-v18.17.0
+v19.9.0
 
 #### Inherited from
 
@@ -1366,10 +1925,11 @@ v18.17.0
 
 > `static` **listenerCount**(`emitter`, `eventName`): `number`
 
-A class method that returns the number of listeners for the given `eventName`registered on the given `emitter`.
+A class method that returns the number of listeners for the given `eventName` registered on the given `emitter`.
 
 ```js
-const { EventEmitter, listenerCount } = require('events');
+import { EventEmitter, listenerCount } from 'node:events';
+
 const myEmitter = new EventEmitter();
 myEmitter.on('event', () => {});
 myEmitter.on('event', () => {});
@@ -1379,13 +1939,17 @@ console.log(listenerCount(myEmitter, 'event'));
 
 #### Parameters
 
-• **emitter**: `EventEmitter`
+##### emitter
+
+`EventEmitter`
 
 The emitter to query
 
-• **eventName**: `string` \| `symbol`
+##### eventName
 
 The event name
+
+`string` | `symbol`
 
 #### Returns
 
@@ -1407,28 +1971,29 @@ Since v3.2.0 - Use `listenerCount` instead.
 
 ### on()
 
-> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterableIterator`\<`any`\>
+#### Call Signature
+
+> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterator`\<`any`[]\>
 
 ```js
-const { on, EventEmitter } = require('events');
+import { on, EventEmitter } from 'node:events';
+import process from 'node:process';
 
-(async () => {
-  const ee = new EventEmitter();
+const ee = new EventEmitter();
 
-  // Emit later on
-  process.nextTick(() => {
-    ee.emit('foo', 'bar');
-    ee.emit('foo', 42);
-  });
+// Emit later on
+process.nextTick(() => {
+  ee.emit('foo', 'bar');
+  ee.emit('foo', 42);
+});
 
-  for await (const event of on(ee, 'foo')) {
-    // The execution of this inner block is synchronous and it
-    // processes one event at a time (even with await). Do not use
-    // if concurrent execution is required.
-    console.log(event); // prints ['bar'] [42]
-  }
-  // Unreachable here
-})();
+for await (const event of on(ee, 'foo')) {
+  // The execution of this inner block is synchronous and it
+  // processes one event at a time (even with await). Do not use
+  // if concurrent execution is required.
+  console.log(event); // prints ['bar'] [42]
+}
+// Unreachable here
 ```
 
 Returns an `AsyncIterator` that iterates `eventName` events. It will throw
@@ -1439,7 +2004,9 @@ composed of the emitted event arguments.
 An `AbortSignal` can be used to cancel waiting on events:
 
 ```js
-const { on, EventEmitter } = require('events');
+import { on, EventEmitter } from 'node:events';
+import process from 'node:process';
+
 const ac = new AbortController();
 
 (async () => {
@@ -1463,27 +2030,162 @@ const ac = new AbortController();
 process.nextTick(() => ac.abort());
 ```
 
-#### Parameters
+Use the `close` option to specify an array of event names that will end the iteration:
 
-• **emitter**: `EventEmitter`
+```js
+import { on, EventEmitter } from 'node:events';
+import process from 'node:process';
 
-• **eventName**: `string`
+const ee = new EventEmitter();
 
-The name of the event being listened for
+// Emit later on
+process.nextTick(() => {
+  ee.emit('foo', 'bar');
+  ee.emit('foo', 42);
+  ee.emit('close');
+});
 
-• **options?**: `StaticEventEmitterOptions`
+for await (const event of on(ee, 'foo', { close: ['close'] })) {
+  console.log(event); // prints ['bar'] [42]
+}
+// the loop will exit after 'close' is emitted
+console.log('done'); // prints 'done'
+```
 
-#### Returns
+##### Parameters
 
-`AsyncIterableIterator`\<`any`\>
+###### emitter
 
-that iterates `eventName` events emitted by the `emitter`
+`EventEmitter`
 
-#### Since
+###### eventName
+
+`string` | `symbol`
+
+###### options?
+
+`StaticEventEmitterIteratorOptions`
+
+##### Returns
+
+`AsyncIterator`\<`any`[]\>
+
+An `AsyncIterator` that iterates `eventName` events emitted by the `emitter`
+
+##### Since
 
 v13.6.0, v12.16.0
 
-#### Inherited from
+##### Inherited from
+
+`EventTarget.on`
+
+#### Call Signature
+
+> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterator`\<`any`[]\>
+
+```js
+import { on, EventEmitter } from 'node:events';
+import process from 'node:process';
+
+const ee = new EventEmitter();
+
+// Emit later on
+process.nextTick(() => {
+  ee.emit('foo', 'bar');
+  ee.emit('foo', 42);
+});
+
+for await (const event of on(ee, 'foo')) {
+  // The execution of this inner block is synchronous and it
+  // processes one event at a time (even with await). Do not use
+  // if concurrent execution is required.
+  console.log(event); // prints ['bar'] [42]
+}
+// Unreachable here
+```
+
+Returns an `AsyncIterator` that iterates `eventName` events. It will throw
+if the `EventEmitter` emits `'error'`. It removes all listeners when
+exiting the loop. The `value` returned by each iteration is an array
+composed of the emitted event arguments.
+
+An `AbortSignal` can be used to cancel waiting on events:
+
+```js
+import { on, EventEmitter } from 'node:events';
+import process from 'node:process';
+
+const ac = new AbortController();
+
+(async () => {
+  const ee = new EventEmitter();
+
+  // Emit later on
+  process.nextTick(() => {
+    ee.emit('foo', 'bar');
+    ee.emit('foo', 42);
+  });
+
+  for await (const event of on(ee, 'foo', { signal: ac.signal })) {
+    // The execution of this inner block is synchronous and it
+    // processes one event at a time (even with await). Do not use
+    // if concurrent execution is required.
+    console.log(event); // prints ['bar'] [42]
+  }
+  // Unreachable here
+})();
+
+process.nextTick(() => ac.abort());
+```
+
+Use the `close` option to specify an array of event names that will end the iteration:
+
+```js
+import { on, EventEmitter } from 'node:events';
+import process from 'node:process';
+
+const ee = new EventEmitter();
+
+// Emit later on
+process.nextTick(() => {
+  ee.emit('foo', 'bar');
+  ee.emit('foo', 42);
+  ee.emit('close');
+});
+
+for await (const event of on(ee, 'foo', { close: ['close'] })) {
+  console.log(event); // prints ['bar'] [42]
+}
+// the loop will exit after 'close' is emitted
+console.log('done'); // prints 'done'
+```
+
+##### Parameters
+
+###### emitter
+
+`EventTarget`
+
+###### eventName
+
+`string`
+
+###### options?
+
+`StaticEventEmitterIteratorOptions`
+
+##### Returns
+
+`AsyncIterator`\<`any`[]\>
+
+An `AsyncIterator` that iterates `eventName` events emitted by the `emitter`
+
+##### Since
+
+v13.6.0, v12.16.0
+
+##### Inherited from
 
 `EventTarget.on`
 
@@ -1491,7 +2193,7 @@ v13.6.0, v12.16.0
 
 ### once()
 
-#### once(emitter, eventName, options)
+#### Call Signature
 
 > `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
 
@@ -1504,45 +2206,42 @@ This method is intentionally generic and works with the web platform [EventTarge
 semantics and does not listen to the `'error'` event.
 
 ```js
-const { once, EventEmitter } = require('events');
+import { once, EventEmitter } from 'node:events';
+import process from 'node:process';
 
-async function run() {
-  const ee = new EventEmitter();
+const ee = new EventEmitter();
 
-  process.nextTick(() => {
-    ee.emit('myevent', 42);
-  });
+process.nextTick(() => {
+  ee.emit('myevent', 42);
+});
 
-  const [value] = await once(ee, 'myevent');
-  console.log(value);
+const [value] = await once(ee, 'myevent');
+console.log(value);
 
-  const err = new Error('kaboom');
-  process.nextTick(() => {
-    ee.emit('error', err);
-  });
+const err = new Error('kaboom');
+process.nextTick(() => {
+  ee.emit('error', err);
+});
 
-  try {
-    await once(ee, 'myevent');
-  } catch (err) {
-    console.log('error happened', err);
-  }
+try {
+  await once(ee, 'myevent');
+} catch (err) {
+  console.error('error happened', err);
 }
-
-run();
 ```
 
-The special handling of the `'error'` event is only used when `events.once()`is used to wait for another event. If `events.once()` is used to wait for the
+The special handling of the `'error'` event is only used when `events.once()` is used to wait for another event. If `events.once()` is used to wait for the
 '`error'` event itself, then it is treated as any other kind of event without
 special handling:
 
 ```js
-const { EventEmitter, once } = require('events');
+import { EventEmitter, once } from 'node:events';
 
 const ee = new EventEmitter();
 
 once(ee, 'error')
   .then(([err]) => console.log('ok', err.message))
-  .catch((err) => console.log('error', err.message));
+  .catch((err) => console.error('error', err.message));
 
 ee.emit('error', new Error('boom'));
 
@@ -1552,7 +2251,7 @@ ee.emit('error', new Error('boom'));
 An `AbortSignal` can be used to cancel waiting for the event:
 
 ```js
-const { EventEmitter, once } = require('events');
+import { EventEmitter, once } from 'node:events';
 
 const ee = new EventEmitter();
 const ac = new AbortController();
@@ -1577,11 +2276,17 @@ ee.emit('foo'); // Prints: Waiting for the event was canceled!
 
 ##### Parameters
 
-• **emitter**: `_NodeEventTarget`
+###### emitter
 
-• **eventName**: `string` \| `symbol`
+`EventEmitter`
 
-• **options?**: `StaticEventEmitterOptions`
+###### eventName
+
+`string` | `symbol`
+
+###### options?
+
+`StaticEventEmitterOptions`
 
 ##### Returns
 
@@ -1595,21 +2300,108 @@ v11.13.0, v10.16.0
 
 `EventTarget.once`
 
-#### once(emitter, eventName, options)
+#### Call Signature
 
 > `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
 
+Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
+event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
+The `Promise` will resolve with an array of all the arguments emitted to the
+given event.
+
+This method is intentionally generic and works with the web platform [EventTarget](https://dom.spec.whatwg.org/#interface-eventtarget) interface, which has no special`'error'` event
+semantics and does not listen to the `'error'` event.
+
+```js
+import { once, EventEmitter } from 'node:events';
+import process from 'node:process';
+
+const ee = new EventEmitter();
+
+process.nextTick(() => {
+  ee.emit('myevent', 42);
+});
+
+const [value] = await once(ee, 'myevent');
+console.log(value);
+
+const err = new Error('kaboom');
+process.nextTick(() => {
+  ee.emit('error', err);
+});
+
+try {
+  await once(ee, 'myevent');
+} catch (err) {
+  console.error('error happened', err);
+}
+```
+
+The special handling of the `'error'` event is only used when `events.once()` is used to wait for another event. If `events.once()` is used to wait for the
+'`error'` event itself, then it is treated as any other kind of event without
+special handling:
+
+```js
+import { EventEmitter, once } from 'node:events';
+
+const ee = new EventEmitter();
+
+once(ee, 'error')
+  .then(([err]) => console.log('ok', err.message))
+  .catch((err) => console.error('error', err.message));
+
+ee.emit('error', new Error('boom'));
+
+// Prints: ok boom
+```
+
+An `AbortSignal` can be used to cancel waiting for the event:
+
+```js
+import { EventEmitter, once } from 'node:events';
+
+const ee = new EventEmitter();
+const ac = new AbortController();
+
+async function foo(emitter, event, signal) {
+  try {
+    await once(emitter, event, { signal });
+    console.log('event emitted!');
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('Waiting for the event was canceled!');
+    } else {
+      console.error('There was an error', error.message);
+    }
+  }
+}
+
+foo(ee, 'foo', ac.signal);
+ac.abort(); // Abort waiting for the event
+ee.emit('foo'); // Prints: Waiting for the event was canceled!
+```
+
 ##### Parameters
 
-• **emitter**: `_DOMEventTarget`
+###### emitter
 
-• **eventName**: `string`
+`EventTarget`
 
-• **options?**: `StaticEventEmitterOptions`
+###### eventName
+
+`string`
+
+###### options?
+
+`StaticEventEmitterOptions`
 
 ##### Returns
 
 `Promise`\<`any`[]\>
+
+##### Since
+
+v11.13.0, v10.16.0
 
 ##### Inherited from
 
@@ -1622,10 +2414,7 @@ v11.13.0, v10.16.0
 > `static` **setMaxListeners**(`n`?, ...`eventTargets`?): `void`
 
 ```js
-const {
-  setMaxListeners,
-  EventEmitter
-} = require('events');
+import { setMaxListeners, EventEmitter } from 'node:events';
 
 const target = new EventTarget();
 const emitter = new EventEmitter();
@@ -1635,11 +2424,18 @@ setMaxListeners(5, target, emitter);
 
 #### Parameters
 
-• **n?**: `number`
+##### n?
+
+`number`
 
 A non-negative number. The maximum number of listeners per `EventTarget` event.
 
-• ...**eventTargets?**: (`EventEmitter` \| `_DOMEventTarget`)[]
+##### eventTargets?
+
+...(`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`)[]
+
+Zero or more {EventTarget} or {EventEmitter} instances. If none are specified, `n` is set as the default max for all newly created {EventTarget} and {EventEmitter}
+objects.
 
 #### Returns
 

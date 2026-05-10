@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,13 +6,17 @@
 
 # Function: createBufferWriter()
 
-> **createBufferWriter**(`bytes`, `singleBuffer`?): (`values`) => `Buffer`
+> **createBufferWriter**(`bytes`, `singleBuffer`?): (`values`) => `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
-• **bytes**: `number`[]
+### bytes
 
-• **singleBuffer?**: `boolean`
+`number`[]
+
+### singleBuffer?
+
+`boolean`
 
 ## Returns
 
@@ -20,8 +24,10 @@
 
 ### Parameters
 
-• **values**: (`number` \| `bigint`)[]
+#### values
+
+(`number` \| `bigint`)[]
 
 ### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>

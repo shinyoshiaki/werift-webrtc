@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -24,7 +24,9 @@
 
 #### Parameters
 
-• ...**args**: `any`
+##### args
+
+...`any`
 
 #### Returns
 
@@ -46,39 +48,47 @@
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](../classes/Event.md)\<[`Buffer`]\>
+> **onDataReceived**: [`Event`](../classes/Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
 
 ***
 
 ### onRequestReceived
 
-> **onRequestReceived**: [`Event`](../classes/Event.md)\<[[`Message`](../classes/Message.md), readonly [`string`, `number`], `Buffer`]\>
+> **onRequestReceived**: [`Event`](../classes/Event.md)\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>
 
 ***
 
 ### request()
 
-> **request**: (`message`, `addr`, `integrityKey`?, `retransmissions`?) => `Promise`\<[[`Message`](../classes/Message.md), readonly [`string`, `number`]]\>
+> **request**: (`message`, `addr`, `integrityKey`?, `retransmissions`?) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
-• **message**: [`Message`](../classes/Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](../classes/Message.md)
 
-• **integrityKey?**: `Buffer`
+##### addr
 
-• **retransmissions?**: `any`
+readonly \[`string`, `number`\]
+
+##### integrityKey?
+
+`Buffer`\<`ArrayBufferLike`\>
+
+##### retransmissions?
+
+`any`
 
 #### Returns
 
-`Promise`\<[[`Message`](../classes/Message.md), readonly [`string`, `number`]]\>
+`Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
 
 ***
 
 ### responseAddr?
 
-> `optional` **responseAddr**: readonly [`string`, `number`]
+> `optional` **responseAddr**: readonly \[`string`, `number`\]
 
 ***
 
@@ -94,9 +104,13 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -110,9 +124,13 @@
 
 #### Parameters
 
-• **message**: [`Message`](../classes/Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](../classes/Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ## Parameters
 
-• **candidateType**: `string`
+### candidateType
 
-• **candidateTransport**: `string`
+`string`
 
-• **baseAddress**: `string`
+### candidateTransport
+
+`string`
+
+### baseAddress
+
+`string`
 
 ## Returns
 

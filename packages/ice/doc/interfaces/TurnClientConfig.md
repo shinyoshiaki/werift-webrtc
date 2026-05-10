@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,7 +10,7 @@
 
 ### address
 
-> **address**: readonly [`string`, `number`]
+> **address**: readonly \[`string`, `number`\]
 
 ***
 

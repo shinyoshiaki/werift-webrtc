@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -6,14 +6,18 @@
 
 # Function: bufferWriter()
 
-> **bufferWriter**(`bytes`, `values`): `Buffer`
+> **bufferWriter**(`bytes`, `values`): `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
-• **bytes**: `number`[]
+### bytes
 
-• **values**: (`number` \| `bigint`)[]
+`number`[]
+
+### values
+
+(`number` \| `bigint`)[]
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>

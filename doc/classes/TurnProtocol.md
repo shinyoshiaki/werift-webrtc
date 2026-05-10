@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -18,19 +18,31 @@
 
 #### Parameters
 
-• **server**: readonly [`string`, `number`]
+##### server
 
-• **username**: `string`
+readonly \[`string`, `number`\]
 
-• **password**: `string`
+##### username
 
-• **lifetime**: `number`
+`string`
 
-• **transport**: [`Transport`](../interfaces/Transport.md)
+##### password
 
-• **options** = `{}`
+`string`
 
-• **options.channelRefreshTime?**: `number`
+##### lifetime
+
+`number`
+
+##### transport
+
+[`Transport`](../interfaces/Transport.md)
+
+##### options
+
+###### channelRefreshTime?
+
+`number`
 
 sec
 
@@ -42,7 +54,7 @@ sec
 
 ### integrityKey?
 
-> `optional` **integrityKey**: `Buffer`
+> `optional` **integrityKey**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -64,25 +76,25 @@ sec
 
 ### mappedAddress
 
-> **mappedAddress**: readonly [`string`, `number`]
+> **mappedAddress**: readonly \[`string`, `number`\]
 
 ***
 
 ### nonce?
 
-> `optional` **nonce**: `Buffer`
+> `optional` **nonce**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
 ### onData
 
-> `readonly` **onData**: [`Event`](Event.md)\<[`Buffer`, readonly [`string`, `number`]]\>
+> `readonly` **onData**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
 
 ***
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<[`Buffer`]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -92,7 +104,7 @@ sec
 
 ### onRequestReceived
 
-> **onRequestReceived**: [`Event`](Event.md)\<[[`Message`](Message.md), readonly [`string`, `number`], `Buffer`]\>
+> **onRequestReceived**: [`Event`](Event.md)\<\[[`Message`](Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -126,13 +138,13 @@ sec
 
 ### relayedAddress
 
-> **relayedAddress**: readonly [`string`, `number`]
+> **relayedAddress**: readonly \[`string`, `number`\]
 
 ***
 
 ### server
 
-> **server**: readonly [`string`, `number`]
+> **server**: readonly \[`string`, `number`\]
 
 ***
 
@@ -142,7 +154,7 @@ sec
 
 #### Index Signature
 
- \[`hexId`: `string`\]: `Transaction`
+\[`hexId`: `string`\]: `Transaction`
 
 ***
 
@@ -204,23 +216,17 @@ sec
 
 ### getChannel()
 
-> **getChannel**(`addr`): `Promise`\<`object`\>
+> **getChannel**(`addr`): `Promise`\<\{ `address`: readonly \[`string`, `number`\]; `number`: `number`; \}\>
 
 #### Parameters
 
-• **addr**: readonly [`string`, `number`]
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
-`Promise`\<`object`\>
-
-##### address
-
-> **address**: readonly [`string`, `number`]
-
-##### number
-
-> **number**: `number`
+`Promise`\<\{ `address`: readonly \[`string`, `number`\]; `number`: `number`; \}\>
 
 ***
 
@@ -230,7 +236,9 @@ sec
 
 #### Parameters
 
-• **addr**: readonly [`string`, `number`]
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -240,17 +248,21 @@ sec
 
 ### request()
 
-> **request**(`request`, `addr`): `Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+> **request**(`request`, `addr`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
-• **request**: [`Message`](Message.md)
+##### request
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
-`Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+`Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Implementation of
 
@@ -260,17 +272,21 @@ sec
 
 ### requestWithRetry()
 
-> **requestWithRetry**(`request`, `addr`): `Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+> **requestWithRetry**(`request`, `addr`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
-• **request**: [`Message`](Message.md)
+##### request
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
-`Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+`Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 ***
 
@@ -280,9 +296,13 @@ sec
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -300,9 +320,13 @@ sec
 
 #### Parameters
 
-• **message**: [`Message`](Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

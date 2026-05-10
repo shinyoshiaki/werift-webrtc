@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
+##### props
+
+[`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
 
 #### Returns
 

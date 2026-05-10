@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -100,6 +100,16 @@ Layer indices present
 
 ***
 
+### payload
+
+> **payload**: `Buffer`
+
+#### Implementation of
+
+[`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
+
+***
+
 ### pBit
 
 > **pBit**: `number`
@@ -111,16 +121,6 @@ Inter-picture predicted frame
 ### pDiff
 
 > **pDiff**: `number`[] = `[]`
-
-***
-
-### payload
-
-> **payload**: `Buffer`
-
-#### Implementation of
-
-[`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
 
 ***
 
@@ -200,9 +200,11 @@ Scalability structure
 
 ### isKeyframe
 
-> `get` **isKeyframe**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -214,9 +216,11 @@ Scalability structure
 
 ### isPartitionHead
 
-> `get` **isPartitionHead**(): `boolean` \| `0`
+#### Get Signature
 
-#### Returns
+> **get** **isPartitionHead**(): `boolean` \| `0`
+
+##### Returns
 
 `boolean` \| `0`
 
@@ -228,7 +232,9 @@ Scalability structure
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
@@ -242,7 +248,9 @@ Scalability structure
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 
@@ -256,7 +264,9 @@ Scalability structure
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 

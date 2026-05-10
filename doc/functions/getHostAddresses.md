@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,13 +6,25 @@
 
 # Function: getHostAddresses()
 
-> **getHostAddresses**(`useIpv4`, `useIpv6`): `string`[]
+> **getHostAddresses**(`useIpv4`, `useIpv6`, `options`): `string`[]
 
 ## Parameters
 
-• **useIpv4**: `boolean`
+### useIpv4
 
-• **useIpv6**: `boolean`
+`boolean`
+
+### useIpv6
+
+`boolean`
+
+### options
+
+#### useLinkLocalAddress?
+
+`boolean`
+
+such as google cloud run
 
 ## Returns
 

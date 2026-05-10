@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -8,4 +8,4 @@
 
 ## Indexable
 
- \[`uri`: `string`\]: `any`
+\[`uri`: `string`\]: `any`

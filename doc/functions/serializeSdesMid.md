@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: serializeSdesMid()
 
-> **serializeSdesMid**(`id`): `Buffer`
+> **serializeSdesMid**(`id`): `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
-• **id**: `string`
+### id
+
+`string`
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>

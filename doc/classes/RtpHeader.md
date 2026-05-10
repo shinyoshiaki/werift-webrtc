@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RtpHeader`](RtpHeader.md)\> = `{}`
+##### props
+
+`Partial`\<[`RtpHeader`](RtpHeader.md)\> = `{}`
 
 #### Returns
 
@@ -120,9 +122,11 @@ deserialize only
 
 ### serializeSize
 
-> `get` **serializeSize**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **serializeSize**(): `number`
+
+##### Returns
 
 `number`
 
@@ -130,15 +134,17 @@ deserialize only
 
 ### serialize()
 
-> **serialize**(`size`): `Buffer`
+> **serialize**(`size`): `Buffer`\<`ArrayBuffer`\>
 
 #### Parameters
 
-• **size**: `number`
+##### size
+
+`number`
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -148,7 +154,9 @@ deserialize only
 
 #### Parameters
 
-• **rawPacket**: `Buffer`
+##### rawPacket
+
+`Buffer`
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -7,6 +7,12 @@
 # Interface: IceConnection
 
 ## Properties
+
+### candidatePairs
+
+> **candidatePairs**: [`CandidatePair`](../classes/CandidatePair.md)[]
+
+***
 
 ### checkList
 
@@ -23,6 +29,12 @@
 ### iceControlling
 
 > **iceControlling**: `boolean`
+
+***
+
+### iceLite
+
+> **iceLite**: `boolean`
 
 ***
 
@@ -64,19 +76,25 @@
 
 ### onData
 
-> `readonly` **onData**: `Event`\<[`Buffer`]\>
+> `readonly` **onData**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
 
 ***
 
 ### onIceCandidate
 
-> `readonly` **onIceCandidate**: `Event`\<[[`Candidate`](../classes/Candidate.md)]\>
+> `readonly` **onIceCandidate**: `Event`\<\[[`Candidate`](../classes/Candidate.md)\]\>
 
 ***
 
 ### options
 
 > **options**: [`IceOptions`](IceOptions.md)
+
+***
+
+### remoteCandidates
+
+> **remoteCandidates**: [`Candidate`](../classes/Candidate.md)[]
 
 ***
 
@@ -112,19 +130,19 @@
 
 ### stateChanged
 
-> `readonly` **stateChanged**: `Event`\<[[`IceState`](../type-aliases/IceState.md)]\>
+> `readonly` **stateChanged**: `Event`\<\[[`IceState`](../type-aliases/IceState.md)\]\>
 
 ***
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly [`string`, `number`]
+> `optional` **stunServer**: readonly \[`string`, `number`\]
 
 ***
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly [`string`, `number`]
+> `optional` **turnServer**: readonly \[`string`, `number`\]
 
 ## Methods
 
@@ -134,7 +152,9 @@
 
 #### Parameters
 
-• **remoteCandidate**: `undefined` \| [`Candidate`](../classes/Candidate.md)
+##### remoteCandidate
+
+`undefined` | [`Candidate`](../classes/Candidate.md)
 
 #### Returns
 
@@ -208,7 +228,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 
@@ -222,13 +244,19 @@
 
 #### Parameters
 
-• **params**
+##### params
 
-• **params.iceLite**: `boolean`
+###### iceLite
 
-• **params.password**: `string`
+`boolean`
 
-• **params.usernameFragment**: `string`
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
 
 #### Returns
 

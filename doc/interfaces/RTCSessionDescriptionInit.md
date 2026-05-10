@@ -1,10 +1,14 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
 [werift](../globals.md) / RTCSessionDescriptionInit
 
 # Interface: RTCSessionDescriptionInit
+
+## Extended by
+
+- [`RTCLocalSessionDescriptionInit`](RTCLocalSessionDescriptionInit.md)
 
 ## Properties
 
@@ -14,6 +18,6 @@
 
 ***
 
-### type
+### type?
 
-> **type**: [`RTCSdpType`](../type-aliases/RTCSdpType.md)
+> `optional` **type**: [`RTCSdpType`](../type-aliases/RTCSdpType.md)

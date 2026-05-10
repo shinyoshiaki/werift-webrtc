@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,11 +14,17 @@
 
 #### Parameters
 
-• **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
+##### config
 
-• **kind**: [`Kind`](../type-aliases/Kind.md)
+[`PeerConfig`](../interfaces/PeerConfig.md)
 
-• **rtcpSsrc**: `number`
+##### kind
+
+[`Kind`](../type-aliases/Kind.md)
+
+##### rtcpSsrc
+
+`number`
 
 #### Returns
 
@@ -53,7 +59,7 @@ compactNtp
 
 #### Index Signature
 
- \[`ssrc`: `number`\]: `number`
+\[`ssrc`: `number`\]: `number`
 
 ***
 
@@ -71,13 +77,13 @@ compactNtp
 
 ### onPacketLost
 
-> `readonly` **onPacketLost**: [`Event`](Event.md)\<[[`GenericNack`](GenericNack.md)]\>
+> `readonly` **onPacketLost**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
 
 ***
 
 ### onRtcp
 
-> `readonly` **onRtcp**: [`Event`](Event.md)\<[[`RtcpPacket`](../type-aliases/RtcpPacket.md)]\>
+> `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
 
 ***
 
@@ -89,7 +95,7 @@ seconds
 
 #### Index Signature
 
- \[`ssrc`: `number`\]: `number`
+\[`ssrc`: `number`\]: `number`
 
 ***
 
@@ -141,7 +147,7 @@ seconds
 
 #### Index Signature
 
- \[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ***
 
@@ -151,7 +157,7 @@ seconds
 
 #### Index Signature
 
- \[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ***
 
@@ -175,9 +181,11 @@ seconds
 
 ### nackEnabled
 
-> `get` **nackEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+#### Get Signature
 
-#### Returns
+> **get** **nackEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+
+##### Returns
 
 `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
 
@@ -185,9 +193,11 @@ seconds
 
 ### pliEnabled
 
-> `get` **pliEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+#### Get Signature
 
-#### Returns
+> **get** **pliEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+
+##### Returns
 
 `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
 
@@ -195,9 +205,11 @@ seconds
 
 ### track
 
-> `get` **track**(): [`MediaStreamTrack`](MediaStreamTrack.md)
+#### Get Signature
 
-#### Returns
+> **get** **track**(): [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### Returns
 
 [`MediaStreamTrack`](MediaStreamTrack.md)
 
@@ -205,9 +217,11 @@ seconds
 
 ### twccEnabled
 
-> `get` **twccEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+#### Get Signature
 
-#### Returns
+> **get** **twccEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+
+##### Returns
 
 `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
 
@@ -219,7 +233,9 @@ seconds
 
 #### Parameters
 
-• **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+##### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
@@ -229,13 +245,11 @@ seconds
 
 ### getStats()
 
-> **getStats**(): `void`
-
-todo impl
+> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
 
 #### Returns
 
-`void`
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
 
 ***
 
@@ -245,7 +259,9 @@ todo impl
 
 #### Parameters
 
-• **packet**: [`RtcpPacket`](../type-aliases/RtcpPacket.md)
+##### packet
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)
 
 #### Returns
 
@@ -259,11 +275,17 @@ todo impl
 
 #### Parameters
 
-• **packet**: [`RtpPacket`](RtpPacket.md)
+##### packet
 
-• **rid**: `string`
+[`RtpPacket`](RtpPacket.md)
 
-• **extensions**: [`Extensions`](../interfaces/Extensions.md)
+##### rid
+
+`string`
+
+##### extensions
+
+[`Extensions`](../interfaces/Extensions.md)
 
 #### Returns
 
@@ -277,9 +299,13 @@ todo impl
 
 #### Parameters
 
-• **packet**: [`RtpPacket`](RtpPacket.md)
+##### packet
 
-• **extensions**: [`Extensions`](../interfaces/Extensions.md)
+[`RtpPacket`](RtpPacket.md)
+
+##### extensions
+
+[`Extensions`](../interfaces/Extensions.md)
 
 #### Returns
 
@@ -293,7 +319,9 @@ todo impl
 
 #### Parameters
 
-• **params**: [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
+##### params
+
+[`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
 
 #### Returns
 
@@ -317,7 +345,9 @@ todo impl
 
 #### Parameters
 
-• **mediaSsrc**: `number`
+##### mediaSsrc
+
+`number`
 
 #### Returns
 
@@ -331,7 +361,9 @@ todo impl
 
 #### Parameters
 
-• **dtls**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+##### dtls
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 
@@ -347,7 +379,9 @@ setup TWCC if supported
 
 #### Parameters
 
-• **mediaSourceSsrc**: `number`
+##### mediaSourceSsrc
+
+`number`
 
 #### Returns
 

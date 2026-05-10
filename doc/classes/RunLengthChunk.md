@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> = `{}`
+##### props
+
+`Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> = `{}`
 
 #### Returns
 
@@ -48,7 +50,9 @@
 
 #### Parameters
 
-• **currentSequenceNumber**: `number`
+##### currentSequenceNumber
+
+`number`
 
 #### Returns
 
@@ -58,11 +62,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -72,7 +76,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 

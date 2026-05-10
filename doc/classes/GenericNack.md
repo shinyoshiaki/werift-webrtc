@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`GenericNack`](GenericNack.md)\> = `{}`
+##### props
+
+`Partial`\<[`GenericNack`](GenericNack.md)\> = `{}`
 
 #### Returns
 
@@ -60,11 +62,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -96,9 +98,13 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+`Buffer`
+
+##### header
+
+[`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

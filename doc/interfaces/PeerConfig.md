@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,90 +14,43 @@
 
 ***
 
+### certificates
+
+> **certificates**: [`RTCCertificate`](../classes/RTCCertificate.md)[]
+
+***
+
 ### codecs
 
-> **codecs**: `Partial`\<`object`\>
-
-#### Type declaration
-
-##### audio
-
-> **audio**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
-
-When specifying a codec with a fixed payloadType such as PCMU,
-it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advance.
-
-##### video
-
-> **video**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+> **codecs**: `Partial`\<\{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; \}\>
 
 ***
 
 ### debug
 
-> **debug**: `Partial`\<`object`\>
-
-#### Type declaration
-
-##### disableRecvRetransmit
-
-> **disableRecvRetransmit**: `boolean`
-
-##### disableSendNack
-
-> **disableSendNack**: `boolean`
-
-##### inboundPacketLoss
-
-> **inboundPacketLoss**: `number`
-
-%
-
-##### outboundPacketLoss
-
-> **outboundPacketLoss**: `number`
-
-%
-
-##### receiverReportDelay
-
-> **receiverReportDelay**: `number`
-
-ms
+> **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
 
 ***
 
 ### dtls
 
-> **dtls**: `Partial`\<`object`\>
-
-#### Type declaration
-
-##### keys
-
-> **keys**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+> **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); \}\>
 
 ***
 
-### forceTurnTCP
+### ~~forceTurnTCP~~
 
 > **forceTurnTCP**: `boolean`
+
+#### Deprecated
+
+Prefer turn URL transport parameters or turnTransport.
 
 ***
 
 ### headerExtensions
 
-> **headerExtensions**: `Partial`\<`object`\>
-
-#### Type declaration
-
-##### audio
-
-> **audio**: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]
-
-##### video
-
-> **video**: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]
+> **headerExtensions**: `Partial`\<\{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]; \}\>
 
 ***
 
@@ -107,6 +60,12 @@ ms
 
 Add additional host (local) addresses to use for candidate gathering.
 Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+
+***
+
+### iceCandidatePoolSize
+
+> **iceCandidatePoolSize**: `number`
 
 ***
 
@@ -131,6 +90,14 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ***
 
+### iceLite
+
+> **iceLite**: `boolean`
+
+Advertise local ICE lite and operate in the controlled role.
+
+***
+
 ### icePasswordPrefix
 
 > **icePasswordPrefix**: `undefined` \| `string`
@@ -139,7 +106,7 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ### icePortRange
 
-> **icePortRange**: `undefined` \| [`number`, `number`]
+> **icePortRange**: `undefined` \| \[`number`, `number`\]
 
 Minimum port and Maximum port must not be the same value
 
@@ -169,6 +136,40 @@ Minimum port and Maximum port must not be the same value
 
 ***
 
+### iceUseLinkLocalAddress
+
+> **iceUseLinkLocalAddress**: `undefined` \| `boolean`
+
+such as google cloud run
+
+***
+
+### maxMessageSize
+
+> **maxMessageSize**: `number`
+
+Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
+
+***
+
 ### midSuffix
 
 > **midSuffix**: `boolean`
+
+***
+
+### rtcpMuxPolicy
+
+> **rtcpMuxPolicy**: `"require"`
+
+***
+
+### turnTlsOptions
+
+> **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+
+***
+
+### turnTransport
+
+> **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`

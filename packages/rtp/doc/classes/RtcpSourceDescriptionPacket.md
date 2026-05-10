@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)\>
+##### props
+
+`Partial`\<[`RtcpSourceDescriptionPacket`](RtcpSourceDescriptionPacket.md)\>
 
 #### Returns
 
@@ -42,9 +44,11 @@
 
 ### length
 
-> `get` **length**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **length**(): `number`
+
+##### Returns
 
 `number`
 
@@ -52,11 +56,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -66,9 +70,13 @@
 
 #### Parameters
 
-• **payload**: `Buffer`
+##### payload
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+`Buffer`
+
+##### header
+
+[`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

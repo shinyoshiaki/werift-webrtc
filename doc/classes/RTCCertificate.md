@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,11 +14,17 @@
 
 #### Parameters
 
-• **privateKeyPem**: `string`
+##### privateKeyPem
 
-• **certPem**: `string`
+`string`
 
-• **signatureHash**: [`SignatureHash`](../type-aliases/SignatureHash.md)
+##### certPem
+
+`string`
+
+##### signatureHash
+
+[`SignatureHash`](../type-aliases/SignatureHash.md)
 
 #### Returns
 

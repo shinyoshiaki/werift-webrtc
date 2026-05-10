@@ -55,7 +55,9 @@ export class SecureTransportManager {
     if (this.config.dtls) {
       const { keys } = this.config.dtls;
 
-      if (keys) {
+      if (this.config.certificates[0]) {
+        this.certificate = this.config.certificates[0];
+      } else if (keys) {
         this.setupCertificate(keys);
       }
     }
@@ -186,16 +188,47 @@ export class SecureTransportManager {
 
   async addIceCandidate(
     sdp: SessionDescription,
-    candidateMessage: RTCIceCandidate | RTCIceCandidateInit,
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
   ) {
+    const isEndOfCandidates =
+      candidateMessage == null ||
+      candidateMessage.candidate == null ||
+      candidateMessage.candidate === "";
+
+    if (isEndOfCandidates) {
+      const candidateTarget =
+        candidateMessage &&
+        (candidateMessage.sdpMid != undefined ||
+          candidateMessage.sdpMLineIndex != undefined)
+          ? [
+              this.getTransportByMid(candidateMessage.sdpMid ?? undefined) ??
+                (typeof candidateMessage.sdpMLineIndex === "number"
+                  ? this.getTransportByMLineIndex(
+                      sdp,
+                      candidateMessage.sdpMLineIndex,
+                    )
+                  : undefined),
+            ]
+          : this.iceTransports;
+
+      await Promise.all(
+        candidateTarget
+          .filter(
+            (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
+          )
+          .map((iceTransport) => iceTransport.addRemoteCandidate(undefined)),
+      );
+      return;
+    }
+
     const candidate = IceCandidate.fromJSON(candidateMessage);
     if (!candidate) {
-      return;
+      throw new Error("Failed to parse ICE candidate");
     }
 
     let iceTransport: RTCIceTransport | undefined;
 
-    if (typeof candidate.sdpMid === "number") {
+    if (typeof candidate.sdpMid === "string") {
       iceTransport = this.getTransportByMid(candidate.sdpMid);
     }
 
@@ -217,7 +250,10 @@ export class SecureTransportManager {
     }
   }
 
-  private getTransportByMid(mid: string) {
+  private getTransportByMid(mid?: string) {
+    if (!mid) {
+      return;
+    }
     let iceTransport: RTCIceTransport | undefined;
 
     const transceiver = this.transceiverManager

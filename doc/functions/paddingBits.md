@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **bits**: `number`
+### bits
 
-• **expectLength**: `number`
+`number`
+
+### expectLength
+
+`number`
 
 ## Returns
 

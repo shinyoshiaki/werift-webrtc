@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -26,22 +26,24 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): readonly [[`RedHeader`](RedHeader.md), `number`]
+> `static` **deSerialize**(`buf`): readonly \[[`RedHeader`](RedHeader.md), `number`\]
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
-readonly [[`RedHeader`](RedHeader.md), `number`]
+readonly \[[`RedHeader`](RedHeader.md), `number`\]

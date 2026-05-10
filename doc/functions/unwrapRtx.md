@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ## Parameters
 
-• **rtx**: [`RtpPacket`](../classes/RtpPacket.md)
+### rtx
 
-• **payloadType**: `number`
+[`RtpPacket`](../classes/RtpPacket.md)
 
-• **ssrc**: `number`
+### payloadType
+
+`number`
+
+### ssrc
+
+`number`
 
 ## Returns
 

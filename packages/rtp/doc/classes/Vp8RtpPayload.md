@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -58,12 +58,6 @@
 
 ***
 
-### pBit?
-
-> `optional` **pBit**: `number`
-
-***
-
 ### payload
 
 > **payload**: `Buffer`
@@ -71,6 +65,12 @@
 #### Implementation of
 
 [`DePacketizerBase`](DePacketizerBase.md).[`payload`](DePacketizerBase.md#payload)
+
+***
+
+### pBit?
+
+> `optional` **pBit**: `number`
 
 ***
 
@@ -130,9 +130,11 @@
 
 ### isKeyframe
 
-> `get` **isKeyframe**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -144,9 +146,11 @@
 
 ### isPartitionHead
 
-> `get` **isPartitionHead**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isPartitionHead**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -154,9 +158,11 @@
 
 ### payloadHeaderExist
 
-> `get` **payloadHeaderExist**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **payloadHeaderExist**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -164,9 +170,11 @@
 
 ### size
 
-> `get` **size**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **size**(): `number`
+
+##### Returns
 
 `number`
 
@@ -178,7 +186,9 @@
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
@@ -192,7 +202,9 @@
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

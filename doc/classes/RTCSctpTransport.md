@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ### new RTCSctpTransport()
 
-> **new RTCSctpTransport**(`port`): [`RTCSctpTransport`](RTCSctpTransport.md)
+> **new RTCSctpTransport**(`port`, `maxMessageSize`): [`RTCSctpTransport`](RTCSctpTransport.md)
 
 #### Parameters
 
-• **port**: `number` = `5000`
+##### port
+
+`number` = `5000`
+
+##### maxMessageSize
+
+`number` = `DEFAULT_MAX_MESSAGE_SIZE`
 
 #### Returns
 
@@ -34,7 +40,7 @@
 
 #### Index Signature
 
- \[`key`: `number`\]: [`RTCDataChannel`](RTCDataChannel.md)
+\[`key`: `number`\]: [`RTCDataChannel`](RTCDataChannel.md)
 
 ***
 
@@ -50,9 +56,9 @@
 
 ***
 
-### mLineIndex?
+### maxMessageSize
 
-> `optional` **mLineIndex**: `number`
+> **maxMessageSize**: `number` = `DEFAULT_MAX_MESSAGE_SIZE`
 
 ***
 
@@ -62,15 +68,27 @@
 
 ***
 
+### mLineIndex?
+
+> `optional` **mLineIndex**: `number`
+
+***
+
 ### onDataChannel
 
-> `readonly` **onDataChannel**: [`Event`](Event.md)\<[[`RTCDataChannel`](RTCDataChannel.md)]\>
+> `readonly` **onDataChannel**: [`Event`](Event.md)\<\[[`RTCDataChannel`](RTCDataChannel.md)\]\>
 
 ***
 
 ### port
 
 > **port**: `number` = `5000`
+
+***
+
+### remoteMaxMessageSize
+
+> **remoteMaxMessageSize**: `number` = `DEFAULT_MAX_MESSAGE_SIZE`
 
 ***
 
@@ -86,7 +104,9 @@
 
 #### Parameters
 
-• **label**: `string`
+##### label
+
+`string`
 
 #### Returns
 
@@ -100,7 +120,9 @@
 
 #### Parameters
 
-• **channel**: [`RTCDataChannel`](RTCDataChannel.md)
+##### channel
+
+[`RTCDataChannel`](RTCDataChannel.md)
 
 #### Returns
 
@@ -114,7 +136,9 @@
 
 #### Parameters
 
-• **channel**: [`RTCDataChannel`](RTCDataChannel.md)
+##### channel
+
+[`RTCDataChannel`](RTCDataChannel.md)
 
 #### Returns
 
@@ -128,7 +152,9 @@
 
 #### Parameters
 
-• **channel**: [`RTCDataChannel`](RTCDataChannel.md)
+##### channel
+
+[`RTCDataChannel`](RTCDataChannel.md)
 
 #### Returns
 
@@ -138,17 +164,31 @@
 
 ### datachannelSend()
 
-> **datachannelSend**(`channel`, `data`): `void`
+> **datachannelSend**(`channel`, `data`): `number`
 
 #### Parameters
 
-• **channel**: [`RTCDataChannel`](RTCDataChannel.md)
+##### channel
 
-• **data**: `string` \| `Buffer`
+[`RTCDataChannel`](RTCDataChannel.md)
+
+##### data
+
+`string` | `Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
-`void`
+`number`
+
+***
+
+### getCapabilities()
+
+> **getCapabilities**(): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+
+#### Returns
+
+[`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 ***
 
@@ -158,7 +198,25 @@
 
 #### Parameters
 
-• **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+##### dtlsTransport
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+#### Returns
+
+`void`
+
+***
+
+### setRemoteMaxMessageSize()
+
+> **setRemoteMaxMessageSize**(`maxMessageSize`?): `void`
+
+#### Parameters
+
+##### maxMessageSize?
+
+`number`
 
 #### Returns
 
@@ -172,7 +230,9 @@
 
 #### Parameters
 
-• **port**: `number`
+##### port
+
+`number`
 
 #### Returns
 
@@ -186,7 +246,9 @@
 
 #### Parameters
 
-• **remotePort**: `number`
+##### remotePort
+
+`number`
 
 #### Returns
 
@@ -206,7 +268,13 @@
 
 ### getCapabilities()
 
-> `static` **getCapabilities**(): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+> `static` **getCapabilities**(`maxMessageSize`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+
+#### Parameters
+
+##### maxMessageSize
+
+`number` = `DEFAULT_MAX_MESSAGE_SIZE`
 
 #### Returns
 

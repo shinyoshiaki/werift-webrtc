@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -34,7 +34,9 @@
 
 #### Parameters
 
-• **disposer**
+##### disposer
+
+() => `void`
 
 #### Returns
 

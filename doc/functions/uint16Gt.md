@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -12,9 +12,13 @@ Return a > b
 
 ## Parameters
 
-• **a**: `number`
+### a
 
-• **b**: `number`
+`number`
+
+### b
+
+`number`
 
 ## Returns
 

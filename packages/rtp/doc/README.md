@@ -1,4 +1,4 @@
-**werift-rtp** • [**Docs**](globals.md)
+**werift-rtp**
 
 ***
 

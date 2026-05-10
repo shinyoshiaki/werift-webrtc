@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: SignalingStates
 
-> `const` **SignalingStates**: readonly [`"stable"`, `"have-local-offer"`, `"have-remote-offer"`, `"have-local-pranswer"`, `"have-remote-pranswer"`, `"closed"`]
+> `const` **SignalingStates**: readonly \[`"stable"`, `"have-local-offer"`, `"have-remote-offer"`, `"have-local-pranswer"`, `"have-remote-pranswer"`, `"closed"`\]

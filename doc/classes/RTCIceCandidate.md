@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RTCIceCandidate`](RTCIceCandidate.md)\>
+##### props
+
+`Partial`\<[`RTCIceCandidate`](RTCIceCandidate.md)\>
 
 #### Returns
 
@@ -28,15 +30,15 @@
 
 ***
 
-### sdpMLineIndex?
-
-> `optional` **sdpMLineIndex**: `number`
-
-***
-
 ### sdpMid?
 
 > `optional` **sdpMid**: `string`
+
+***
+
+### sdpMLineIndex?
+
+> `optional` **sdpMLineIndex**: `number`
 
 ***
 
@@ -58,17 +60,33 @@
 
 > **candidate**: `string`
 
-##### sdpMLineIndex
-
-> **sdpMLineIndex**: `undefined` \| `number`
-
 ##### sdpMid
 
 > **sdpMid**: `undefined` \| `string`
 
+##### sdpMLineIndex
+
+> **sdpMLineIndex**: `undefined` \| `number`
+
 ##### usernameFragment
 
 > **usernameFragment**: `undefined` \| `string`
+
+***
+
+### fromSdp()
+
+> `static` **fromSdp**(`sdp`): [`RTCIceCandidate`](RTCIceCandidate.md)
+
+#### Parameters
+
+##### sdp
+
+`string`
+
+#### Returns
+
+[`RTCIceCandidate`](RTCIceCandidate.md)
 
 ***
 
@@ -78,7 +96,9 @@
 
 #### Parameters
 
-• **o**: `any`
+##### o
+
+`any`
 
 #### Returns
 

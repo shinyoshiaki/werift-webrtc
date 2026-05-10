@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)\> = `{}`
+##### props
+
+`Partial`\<[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)\> = `{}`
 
 #### Returns
 
@@ -90,11 +92,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -104,7 +106,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 

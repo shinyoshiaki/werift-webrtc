@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -14,17 +14,29 @@
 
 ### new Message()
 
-> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`): [`Message`](Message.md)
+> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`): [`Message`](Message.md)
 
 #### Parameters
 
-• **messageMethod**: [`methods`](../enumerations/methods.md)
+##### messageMethod
 
-• **messageClass**: [`classes`](../enumerations/classes.md)
+[`methods`](../enumerations/methods.md)
 
-• **transactionId**: `Buffer` = `...`
+##### messageClass
 
-• **attributes**: `AttributePair`[] = `[]`
+[`classes`](../enumerations/classes.md)
+
+##### transactionId
+
+`Buffer` = `...`
+
+##### attributes
+
+`AttributePair`[] = `[]`
+
+##### rawAttributes
+
+`RawAttribute`[] = `[]`
 
 #### Returns
 
@@ -58,6 +70,12 @@
 
 ***
 
+### rawAttributes
+
+> **rawAttributes**: `RawAttribute`[] = `[]`
+
+***
+
 ### transactionId
 
 > **transactionId**: `Buffer`
@@ -66,11 +84,13 @@
 
 ### attributesKeys
 
-> `get` **attributesKeys**(): (`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"XOR-RELAYED-ADDRESS"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`)[]
+#### Get Signature
 
-#### Returns
+> **get** **attributesKeys**(): (`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"MESSAGE-INTEGRITY-SHA256"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"USERHASH"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"UNKNOWN-ATTRIBUTES"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"REQUESTED-ADDRESS-FAMILY"` \| `"EVEN-PORT"` \| `"PASSWORD-ALGORITHM"` \| `"PASSWORD-ALGORITHMS"` \| `"XOR-RELAYED-ADDRESS"` \| `"RESERVATION-TOKEN"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"ALTERNATE-DOMAIN"` \| `"ALTERNATE-SERVER"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`)[]
 
-(`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"XOR-RELAYED-ADDRESS"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`)[]
+##### Returns
+
+(`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"MESSAGE-INTEGRITY-SHA256"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"USERHASH"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"UNKNOWN-ATTRIBUTES"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"REQUESTED-ADDRESS-FAMILY"` \| `"EVEN-PORT"` \| `"PASSWORD-ALGORITHM"` \| `"PASSWORD-ALGORITHMS"` \| `"XOR-RELAYED-ADDRESS"` \| `"RESERVATION-TOKEN"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"ALTERNATE-DOMAIN"` \| `"ALTERNATE-SERVER"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`)[]
 
 #### Inherited from
 
@@ -80,53 +100,75 @@
 
 ### bytes
 
-> `get` **bytes**(): `Buffer`
+#### Get Signature
 
-#### Returns
+> **get** **bytes**(): `Buffer`\<`ArrayBuffer`\>
 
-`Buffer`
+##### Returns
+
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
 ### json
 
-> `get` **json**(): `object`
+#### Get Signature
 
-#### Returns
+> **get** **json**(): `object`
+
+##### Returns
 
 `object`
 
-##### attributes
+###### attributes
 
 > **attributes**: `AttributePair`[]
 
-##### messageClass
+###### messageClass
 
-> **messageClass**: `string`
+> **messageClass**: [`classes`](../enumerations/classes.md)
 
-##### messageMethod
+###### messageMethod
 
-> **messageMethod**: `string`
+> **messageMethod**: [`methods`](../enumerations/methods.md)
+
+###### rawAttributes
+
+> **rawAttributes**: `object`[]
 
 ***
 
 ### transactionIdHex
 
-> `get` **transactionIdHex**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **transactionIdHex**(): `string`
+
+##### Returns
 
 `string`
+
+***
+
+### unknownAttributeTypes
+
+#### Get Signature
+
+> **get** **unknownAttributeTypes**(): `number`[]
+
+##### Returns
+
+`number`[]
 
 ## Methods
 
 ### addFingerprint()
 
-> **addFingerprint**(): `void`
+> **addFingerprint**(): [`Message`](Message.md)
 
 #### Returns
 
-`void`
+[`Message`](Message.md)
 
 ***
 
@@ -136,7 +178,29 @@
 
 #### Parameters
 
-• **key**: `Buffer`
+##### key
+
+`Buffer`
+
+#### Returns
+
+[`Message`](Message.md)
+
+***
+
+### appendRawAttribute()
+
+> **appendRawAttribute**(`type`, `value`): [`Message`](Message.md)
+
+#### Parameters
+
+##### type
+
+`number`
+
+##### value
+
+`Buffer`
 
 #### Returns
 
@@ -158,24 +222,6 @@
 
 ***
 
-### getAttributeValue()
-
-> **getAttributeValue**(`key`): `any`
-
-#### Parameters
-
-• **key**: `"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"XOR-RELAYED-ADDRESS"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`
-
-#### Returns
-
-`any`
-
-#### Inherited from
-
-`AttributeRepository.getAttributeValue`
-
-***
-
 ### getAttributes()
 
 > **getAttributes**(): `AttributePair`[]
@@ -190,17 +236,39 @@
 
 ***
 
-### messageIntegrity()
+### getAttributeValue()
 
-> **messageIntegrity**(`key`): `Buffer`
+> **getAttributeValue**(`key`): `any`
 
 #### Parameters
 
-• **key**: `Buffer`
+##### key
+
+`"FINGERPRINT"` | `"MESSAGE-INTEGRITY"` | `"MESSAGE-INTEGRITY-SHA256"` | `"CHANGE-REQUEST"` | `"PRIORITY"` | `"USERNAME"` | `"USERHASH"` | `"ICE-CONTROLLING"` | `"SOURCE-ADDRESS"` | `"USE-CANDIDATE"` | `"ICE-CONTROLLED"` | `"ERROR-CODE"` | `"UNKNOWN-ATTRIBUTES"` | `"XOR-MAPPED-ADDRESS"` | `"CHANGED-ADDRESS"` | `"LIFETIME"` | `"REQUESTED-TRANSPORT"` | `"NONCE"` | `"REALM"` | `"REQUESTED-ADDRESS-FAMILY"` | `"EVEN-PORT"` | `"PASSWORD-ALGORITHM"` | `"PASSWORD-ALGORITHMS"` | `"XOR-RELAYED-ADDRESS"` | `"RESERVATION-TOKEN"` | `"CHANNEL-NUMBER"` | `"XOR-PEER-ADDRESS"` | `"DATA"` | `"SOFTWARE"` | `"MAPPED-ADDRESS"` | `"ALTERNATE-DOMAIN"` | `"ALTERNATE-SERVER"` | `"RESPONSE-ORIGIN"` | `"OTHER-ADDRESS"`
 
 #### Returns
 
+`any`
+
+#### Inherited from
+
+`AttributeRepository.getAttributeValue`
+
+***
+
+### messageIntegrity()
+
+> **messageIntegrity**(`key`): `Buffer`\<`ArrayBuffer`\>
+
+#### Parameters
+
+##### key
+
 `Buffer`
+
+#### Returns
+
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -210,9 +278,13 @@
 
 #### Parameters
 
-• **key**: `"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"XOR-RELAYED-ADDRESS"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`
+##### key
 
-• **value**: `any`
+`"FINGERPRINT"` | `"MESSAGE-INTEGRITY"` | `"MESSAGE-INTEGRITY-SHA256"` | `"CHANGE-REQUEST"` | `"PRIORITY"` | `"USERNAME"` | `"USERHASH"` | `"ICE-CONTROLLING"` | `"SOURCE-ADDRESS"` | `"USE-CANDIDATE"` | `"ICE-CONTROLLED"` | `"ERROR-CODE"` | `"UNKNOWN-ATTRIBUTES"` | `"XOR-MAPPED-ADDRESS"` | `"CHANGED-ADDRESS"` | `"LIFETIME"` | `"REQUESTED-TRANSPORT"` | `"NONCE"` | `"REALM"` | `"REQUESTED-ADDRESS-FAMILY"` | `"EVEN-PORT"` | `"PASSWORD-ALGORITHM"` | `"PASSWORD-ALGORITHMS"` | `"XOR-RELAYED-ADDRESS"` | `"RESERVATION-TOKEN"` | `"CHANNEL-NUMBER"` | `"XOR-PEER-ADDRESS"` | `"DATA"` | `"SOFTWARE"` | `"MAPPED-ADDRESS"` | `"ALTERNATE-DOMAIN"` | `"ALTERNATE-SERVER"` | `"RESPONSE-ORIGIN"` | `"OTHER-ADDRESS"`
+
+##### value
+
+`any`
 
 #### Returns
 
@@ -238,8 +310,12 @@
 
 ##### messageClass
 
-> **messageClass**: `string`
+> **messageClass**: [`classes`](../enumerations/classes.md)
 
 ##### messageMethod
 
-> **messageMethod**: `string`
+> **messageMethod**: [`methods`](../enumerations/methods.md)
+
+##### rawAttributes
+
+> **rawAttributes**: `object`[]

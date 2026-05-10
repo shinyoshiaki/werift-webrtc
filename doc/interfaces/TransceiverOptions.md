@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -17,3 +17,17 @@
 ### simulcast
 
 > **simulcast**: `object`[]
+
+#### direction
+
+> **direction**: `SimulcastDirection`
+
+#### rid
+
+> **rid**: `string`
+
+***
+
+### streams
+
+> **streams**: [`MediaStream`](../classes/MediaStream.md)[]

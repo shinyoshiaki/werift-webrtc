@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: serializeAudioLevelIndication()
 
-> **serializeAudioLevelIndication**(`level`): `Buffer`
+> **serializeAudioLevelIndication**(`level`): `Buffer`\<`ArrayBufferLike`\>
 
 ## Parameters
 
-• **level**: `number`
+### level
+
+`number`
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBufferLike`\>

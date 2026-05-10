@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -6,14 +6,18 @@
 
 # Function: growBufferSize()
 
-> **growBufferSize**(`buf`, `size`): `Buffer`
+> **growBufferSize**(`buf`, `size`): `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
-• **buf**: `Buffer`
+### buf
 
-• **size**: `number`
+`Buffer`
+
+### size
+
+`number`
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>

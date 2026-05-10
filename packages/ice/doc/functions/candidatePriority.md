@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **candidateType**: `string`
+### candidateType
 
-• **localPref**: `number` = `65535`
+`string`
+
+### localPref
+
+`number` = `65535`
 
 ## Returns
 

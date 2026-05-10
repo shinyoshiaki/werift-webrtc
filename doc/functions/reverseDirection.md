@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: reverseDirection()
 
-> **reverseDirection**(`dir`): [`Direction`](../type-aliases/Direction.md)
+> **reverseDirection**(`dir`): `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 ## Parameters
 
-• **dir**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+### dir
+
+`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
 ## Returns
 
-[`Direction`](../type-aliases/Direction.md)
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`

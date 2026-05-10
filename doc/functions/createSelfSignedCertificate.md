@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,31 +6,23 @@
 
 # Function: createSelfSignedCertificate()
 
-> **createSelfSignedCertificate**(`signatureHash`, `namedCurveAlgorithm`?): `Promise`\<`object`\>
+> **createSelfSignedCertificate**(`signatureHash`, `namedCurveAlgorithm`?): `Promise`\<\{ `certPem`: `string`; `keyPem`: `string`; `signatureHash`: [`SignatureHash`](../type-aliases/SignatureHash.md); \}\>
 
 ## Parameters
 
-• **signatureHash**: [`SignatureHash`](../type-aliases/SignatureHash.md)
+### signatureHash
 
-• **namedCurveAlgorithm?**: [`NamedCurveAlgorithms`](../type-aliases/NamedCurveAlgorithms.md)
+[`SignatureHash`](../type-aliases/SignatureHash.md)
+
+### namedCurveAlgorithm?
+
+[`NamedCurveAlgorithms`](../type-aliases/NamedCurveAlgorithms.md)
 
 necessary when use ecdsa
 
 ## Returns
 
-`Promise`\<`object`\>
-
-### certPem
-
-> **certPem**: `string`
-
-### keyPem
-
-> **keyPem**: `string`
-
-### signatureHash
-
-> **signatureHash**: [`SignatureHash`](../type-aliases/SignatureHash.md)
+`Promise`\<\{ `certPem`: `string`; `keyPem`: `string`; `signatureHash`: [`SignatureHash`](../type-aliases/SignatureHash.md); \}\>
 
 ## Param
 

@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **stunServer?**: readonly [`string`, `number`]
+### stunServer?
 
-• **interfaceAddresses?**: `InterfaceAddresses`
+readonly \[`string`, `number`\]
+
+### interfaceAddresses?
+
+`InterfaceAddresses`
 
 ## Returns
 

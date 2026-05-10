@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -24,9 +24,13 @@
 
 #### Parameters
 
-• **red**: [`Red`](Red.md)
+##### red
 
-• **base**: [`RtpPacket`](RtpPacket.md)
+[`Red`](Red.md)
+
+##### base
+
+[`RtpPacket`](RtpPacket.md)
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: signatures
 
-> `const` **signatures**: (`object` \| `object`)[]
+> `const` **signatures**: (\{ `hash`: `4`; `signature`: `1`; \} \| \{ `hash`: `4`; `signature`: `3`; \})[]
