@@ -111,6 +111,11 @@ see console & chrome://webrtc-internals/
 
 ## RTCPeerConnection W3C compatibility notes
 
+API reference markdown can be regenerated with `cd packages/webrtc && npm run doc`.
+For this task, the reviewable compatibility notes live in this README and in
+`src/peerConnection.ts`; the generated `packages/webrtc/doc/` output is not
+tracked in git, so it is not committed as part of this change.
+
 | Status | API | Notes |
 | --- | --- | --- |
 | Added | `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, `pendingRemoteDescription`, `canTrickleIceCandidates`, `sctp` | Public getters now follow W3C-style pending/current description visibility and expose SCTP/canTrickle state. |

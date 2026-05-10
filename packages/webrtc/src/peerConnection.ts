@@ -62,6 +62,24 @@ import { andDirection, deepMerge } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
+/**
+ * W3C compatibility notes kept near the public RTCPeerConnection surface so the
+ * reviewable diff does not depend on external PR text.
+ *
+ * - `current/pending*Description`, `canTrickleIceCandidates`, `sctp`,
+ *   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
+ *   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
+ * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
+ *   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
+ *   returns the normalized value.
+ * - `setLocalDescription()` keeps the historical `SessionDescription` return
+ *   value for non-rollback calls, while `{ type: "rollback" }` resolves `void`
+ *   to match the actual behavior without pretending to return a description.
+ * - API reference markdown is regenerated with `cd packages/webrtc && npm run doc`.
+ *   The generated output lives under `packages/webrtc/doc/`; compatibility
+ *   notes remain here and in the package README so review context is visible
+ *   even when generated docs are not committed in the same change.
+ */
 export class RTCPeerConnection extends EventTarget {
   readonly cname = randomUUID().toString();
 
