@@ -545,7 +545,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     if (
       this.remoteParameters &&
-      this.remoteParameters.fingerprints.length > 0
+      this.remoteParameters.fingerprints.length > 0 &&
+      this.dtls?.remoteCertificate
     ) {
       const certStats: RTCCertificateStats = {
         type: "certificate",
@@ -553,9 +554,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         timestamp,
         fingerprint: this.remoteParameters.fingerprints[0].value,
         fingerprintAlgorithm: this.remoteParameters.fingerprints[0].algorithm,
-        base64Certificate: this.dtls?.remoteCertificate
-          ? Buffer.from(this.dtls.remoteCertificate).toString("base64")
-          : "",
+        base64Certificate: Buffer.from(this.dtls.remoteCertificate).toString(
+          "base64",
+        ),
       };
       stats.push(certStats);
     }

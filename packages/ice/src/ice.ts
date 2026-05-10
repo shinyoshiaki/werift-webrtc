@@ -689,6 +689,11 @@ export class Connection implements IceConnection {
               nominated.remoteAddr,
               Buffer.from(this.remotePassword, "utf8"),
               0,
+              (attempt) => {
+                if (attempt > 0) {
+                  nominated.retransmissionsSent++;
+                }
+              },
             );
             nominated.responsesReceived++;
             failures = 0;
@@ -975,6 +980,11 @@ export class Connection implements IceConnection {
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
           4,
+          (attempt) => {
+            if (attempt > 0) {
+              pair.retransmissionsSent++;
+            }
+          },
         );
         pair.responsesReceived++;
 
@@ -1063,6 +1073,12 @@ export class Connection implements IceConnection {
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
+            undefined,
+            (attempt) => {
+              if (attempt > 0) {
+                pair.retransmissionsSent++;
+              }
+            },
           );
           pair.responsesReceived++;
         } catch (error) {
@@ -1128,6 +1144,7 @@ export class Connection implements IceConnection {
       pair.updateState(CandidatePairState.WAITING);
       this.addPair(pair);
     }
+    pair.noteIncomingRequest(message.transactionIdHex);
     pair.requestsReceived++;
     pair.responsesSent++;
     pair.localCandidate.ufrag = localUsername;

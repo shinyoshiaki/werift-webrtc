@@ -19,6 +19,7 @@ export class Transaction {
     private addr: Address,
     private protocol: Protocol,
     private retransmissions?: number,
+    private onRequestSent?: (attempt: number) => void,
   ) {
     this.triesMax =
       1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
@@ -51,6 +52,7 @@ export class Transaction {
 
   private retry = async () => {
     while (this.tries < this.triesMax && !this.ended) {
+      this.onRequestSent?.(this.tries);
       this.protocol.sendStun(this.request, this.addr).catch((e) => {
         log("send stun failed", e);
       });

@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Event, debug } from "./imports/common";
 
 import { EventTarget } from "./helper";
@@ -18,6 +19,7 @@ export function getDataChannelMessageSize(data: Buffer | string) {
 }
 
 export class RTCDataChannel extends EventTarget implements DataChannelStats {
+  readonly statsId = randomUUID().toString();
   readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
   readonly onMessage = new Event<[string | Buffer]>();

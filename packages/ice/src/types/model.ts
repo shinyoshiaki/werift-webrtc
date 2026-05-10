@@ -11,6 +11,7 @@ export interface Protocol {
     addr: Address,
     integrityKey?: Buffer,
     retransmissions?: any,
+    onRequestSent?: (attempt: number) => void,
   ) => Promise<[Message, Address]>;
   close: () => Promise<void>;
   connectionMade: (...args: any) => Promise<void>;

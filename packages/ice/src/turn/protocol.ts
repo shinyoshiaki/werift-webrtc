@@ -81,7 +81,13 @@ export class StunOverTurnProtocol implements Protocol {
     }
   };
 
-  async request(request: Message, addr: Address, integrityKey?: Buffer) {
+  async request(
+    request: Message,
+    addr: Address,
+    integrityKey?: Buffer,
+    _retransmissions?: number,
+    onRequestSent?: (attempt: number) => void,
+  ) {
     if (this.turn.transactions[request.transactionIdHex]) {
       throw new Error("exist");
     }
@@ -91,7 +97,13 @@ export class StunOverTurnProtocol implements Protocol {
       request.addFingerprint();
     }
 
-    const transaction = new Transaction(request, addr, this);
+    const transaction = new Transaction(
+      request,
+      addr,
+      this,
+      undefined,
+      onRequestSent,
+    );
     this.turn.transactions[request.transactionIdHex] = transaction;
 
     try {
@@ -292,7 +304,13 @@ export class TurnProtocol implements Protocol {
     });
   };
 
-  async request(request: Message, addr: Address): Promise<[Message, Address]> {
+  async request(
+    request: Message,
+    addr: Address,
+    _integrityKey?: Buffer,
+    _retransmissions?: number,
+    onRequestSent?: (attempt: number) => void,
+  ): Promise<[Message, Address]> {
     if (this.transactions[request.transactionIdHex]) {
       throw new Error("exist");
     }
@@ -305,7 +323,13 @@ export class TurnProtocol implements Protocol {
         .addFingerprint();
     }
 
-    const transaction = new Transaction(request, addr, this);
+    const transaction = new Transaction(
+      request,
+      addr,
+      this,
+      undefined,
+      onRequestSent,
+    );
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

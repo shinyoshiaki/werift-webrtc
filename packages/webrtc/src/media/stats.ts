@@ -354,6 +354,14 @@ export function generateStatsId(
   return `${type}_${validParts.join("_")}`;
 }
 
+export function generateCodecStatsId(
+  transportId: string,
+  payloadType: number,
+  scopeId: string,
+) {
+  return generateStatsId("codec", transportId, payloadType, scopeId);
+}
+
 /**
  * Get current timestamp in milliseconds (DOMHighResTimeStamp)
  */

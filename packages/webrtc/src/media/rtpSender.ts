@@ -72,6 +72,7 @@ import {
   type RTCStats,
   type RTCStatsReport,
   buildStatsReport,
+  generateCodecStatsId,
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
@@ -560,6 +561,14 @@ export class RTCRtpSender {
     const transportId = this.dtlsTransport
       ? generateStatsId("transport", this.dtlsTransport.id)
       : undefined;
+    const codecId =
+      this.codec && transportId
+        ? generateCodecStatsId(
+            transportId,
+            this.codec.payloadType,
+            this.trackId,
+          )
+        : undefined;
 
     // Outbound RTP stats
     const outboundRtpStats: RTCOutboundRtpStreamStats = {
@@ -569,10 +578,7 @@ export class RTCRtpSender {
       ssrc: this.ssrc,
       kind: this.kind,
       transportId,
-      codecId:
-        this.codec && transportId
-          ? generateStatsId("codec", this.codec.payloadType, transportId)
-          : undefined,
+      codecId,
       mid: this.mid,
       packetsSent: this.packetCount,
       bytesSent: this.octetCount,
@@ -608,7 +614,7 @@ export class RTCRtpSender {
     if (this.codec && transportId) {
       const codecStats: RTCCodecStats = {
         type: "codec",
-        id: generateStatsId("codec", this.codec.payloadType, transportId),
+        id: codecId!,
         timestamp,
         payloadType: this.codec.payloadType,
         transportId,
@@ -636,10 +642,8 @@ export class RTCRtpSender {
         codecId: outboundRtpStats.codecId,
         localId: outboundRtpStats.id,
         roundTripTime: this.rtt,
-        totalRoundTripTime: this.roundTripTimeMeasurements
-          ? this.totalRoundTripTime
-          : undefined,
-        roundTripTimeMeasurements: this.roundTripTimeMeasurements || undefined,
+        totalRoundTripTime: this.totalRoundTripTime,
+        roundTripTimeMeasurements: this.roundTripTimeMeasurements,
         packetsLost: this.remotePacketsLost,
         fractionLost: this.remoteFractionLost,
       };

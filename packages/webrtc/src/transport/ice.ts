@@ -11,12 +11,30 @@ import {
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
+  type RTCStatsIceCandidatePairState,
   generateStatsId,
   getStatsTimestamp,
 } from "../media/stats";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
+
+function mapCandidatePairState(state: number): RTCStatsIceCandidatePairState {
+  switch (state) {
+    case 0:
+      return "frozen";
+    case 1:
+      return "waiting";
+    case 2:
+      return "in-progress";
+    case 3:
+      return "succeeded";
+    case 4:
+      return "failed";
+    default:
+      return "failed";
+  }
+}
 
 /**
  *                                          +------------+
@@ -239,22 +257,22 @@ export class RTCIceTransport {
           "remote-candidate",
           pair.remoteCandidate.id,
         ),
-        state: pair.state as any,
+        state: mapCandidatePairState(pair.state),
         nominated: pair.nominated,
         packetsSent: pair.packetsSent,
         packetsReceived: pair.packetsReceived,
         bytesSent: pair.bytesSent,
         bytesReceived: pair.bytesReceived,
         currentRoundTripTime: pair.rtt,
-        totalRoundTripTime: pair.roundTripTimeMeasurements
-          ? pair.totalRoundTripTime
-          : undefined,
-        roundTripTimeMeasurements: pair.roundTripTimeMeasurements || undefined,
-        requestsReceived: pair.requestsReceived || undefined,
-        requestsSent: pair.requestsSent || undefined,
-        responsesReceived: pair.responsesReceived || undefined,
-        responsesSent: pair.responsesSent || undefined,
-        consentRequestsSent: pair.consentRequestsSent || undefined,
+        totalRoundTripTime: pair.totalRoundTripTime,
+        roundTripTimeMeasurements: pair.roundTripTimeMeasurements,
+        requestsReceived: pair.requestsReceived,
+        requestsSent: pair.requestsSent,
+        responsesReceived: pair.responsesReceived,
+        responsesSent: pair.responsesSent,
+        retransmissionsReceived: pair.retransmissionsReceived,
+        retransmissionsSent: pair.retransmissionsSent,
+        consentRequestsSent: pair.consentRequestsSent,
       };
       stats.push(pairStats);
     }

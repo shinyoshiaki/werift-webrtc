@@ -133,11 +133,11 @@ export class SctpTransportManager {
     for (const channel of this.dataChannels) {
       const channelStats: RTCDataChannelStats = {
         type: "data-channel",
-        id: generateStatsId("data-channel", channel.id),
+        id: generateStatsId("data-channel", channel.id ?? channel.statsId),
         timestamp,
         label: channel.label,
         protocol: channel.protocol,
-        dataChannelIdentifier: channel.id,
+        dataChannelIdentifier: channel.id ?? undefined,
         state: channel.readyState,
         messagesSent: channel.messagesSent || 0,
         bytesSent: channel.bytesSent || 0,
