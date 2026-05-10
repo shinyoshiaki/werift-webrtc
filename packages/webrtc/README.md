@@ -121,7 +121,7 @@ tracked in git, so it is not committed as part of this change.
 | Added | `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, `pendingRemoteDescription`, `canTrickleIceCandidates`, `sctp` | Public getters now follow W3C-style pending/current description visibility and expose SCTP/canTrickle state. |
 | Added | `setLocalDescription()` input compatibility | Accepts omitted `type`, empty `sdp`, and provisional `pranswer`. |
 | Added | `setRemoteDescription()` input compatibility | Accepts `pranswer` and `rollback`, updating pending/current descriptions accordingly. |
-| Added | `addIceCandidate()` input compatibility | Accepts omitted input and `{ candidate: "" }` as end-of-candidates. |
+| Added | `addIceCandidate()` input compatibility | Accepts omitted input, `null`, and `{ candidate: "" }` as end-of-candidates, rejects calls before `remoteDescription` is set, and rejects malformed candidate strings. |
 | Added | `RTCConfiguration` compatibility | Accepts `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy: "require"`, `iceCandidatePoolSize: 0`, and `certificates`; `setConfiguration(getConfiguration())` round-trips without changing certificates. |
 | Deferred | `bundlePolicy: "balanced"` round-trip | `"balanced"` is accepted for input compatibility, but it is internally normalized to werift's `"max-compat"` behavior, so `getConfiguration()` returns `"max-compat"`. |
 | Added | `RTCIceServer.urls: string \| string[]` | Arrays are accepted and parsed in order. |
@@ -129,7 +129,8 @@ tracked in git, so it is not committed as part of this change.
 | Not implemented | Legacy callback overloads | Kept out of scope because they are legacy browser APIs. |
 | Not implemented | `addStream`, `removeStream`, `createDTMFSender` | These are obsolete; use `addTrack`, `removeTrack`, and transceiver/sender APIs instead. |
 | Deferred | `close()` return type | Remains async for backward compatibility even though W3C defines synchronous `undefined`. |
-| Deferred | `setLocalDescription()` / `setRemoteDescription()` return type | They still return the applied `SessionDescription` instead of `Promise<void>` for backward compatibility; the local `rollback` path therefore resolves with `undefined`. |
+| Deferred | `setLocalDescription()` return type | Non-rollback calls still return the applied `SessionDescription` instead of `Promise<void>` for backward compatibility; the local `rollback` path resolves with `undefined`. |
+| Compatible | `setRemoteDescription()` return type | `setRemoteDescription()` resolves `Promise<void>` like the W3C API. |
 | Deferred | `RTCPeerConnection.generateCertificate()` | `RTCCertificate` and `RTCConfiguration.certificates` are supported, but the static W3C helper is still optional work. |
 
 # reference

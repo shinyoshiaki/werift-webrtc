@@ -74,7 +74,11 @@ function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
         return;
       }
       if (remotePc.signalingState !== "closed") {
-        remotePc.addIceCandidate(candidate);
+        remotePc.addIceCandidate(candidate).catch((error) => {
+          if ((error as Error).message !== "The remote description was null") {
+            throw error;
+          }
+        });
       }
     });
   }

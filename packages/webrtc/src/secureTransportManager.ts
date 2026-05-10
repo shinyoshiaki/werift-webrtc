@@ -190,10 +190,12 @@ export class SecureTransportManager {
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
   ) {
-    const candidate = candidateMessage
-      ? IceCandidate.fromJSON(candidateMessage)
-      : undefined;
-    if (!candidate) {
+    const isEndOfCandidates =
+      candidateMessage == null ||
+      candidateMessage.candidate == null ||
+      candidateMessage.candidate === "";
+
+    if (isEndOfCandidates) {
       const candidateTarget =
         candidateMessage &&
         (candidateMessage.sdpMid != undefined ||
@@ -217,6 +219,11 @@ export class SecureTransportManager {
           .map((iceTransport) => iceTransport.addRemoteCandidate(undefined)),
       );
       return;
+    }
+
+    const candidate = IceCandidate.fromJSON(candidateMessage);
+    if (!candidate) {
+      throw new Error("Failed to parse ICE candidate");
     }
 
     let iceTransport: RTCIceTransport | undefined;

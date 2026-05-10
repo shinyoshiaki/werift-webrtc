@@ -68,7 +68,7 @@ describe("wpt/peerConnection api compatibility", () => {
     }
   });
 
-  test("supports rollback and end-of-candidates input forms", async () => {
+  test("supports rollback, rejects invalid addIceCandidate inputs, and handles end-of-candidates", async () => {
     const localRollbackPc = new RTCPeerConnection();
     const remoteRollbackPc = new RTCPeerConnection();
     const noTricklePc = new RTCPeerConnection();
@@ -99,9 +99,26 @@ describe("wpt/peerConnection api compatibility", () => {
       expect(remoteRollbackPc.remoteDescription).toBeUndefined();
       expect(remoteRollbackPc.pendingRemoteDescription).toBeUndefined();
 
-      // 実行: trickle 非対応の remote SDP を適用して end-of-candidates を投入する
+      // 実行: remoteDescription が無い状態では addIceCandidate を拒否する
+      await expect(noTricklePc.addIceCandidate()).rejects.toThrowError(
+        "The remote description was null",
+      );
+      await expect(noTricklePc.addIceCandidate(null)).rejects.toThrowError(
+        "The remote description was null",
+      );
+      await expect(
+        noTricklePc.addIceCandidate({ candidate: "" }),
+      ).rejects.toThrowError("The remote description was null");
+
+      // 実行: trickle 非対応の remote SDP を適用し、不正 candidate と end-of-candidates を投入する
       const offerWithoutTrickle = removeTrickle(await createOffer());
       await noTricklePc.setRemoteDescription(offerWithoutTrickle);
+      await expect(
+        noTricklePc.addIceCandidate({
+          candidate: "candidate:invalid",
+          sdpMid: "0",
+        }),
+      ).rejects.toThrowError("Failed to parse ICE candidate");
       await noTricklePc.addIceCandidate(null);
       await noTricklePc.addIceCandidate();
       await noTricklePc.addIceCandidate({ candidate: "" });
@@ -259,6 +276,28 @@ describe("wpt/peerConnection api compatibility", () => {
       // 検証: datachannel イベントから受信側の channel にアクセスできる
       expect(dataChannelEvent.channel).toBe(remoteChannel);
       expect(dataChannelEvent.channel.label).toBe(remoteChannel.label);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("fires track with addEventListener", async () => {
+    const caller = new RTCPeerConnection();
+    const callee = new RTCPeerConnection();
+
+    const trackEventPromise = addEventListenerPromise(callee, "track");
+
+    caller.addTransceiver("audio");
+
+    try {
+      // 実行: addEventListener で track を待ちながら remote offer を適用する
+      await callee.setRemoteDescription(await caller.createOffer());
+      const trackEvent: any = await trackEventPromise;
+
+      // 検証: 標準 track イベントから track / receiver / transceiver にアクセスできる
+      expect(trackEvent.track.kind).toBe("audio");
+      expect(trackEvent.receiver.track).toBe(trackEvent.track);
+      expect(trackEvent.transceiver.receiver).toBe(trackEvent.receiver);
     } finally {
       await Promise.allSettled([caller.close(), callee.close()]);
     }

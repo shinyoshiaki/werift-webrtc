@@ -697,6 +697,9 @@ export class RTCPeerConnection extends EventTarget {
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null = {},
   ) {
+    if (!this.remoteDescription) {
+      throw new Error("The remote description was null");
+    }
     const sdp = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,

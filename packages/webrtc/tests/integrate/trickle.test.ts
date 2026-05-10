@@ -23,7 +23,13 @@ describe("trickle", () => {
             expect(pcOffer._localDescription?.media.length).toBe(1);
             return;
           }
-          pcAnswer.addIceCandidate(candidate);
+          pcAnswer.addIceCandidate(candidate).catch((error) => {
+            if (
+              (error as Error).message !== "The remote description was null"
+            ) {
+              throw error;
+            }
+          });
         });
 
         const dc = pcOffer.createDataChannel("dc");
@@ -67,13 +73,25 @@ describe("trickle", () => {
           if (!candidate) {
             return;
           }
-          pcAnswer.addIceCandidate(candidate);
+          pcAnswer.addIceCandidate(candidate).catch((error) => {
+            if (
+              (error as Error).message !== "The remote description was null"
+            ) {
+              throw error;
+            }
+          });
         });
         pcAnswer.onIceCandidate.subscribe((candidate) => {
           if (!candidate) {
             return;
           }
-          pcOffer.addIceCandidate(candidate);
+          pcOffer.addIceCandidate(candidate).catch((error) => {
+            if (
+              (error as Error).message !== "The remote description was null"
+            ) {
+              throw error;
+            }
+          });
         });
 
         const dc = pcOffer.createDataChannel("dc");

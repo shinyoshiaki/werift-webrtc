@@ -91,7 +91,12 @@ export function setupPerfectNegotiation(
           await pc.addIceCandidate(message.candidate);
         } catch (e) {
           // Ignore errors for ICE candidates during ignoreOffer
-          if (!ignoreOffer) throw e;
+          if (
+            !ignoreOffer &&
+            (e as Error).message !== "The remote description was null"
+          ) {
+            throw e;
+          }
         }
       }
     } catch (e) {
