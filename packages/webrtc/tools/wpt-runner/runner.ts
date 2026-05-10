@@ -1,7 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, resolve } from "path";
 import vm from "vm";
-import { fileURLToPath } from "url";
 
 import {
   MediaStream,
@@ -14,6 +13,7 @@ import {
   RTCRtpTransceiver,
 } from "../../src";
 import { Navigator } from "../../src/nonstandard";
+import { resolveTimeoutProfile } from "./timeoutLogic";
 
 export interface WptAllowlistFile {
   targets: WptTarget[];
@@ -48,14 +48,12 @@ export interface WptRunReport {
   regressions: WptResultRecord[];
 }
 
-const toolDir = dirname(fileURLToPath(import.meta.url));
-const packageDir = resolve(toolDir, "..", "..");
+const packageDir = process.cwd();
 const repoRoot = resolve(packageDir, "..", "..");
 const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
 const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
-const TARGET_TIMEOUT_MS = 500;
 const TARGET_CONCURRENCY = 2;
 const PROGRESS_MODE = process.env.WPT_PROGRESS;
 const VERBOSE_PROGRESS = PROGRESS_MODE === "verbose";
@@ -190,14 +188,16 @@ async function runTargets(targets: WptTarget[]) {
   });
 }
 
-async function runTarget(target: WptTarget) {
+async function runTarget(target: WptTarget): Promise<WptResultRecord[]> {
   if (VERBOSE_PROGRESS) {
     console.error(`[wpt] start ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
   }
+  const timeoutProfile = resolveTimeoutProfile(target);
   const htmlPath = resolve(wptRoot, target.file);
   const html = await readFile(htmlPath, "utf8");
   const title = extractTitle(html);
   const { context, mediaDevices, closePeerConnections } = createContext({
+    cleanupTimeoutMs: timeoutProfile.cleanupTimeoutMs,
     file: target.file,
     variant: target.variant ?? "",
     title,
@@ -214,7 +214,10 @@ async function runTarget(target: WptTarget) {
         }
         const scriptPath = resolveScriptPath(htmlPath, script.src);
         const source = await readFile(scriptPath, "utf8");
-        vm.runInContext(source, context, { filename: scriptPath, timeout: TARGET_TIMEOUT_MS });
+        vm.runInContext(source, context, {
+          filename: scriptPath,
+          timeout: timeoutProfile.vmTimeoutMs,
+        });
         if (script.src === "/resources/testharness.js") {
           vm.runInContext(
             `
@@ -222,27 +225,34 @@ async function runTarget(target: WptTarget) {
               ${harnessPatch}
             `,
             context,
-            { timeout: TARGET_TIMEOUT_MS },
+            { timeout: timeoutProfile.vmTimeoutMs },
           );
         }
         continue;
       }
 
-      vm.runInContext(script.content, context, { filename: htmlPath, timeout: TARGET_TIMEOUT_MS });
+      vm.runInContext(script.content, context, {
+        filename: htmlPath,
+        timeout: timeoutProfile.vmTimeoutMs,
+      });
     }
     if (VERBOSE_PROGRESS) {
       console.error(`[wpt] waiting ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
     }
 
-    return await withTimeout(completion.done, TARGET_TIMEOUT_MS, [
-      {
-        file: target.file,
-        variant: target.variant ?? "",
-        subtest: "[timeout]",
-        status: "TIMEOUT",
-        message: "WPT file did not finish before the runner timeout.",
-      },
-    ]);
+    return await withTimeout<WptResultRecord[]>(
+      completion.done,
+      timeoutProfile.completionTimeoutMs,
+      [
+        {
+          file: target.file,
+          variant: target.variant ?? "",
+          subtest: "[timeout]",
+          status: "TIMEOUT",
+          message: `WPT file did not finish before the runner timeout (${timeoutProfile.completionTimeoutMs}ms).`,
+        },
+      ],
+    );
   } catch (error) {
     return [
       {
@@ -265,7 +275,12 @@ async function runTarget(target: WptTarget) {
   }
 }
 
-function createContext(input: { file: string; variant: string; title: string }) {
+function createContext(input: {
+  cleanupTimeoutMs: number;
+  file: string;
+  variant: string;
+  title: string;
+}) {
   const peerConnections = new Set<RTCPeerConnection>();
   const mediaDevices = new Navigator({
     dummyMedia: {
@@ -325,7 +340,11 @@ function createContext(input: { file: string; variant: string; title: string }) 
     closePeerConnections: async () => {
       await Promise.allSettled(
         [...peerConnections].map((pc) =>
-          withTimeout(Promise.resolve(pc.close()), 250, undefined),
+          withTimeout(
+            Promise.resolve(pc.close()),
+            input.cleanupTimeoutMs,
+            undefined,
+          ),
         ),
       );
     },
