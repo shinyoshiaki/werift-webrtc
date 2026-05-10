@@ -29,6 +29,10 @@ async function main() {
     ["vitest", "run", "--coverage", "--config", "vitest.wpt.config.mts"],
     {
       cwd: packageDir,
+      env: {
+        ...process.env,
+        WPT_USE_WORKERS: "0",
+      },
       stdio: "inherit",
     },
   );

@@ -74,6 +74,7 @@ const tsxPath = resolve(
   process.platform === "win32" ? "tsx.cmd" : "tsx",
 );
 const WORKER_RESULT_PREFIX = "__WPT_WORKER_RESULT__:";
+const USE_WORKERS = process.env.WPT_USE_WORKERS !== "0";
 const PROGRESS_MODE = process.env.WPT_PROGRESS;
 const VERBOSE_PROGRESS = PROGRESS_MODE === "verbose";
 const TARGET_FILTER = process.env.WPT_TARGET_FILTER;
@@ -200,7 +201,8 @@ async function runTargets(
       total: targets.length,
     });
 
-    const task = runTargetInWorker(target).then((targetResults) => {
+    const executeTarget = USE_WORKERS ? runTargetInWorker(target) : runTargetInCurrentProcess(target);
+    const task = executeTarget.then((targetResults) => {
       results.push(...targetResults);
       completed += 1;
       onProgress?.({

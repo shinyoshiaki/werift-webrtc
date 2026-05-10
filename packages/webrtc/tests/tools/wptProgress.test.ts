@@ -35,5 +35,5 @@ test("WPT worker results keep a stable machine-readable stdout prefix", () => {
 
   // 検証: 親プロセスは固定 prefix から結果 JSON を確実に抽出できる。
   expect(line).toContain("__WPT_WORKER_RESULT__:");
-  expect(line).toContain("\"subtest\":\"sample\"");
+  expect(line).toContain('"subtest":"sample"');
 });
