@@ -113,5 +113,3 @@
 8. サーバー証明書と秘密鍵を環境変数でも渡せる。  
 9. 起動手順が example 内で分かり、必要なら README から辿れる。  
 10. `packages/ice-server` に追加した API や `NodeTurnServer` 改修を含め、型と既存利用箇所の整合が取れている。  
-
-**要点として、既存資産で offer/answer・REST signaling・TURN/TLS 自体は足りていますが、今回の中心設計課題は「`packages/ice-server` を小さく拡張して HTTPS と TURN/TLS を同一ポートで安全に多重化し、かつ複数セッションを同時運用できる形にまとめること」です。**
