@@ -174,7 +174,9 @@ export class NodeTurnServer {
     options: NodeTurnServerAttachTlsSocketOptions = {},
   ) {
     if (!this.tlsEnabled) {
-      throw new Error("NodeTurnServer tls must be enabled before attaching sockets");
+      throw new Error(
+        "NodeTurnServer tls must be enabled before attaching sockets",
+      );
     }
 
     this.handleStreamConnection(socket, "tls", options);
@@ -638,7 +640,10 @@ export class NodeTurnServer {
     transport: "tcp" | "tls",
   ) {
     if (socket.localAddress && socket.localPort) {
-      return [normalizeAddress(socket.localAddress), socket.localPort] as Address;
+      return [
+        normalizeAddress(socket.localAddress),
+        socket.localPort,
+      ] as Address;
     }
 
     return transport === "tcp" ? this.address : this.tlsAddress;

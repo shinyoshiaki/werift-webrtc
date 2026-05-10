@@ -15,6 +15,8 @@ import {
 } from "node:tls";
 import { fileURLToPath } from "node:url";
 
+import { normalizeAuthority } from "./publicAuthority";
+
 type SessionState = "awaiting-answer" | "answer-applied" | "closed";
 type ChannelState = "open" | "closed" | "connecting" | "closing";
 type PeerConnectionState =
@@ -481,32 +483,6 @@ function resolvePublicAuthority(request: IncomingMessage) {
   }
 
   return normalizeAuthority(requestHost, port);
-}
-
-function normalizeAuthority(value: string, fallbackPort: number) {
-  const normalizedValue = value.trim();
-  if (normalizedValue.length === 0) {
-    throw new Error("public host must not be empty");
-  }
-
-  try {
-    const url = new URL(
-      normalizedValue.includes("://")
-        ? normalizedValue
-        : `turns://${normalizedValue}`,
-    );
-    const hostname = url.hostname;
-    const resolvedPort = url.port || String(fallbackPort);
-    return hostname.includes(":")
-      ? `[${hostname}]:${resolvedPort}`
-      : `${hostname}:${resolvedPort}`;
-  } catch {
-    return normalizedValue.includes(":") && !normalizedValue.startsWith("[")
-      ? `[${normalizedValue}]:${fallbackPort}`
-      : normalizedValue.includes(":")
-        ? normalizedValue
-        : `${normalizedValue}:${fallbackPort}`;
-  }
 }
 
 async function waitForIceGatheringComplete(peer: PeerConnectionLike) {
