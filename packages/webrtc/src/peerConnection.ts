@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 
 import type { RTCDataChannel } from "./dataChannel";
+import { createWebRtcDomException } from "./errors";
 import { EventTarget, enumerate } from "./helper";
 import {
   type Address,
@@ -211,7 +212,7 @@ export class RTCPeerConnection extends EventTarget {
     return this.sctpManager.sctpTransport;
   }
   get sctp() {
-    return this.sctpTransport;
+    return this.sctpTransport ?? null;
   }
   get sctpRemotePort() {
     return this.sctpManager.sctpRemotePort;
@@ -226,22 +227,22 @@ export class RTCPeerConnection extends EventTarget {
     return this.iceTransports[0].connection.generation;
   }
   get localDescription() {
-    return this.sdpManager.localDescription;
+    return this.sdpManager.localDescription ?? null;
   }
   get currentLocalDescription() {
-    return this.sdpManager.currentLocalDescription?.toJSON();
+    return this.sdpManager.currentLocalDescription?.toJSON() ?? null;
   }
   get pendingLocalDescription() {
-    return this.sdpManager.pendingLocalDescription?.toJSON();
+    return this.sdpManager.pendingLocalDescription?.toJSON() ?? null;
   }
   get remoteDescription() {
-    return this.sdpManager.remoteDescription;
+    return this.sdpManager.remoteDescription ?? null;
   }
   get currentRemoteDescription() {
-    return this.sdpManager.currentRemoteDescription?.toJSON();
+    return this.sdpManager.currentRemoteDescription?.toJSON() ?? null;
   }
   get pendingRemoteDescription() {
-    return this.sdpManager.pendingRemoteDescription?.toJSON();
+    return this.sdpManager.pendingRemoteDescription?.toJSON() ?? null;
   }
   get canTrickleIceCandidates() {
     const remoteDescription = this.sdpManager._remoteDescription;
@@ -460,7 +461,7 @@ export class RTCPeerConnection extends EventTarget {
 
   removeTrack(sender: RTCRtpSender) {
     if (this.isClosed) {
-      throw new Error("peer closed");
+      throw createWebRtcDomException("InvalidStateError", "peer closed");
     }
     this.transceiverManager.removeTrack(sender);
     this.needNegotiation();
@@ -698,7 +699,10 @@ export class RTCPeerConnection extends EventTarget {
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null = {},
   ) {
     if (!this.remoteDescription) {
-      throw new Error("The remote description was null");
+      throw createWebRtcDomException(
+        "InvalidStateError",
+        "The remote description was null",
+      );
     }
     const sdp = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
@@ -948,7 +952,7 @@ export class RTCPeerConnection extends EventTarget {
     ms?: MediaStream,
   ): RTCRtpSender {
     if (this.isClosed) {
-      throw new Error("is closed");
+      throw createWebRtcDomException("InvalidStateError", "is closed");
     }
     const transceiver = this.transceiverManager.addTrack(track, ms);
     if (!transceiver.dtlsTransport) {
@@ -974,7 +978,10 @@ export class RTCPeerConnection extends EventTarget {
 
   private assertNotClosed() {
     if (this.isClosed) {
-      throw new Error("RTCPeerConnection is closed");
+      throw createWebRtcDomException(
+        "InvalidStateError",
+        "RTCPeerConnection is closed",
+      );
     }
   }
 

@@ -1,4 +1,5 @@
 import { ReceiverDirection, SenderDirections } from "./const";
+import { createWebRtcDomException } from "./errors";
 import { Event, debug } from "./imports/common";
 import {
   MediaStream,
@@ -118,7 +119,10 @@ export class TransceiverManager {
 
   addTrack(track: MediaStreamTrack, ms?: MediaStream): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
-      throw new Error("Track already added");
+      throw createWebRtcDomException(
+        "InvalidAccessError",
+        "Track already added",
+      );
     }
 
     const emptyTrackSenderTransceiver = this.transceivers.find(
@@ -162,7 +166,10 @@ export class TransceiverManager {
 
   removeTrack(sender: RTCRtpSender): void {
     if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
-      throw new Error("Sender does not exist");
+      throw createWebRtcDomException(
+        "InvalidAccessError",
+        "Sender does not exist",
+      );
     }
 
     const transceiver = this.transceivers.find(

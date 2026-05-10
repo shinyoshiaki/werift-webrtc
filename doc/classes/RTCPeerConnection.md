@@ -332,11 +332,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **currentLocalDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **currentLocalDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -344,11 +344,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **currentRemoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **currentRemoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -440,11 +440,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **localDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **localDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -452,11 +452,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **pendingLocalDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **pendingLocalDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -464,11 +464,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **pendingRemoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **pendingRemoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -476,11 +476,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **remoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **remoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -500,11 +500,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **sctp**(): `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+> **get** **sctp**(): `null` \| [`RTCSctpTransport`](RTCSctpTransport.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+`null` \| [`RTCSctpTransport`](RTCSctpTransport.md)
 
 ***
 

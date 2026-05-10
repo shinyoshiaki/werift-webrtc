@@ -70,8 +70,8 @@ export class RTCRtpTransceiver {
   }
 
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): MediaDirection | undefined {
-    return this._currentDirection;
+  get currentDirection(): MediaDirection | null {
+    return this._currentDirection ?? null;
   }
 
   setCurrentDirection(direction: MediaDirection | undefined) {
