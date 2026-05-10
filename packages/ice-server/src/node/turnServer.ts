@@ -29,7 +29,13 @@ import {
 } from "../turn/protocol";
 
 export interface NodeTurnServerTlsOptions extends TlsOptions {
+  external?: boolean;
   port?: number;
+}
+
+export interface NodeTurnServerAttachTlsSocketOptions {
+  initialData?: Buffer;
+  localAddress?: Address;
 }
 
 export interface NodeTurnServerOptions extends TurnServerProtocolOptions {
@@ -58,6 +64,7 @@ export class NodeTurnServer {
   private readonly udpEnabled: boolean;
   private readonly tcpEnabled: boolean;
   private readonly tlsEnabled: boolean;
+  private readonly tlsExternal: boolean;
   private readonly tlsOptions?: NodeTurnServerTlsOptions;
   private readonly tlsPort: number;
   private readonly relayAddress: string;
@@ -85,6 +92,7 @@ export class NodeTurnServer {
     this.udpEnabled = udp;
     this.tcpEnabled = tcp;
     this.tlsEnabled = tls !== undefined;
+    this.tlsExternal = Boolean(tls?.external);
     this.tlsOptions = tls;
     this.tlsPort = tls?.port ?? (port === 0 ? 0 : 5349);
     this.relayAddress = relayAddress;
@@ -123,6 +131,7 @@ export class NodeTurnServer {
     if (
       this.tcpEnabled &&
       this.tlsEnabled &&
+      !this.tlsExternal &&
       this.tlsPort !== 0 &&
       this.tlsPort === this.port
     ) {
@@ -131,7 +140,11 @@ export class NodeTurnServer {
       );
     }
 
-    if (this.tlsEnabled && (!this.tlsOptions?.key || !this.tlsOptions?.cert)) {
+    if (
+      this.tlsEnabled &&
+      !this.tlsExternal &&
+      (!this.tlsOptions?.key || !this.tlsOptions?.cert)
+    ) {
       throw new Error("NodeTurnServer tls requires both key and cert");
     }
 
@@ -144,10 +157,27 @@ export class NodeTurnServer {
     }
 
     if (this.tlsEnabled) {
-      await this.listenTls(this.tlsPort);
+      if (this.tlsExternal) {
+        if (this.tlsPort !== 0) {
+          this.boundTlsPort = this.tlsPort;
+        }
+      } else {
+        await this.listenTls(this.tlsPort);
+      }
     }
 
     this.updateTimer();
+  }
+
+  attachTlsSocket(
+    socket: TLSSocket,
+    options: NodeTurnServerAttachTlsSocketOptions = {},
+  ) {
+    if (!this.tlsEnabled) {
+      throw new Error("NodeTurnServer tls must be enabled before attaching sockets");
+    }
+
+    this.handleStreamConnection(socket, "tls", options);
   }
 
   async close() {
@@ -542,19 +572,30 @@ export class NodeTurnServer {
     return address.includes(":") ? "udp6" : "udp4";
   }
 
-  private handleStreamConnection(socket: TcpSocket, transport: "tcp"): void;
-  private handleStreamConnection(socket: TLSSocket, transport: "tls"): void;
+  private handleStreamConnection(
+    socket: TcpSocket,
+    transport: "tcp",
+    options?: NodeTurnServerAttachTlsSocketOptions,
+  ): void;
+  private handleStreamConnection(
+    socket: TLSSocket,
+    transport: "tls",
+    options?: NodeTurnServerAttachTlsSocketOptions,
+  ): void;
   private handleStreamConnection(
     socket: TcpSocket | TLSSocket,
     transport: "tcp" | "tls",
+    options: NodeTurnServerAttachTlsSocketOptions = {},
   ) {
     const clientId = randomUUID();
+    const localAddress =
+      options.localAddress ?? this.resolveStreamLocalAddress(socket, transport);
     if (transport === "tcp") {
       this.tcpConnections.set(clientId, socket as TcpSocket);
     } else {
       this.tlsConnections.set(clientId, socket as TLSSocket);
     }
-    socket.on("data", async (data) => {
+    const handleData = async (data: Buffer) => {
       await this.executeActions(
         this.protocol.handleTcpChunk({
           clientId,
@@ -563,10 +604,13 @@ export class NodeTurnServer {
             normalizeAddress(socket.remoteAddress ?? ""),
             socket.remotePort ?? 0,
           ],
-          localAddress: transport === "tcp" ? this.address : this.tlsAddress,
+          localAddress,
           transport,
         }),
       );
+    };
+    socket.on("data", (data) => {
+      void handleData(data);
     });
     socket.on("close", async () => {
       if (transport === "tcp") {
@@ -577,12 +621,27 @@ export class NodeTurnServer {
       await this.executeActions(this.protocol.handleClientClosed({ clientId }));
     });
     socket.on("error", () => {});
+
+    if (options.initialData?.length) {
+      void handleData(options.initialData);
+    }
   }
 
   private getStreamClient(transport: "tcp" | "tls", clientId: string) {
     return transport === "tcp"
       ? this.tcpConnections.get(clientId)
       : this.tlsConnections.get(clientId);
+  }
+
+  private resolveStreamLocalAddress(
+    socket: TcpSocket | TLSSocket,
+    transport: "tcp" | "tls",
+  ) {
+    if (socket.localAddress && socket.localPort) {
+      return [normalizeAddress(socket.localAddress), socket.localPort] as Address;
+    }
+
+    return transport === "tcp" ? this.address : this.tlsAddress;
   }
 }
 

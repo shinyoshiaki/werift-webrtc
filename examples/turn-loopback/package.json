@@ -1,0 +1,26 @@
+{
+  "name": "werift-example-turn-loopback",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run type && vite build",
+    "client": "vite",
+    "preview": "vite preview",
+    "server": "tsx --tsconfig tsconfig.server.json server/main.ts",
+    "type": "tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tsconfig.server.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vite": "^6.4.2"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
