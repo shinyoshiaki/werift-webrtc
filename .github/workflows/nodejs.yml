@@ -46,19 +46,4 @@ jobs:
         env:
           CI: true
         run: |
-          npm run test
-      - name: type packages/webrtc
-        env:
-          CI: true
-        run: |
-          npm run type --workspace packages/webrtc
-      - name: wpt
-        env:
-          CI: true
-        run: |
-          npm run wpt --workspace packages/webrtc
-      - name: wpt coverage
-        env:
-          CI: true
-        run: |
-          npm run wpt:coverage --workspace packages/webrtc
+          npm run ci
