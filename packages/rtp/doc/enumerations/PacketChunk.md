@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -7,6 +7,12 @@
 # Enumeration: PacketChunk
 
 ## Enumeration Members
+
+### packetStatusChunkLength
+
+> **packetStatusChunkLength**: `2`
+
+***
 
 ### TypeTCCRunLengthChunk
 
@@ -17,9 +23,3 @@
 ### TypeTCCStatusVectorChunk
 
 > **TypeTCCStatusVectorChunk**: `1`
-
-***
-
-### packetStatusChunkLength
-
-> **packetStatusChunkLength**: `2`

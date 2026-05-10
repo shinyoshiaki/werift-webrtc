@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **file**: `Buffer`
+### file
 
-• **hashName**: `string`
+`Buffer`
+
+### hashName
+
+`string`
 
 ## Returns
 

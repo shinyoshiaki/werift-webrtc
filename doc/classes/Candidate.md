@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,29 +14,53 @@
 
 #### Parameters
 
-• **foundation**: `string`
+##### foundation
 
-• **component**: `number`
+`string`
 
-• **transport**: `string`
+##### component
 
-• **priority**: `number`
+`number`
 
-• **host**: `string`
+##### transport
 
-• **port**: `number`
+`string`
 
-• **type**: `string`
+##### priority
 
-• **relatedAddress?**: `string`
+`number`
 
-• **relatedPort?**: `number`
+##### host
 
-• **tcptype?**: `string`
+`string`
 
-• **generation?**: `number`
+##### port
 
-• **ufrag?**: `string`
+`number`
+
+##### type
+
+`string`
+
+##### relatedAddress?
+
+`string`
+
+##### relatedPort?
+
+`number`
+
+##### tcptype?
+
+`string`
+
+##### generation?
+
+`number`
+
+##### ufrag?
+
+`string`
 
 #### Returns
 
@@ -122,7 +146,9 @@
 
 #### Parameters
 
-• **other**: [`Candidate`](Candidate.md)
+##### other
+
+[`Candidate`](Candidate.md)
 
 #### Returns
 
@@ -146,7 +172,9 @@
 
 #### Parameters
 
-• **sdp**: `string`
+##### sdp
+
+`string`
 
 #### Returns
 

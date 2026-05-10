@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -31,6 +31,14 @@ MUST be set to 1 if the packet is the first packet of a coded video sequence, an
 
 > **obu\_or\_fragment**: `object`[] = `[]`
 
+#### data
+
+> **data**: `Buffer`
+
+#### isFragment
+
+> **isFragment**: `boolean`
+
 ***
 
 ### w\_RtpNumObus
@@ -62,9 +70,11 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 ### isKeyframe
 
-> `get` **isKeyframe**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -76,7 +86,9 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
@@ -86,15 +98,17 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 ### getFrame()
 
-> `static` **getFrame**(`payloads`): `Buffer`
+> `static` **getFrame**(`payloads`): `Buffer`\<`ArrayBuffer`\>
 
 #### Parameters
 
-• **payloads**: [`AV1RtpPayload`](AV1RtpPayload.md)[]
+##### payloads
+
+[`AV1RtpPayload`](AV1RtpPayload.md)[]
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -104,7 +118,9 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

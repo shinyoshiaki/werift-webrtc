@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -20,7 +20,7 @@
 
 ### fragment?
 
-> `optional` **fragment**: `Buffer`
+> `optional` **fragment**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -32,9 +32,11 @@
 
 ### isKeyframe
 
-> `get` **isKeyframe**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -46,9 +48,13 @@
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
 
-• **fragment?**: `Buffer`
+`Buffer`
+
+##### fragment?
+
+`Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
@@ -62,7 +68,9 @@
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

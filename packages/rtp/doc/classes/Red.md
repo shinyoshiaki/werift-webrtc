@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -22,6 +22,20 @@
 
 > **blocks**: `object`[] = `[]`
 
+#### block
+
+> **block**: `Buffer`
+
+#### blockPT
+
+> **blockPT**: `number`
+
+#### timestampOffset?
+
+> `optional` **timestampOffset**: `number`
+
+14bit
+
 ***
 
 ### header
@@ -32,11 +46,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -46,7 +60,9 @@
 
 #### Parameters
 
-• **bufferOrArrayBuffer**: `Buffer` \| `ArrayBuffer`
+##### bufferOrArrayBuffer
+
+`ArrayBuffer` | `Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -104,7 +104,7 @@
 
 ### type
 
-> **type**: `"offer"` \| `"answer"`
+> **type**: `"offer"` \| `"answer"` \| `"pranswer"`
 
 ***
 
@@ -116,9 +116,11 @@
 
 ### string
 
-> `get` **string**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **string**(): `string`
+
+##### Returns
 
 `string`
 
@@ -134,13 +136,33 @@
 
 ***
 
+### toSdp()
+
+> **toSdp**(): `object`
+
+#### Returns
+
+`object`
+
+##### sdp
+
+> **sdp**: `string`
+
+##### type
+
+> **type**: `"offer"` \| `"answer"` \| `"pranswer"`
+
+***
+
 ### webrtcTrackId()
 
 > **webrtcTrackId**(`media`): `undefined` \| `string`
 
 #### Parameters
 
-• **media**: [`MediaDescription`](MediaDescription.md)
+##### media
+
+[`MediaDescription`](MediaDescription.md)
 
 #### Returns
 
@@ -154,7 +176,9 @@
 
 #### Parameters
 
-• **sdp**: `string`
+##### sdp
+
+`string`
 
 #### Returns
 

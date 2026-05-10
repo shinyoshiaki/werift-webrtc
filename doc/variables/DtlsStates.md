@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: DtlsStates
 
-> `const` **DtlsStates**: readonly [`"new"`, `"connecting"`, `"connected"`, `"closed"`, `"failed"`]
+> `const` **DtlsStates**: readonly \[`"new"`, `"connecting"`, `"connected"`, `"closed"`, `"failed"`\]

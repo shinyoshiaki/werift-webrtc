@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ## Parameters
 
-• **bits**: `number`
+### bits
 
-• **startIndex**: `number`
+`number`
 
-• **length**: `number` = `1`
+### startIndex
+
+`number`
+
+### length
+
+`number` = `1`
 
 ## Returns
 

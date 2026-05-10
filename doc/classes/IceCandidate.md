@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,23 +14,41 @@
 
 #### Parameters
 
-• **component**: `number`
+##### component
 
-• **foundation**: `string`
+`number`
 
-• **ip**: `string`
+##### foundation
 
-• **port**: `number`
+`string`
 
-• **priority**: `number`
+##### ip
 
-• **protocol**: `string`
+`string`
 
-• **type**: `string`
+##### port
 
-• **generation?**: `number`
+`number`
 
-• **ufrag?**: `string`
+##### priority
+
+`number`
+
+##### protocol
+
+`string`
+
+##### type
+
+`string`
+
+##### generation?
+
+`number`
+
+##### ufrag?
+
+`string`
 
 #### Returns
 
@@ -92,15 +110,15 @@
 
 ***
 
-### sdpMLineIndex?
-
-> `optional` **sdpMLineIndex**: `number`
-
-***
-
 ### sdpMid?
 
 > `optional` **sdpMid**: `string`
+
+***
+
+### sdpMLineIndex?
+
+> `optional` **sdpMLineIndex**: `number`
 
 ***
 
@@ -138,7 +156,9 @@
 
 #### Parameters
 
-• **data**: [`RTCIceCandidate`](RTCIceCandidate.md)
+##### data
+
+[`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md) | [`RTCIceCandidate`](RTCIceCandidate.md)
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> = `{}`
+##### props
+
+`Partial`\<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> = `{}`
 
 #### Returns
 

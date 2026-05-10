@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -20,18 +20,24 @@
 
 ### rtpSource()
 
-> `static` **rtpSource**(`__namedParameters`): `Promise`\<readonly [[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`]\>
+> `static` **rtpSource**(`__namedParameters`): `Promise`\<readonly \[[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`\]\>
 
 #### Parameters
 
-• **\_\_namedParameters**
+##### \_\_namedParameters
 
-• **\_\_namedParameters.cb?**
+###### cb?
 
-• **\_\_namedParameters.kind**: `"audio"` \| `"video"`
+(`buf`) => `Buffer`
 
-• **\_\_namedParameters.port?**: `number`
+###### kind
+
+`"audio"` \| `"video"`
+
+###### port?
+
+`number`
 
 #### Returns
 
-`Promise`\<readonly [[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`]\>
+`Promise`\<readonly \[[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`\]\>

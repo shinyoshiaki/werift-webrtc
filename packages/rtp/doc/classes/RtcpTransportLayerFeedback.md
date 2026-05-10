@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)\> = `{}`
+##### props
+
+`Partial`\<[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)\> = `{}`
 
 #### Returns
 
@@ -42,17 +44,17 @@
 
 ### type
 
-> `readonly` `static` **type**: `205` = `205`
+> `readonly` `static` **type**: `205` = `RtcpTransportLayerFeedbackType`
 
 ## Methods
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -62,9 +64,13 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+`Buffer`
+
+##### header
+
+[`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

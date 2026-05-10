@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -16,7 +16,9 @@
 
 #### Parameters
 
-• ...**args**: [(`args`) => `void`, `number`]
+##### args
+
+...\[(`args`) => `void`, `number`\]
 
 #### Returns
 
@@ -32,7 +34,9 @@
 
 #### Parameters
 
-• ...**args**: [(`args`) => `void`, `number`]
+##### args
+
+...\[(`args`) => `void`, `number`\]
 
 #### Returns
 

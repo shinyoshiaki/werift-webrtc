@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **protocol**: `SocketType` = `"udp4"`
+### protocol
 
-• **interfaceAddresses?**: `InterfaceAddresses`
+`SocketType` = `"udp4"`
+
+### interfaceAddresses?
+
+`InterfaceAddresses`
 
 ## Returns
 

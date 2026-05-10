@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`PictureLossIndication`](PictureLossIndication.md)\> = `{}`
+##### props
+
+`Partial`\<[`PictureLossIndication`](PictureLossIndication.md)\> = `{}`
 
 #### Returns
 
@@ -54,11 +56,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -68,7 +70,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 

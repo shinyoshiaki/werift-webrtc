@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -40,7 +40,7 @@ forbidden_zero_bit
 
 ### fragment?
 
-> `optional` **fragment**: `Buffer`
+> `optional` **fragment**: `Buffer`\<`ArrayBufferLike`\>
 
 #### Implementation of
 
@@ -96,9 +96,11 @@ start of a fragmented NAL unit
 
 ### isKeyframe
 
-> `get` **isKeyframe**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -110,9 +112,11 @@ start of a fragmented NAL unit
 
 ### isPartitionHead
 
-> `get` **isPartitionHead**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isPartitionHead**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -124,9 +128,13 @@ start of a fragmented NAL unit
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
 
-• **fragment?**: `Buffer`
+`Buffer`
+
+##### fragment?
+
+`Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
@@ -140,7 +148,9 @@ start of a fragmented NAL unit
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

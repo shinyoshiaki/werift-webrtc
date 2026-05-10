@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+##### trackOrKind
+
+[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
@@ -42,13 +44,13 @@
 
 ### onGenericNack
 
-> `readonly` **onGenericNack**: [`Event`](Event.md)\<[[`GenericNack`](GenericNack.md)]\>
+> `readonly` **onGenericNack**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
 
 ***
 
 ### onPictureLossIndication
 
-> `readonly` **onPictureLossIndication**: [`Event`](Event.md)\<[]\>
+> `readonly` **onPictureLossIndication**: [`Event`](Event.md)\<\[\]\>
 
 ***
 
@@ -60,13 +62,13 @@
 
 ### onRtcp
 
-> `readonly` **onRtcp**: [`Event`](Event.md)\<[[`RtcpPacket`](../type-aliases/RtcpPacket.md)]\>
+> `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
 
 ***
 
 ### receiverEstimatedMaxBitrate
 
-> **receiverEstimatedMaxBitrate**: `bigint`
+> **receiverEstimatedMaxBitrate**: `bigint` = `0n`
 
 ***
 
@@ -144,19 +146,53 @@
 
 ### redDistance
 
-> `get` **redDistance**(): `number`
+#### Get Signature
 
-> `set` **redDistance**(`n`): `void`
+> **get** **redDistance**(): `number`
 
-#### Parameters
-
-• **n**: `number`
-
-#### Returns
+##### Returns
 
 `number`
 
+#### Set Signature
+
+> **set** **redDistance**(`n`): `void`
+
+##### Parameters
+
+###### n
+
+`number`
+
+##### Returns
+
+`void`
+
 ## Methods
+
+### getParameters()
+
+> **getParameters**(): `object`
+
+#### Returns
+
+`object`
+
+##### encodings
+
+> **encodings**: `never`[] = `[]`
+
+***
+
+### getStats()
+
+> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Returns
+
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
 
 ### handleRtcpPacket()
 
@@ -164,7 +200,9 @@
 
 #### Parameters
 
-• **rtcpPacket**: [`RtcpPacket`](../type-aliases/RtcpPacket.md)
+##### rtcpPacket
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)
 
 #### Returns
 
@@ -178,7 +216,9 @@
 
 #### Parameters
 
-• **params**: [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
+##### params
+
+[`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
 
 #### Returns
 
@@ -192,7 +232,9 @@
 
 #### Parameters
 
-• **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+##### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
@@ -206,9 +248,13 @@
 
 #### Parameters
 
-• **\_\_namedParameters**: `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
+##### \_\_namedParameters
 
-• **discontinuity**: `boolean` = `false`
+`Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
+
+##### discontinuity
+
+`boolean` = `false`
 
 #### Returns
 
@@ -222,7 +268,9 @@
 
 #### Parameters
 
-• **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+##### track
+
+`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
@@ -246,7 +294,9 @@
 
 #### Parameters
 
-• **rtp**: `Buffer` \| [`RtpPacket`](RtpPacket.md)
+##### rtp
+
+`Buffer`\<`ArrayBufferLike`\> | [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
@@ -260,7 +310,25 @@
 
 #### Parameters
 
-• **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+##### dtlsTransport
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+#### Returns
+
+`void`
+
+***
+
+### setParameters()
+
+> **setParameters**(`params`): `void`
+
+#### Parameters
+
+##### params
+
+`any`
 
 #### Returns
 

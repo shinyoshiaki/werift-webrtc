@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,11 @@
 
 ## Parameters
 
-• **extensions**: [`Extension`](../type-aliases/Extension.md)[]
+### extensions
 
-• **extIdUriMap**
+[`Extension`](../type-aliases/Extension.md)[]
+
+### extIdUriMap
 
 ## Returns
 

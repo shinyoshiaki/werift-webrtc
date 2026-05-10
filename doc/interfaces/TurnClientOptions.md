@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -22,7 +22,7 @@
 
 ### portRange?
 
-> `optional` **portRange**: [`number`, `number`]
+> `optional` **portRange**: \[`number`, `number`\]
 
 ***
 
@@ -32,6 +32,12 @@
 
 ***
 
+### tlsOptions?
+
+> `optional` **tlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+
+***
+
 ### transport?
 
-> `optional` **transport**: `"udp"` \| `"tcp"`
+> `optional` **transport**: `"tcp"` \| `"tls"` \| `"udp"`

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`SsrcDescription`](SsrcDescription.md)\>
+##### props
+
+`Partial`\<[`SsrcDescription`](SsrcDescription.md)\>
 
 #### Returns
 
@@ -34,15 +36,15 @@
 
 ***
 
-### msLabel?
-
-> `optional` **msLabel**: `string`
-
-***
-
 ### msid?
 
 > `optional` **msid**: `string`
+
+***
+
+### msLabel?
+
+> `optional` **msLabel**: `string`
 
 ***
 

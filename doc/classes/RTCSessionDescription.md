@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,9 +14,13 @@
 
 #### Parameters
 
-• **sdp**: `string`
+##### sdp
 
-• **type**: `"offer"` \| `"answer"`
+`string`
+
+##### type
+
+`"offer"` | `"answer"` | `"pranswer"`
 
 #### Returns
 
@@ -32,9 +36,27 @@
 
 ### type
 
-> **type**: `"offer"` \| `"answer"`
+> **type**: `"offer"` \| `"answer"` \| `"pranswer"`
 
 ## Methods
+
+### toSdp()
+
+> **toSdp**(): `object`
+
+#### Returns
+
+`object`
+
+##### sdp
+
+> **sdp**: `string`
+
+##### type
+
+> **type**: `"offer"` \| `"answer"` \| `"pranswer"`
+
+***
 
 ### isThis()
 
@@ -42,7 +64,9 @@
 
 #### Parameters
 
-• **o**: `any`
+##### o
+
+`any`
 
 #### Returns
 

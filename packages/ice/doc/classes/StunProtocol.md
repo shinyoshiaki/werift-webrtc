@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -44,7 +44,7 @@
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: `Event`\<[`Buffer`]\>
+> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -54,7 +54,7 @@
 
 ### onRequestReceived
 
-> `readonly` **onRequestReceived**: `Event`\<[[`Message`](Message.md), readonly [`string`, `number`], `Buffer`]\>
+> `readonly` **onRequestReceived**: `Event`\<\[[`Message`](Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>
 
 #### Implementation of
 
@@ -78,13 +78,13 @@
 
 #### Index Signature
 
- \[`key`: `string`\]: `Transaction`
+\[`key`: `string`\]: `Transaction`
 
 ***
 
 ### transport
 
-> **transport**: [`UdpTransport`](UdpTransport.md)
+> **transport**: `UdpTransport`
 
 ***
 
@@ -106,9 +106,11 @@
 
 ### transactionsKeys
 
-> `get` **transactionsKeys**(): `string`[]
+#### Get Signature
 
-#### Returns
+> **get** **transactionsKeys**(): `string`[]
+
+##### Returns
 
 `string`[]
 
@@ -134,11 +136,17 @@
 
 #### Parameters
 
-• **useIpv4**: `boolean`
+##### useIpv4
 
-• **portRange?**: [`number`, `number`]
+`boolean`
 
-• **interfaceAddresses?**: `InterfaceAddresses`
+##### portRange?
+
+\[`number`, `number`\]
+
+##### interfaceAddresses?
+
+`InterfaceAddresses`
 
 #### Returns
 
@@ -152,31 +160,39 @@
 
 ### getExtraInfo()
 
-> **getExtraInfo**(): readonly [`string`, `number`]
+> **getExtraInfo**(): readonly \[`string`, `number`\]
 
 #### Returns
 
-readonly [`string`, `number`]
+readonly \[`string`, `number`\]
 
 ***
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissions`?): `Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+> **request**(`request`, `addr`, `integrityKey`?, `retransmissions`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
-• **request**: [`Message`](Message.md)
+##### request
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
 
-• **integrityKey?**: `Buffer`
+##### addr
 
-• **retransmissions?**: `number`
+readonly \[`string`, `number`\]
+
+##### integrityKey?
+
+`Buffer`\<`ArrayBufferLike`\>
+
+##### retransmissions?
+
+`number`
 
 #### Returns
 
-`Promise`\<[[`Message`](Message.md), readonly [`string`, `number`]]\>
+`Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Implementation of
 
@@ -190,9 +206,13 @@ readonly [`string`, `number`]
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -210,9 +230,13 @@ readonly [`string`, `number`]
 
 #### Parameters
 
-• **message**: [`Message`](Message.md)
+##### message
 
-• **addr**: readonly [`string`, `number`]
+[`Message`](Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

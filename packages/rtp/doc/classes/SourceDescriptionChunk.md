@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> = `{}`
+##### props
+
+`Partial`\<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> = `{}`
 
 #### Returns
 
@@ -36,9 +38,11 @@
 
 ### length
 
-> `get` **length**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **length**(): `number`
+
+##### Returns
 
 `number`
 
@@ -46,11 +50,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -60,7 +64,9 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 

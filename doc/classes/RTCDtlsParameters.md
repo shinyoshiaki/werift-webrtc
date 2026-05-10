@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,9 +14,13 @@
 
 #### Parameters
 
-• **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
+##### fingerprints
 
-• **role**: `"auto"` \| `"server"` \| `"client"`
+[`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
+
+##### role
+
+`"client"` | `"server"` | `"auto"`
 
 #### Returns
 
@@ -32,4 +36,4 @@
 
 ### role
 
-> **role**: `"auto"` \| `"server"` \| `"client"`
+> **role**: `"client"` \| `"server"` \| `"auto"`

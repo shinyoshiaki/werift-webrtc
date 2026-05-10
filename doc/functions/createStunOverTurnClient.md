@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,25 +10,45 @@
 
 ## Parameters
 
-• **\_\_namedParameters**
+### \_\_namedParameters
 
-• **\_\_namedParameters.address**: readonly [`string`, `number`]
+#### address
 
-• **\_\_namedParameters.password**: `string`
+readonly \[`string`, `number`\]
 
-• **\_\_namedParameters.username**: `string`
+#### password
 
-• **\_\_namedParameters** = `{}`
+`string`
 
-• **\_\_namedParameters.interfaceAddresses?**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+#### username
 
-• **\_\_namedParameters.lifetime?**: `number`
+`string`
 
-• **\_\_namedParameters.portRange?**: [`number`, `number`]
+### \_\_namedParameters
 
-• **\_\_namedParameters.ssl?**: `boolean`
+#### interfaceAddresses?
 
-• **\_\_namedParameters.transport?**: `"udp"` \| `"tcp"`
+[`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+#### lifetime?
+
+`number`
+
+#### portRange?
+
+\[`number`, `number`\]
+
+#### ssl?
+
+`boolean`
+
+#### tlsOptions?
+
+[`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+
+#### transport?
+
+`"tcp"` \| `"tls"` \| `"udp"`
 
 ## Returns
 

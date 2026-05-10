@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **a**: `number`
+### a
 
-• **b**: `number`
+`number`
+
+### b
+
+`number`
 
 ## Returns
 

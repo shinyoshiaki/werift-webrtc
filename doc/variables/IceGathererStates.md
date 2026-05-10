@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: IceGathererStates
 
-> `const` **IceGathererStates**: readonly [`"new"`, `"gathering"`, `"complete"`]
+> `const` **IceGathererStates**: readonly \[`"new"`, `"gathering"`, `"complete"`\]

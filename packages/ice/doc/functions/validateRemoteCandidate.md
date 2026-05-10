@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,7 +10,9 @@
 
 ## Parameters
 
-• **candidate**: [`Candidate`](../classes/Candidate.md)
+### candidate
+
+[`Candidate`](../classes/Candidate.md)
 
 ## Returns
 

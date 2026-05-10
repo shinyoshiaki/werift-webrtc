@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **uint8Array**: `Buffer`
+##### uint8Array
+
+`Buffer`
 
 #### Returns
 
@@ -30,17 +32,17 @@
 
 ### readBits()
 
-> **readBits**(`bits`, `bitBuffer`?): `any`
+> **readBits**(`bits`): `number`
 
 #### Parameters
 
-• **bits**: `number`
+##### bits
 
-• **bitBuffer?**: `number`
+`number`
 
 #### Returns
 
-`any`
+`number`
 
 ***
 
@@ -50,7 +52,9 @@
 
 #### Parameters
 
-• **bitPos**: `number`
+##### bitPos
+
+`number`
 
 #### Returns
 
@@ -64,9 +68,13 @@
 
 #### Parameters
 
-• **bits**: `number`
+##### bits
 
-• **value**: `number`
+`number`
+
+##### value
+
+`number`
 
 #### Returns
 

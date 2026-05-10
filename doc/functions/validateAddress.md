@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: validateAddress()
 
-> **validateAddress**(`addr`?): [`Address`](../type-aliases/Address.md) \| `undefined`
+> **validateAddress**(`addr`?): `undefined` \| readonly \[`string`, `number`\]
 
 ## Parameters
 
-• **addr?**: readonly [`string`, `number`]
+### addr?
+
+readonly \[`string`, `number`\]
 
 ## Returns
 
-[`Address`](../type-aliases/Address.md) \| `undefined`
+`undefined` \| readonly \[`string`, `number`\]

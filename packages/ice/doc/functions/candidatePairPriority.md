@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ## Parameters
 
-• **local**: `Pick`\<[`Candidate`](../classes/Candidate.md), `"priority"`\>
+### local
 
-• **remote**: `Pick`\<[`Candidate`](../classes/Candidate.md), `"priority"`\>
+`Pick`\<[`Candidate`](../classes/Candidate.md), `"priority"`\>
 
-• **iceControlling**: `boolean`
+### remote
+
+`Pick`\<[`Candidate`](../classes/Candidate.md), `"priority"`\>
+
+### iceControlling
+
+`boolean`
 
 ## Returns
 

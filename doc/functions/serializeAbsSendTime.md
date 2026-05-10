@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: serializeAbsSendTime()
 
-> **serializeAbsSendTime**(`ntpTime`): `Buffer`
+> **serializeAbsSendTime**(`ntpTime`): `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
-• **ntpTime**: `bigint`
+### ntpTime
+
+`bigint`
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>

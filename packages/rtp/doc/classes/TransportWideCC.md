@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`TransportWideCC`](TransportWideCC.md)\> = `{}`
+##### props
+
+`Partial`\<[`TransportWideCC`](TransportWideCC.md)\> = `{}`
 
 #### Returns
 
@@ -98,9 +100,11 @@
 
 ### packetResults
 
-> `get` **packetResults**(): [`PacketResult`](PacketResult.md)[]
+#### Get Signature
 
-#### Returns
+> **get** **packetResults**(): [`PacketResult`](PacketResult.md)[]
+
+##### Returns
 
 [`PacketResult`](PacketResult.md)[]
 
@@ -108,11 +112,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -122,9 +126,13 @@
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **header**: [`RtcpHeader`](RtcpHeader.md)
+`Buffer`
+
+##### header
+
+[`RtcpHeader`](RtcpHeader.md)
 
 #### Returns
 

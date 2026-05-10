@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -6,16 +6,22 @@
 
 # Function: makeIntegrityKey()
 
-> **makeIntegrityKey**(`username`, `realm`, `password`): `Buffer`
+> **makeIntegrityKey**(`username`, `realm`, `password`): `Buffer`\<`ArrayBufferLike`\>
 
 ## Parameters
 
-• **username**: `string`
+### username
 
-• **realm**: `string`
+`string`
 
-• **password**: `string`
+### realm
+
+`string`
+
+### password
+
+`string`
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBufferLike`\>

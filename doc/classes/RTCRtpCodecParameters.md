@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Pick`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), `"mimeType"` \| `"clockRate"`\> & `Partial`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\>
+##### props
+
+`Pick`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), `"mimeType"` \| `"clockRate"`\> & `Partial`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\>
 
 #### Returns
 
@@ -69,9 +71,11 @@ it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advan
 
 ### contentType
 
-> `get` **contentType**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **contentType**(): `string`
+
+##### Returns
 
 `string`
 
@@ -79,9 +83,11 @@ it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advan
 
 ### name
 
-> `get` **name**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **name**(): `string`
+
+##### Returns
 
 `string`
 
@@ -89,8 +95,10 @@ it is necessary to set the correct PayloadType in RTCRtpCodecParameters in advan
 
 ### str
 
-> `get` **str**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **str**(): `string`
+
+##### Returns
 
 `string`

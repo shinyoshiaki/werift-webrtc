@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **options**: `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\> = `{}`
+##### options
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\> = `{}`
 
 #### Returns
 
@@ -36,7 +38,7 @@
 
 ### onGatheringStateChange
 
-> `readonly` **onGatheringStateChange**: [`Event`](Event.md)\<[`"complete"` \| `"new"` \| `"gathering"`]\>
+> `readonly` **onGatheringStateChange**: [`Event`](Event.md)\<\[`"complete"` \| `"new"` \| `"gathering"`\]\>
 
 ***
 
@@ -46,7 +48,9 @@
 
 #### Parameters
 
-• **candidate**: `undefined` \| [`IceCandidate`](IceCandidate.md)
+##### candidate
+
+`undefined` | [`IceCandidate`](IceCandidate.md)
 
 #### Returns
 
@@ -56,9 +60,11 @@
 
 ### localCandidates
 
-> `get` **localCandidates**(): [`IceCandidate`](IceCandidate.md)[]
+#### Get Signature
 
-#### Returns
+> **get** **localCandidates**(): [`IceCandidate`](IceCandidate.md)[]
+
+##### Returns
 
 [`IceCandidate`](IceCandidate.md)[]
 
@@ -66,9 +72,11 @@
 
 ### localParameters
 
-> `get` **localParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
+#### Get Signature
 
-#### Returns
+> **get** **localParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
+
+##### Returns
 
 [`RTCIceParameters`](RTCIceParameters.md)
 

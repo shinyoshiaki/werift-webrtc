@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -16,7 +16,9 @@
 
 #### Parameters
 
-• **bitLength**: `number`
+##### bitLength
+
+`number`
 
 Max 32bit
 
@@ -28,25 +30,29 @@ Max 32bit
 
 ### offset
 
-> **offset**: `bigint`
+> **offset**: `bigint` = `0n`
 
 ## Accessors
 
 ### buffer
 
-> `get` **buffer**(): `Buffer`
+#### Get Signature
 
-#### Returns
+> **get** **buffer**(): `Buffer`\<`ArrayBuffer`\>
 
-`Buffer`
+##### Returns
+
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
 ### value
 
-> `get` **value**(): `number`
+#### Get Signature
 
-#### Returns
+> **get** **value**(): `number`
+
+##### Returns
 
 `number`
 
@@ -58,9 +64,13 @@ Max 32bit
 
 #### Parameters
 
-• **value**: `number`
+##### value
 
-• **size**: `number` = `1`
+`number`
+
+##### size
+
+`number` = `1`
 
 #### Returns
 

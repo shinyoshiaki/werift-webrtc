@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -18,7 +18,9 @@
 
 #### Parameters
 
-• **config**: `Config`
+##### config
+
+`Config`
 
 #### Returns
 
@@ -52,7 +54,9 @@
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
@@ -76,29 +80,33 @@
 
 ### decrypt()
 
-> **decrypt**(`buf`): `Buffer`
+> **decrypt**(`buf`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 ***
 
 ### encrypt()
 
-> **encrypt**(`rawRtcp`): `Buffer`
+> **encrypt**(`rawRtcp`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
-• **rawRtcp**: `Buffer`
+##### rawRtcp
+
+`Buffer`
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -108,15 +116,25 @@
 
 #### Parameters
 
-• **localMasterKey**: `Buffer`
+##### localMasterKey
 
-• **localMasterSalt**: `Buffer`
+`Buffer`
 
-• **remoteMasterKey**: `Buffer`
+##### localMasterSalt
 
-• **remoteMasterSalt**: `Buffer`
+`Buffer`
 
-• **profile**: `number`
+##### remoteMasterKey
+
+`Buffer`
+
+##### remoteMasterSalt
+
+`Buffer`
+
+##### profile
+
+`number`
 
 #### Returns
 

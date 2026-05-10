@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,11 +10,17 @@
 
 ## Parameters
 
-• **dest**: [`GroupDescription`](../classes/GroupDescription.md)[]
+### dest
 
-• **value**: `string`
+[`GroupDescription`](../classes/GroupDescription.md)[]
 
-• **type** = `...`
+### value
+
+`string`
+
+### type
+
+(`v`) => `any`
 
 ## Returns
 

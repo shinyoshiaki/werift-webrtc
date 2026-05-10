@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -10,7 +10,9 @@
 
 ## Parameters
 
-• **arr**: `Buffer`[]
+### arr
+
+`Buffer`\<`ArrayBufferLike`\>[]
 
 ## Returns
 

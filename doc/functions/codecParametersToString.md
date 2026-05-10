@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,11 @@
 
 ## Parameters
 
-• **parameters**
+### parameters
 
-• **joint**: `string` = `"="`
+### joint
+
+`string` = `"="`
 
 ## Returns
 

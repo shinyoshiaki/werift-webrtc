@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -21,6 +21,42 @@
 ### queue
 
 > **queue**: `object`[] = `[]`
+
+#### done()
+
+> **done**: (...`args`) => `void`
+
+##### Parameters
+
+###### args
+
+...`any`[]
+
+##### Returns
+
+`void`
+
+#### failed()
+
+> **failed**: (...`args`) => `void`
+
+##### Parameters
+
+###### args
+
+...`any`[]
+
+##### Returns
+
+`void`
+
+#### promise()
+
+> **promise**: () => `Promise`\<`unknown`\>
+
+##### Returns
+
+`Promise`\<`unknown`\>
 
 ***
 
@@ -50,7 +86,9 @@
 
 #### Parameters
 
-• **promise**
+##### promise
+
+() => `Promise`\<`T`\>
 
 #### Returns
 

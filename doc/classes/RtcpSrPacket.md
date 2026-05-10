@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Pick`\<[`RtcpSrPacket`](RtcpSrPacket.md), `"senderInfo"`\> & `Partial`\<[`RtcpSrPacket`](RtcpSrPacket.md)\>
+##### props
+
+`Pick`\<[`RtcpSrPacket`](RtcpSrPacket.md), `"senderInfo"`\> & `Partial`\<[`RtcpSrPacket`](RtcpSrPacket.md)\>
 
 #### Returns
 
@@ -54,11 +56,11 @@
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -78,11 +80,11 @@
 
 > **senderInfo**: `object`
 
-##### senderInfo.ntpTimestamp
+###### senderInfo.ntpTimestamp
 
 > **ntpTimestamp**: `number`
 
-##### senderInfo.rtpTimestamp
+###### senderInfo.rtpTimestamp
 
 > **rtpTimestamp**: `number`
 
@@ -98,9 +100,13 @@
 
 #### Parameters
 
-• **payload**: `Buffer`
+##### payload
 
-• **count**: `number`
+`Buffer`
+
+##### count
+
+`number`
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: Directions
 
-> `const` **Directions**: readonly [`"inactive"`, `"sendonly"`, `"recvonly"`, `"sendrecv"`]
+> `const` **Directions**: readonly \[`"inactive"`, `"sendonly"`, `"recvonly"`, `"sendrecv"`\]

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,12 +6,14 @@
 
 # Function: serializeTransportWideCC()
 
-> **serializeTransportWideCC**(`transportSequenceNumber`): `Buffer`
+> **serializeTransportWideCC**(`transportSequenceNumber`): `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
-• **transportSequenceNumber**: `number`
+### transportSequenceNumber
+
+`number`
 
 ## Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>

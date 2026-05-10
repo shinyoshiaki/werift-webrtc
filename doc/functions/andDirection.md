@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **a**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+### a
 
-• **b**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+
+### b
+
+`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
 ## Returns
 

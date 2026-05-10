@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,17 +14,27 @@
 
 #### Parameters
 
-• **kind**: [`Kind`](../type-aliases/Kind.md)
+##### kind
 
-• **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+[`Kind`](../type-aliases/Kind.md)
 
-• **receiver**: [`RTCRtpReceiver`](RTCRtpReceiver.md)
+##### dtlsTransport
 
-• **sender**: [`RTCRtpSender`](RTCRtpSender.md)
+`undefined` | [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
-• **\_direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+##### receiver
+
+[`RTCRtpReceiver`](RTCRtpReceiver.md)
+
+##### sender
+
+[`RTCRtpSender`](RTCRtpSender.md)
+
+##### \_direction
 
 RFC 8829 4.2.4.  direction the transceiver was initialized with
+
+`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
 #### Returns
 
@@ -56,15 +66,15 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
-### mLineIndex?
-
-> `optional` **mLineIndex**: `number`
-
-***
-
 ### mid?
 
 > `optional` **mid**: `string`
+
+***
+
+### mLineIndex?
+
+> `optional` **mLineIndex**: `number`
 
 ***
 
@@ -76,7 +86,7 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ### onTrack
 
-> `readonly` **onTrack**: [`Event`](Event.md)\<[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)]\>
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
 
 ***
 
@@ -120,27 +130,39 @@ should not be reused because it has been used for sending before.
 
 ### codecs
 
-> `get` **codecs**(): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+#### Get Signature
 
-> `set` **codecs**(`codecs`): `void`
+> **get** **codecs**(): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
-#### Parameters
-
-• **codecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
-
-#### Returns
+##### Returns
 
 [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### Set Signature
+
+> **set** **codecs**(`codecs`): `void`
+
+##### Parameters
+
+###### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### Returns
+
+`void`
 
 ***
 
 ### currentDirection
 
-> `get` **currentDirection**(): `undefined` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+#### Get Signature
+
+> **get** **currentDirection**(): `undefined` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 RFC 8829 4.2.5. last negotiated direction
 
-#### Returns
+##### Returns
 
 `undefined` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
@@ -148,11 +170,13 @@ RFC 8829 4.2.5. last negotiated direction
 
 ### direction
 
-> `get` **direction**(): `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+#### Get Signature
+
+> **get** **direction**(): `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
-#### Returns
+##### Returns
 
 `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
@@ -160,9 +184,11 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ### dtlsTransport
 
-> `get` **dtlsTransport**(): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+#### Get Signature
 
-#### Returns
+> **get** **dtlsTransport**(): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### Returns
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
@@ -170,9 +196,11 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ### msid
 
-> `get` **msid**(): `string`
+#### Get Signature
 
-#### Returns
+> **get** **msid**(): `string`
+
+##### Returns
 
 `string`
 
@@ -184,11 +212,23 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Parameters
 
-• **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+##### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
 `void`
+
+***
+
+### getCodecStats()
+
+> **getCodecStats**(): [`RTCStats`](../interfaces/RTCStats.md)[]
+
+#### Returns
+
+[`RTCStats`](../interfaces/RTCStats.md)[]
 
 ***
 
@@ -198,7 +238,9 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Parameters
 
-• **mimeType**: `string`
+##### mimeType
+
+`string`
 
 #### Returns
 
@@ -212,7 +254,9 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Parameters
 
-• **direction**: `undefined` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+##### direction
+
+`undefined` | `"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
 #### Returns
 
@@ -226,7 +270,9 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Parameters
 
-• **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+##### direction
+
+`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
 
 #### Returns
 
@@ -240,7 +286,9 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Parameters
 
-• **dtls**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+##### dtls
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 

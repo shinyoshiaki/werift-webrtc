@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **pairs**: `object`[]
+### pairs
 
-• **iceControlling**: `boolean`
+`object`[]
+
+### iceControlling
+
+`boolean`
 
 ## Returns
 

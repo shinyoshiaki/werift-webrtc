@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -34,9 +34,11 @@
 
 ### isKeyframe
 
-> `get` **isKeyframe**(): `boolean`
+#### Get Signature
 
-#### Returns
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
 
 `boolean`
 
@@ -48,15 +50,17 @@
 
 ### createCodecPrivate()
 
-> `static` **createCodecPrivate**(`samplingFrequency`): `Buffer`
+> `static` **createCodecPrivate**(`samplingFrequency`): `Buffer`\<`ArrayBuffer`\>
 
 #### Parameters
 
-• **samplingFrequency**: `number` = `48000`
+##### samplingFrequency
+
+`number` = `48000`
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -66,7 +70,9 @@
 
 #### Parameters
 
-• **buf**: `Buffer`
+##### buf
+
+`Buffer`
 
 #### Returns
 
@@ -80,7 +86,9 @@
 
 #### Parameters
 
-• **header**: [`RtpHeader`](RtpHeader.md)
+##### header
+
+[`RtpHeader`](RtpHeader.md)
 
 #### Returns
 

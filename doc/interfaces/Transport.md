@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -7,6 +7,12 @@
 # Interface: Transport
 
 ## Properties
+
+### address
+
+> **address**: `AddressInfo`
+
+***
 
 ### close()
 
@@ -18,15 +24,25 @@
 
 ***
 
+### closed
+
+> **closed**: `boolean`
+
+***
+
 ### onData()
 
 > **onData**: (`data`, `addr`) => `void`
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -36,13 +52,17 @@
 
 ### send()
 
-> **send**: (`data`, `addr`) => `Promise`\<`void`\>
+> **send**: (`data`, `addr`?) => `Promise`\<`void`\>
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

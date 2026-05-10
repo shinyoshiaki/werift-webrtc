@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -14,7 +14,9 @@
 
 #### Parameters
 
-• **props**: `Partial`\<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> = `{}`
+##### props
+
+`Partial`\<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> = `{}`
 
 #### Returns
 
@@ -70,11 +72,11 @@ last SR
 
 ### serialize()
 
-> **serialize**(): `Buffer`
+> **serialize**(): `Buffer`\<`ArrayBuffer`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBuffer`\>
 
 ***
 
@@ -122,7 +124,9 @@ last SR
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
+
+`Buffer`
 
 #### Returns
 

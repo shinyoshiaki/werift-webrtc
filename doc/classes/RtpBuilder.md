@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,11 +14,15 @@
 
 #### Parameters
 
-• **props**
+##### props
 
-• **props.between**: `number`
+###### between
 
-• **props.clockRate**: `number`
+`number`
+
+###### clockRate
+
+`number`
 
 #### Returns
 
@@ -44,7 +48,9 @@
 
 #### Parameters
 
-• **payload**: `Buffer`
+##### payload
+
+`Buffer`
 
 #### Returns
 

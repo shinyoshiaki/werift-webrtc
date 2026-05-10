@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **codecs**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+### codecs
 
-• **target**: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+
+### target
+
+[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 ## Returns
 

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **type**: `SocketType`
+### type
 
-• **interfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+`SocketType`
+
+### interfaceAddresses
+
+`undefined` | [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
 ## Returns
 

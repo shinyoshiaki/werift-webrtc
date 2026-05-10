@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **protocol**: [`Protocol`](../interfaces/Protocol.md)
+### protocol
 
-• **stunServer**: readonly [`string`, `number`]
+[`Protocol`](../interfaces/Protocol.md)
+
+### stunServer
+
+readonly \[`string`, `number`\]
 
 ## Returns
 

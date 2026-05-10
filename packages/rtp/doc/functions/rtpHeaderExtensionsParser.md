@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -10,9 +10,11 @@
 
 ## Parameters
 
-• **extensions**: [`Extension`](../type-aliases/Extension.md)[]
+### extensions
 
-• **extIdUriMap**
+[`Extension`](../type-aliases/Extension.md)[]
+
+### extIdUriMap
 
 ## Returns
 

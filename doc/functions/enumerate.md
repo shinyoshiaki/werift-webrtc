@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,7 +6,7 @@
 
 # Function: enumerate()
 
-> **enumerate**\<`T`\>(`arr`): [`number`, `T`][]
+> **enumerate**\<`T`\>(`arr`): \[`number`, `T`\][]
 
 ## Type Parameters
 
@@ -14,8 +14,10 @@
 
 ## Parameters
 
-• **arr**: `T`[]
+### arr
+
+`T`[]
 
 ## Returns
 
-[`number`, `T`][]
+\[`number`, `T`\][]

@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,13 +14,21 @@
 
 #### Parameters
 
-• **kind**: [`Kind`](../type-aliases/Kind.md)
+##### kind
 
-• **port**: `number`
+[`Kind`](../type-aliases/Kind.md)
 
-• **profile**: `string`
+##### port
 
-• **fmt**: `number`[] \| `string`[]
+`number`
+
+##### profile
+
+`string`
+
+##### fmt
+
+`number`[] | `string`[]
 
 #### Returns
 
@@ -136,7 +144,7 @@
 
 #### Index Signature
 
- \[`key`: `number`\]: `string`
+\[`key`: `number`\]: `string`
 
 ***
 

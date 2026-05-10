@@ -1,4 +1,4 @@
-[**werift-ice**](README.md) • **Docs**
+[**werift-ice**](README.md)
 
 ***
 
@@ -18,22 +18,19 @@
 - [Message](classes/Message.md)
 - [StunOverTurnProtocol](classes/StunOverTurnProtocol.md)
 - [StunProtocol](classes/StunProtocol.md)
-- [TcpTransport](classes/TcpTransport.md)
 - [TurnProtocol](classes/TurnProtocol.md)
-- [UdpTransport](classes/UdpTransport.md)
 
 ## Interfaces
 
+- [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [IceConnection](interfaces/IceConnection.md)
 - [IceOptions](interfaces/IceOptions.md)
 - [Protocol](interfaces/Protocol.md)
-- [Transport](interfaces/Transport.md)
 - [TurnClientConfig](interfaces/TurnClientConfig.md)
 - [TurnClientOptions](interfaces/TurnClientOptions.md)
 
 ## Type Aliases
 
-- [Address](type-aliases/Address.md)
 - [IceState](type-aliases/IceState.md)
 
 ## Variables
@@ -42,6 +39,7 @@
 - [CONSENT\_FAILURES](variables/CONSENT_FAILURES.md)
 - [CONSENT\_INTERVAL](variables/CONSENT_INTERVAL.md)
 - [COOKIE](variables/COOKIE.md)
+- [defaultOptions](variables/defaultOptions.md)
 - [FINGERPRINT\_LENGTH](variables/FINGERPRINT_LENGTH.md)
 - [FINGERPRINT\_XOR](variables/FINGERPRINT_XOR.md)
 - [HEADER\_LENGTH](variables/HEADER_LENGTH.md)
@@ -52,7 +50,6 @@
 - [IPV6\_PROTOCOL](variables/IPV6_PROTOCOL.md)
 - [RETRY\_MAX](variables/RETRY_MAX.md)
 - [RETRY\_RTO](variables/RETRY_RTO.md)
-- [defaultOptions](variables/defaultOptions.md)
 
 ## Functions
 
@@ -63,8 +60,11 @@
 - [createTurnClient](functions/createTurnClient.md)
 - [getGlobalIp](functions/getGlobalIp.md)
 - [getHostAddresses](functions/getHostAddresses.md)
+- [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
+- [isLinkLocalAddress](functions/isLinkLocalAddress.md)
+- [isStunMessage](functions/isStunMessage.md)
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
-- [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)
+- [nodeIpAddress](functions/nodeIpAddress.md)
 - [paddingLength](functions/paddingLength.md)
 - [parseMessage](functions/parseMessage.md)
 - [randomPort](functions/randomPort.md)

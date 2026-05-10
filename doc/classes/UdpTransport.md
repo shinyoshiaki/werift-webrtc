@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -12,15 +12,29 @@
 
 ## Properties
 
+### closed
+
+> **closed**: `boolean` = `false`
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`closed`](../interfaces/Transport.md#closed)
+
+***
+
 ### onData()
 
 > **onData**: (`data`, `addr`) => `void`
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -29,6 +43,12 @@
 #### Implementation of
 
 [`Transport`](../interfaces/Transport.md).[`onData`](../interfaces/Transport.md#ondata)
+
+***
+
+### rinfo?
+
+> `optional` **rinfo**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
 
 ***
 
@@ -46,17 +66,47 @@
 
 [`Transport`](../interfaces/Transport.md).[`type`](../interfaces/Transport.md#type)
 
-## Methods
+## Accessors
 
-### address()
+### address
 
-> **address**(): `AddressInfo`
+#### Get Signature
 
-#### Returns
+> **get** **address**(): `AddressInfo`
+
+##### Returns
 
 `AddressInfo`
 
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`address`](../interfaces/Transport.md#address)
+
 ***
+
+### host
+
+#### Get Signature
+
+> **get** **host**(): `string`
+
+##### Returns
+
+`string`
+
+***
+
+### port
+
+#### Get Signature
+
+> **get** **port**(): `number`
+
+##### Returns
+
+`number`
+
+## Methods
 
 ### close()
 
@@ -74,13 +124,17 @@
 
 ### send()
 
-> **send**(`data`, `addr`): `Promise`\<`void`\>
+> **send**(`data`, `addr`?): `Promise`\<`void`\>
 
 #### Parameters
 
-• **data**: `Buffer`
+##### data
 
-• **addr**: readonly [`string`, `number`]
+`Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 
@@ -94,15 +148,27 @@
 
 ### init()
 
-> `static` **init**(`type`, `portRange`?, `interfaceAddresses`?): `Promise`\<[`UdpTransport`](UdpTransport.md)\>
+> `static` **init**(`type`, `options`): `Promise`\<[`UdpTransport`](UdpTransport.md)\>
 
 #### Parameters
 
-• **type**: `SocketType`
+##### type
 
-• **portRange?**: [`number`, `number`]
+`SocketType`
 
-• **interfaceAddresses?**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+##### options
+
+###### interfaceAddresses?
+
+[`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+###### port?
+
+`number`
+
+###### portRange?
+
+\[`number`, `number`\]
 
 #### Returns
 

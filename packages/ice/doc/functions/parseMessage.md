@@ -1,4 +1,4 @@
-[**werift-ice**](../README.md) • **Docs**
+[**werift-ice**](../README.md)
 
 ***
 
@@ -6,14 +6,18 @@
 
 # Function: parseMessage()
 
-> **parseMessage**(`data`, `integrityKey`?): [`Message`](../classes/Message.md) \| `undefined`
+> **parseMessage**(`data`, `integrityKey`?): `undefined` \| [`Message`](../classes/Message.md)
 
 ## Parameters
 
-• **data**: `Buffer`
+### data
 
-• **integrityKey?**: `Buffer`
+`Buffer`
+
+### integrityKey?
+
+`Buffer`\<`ArrayBufferLike`\>
 
 ## Returns
 
-[`Message`](../classes/Message.md) \| `undefined`
+`undefined` \| [`Message`](../classes/Message.md)

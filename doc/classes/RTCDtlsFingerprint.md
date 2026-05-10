@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -14,9 +14,13 @@
 
 #### Parameters
 
-• **algorithm**: `string`
+##### algorithm
 
-• **value**: `string`
+`string`
+
+##### value
+
+`string`
 
 #### Returns
 

@@ -1,4 +1,4 @@
-[**werift-rtp**](../README.md) • **Docs**
+[**werift-rtp**](../README.md)
 
 ***
 
@@ -10,9 +10,13 @@
 
 ## Parameters
 
-• **type**: `SocketType`
+### type
 
-• **interfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+`SocketType`
+
+### interfaceAddresses
+
+`undefined` | [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
 ## Returns
 

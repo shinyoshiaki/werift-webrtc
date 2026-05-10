@@ -1,4 +1,4 @@
-[**werift**](../README.md) • **Docs**
+[**werift**](../README.md)
 
 ***
 
@@ -6,4 +6,4 @@
 
 # Variable: depacketizerCodecs
 
-> `const` **depacketizerCodecs**: readonly [`"MPEG4/ISO/AVC"`, `"VP8"`, `"VP9"`, `"OPUS"`, `"AV1"`]
+> `const` **depacketizerCodecs**: readonly \[`"MPEG4/ISO/AVC"`, `"VP8"`, `"VP9"`, `"OPUS"`, `"AV1"`\]
