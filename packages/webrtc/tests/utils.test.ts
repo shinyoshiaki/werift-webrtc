@@ -58,6 +58,54 @@ describe("utils", () => {
       expect(turnTransport).toBe("tls");
     });
 
+    test("turns without transport query defaults to tls transport", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:turn.l.google.com",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnPassword, turnServer, turnTransport, turnUsername } =
+        parseIceServers(iceServers);
+      expect(turnServer).toEqual(["turn.l.google.com", 5349]);
+      expect(turnUsername).toBe("username");
+      expect(turnPassword).toBe("credential");
+      expect(turnTransport).toBe("tls");
+    });
+
+    test("turns with invalid transport query is ignored", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turns:turn.l.google.com:5349?transport=udp",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnPassword, turnServer, turnTransport, turnUsername } =
+        parseIceServers(iceServers);
+      expect(turnServer).toBeFalsy();
+      expect(turnUsername).toBeFalsy();
+      expect(turnPassword).toBeFalsy();
+      expect(turnTransport).toBeFalsy();
+    });
+
+    test("turn with unknown transport query is ignored", () => {
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: "turn:turn.l.google.com:3478?transport=tls",
+          credential: "credential",
+          username: "username",
+        },
+      ];
+      const { turnPassword, turnServer, turnTransport, turnUsername } =
+        parseIceServers(iceServers);
+      expect(turnServer).toBeFalsy();
+      expect(turnUsername).toBeFalsy();
+      expect(turnPassword).toBeFalsy();
+      expect(turnTransport).toBeFalsy();
+    });
+
     test("turn & stun", () => {
       const iceServers: RTCIceServer[] = [
         {

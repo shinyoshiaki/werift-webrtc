@@ -164,7 +164,7 @@ function parseIceServerUrl(url: string) {
   }
 
   const [, rawScheme, rawRest] = matched;
-  const scheme = rawScheme.toLowerCase();
+  const scheme = rawScheme.toLowerCase() as "stun" | "stuns" | "turn" | "turns";
   const [authority] = rawRest.split("?", 1);
   const [, query = ""] = rawRest.split("?");
   const address = parseAddress(authority, defaultPort(scheme));
@@ -178,18 +178,41 @@ function parseIceServerUrl(url: string) {
 
   const queryParams = new URLSearchParams(query);
   const transportParam = queryParams.get("transport");
-  const transport: "udp" | "tcp" | "tls" | undefined =
-    scheme === "turns"
-      ? "tls"
-      : transportParam === "tcp" || transportParam === "udp"
-        ? transportParam
-        : undefined;
+  const transport = resolveParsedTurnTransport({
+    scheme,
+    transportParam,
+  });
+  if (transport === "invalid") {
+    return;
+  }
 
   return {
     kind: "turn" as const,
     address,
     transport,
   };
+}
+
+function resolveParsedTurnTransport({
+  scheme,
+  transportParam,
+}: {
+  scheme: "turn" | "turns";
+  transportParam: string | null;
+}): "udp" | "tcp" | "tls" | "invalid" | undefined {
+  if (transportParam == null) {
+    return scheme === "turns" ? "tls" : undefined;
+  }
+
+  if (transportParam === "udp") {
+    return scheme === "turns" ? "invalid" : "udp";
+  }
+
+  if (transportParam === "tcp") {
+    return scheme === "turns" ? "tls" : "tcp";
+  }
+
+  return "invalid";
 }
 
 function defaultPort(scheme: string) {
