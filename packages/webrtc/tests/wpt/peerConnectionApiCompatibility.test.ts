@@ -201,6 +201,11 @@ describe("wpt/peerConnection api compatibility", () => {
     pc.createDataChannel("chat");
 
     try {
+      // 実行: setLocalDescription 前は未対応の pool size を拒否する
+      expect(() =>
+        pc.setConfiguration({ iceCandidatePoolSize: 1 }),
+      ).toThrowError("iceCandidatePoolSize > 0 is not supported");
+
       // 実行: W3C 互換設定で transport を作成し getConfiguration の戻り値を取得する
       await pc.setLocalDescription({});
       const configuration = pc.getConfiguration();
@@ -229,7 +234,34 @@ describe("wpt/peerConnection api compatibility", () => {
       ).toThrowError("bundlePolicy cannot be changed");
       expect(() =>
         pc.setConfiguration({ iceCandidatePoolSize: 1 }),
+      ).toThrowError(
+        "iceCandidatePoolSize cannot be changed after setLocalDescription",
+      );
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("distinguishes unsupported and immutable iceCandidatePoolSize errors", async () => {
+    const pc = new RTCPeerConnection();
+
+    try {
+      // 実行: setLocalDescription 前は未対応値として reject する
+      expect(() =>
+        pc.setConfiguration({ iceCandidatePoolSize: 1 }),
       ).toThrowError("iceCandidatePoolSize > 0 is not supported");
+
+      pc.createDataChannel("chat");
+
+      // 実行: setLocalDescription 後は変更不可として reject する
+      await pc.setLocalDescription({});
+
+      // 検証: 同じ入力値でも状態遷移後は変更不可エラーに切り替わる
+      expect(() =>
+        pc.setConfiguration({ iceCandidatePoolSize: 1 }),
+      ).toThrowError(
+        "iceCandidatePoolSize cannot be changed after setLocalDescription",
+      );
     } finally {
       await pc.close();
     }

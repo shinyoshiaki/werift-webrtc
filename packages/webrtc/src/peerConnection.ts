@@ -298,10 +298,6 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error("iceCandidatePoolSize must be a non-negative integer");
     }
 
-    if ((normalizedConfig.iceCandidatePoolSize ?? 0) > 0) {
-      throw new Error("iceCandidatePoolSize > 0 is not supported");
-    }
-
     if (
       isReconfiguration &&
       normalizedConfig.bundlePolicy !== undefined &&
@@ -338,6 +334,10 @@ export class RTCPeerConnection extends EventTarget {
       throw new Error(
         "iceCandidatePoolSize cannot be changed after setLocalDescription",
       );
+    }
+
+    if ((normalizedConfig.iceCandidatePoolSize ?? 0) > 0) {
+      throw new Error("iceCandidatePoolSize > 0 is not supported");
     }
 
     deepMerge(this.config, normalizedConfig as Partial<PeerConfig>);
