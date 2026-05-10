@@ -411,11 +411,11 @@ export class SecureTransportManager {
     this.connectionStateChange.execute(state);
   }
 
-  async getStats(): Promise<RTCStats[]> {
+  async getStats(timestamp?: number): Promise<RTCStats[]> {
     const stats: RTCStats[] = [];
 
     for (const dtlsTransport of this.dtlsTransports) {
-      const transportStats = await dtlsTransport.getStats();
+      const transportStats = await dtlsTransport.getStats(timestamp);
       if (transportStats) {
         stats.push(...transportStats);
       }

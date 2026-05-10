@@ -28,7 +28,8 @@ import {
 import {
   type RTCPeerConnectionStats,
   type RTCStats,
-  RTCStatsReport,
+  type RTCStatsReport,
+  buildStatsReport,
   generateStatsId,
   getStatsTimestamp,
 } from "./media/stats";
@@ -81,6 +82,7 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  *   even when generated docs are not committed in the same change.
  */
 export class RTCPeerConnection extends EventTarget {
+  readonly id = randomUUID().toString();
   readonly cname = randomUUID().toString();
 
   config: Required<PeerConfig> = generateDefaultPeerConfig();
@@ -986,11 +988,10 @@ export class RTCPeerConnection extends EventTarget {
     this.emit("signalingstatechange");
   }
 
-  private createPeerConnectionStats(): RTCPeerConnectionStats {
-    const timestamp = getStatsTimestamp();
+  private createPeerConnectionStats(timestamp: number): RTCPeerConnectionStats {
     return {
       type: "peer-connection",
-      id: generateStatsId("peer-connection"),
+      id: generateStatsId("peer-connection", this.id),
       timestamp,
       dataChannelsOpened: this.sctpManager.dataChannelsOpened,
       dataChannelsClosed: this.sctpManager.dataChannelsClosed,
@@ -998,28 +999,33 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async getStats(selector?: MediaStreamTrack | null): Promise<RTCStatsReport> {
+    const timestamp = getStatsTimestamp();
     const stats: RTCStats[] = [];
 
-    // Peer connection stats - always included regardless of selector
-    stats.push(this.createPeerConnectionStats());
+    if (!selector) {
+      stats.push(this.createPeerConnectionStats(timestamp));
+    }
 
-    // Get stats from transceivers
-    const transceiverStats = await this.transceiverManager.getStats(selector);
-    stats.push(...transceiverStats);
+    stats.push(...this.transceiverManager.collectStats(timestamp));
 
-    // Get transport stats - always included regardless of selector
-    const transportStats = await this.secureManager.getStats();
+    const transportStats = await this.secureManager.getStats(timestamp);
     stats.push(...transportStats);
 
-    // Get data channel stats - always included regardless of selector
-    if (this.sctpTransport) {
-      const dataChannelStats = await this.sctpManager.getStats();
+    if (!selector && this.sctpTransport) {
+      const dataChannelStats = await this.sctpManager.getStats(timestamp);
       if (dataChannelStats) {
         stats.push(...dataChannelStats);
       }
     }
 
-    return new RTCStatsReport(stats);
+    if (!selector) {
+      return buildStatsReport(stats);
+    }
+
+    return buildStatsReport(
+      stats,
+      this.transceiverManager.getStatsRootIds(selector),
+    );
   }
 
   async close() {

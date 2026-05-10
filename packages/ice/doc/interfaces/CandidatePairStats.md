@@ -20,6 +20,12 @@
 
 ***
 
+### consentRequestsSent
+
+> **consentRequestsSent**: `number`
+
+***
+
 ### packetsReceived
 
 > **packetsReceived**: `number`
@@ -29,6 +35,42 @@
 ### packetsSent
 
 > **packetsSent**: `number`
+
+***
+
+### requestsReceived
+
+> **requestsReceived**: `number`
+
+***
+
+### requestsSent
+
+> **requestsSent**: `number`
+
+***
+
+### responsesReceived
+
+> **responsesReceived**: `number`
+
+***
+
+### responsesSent
+
+> **responsesSent**: `number`
+
+***
+
+### retransmissionsReceived
+
+> **retransmissionsReceived**: `number`
+
+***
+
+### retransmissionsSent
+
+> **retransmissionsSent**: `number`
 
 ***
 

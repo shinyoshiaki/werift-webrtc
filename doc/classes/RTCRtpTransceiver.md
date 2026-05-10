@@ -222,6 +222,22 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ***
 
+### collectCodecStats()
+
+> **collectCodecStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]
+
+#### Parameters
+
+##### timestamp
+
+`number`
+
+#### Returns
+
+[`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
 ### getCodecStats()
 
 > **getCodecStats**(): [`RTCStats`](../interfaces/RTCStats.md)[]

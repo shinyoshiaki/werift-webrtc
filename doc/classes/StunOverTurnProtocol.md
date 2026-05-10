@@ -110,7 +110,7 @@
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey`?, `_retransmissions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -125,6 +125,14 @@ readonly \[`string`, `number`\]
 ##### integrityKey?
 
 `Buffer`\<`ArrayBufferLike`\>
+
+##### \_retransmissions?
+
+`number`
+
+##### onRequestSent?
+
+(`attempt`) => `void`
 
 #### Returns
 

@@ -21,7 +21,7 @@ import {
 import type { PeerConfig } from "../peerConnection";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
-import { compactNtp, timestampSeconds } from "../utils";
+import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
 import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
@@ -33,9 +33,13 @@ import { StreamStatistics } from "./receiver/statistics";
 import { codecParametersFromString } from "../sdp";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import {
+  type RTCCodecStats,
   type RTCInboundRtpStreamStats,
   type RTCRemoteOutboundRtpStreamStats,
   type RTCStats,
+  type RTCStatsReport,
+  buildStatsReport,
+  generateCodecStatsId,
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
@@ -81,12 +85,23 @@ export class RTCRtpReceiver {
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
   private remoteStreams: { [ssrc: number]: StreamStatistics } = {};
+  private senderReportsReceivedBySsrc: { [ssrc: number]: number } = {};
+  private remoteTimestampsBySsrc: { [ssrc: number]: number } = {};
+  private remotePacketCountBySsrc: { [ssrc: number]: number } = {};
+  private remoteOctetCountBySsrc: { [ssrc: number]: number } = {};
+  private nackCountBySsrc: { [ssrc: number]: number } = {};
+  private pliCountBySsrc: { [ssrc: number]: number } = {};
 
   constructor(
     readonly config: PeerConfig,
     public kind: Kind,
     public rtcpSsrc: number,
-  ) {}
+  ) {
+    this.onPacketLost.subscribe((nack) => {
+      this.nackCountBySsrc[nack.mediaSourceSsrc] =
+        (this.nackCountBySsrc[nack.mediaSourceSsrc] ?? 0) + 1;
+    });
+  }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
     this.dtlsTransport = dtls;
@@ -218,60 +233,128 @@ export class RTCRtpReceiver {
     } catch (error) {}
   }
 
-  async getStats(): Promise<RTCStats[]> {
-    const timestamp = getStatsTimestamp();
+  private getInboundRtpStatsId(track: MediaStreamTrack) {
+    return generateStatsId("inbound-rtp", track.id ?? track.uuid);
+  }
+
+  private getRemoteOutboundRtpStatsId(track: MediaStreamTrack) {
+    return generateStatsId("remote-outbound-rtp", track.id ?? track.uuid);
+  }
+
+  getStatsRootIds(selector?: MediaStreamTrack) {
+    return this.tracks
+      .filter((track) => (!selector ? true : track === selector))
+      .filter((track) => track.ssrc)
+      .map((track) => this.getInboundRtpStatsId(track));
+  }
+
+  collectStats(timestamp: number): RTCStats[] {
     const stats: RTCStats[] = [];
-
-    if (!this.dtlsTransport) {
-      return stats;
-    }
-
-    const transportId = generateStatsId("transport", this.dtlsTransport.id);
+    const transportId = this.dtlsTransport
+      ? generateStatsId("transport", this.dtlsTransport.id)
+      : undefined;
+    const activeCodec = this.codecArray[0];
+    const emittedCodecIds = new Set<string>();
 
     // Collect stats for each track
     for (const track of this.tracks) {
       if (!track.ssrc) continue;
 
       const streamStats = this.remoteStreams[track.ssrc];
-      if (!streamStats) continue;
 
       // Inbound RTP stats
+      const hasRemoteTimestamp =
+        this.remoteTimestampsBySsrc[track.ssrc] !== undefined;
+      const remoteId =
+        this.lastSRtimestamp[track.ssrc] !== undefined || hasRemoteTimestamp
+          ? this.getRemoteOutboundRtpStatsId(track)
+          : undefined;
+      const codecId =
+        activeCodec && transportId
+          ? generateCodecStatsId(
+              transportId,
+              activeCodec.payloadType,
+              track.id ?? track.uuid,
+            )
+          : undefined;
+
+      if (
+        activeCodec &&
+        transportId &&
+        codecId &&
+        !emittedCodecIds.has(codecId)
+      ) {
+        emittedCodecIds.add(codecId);
+        const codecStats: RTCCodecStats = {
+          type: "codec",
+          id: codecId,
+          timestamp,
+          payloadType: activeCodec.payloadType,
+          transportId,
+          mimeType: activeCodec.mimeType,
+          clockRate: activeCodec.clockRate,
+          channels: activeCodec.channels,
+          sdpFmtpLine: activeCodec.parameters,
+        };
+        stats.push(codecStats);
+      }
+
       const inboundRtpStats: RTCInboundRtpStreamStats = {
         type: "inbound-rtp",
-        id: generateStatsId("inbound-rtp", track.ssrc),
+        id: this.getInboundRtpStatsId(track),
         timestamp,
         ssrc: track.ssrc,
         kind: this.kind,
         transportId,
-        codecId: this.codecs[0]
-          ? generateStatsId("codec", this.codecs[0].payloadType, transportId)
-          : undefined,
+        codecId,
         mid: this.sdesMid,
-        trackIdentifier: track.id,
-        packetsReceived: streamStats.packets_received,
-        packetsLost: streamStats.packets_lost,
-        jitter: streamStats.jitter,
+        trackIdentifier: track.id ?? track.uuid,
+        packetsReceived: streamStats?.packets_received ?? 0,
+        bytesReceived: streamStats?.bytesReceived ?? 0,
+        headerBytesReceived: streamStats?.headerBytesReceived ?? 0,
+        packetsLost: streamStats?.packets_lost ?? 0,
+        jitter: streamStats?.clockRate
+          ? streamStats.jitter / streamStats.clockRate
+          : undefined,
+        lastPacketReceivedTimestamp: streamStats?.lastPacketReceivedTimestamp,
+        remoteId,
+        nackCount: this.nackCountBySsrc[track.ssrc] || undefined,
+        pliCount: this.pliCountBySsrc[track.ssrc] || undefined,
       };
       stats.push(inboundRtpStats);
 
       // Remote outbound RTP stats (if we have SR info)
-      if (this.lastSRtimestamp[track.ssrc]) {
+      if (remoteId) {
         const remoteOutboundStats: RTCRemoteOutboundRtpStreamStats = {
           type: "remote-outbound-rtp",
-          id: generateStatsId("remote-outbound-rtp", track.ssrc),
+          id: this.getRemoteOutboundRtpStatsId(track),
           timestamp,
           ssrc: track.ssrc,
           kind: this.kind,
           transportId,
           codecId: inboundRtpStats.codecId,
           localId: inboundRtpStats.id,
-          remoteTimestamp: this.receiveLastSRTimestamp[track.ssrc] * 1000, // Convert to ms
+          remoteTimestamp: this.remoteTimestampsBySsrc[track.ssrc],
+          reportsSent: this.senderReportsReceivedBySsrc[track.ssrc] ?? 0,
+          packetsSent: this.remotePacketCountBySsrc[track.ssrc],
+          bytesSent: this.remoteOctetCountBySsrc[track.ssrc],
         };
         stats.push(remoteOutboundStats);
       }
     }
 
     return stats;
+  }
+
+  async getStats(): Promise<RTCStatsReport> {
+    const timestamp = getStatsTimestamp();
+    const stats = this.collectStats(timestamp);
+
+    if (this.dtlsTransport) {
+      stats.push(...(await this.dtlsTransport.getStats(timestamp)));
+    }
+
+    return buildStatsReport(stats, this.getStatsRootIds());
   }
 
   async sendRtcpPLI(mediaSsrc: number) {
@@ -293,6 +376,8 @@ export class RTCRtpReceiver {
       }),
     });
     try {
+      this.pliCountBySsrc[mediaSsrc] =
+        (this.pliCountBySsrc[mediaSsrc] ?? 0) + 1;
       await this.dtlsTransport.sendRtcp([packet]);
     } catch (error) {
       log(error);
@@ -308,6 +393,13 @@ export class RTCRtpReceiver {
             sr.senderInfo.ntpTimestamp,
           );
           this.receiveLastSRTimestamp[sr.ssrc] = timestampSeconds();
+          this.senderReportsReceivedBySsrc[sr.ssrc] =
+            (this.senderReportsReceivedBySsrc[sr.ssrc] ?? 0) + 1;
+          this.remoteTimestampsBySsrc[sr.ssrc] = ntpTimeToEpochMs(
+            sr.senderInfo.ntpTimestamp,
+          );
+          this.remotePacketCountBySsrc[sr.ssrc] = sr.senderInfo.packetCount;
+          this.remoteOctetCountBySsrc[sr.ssrc] = sr.senderInfo.octetCount;
 
           const track = this.trackBySSRC[packet.ssrc];
           if (track) {

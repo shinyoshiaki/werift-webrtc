@@ -1,5 +1,6 @@
 import { int, uint16Gt } from "../../imports/common";
 import type { RtpPacket } from "../../imports/rtp";
+import { getStatsTimestamp } from "../stats";
 
 // from aiortc
 
@@ -8,9 +9,12 @@ export class StreamStatistics {
   max_seq?: number;
   cycles = 0;
   packets_received = 0;
+  bytesReceived = 0;
+  headerBytesReceived = 0;
+  lastPacketReceivedTimestamp?: number;
 
   // # jitter
-  private clockRate: number;
+  readonly clockRate: number;
   jitter_q4 = 0;
   private last_arrival?: number;
   private last_timestamp?: number;
@@ -28,6 +32,9 @@ export class StreamStatistics {
       this.max_seq == undefined ||
       uint16Gt(packet.header.sequenceNumber, this.max_seq);
     this.packets_received++;
+    this.bytesReceived += packet.payload.length;
+    this.headerBytesReceived += packet.header.serializeSize;
+    this.lastPacketReceivedTimestamp = getStatsTimestamp();
 
     if (this.base_seq == undefined) {
       this.base_seq = packet.header.sequenceNumber;

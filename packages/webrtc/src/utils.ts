@@ -91,6 +91,14 @@ export const ntpTime = () => {
   return buf.readBigUInt64BE();
 };
 
+export const ntpTimeToEpochMs = (ntp: bigint) => {
+  const [seconds, milliseconds] = bufferReader(
+    bufferWriter([8], [ntp]),
+    [4, 4],
+  );
+  return seconds * 1000 + milliseconds + Date.UTC(1900, 0, 1);
+};
+
 /**
  * https://datatracker.ietf.org/doc/html/rfc3550#section-4
  * @param ntp

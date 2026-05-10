@@ -13,6 +13,7 @@ import type { RTCRtpSender } from "./rtpSender";
 import {
   type RTCCodecStats,
   type RTCStats,
+  generateCodecStatsId,
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
@@ -113,6 +114,10 @@ export class RTCRtpTransceiver {
 
   getCodecStats(): RTCStats[] {
     const timestamp = getStatsTimestamp();
+    return this.collectCodecStats(timestamp);
+  }
+
+  collectCodecStats(timestamp: number): RTCStats[] {
     const stats: RTCStats[] = [];
 
     if (!this.dtlsTransport) {
@@ -125,7 +130,7 @@ export class RTCRtpTransceiver {
     for (const codec of this.codecs) {
       const codecStats: RTCCodecStats = {
         type: "codec",
-        id: generateStatsId("codec", codec.payloadType, transportId),
+        id: generateCodecStatsId(transportId, codec.payloadType, this.id),
         timestamp,
         payloadType: codec.payloadType,
         transportId,

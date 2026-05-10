@@ -5,6 +5,7 @@ import {
   RTCStatsReport,
 } from "../../src/media/stats";
 import { MediaStreamTrack } from "../../src/media/track";
+import { createDataChannelPair } from "../utils";
 
 describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
   describe("Basic Functionality", () => {
@@ -109,7 +110,7 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       });
 
       // データチャンネル作成時にカウンター情報が含まれることを確認
-      test("includes data channel counters when available", async () => {
+      test("includes data channel counters", async () => {
         // Create multiple data channels
         const dc1 = pc1.createDataChannel("test-channel-1");
         const dc2 = pc1.createDataChannel("test-channel-2");
@@ -120,11 +121,8 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         ) as RTCPeerConnectionStats | undefined;
 
         expect(pcStats).toBeDefined();
-        // Note: dataChannelsOpened might not be implemented yet
-        // This test validates the structure exists when available
-        if (pcStats?.dataChannelsOpened !== undefined) {
-          expect(pcStats.dataChannelsOpened).toBeTypeOf("number");
-        }
+        expect(pcStats?.dataChannelsOpened).toBe(2);
+        expect(pcStats?.dataChannelsClosed).toBe(0);
       });
     });
 
@@ -149,7 +147,6 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         expect(dcStat.label).toBe("test-channel");
         expect(dcStat.state).toBe("connecting");
 
-        // dataChannelIdentifier might be a number or undefined based on implementation
         if (dcStat.dataChannelIdentifier !== undefined) {
           expect(dcStat.dataChannelIdentifier).toBeTypeOf("number");
         }
@@ -165,15 +162,10 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
           (stat) => stat.type === "data-channel",
         );
 
-        // Some implementations may group data channels or handle them separately
-        expect(dataChannelStats.length).toBeGreaterThan(0);
+        expect(dataChannelStats.length).toBe(2);
 
         const labels = dataChannelStats.map((stat: any) => stat.label);
-        // Implementation may only show the most recently created channel
-        // At minimum, one of the channels should be represented in stats
-        expect(
-          labels.some((label) => ["channel-1", "channel-2"].includes(label)),
-        ).toBe(true);
+        expect(labels.sort()).toEqual(["channel-1", "channel-2"]);
       });
 
       // データチャンネルのプロトコル情報と設定が統計に含まれることを確認
@@ -260,20 +252,19 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       test("handles codec stats when transceivers are present", async () => {
         const track = new MediaStreamTrack({ kind: "audio" });
         pc1.addTrack(track);
+        await createDataChannelPair(undefined, pc1, pc2);
 
         const stats = await pc1.getStats();
         const codecStats = Array.from(stats.values()).filter(
           (stat) => stat.type === "codec",
         );
 
-        // Codec stats may or may not be present depending on implementation timing
-        if (codecStats.length > 0) {
-          const codecStat = codecStats[0] as any;
-          expect(codecStat.id).toMatch(/^codec/);
-          expect(codecStat.payloadType).toBeTypeOf("number");
-          expect(codecStat.mimeType).toBeTypeOf("string");
-          expect(codecStat.transportId).toBeTypeOf("string");
-        }
+        expect(codecStats.length).toBeGreaterThan(0);
+        const codecStat = codecStats[0] as any;
+        expect(codecStat.id).toMatch(/^codec/);
+        expect(codecStat.payloadType).toBeTypeOf("number");
+        expect(codecStat.mimeType).toBeTypeOf("string");
+        expect(codecStat.transportId).toBeTypeOf("string");
       });
 
       // codec統計が利用可能時にコーデック詳細が正しく取得できることを確認
@@ -282,24 +273,28 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
         const videoTrack = new MediaStreamTrack({ kind: "video" });
         pc1.addTrack(audioTrack);
         pc1.addTrack(videoTrack);
+        await createDataChannelPair(undefined, pc1, pc2);
 
         const stats = await pc1.getStats();
         const codecStats = Array.from(stats.values()).filter(
           (stat) => stat.type === "codec",
         );
 
-        // Codec stats may not be present until connection is established
-        if (codecStats.length > 0) {
-          // Check for typical codec properties
-          for (const codecStat of codecStats) {
-            const codec = codecStat as any;
-            expect(codec.payloadType).toBeGreaterThan(0);
-            expect(codec.mimeType).toMatch(/^(audio|video)\//);
-            if (codec.clockRate) {
-              expect(codec.clockRate).toBeGreaterThan(0);
-            }
+        expect(codecStats.length).toBeGreaterThan(0);
+        for (const codecStat of codecStats) {
+          const codec = codecStat as any;
+          expect(codec.payloadType).toBeGreaterThanOrEqual(0);
+          expect(codec.mimeType).toMatch(/^(audio|video)\//);
+          if (codec.clockRate) {
+            expect(codec.clockRate).toBeGreaterThan(0);
           }
         }
+        expect(
+          codecStats.some((codec: any) => codec.mimeType.startsWith("audio/")),
+        ).toBe(true);
+        expect(
+          codecStats.some((codec: any) => codec.mimeType.startsWith("video/")),
+        ).toBe(true);
       });
     });
 
@@ -440,18 +435,98 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       expect(videoOutboundStats.length).toBe(0);
     });
 
-    // セレクターで特定トラックを選択しても一般統計が含まれることを確認
-    test("selector still includes general stats", async () => {
+    // セレクター結果が peer-wide/data-channel を混ぜず、参照 closure を含むことを確認
+    test("selector only returns the selected stats graph closure", async () => {
       const audioTrack = new MediaStreamTrack({ kind: "audio" });
+      pc1.createDataChannel("unrelated-data-channel");
       pc1.addTrack(audioTrack);
+      await createDataChannelPair(undefined, pc1, pc2);
 
+      // Act: selector 付きで audio sender の stats graph を取得する。
       const audioStats = await pc1.getStats(audioTrack);
 
-      // Should still include peer-connection stats
-      const pcStats = Array.from(audioStats.values()).find(
-        (stat) => stat.type === "peer-connection",
-      );
-      expect(pcStats).toBeDefined();
+      // Assert: peer-wide / data-channel を含めず、参照先 transport は closure に含む。
+      expect(
+        Array.from(audioStats.values()).some(
+          (stat) => stat.type === "peer-connection",
+        ),
+      ).toBe(false);
+      expect(
+        Array.from(audioStats.values()).some(
+          (stat) => stat.type === "data-channel",
+        ),
+      ).toBe(false);
+
+      const outbound = Array.from(audioStats.values()).find(
+        (stat) => stat.type === "outbound-rtp",
+      ) as any;
+      expect(outbound).toBeDefined();
+      if (outbound.transportId) {
+        expect(audioStats.has(outbound.transportId)).toBe(true);
+      }
+      if (outbound.codecId) {
+        expect(audioStats.has(outbound.codecId)).toBe(true);
+      }
+      if (outbound.mediaSourceId) {
+        expect(audioStats.has(outbound.mediaSourceId)).toBe(true);
+      }
+
+      const transport = outbound.transportId
+        ? audioStats.get(outbound.transportId)
+        : undefined;
+      if ((transport as any)?.selectedCandidatePairId) {
+        expect(audioStats.has((transport as any).selectedCandidatePairId)).toBe(
+          true,
+        );
+        const pair = audioStats.get(
+          (transport as any).selectedCandidatePairId,
+        ) as any;
+        expect(audioStats.has(pair.localCandidateId)).toBe(true);
+        expect(audioStats.has(pair.remoteCandidateId)).toBe(true);
+      }
+    });
+
+    // selector 付きの report が sender/receiver API と同じく RTCStatsReport であることを確認
+    test("sender and receiver getStats return RTCStatsReport", async () => {
+      const audioTrack = new MediaStreamTrack({ kind: "audio" });
+      const sender = pc1.addTrack(audioTrack);
+      await createDataChannelPair(undefined, pc1, pc2);
+
+      // Act: sender/receiver の公開 API から stats を取得する。
+      const senderStats = await sender.getStats();
+      const receiver = pc2
+        .getReceivers()
+        .find((candidate) => candidate.kind === "audio");
+      const receiverStats = receiver ? await receiver.getStats() : undefined;
+
+      // Assert: どちらも W3C 互換の RTCStatsReport を返す。
+      expect(senderStats).toBeInstanceOf(RTCStatsReport);
+      expect(receiverStats).toBeInstanceOf(RTCStatsReport);
+    });
+
+    test("sender and receiver codec stats use distinct ids on the same transport", async () => {
+      const localAudioTrack = new MediaStreamTrack({ kind: "audio" });
+      const remoteAudioTrack = new MediaStreamTrack({ kind: "audio" });
+      pc1.addTrack(localAudioTrack);
+      pc2.addTrack(remoteAudioTrack);
+      await createDataChannelPair(undefined, pc1, pc2);
+
+      // Act: full-duplex audio 接続の stats を取得する。
+      const stats = await pc1.getStats();
+
+      // Assert: inbound/outbound が同一 payload type でも codecId は衝突しない。
+      const outbound = Array.from(stats.values()).find(
+        (stat) =>
+          stat.type === "outbound-rtp" && (stat as any).kind === "audio",
+      ) as any;
+      const inbound = Array.from(stats.values()).find(
+        (stat) => stat.type === "inbound-rtp" && (stat as any).kind === "audio",
+      ) as any;
+      expect(outbound?.codecId).toBeDefined();
+      expect(inbound?.codecId).toBeDefined();
+      expect(outbound.codecId).not.toBe(inbound.codecId);
+      expect(stats.has(outbound.codecId)).toBe(true);
+      expect(stats.has(inbound.codecId)).toBe(true);
     });
   });
 
@@ -472,23 +547,13 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
 
       const stats = await pc1.getStats(nonExistentTrack);
 
-      // Should return stats object but with no track-specific stats
+      // Should return an empty report because no monitored object matches selector
       expect(stats).toBeInstanceOf(RTCStatsReport);
-
-      const outboundStats = Array.from(stats.values()).filter(
-        (stat) => stat.type === "outbound-rtp",
-      );
-      expect(outboundStats.length).toBe(0);
-
-      // Should still contain peer-connection stats
-      const pcStats = Array.from(stats.values()).find(
-        (stat) => stat.type === "peer-connection",
-      );
-      expect(pcStats).toBeDefined();
+      expect(stats.size).toBe(0);
     });
 
-    // トラック削除後でもgetStats()が正常に動作することを確認
-    test("getStats() works after track removal", async () => {
+    // トラック削除後の lifetime を固定し、selector からは外れることを確認
+    test("getStats() keeps sender stats but drops selector roots after track removal", async () => {
       const track = new MediaStreamTrack({ kind: "audio" });
       const sender = pc1.addTrack(track);
 
@@ -499,27 +564,48 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
       );
       expect(outboundStats.length).toBeGreaterThan(0);
 
-      // Remove track
+      // Act: sender を removeTrack して peer-wide stats を取り直す。
       pc1.removeTrack(sender);
-
-      // Should still work without errors
       stats = await pc1.getStats();
-      expect(stats).toBeInstanceOf(RTCStatsReport);
-
-      // Outbound stats might be empty or reduced
       outboundStats = Array.from(stats.values()).filter(
         (stat) => stat.type === "outbound-rtp",
       );
-      // This is implementation dependent - just verify no error
+      const selectorStats = await pc1.getStats(track);
+
+      // Assert: sender object 由来の outbound は残り、selector root は消える。
+      expect(stats).toBeInstanceOf(RTCStatsReport);
+      expect(outboundStats.length).toBeGreaterThan(0);
+      expect(
+        Array.from(stats.values()).some((stat) => stat.type === "media-source"),
+      ).toBe(false);
+      expect(selectorStats.size).toBe(0);
     });
 
-    // 接続をクローズした状態でもgetStats()がエラーを発生させないことを確認
-    test("getStats() works on closed connection", async () => {
+    // close 後の lifetime を固定し、transport state が closed に止まることを確認
+    test("getStats() preserves report shape after close with closed transport states", async () => {
+      const remote = new RTCPeerConnection();
+      await createDataChannelPair(undefined, pc1, remote);
       await pc1.close();
 
-      // Should not throw error
+      // Act: close 後の report を取得する。
       const stats = await pc1.getStats();
+      await remote.close();
+
+      // Assert: peer-connection は残り、transport は closed に遷移済み。
       expect(stats).toBeInstanceOf(RTCStatsReport);
+      expect(
+        Array.from(stats.values()).some(
+          (stat) => stat.type === "peer-connection",
+        ),
+      ).toBe(true);
+      const transportStats = Array.from(stats.values()).filter(
+        (stat) => stat.type === "transport",
+      ) as any[];
+      expect(transportStats.length).toBeGreaterThan(0);
+      for (const transportStat of transportStats) {
+        expect(transportStat.dtlsState).toBe("closed");
+        expect(transportStat.iceState).toBe("closed");
+      }
     });
 
     // 無効なセレクターでもgetStats()がグレースフルに処理されることを確認
@@ -562,127 +648,72 @@ describe("RTCPeerConnection.getStats() - Comprehensive Tests", () => {
 
     // WebRTC接続確立後にtransport統計が含まれることを確認
     test("includes transport stats after connection establishment", async () => {
-      // Create a data channel to trigger connection establishment
-      const dc1 = pc1.createDataChannel("test");
-      const dc2Event = new Promise<void>((resolve) => {
-        pc2.ondatachannel = () => resolve();
-      });
-
-      // Create offer and set local description
-      const offer = await pc1.createOffer();
-      await pc1.setLocalDescription(offer);
-
-      // Set remote description and create answer
-      await pc2.setRemoteDescription(pc1.localDescription!);
-      const answer = await pc2.createAnswer();
-      await pc2.setLocalDescription(answer);
-      await pc1.setRemoteDescription(answer);
-
-      // Wait for data channel to be established
-      await dc2Event;
-
-      // Give some time for connection to establish
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await createDataChannelPair(undefined, pc1, pc2);
 
       const stats = await pc1.getStats();
       const transportStats = Array.from(stats.values()).filter(
         (stat) => stat.type === "transport",
       );
 
-      if (transportStats.length > 0) {
-        const transportStat = transportStats[0] as any;
-        expect(transportStat.id).toMatch(/^transport/);
-        expect(transportStat.dtlsState).toBeDefined();
-      }
+      expect(transportStats.length).toBeGreaterThan(0);
+      const transportStat = transportStats[0] as any;
+      expect(transportStat.id).toMatch(/^transport/);
+      expect(transportStat.dtlsState).toBeDefined();
     });
 
     // ICE候補統計が接続時に含まれることを確認
     test("includes ICE candidate stats after connection", async () => {
-      const dc1 = pc1.createDataChannel("test");
-
-      // Create offer to trigger ICE gathering
-      const offer = await pc1.createOffer();
-      await pc1.setLocalDescription(offer);
-
-      // Give some time for ICE gathering
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await createDataChannelPair(undefined, pc1, pc2);
 
       const stats = await pc1.getStats();
-      const candidateStats = Array.from(stats.values()).filter(
-        (stat) =>
-          stat.type === "local-candidate" || stat.type === "remote-candidate",
+      const localCandidateStats = Array.from(stats.values()).filter(
+        (stat) => stat.type === "local-candidate",
+      );
+      const remoteCandidateStats = Array.from(stats.values()).filter(
+        (stat) => stat.type === "remote-candidate",
       );
 
-      // ICE candidates may or may not be present depending on the test environment
-      // This test validates the structure when available
-      if (candidateStats.length > 0) {
-        const candidateStat = candidateStats[0] as any;
-        expect(candidateStat.id).toMatch(/^(local|remote)-candidate/);
-        expect(candidateStat.candidateType).toBeDefined();
-      }
+      expect(localCandidateStats.length).toBeGreaterThan(0);
+      expect(remoteCandidateStats.length).toBeGreaterThan(0);
+      const candidateStat = localCandidateStats[0] as any;
+      expect(candidateStat.id).toMatch(/^local-candidate/);
+      expect(candidateStat.candidateType).toBeDefined();
     });
 
     // candidate-pair統計が必要なプロパティを持つことを確認
     test("candidate pair stats include required properties", async () => {
-      const dc1 = pc1.createDataChannel("test");
-      const dc2Event = new Promise<void>((resolve) => {
-        pc2.ondatachannel = () => resolve();
-      });
-
-      // Establish connection
-      const offer = await pc1.createOffer();
-      await pc1.setLocalDescription(offer);
-      await pc2.setRemoteDescription(pc1.localDescription!);
-      const answer = await pc2.createAnswer();
-      await pc2.setLocalDescription(answer);
-      await pc1.setRemoteDescription(answer);
-
-      await dc2Event;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await createDataChannelPair(undefined, pc1, pc2);
 
       const stats = await pc1.getStats();
       const candidatePairStats = Array.from(stats.values()).filter(
         (stat) => stat.type === "candidate-pair",
       );
 
-      if (candidatePairStats.length > 0) {
-        const pairStat = candidatePairStats[0] as any;
-        expect(pairStat.id).toMatch(/^candidate-pair/);
-        expect(pairStat.localCandidateId).toBeDefined();
-        expect(pairStat.remoteCandidateId).toBeDefined();
-        expect(pairStat.state).toBeDefined();
-      }
+      expect(candidatePairStats.length).toBeGreaterThan(0);
+      const pairStat = candidatePairStats[0] as any;
+      expect(pairStat.id).toMatch(/^candidate-pair/);
+      expect(pairStat.localCandidateId).toBeDefined();
+      expect(pairStat.remoteCandidateId).toBeDefined();
+      expect(pairStat.state).toMatch(
+        /^(frozen|waiting|in-progress|failed|succeeded)$/,
+      );
     });
 
     // 接続後に証明書統計が含まれることを確認
     test("includes certificate stats after connection", async () => {
-      const dc1 = pc1.createDataChannel("test");
-      const dc2Event = new Promise<void>((resolve) => {
-        pc2.ondatachannel = () => resolve();
-      });
-
-      // Establish connection
-      const offer = await pc1.createOffer();
-      await pc1.setLocalDescription(offer);
-      await pc2.setRemoteDescription(pc1.localDescription!);
-      const answer = await pc2.createAnswer();
-      await pc2.setLocalDescription(answer);
-      await pc1.setRemoteDescription(answer);
-
-      await dc2Event;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await createDataChannelPair(undefined, pc1, pc2);
 
       const stats = await pc1.getStats();
       const certificateStats = Array.from(stats.values()).filter(
         (stat) => stat.type === "certificate",
       );
 
-      if (certificateStats.length > 0) {
-        const certStat = certificateStats[0] as any;
+      expect(certificateStats.length).toBeGreaterThan(0);
+      for (const certStat of certificateStats as any[]) {
         expect(certStat.id).toMatch(/^certificate/);
         expect(certStat.fingerprint).toBeDefined();
         expect(certStat.fingerprintAlgorithm).toBeDefined();
-        expect(certStat.base64Certificate).toBeDefined();
+        expect(certStat.base64Certificate).toBeTruthy();
       }
     });
   });

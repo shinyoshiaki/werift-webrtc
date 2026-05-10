@@ -11,12 +11,30 @@ import {
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
+  type RTCStatsIceCandidatePairState,
   generateStatsId,
   getStatsTimestamp,
 } from "../media/stats";
 import { candidateFromSdp, candidateToSdp } from "../sdp";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
+
+function mapCandidatePairState(state: number): RTCStatsIceCandidatePairState {
+  switch (state) {
+    case 0:
+      return "frozen";
+    case 1:
+      return "waiting";
+    case 2:
+      return "in-progress";
+    case 3:
+      return "succeeded";
+    case 4:
+      return "failed";
+    default:
+      return "failed";
+  }
+}
 
 /**
  *                                          +------------+
@@ -45,6 +63,7 @@ export class RTCIceTransport {
   readonly id = randomUUID().toString();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
+  iceRestarts = 0;
   private waitStart?: Event<[]>;
   private renominating = false;
 
@@ -124,6 +143,7 @@ export class RTCIceTransport {
   }
 
   restart() {
+    this.iceRestarts++;
     this.connection.restart();
     this.setState("new");
     this.iceGather.gatheringState = "new";
@@ -168,41 +188,50 @@ export class RTCIceTransport {
     this.onNegotiationNeeded.complete();
   }
 
-  async getStats(): Promise<RTCStats[]> {
-    const timestamp = getStatsTimestamp();
+  async getStats(
+    timestamp = getStatsTimestamp(),
+    transportId = generateStatsId("transport", this.id),
+  ): Promise<RTCStats[]> {
     const stats: RTCStats[] = [];
 
     // Local candidates
-    for (const candidate of this.localCandidates) {
+    for (const candidate of this.connection.localCandidates) {
       const candidateStats: RTCIceCandidateStats = {
         type: "local-candidate",
-        id: generateStatsId("local-candidate", candidate.foundation),
+        id: generateStatsId("local-candidate", candidate.id),
         timestamp,
-        transportId: generateStatsId("transport", this.id),
-        address: candidate.ip,
+        transportId,
+        address: candidate.host,
         port: candidate.port,
-        protocol: candidate.protocol,
+        protocol: candidate.transport,
         candidateType: candidate.type as any,
         priority: candidate.priority,
         foundation: candidate.foundation,
+        relatedAddress: candidate.relatedAddress,
+        relatedPort: candidate.relatedPort,
+        usernameFragment: candidate.ufrag,
+        tcpType: candidate.tcptype as any,
       };
       stats.push(candidateStats);
     }
 
     // Remote candidates
     for (const candidate of this.connection.remoteCandidates) {
-      const ice = candidateFromIce(candidate);
       const candidateStats: RTCIceCandidateStats = {
         type: "remote-candidate",
-        id: generateStatsId("remote-candidate", ice.foundation),
+        id: generateStatsId("remote-candidate", candidate.id),
         timestamp,
-        transportId: generateStatsId("transport", this.id),
-        address: ice.ip,
-        port: ice.port,
-        protocol: ice.protocol,
-        candidateType: ice.type as any,
-        priority: ice.priority,
-        foundation: ice.foundation,
+        transportId,
+        address: candidate.host,
+        port: candidate.port,
+        protocol: candidate.transport,
+        candidateType: candidate.type as any,
+        priority: candidate.priority,
+        foundation: candidate.foundation,
+        relatedAddress: candidate.relatedAddress,
+        relatedPort: candidate.relatedPort,
+        usernameFragment: candidate.ufrag,
+        tcpType: candidate.tcptype as any,
       };
       stats.push(candidateStats);
     }
@@ -217,24 +246,33 @@ export class RTCIceTransport {
     for (const pair of pairs) {
       const pairStats: RTCIceCandidatePairStats = {
         type: "candidate-pair",
-        id: generateStatsId("candidate-pair", pair.foundation),
+        id: generateStatsId("candidate-pair", pair.id),
         timestamp,
-        transportId: generateStatsId("transport", this.id),
+        transportId,
         localCandidateId: generateStatsId(
           "local-candidate",
-          pair.localCandidate.foundation,
+          pair.localCandidate.id,
         ),
         remoteCandidateId: generateStatsId(
           "remote-candidate",
-          pair.remoteCandidate.foundation,
+          pair.remoteCandidate.id,
         ),
-        state: pair.state as any,
+        state: mapCandidatePairState(pair.state),
         nominated: pair.nominated,
         packetsSent: pair.packetsSent,
         packetsReceived: pair.packetsReceived,
         bytesSent: pair.bytesSent,
         bytesReceived: pair.bytesReceived,
         currentRoundTripTime: pair.rtt,
+        totalRoundTripTime: pair.totalRoundTripTime,
+        roundTripTimeMeasurements: pair.roundTripTimeMeasurements,
+        requestsReceived: pair.requestsReceived,
+        requestsSent: pair.requestsSent,
+        responsesReceived: pair.responsesReceived,
+        responsesSent: pair.responsesSent,
+        retransmissionsReceived: pair.retransmissionsReceived,
+        retransmissionsSent: pair.retransmissionsSent,
+        consentRequestsSent: pair.consentRequestsSent,
       };
       stats.push(pairStats);
     }

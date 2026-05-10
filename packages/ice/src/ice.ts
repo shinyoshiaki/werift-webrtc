@@ -148,6 +148,7 @@ export class Connection implements IceConnection {
     // protocolsはincomingのearlyCheckに使うかもしれないので残す
     for (const protocol of this.protocols) {
       if (protocol.localCandidate) {
+        protocol.localCandidate.refreshId();
         protocol.localCandidate.generation = this.generation;
         protocol.localCandidate.ufrag = this.localUsername;
       }
@@ -681,12 +682,20 @@ export class Connection implements IceConnection {
             iceControlling,
           });
           try {
+            nominated.consentRequestsSent++;
+            nominated.requestsSent++;
             await nominated.protocol.request(
               request,
               nominated.remoteAddr,
               Buffer.from(this.remotePassword, "utf8"),
               0,
+              (attempt) => {
+                if (attempt > 0) {
+                  nominated.retransmissionsSent++;
+                }
+              },
             );
+            nominated.responsesReceived++;
             failures = 0;
             if (this.state === "disconnected") {
               this.setState("connected");
@@ -965,12 +974,19 @@ export class Connection implements IceConnection {
       const startTime = performance.now();
 
       try {
+        pair.requestsSent++;
         const [response, addr] = await pair.protocol.request(
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
           4,
+          (attempt) => {
+            if (attempt > 0) {
+              pair.retransmissionsSent++;
+            }
+          },
         );
+        pair.responsesReceived++;
 
         // Calculate RTT
         const endTime = performance.now();
@@ -1052,11 +1068,19 @@ export class Connection implements IceConnection {
           iceControlling: this.iceControlling,
         });
         try {
+          pair.requestsSent++;
           await pair.protocol.request(
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
+            undefined,
+            (attempt) => {
+              if (attempt > 0) {
+                pair.retransmissionsSent++;
+              }
+            },
           );
+          pair.responsesReceived++;
         } catch (error) {
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);
@@ -1120,6 +1144,9 @@ export class Connection implements IceConnection {
       pair.updateState(CandidatePairState.WAITING);
       this.addPair(pair);
     }
+    pair.noteIncomingRequest(message.transactionIdHex);
+    pair.requestsReceived++;
+    pair.responsesSent++;
     pair.localCandidate.ufrag = localUsername;
 
     log("Triggered Checks", message.toJSON(), pair.toJSON(), {

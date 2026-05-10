@@ -10,6 +10,7 @@ export type RTCStatsType =
   | "remote-inbound-rtp"
   | "remote-outbound-rtp"
   | "media-source"
+  | "media-playout"
   | "peer-connection"
   | "data-channel"
   | "transport"
@@ -33,6 +34,7 @@ export interface RTCRtpStreamStats extends RTCStats {
 
 export interface RTCReceivedRtpStreamStats extends RTCRtpStreamStats {
   packetsReceived?: number;
+  bytesReceived?: number;
   packetsLost?: number;
   jitter?: number;
   packetsDiscarded?: number;
@@ -174,6 +176,16 @@ export interface RTCVideoSourceStats extends RTCMediaSourceStats {
   framesPerSecond?: number;
 }
 
+export interface RTCAudioPlayoutStats extends RTCStats {
+  type: "media-playout";
+  kind: "audio";
+  synthesizedSamplesDuration?: number;
+  synthesizedSamplesEvents?: number;
+  totalSamplesDuration?: number;
+  totalPlayoutDelay?: number;
+  totalSamplesCount?: number;
+}
+
 export interface RTCAudioSourceStats extends RTCMediaSourceStats {
   audioLevel?: number;
   totalAudioEnergy?: number;
@@ -257,6 +269,7 @@ export interface RTCIceCandidatePairStats extends RTCStats {
   lastPacketReceivedTimestamp?: number;
   totalRoundTripTime?: number;
   currentRoundTripTime?: number;
+  roundTripTimeMeasurements?: number;
   availableOutgoingBitrate?: number;
   availableIncomingBitrate?: number;
   requestsReceived?: number;
@@ -341,9 +354,84 @@ export function generateStatsId(
   return `${type}_${validParts.join("_")}`;
 }
 
+export function generateCodecStatsId(
+  transportId: string,
+  payloadType: number,
+  scopeId: string,
+) {
+  return generateStatsId("codec", transportId, payloadType, scopeId);
+}
+
 /**
  * Get current timestamp in milliseconds (DOMHighResTimeStamp)
  */
 export function getStatsTimestamp(): number {
-  return performance.now();
+  return performance.timeOrigin + performance.now();
+}
+
+export function getReferencedStatsIds(stat: RTCStats): string[] {
+  const references: string[] = [];
+
+  for (const [key, value] of Object.entries(
+    stat as unknown as Record<string, unknown>,
+  )) {
+    if (key === "id") {
+      continue;
+    }
+
+    if (key.endsWith("Id")) {
+      if (typeof value === "string") {
+        references.push(value);
+      }
+      continue;
+    }
+
+    if (key.endsWith("Ids") && Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry === "string") {
+          references.push(entry);
+        }
+      }
+    }
+  }
+
+  return references;
+}
+
+export function buildStatsReport(
+  stats: Iterable<RTCStats>,
+  rootIds?: Iterable<string>,
+): RTCStatsReport {
+  const index = new Map<string, RTCStats>();
+  for (const stat of stats) {
+    index.set(stat.id, stat);
+  }
+
+  if (!rootIds) {
+    return new RTCStatsReport([...index.values()]);
+  }
+
+  const includedIds = new Set<string>();
+  const queue = [...new Set(Array.from(rootIds))];
+
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (!id || includedIds.has(id)) {
+      continue;
+    }
+
+    const stat = index.get(id);
+    if (!stat) {
+      continue;
+    }
+
+    includedIds.add(id);
+    queue.push(...getReferencedStatsIds(stat));
+  }
+
+  return new RTCStatsReport(
+    [...includedIds]
+      .map((id) => index.get(id))
+      .filter((stat): stat is RTCStats => !!stat),
+  );
 }

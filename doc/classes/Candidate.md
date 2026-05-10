@@ -92,6 +92,12 @@
 
 ***
 
+### id
+
+> **id**: `string`
+
+***
+
 ### port
 
 > **port**: `number`
@@ -153,6 +159,16 @@
 #### Returns
 
 `boolean`
+
+***
+
+### refreshId()
+
+> **refreshId**(): `void`
+
+#### Returns
+
+`void`
 
 ***
 

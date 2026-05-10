@@ -180,6 +180,12 @@
 
 ***
 
+### statsId
+
+> `readonly` **statsId**: `string`
+
+***
+
 ### captureRejections
 
 > `static` **captureRejections**: `boolean`

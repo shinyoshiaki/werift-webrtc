@@ -243,13 +243,45 @@ seconds
 
 ***
 
-### getStats()
+### collectStats()
 
-> **getStats**(): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **collectStats**(`timestamp`): [`RTCStats`](../interfaces/RTCStats.md)[]
+
+#### Parameters
+
+##### timestamp
+
+`number`
 
 #### Returns
 
-`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+[`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
+### getStats()
+
+> **getStats**(): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
+
+#### Returns
+
+`Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
+
+***
+
+### getStatsRootIds()
+
+> **getStatsRootIds**(`selector`?): `string`[]
+
+#### Parameters
+
+##### selector?
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
+
+#### Returns
+
+`string`[]
 
 ***
 

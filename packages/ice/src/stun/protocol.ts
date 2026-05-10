@@ -103,6 +103,7 @@ export class StunProtocol implements Protocol {
     addr: Address,
     integrityKey?: Buffer,
     retransmissions?: number,
+    onRequestSent?: (attempt: number) => void,
   ) {
     // """
     // Execute a STUN transaction and return the response.
@@ -120,6 +121,7 @@ export class StunProtocol implements Protocol {
       addr,
       this,
       retransmissions,
+      onRequestSent,
     );
     this.transactions[request.transactionIdHex] = transaction;
 

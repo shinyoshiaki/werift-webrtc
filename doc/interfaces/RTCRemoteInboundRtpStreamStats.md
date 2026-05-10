@@ -72,6 +72,16 @@
 
 ***
 
+### bytesReceived?
+
+> `optional` **bytesReceived**: `number`
+
+#### Inherited from
+
+[`RTCReceivedRtpStreamStats`](RTCReceivedRtpStreamStats.md).[`bytesReceived`](RTCReceivedRtpStreamStats.md#bytesreceived)
+
+***
+
 ### codecId?
 
 > `optional` **codecId**: `string`

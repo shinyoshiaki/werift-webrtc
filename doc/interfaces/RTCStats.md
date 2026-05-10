@@ -10,6 +10,7 @@
 
 - [`RTCRtpStreamStats`](RTCRtpStreamStats.md)
 - [`RTCMediaSourceStats`](RTCMediaSourceStats.md)
+- [`RTCAudioPlayoutStats`](RTCAudioPlayoutStats.md)
 - [`RTCPeerConnectionStats`](RTCPeerConnectionStats.md)
 - [`RTCDataChannelStats`](RTCDataChannelStats.md)
 - [`RTCTransportStats`](RTCTransportStats.md)
