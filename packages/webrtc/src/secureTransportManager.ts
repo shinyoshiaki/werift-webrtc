@@ -102,6 +102,7 @@ export class SecureTransportManager {
 
     const iceGatherer = new RTCIceGatherer({
       ...iceServerOptions,
+      iceLite: this.config.iceLite,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
@@ -285,14 +286,15 @@ export class SecureTransportManager {
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
-      if (type === "offer") {
+      if (iceTransport.connection.iceLite) {
+        iceTransport.connection.iceControlling = false;
+      } else if (iceTransport.connection.remoteIsLite) {
+        // RFC 8445 S6.1.1
+        iceTransport.connection.iceControlling = true;
+      } else if (type === "offer") {
         iceTransport.connection.iceControlling = true;
       } else {
         iceTransport.connection.iceControlling = false;
-      }
-      // RFC 8445 S6.1.1
-      if (iceTransport.connection.remoteIsLite) {
-        iceTransport.connection.iceControlling = true;
       }
 
       // # set DTLS role for mediasoup

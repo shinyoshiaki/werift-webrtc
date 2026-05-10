@@ -147,6 +147,41 @@ describe("ice", () => {
     expect(pair.state).toBe(CandidatePairState.FAILED);
   });
 
+  test("test_ice_lite_replies_role_conflict_without_switching_role", async () => {
+    const connection = createTestConnection(false, { iceLite: true });
+    connection.remotePassword = "remote-password";
+    connection.remoteUsername = "remote-username";
+    Object.defineProperty(
+      connection as unknown as Record<string, unknown>,
+      "tieBreaker",
+      {
+        value: 1n,
+      },
+    );
+
+    const protocol = new ProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", "a:b")
+      .setAttribute("PRIORITY", 1234)
+      .setAttribute("ICE-CONTROLLED", 2n);
+
+    protocol.onRequestReceived.execute(
+      request,
+      ["2.3.4.5", 2345],
+      Buffer.alloc(0),
+    );
+
+    expect(connection.iceControlling).toBe(false);
+    expect(protocol.sentMessage?.messageClass).toBe(classes.ERROR);
+    expect(protocol.sentMessage?.getAttributeValue("ERROR-CODE")).toEqual([
+      487,
+      "Role Conflict",
+    ]);
+  });
+
   test("test_connect", async () => {
     const a = createTestConnection(true);
     const b = createTestConnection(false);
@@ -641,6 +676,69 @@ describe("ice", () => {
 
     await a.close();
     await b.close();
+  });
+
+  test("test_connect_as_ice_lite", async () => {
+    const full = createTestConnection(true, {
+      stunServer: undefined,
+    });
+    const lite = createTestConnection(false, {
+      iceLite: true,
+      stunServer: undefined,
+    });
+
+    // Arrange: full 側と ICE lite 側の候補と認証情報を交換する。
+    await inviteAccept(full, lite);
+
+    assertCandidateTypes(full, ["host"]);
+    assertCandidateTypes(lite, ["host"]);
+    expect(lite.iceLite).toBeTruthy();
+    expect(lite.iceControlling).toBeFalsy();
+
+    const liteProtocols = (lite as any).protocols as Protocol[];
+    let liteRequestCount = 0;
+    liteProtocols.forEach((protocol) => {
+      const originalRequest = protocol.request.bind(protocol);
+      protocol.request = (async (...args: Parameters<Protocol["request"]>) => {
+        liteRequestCount++;
+        return originalRequest(...args);
+      }) as Protocol["request"];
+    });
+
+    let fullReceived = false;
+    full.onData.once(() => {
+      fullReceived = true;
+    });
+
+    // Act: 選択済みペアができる前に送信しても配送されないことを確認する。
+    await lite.send(Buffer.from("before-selected-pair"));
+    await setTimeout(50);
+
+    // Assert: selected pair が未確定の間は送信が成立しない。
+    expect(fullReceived).toBeFalsy();
+    expect(lite.nominated).toBeUndefined();
+
+    // Act: full=controlling / lite=controlled の組み合わせで接続を完了させる。
+    await Promise.all([full.connect(), lite.connect()]);
+
+    // Assert: ICE lite 側は自発的な connectivity check を送らず、incoming USE-CANDIDATE で確定する。
+    expect(liteRequestCount).toBe(0);
+    expect(full.iceControlling).toBeTruthy();
+    expect(lite.iceControlling).toBeFalsy();
+    expect(lite.nominated?.nominated).toBeTruthy();
+    expect(lite.nominated?.remoteNominated).toBeTruthy();
+
+    // Act: nominated pair 確定後の双方向通信を確認する。
+    await lite.send(Buffer.from("howdee"));
+    let [data] = await full.onData.asPromise();
+    expect(data.toString()).toBe("howdee");
+
+    await full.send(Buffer.from("gotcha"));
+    [data] = await lite.onData.asPromise();
+    expect(data.toString()).toBe("gotcha");
+
+    await full.close();
+    await lite.close();
   });
 });
 

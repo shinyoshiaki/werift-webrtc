@@ -845,7 +845,7 @@ export class RTCPeerConnection extends EventTarget {
 
         // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
         // RFC 8445 S6.1.1
-        if (remoteMedia.iceParams?.iceLite) {
+        if (remoteMedia.iceParams.iceLite && !iceTransport.connection.iceLite) {
           iceTransport.connection.iceControlling = true;
         }
       }
@@ -1048,6 +1048,8 @@ export interface PeerConfig {
     video: RTCRtpHeaderExtensionParameters[];
   }>;
   iceTransportPolicy: "all" | "relay";
+  /** Advertise local ICE lite and operate in the controlled role. */
+  iceLite: boolean;
   iceServers: RTCIceServer[];
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
@@ -1153,6 +1155,7 @@ function generateDefaultPeerConfig(): PeerConfig {
       video: [],
     },
     iceTransportPolicy: "all",
+    iceLite: false,
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     icePortRange: undefined,
     iceInterfaceAddresses: undefined,

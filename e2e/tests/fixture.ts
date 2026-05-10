@@ -76,6 +76,16 @@ export type SelectedRelayCandidatePair = {
   remoteRelayProtocol?: string;
 };
 
+export type PeerConnectionDiagnostics = {
+  connectionState: RTCPeerConnectionState;
+  iceConnectionState: RTCIceConnectionState;
+  iceGatheringState: RTCIceGatheringState;
+  signalingState: RTCSignalingState;
+  localCandidateLines: string[];
+  remoteCandidateLines: string[];
+  selectedCandidatePair?: SelectedRelayCandidatePair;
+};
+
 export async function ensurePeerConnected() {
   if (!peer.connected) {
     await new Promise<void>((resolve) => peer.on("open", resolve));
@@ -235,6 +245,25 @@ export async function getSelectedRelayCandidatePair(
   };
 }
 
+export async function getPeerConnectionDiagnostics(
+  connection: RTCPeerConnection,
+): Promise<PeerConnectionDiagnostics> {
+  let selectedCandidatePair: SelectedRelayCandidatePair | undefined;
+  try {
+    selectedCandidatePair = await getSelectedRelayCandidatePair(connection);
+  } catch {}
+
+  return {
+    connectionState: connection.connectionState,
+    iceConnectionState: connection.iceConnectionState,
+    iceGatheringState: connection.iceGatheringState,
+    signalingState: connection.signalingState,
+    localCandidateLines: getCandidateLines(connection.localDescription?.sdp),
+    remoteCandidateLines: getCandidateLines(connection.remoteDescription?.sdp),
+    selectedCandidatePair,
+  };
+}
+
 export class Counter {
   private now = 0;
   constructor(
@@ -289,4 +318,13 @@ function readStatString(stat: RTCStats | undefined, key: string) {
   }
   const value = (stat as unknown as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function getCandidateLines(sdp?: string) {
+  if (!sdp) {
+    return [];
+  }
+  return sdp
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("a=candidate:") || line === "a=end-of-candidates");
 }

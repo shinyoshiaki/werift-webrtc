@@ -81,6 +81,9 @@ export class Connection implements IceConnection {
       ...defaultOptions,
       ...options,
     };
+    if (this.iceLite) {
+      this._iceControlling = false;
+    }
     const { stunServer, turnServer } = this.options;
     this.stunServer = validateAddress(stunServer) ?? [
       "stun.l.google.com",
@@ -96,6 +99,9 @@ export class Connection implements IceConnection {
   }
 
   set iceControlling(value: boolean) {
+    if (this.iceLite) {
+      value = false;
+    }
     if (this.generation > 0 || this.nominated) {
       return;
     }
@@ -103,6 +109,10 @@ export class Connection implements IceConnection {
     for (const pair of this.checkList) {
       pair.iceControlling = value;
     }
+  }
+
+  get iceLite() {
+    return this.options.iceLite;
   }
 
   async restart() {
@@ -235,8 +245,12 @@ export class Connection implements IceConnection {
         !iceControlling &&
         msg.attributesKeys.includes("ICE-CONTROLLED")
       ) {
-        if (this.tieBreaker < msg.getAttributeValue("ICE-CONTROLLED")) {
+        if (
+          this.iceLite ||
+          this.tieBreaker < msg.getAttributeValue("ICE-CONTROLLED")
+        ) {
           this.respondError(msg, addr, protocol, [487, "Role Conflict"]);
+          return;
         } else {
           this.switchRole(true);
           return;
@@ -291,8 +305,13 @@ export class Connection implements IceConnection {
     const candidatePromises: Promise<Candidate | void>[] = [];
     const { stunServer, turnServer } = this;
     const { turnUsername, turnPassword } = this.options;
+    const gatherIceLite = this.iceLite;
     const gatherRelayOnly =
-      this.options.forceTurn && turnServer && turnUsername && turnPassword;
+      !gatherIceLite &&
+      this.options.forceTurn &&
+      turnServer &&
+      turnUsername &&
+      turnPassword;
 
     addresses = addresses.filter((address) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
@@ -358,7 +377,7 @@ export class Connection implements IceConnection {
       );
     }
 
-    if (!gatherRelayOnly && stunServer) {
+    if (!gatherIceLite && !gatherRelayOnly && stunServer) {
       const stunCandidatePromises = localStunPromises.map(
         async (protocolPromise) => {
           const protocol = await protocolPromise;
@@ -399,7 +418,7 @@ export class Connection implements IceConnection {
       candidatePromises.push(...stunCandidatePromises);
     }
 
-    if (turnServer && turnUsername && turnPassword) {
+    if (!gatherIceLite && turnServer && turnUsername && turnPassword) {
       const turnCandidatePromise = (async () => {
         const turnTransport = this.options.turnTransport ?? "udp";
         const protocol = await createStunOverTurnClient(
@@ -490,7 +509,9 @@ export class Connection implements IceConnection {
     }
     this.sortCheckList();
 
-    this.unfreezeInitial();
+    if (!this.iceLite) {
+      this.unfreezeInitial();
+    }
 
     log("earlyChecks", this.localPassword, this.earlyChecks.length);
     // # handle early checks
@@ -499,6 +520,26 @@ export class Connection implements IceConnection {
     }
     this.earlyChecks = [];
     this.earlyChecksDone = true;
+
+    if (this.iceLite) {
+      if (!this.nominated) {
+        let res: number = ICE_FAILED;
+        while (!this.checkListDone && this.state !== "closed") {
+          res = await this.checkListState.get();
+          log("checkListState", res);
+          if (res === ICE_COMPLETED) {
+            break;
+          }
+        }
+
+        if (res !== ICE_COMPLETED && !this.nominated) {
+          throw new Error("ICE negotiation failed");
+        }
+      }
+
+      this.setState("connected");
+      return;
+    }
 
     // # perform checks
     // 5.8.  Scheduling Checks
@@ -594,6 +635,9 @@ export class Connection implements IceConnection {
 
   // 4.1.1.4 ? 生存確認 life check
   private queryConsent = () => {
+    if (this.iceLite) {
+      return;
+    }
     if (this.queryConsentHandle) {
       this.queryConsentHandle.resolve();
     }
@@ -1085,6 +1129,19 @@ export class Connection implements IceConnection {
       remotePassword: this.remotePassword,
       generation: this.generation,
     });
+
+    if (this.iceLite) {
+      if (
+        message.attributesKeys.includes("USE-CANDIDATE") &&
+        !this.iceControlling
+      ) {
+        pair.remoteNominated = true;
+        pair.nominated = true;
+        pair.updateState(CandidatePairState.SUCCEEDED);
+        this.checkComplete(pair);
+      }
+      return;
+    }
 
     // 7.2.1.4.  Triggered Checks
     if (
