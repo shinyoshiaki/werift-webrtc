@@ -54,7 +54,8 @@ Open `https://127.0.0.1:8443/` and the server-hosted SPA will use the same origi
 Build from the repository root so the example can access the workspace packages it imports directly:
 
 ```sh
-docker build -f examples/turn-loopback/Dockerfile -t werift-turn-loopback .
+cd examples/turn-loopback
+npm run docker:build
 docker run --rm -p 8443:8443 werift-turn-loopback
 ```
 

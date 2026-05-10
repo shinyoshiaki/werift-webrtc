@@ -30,6 +30,7 @@ Instructions for coding agents working in `examples/turn-loopback`.
 | run signaling app | `npm run server`        |
 | run SPA dev app   | `npm run client`        |
 | build SPA         | `npm run build`         |
+| build Docker image | `npm run docker:build`  |
 | run Chrome E2E    | `npm run chrome-e2e`    |
 | type-check        | `npm run type`          |
 
