@@ -1,6 +1,7 @@
 import {
   ensurePeerConnected,
   expectMessage,
+  getPeerConnectionDiagnostics,
   getSelectedRelayCandidatePair,
   peer,
   sleep,
@@ -33,6 +34,7 @@ describe("datachannel/ice lite", () => {
       iceServers: [],
     });
     const channel = pc.createDataChannel("dc");
+    let answerSdp: string | undefined;
     pc.onicecandidate = ({ candidate }) => {
       peer
         .request("datachannel_ice_lite_answer", {
@@ -49,6 +51,7 @@ describe("datachannel/ice lite", () => {
         type: "init",
         payload: pc.localDescription,
       });
+      answerSdp = answer.sdp;
       expect(answer.sdp).toContain("a=ice-lite");
       expect(answer.sdp).not.toContain("typ srflx");
       expect(answer.sdp).not.toContain("typ relay");
@@ -95,6 +98,35 @@ describe("datachannel/ice lite", () => {
           );
         }),
       ).toBe(true);
+    } catch (error) {
+      // Assert: タイムアウトや接続失敗時に selected pair と answer SDP の候補行を残して原因を追えるようにする。
+      const browserDiagnostics = await getPeerConnectionDiagnostics(pc);
+      const serverDiagnostics = await peer
+        .request("datachannel_ice_lite_answer", {
+          type: "stats",
+          payload: {},
+        })
+        .catch(() => undefined);
+      const answerCandidateLines =
+        answerSdp
+          ?.split(/\r?\n/)
+          .filter(
+            (line) =>
+              line.startsWith("a=candidate:") || line === "a=end-of-candidates",
+          ) ?? [];
+
+      throw new Error(
+        `ICE lite e2e diagnostics:\n${JSON.stringify(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            browserDiagnostics,
+            answerCandidateLines,
+            serverDiagnostics,
+          },
+          null,
+          2,
+        )}`,
+      );
     } finally {
       await peer
         .request("datachannel_ice_lite_answer", {
