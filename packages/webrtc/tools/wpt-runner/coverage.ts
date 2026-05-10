@@ -6,6 +6,12 @@ import { dirname } from "path";
 import { createCoverageMap } from "istanbul-lib-coverage";
 import { createContext } from "istanbul-lib-report";
 import reports from "istanbul-reports";
+import {
+  extractCoverageTotals,
+  findCoverageRegressions,
+  type CoverageSummary,
+  type CoverageTotals,
+} from "./coverageLogic";
 
 const toolDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(toolDir, "..", "..");
@@ -16,7 +22,6 @@ const coverageDir = resolve(repoRoot, "coverage", "webrtc-wpt");
 const coverageSummaryPath = resolve(coverageDir, "coverage-summary.json");
 const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json");
 const sourceDir = `${resolve(packageDir, "src")}/`;
-const COVERAGE_EPSILON = 0.05;
 
 async function main() {
   const result = spawnSync(
@@ -52,15 +57,10 @@ async function main() {
   reports.create("lcovonly", { file: "lcov.info" }).execute(reportContext);
   reports.create("html", { subdir: "html" }).execute(reportContext);
 
-  const summary = JSON.parse(await readFile(coverageSummaryPath, "utf8")) as {
-    total: Record<string, { pct: number }>;
-  };
-  const totals = {
-    statements: summary.total.statements.pct,
-    branches: summary.total.branches.pct,
-    functions: summary.total.functions.pct,
-    lines: summary.total.lines.pct,
-  };
+  const summary = JSON.parse(
+    await readFile(coverageSummaryPath, "utf8"),
+  ) as CoverageSummary;
+  const totals = extractCoverageTotals(summary);
 
   const updateBaseline =
     process.argv.includes("--update-baseline") ||
@@ -81,27 +81,23 @@ async function main() {
   }
 
   const baseline = JSON.parse(await readFile(coverageBaselinePath, "utf8")) as {
-    totals: Record<string, number>;
+    totals: Partial<CoverageTotals>;
   };
-  const regressions = Object.entries(totals).filter(([metric, value]) => {
-    const baselineValue = baseline.totals[metric];
-    return (
-      typeof baselineValue === "number" &&
-      value + COVERAGE_EPSILON < baselineValue
-    );
-  });
+  const regressions = findCoverageRegressions(totals, baseline.totals);
 
   if (regressions.length > 0) {
-    for (const [metric, value] of regressions) {
+    for (const regression of regressions) {
       console.error(
-        `${metric} coverage regressed: ${value.toFixed(2)} < ${baseline.totals[metric].toFixed(2)}`,
+        `${regression.metric} coverage regressed: ${regression.current.toFixed(2)} < ${regression.baseline.toFixed(2)}`,
       );
     }
     process.exitCode = 1;
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
