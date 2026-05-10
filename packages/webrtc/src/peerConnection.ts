@@ -94,7 +94,6 @@ export class RTCPeerConnection extends EventTarget {
   private readonly secureManager: SecureTransportManager;
   private isClosed = false;
   private shouldNegotiationneeded = false;
-  private remoteBundleNegotiated = false;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -489,8 +488,7 @@ export class RTCPeerConnection extends EventTarget {
     // https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum
     if (
       this.sdpManager.bundlePolicy === "max-bundle" ||
-      (this.sdpManager.bundlePolicy !== "disable" &&
-        (this.remoteIsBundled || this.remoteBundleNegotiated))
+      (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled)
     ) {
       if (existingDtlsTransport) {
         return existingDtlsTransport;
@@ -776,14 +774,6 @@ export class RTCPeerConnection extends EventTarget {
       }
       return;
     }
-    if (
-      remoteSdp.group.some(
-        (group) => group.semantic === "BUNDLE" && group.items.length > 0,
-      )
-    ) {
-      this.remoteBundleNegotiated = true;
-    }
-
     let bundleTransport: RTCDtlsTransport | undefined;
 
     // # apply description

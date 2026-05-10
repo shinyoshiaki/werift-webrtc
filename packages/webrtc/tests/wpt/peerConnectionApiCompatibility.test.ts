@@ -137,6 +137,45 @@ describe("wpt/peerConnection api compatibility", () => {
     }
   });
 
+  test("remote rollback clears bundled transport reuse", async () => {
+    const rollbackPc = new RTCPeerConnection();
+    const freshPc = new RTCPeerConnection();
+    const offerer = new RTCPeerConnection();
+
+    const rollbackAudio = rollbackPc.addTransceiver("audio");
+    const freshAudio = freshPc.addTransceiver("audio");
+    offerer.addTransceiver("audio");
+
+    try {
+      // 実行: BUNDLE を含む remote offer を適用してから rollback する
+      const bundledOffer = await offerer.createOffer();
+      expect(bundledOffer.sdp).toContain("a=group:BUNDLE");
+      await rollbackPc.setRemoteDescription(bundledOffer);
+      await rollbackPc.setRemoteDescription({ type: "rollback" });
+
+      // 実行: rollback 後と fresh peer でそれぞれ 2 本目の transceiver を追加する
+      const rollbackVideo = rollbackPc.addTransceiver("video");
+      const freshVideo = freshPc.addTransceiver("video");
+
+      // 検証: rollback 後の transport 割り当ては fresh peer と同様に BUNDLE 前提へ残留しない
+      expect(rollbackPc.signalingState).toBe("stable");
+      expect(rollbackPc.remoteDescription).toBeUndefined();
+      expect(rollbackPc.pendingRemoteDescription).toBeUndefined();
+      expect(rollbackVideo.dtlsTransport.id).not.toBe(
+        rollbackAudio.dtlsTransport.id,
+      );
+      expect(freshVideo.dtlsTransport.id).not.toBe(freshAudio.dtlsTransport.id);
+      expect(rollbackPc.dtlsTransports).toHaveLength(2);
+      expect(freshPc.dtlsTransports).toHaveLength(2);
+    } finally {
+      await Promise.allSettled([
+        rollbackPc.close(),
+        freshPc.close(),
+        offerer.close(),
+      ]);
+    }
+  });
+
   test("routes addIceCandidate by sdpMid without sdpMLineIndex", async () => {
     const caller = new RTCPeerConnection({ bundlePolicy: "disable" });
     const callee = new RTCPeerConnection({ bundlePolicy: "disable" });
