@@ -1,3 +1,4 @@
+import { spawn } from "child_process";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import * as os from "os";
 import { dirname, resolve } from "path";
@@ -50,12 +51,29 @@ export interface WptRunReport {
   regressions: WptResultRecord[];
 }
 
+export interface WptProgressEvent {
+  type: "start" | "finish";
+  target: Pick<WptTarget, "file" | "variant">;
+  completed: number;
+  running: number;
+  targetSummary?: WptRunReport["summary"];
+  total: number;
+}
+
 const packageDir = process.cwd();
 const repoRoot = resolve(packageDir, "..", "..");
 const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
 const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
+const workerPath = resolve(packageDir, "tools", "wpt-runner", "worker.ts");
+const tsxPath = resolve(
+  repoRoot,
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "tsx.cmd" : "tsx",
+);
+const WORKER_RESULT_PREFIX = "__WPT_WORKER_RESULT__:";
 const PROGRESS_MODE = process.env.WPT_PROGRESS;
 const VERBOSE_PROGRESS = PROGRESS_MODE === "verbose";
 const TARGET_FILTER = process.env.WPT_TARGET_FILTER;
@@ -126,11 +144,12 @@ export async function discoverWptTargets() {
 
 export async function runSelectedWpt(options: {
   compareWithBaseline?: boolean;
+  onProgress?: (event: WptProgressEvent) => void;
   reportPath?: string;
   updateBaseline?: boolean;
 } = {}): Promise<WptRunReport> {
   const targets = await discoverWptTargets();
-  const results = await runTargets(targets);
+  const results = await runTargets(targets, options.onProgress);
 
   const regressions =
     options.compareWithBaseline === false
@@ -157,7 +176,10 @@ export async function runSelectedWpt(options: {
   return report;
 }
 
-async function runTargets(targets: WptTarget[]) {
+async function runTargets(
+  targets: WptTarget[],
+  onProgress?: (event: WptProgressEvent) => void,
+) {
   const results: WptResultRecord[] = [];
   const executing = new Set<Promise<void>>();
   const availableParallelism =
@@ -170,9 +192,25 @@ async function runTargets(targets: WptTarget[]) {
   let completed = 0;
 
   for (const target of targets) {
-    const task = runTarget(target).then((targetResults) => {
+    onProgress?.({
+      type: "start",
+      target,
+      completed,
+      running: executing.size + 1,
+      total: targets.length,
+    });
+
+    const task = runTargetInWorker(target).then((targetResults) => {
       results.push(...targetResults);
       completed += 1;
+      onProgress?.({
+        type: "finish",
+        target,
+        completed,
+        running: Math.max(0, executing.size - 1),
+        targetSummary: summarize(targetResults),
+        total: targets.length,
+      });
       if (PROGRESS_MODE && (completed % 10 === 0 || completed === targets.length)) {
         console.error(`[wpt] completed ${completed}/${targets.length}`);
       }
@@ -196,7 +234,9 @@ async function runTargets(targets: WptTarget[]) {
   });
 }
 
-async function runTarget(target: WptTarget): Promise<WptResultRecord[]> {
+export async function runTargetInCurrentProcess(
+  target: WptTarget,
+): Promise<WptResultRecord[]> {
   if (VERBOSE_PROGRESS) {
     console.error(`[wpt] start ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
   }
@@ -281,6 +321,87 @@ async function runTarget(target: WptTarget): Promise<WptResultRecord[]> {
       console.error(`[wpt] finish ${target.file}${target.variant ? ` ${target.variant}` : ""}`);
     }
   }
+}
+
+async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> {
+  const timeoutMs = resolveWorkerTimeoutMs(resolveTimeoutProfile(target));
+
+  return await new Promise<WptResultRecord[]>((resolveResult) => {
+    const worker = spawn(tsxPath, [workerPath], {
+      cwd: packageDir,
+      env: {
+        ...process.env,
+        WPT_PROGRESS: "",
+        WPT_TARGET_JSON: JSON.stringify(target),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let finished = false;
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      finish([
+        {
+          file: target.file,
+          variant: target.variant ?? "",
+          subtest: "[worker-timeout]",
+          status: "TIMEOUT",
+          message: `WPT worker exceeded ${timeoutMs}ms and was terminated.`,
+        },
+      ]);
+      worker.kill("SIGKILL");
+    }, timeoutMs);
+
+    const finish = (workerResults: WptResultRecord[]) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      clearTimeout(timer);
+      resolveResult(workerResults);
+    };
+
+    worker.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    worker.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    worker.on("error", (error) => {
+      finish([
+        {
+          file: target.file,
+          variant: target.variant ?? "",
+          subtest: "[worker-error]",
+          status: "FAIL",
+          message: error.stack ?? error.message,
+        },
+      ]);
+    });
+    worker.on("exit", (code, signal) => {
+      const workerResults = extractWorkerResults(stdout);
+      if (workerResults) {
+        finish(workerResults);
+        return;
+      }
+
+      finish([
+        {
+          file: target.file,
+          variant: target.variant ?? "",
+          subtest: "[worker-exit]",
+          status: "FAIL",
+          message: [
+            `WPT worker exited before returning results (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+            stderr.trim(),
+            stdout.trim(),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+      ]);
+    });
+  });
 }
 
 function createContext(input: {
@@ -663,6 +784,22 @@ export function formatMarkdownReport(report: WptRunReport) {
   return `${lines.join("\n")}\n`;
 }
 
+export function formatProgressEvent(event: WptProgressEvent) {
+  const variant = event.target.variant ? ` ${event.target.variant}` : "";
+  if (event.type === "start") {
+    return `[wpt] [${event.completed}/${event.total}] running ${event.target.file}${variant} (${event.running} active)`;
+  }
+
+  const summary = event.targetSummary ?? {
+    failed: 0,
+    passed: 0,
+    skipped: 0,
+    timedOut: 0,
+    total: 0,
+  };
+  return `[wpt] [${event.completed}/${event.total}] finished ${event.target.file}${variant} (PASS ${summary.passed} / FAIL ${summary.failed} / TIMEOUT ${summary.timedOut}, ${event.running} active)`;
+}
+
 export function printTargetList(targets: WptTarget[]) {
   console.log(`# WPT WebRTC targets (${targets.length})`);
   console.log("");
@@ -754,4 +891,37 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
       clearTimeout(timer);
     }
   }
+}
+
+function resolveWorkerTimeoutMs(timeoutProfile: ReturnType<typeof resolveTimeoutProfile>) {
+  return (
+    timeoutProfile.vmTimeoutMs * 4 +
+    timeoutProfile.completionTimeoutMs +
+    timeoutProfile.cleanupTimeoutMs +
+    1_000
+  );
+}
+
+function extractWorkerResults(stdout: string) {
+  const line = stdout
+    .split(/\r?\n/u)
+    .find((entry) => entry.startsWith(WORKER_RESULT_PREFIX));
+  if (!line) {
+    return undefined;
+  }
+
+  return JSON.parse(line.slice(WORKER_RESULT_PREFIX.length)) as WptResultRecord[];
+}
+
+export function readTargetFromEnvironment() {
+  const raw = process.env.WPT_TARGET_JSON;
+  if (!raw) {
+    throw new Error("WPT_TARGET_JSON is required for the worker process.");
+  }
+
+  return JSON.parse(raw) as WptTarget;
+}
+
+export function serializeWorkerResults(results: WptResultRecord[]) {
+  return `${WORKER_RESULT_PREFIX}${JSON.stringify(results)}\n`;
 }

@@ -1,4 +1,5 @@
 import {
+  formatProgressEvent,
   formatMarkdownReport,
   hasWptRegressions,
   runSelectedWpt,
@@ -8,6 +9,9 @@ async function main() {
   const updateBaseline = process.argv.includes("--update-baseline");
   const report = await runSelectedWpt({
     compareWithBaseline: true,
+    onProgress: (event) => {
+      process.stdout.write(`${formatProgressEvent(event)}\n`);
+    },
     updateBaseline,
   });
 
