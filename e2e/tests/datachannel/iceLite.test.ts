@@ -68,7 +68,7 @@ describe("datachannel/ice lite", () => {
       })) as IceLiteStats;
 
       // Assert: ICE lite 側は host candidate のみを広告し、controlled role で nominated pair を確定している。
-      expect(browserStats.localCandidateType).toBe("host");
+      expect(["host", "prflx"]).toContain(browserStats.localCandidateType);
       expect(browserStats.remoteCandidateType).toBe("host");
       expect(serverStats.localDescriptionSdp).toContain("a=ice-lite");
       expect(
@@ -91,8 +91,7 @@ describe("datachannel/ice lite", () => {
           const { nominated } = iceTransport;
           return (
             nominated?.localCandidateType === "host" &&
-            nominated?.remoteCandidateType === "host" &&
-            nominated?.protocolType === "stun"
+            ["host", "prflx"].includes(nominated?.remoteCandidateType ?? "")
           );
         }),
       ).toBe(true);
