@@ -62,6 +62,18 @@
 
 ***
 
+### retransmissionsReceived
+
+> **retransmissionsReceived**: `number`
+
+***
+
+### retransmissionsSent
+
+> **retransmissionsSent**: `number`
+
+***
+
 ### roundTripTimeMeasurements
 
 > **roundTripTimeMeasurements**: `number`

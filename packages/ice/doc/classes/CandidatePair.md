@@ -168,6 +168,26 @@
 
 ***
 
+### retransmissionsReceived
+
+> **retransmissionsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`retransmissionsReceived`](../interfaces/CandidatePairStats.md#retransmissionsreceived)
+
+***
+
+### retransmissionsSent
+
+> **retransmissionsSent**: `number` = `0`
+
+#### Implementation of
+
+[`CandidatePairStats`](../interfaces/CandidatePairStats.md).[`retransmissionsSent`](../interfaces/CandidatePairStats.md#retransmissionssent)
+
+***
+
 ### roundTripTimeMeasurements
 
 > **roundTripTimeMeasurements**: `number` = `0`
@@ -293,6 +313,22 @@ readonly \[`string`, `number`\]
 [`CandidatePairState`](../enumerations/CandidatePairState.md)
 
 ## Methods
+
+### noteIncomingRequest()
+
+> **noteIncomingRequest**(`transactionId`): `boolean`
+
+#### Parameters
+
+##### transactionId
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
 
 ### toJSON()
 

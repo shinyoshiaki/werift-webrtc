@@ -170,7 +170,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissions`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey`?, `retransmissions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -189,6 +189,10 @@ readonly \[`string`, `number`\]
 ##### retransmissions?
 
 `number`
+
+##### onRequestSent?
+
+(`attempt`) => `void`
 
 #### Returns
 
