@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { ChildProcess, spawn } from "child_process";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import * as os from "os";
 import { dirname, resolve } from "path";
@@ -65,7 +65,13 @@ const repoRoot = resolve(packageDir, "..", "..");
 const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
-const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
+export const defaultReportPath = resolve(repoRoot, "coverage", "webrtc-wpt", "results.json");
+export const defaultMarkdownReportPath = resolve(
+  repoRoot,
+  "coverage",
+  "webrtc-wpt",
+  "results.md",
+);
 const workerPath = resolve(packageDir, "tools", "wpt-runner", "worker.ts");
 const tsxPath = resolve(
   repoRoot,
@@ -85,6 +91,7 @@ const IGNORE_SCRIPT_PATHS = new Set([
   "/resources/testdriver-vendor.js",
   "../mediacapture-streams/permission-helper.js",
 ]);
+const ACTIVE_WORKERS = new Set<ChildProcess>();
 
 if (!(globalThis as { __weriftWptUnhandledRejectionHook?: boolean }).__weriftWptUnhandledRejectionHook) {
   process.on("unhandledRejection", () => undefined);
@@ -331,6 +338,7 @@ async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
     const worker = spawn(tsxPath, [workerPath], {
       cwd: packageDir,
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         WPT_PROGRESS: "",
@@ -338,11 +346,14 @@ async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> 
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    ACTIVE_WORKERS.add(worker);
     let finished = false;
+    let forcedResult: WptResultRecord[] | undefined;
+    let forceFinishTimer: NodeJS.Timeout | undefined;
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
-      finish([
+      forcedResult = [
         {
           file: target.file,
           variant: target.variant ?? "",
@@ -350,8 +361,11 @@ async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> 
           status: "TIMEOUT",
           message: `WPT worker exceeded ${timeoutMs}ms and was terminated.`,
         },
-      ]);
-      worker.kill("SIGKILL");
+      ];
+      terminateWorker(worker, "SIGKILL");
+      forceFinishTimer = setTimeout(() => {
+        finish(forcedResult ?? []);
+      }, 500);
     }, timeoutMs);
 
     const finish = (workerResults: WptResultRecord[]) => {
@@ -360,6 +374,15 @@ async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> 
       }
       finished = true;
       clearTimeout(timer);
+      if (forceFinishTimer) {
+        clearTimeout(forceFinishTimer);
+      }
+      ACTIVE_WORKERS.delete(worker);
+      worker.stdout?.removeAllListeners();
+      worker.stderr?.removeAllListeners();
+      worker.removeAllListeners();
+      worker.stdout?.destroy();
+      worker.stderr?.destroy();
       resolveResult(workerResults);
     };
 
@@ -380,7 +403,11 @@ async function runTargetInWorker(target: WptTarget): Promise<WptResultRecord[]> 
         },
       ]);
     });
-    worker.on("exit", (code, signal) => {
+    worker.on("close", (code, signal) => {
+      if (forcedResult) {
+        finish(forcedResult);
+        return;
+      }
       const workerResults = extractWorkerResults(stdout);
       if (workerResults) {
         finish(workerResults);
@@ -927,3 +954,34 @@ export function readTargetFromEnvironment() {
 export function serializeWorkerResults(results: WptResultRecord[]) {
   return `${WORKER_RESULT_PREFIX}${JSON.stringify(results)}\n`;
 }
+
+function terminateWorker(worker: ChildProcess, signal: NodeJS.Signals) {
+  if (worker.exitCode !== null) {
+    return;
+  }
+
+  try {
+    if (process.platform !== "win32" && worker.pid) {
+      process.kill(-worker.pid, signal);
+      return;
+    }
+  } catch {
+    // Fall through to direct child termination when process groups are unavailable.
+  }
+
+  worker.kill(signal);
+}
+
+function cleanupActiveWorkers(signal: NodeJS.Signals) {
+  for (const worker of ACTIVE_WORKERS) {
+    terminateWorker(worker, signal);
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  if (!process.listeners(signal).includes(cleanupActiveWorkers as any)) {
+    process.on(signal, () => cleanupActiveWorkers(signal));
+  }
+}
+
+process.on("exit", () => cleanupActiveWorkers("SIGKILL"));

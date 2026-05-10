@@ -11,6 +11,12 @@ import {
   findCoverageRegressions,
   type CoverageTotals,
 } from "./coverageLogic";
+import {
+  defaultMarkdownReportPath,
+  defaultReportPath,
+  formatMarkdownReport,
+  type WptRunReport,
+} from "./runner";
 
 const toolDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(toolDir, "..", "..");
@@ -38,6 +44,7 @@ async function main() {
       process.exit(result.status ?? 1);
     }
 
+    const markdown = await readMarkdownReport();
     const mergedCoverage = await mergeRawCoverage(rawCoverageDir);
     const provider = createCoverageProvider();
     await provider.clean();
@@ -58,6 +65,8 @@ async function main() {
     });
     await provider.generateReports(coverageMap, true);
     await provider.cleanAfterRun();
+    await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
+    await writeFile(defaultMarkdownReportPath, markdown, "utf8");
 
     const summary = JSON.parse(await readFile(coverageSummaryPath, "utf8")) as {
       total: {
@@ -244,6 +253,15 @@ function isTargetSourceUrl(value: unknown) {
   }
 
   return value.startsWith(`file://${sourceDir}/`) && value.endsWith(".ts");
+}
+
+async function readMarkdownReport() {
+  try {
+    return await readFile(defaultMarkdownReportPath, "utf8");
+  } catch {
+    const report = JSON.parse(await readFile(defaultReportPath, "utf8")) as WptRunReport;
+    return formatMarkdownReport(report);
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

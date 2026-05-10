@@ -1,4 +1,7 @@
+import { mkdir, writeFile } from "fs/promises";
+import { dirname } from "path";
 import {
+  defaultMarkdownReportPath,
   formatProgressEvent,
   formatMarkdownReport,
   hasWptRegressions,
@@ -14,9 +17,13 @@ async function main() {
     },
     updateBaseline,
   });
+  const markdown = formatMarkdownReport(report);
+
+  await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
+  await writeFile(defaultMarkdownReportPath, markdown, "utf8");
 
   await new Promise<void>((resolve) => {
-    process.stdout.write(formatMarkdownReport(report), () => resolve());
+    process.stdout.write(markdown, () => resolve());
   });
   process.exit(hasWptRegressions(report) ? 1 : 0);
 }
