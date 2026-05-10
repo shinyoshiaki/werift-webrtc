@@ -303,7 +303,10 @@ export class RTCPeerConnection extends EventTarget {
     if (
       isReconfiguration &&
       normalizedConfig.certificates !== undefined &&
-      normalizedConfig.certificates !== this.config.certificates
+      !hasSameCertificates(
+        normalizedConfig.certificates,
+        this.config.certificates,
+      )
     ) {
       throw new Error("certificates cannot be changed");
     }
@@ -549,22 +552,28 @@ export class RTCPeerConnection extends EventTarget {
       return undefined as never;
     }
 
-    const generatedDescription =
-      sessionDescription?.type === "offer"
+    const needsGeneratedDescription =
+      !sessionDescription?.type ||
+      !sessionDescription.sdp ||
+      sessionDescription.sdp.length === 0;
+
+    const generatedDescription = needsGeneratedDescription
+      ? sessionDescription?.type === "offer"
         ? await this.createOffer()
         : sessionDescription?.type === "answer" ||
             sessionDescription?.type === "pranswer"
           ? await this.createAnswer()
           : implicitOfferState.includes(this.signalingState)
             ? await this.createOffer()
-            : await this.createAnswer();
+            : await this.createAnswer()
+      : undefined;
 
     sessionDescription = {
-      type: sessionDescription?.type ?? generatedDescription.type,
+      type: sessionDescription?.type ?? generatedDescription!.type,
       sdp:
         sessionDescription?.sdp && sessionDescription.sdp.length > 0
           ? sessionDescription.sdp
-          : generatedDescription.sdp,
+          : generatedDescription!.sdp,
     };
 
     // # parse and validate description
@@ -662,7 +671,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   async addIceCandidate(
-    candidateMessage: RTCIceCandidate | RTCIceCandidateInit = {},
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null = {},
   ) {
     const sdp = this.sdpManager.buildOfferSdp(
       this.transceiverManager.getTransceivers(),
@@ -1112,15 +1121,20 @@ export interface RTCLocalSessionDescriptionInit
   type?: Exclude<RTCSessionDescriptionInit["type"], "rollback"> | "rollback";
 }
 
+type RTCPeerConnectionRTCConfiguration = Omit<
+  RTCConfiguration,
+  "bundlePolicy"
+> & {
+  bundlePolicy?: PeerConfig["bundlePolicy"] | RTCBundlePolicy;
+};
+
 export type RTCPeerConnectionConfig = Partial<
   Omit<
     PeerConfig,
     "bundlePolicy" | "rtcpMuxPolicy" | "iceCandidatePoolSize" | "certificates"
   >
 > &
-  RTCConfiguration & {
-    bundlePolicy?: PeerConfig["bundlePolicy"] | RTCBundlePolicy;
-  };
+  RTCPeerConnectionRTCConfiguration;
 
 function generateDefaultPeerConfig(): PeerConfig {
   return {
@@ -1168,6 +1182,13 @@ function normalizePeerConfiguration(
   }
 
   return normalizedConfig;
+}
+
+function hasSameCertificates(left: RTCCertificate[], right: RTCCertificate[]) {
+  return (
+    left.length === right.length &&
+    left.every((certificate, index) => certificate === right[index])
+  );
 }
 
 function clonePeerConfiguration(config: PeerConfig) {

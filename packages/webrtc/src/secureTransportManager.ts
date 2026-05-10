@@ -187,13 +187,16 @@ export class SecureTransportManager {
 
   async addIceCandidate(
     sdp: SessionDescription,
-    candidateMessage: RTCIceCandidate | RTCIceCandidateInit,
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
   ) {
-    const candidate = IceCandidate.fromJSON(candidateMessage);
+    const candidate = candidateMessage
+      ? IceCandidate.fromJSON(candidateMessage)
+      : undefined;
     if (!candidate) {
       const candidateTarget =
-        candidateMessage.sdpMid != undefined ||
-        candidateMessage.sdpMLineIndex != undefined
+        candidateMessage &&
+        (candidateMessage.sdpMid != undefined ||
+          candidateMessage.sdpMLineIndex != undefined)
           ? [
               this.getTransportByMid(candidateMessage.sdpMid ?? undefined) ??
                 (typeof candidateMessage.sdpMLineIndex === "number"

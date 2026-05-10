@@ -99,6 +99,7 @@ describe("wpt/peerConnection api compatibility", () => {
       // 実行: trickle 非対応の remote SDP を適用して end-of-candidates を投入する
       const offerWithoutTrickle = removeTrickle(await createOffer());
       await noTricklePc.setRemoteDescription(offerWithoutTrickle);
+      await noTricklePc.addIceCandidate(null);
       await noTricklePc.addIceCandidate();
       await noTricklePc.addIceCandidate({ candidate: "" });
 
@@ -154,10 +155,13 @@ describe("wpt/peerConnection api compatibility", () => {
       expect(configuration.iceServers).not.toBe(pc.config.iceServers);
       expect(pc.dtlsTransports[0].localCertificate).toBe(certificate);
 
-      // 検証: 標準 API の変更不可項目は setConfiguration で拒否される
-      expect(() =>
-        pc.setConfiguration({ certificates: [certificate] }),
-      ).toThrowError("certificates cannot be changed");
+      // 実行: getConfiguration の戻り値をそのまま再適用する
+      pc.setConfiguration(configuration);
+
+      // 検証: 設定の round-trip は通り、変更不可項目の実変更だけが拒否される
+      expect(() => pc.setConfiguration({ certificates: [] })).toThrowError(
+        "certificates cannot be changed",
+      );
       expect(() =>
         pc.setConfiguration({ bundlePolicy: "max-bundle" }),
       ).toThrowError("bundlePolicy cannot be changed");

@@ -117,12 +117,13 @@ see console & chrome://webrtc-internals/
 | Added | `setLocalDescription()` input compatibility | Accepts omitted `type`, empty `sdp`, and provisional `pranswer`. |
 | Added | `setRemoteDescription()` input compatibility | Accepts `pranswer` and `rollback`, updating pending/current descriptions accordingly. |
 | Added | `addIceCandidate()` input compatibility | Accepts omitted input and `{ candidate: "" }` as end-of-candidates. |
-| Added | `RTCConfiguration` compatibility | Accepts `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy: "require"`, `iceCandidatePoolSize: 0`, and `certificates`. |
+| Added | `RTCConfiguration` compatibility | Accepts `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy: "require"`, `iceCandidatePoolSize: 0`, and `certificates`; `setConfiguration(getConfiguration())` round-trips without changing certificates. |
 | Added | `RTCIceServer.urls: string \| string[]` | Arrays are accepted and parsed in order. |
 | Added | Standard event names | `signalingstatechange`, `iceconnectionstatechange`, `icegatheringstatechange`, `connectionstatechange`, `negotiationneeded`, `icecandidate`, `track`, and `datachannel` are emitted for `addEventListener`. |
 | Not implemented | Legacy callback overloads | Kept out of scope because they are legacy browser APIs. |
 | Not implemented | `addStream`, `removeStream`, `createDTMFSender` | These are obsolete; use `addTrack`, `removeTrack`, and transceiver/sender APIs instead. |
 | Deferred | `close()` return type | Remains async for backward compatibility even though W3C defines synchronous `undefined`. |
+| Deferred | `setLocalDescription()` / `setRemoteDescription()` return type | They still return the applied `SessionDescription` instead of `Promise<void>` for backward compatibility. |
 | Deferred | `RTCPeerConnection.generateCertificate()` | `RTCCertificate` and `RTCConfiguration.certificates` are supported, but the static W3C helper is still optional work. |
 
 # reference
