@@ -533,9 +533,15 @@ export class RTCPeerConnection extends EventTarget {
     return dtlsTransport;
   }
 
+  async setLocalDescription(sessionDescription: {
+    type: "rollback";
+  }): Promise<void>;
   async setLocalDescription(
     sessionDescription?: RTCLocalSessionDescriptionInit,
-  ): Promise<SessionDescription> {
+  ): Promise<SessionDescription>;
+  async setLocalDescription(
+    sessionDescription?: RTCLocalSessionDescriptionInit,
+  ): Promise<SessionDescription | void> {
     // https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setLocalDescription#type
     const implicitOfferState: RTCSignalingState[] = [
       "stable",
@@ -549,7 +555,7 @@ export class RTCPeerConnection extends EventTarget {
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
       }
-      return undefined as never;
+      return;
     }
 
     const needsGeneratedDescription =

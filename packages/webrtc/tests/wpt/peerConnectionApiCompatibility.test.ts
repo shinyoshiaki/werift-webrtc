@@ -80,9 +80,12 @@ describe("wpt/peerConnection api compatibility", () => {
       await localRollbackPc.setLocalDescription(
         await localRollbackPc.createOffer(),
       );
-      await localRollbackPc.setLocalDescription({ type: "rollback" });
+      const rollbackResult = await localRollbackPc.setLocalDescription({
+        type: "rollback",
+      });
 
-      // 検証: local rollback 後は stable に戻り pending description が消える
+      // 検証: local rollback は undefined を返し、stable に戻って pending description が消える
+      expect(rollbackResult).toBeUndefined();
       expect(localRollbackPc.signalingState).toBe("stable");
       expect(localRollbackPc.localDescription).toBeUndefined();
       expect(localRollbackPc.pendingLocalDescription).toBeUndefined();
