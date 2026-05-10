@@ -1,4 +1,5 @@
 import { SRTP_PROFILE } from "./const";
+import { createWebRtcDomException } from "./errors";
 import { Event, debug } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
@@ -223,7 +224,10 @@ export class SecureTransportManager {
 
     const candidate = IceCandidate.fromJSON(candidateMessage);
     if (!candidate) {
-      throw new Error("Failed to parse ICE candidate");
+      throw createWebRtcDomException(
+        "OperationError",
+        "Failed to parse ICE candidate",
+      );
     }
 
     let iceTransport: RTCIceTransport | undefined;

@@ -120,9 +120,9 @@
 
 ***
 
-### track?
+### track
 
-> `optional` **track**: [`MediaStreamTrack`](MediaStreamTrack.md)
+> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `null`
 
 ***
 

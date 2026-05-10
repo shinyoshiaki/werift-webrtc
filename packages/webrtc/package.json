@@ -45,7 +45,10 @@
     "test": "vitest run ./tests",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",
-    "upgrade-interactive": "npx npm-check-updates -i"
+    "upgrade-interactive": "npx npm-check-updates -i",
+    "wpt:list": "tsx tools/wpt-runner/list.ts",
+    "wpt": "tsx tools/wpt-runner/run.ts",
+    "wpt:coverage": "tsx tools/wpt-runner/coverage.ts"
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",

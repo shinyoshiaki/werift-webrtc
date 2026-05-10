@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-05-10T08:25:52.575Z",
+  "totals": {
+    "statements": 53.75,
+    "branches": 73.71,
+    "functions": 58.07,
+    "lines": 53.75
+  }
+}

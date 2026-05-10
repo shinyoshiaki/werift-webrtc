@@ -158,13 +158,13 @@ should not be reused because it has been used for sending before.
 
 #### Get Signature
 
-> **get** **currentDirection**(): `undefined` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **get** **currentDirection**(): `null` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 RFC 8829 4.2.5. last negotiated direction
 
 ##### Returns
 
-`undefined` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+`null` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 ***
 
