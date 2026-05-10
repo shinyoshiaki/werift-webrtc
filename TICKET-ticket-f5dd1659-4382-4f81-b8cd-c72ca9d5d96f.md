@@ -63,7 +63,9 @@
 
 ### 優先度低: オプション/レガシー API
 
-W3C の legacy callback overloads は任意対応でよい。`addStream`、`removeStream`、`createDTMFSender` は obsolete 扱いなので、今回の中心から外す。
+W3C の legacy callback overloads は実装しない。既存実装がある場合も拡張対象にはせず、差分表では「legacy のため対象外」として明記する。
+
+`addStream`、`removeStream`、`createDTMFSender` は obsolete 扱いなので実装しない。ブラウザ互換目的で代替が必要な場合は、`addTrack` / `removeTrack` / transceiver / sender API など現行 W3C API で対応する。
 
 `RTCPeerConnection.generateCertificate()` は W3C では明示的証明書管理 API だが optional。既存の `RTCDtlsTransport.SetupCertificate()` と `RTCCertificate` があるため、余力があれば静的 API と `RTCConfiguration.certificates` に接続する。
 
@@ -85,11 +87,12 @@ W3C の現在の `RTCPeerConnection` IDL では、`createOffer/createAnswer/setL
 - 既存ユーザー向けの `PeerConfig` 独自項目は維持する。標準 API 追加で既存設定を壊さない。
 - `close()` は W3C では同期 `undefined` だが、現状は `async close()`。戻り値変更は破壊的なので、互換方針を明示して段階対応する。
 - テスト追加時はリポジトリ指示に従い Arrange / Act / Assert を分け、Act / Assert には日本語コメントを入れる。
-- W3C の identity provider 系や obsolete API は、現在の互換性改善の本筋から外す。
+- W3C の identity provider 系や obsolete / legacy API は実装対象外とする。互換性差分としては記録するが、代替可能な現行 API の整備を優先する。
 
 ## 5. 完了条件
 
 - W3C の主要 `RTCPeerConnection` 属性・メソッドとの差分表がコードコメントまたは PR 説明で整理されている。
+- 差分表で legacy callback overloads、`addStream`、`removeStream`、`createDTMFSender` を「実装しない API」として明記し、現行 API での代替方針が確認できる。
 - `currentLocalDescription`、`pendingLocalDescription`、`currentRemoteDescription`、`pendingRemoteDescription`、`canTrickleIceCandidates`、`sctp` が公開 API として利用できる。
 - `setLocalDescription` / `setRemoteDescription` / `addIceCandidate` が W3C の主要入力形式に対応する。
 - `RTCConfiguration` 互換の入力、`RTCIceServer.urls` 配列、標準イベント発火がテストされている。
