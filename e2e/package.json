@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "bowser": "^2.12.1",
-    "werift": "^0.22.2",
+    "werift": "^0.22.9",
     "werift-rtp": "^0.8.4"
   },
   "devDependencies": {
