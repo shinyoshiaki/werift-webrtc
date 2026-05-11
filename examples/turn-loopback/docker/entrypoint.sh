@@ -19,6 +19,7 @@ CERTBOT_WORK_DIR="${CERTBOT_STATE_DIR}/work"
 CERTBOT_LOG_DIR="${CERTBOT_STATE_DIR}/logs"
 NGINX_TEMPLATE="/app/examples/turn-loopback/docker/nginx.conf.template"
 NGINX_CONFIG="/tmp/turn-loopback-nginx.conf"
+TSX_BIN="/app/node_modules/.bin/tsx"
 
 nginx_pid=""
 server_pid=""
@@ -266,7 +267,7 @@ start_certbot_renew_loop() {
   fi
 
   (
-    set -euo pipefail
+    set -uo pipefail
     local staging="${CERTBOT_STAGING:-0}"
     local -a renew_args=(
       renew
@@ -285,7 +286,9 @@ start_certbot_renew_loop() {
     while true; do
       sleep "$CERTBOT_RENEW_INTERVAL"
       log "running scheduled certbot renew"
-      certbot "${renew_args[@]}"
+      if ! certbot "${renew_args[@]}"; then
+        log "scheduled certbot renew failed; keeping existing certificate files"
+      fi
     done
   ) &
   renew_pid="$!"
@@ -324,7 +327,12 @@ prepare_tls_material() {
 }
 
 start_werift_server() {
-  ./node_modules/.bin/tsx --tsconfig tsconfig.server.json server/main.ts &
+  if [[ ! -x "$TSX_BIN" ]]; then
+    log "tsx binary was not found at ${TSX_BIN}"
+    exit 1
+  fi
+
+  "$TSX_BIN" --tsconfig tsconfig.server.json server/main.ts &
   server_pid="$!"
   log "started werift HTTPS/TURN server on port ${TURN_LOOPBACK_PORT:-8443}"
 }

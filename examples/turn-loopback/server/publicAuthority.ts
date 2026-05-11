@@ -21,6 +21,32 @@ export function normalizeAuthority(value: string, fallbackPort: number) {
   }
 }
 
+type ResolvePublicAuthorityOptions = {
+  configuredAuthority?: string;
+  configuredHost?: string;
+  defaultAuthority: string;
+  requestHost?: string;
+  publicPort: number;
+};
+
+export function resolvePublicAuthority({
+  configuredAuthority,
+  configuredHost,
+  defaultAuthority,
+  requestHost,
+  publicPort,
+}: ResolvePublicAuthorityOptions) {
+  if (configuredAuthority || configuredHost) {
+    return defaultAuthority;
+  }
+
+  if (!requestHost) {
+    return defaultAuthority;
+  }
+
+  return normalizeAuthority(requestHost, publicPort);
+}
+
 function formatAuthority(hostname: string, port: string) {
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return `${hostname}:${port}`;

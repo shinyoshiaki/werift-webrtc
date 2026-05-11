@@ -15,7 +15,10 @@ import {
 } from "node:tls";
 import { fileURLToPath } from "node:url";
 
-import { normalizeAuthority } from "./publicAuthority";
+import {
+  normalizeAuthority,
+  resolvePublicAuthority as resolveConfiguredPublicAuthority,
+} from "./publicAuthority";
 
 type SessionState = "awaiting-answer" | "answer-applied" | "closed";
 type ChannelState = "open" | "closed" | "connecting" | "closing";
@@ -478,20 +481,13 @@ function resolveTurnUrl(request: IncomingMessage) {
 }
 
 function resolvePublicAuthority(request: IncomingMessage) {
-  if (
-    configuredPublicAuthority ||
-    process.env.TURN_LOOPBACK_PUBLIC_HOST ||
-    process.env.TURN_LOOPBACK_PUBLIC_PORT
-  ) {
-    return defaultPublicAuthority;
-  }
-
-  const requestHost = request.headers.host;
-  if (!requestHost) {
-    return defaultPublicAuthority;
-  }
-
-  return normalizeAuthority(requestHost, publicPort);
+  return resolveConfiguredPublicAuthority({
+    configuredAuthority: configuredPublicAuthority,
+    configuredHost: process.env.TURN_LOOPBACK_PUBLIC_HOST,
+    defaultAuthority: defaultPublicAuthority,
+    requestHost: request.headers.host,
+    publicPort,
+  });
 }
 
 function readOptionalEnv(name: string) {
