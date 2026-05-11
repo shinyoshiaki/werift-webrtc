@@ -118,10 +118,15 @@ const distIndexFile = resolve(distDir, "index.html");
 const dtlsAssetsDir = resolve(exampleRootDir, "../../packages/dtls/assets");
 const host = process.env.TURN_LOOPBACK_HOST ?? "0.0.0.0";
 const port = numberFromEnv("TURN_LOOPBACK_PORT", 8443);
+const publicPort = numberFromEnv("TURN_LOOPBACK_PUBLIC_PORT", port);
+const configuredPublicAuthority = readOptionalEnv("TURN_LOOPBACK_PUBLIC_AUTHORITY");
 const publicHost =
-  process.env.TURN_LOOPBACK_PUBLIC_HOST ??
+  readOptionalEnv("TURN_LOOPBACK_PUBLIC_HOST") ??
   (host === "0.0.0.0" ? "127.0.0.1" : host);
-const defaultPublicAuthority = normalizeAuthority(publicHost, port);
+const defaultPublicAuthority = normalizeAuthority(
+  configuredPublicAuthority ?? publicHost,
+  publicPort,
+);
 const relayAddress =
   process.env.TURN_LOOPBACK_RELAY_ADDRESS ??
   (host === "0.0.0.0" ? "127.0.0.1" : host);
@@ -473,7 +478,11 @@ function resolveTurnUrl(request: IncomingMessage) {
 }
 
 function resolvePublicAuthority(request: IncomingMessage) {
-  if (process.env.TURN_LOOPBACK_PUBLIC_HOST) {
+  if (
+    configuredPublicAuthority ||
+    process.env.TURN_LOOPBACK_PUBLIC_HOST ||
+    process.env.TURN_LOOPBACK_PUBLIC_PORT
+  ) {
     return defaultPublicAuthority;
   }
 
@@ -482,7 +491,12 @@ function resolvePublicAuthority(request: IncomingMessage) {
     return defaultPublicAuthority;
   }
 
-  return normalizeAuthority(requestHost, port);
+  return normalizeAuthority(requestHost, publicPort);
+}
+
+function readOptionalEnv(name: string) {
+  const value = process.env[name]?.trim();
+  return value && value.length > 0 ? value : undefined;
 }
 
 async function waitForIceGatheringComplete(peer: PeerConnectionLike) {

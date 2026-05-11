@@ -8,6 +8,7 @@ Instructions for coding agents working in `examples/turn-loopback`.
 
 * Applies to the Vite React client, the TypeScript signaling server, the local Chrome E2E harness, and package-local docs.
 * This example demonstrates HTTPS signaling plus TURN over TLS on the same public port.
+* The Docker image also bundles a separate HTTP/ACME process on `8080` plus an entrypoint that prepares certificate files before starting the werift server on `8443`.
 * The werift server peer creates the offer and DataChannel; the browser client answers with relay-only ICE.
 
 ## Do
@@ -15,7 +16,8 @@ Instructions for coding agents working in `examples/turn-loopback`.
 1. Keep signaling and TLS socket multiplexing in `server/main.ts`.
 2. Keep the browser SPA in `src/` and preserve a simple one-screen flow for manual echo verification.
 3. Keep the server peer free of TURN client settings and `iceTransportPolicy: "relay"`.
-4. Update `README.md` when scripts, environment variables, run steps, or Docker usage change.
+4. Keep plain HTTP challenge serving and HTTP → HTTPS redirect in the Docker-bundled sidecar process, not in `server/main.ts`.
+5. Update `README.md` when scripts, environment variables, run steps, or Docker usage change.
 
 ## Don't
 
