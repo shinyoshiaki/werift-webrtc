@@ -1,75 +1,3 @@
-│ "**/AGENTS.md"
-
-  │ "**/Dockerfile*"
-
-  │ "NodeTurnServer|turnServer|certbot|\.well-known/acme-challenge|turns:|create
-  │ DataChannel\(|onDataChannel|ondatachannel" in *.{ts,tsx,js,md,json}
-
-  │ examples/turn-loopback/AGENTS.md
-
-
-  │ examples/turn-loopback/Dockerfile
-
-
-  │ packages/ice-server/AGENTS.md
-
-
-  │ examples/turn-loopback/package.json
-
-  │ examples/turn-loopback/README.md
-
-  │ examples/turn-loopback/src/App.tsx
-
-  │ examples/turn-loopback/server/main.ts
-
-  │ examples/turn-loopback/server/main.ts
-
-  │ packages/ice-server/src/index.ts
-
-  │ examples/turn-loopback/server/publicAuthority.ts
-
-  │ packages/webrtc/src/utils.ts
-
-  │ packages/ice-server/src/node/turnServer.ts
-
-  │ packages/ice-server/src/node/turnServer.ts
-
-  │ packages/ice-server/package.json
-
-  │ packages/ice-server/chrome-e2e/server/main.ts
-
-  │ e2e/server/turn.ts
-
-
-  │ packages/ice-server/src/node/turnServer.ts
-
-  │ "acme|certbot|80\b|8080\b|8443\b|\.well-known/acme-challenge|redirect|HTTPS"
-  │ in *.{ts,tsx,md,Dockerfile,json} (examples/turn-loopback,
-  │ packages/ice-server)
-
-  │ "attachTlsSocket\(|external:\s*true|getPassword\(" in *.ts
-
-
-  │ "dockerfile|Dockerfile|certbot|acme|80 / 443|8443|8080"
-  │ (TICKET-ticket-e1d1625a-60f6-4e37-9787-ddb11b47e071.md,
-  │ TICKET-ticket-7fc3e14a-3f62-4cb1-851e-aa120523f974.md)
-
-  │ "docker:build|docker run|EXPOSE|TURN_LOOPBACK_PORT|TURN_LOOPBACK_CERT_FILE|T
-  │ URN_LOOPBACK_KEY_FILE" in *.{md,json,ts,Dockerfile} (examples/turn-loopback)
-
-  │ "**/.dockerignore"
-
-  │ "healthcheck|HEALTHCHECK|/health" in *.{ts,md,Dockerfile,json,yml,yaml}
-
-  │ examples/turn-loopback/chrome-e2e/tests/hosted.test.ts
-
-  │ examples/turn-loopback/chrome-e2e/tests/dev.test.ts
-
-
-  │ examples/turn-loopback/chrome-e2e/tests/fixture.ts
-
-調査結果として、このタスクは**Dockerfileの差し替えだけでは完結せず**、`examples/turn-loopback` の**起動方式・HTTPリスナー・公開URL解決**まで含めて詳細化するのが適切です。親チケットの中核機能はすでに実装済みで、今回の本体は**公開運用向け単一コンテナ化**です。
-
 ## 1. タスクの目的と背景
 
 - 親チケットで必要だったコア機能は、すでに `examples/turn-loopback` にあります。  
@@ -80,7 +8,7 @@
   - クライアント SPA  
   (`examples/turn-loopback/server/main.ts`, `examples/turn-loopback/src/App.tsx`)
 
-- `packages/ice-server` 側も、外部TLS listenerからTURNへソケットを渡す仕組みがすでにあります。  
+- `packages/ice-server` 側も、外部 TLS listener から TURN へソケットを渡す仕組みがすでにあります。  
   (`packages/ice-server/src/node/turnServer.ts:31-49,172-183`)
 
 - ただし現状の Docker 配布は**ローカル確認用**です。  
@@ -89,62 +17,69 @@
   - README も `docker run -p 8443:8443` 前提  
   (`examples/turn-loopback/Dockerfile:1-20`, `examples/turn-loopback/README.md:52-63`)
 
-- また、現在の server は**TLS listener 上で HTTPS/TURN を多重化**しており、**平文 HTTP :8080**, **ACME challenge 配信**, **HTTP→HTTPS redirect** は未対応です。  
-  (`examples/turn-loopback/server/main.ts:159-169,396-406`)
+- 今回の前提では、以下は `examples/turn-loopback/server/main.ts` に持たせず、**同一コンテナ内の別アプリケーション**で担当します。  
+  - 平文 HTTP `:8080`
+  - `/.well-known/acme-challenge/*` の静的配信
+  - `/health`
+  - HTTP → HTTPS redirect
 
-- したがってこのタスクの目的は、既存 example を  
-  **「自己署名証明書で 8443 を直接叩く開発用コンテナ」**から  
-  **「DNS → 静的IP → GCE COS → docker run で 80/443 公開できる単一コンテナ」**へ引き上げることです。
+- そのためこのタスクの目的は、既存 example を  
+  **「Node 単体で 8443 を直接公開する開発用コンテナ」**から  
+  **「werift 本体に加えて HTTP/ACME 用の別アプリケーションも同梱し、起動時にコンテナ内だけで証明書セットアップまで完結できるイメージ」**へ拡張することです。  
+  永続 volume は前提にせず、コンテナ起動ごとに必要なセットアップをやり直す構成を対象にします。
 
 ## 2. 実装すべき具体的な機能や変更内容
 
 | 領域 | 現状 | 今回必要 |
 | --- | --- | --- |
-| Dockerfile | 単一 Node 実行、8443のみ公開 | Certbot 同梱、80/443 想定の実行構成、起動スクリプト追加 |
-| HTTP | なし | `:8080` で `/.well-known/acme-challenge/*` 配信、その他は HTTPS へ redirect |
-| HTTPS/TURN | `:8443` で多重化済み | 維持 |
-| 証明書 | bundled self-signed か env/file 指定 | Certbot の発行/更新ファイルを読む運用へ接続 |
-| 公開URL解決 | internal port ベース | public 443 を正しく返す仕組みに修正 |
-| README | ローカル Docker 手順のみ | GCE/COS 向け run 手順・volume・env を追記 |
+| Dockerfile | 単一 Node 実行、8443 のみ公開 | werift 本体 + HTTP/ACME 用アプリを同梱し、起動スクリプトで両者を立ち上げられる構成にする |
+| HTTP `:8080` | なし | 別アプリケーションが `/.well-known/acme-challenge/*`、`/health`、HTTPS redirect を提供 |
+| HTTPS/TURN `:8443` | `examples/turn-loopback` が多重化済み | 維持。werift 側の責務は HTTPS API / SPA / TURN/TLS に限定 |
+| 証明書 | self-signed または env/file 指定 | 起動時セットアップでコンテナ内の一時パスへ配置し、werift が既存 env/file 指定で読む |
+| 永続化 | 想定なし | 永続 volume を要求しない。再起動時は再セットアップ前提 |
+| README | ローカル Docker 手順のみ | 80/443 公開構成、起動時セットアップ、必要 env、非永続運用時の注意点を追記 |
 
 ### Docker / 起動方式
-- `examples/turn-loopback/Dockerfile` を、**Certbot を含む単一コンテナ構成**に変更する。
+- `examples/turn-loopback/Dockerfile` を、**werift 本体と HTTP/ACME 用別アプリケーションを同梱した単一イメージ**へ変更する。
 - `EXPOSE 8080 8443` に変更する。
-- app と Certbot をまとめて起動するため、**entrypoint スクリプト**を追加する。
-- entrypoint で最低限次を扱う。
-  1. challenge webroot ディレクトリ作成
-  2. 初回証明書取得
-  3. app 起動
-  4. renew ループ
+- 両プロセスと証明書セットアップを扱うため、**entrypoint スクリプト**を追加する。
+- entrypoint では最低限次を扱う。
+  1. challenge 用 webroot と証明書配置先ディレクトリ作成
+  2. 初回セットアップ（証明書取得または生成）
+  3. HTTP/ACME 用アプリ起動
+  4. werift server 起動
   5. signal 伝播と正常終了
 
-### サーバー側
-- `examples/turn-loopback/server/main.ts` に**平文HTTP listener**を追加する。
-- `:8080` では以下を提供する。
+### HTTP / ACME 用別アプリケーション
+- `:8080` の責務は `examples/turn-loopback/server/main.ts` ではなく、**別アプリケーション**に持たせる。
+- そのアプリケーションは以下を提供する。
   - `/.well-known/acme-challenge/*` は webroot から静的配信
-  - `/health` は必要なら平文でも返せるようにする
+  - `/health` は平文 HTTP で返せる
   - それ以外は `https://<public-host><path>` へ 301/308 redirect
-- 既存の `:8443` 側は引き続き
+- 実装方式は Dockerfile で同梱しやすいものを優先する。  
+  例: 軽量 HTTP サーバ、Nginx、Caddy など。ただし ticket では**werift 本体とは別プロセスであること**を満たせばよい。
+
+### werift サーバー側
+- `examples/turn-loopback/server/main.ts` は引き続き `:8443` 側のみを担当する。
   - HTTPS API
   - SPA 配信
-  - TURN/TLS 多重化  
-  を担当する。
+  - TURN/TLS 多重化
+- 平文 HTTP listener や ACME challenge 配信を `main.ts` に追加する対応は、このタスクでは**不要**とする。
 
 ### 証明書連携
-- 既存の `TURN_LOOPBACK_CERT_FILE` / `TURN_LOOPBACK_KEY_FILE` はすでにあるため、これを Let’s Encrypt の live パスに向ける形を基本にする。  
+- 既存の `TURN_LOOPBACK_CERT_FILE` / `TURN_LOOPBACK_KEY_FILE` を流用し、起動時セットアップで作られた証明書ファイルを読む構成を基本にする。  
   (`examples/turn-loopback/server/main.ts:509-537`)
-- Certbot 用に追加整理したい環境変数:
+- 追加整理したい環境変数の例:
   - `CERTBOT_DOMAINS`
   - `CERTBOT_EMAIL`
   - `CERTBOT_STAGING`
   - `CERTBOT_WEBROOT`
+  - `CERTBOT_STATE_DIR`
   - `CERTBOT_RENEW_INTERVAL`
-- 永続化前提の volume パスも README に明記する。
-  - `/etc/letsencrypt`
-  - `/.well-known/acme-challenge` 用 webroot
+- 証明書・challenge webroot は**コンテナ内パスに閉じる**。README に永続 volume を必須要件としては書かない。
 
 ### 公開 `turns:` URL
-- 現在の `turnUrl` 解決は**bind port (`8443`) を fallback に使う**ため、`docker run -p 443:8443` では外向きURLがずれる可能性がある。  
+- 現在の `turnUrl` 解決は **bind port (`8443`) を fallback に使う**ため、`docker run -p 443:8443` では外向き URL がずれる可能性がある。  
   (`examples/turn-loopback/server/main.ts:121-124,471-485`)
 - そのため、`TURN_LOOPBACK_PUBLIC_HOST` だけでなく、**public authority を明示できる設計**にするのが安全。
   - 例: `TURN_LOOPBACK_PUBLIC_AUTHORITY=example.com:443`
@@ -153,12 +88,11 @@
 ### README / 実行手順
 - `examples/turn-loopback/README.md` を更新し、少なくとも以下を載せる。
   - build 手順
-  - GCE COS 上の `docker run` 例
-  - `-p 80:8080 -p 443:8443`
-  - Certbot 用 volume
-  - ドメイン/メール設定
-  - A/AAAA レコードと静的外部IP前提
-  - 初回証明書取得と更新の説明
+  - `docker run -p 80:8080 -p 443:8443`
+  - 起動時セットアップで必要な env
+  - HTTP/ACME 用別アプリケーションの役割
+  - 証明書をコンテナ内で毎回セットアップする前提
+  - 非永続運用時の制約（再起動時の再取得、レート制限注意など）
 
 ## 3. 技術的な実装アプローチを調査し結果を簡潔にまとめる
 
@@ -171,55 +105,54 @@
   (`examples/turn-loopback/server/main.ts:509-537`)
 
 ### 推奨方針
-1. **8443 側は現状維持**  
-   HTTPS API / SPA 配信 / TURN/TLS 多重化はそのまま使う。
+1. **8443 側の werift ロジックは極力そのまま使う**  
+   HTTPS API / SPA 配信 / TURN/TLS 多重化は既存実装を維持する。
 
-2. **8080 側を追加**  
-   ACME 用 webroot と HTTPS redirect を担当させる。
+2. **8080 側は別アプリケーションに分離する**  
+   ACME challenge と redirect は Dockerfile で同梱した別プロセスに担当させる。
 
-3. **Certbot は webroot 方式**  
-   standalone ではなく webroot を使う。  
-   理由は、要件が `/.well-known/acme-challenge/*` を app が配信する前提だから。
+3. **証明書は起動時にコンテナ内へ配置する**  
+   werift は既存の `*_CERT_FILE` / `*_KEY_FILE` 経由で読むだけにする。
 
-4. **Docker は multi-process を明示管理**  
-   app と Certbot を単に `&` で並べるのではなく、entrypoint で signal / restart / renew を管理する。
+4. **Docker は multi-process を明示管理する**  
+   entrypoint でセットアップと各プロセス起動順を管理し、signal / exit code を適切に扱う。
 
-5. **public URL 解決は bind port と分離**  
+5. **public URL 解決は bind port と分離する**  
    internal `8443` と external `443` を分けて扱う。
 
 ## 4. 考慮すべき制約や注意点
 
-- **Dockerfileだけでは足りない**  
-  現状 server に平文 HTTP listener がないため、ACME challenge 配信と redirect は server 側変更が必要。
+- **`main.ts` の責務を増やさない**  
+  今回の要求である HTTP challenge 配信や redirect は、werift server ではなく別アプリケーション側で実現する。
+
+- **永続 volume 前提にしない**  
+  `/etc/letsencrypt` や challenge webroot の永続化は必須要件にしない。コンテナ再起動時は状態が失われる前提で設計する。
+
+- **ACME のレート制限に注意が必要**  
+  証明書を毎起動ごとに本番発行する構成は、再起動頻度によっては Let’s Encrypt の rate limit に抵触し得る。README で staging 利用や運用上の注意を明記する必要がある。
+
+- **証明書更新の扱いを決める必要がある**  
+  非永続前提では長期 renew より「起動時セットアップ」を主軸にしたほうが整合的。renew ループを持つかどうかは、コンテナ寿命と運用想定に合わせて明示する。
 
 - **公開 `turns:` URL が壊れやすい**  
   いまの実装は `Host` ヘッダに port が無いと `8443` を補うため、外側が `443` のとき `turns:example.com:8443` を返し得る。
 
-- **証明書更新を反映する仕組みが必要**  
-  server は起動時に証明書を読み込むだけなので、renew 後に何もしないと古い証明書のままになる。
-
-- **Certbot の状態は永続化が必要**  
-  volume なしだとコンテナ再作成で証明書も ACME 状態も失う。
-
-- **challenge path は redirect してはいけない**  
-  `/.well-known/acme-challenge/*` だけは HTTP でそのまま返す必要がある。
-
-- **既存の WebRTC 方針は維持する**  
-  server peer に TURN client 設定や `iceTransportPolicy: "relay"` を入れない方針は変えない。
+- **challenge path だけは redirect してはいけない**  
+  `/.well-known/acme-challenge/*` は HTTP でそのまま返す必要がある。
 
 - **build context は repo root 前提のまま**  
   既存 server は workspace source を直接参照しているため、`docker build -f examples/turn-loopback/Dockerfile .` 前提は維持される。
 
 ## 5. 完了条件
 
-1. Docker image が **HTTP :8080 / HTTPS+TURN :8443** を内部で起動できる。  
+1. Docker image が **HTTP `:8080` 用別アプリケーション**と **HTTPS+TURN `:8443` の werift server** を同一コンテナ内で起動できる。  
 2. `docker run -p 80:8080 -p 443:8443` の構成が README に明記されている。  
-3. HTTP `/.well-known/acme-challenge/*` が challenge webroot から配信される。  
+3. `/.well-known/acme-challenge/*` が別アプリケーション経由で challenge webroot から配信される。  
 4. HTTP のその他リクエストが HTTPS へ redirect される。  
 5. HTTPS `:8443` 側で、既存どおり SPA 配信・`POST/PUT /session`・TURN/TLS 多重化が動く。  
-6. Certbot の初回発行と renew の流れが単一コンテナ内で扱える。  
-7. app は Let’s Encrypt の証明書ファイルを読める。  
-8. 返却される `turns:` URI が **公開DNS名と 443** に整合する。  
-9. server peer に TURN 設定や `iceTransportPolicy: "relay"` を入れない既存方針が維持される。  
-10. README に build / run / env / volume / DNS・静的IP 前提が整理されている。  
-11. ローカル検証用の自己署名証明書 fallback を残すか、残さないなら README で明確に切り替え条件が説明されている。
+6. 起動時セットアップで証明書ファイルがコンテナ内に用意され、app がそれを読める。  
+7. 永続 volume を必須としない運用手順が README に整理されている。  
+8. 返却される `turns:` URI が **公開 DNS 名と 443** に整合する。  
+9. `examples/turn-loopback/server/main.ts` に HTTP listener / ACME challenge 配信を追加しなくても要件を満たせる構成になっている。  
+10. README に build / run / env / 起動時セットアップ / 非永続運用時の注意点が整理されている。  
+11. ローカル検証用の自己署名証明書 fallback を残すか、残さないなら README で切り替え条件が説明されている。  
