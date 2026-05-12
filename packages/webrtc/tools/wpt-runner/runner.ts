@@ -16,6 +16,7 @@ import {
 } from "../../src";
 import { Navigator } from "../../src/nonstandard";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
+import { ensureWptCheckout } from "./submodule";
 import { resolveTimeoutProfile } from "./timeoutLogic";
 
 export interface WptAllowlistFile {
@@ -105,6 +106,7 @@ export async function loadAllowlist() {
 }
 
 export async function discoverWptTargets() {
+  await ensureWptCheckout(repoRoot, wptRoot);
   const allowlist = await loadAllowlist();
   const discoveredFiles = await listWptHtmlFiles(resolve(wptRoot, "webrtc"));
   const targets = new Map<string, WptTarget>();
