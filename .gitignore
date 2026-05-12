@@ -14,3 +14,4 @@ dist
 *.m4a
 credential.env
 __screenshots__
+.env

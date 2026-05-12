@@ -8,7 +8,7 @@
     "client": "vite",
     "chrome-e2e": "cd chrome-e2e && npm i && npm run ci:silent",
     "chrome-e2e:verbose": "cd chrome-e2e && npm i && npm run ci",
-    "docker:build": "cd ../.. && docker build -f examples/turn-loopback/Dockerfile -t werift-turn-loopback .",
+    "docker:build": ". ./.env && cd ../.. && docker build -f examples/turn-loopback/Dockerfile -t $IMAGE_TAG .",
     "preview": "vite preview",
     "server": "tsx --tsconfig tsconfig.server.json server/main.ts",
     "type": "tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tsconfig.server.json"

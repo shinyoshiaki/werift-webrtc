@@ -1,0 +1,39 @@
+worker_processes auto;
+pid /tmp/nginx.pid;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  access_log /dev/stdout;
+  error_log /dev/stderr warn;
+  keepalive_timeout 65;
+  sendfile on;
+
+  server {
+    listen ${TURN_LOOPBACK_HTTP_PORT};
+    listen [::]:${TURN_LOOPBACK_HTTP_PORT};
+    server_name _;
+
+    location = /health {
+      default_type text/plain;
+      add_header Cache-Control no-store;
+      return 200 "ok\n";
+    }
+
+    location ^~ /.well-known/acme-challenge/ {
+      root ${CERTBOT_WEBROOT};
+      access_log off;
+      add_header Cache-Control no-store;
+      default_type text/plain;
+      try_files $uri =404;
+    }
+
+    location / {
+      return 308 https://${TURN_LOOPBACK_REDIRECT_AUTHORITY}$request_uri;
+    }
+  }
+}
