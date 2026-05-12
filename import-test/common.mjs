@@ -1,6 +1,9 @@
-import { equal } from "node:assert";
+import { doesNotThrow, equal } from "node:assert";
 import { debug } from "werift-common";
 
-const log = debug("import-test:common");
+const namespace = "import-test:common";
+const log = debug(namespace);
 
 equal(typeof log, "function");
+equal(log.namespace, namespace);
+doesNotThrow(() => log("debug dependency is available"));
