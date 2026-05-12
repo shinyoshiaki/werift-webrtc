@@ -1,7 +1,10 @@
 import { setTimeout } from "timers/promises";
+import { vi } from "vitest";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
+  MediaStream,
+  MediaStreamTrack,
   type RTCDataChannel,
   RTCPeerConnection,
   createSelfSignedCertificate,
@@ -23,8 +26,8 @@ describe("peerConnection", () => {
 
       const dc = pc1.createDataChannel("chat", { protocol: "bob" });
       expect(dc.label).toBe("chat");
-      expect(dc.maxPacketLifeTime).toBeUndefined();
-      expect(dc.maxRetransmits).toBeUndefined();
+      expect(dc.maxPacketLifeTime).toBeNull();
+      expect(dc.maxRetransmits).toBeNull();
       expect(dc.ordered).toBeTruthy();
       expect(dc.protocol).toBe("bob");
       expect(dc.readyState).toBe("connecting");
@@ -165,6 +168,113 @@ describe("peerConnection", () => {
     expect(remoteChannelOpened).toBeFalsy();
 
     await Promise.allSettled([caller.close(), callee.close()]);
+  });
+
+  test("constructor applies WebIDL-style validation for configuration dictionaries", () => {
+    const certificateValues = [null, undefined];
+
+    // Assert: null は空辞書として扱われ、無効な certificates / iceCandidatePoolSize は TypeError になる。
+    expect(() => new RTCPeerConnection(null as any)).not.toThrow();
+    expect(() => new RTCPeerConnection({ certificates: null as any })).toThrow(
+      TypeError,
+    );
+    for (const value of certificateValues) {
+      expect(
+        // Act: certificates 辞書メンバーへ nullish な要素を渡して構築する。
+        () => new RTCPeerConnection({ certificates: [value as any] }),
+      ).toThrow(TypeError);
+    }
+    expect(
+      () => new RTCPeerConnection({ iceCandidatePoolSize: Symbol("x") as any }),
+    ).toThrow(TypeError);
+  });
+
+  test("createDataChannel coerces [EnforceRange] unsigned short options", async () => {
+    const pc = new RTCPeerConnection();
+
+    try {
+      // Act: omitted なメンバーは null を返し、数値文字列は number へ正規化する。
+      const omitted = pc.createDataChannel("omitted");
+      const coerced = pc.createDataChannel("coerced", {
+        maxPacketLifeTime: "100" as any,
+      });
+
+      // Assert: omitted/null と coercion の挙動が WPT と一致する。
+      expect(omitted.maxPacketLifeTime).toBeNull();
+      expect(omitted.maxRetransmits).toBeNull();
+      expect(coerced.maxPacketLifeTime).toBe(100);
+      expect(() =>
+        pc.createDataChannel("invalid", { maxRetransmits: 65536 as any }),
+      ).toThrow(TypeError);
+      expect(() =>
+        pc.createDataChannel("invalid", {
+          maxPacketLifeTime: Number.NaN as any,
+        }),
+      ).toThrow(TypeError);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("removeTrack is a no-op for a stopped transceiver", async () => {
+    const pc = new RTCPeerConnection();
+    const stream = new MediaStream();
+    const track = new MediaStreamTrack({ kind: "audio" });
+    stream.addTrack(track);
+    const sender = pc.addTrack(track, stream);
+
+    try {
+      // Act: transceiver を stopping 状態にしたあと removeTrack を呼ぶ。
+      pc.getTransceivers()[0].stop();
+      pc.removeTrack(sender);
+
+      // Assert: stopped transceiver では sender.track が維持される。
+      expect(sender.track).toBe(track);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("ontrack lives on the prototype and rejected sections do not dispatch track", async () => {
+    const pc = new RTCPeerConnection();
+    const onTrack = vi.fn();
+    pc.ontrack = onTrack;
+
+    try {
+      // Act: ontrack 属性の descriptor を確認し、port 0 の rejected m-line を適用する。
+      const descriptor = Object.getOwnPropertyDescriptor(
+        RTCPeerConnection.prototype,
+        "ontrack",
+      );
+      await pc.setRemoteDescription({
+        type: "offer",
+        sdp: `v=0
+o=- 166855176514521964 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=msid-semantic:WMS *
+m=audio 0 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:someufrag
+a=ice-pwd:somelongpwdwithenoughrandomness
+a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00
+a=setup:actpass
+a=mid:0
+a=sendonly
+a=rtcp-mux
+a=rtpmap:111 opus/48000/2
+a=ssrc:1001 cname:some
+`,
+      });
+
+      // Assert: ontrack は prototype accessor として公開され、rejected media section では発火しない。
+      expect(descriptor?.get).toBeTypeOf("function");
+      expect(descriptor?.set).toBeTypeOf("function");
+      expect(onTrack).not.toHaveBeenCalled();
+    } finally {
+      await pc.close();
+    }
   });
 
   test.skip("portRange", async () => {

@@ -177,24 +177,24 @@ export class TransceiverManager {
     );
     if (!transceiver) throw new Error("No matching transceiver found");
 
+    if (transceiver.stopping || transceiver.stopped) {
+      return;
+    }
+
     sender.stop();
 
-    if (transceiver.currentDirection === "recvonly") {
+    if (["recvonly", "inactive"].includes(transceiver.currentDirection ?? "")) {
       this.onNegotiationNeeded.execute();
       return;
     }
 
-    if (transceiver.stopping || transceiver.stopped) {
+    if (transceiver.direction === "sendrecv") {
+      transceiver.setDirection("recvonly");
+    } else if (
+      transceiver.direction === "sendonly" ||
+      transceiver.direction === "recvonly"
+    ) {
       transceiver.setDirection("inactive");
-    } else {
-      if (transceiver.direction === "sendrecv") {
-        transceiver.setDirection("recvonly");
-      } else if (
-        transceiver.direction === "sendonly" ||
-        transceiver.direction === "recvonly"
-      ) {
-        transceiver.setDirection("inactive");
-      }
     }
   }
 
@@ -340,7 +340,10 @@ export class TransceiverManager {
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
     }
-    if (["sendonly", "sendrecv"].includes(mediaDirection)) {
+    if (
+      remoteMedia.port !== 0 &&
+      ["sendonly", "sendrecv"].includes(mediaDirection)
+    ) {
       if (remoteMedia.msid) {
         const [streamId, trackId] = remoteMedia.msid.split(" ");
         transceiver.receiver.remoteStreamId = streamId;
@@ -351,7 +354,7 @@ export class TransceiverManager {
         track: transceiver.receiver.track,
         transceiver,
         stream: new MediaStream({
-          id: transceiver.receiver.remoteStreamId,
+          id: transceiver.receiver.remoteStreamId ?? "",
           tracks: [transceiver.receiver.track],
         }),
       });

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 
 import type { RTCDataChannel } from "./dataChannel";
-import { createWebRtcDomException } from "./errors";
+import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { EventTarget, enumerate } from "./helper";
 import {
   type Address,
@@ -108,16 +108,79 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidate = new Event<[RTCIceCandidate | undefined]>();
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
+  private readonly eventHandlers: PeerConnectionEventHandlers = {};
 
-  ondatachannel?: CallbackWithValue<RTCDataChannelEvent>;
-  onicecandidate?: CallbackWithValue<RTCPeerConnectionIceEvent>;
-  onicecandidateerror?: CallbackWithValue<any>;
-  onicegatheringstatechange?: CallbackWithValue<any>;
-  onnegotiationneeded?: CallbackWithValue<any>;
-  onsignalingstatechange?: CallbackWithValue<any>;
-  ontrack?: CallbackWithValue<RTCTrackEvent>;
-  onconnectionstatechange?: Callback;
-  oniceconnectionstatechange?: Callback;
+  get ondatachannel() {
+    return this.eventHandlers.ondatachannel ?? null;
+  }
+
+  set ondatachannel(value: CallbackWithValue<RTCDataChannelEvent> | null) {
+    this.eventHandlers.ondatachannel = value ?? undefined;
+  }
+
+  get onicecandidate() {
+    return this.eventHandlers.onicecandidate ?? null;
+  }
+
+  set onicecandidate(value: CallbackWithValue<RTCPeerConnectionIceEvent> | null) {
+    this.eventHandlers.onicecandidate = value ?? undefined;
+  }
+
+  get onicecandidateerror() {
+    return this.eventHandlers.onicecandidateerror ?? null;
+  }
+
+  set onicecandidateerror(value: CallbackWithValue<any> | null) {
+    this.eventHandlers.onicecandidateerror = value ?? undefined;
+  }
+
+  get onicegatheringstatechange() {
+    return this.eventHandlers.onicegatheringstatechange ?? null;
+  }
+
+  set onicegatheringstatechange(value: CallbackWithValue<any> | null) {
+    this.eventHandlers.onicegatheringstatechange = value ?? undefined;
+  }
+
+  get onnegotiationneeded() {
+    return this.eventHandlers.onnegotiationneeded ?? null;
+  }
+
+  set onnegotiationneeded(value: CallbackWithValue<any> | null) {
+    this.eventHandlers.onnegotiationneeded = value ?? undefined;
+  }
+
+  get onsignalingstatechange() {
+    return this.eventHandlers.onsignalingstatechange ?? null;
+  }
+
+  set onsignalingstatechange(value: CallbackWithValue<any> | null) {
+    this.eventHandlers.onsignalingstatechange = value ?? undefined;
+  }
+
+  get ontrack() {
+    return this.eventHandlers.ontrack ?? null;
+  }
+
+  set ontrack(value: CallbackWithValue<RTCTrackEvent> | null) {
+    this.eventHandlers.ontrack = value ?? undefined;
+  }
+
+  get onconnectionstatechange() {
+    return this.eventHandlers.onconnectionstatechange ?? null;
+  }
+
+  set onconnectionstatechange(value: Callback | null) {
+    this.eventHandlers.onconnectionstatechange = value ?? undefined;
+  }
+
+  get oniceconnectionstatechange() {
+    return this.eventHandlers.oniceconnectionstatechange ?? null;
+  }
+
+  set oniceconnectionstatechange(value: Callback | null) {
+    this.eventHandlers.oniceconnectionstatechange = value ?? undefined;
+  }
 
   constructor(config: RTCPeerConnectionConfig = {}) {
     super();
@@ -141,7 +204,7 @@ export class RTCPeerConnection extends EventTarget {
       ({ track, stream, transceiver }) => {
         const event: RTCTrackEvent = {
           track,
-          streams: [stream],
+          streams: stream.id ? [stream] : [],
           transceiver,
           receiver: transceiver.receiver,
         };
@@ -1208,13 +1271,49 @@ export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
 function normalizePeerConfiguration(
   config: RTCPeerConnectionConfig,
 ): Partial<PeerConfig> {
-  const normalizedConfig = { ...config } as Partial<PeerConfig>;
+  const input = Object(config ?? {}) as RTCPeerConnectionConfig;
+  const normalizedConfig = { ...input } as Partial<PeerConfig>;
 
-  if (config.bundlePolicy === "balanced") {
+  if (input.bundlePolicy === "balanced") {
     normalizedConfig.bundlePolicy = "max-compat";
   }
 
+  if ("certificates" in input) {
+    if (input.certificates === undefined) {
+      normalizedConfig.certificates = undefined;
+    } else if (
+      !Array.isArray(input.certificates) ||
+      input.certificates.some((certificate) => certificate == null)
+    ) {
+      throw createWebRtcTypeError(
+        "certificates must be an array of RTCCertificate",
+      );
+    } else {
+      normalizedConfig.certificates = [...input.certificates];
+    }
+  }
+
+  if ("iceCandidatePoolSize" in input) {
+    normalizedConfig.iceCandidatePoolSize = coerceUnsignedShort(
+      input.iceCandidatePoolSize,
+      "iceCandidatePoolSize",
+    );
+  }
+
   return normalizedConfig;
+}
+
+function coerceUnsignedShort(value: unknown, name: string) {
+  const coerced = Number(value);
+  if (
+    !Number.isFinite(coerced) ||
+    !Number.isInteger(coerced) ||
+    coerced < 0 ||
+    coerced > 65535
+  ) {
+    throw createWebRtcTypeError(`${name} must be an unsigned short`);
+  }
+  return coerced;
 }
 
 function hasSameCertificates(left: RTCCertificate[], right: RTCCertificate[]) {
@@ -1269,3 +1368,15 @@ export interface RTCDataChannelEvent {
 export interface RTCPeerConnectionIceEvent {
   candidate?: RTCIceCandidate;
 }
+
+type PeerConnectionEventHandlers = {
+  ondatachannel?: CallbackWithValue<RTCDataChannelEvent>;
+  onicecandidate?: CallbackWithValue<RTCPeerConnectionIceEvent>;
+  onicecandidateerror?: CallbackWithValue<any>;
+  onicegatheringstatechange?: CallbackWithValue<any>;
+  onnegotiationneeded?: CallbackWithValue<any>;
+  onsignalingstatechange?: CallbackWithValue<any>;
+  ontrack?: CallbackWithValue<RTCTrackEvent>;
+  onconnectionstatechange?: Callback;
+  oniceconnectionstatechange?: Callback;
+};

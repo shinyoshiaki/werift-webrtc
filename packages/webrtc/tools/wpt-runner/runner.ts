@@ -455,6 +455,7 @@ function createContext(input: {
     AbortController,
     Buffer,
     DOMException,
+    Error,
     Event,
     EventTarget,
     HTMLCanvasElement: class HTMLCanvasElement {},
@@ -469,6 +470,10 @@ function createContext(input: {
     RTCRtpSender,
     RTCRtpTransceiver,
     RTCSessionDescription: createRtcSessionDescriptionClass(),
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
     URL,
     URLSearchParams,
     clearInterval,
@@ -781,6 +786,17 @@ export function formatMarkdownReport(report: WptRunReport) {
       );
     })
     .slice(0, 20);
+  const partiallyPassingFiles = summarizeByFile(report.results)
+    .filter((file) => file.passed > 0)
+    .sort((left, right) => {
+      return (
+        right.passed - left.passed ||
+        left.failed - right.failed ||
+        left.timedOut - right.timedOut ||
+        left.file.localeCompare(right.file) ||
+        left.variant.localeCompare(right.variant)
+      );
+    });
 
   const lines = [
     "# WPT WebRTC summary",
@@ -809,6 +825,20 @@ export function formatMarkdownReport(report: WptRunReport) {
       ...fileSummary.map(
         (file) =>
           `| ${file.file}${file.variant ? ` ${file.variant}` : ""} | ${file.passed} | ${file.failed} | ${file.timedOut} |`,
+      ),
+    );
+  }
+
+  if (partiallyPassingFiles.length > 0) {
+    lines.push(
+      "",
+      "## Files with at least one passing subtest",
+      "",
+      "| File | Variant | PASS | FAIL | TIMEOUT |",
+      "| --- | --- | ---: | ---: | ---: |",
+      ...partiallyPassingFiles.map(
+        (file) =>
+          `| ${file.file} | ${file.variant || "(default)"} | ${file.passed} | ${file.failed} | ${file.timedOut} |`,
       ),
     );
   }
