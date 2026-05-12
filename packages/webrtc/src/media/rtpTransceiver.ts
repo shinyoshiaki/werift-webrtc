@@ -22,11 +22,11 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 export class RTCRtpTransceiver {
   readonly id = randomUUID().toString();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
-  mid?: string;
+  mid: string | null = null;
   mLineIndex?: number;
   /**should not be reused because it has been used for sending before. */
   usedForSender = false;
-  private _currentDirection?: MediaDirection;
+  private _currentDirection?: CurrentDirection;
   offerDirection!: MediaDirection;
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
@@ -62,19 +62,27 @@ export class RTCRtpTransceiver {
     return this._direction;
   }
 
+  set direction(direction: MediaDirection) {
+    this.setDirection(direction);
+  }
+
   setDirection(direction: MediaDirection) {
     this._direction = direction;
-    if (SenderDirections.includes(this._currentDirection ?? "")) {
+    if (
+      this._currentDirection &&
+      this._currentDirection !== "stopped" &&
+      SenderDirections.includes(this._currentDirection)
+    ) {
       this.usedForSender = true;
     }
   }
 
   /**RFC 8829 4.2.5. last negotiated direction */
-  get currentDirection(): MediaDirection | null {
+  get currentDirection(): CurrentDirection | null {
     return this._currentDirection ?? null;
   }
 
-  setCurrentDirection(direction: MediaDirection | undefined) {
+  setCurrentDirection(direction: CurrentDirection | undefined) {
     this._currentDirection = direction;
   }
 
@@ -84,7 +92,13 @@ export class RTCRtpTransceiver {
   }
 
   get msid() {
-    return `${this.sender.streamId} ${this.sender.trackId}`;
+    return this.msids[0];
+  }
+
+  get msids() {
+    return this.sender.streamIds.map(
+      (streamId) => `${streamId} ${this.sender.trackId}`,
+    );
   }
 
   addTrack(track: MediaStreamTrack) {
@@ -104,6 +118,18 @@ export class RTCRtpTransceiver {
     // todo Stop sending and receiving with transceiver.
 
     this.stopping = true;
+  }
+
+  forceStop() {
+    if (this.stopped) {
+      return;
+    }
+
+    this.stopping = true;
+    this.stopped = true;
+    this.setCurrentDirection("stopped");
+    this.receiver.stop();
+    this.sender.stop();
   }
 
   getPayloadType(mimeType: string) {
@@ -154,11 +180,17 @@ export const Sendrecv = "sendrecv";
 export const Directions = [Inactive, Sendonly, Recvonly, Sendrecv] as const;
 
 export type MediaDirection = (typeof Directions)[number];
+export type CurrentDirection = MediaDirection | "stopped";
 
 type SimulcastDirection = "send" | "recv";
 
+export interface RTCRtpEncodingParameters {
+  active?: boolean;
+}
+
 export interface TransceiverOptions {
   direction: MediaDirection;
+  sendEncodings: RTCRtpEncodingParameters[];
   simulcast: { direction: SimulcastDirection; rid: string }[];
   streams: MediaStream[];
 }

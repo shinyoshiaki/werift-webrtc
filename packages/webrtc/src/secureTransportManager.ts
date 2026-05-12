@@ -167,7 +167,7 @@ export class SecureTransportManager {
     } else {
       if (transceiver) {
         candidate.sdpMLineIndex = transceiver.mLineIndex;
-        candidate.sdpMid = transceiver.mid;
+        candidate.sdpMid = transceiver.mid ?? undefined;
       }
       if (sctpTransport) {
         candidate.sdpMLineIndex = sctpTransport.mLineIndex;

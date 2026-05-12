@@ -201,13 +201,13 @@ export class RTCPeerConnection extends EventTarget {
       this.onRemoteTransceiverAdded,
     );
     this.transceiverManager.onTrack.subscribe(
-      ({ track, stream, transceiver }) => {
-        const event: RTCTrackEvent = {
+      ({ track, streams, transceiver }) => {
+        const event = new RTCTrackEvent({
           track,
-          streams: stream.id ? [stream] : [],
+          streams,
           transceiver,
           receiver: transceiver.receiver,
-        };
+        });
         this.onTrack.execute(track);
         this.emit("track", event);
         if (this.ontrack) {
@@ -831,6 +831,8 @@ export class RTCPeerConnection extends EventTarget {
       sessionDescription = sessionDescription.toSdp();
     }
 
+    await Promise.resolve();
+
     // # parse and validate description
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
@@ -852,7 +854,7 @@ export class RTCPeerConnection extends EventTarget {
       media: MediaDescription,
     ) =>
       transceiver.kind === media.kind &&
-      [undefined, media.rtp.muxId].includes(transceiver.mid);
+      [null, media.rtp.muxId].includes(transceiver.mid);
 
     let transports = remoteSdp.media.map((remoteMedia, i) => {
       let dtlsTransport: RTCDtlsTransport;
@@ -866,7 +868,7 @@ export class RTCPeerConnection extends EventTarget {
           transceiver = this.addTransceiver(remoteMedia.kind, {
             direction: "recvonly",
           });
-          transceiver.mid = remoteMedia.rtp.muxId;
+          transceiver.mid = remoteMedia.rtp.muxId ?? null;
           this.onRemoteTransceiverAdded.execute(transceiver);
         } else {
           if (transceiver.direction === "inactive" && transceiver.stopping) {
@@ -1011,13 +1013,12 @@ export class RTCPeerConnection extends EventTarget {
   // todo fix
   addTrack(
     track: MediaStreamTrack,
-    /**todo impl */
-    ms?: MediaStream,
+    ...streams: MediaStream[]
   ): RTCRtpSender {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    const transceiver = this.transceiverManager.addTrack(track, ms);
+    const transceiver = this.transceiverManager.addTrack(track, streams);
     if (!transceiver.dtlsTransport) {
       const dtlsTransport = this.findOrCreateTransport();
       transceiver.setDtlsTransport(dtlsTransport);
@@ -1354,11 +1355,23 @@ function clonePeerConfiguration(config: PeerConfig) {
   };
 }
 
-export interface RTCTrackEvent {
-  track: MediaStreamTrack;
-  streams: MediaStream[];
-  transceiver: RTCRtpTransceiver;
-  receiver: RTCRtpReceiver;
+export class RTCTrackEvent {
+  readonly track: MediaStreamTrack;
+  readonly streams: MediaStream[];
+  readonly transceiver: RTCRtpTransceiver;
+  readonly receiver: RTCRtpReceiver;
+
+  constructor(init: {
+    track: MediaStreamTrack;
+    streams: MediaStream[];
+    transceiver: RTCRtpTransceiver;
+    receiver: RTCRtpReceiver;
+  }) {
+    this.track = init.track;
+    this.streams = [...init.streams];
+    this.transceiver = init.transceiver;
+    this.receiver = init.receiver;
+  }
 }
 
 export interface RTCDataChannelEvent {

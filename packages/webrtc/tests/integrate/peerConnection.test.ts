@@ -5,6 +5,7 @@ import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
   MediaStream,
   MediaStreamTrack,
+  RTCTrackEvent,
   type RTCDataChannel,
   RTCPeerConnection,
   createSelfSignedCertificate,
@@ -272,6 +273,82 @@ a=ssrc:1001 cname:some
       expect(descriptor?.get).toBeTypeOf("function");
       expect(descriptor?.set).toBeTypeOf("function");
       expect(onTrack).not.toHaveBeenCalled();
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("setRemoteDescription keeps addTrack transceiver ahead of remote ones while pending", async () => {
+    const caller = new RTCPeerConnection();
+    const callee = new RTCPeerConnection();
+    const localTrack = new MediaStreamTrack({ kind: "audio" });
+
+    try {
+      // Arrange: remote offer 側は video transceiver を1本だけ持つ。
+      caller.addTransceiver("video");
+      const offer = await caller.createOffer();
+
+      // Act: SRD の Promise を保持したまま addTrack し、await 前の並びを観測する。
+      const pending = callee.setRemoteDescription(offer);
+      expect(callee.getTransceivers()).toHaveLength(0);
+      const sender = callee.addTrack(localTrack);
+
+      // Assert: addTrack が先に transceiver を作り、SRD 完了後も先頭を維持する。
+      expect(callee.getTransceivers()).toHaveLength(1);
+      expect(callee.getTransceivers()[0].sender).toBe(sender);
+      expect(callee.getTransceivers()[0].mid).toBeNull();
+
+      await pending;
+
+      expect(callee.getTransceivers()).toHaveLength(2);
+      expect(callee.getTransceivers()[0].sender).toBe(sender);
+      expect(callee.getTransceivers()[0].mid).toBeNull();
+      expect(callee.getTransceivers()[1].mid).not.toBeNull();
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("ontrack exposes all remote streams and RTCTrackEvent instances", async () => {
+    const caller = new RTCPeerConnection();
+    const callee = new RTCPeerConnection();
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const stream0 = new MediaStream();
+    const stream1 = new MediaStream();
+    const onTrack = new Promise<RTCTrackEvent>((resolve) => {
+      callee.addEventListener("track", resolve, { once: true });
+    });
+
+    try {
+      // Act: 2つの stream を同じ addTrack に渡して offer を適用する。
+      caller.addTrack(track, stream0, stream1);
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+
+      // Assert: track event は RTCTrackEvent で、stream id が順序どおりに復元される。
+      const event = await onTrack;
+      expect(event).toBeInstanceOf(RTCTrackEvent);
+      expect(event.streams.map((stream) => stream.id)).toEqual([
+        stream0.id,
+        stream1.id,
+      ]);
+    } finally {
+      await Promise.allSettled([caller.close(), callee.close()]);
+    }
+  });
+
+  test("addTransceiver preserves initial sendEncodings in sender.getParameters()", async () => {
+    const pc = new RTCPeerConnection();
+    const track = new MediaStreamTrack({ kind: "audio" });
+
+    try {
+      // Act: sendEncodings.active=false を持つ transceiver を作成する。
+      const transceiver = pc.addTransceiver(track, {
+        sendEncodings: [{ active: false }],
+      });
+
+      // Assert: sender.getParameters() が初期 encodings を返す。
+      expect(transceiver.sender.getParameters().encodings[0]?.active).toBe(false);
     } finally {
       await pc.close();
     }
