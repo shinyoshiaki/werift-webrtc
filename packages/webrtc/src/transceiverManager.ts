@@ -98,9 +98,9 @@ export class TransceiverManager {
     newTransceiver.options = options;
     newTransceiver.sender.setStreams(options.streams ?? []);
     newTransceiver.sender.setSendEncodings(
-      ((options.sendEncodings as RTCRtpEncodingParameters[] | undefined) ?? []).map(
-        (encoding) => ({ ...encoding }),
-      ),
+      (
+        (options.sendEncodings as RTCRtpEncodingParameters[] | undefined) ?? []
+      ).map((encoding) => ({ ...encoding })),
     );
     this.router.registerRtpSender(newTransceiver.sender);
 
@@ -124,7 +124,10 @@ export class TransceiverManager {
     return newTransceiver;
   }
 
-  addTrack(track: MediaStreamTrack, streams: MediaStream[] = []): RTCRtpTransceiver {
+  addTrack(
+    track: MediaStreamTrack,
+    streams: MediaStream[] = [],
+  ): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw createWebRtcDomException(
         "InvalidAccessError",

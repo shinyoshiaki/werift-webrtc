@@ -333,11 +333,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **maxPacketLifeTime**(): `undefined` \| `number`
+> **get** **maxPacketLifeTime**(): `null` \| `number`
 
 ##### Returns
 
-`undefined` \| `number`
+`null` \| `number`
 
 ***
 
@@ -345,11 +345,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **maxRetransmits**(): `undefined` \| `number`
+> **get** **maxRetransmits**(): `null` \| `number`
 
 ##### Returns
 
-`undefined` \| `number`
+`null` \| `number`
 
 ***
 

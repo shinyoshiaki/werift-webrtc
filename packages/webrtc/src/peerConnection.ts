@@ -1011,10 +1011,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   // todo fix
-  addTrack(
-    track: MediaStreamTrack,
-    ...streams: MediaStream[]
-  ): RTCRtpSender {
+  addTrack(track: MediaStreamTrack, ...streams: MediaStream[]): RTCRtpSender {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }

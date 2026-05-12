@@ -5,9 +5,9 @@ import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
   MediaStream,
   MediaStreamTrack,
-  RTCTrackEvent,
   type RTCDataChannel,
   RTCPeerConnection,
+  RTCTrackEvent,
   createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
@@ -348,7 +348,9 @@ a=ssrc:1001 cname:some
       });
 
       // Assert: sender.getParameters() が初期 encodings を返す。
-      expect(transceiver.sender.getParameters().encodings[0]?.active).toBe(false);
+      expect(transceiver.sender.getParameters().encodings[0]?.active).toBe(
+        false,
+      );
     } finally {
       await pc.close();
     }

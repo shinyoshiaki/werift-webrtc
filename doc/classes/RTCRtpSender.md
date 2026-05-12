@@ -114,9 +114,9 @@
 
 ***
 
-### streamId
+### streamIds
 
-> **streamId**: `string`
+> **streamIds**: `string`[] = `[]`
 
 ***
 
@@ -168,6 +168,32 @@
 
 `void`
 
+***
+
+### streamId
+
+#### Get Signature
+
+> **get** **streamId**(): `undefined` \| `string`
+
+##### Returns
+
+`undefined` \| `string`
+
+#### Set Signature
+
+> **set** **streamId**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`undefined` | `string`
+
+##### Returns
+
+`void`
+
 ## Methods
 
 ### collectStats()
@@ -196,7 +222,11 @@
 
 ##### encodings
 
-> **encodings**: `never`[] = `[]`
+> **encodings**: `object`[]
+
+###### Index Signature
+
+\[`key`: `string`\]: `unknown`
 
 ***
 
@@ -354,7 +384,41 @@
 
 ##### params
 
-`any`
+###### encodings?
+
+`Record`\<`string`, `unknown`\>[]
+
+#### Returns
+
+`void`
+
+***
+
+### setSendEncodings()
+
+> **setSendEncodings**(`encodings`): `void`
+
+#### Parameters
+
+##### encodings
+
+`Record`\<`string`, `unknown`\>[] = `[]`
+
+#### Returns
+
+`void`
+
+***
+
+### setStreams()
+
+> **setStreams**(`streams`): `void`
+
+#### Parameters
+
+##### streams
+
+[`MediaStream`](MediaStream.md)[] = `[]`
 
 #### Returns
 
