@@ -66,9 +66,9 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ***
 
-### mid?
+### mid
 
-> `optional` **mid**: `string`
+> **mid**: `null` \| `string` = `null`
 
 ***
 
@@ -158,13 +158,13 @@ should not be reused because it has been used for sending before.
 
 #### Get Signature
 
-> **get** **currentDirection**(): `null` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> **get** **currentDirection**(): `null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md)
 
 RFC 8829 4.2.5. last negotiated direction
 
 ##### Returns
 
-`null` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+`null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md)
 
 ***
 
@@ -179,6 +179,20 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 ##### Returns
 
 `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+
+#### Set Signature
+
+> **set** **direction**(`direction`): `void`
+
+##### Parameters
+
+###### direction
+
+`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+
+##### Returns
+
+`void`
 
 ***
 
@@ -203,6 +217,18 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 ##### Returns
 
 `string`
+
+***
+
+### msids
+
+#### Get Signature
+
+> **get** **msids**(): `string`[]
+
+##### Returns
+
+`string`[]
 
 ## Methods
 
@@ -235,6 +261,16 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 #### Returns
 
 [`RTCStats`](../interfaces/RTCStats.md)[]
+
+***
+
+### forceStop()
+
+> **forceStop**(): `void`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -272,7 +308,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ##### direction
 
-`undefined` | `"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`undefined` | [`CurrentDirection`](../type-aliases/CurrentDirection.md)
 
 #### Returns
 

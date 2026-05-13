@@ -71,6 +71,9 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `current/pending*Description`, `canTrickleIceCandidates`, `sctp`,
  *   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
  *   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
+ * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
+ *   `usernameFragment` against the applied remote description and appends
+ *   candidates or end-of-candidates markers to the corresponding m-section.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
  *   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
  *   returns the normalized value.
@@ -201,13 +204,13 @@ export class RTCPeerConnection extends EventTarget {
       this.onRemoteTransceiverAdded,
     );
     this.transceiverManager.onTrack.subscribe(
-      ({ track, stream, transceiver }) => {
-        const event: RTCTrackEvent = {
+      ({ track, streams, transceiver }) => {
+        const event = new RTCTrackEvent({
           track,
-          streams: stream.id ? [stream] : [],
+          streams,
           transceiver,
           receiver: transceiver.receiver,
-        };
+        });
         this.onTrack.execute(track);
         this.emit("track", event);
         if (this.ontrack) {
@@ -761,17 +764,48 @@ export class RTCPeerConnection extends EventTarget {
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null = {},
   ) {
+    if (this.isClosed) {
+      throw createWebRtcDomException("InvalidStateError", "is closed");
+    }
     if (!this.remoteDescription) {
       throw createWebRtcDomException(
         "InvalidStateError",
         "The remote description was null",
       );
     }
-    const sdp = this.sdpManager.buildOfferSdp(
-      this.transceiverManager.getTransceivers(),
-      this.sctpTransport,
+    const sdp = this.sdpManager._remoteDescription;
+    if (!sdp) {
+      throw createWebRtcDomException(
+        "InvalidStateError",
+        "The remote description was null",
+      );
+    }
+    const appliedCandidate = await this.secureManager.addIceCandidate(
+      sdp,
+      candidateMessage,
     );
-    await this.secureManager.addIceCandidate(sdp, candidateMessage);
+    const remoteDescription = this.sdpManager._remoteDescription;
+    if (!remoteDescription || !appliedCandidate) {
+      return;
+    }
+
+    if (appliedCandidate.kind === "end-of-candidates") {
+      for (const mediaIndex of appliedCandidate.mediaIndices) {
+        const media = remoteDescription.media[mediaIndex];
+        if (media) {
+          media.iceCandidatesComplete = true;
+        }
+      }
+      return;
+    }
+
+    for (const mediaIndex of appliedCandidate.mediaIndices) {
+      const media = remoteDescription.media[mediaIndex];
+      if (!media) {
+        continue;
+      }
+      media.iceCandidates.push(appliedCandidate.candidate);
+    }
   }
 
   private async connect() {
@@ -831,6 +865,8 @@ export class RTCPeerConnection extends EventTarget {
       sessionDescription = sessionDescription.toSdp();
     }
 
+    await Promise.resolve();
+
     // # parse and validate description
     const remoteSdp = this.sdpManager.setRemoteDescription(
       sessionDescription,
@@ -852,7 +888,7 @@ export class RTCPeerConnection extends EventTarget {
       media: MediaDescription,
     ) =>
       transceiver.kind === media.kind &&
-      [undefined, media.rtp.muxId].includes(transceiver.mid);
+      [null, media.rtp.muxId].includes(transceiver.mid);
 
     let transports = remoteSdp.media.map((remoteMedia, i) => {
       let dtlsTransport: RTCDtlsTransport;
@@ -866,7 +902,7 @@ export class RTCPeerConnection extends EventTarget {
           transceiver = this.addTransceiver(remoteMedia.kind, {
             direction: "recvonly",
           });
-          transceiver.mid = remoteMedia.rtp.muxId;
+          transceiver.mid = remoteMedia.rtp.muxId ?? null;
           this.onRemoteTransceiverAdded.execute(transceiver);
         } else {
           if (transceiver.direction === "inactive" && transceiver.stopping) {
@@ -1009,15 +1045,11 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   // todo fix
-  addTrack(
-    track: MediaStreamTrack,
-    /**todo impl */
-    ms?: MediaStream,
-  ): RTCRtpSender {
+  addTrack(track: MediaStreamTrack, ...streams: MediaStream[]): RTCRtpSender {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    const transceiver = this.transceiverManager.addTrack(track, ms);
+    const transceiver = this.transceiverManager.addTrack(track, streams);
     if (!transceiver.dtlsTransport) {
       const dtlsTransport = this.findOrCreateTransport();
       transceiver.setDtlsTransport(dtlsTransport);
@@ -1354,11 +1386,23 @@ function clonePeerConfiguration(config: PeerConfig) {
   };
 }
 
-export interface RTCTrackEvent {
-  track: MediaStreamTrack;
-  streams: MediaStream[];
-  transceiver: RTCRtpTransceiver;
-  receiver: RTCRtpReceiver;
+export class RTCTrackEvent {
+  readonly track: MediaStreamTrack;
+  readonly streams: MediaStream[];
+  readonly transceiver: RTCRtpTransceiver;
+  readonly receiver: RTCRtpReceiver;
+
+  constructor(init: {
+    track: MediaStreamTrack;
+    streams: MediaStream[];
+    transceiver: RTCRtpTransceiver;
+    receiver: RTCRtpReceiver;
+  }) {
+    this.track = init.track;
+    this.streams = [...init.streams];
+    this.transceiver = init.transceiver;
+    this.receiver = init.receiver;
+  }
 }
 
 export interface RTCDataChannelEvent {

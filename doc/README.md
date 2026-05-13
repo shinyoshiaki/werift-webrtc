@@ -147,7 +147,7 @@ tracked in git, so it is not committed as part of this change.
 | Added | `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, `pendingRemoteDescription`, `canTrickleIceCandidates`, `sctp` | Public getters now follow W3C-style pending/current description visibility and expose SCTP/canTrickle state. |
 | Added | `setLocalDescription()` input compatibility | Accepts omitted `type`, empty `sdp`, and provisional `pranswer`. |
 | Added | `setRemoteDescription()` input compatibility | Accepts `pranswer` and `rollback`, updating pending/current descriptions accordingly. |
-| Added | `addIceCandidate()` input compatibility | Accepts omitted input, `null`, and `{ candidate: "" }` as end-of-candidates, rejects calls before `remoteDescription` is set, and rejects malformed candidate strings. |
+| Added | `addIceCandidate()` input compatibility | Accepts omitted input, `null`, and `{ candidate: "" }` as end-of-candidates, validates `sdpMid` / `sdpMLineIndex` / `usernameFragment`, updates the matching remote m-section, rejects calls before `remoteDescription` is set, and rejects malformed candidate strings. |
 | Added | `RTCConfiguration` compatibility | Accepts `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy: "require"`, `iceCandidatePoolSize: 0`, and `certificates`; `setConfiguration(getConfiguration())` round-trips without changing certificates. |
 | Deferred | `bundlePolicy: "balanced"` round-trip | `"balanced"` is accepted for input compatibility, but it is internally normalized to werift's `"max-compat"` behavior, so `getConfiguration()` returns `"max-compat"`. |
 | Added | `RTCIceServer.urls: string \| string[]` | Arrays are accepted and parsed in order. |

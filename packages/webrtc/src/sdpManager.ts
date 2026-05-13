@@ -79,11 +79,11 @@ export class SDPManager {
       transceiver.codecs.map((c) => c.payloadType),
     );
     media.direction = direction;
-    media.msid = transceiver.msid;
+    media.msids = transceiver.msids;
     media.rtp = {
       codecs: transceiver.codecs,
       headerExtensions: transceiver.headerExtensions,
-      muxId: transceiver.mid,
+      muxId: transceiver.mid ?? undefined,
     };
     media.rtcpHost = "0.0.0.0";
     media.rtcpPort = 9;
@@ -154,7 +154,7 @@ export class SDPManager {
 
     if (media.direction === "inactive") {
       media.port = 0;
-      media.msid = undefined;
+      media.msids = [];
     }
 
     if (!media.dtlsParams) {

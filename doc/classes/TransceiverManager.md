@@ -46,7 +46,7 @@
 
 ### onTrack
 
-> `readonly` **onTrack**: [`Event`](Event.md)\<\[\{ `stream`: [`MediaStream`](MediaStream.md); `track`: [`MediaStreamTrack`](MediaStreamTrack.md); `transceiver`: [`RTCRtpTransceiver`](RTCRtpTransceiver.md); \}\]\>
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[\{ `streams`: [`MediaStream`](MediaStream.md)[]; `track`: [`MediaStreamTrack`](MediaStreamTrack.md); `transceiver`: [`RTCRtpTransceiver`](RTCRtpTransceiver.md); \}\]\>
 
 ***
 
@@ -58,7 +58,7 @@
 
 ### addTrack()
 
-> **addTrack**(`track`, `ms`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTrack**(`track`, `streams`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -66,9 +66,9 @@
 
 [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### ms?
+##### streams
 
-[`MediaStream`](MediaStream.md)
+[`MediaStream`](MediaStream.md)[] = `[]`
 
 #### Returns
 
