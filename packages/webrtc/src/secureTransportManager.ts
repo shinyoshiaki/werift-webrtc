@@ -1,5 +1,5 @@
 import { SRTP_PROFILE } from "./const";
-import { createWebRtcDomException } from "./errors";
+import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
@@ -191,35 +191,42 @@ export class SecureTransportManager {
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
   ) {
+    const candidateText = candidateMessage?.candidate;
+    const sdpMid = candidateMessage?.sdpMid;
+    const sdpMLineIndex = candidateMessage?.sdpMLineIndex;
+    const usernameFragment = candidateMessage?.usernameFragment;
     const isEndOfCandidates =
-      candidateMessage == null ||
-      candidateMessage.candidate == null ||
-      candidateMessage.candidate === "";
+      candidateMessage == null || candidateText == null || candidateText === "";
+    const mediaIndices = this.resolveCandidateMediaIndices({
+      sdp,
+      isEndOfCandidates,
+      sdpMid,
+      sdpMLineIndex,
+      usernameFragment,
+    });
 
     if (isEndOfCandidates) {
-      const candidateTarget =
-        candidateMessage &&
-        (candidateMessage.sdpMid != undefined ||
-          candidateMessage.sdpMLineIndex != undefined)
-          ? [
-              this.getTransportByMid(candidateMessage.sdpMid ?? undefined) ??
-                (typeof candidateMessage.sdpMLineIndex === "number"
-                  ? this.getTransportByMLineIndex(
-                      sdp,
-                      candidateMessage.sdpMLineIndex,
-                    )
-                  : undefined),
-            ]
-          : this.iceTransports;
+      const candidateTarget = mediaIndices
+        .map((index) => this.getTransportByMLineIndex(sdp, index))
+        .filter(
+          (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
+        )
+        .reduce((acc: RTCIceTransport[], transport) => {
+          if (!acc.find(({ id }) => id === transport.id)) {
+            acc.push(transport);
+          }
+          return acc;
+        }, []);
 
       await Promise.all(
-        candidateTarget
-          .filter(
-            (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
-          )
-          .map((iceTransport) => iceTransport.addRemoteCandidate(undefined)),
+        candidateTarget.map((iceTransport) =>
+          iceTransport.addRemoteCandidate(undefined),
+        ),
       );
-      return;
+      return {
+        kind: "end-of-candidates" as const,
+        mediaIndices,
+      };
     }
 
     const candidate = IceCandidate.fromJSON(candidateMessage);
@@ -230,28 +237,91 @@ export class SecureTransportManager {
       );
     }
 
-    let iceTransport: RTCIceTransport | undefined;
-
-    if (typeof candidate.sdpMid === "string") {
-      iceTransport = this.getTransportByMid(candidate.sdpMid);
+    const targetMediaIndex = mediaIndices[0];
+    const targetMedia = sdp.media[targetMediaIndex];
+    if (!targetMedia) {
+      throw createWebRtcDomException(
+        "OperationError",
+        "ICE media section not found",
+      );
     }
+    candidate.sdpMid = targetMedia.rtp.muxId ?? undefined;
+    candidate.sdpMLineIndex = targetMediaIndex;
 
-    if (!iceTransport && typeof candidate.sdpMLineIndex === "number") {
-      iceTransport = this.getTransportByMLineIndex(
-        sdp,
-        candidate.sdpMLineIndex,
+    const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
+
+    if (!iceTransport) {
+      throw createWebRtcDomException(
+        "OperationError",
+        "ICE transport not found for candidate",
       );
     }
 
-    if (!iceTransport) {
-      iceTransport = this.iceTransports[0];
+    await iceTransport.addRemoteCandidate(candidate);
+    return {
+      kind: "candidate" as const,
+      candidate,
+      mediaIndices: [targetMediaIndex],
+    };
+  }
+
+  private resolveCandidateMediaIndices({
+    sdp,
+    isEndOfCandidates,
+    sdpMid,
+    sdpMLineIndex,
+    usernameFragment,
+  }: {
+    sdp: SessionDescription;
+    isEndOfCandidates: boolean;
+    sdpMid?: string | null;
+    sdpMLineIndex?: number | null;
+    usernameFragment?: string | null;
+  }) {
+    let mediaIndices: number[];
+
+    if (typeof sdpMid === "string") {
+      const mediaIndex = sdp.media.findIndex(
+        (media) => media.rtp.muxId === sdpMid,
+      );
+      if (mediaIndex < 0) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "Media section for sdpMid was not found",
+        );
+      }
+      mediaIndices = [mediaIndex];
+    } else if (typeof sdpMLineIndex === "number") {
+      if (sdpMLineIndex < 0 || sdpMLineIndex >= sdp.media.length) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "Media section for sdpMLineIndex was not found",
+        );
+      }
+      mediaIndices = [sdpMLineIndex];
+    } else if (isEndOfCandidates) {
+      mediaIndices = sdp.media.map((_, index) => index);
+    } else {
+      throw createWebRtcTypeError(
+        "sdpMid or sdpMLineIndex must be provided with a candidate",
+      );
     }
 
-    if (iceTransport) {
-      await iceTransport.addRemoteCandidate(candidate);
-    } else {
-      log("iceTransport not found for candidate", candidate);
+    if (typeof usernameFragment === "string") {
+      const matchingIndices = mediaIndices.filter(
+        (index) =>
+          sdp.media[index]?.iceParams?.usernameFragment === usernameFragment,
+      );
+      if (matchingIndices.length === 0) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "No media section matched the ICE usernameFragment",
+        );
+      }
+      mediaIndices = matchingIndices;
     }
+
+    return mediaIndices;
   }
 
   private getTransportByMid(mid?: string) {

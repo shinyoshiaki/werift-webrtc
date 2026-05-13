@@ -12,6 +12,9 @@ reviewable diff does not depend on external PR text.
 - `current/pending*Description`, `canTrickleIceCandidates`, `sctp`,
   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
+- `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
+  `usernameFragment` against the applied remote description and appends
+  candidates or end-of-candidates markers to the corresponding m-section.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
   returns the normalized value.

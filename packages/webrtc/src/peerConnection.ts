@@ -71,6 +71,9 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `current/pending*Description`, `canTrickleIceCandidates`, `sctp`,
  *   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
  *   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
+ * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
+ *   `usernameFragment` against the applied remote description and appends
+ *   candidates or end-of-candidates markers to the corresponding m-section.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
  *   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
  *   returns the normalized value.
@@ -761,17 +764,48 @@ export class RTCPeerConnection extends EventTarget {
   async addIceCandidate(
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null = {},
   ) {
+    if (this.isClosed) {
+      throw createWebRtcDomException("InvalidStateError", "is closed");
+    }
     if (!this.remoteDescription) {
       throw createWebRtcDomException(
         "InvalidStateError",
         "The remote description was null",
       );
     }
-    const sdp = this.sdpManager.buildOfferSdp(
-      this.transceiverManager.getTransceivers(),
-      this.sctpTransport,
+    const sdp = this.sdpManager._remoteDescription;
+    if (!sdp) {
+      throw createWebRtcDomException(
+        "InvalidStateError",
+        "The remote description was null",
+      );
+    }
+    const appliedCandidate = await this.secureManager.addIceCandidate(
+      sdp,
+      candidateMessage,
     );
-    await this.secureManager.addIceCandidate(sdp, candidateMessage);
+    const remoteDescription = this.sdpManager._remoteDescription;
+    if (!remoteDescription || !appliedCandidate) {
+      return;
+    }
+
+    if (appliedCandidate.kind === "end-of-candidates") {
+      for (const mediaIndex of appliedCandidate.mediaIndices) {
+        const media = remoteDescription.media[mediaIndex];
+        if (media) {
+          media.iceCandidatesComplete = true;
+        }
+      }
+      return;
+    }
+
+    for (const mediaIndex of appliedCandidate.mediaIndices) {
+      const media = remoteDescription.media[mediaIndex];
+      if (!media) {
+        continue;
+      }
+      media.iceCandidates.push(appliedCandidate.candidate);
+    }
   }
 
   private async connect() {
