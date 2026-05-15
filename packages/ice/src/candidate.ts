@@ -232,20 +232,22 @@ export function candidatePriority(
   const localPref =
     typeof options === "number"
       ? options
-      : options.localPreference ??
+      : (options.localPreference ??
         candidateLocalPreference({
           candidateType,
           transport,
           tcptype: options.tcptype,
           otherPreference: options.otherPreference,
-        });
+        }));
   const typePref = candidateTypePreference(candidateType, transport);
   return (
     (1 << 24) * typePref + (1 << 8) * localPref + (256 - candidateComponent)
   );
 }
 
-export function remoteTcpTypeForIncoming(localTcpType?: string): TcpCandidateType {
+export function remoteTcpTypeForIncoming(
+  localTcpType?: string,
+): TcpCandidateType {
   switch (localTcpType) {
     case "passive":
       return "active";

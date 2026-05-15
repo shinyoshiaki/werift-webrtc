@@ -282,7 +282,7 @@ describe("ice", () => {
 
       // Act: nomination 済み TCP pair 上で双方向に application data を流す。
       await a.send(Buffer.from("howdee over tcp"));
-      let [data] = await b.onData.asPromise();
+      const [data] = await b.onData.asPromise();
       await b.send(Buffer.from("gotcha over tcp"));
       const [echo] = await a.onData.asPromise();
       await setTimeout(50);
@@ -291,14 +291,18 @@ describe("ice", () => {
       expect(data.toString()).toBe("howdee over tcp");
       expect(echo.toString()).toBe("gotcha over tcp");
 
-      const tcpProtocolsA = ((a as any).protocols as Array<{
-        localCandidate?: Candidate;
-        activeSocketCount?: number;
-      }>).filter((protocol) => protocol.localCandidate?.transport === "tcp");
-      const tcpProtocolsB = ((b as any).protocols as Array<{
-        localCandidate?: Candidate;
-        activeSocketCount?: number;
-      }>).filter((protocol) => protocol.localCandidate?.transport === "tcp");
+      const tcpProtocolsA = (
+        (a as any).protocols as Array<{
+          localCandidate?: Candidate;
+          activeSocketCount?: number;
+        }>
+      ).filter((protocol) => protocol.localCandidate?.transport === "tcp");
+      const tcpProtocolsB = (
+        (b as any).protocols as Array<{
+          localCandidate?: Candidate;
+          activeSocketCount?: number;
+        }>
+      ).filter((protocol) => protocol.localCandidate?.transport === "tcp");
 
       // Assert: selected pair に対応する TCP connection が維持されている。
       expect(

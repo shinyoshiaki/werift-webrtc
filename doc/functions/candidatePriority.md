@@ -6,7 +6,7 @@
 
 # Function: candidatePriority()
 
-> **candidatePriority**(`candidateType`, `localPref`): `number`
+> **candidatePriority**(`candidateType`, `options`): `number`
 
 ## Parameters
 
@@ -14,9 +14,9 @@
 
 `string`
 
-### localPref
+### options
 
-`number` = `65535`
+`number` | \{ `localPreference`: `number`; `otherPreference`: `number`; `tcptype`: `string`; `transport`: `string`; \}
 
 ## Returns
 

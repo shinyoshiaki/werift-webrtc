@@ -137,3 +137,9 @@ Advertise and operate as an ICE lite agent.
 ### useLinkLocalAddress?
 
 > `optional` **useLinkLocalAddress**: `boolean`
+
+***
+
+### useTcp
+
+> **useTcp**: `boolean`

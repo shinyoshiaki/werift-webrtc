@@ -40,4 +40,4 @@
 
 ### transport?
 
-> `optional` **transport**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **transport**: `"udp"` \| `"tcp"` \| `"tls"`

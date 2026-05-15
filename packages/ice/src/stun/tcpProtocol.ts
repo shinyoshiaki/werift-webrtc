@@ -1,7 +1,7 @@
-import { type AddressInfo, connect, createServer, type Socket } from "node:net";
+import { type AddressInfo, type Socket, connect, createServer } from "node:net";
 
-import { Event, type Address, debug } from "../imports/common";
 import type { Candidate } from "../candidate";
+import { type Address, Event, debug } from "../imports/common";
 import type { Protocol } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
@@ -139,7 +139,10 @@ abstract class BaseTcpProtocol implements Protocol {
           message.messageClass === classes.ERROR) &&
         this.transactions[message.transactionIdHex]
       ) {
-        this.transactions[message.transactionIdHex].responseReceived(message, addr);
+        this.transactions[message.transactionIdHex].responseReceived(
+          message,
+          addr,
+        );
       } else if (message.messageClass === classes.REQUEST) {
         this.onRequestReceived.execute(message, addr, data);
       }

@@ -287,7 +287,11 @@ export async function serverReflexiveCandidate(
     }
 
     const candidate = new Candidate(
-      candidateFoundation("srflx", localCandidate.transport, localCandidate.host),
+      candidateFoundation(
+        "srflx",
+        localCandidate.transport,
+        localCandidate.host,
+      ),
       localCandidate.component,
       localCandidate.transport,
       candidatePriority("srflx", {
