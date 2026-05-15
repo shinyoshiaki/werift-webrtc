@@ -2,10 +2,10 @@ import { Event } from "../../imports/common";
 
 import { OpusRtpPayload } from "../..";
 import {
-  annexb2avcSample,
   type DataType,
   Mp4Container,
   type Mp4SupportedCodec,
+  annexb2avcSample,
   annexb2avcc,
 } from "../container/mp4";
 import type { AVProcessor } from "./interface";
@@ -50,7 +50,7 @@ export class MP4Base implements AVProcessor<Mp4Input> {
 
   constructor(
     public tracks: Track[],
-    private output: (output: Mp4Output) => void,
+    private output: (output: Mp4Output) => void | Promise<void>,
     private options: MP4Option = {},
   ) {
     this.container = new Mp4Container({
@@ -59,8 +59,8 @@ export class MP4Base implements AVProcessor<Mp4Input> {
         video: !!this.tracks.find((t) => t.kind === "video"),
       },
     });
-    this.container.onData.subscribe((data) => {
-      this.output(data);
+    this.container.onData.subscribe(async (data) => {
+      await this.output(data);
     });
   }
 
@@ -78,7 +78,10 @@ export class MP4Base implements AVProcessor<Mp4Input> {
     if (!frame) {
       if (eol) {
         this.videoStopped = true;
-        if (!this.tracks.some((track) => track.kind === "audio") || this.audioStopped) {
+        if (
+          !this.tracks.some((track) => track.kind === "audio") ||
+          this.audioStopped
+        ) {
           void this.stop();
         }
       }
@@ -141,7 +144,10 @@ export class MP4Base implements AVProcessor<Mp4Input> {
     if (!frame) {
       if (eol) {
         this.audioStopped = true;
-        if (!this.tracks.some((track) => track.kind === "video") || this.videoStopped) {
+        if (
+          !this.tracks.some((track) => track.kind === "video") ||
+          this.videoStopped
+        ) {
           void this.stop();
         }
       }
@@ -182,8 +188,8 @@ export class MP4Base implements AVProcessor<Mp4Input> {
 
     this.stopped = true;
     await this.container.stop();
-    this.output({ eol: true });
-    this.onStopped.execute();
+    await this.output({ eol: true });
+    await this.onStopped.execute();
   }
 }
 

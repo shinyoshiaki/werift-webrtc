@@ -1,5 +1,5 @@
 import type { Track } from "../../src/extra";
-import { collectMp4Buffer, createMp4Input } from "../utils";
+import { collectMp4Buffer, collectMp4Outputs, createMp4Input } from "../utils";
 
 describe("packages/rtp/tests/processor/mp4.test.ts", () => {
   it("writes an opus-only mp4", async () => {
@@ -130,6 +130,76 @@ describe("packages/rtp/tests/processor/mp4.test.ts", () => {
     } finally {
       input.dispose();
     }
+  });
+
+  it("emits a single eol after stop", async () => {
+    const tracks: Track[] = [
+      {
+        kind: "audio",
+        codec: "opus",
+        clockRate: 48_000,
+        trackNumber: 1,
+      },
+    ];
+
+    const outputs = await collectMp4Outputs(
+      tracks,
+      async (mp4) => {
+        // Act: 遅延するコールバック配下で音声フレームを投入し、EOL 入力で stop 経路を通す。
+        for (const frame of createAudioFrames()) {
+          mp4.inputAudio({ frame });
+        }
+        mp4.inputAudio({ eol: true });
+      },
+      { callbackDelay: 10 },
+    );
+
+    // Assert: 初期化セグメントに加えてメディア断片が届き、終端通知は 1 回だけであることを確認する。
+    expect(outputs.filter((output) => "eol" in output && output.eol)).toHaveLength(
+      1,
+    );
+    expect(outputs.at(-1)).toEqual({ eol: true });
+    expect(
+      outputs.filter((output) => "data" in output && output.type === "init"),
+    ).toHaveLength(1);
+    expect(
+      outputs.filter((output) => "data" in output && output.type !== "init"),
+    ).not.toHaveLength(0);
+  });
+
+  it("flushes final fragments before destroy resolves", async () => {
+    const tracks: Track[] = [
+      {
+        kind: "audio",
+        codec: "opus",
+        clockRate: 48_000,
+        trackNumber: 1,
+      },
+    ];
+
+    const outputs = await collectMp4Outputs(
+      tracks,
+      async (mp4) => {
+        // Act: EOL を送らずに destroy を呼び、destroy 経路だけで finalize させる。
+        for (const frame of createAudioFrames()) {
+          mp4.inputAudio({ frame });
+        }
+        mp4.destroy();
+      },
+      { callbackDelay: 10 },
+    );
+
+    // Assert: destroy 後も初期化セグメントだけで終わらず、最終メディア断片と単一 EOL が届くことを確認する。
+    expect(outputs.filter((output) => "eol" in output && output.eol)).toHaveLength(
+      1,
+    );
+    expect(outputs.at(-1)).toEqual({ eol: true });
+    expect(
+      outputs.filter((output) => "data" in output && output.type === "init"),
+    ).toHaveLength(1);
+    expect(
+      outputs.filter((output) => "data" in output && output.type !== "init"),
+    ).not.toHaveLength(0);
   });
 });
 

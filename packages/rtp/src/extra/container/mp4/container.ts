@@ -1,4 +1,3 @@
-import { Event } from "../../../imports/common";
 import {
   EncodedAudioPacketSource,
   EncodedPacket,
@@ -7,6 +6,7 @@ import {
   NullTarget,
   Output,
 } from "mediabunny";
+import { Event } from "../../../imports/common";
 
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
 type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
@@ -61,10 +61,9 @@ export class Mp4Container {
   #lastMoofTimestamp = 0;
   #lastVideoDuration = 0;
   #moov?: Uint8Array;
+  #onDataOperation = Promise.resolve();
   #operation = Promise.resolve();
-  #output?:
-    | Output<Mp4OutputFormat, NullTarget>
-    | undefined;
+  #output?: Output<Mp4OutputFormat, NullTarget> | undefined;
   #startPromise?: Promise<void>;
   #stopPromise?: Promise<void>;
   #stopped = false;
@@ -204,8 +203,7 @@ export class Mp4Container {
       if (this.#output) {
         await this.#output.finalize();
       }
-
-      this.onData.execute({ eol: true });
+      await this.#flushOnData();
     });
     return this.#stopPromise;
   }
@@ -252,7 +250,7 @@ export class Mp4Container {
           this.#currentFragment = undefined;
           this.#lastMoof = undefined;
 
-          this.onData.execute({
+          void this.#emitData({
             type,
             timestamp,
             duration,
@@ -292,13 +290,23 @@ export class Mp4Container {
     }
 
     this.#initializationEmitted = true;
-    this.onData.execute({
+    void this.#emitData({
       type: "init",
       timestamp: 0,
       duration: 0,
       data: concatBytes(this.#ftyp, this.#moov),
       kind: this.#defaultKind(),
     });
+  }
+
+  #emitData(data: Mp4Data | { eol: true }) {
+    const next = this.#onDataOperation.then(() => this.onData.execute(data));
+    this.#onDataOperation = next;
+    return next;
+  }
+
+  async #flushOnData() {
+    await this.#onDataOperation;
   }
 
   #enqueueOperation(operation: () => Promise<void>) {
@@ -317,7 +325,8 @@ export class Mp4Container {
       return;
     }
 
-    const duration = track === "audio" ? this.#lastAudioDuration : this.#lastVideoDuration;
+    const duration =
+      track === "audio" ? this.#lastAudioDuration : this.#lastVideoDuration;
     await this.#writePacket(buffered, duration);
 
     if (track === "audio") {
@@ -332,7 +341,8 @@ export class Mp4Container {
       track: TrackKind;
     },
   ) {
-    const buffered = frame.track === "audio" ? this.#audioFrame : this.#videoFrame;
+    const buffered =
+      frame.track === "audio" ? this.#audioFrame : this.#videoFrame;
     if (!buffered) {
       if (frame.track === "audio") {
         this.#audioFrame = frame;
@@ -384,7 +394,12 @@ export class Mp4Container {
       await this.#videoSource.add(packet, this.#videoMeta);
     }
 
-    this.#rememberFragmentPacket(frame.track, frame.type, frame.timestamp, duration);
+    this.#rememberFragmentPacket(
+      frame.track,
+      frame.type,
+      frame.timestamp,
+      duration,
+    );
   }
 
   #rememberFragmentPacket(
@@ -412,7 +427,8 @@ export class Mp4Container {
       this.#currentFragment.timestamp + this.#currentFragment.duration,
       end,
     );
-    this.#currentFragment.duration = fragmentEnd - this.#currentFragment.timestamp;
+    this.#currentFragment.duration =
+      fragmentEnd - this.#currentFragment.timestamp;
   }
 }
 

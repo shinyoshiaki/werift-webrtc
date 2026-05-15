@@ -46,6 +46,12 @@
 - `e2e/package-lock.json`
 - `loadtest/package-lock.json`
 
+補足:
+
+- 上記 lockfile は **影響調査対象** とする
+- 実更新対象は、今回のソース変更で参照先が切り替わる workspace / file 依存の lockfile を優先する
+- `examples` / `e2e` / `loadtest` のように published package (`werift`, `werift-rtp`) を直接 pin している lockfile は、manifest を local workspace 参照へ切り替えない限り `mp4box` が残りうるため、差分有無と残存理由を確認できれば本タスクでは必須更新対象外とする
+
 ## 3. 技術的な実装アプローチを調査し結果を簡潔にまとめる
 
 ### 調査結果（MediaBunny 側）
