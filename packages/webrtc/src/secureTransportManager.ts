@@ -113,6 +113,7 @@ export class SecureTransportManager {
       localPasswordPrefix: this.config.icePasswordPrefix,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
+      useTcp: this.config.iceUseTcp,
       turnTransport,
       turnTlsOptions: this.config.turnTlsOptions,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,

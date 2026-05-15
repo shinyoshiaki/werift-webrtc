@@ -72,6 +72,8 @@ export type SelectedRelayCandidatePair = {
   remoteCandidateType?: string;
   localCandidateProtocol?: string;
   remoteCandidateProtocol?: string;
+  localCandidateTcpType?: string;
+  remoteCandidateTcpType?: string;
   localRelayProtocol?: string;
   remoteRelayProtocol?: string;
 };
@@ -240,6 +242,8 @@ export async function getSelectedRelayCandidatePair(
     remoteCandidateType: readStatString(remoteCandidate, "candidateType"),
     localCandidateProtocol: readStatString(localCandidate, "protocol"),
     remoteCandidateProtocol: readStatString(remoteCandidate, "protocol"),
+    localCandidateTcpType: readStatString(localCandidate, "tcpType"),
+    remoteCandidateTcpType: readStatString(remoteCandidate, "tcpType"),
     localRelayProtocol: readStatString(localCandidate, "relayProtocol"),
     remoteRelayProtocol: readStatString(remoteCandidate, "relayProtocol"),
   };

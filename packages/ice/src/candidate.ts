@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "crypto";
 import { isIPv4 } from "net";
 
+export type TcpCandidateType = "active" | "passive" | "so";
+
 export class Candidate {
   // An ICE candidate.
   id = randomUUID().toString();
@@ -89,6 +91,7 @@ export class Candidate {
     return (
       this.component === other.component &&
       this.transport.toLowerCase() === other.transport.toLowerCase() &&
+      canPairTcpCandidates(this, other) &&
       a === b
     );
   }
@@ -106,6 +109,97 @@ export class Candidate {
   }
 }
 
+const UDP_TYPE_PREFERENCE: Record<string, number> = {
+  host: 126,
+  prflx: 110,
+  srflx: 100,
+  relay: 0,
+};
+
+const TCP_TYPE_PREFERENCE: Record<string, number> = {
+  host: 105,
+  prflx: 90,
+  srflx: 80,
+  relay: 0,
+};
+
+const ACTIVE_PASSIVE_DIRECTION_PREFERENCE: Record<TcpCandidateType, number> = {
+  active: 6,
+  passive: 4,
+  so: 2,
+};
+
+const REFLEXIVE_DIRECTION_PREFERENCE: Record<TcpCandidateType, number> = {
+  active: 4,
+  passive: 2,
+  so: 6,
+};
+
+function normalizeTransport(transport?: string) {
+  return transport?.toLowerCase() ?? "udp";
+}
+
+function normalizeTcpType(tcptype?: string) {
+  switch (tcptype) {
+    case "active":
+    case "passive":
+    case "so":
+      return tcptype;
+    default:
+      return undefined;
+  }
+}
+
+function canPairTcpCandidates(local: Candidate, remote: Candidate) {
+  if (normalizeTransport(local.transport) !== "tcp") {
+    return true;
+  }
+
+  const localType = normalizeTcpType(local.tcptype);
+  const remoteType = normalizeTcpType(remote.tcptype);
+  if (!localType || !remoteType) {
+    return false;
+  }
+
+  return (
+    (localType === "active" && remoteType === "passive") ||
+    (localType === "passive" && remoteType === "active") ||
+    (localType === "so" && remoteType === "so")
+  );
+}
+
+export function candidateLocalPreference({
+  candidateType,
+  transport = "udp",
+  tcptype,
+  otherPreference = 8191,
+}: {
+  candidateType: string;
+  transport?: string;
+  tcptype?: string;
+  otherPreference?: number;
+}) {
+  if (normalizeTransport(transport) !== "tcp") {
+    return otherPreference;
+  }
+
+  const tcpType = normalizeTcpType(tcptype) ?? "active";
+  const directionPreference =
+    candidateType === "srflx" || candidateType === "prflx"
+      ? REFLEXIVE_DIRECTION_PREFERENCE[tcpType]
+      : ACTIVE_PASSIVE_DIRECTION_PREFERENCE[tcpType];
+
+  return (1 << 13) * directionPreference + otherPreference;
+}
+
+function candidateTypePreference(candidateType: string, transport = "udp") {
+  const table =
+    normalizeTransport(transport) === "tcp"
+      ? TCP_TYPE_PREFERENCE
+      : UDP_TYPE_PREFERENCE;
+  return table[candidateType] ?? 0;
+}
+
 export function candidateFoundation(
   candidateType: string,
   candidateTransport: string,
@@ -120,20 +214,44 @@ export function candidateFoundation(
 }
 
 // priorityを決める
-export function candidatePriority(candidateType: string, localPref = 65535) {
+export function candidatePriority(
+  candidateType: string,
+  options:
+    | number
+    | {
+        transport?: string;
+        tcptype?: string;
+        localPreference?: number;
+        otherPreference?: number;
+      } = 65535,
+) {
   const candidateComponent: number = 1;
   // See RFC 5245 - 4.1.2.1. Recommended Formula
-  let typePref = 0;
-  if (candidateType === "host") {
-    typePref = 126;
-  } else if (candidateType === "prflx") {
-    typePref = 110;
-  } else if (candidateType === "srflx") {
-    typePref = 100;
-  } else {
-    typePref = 0;
-  }
+  const transport =
+    typeof options === "number" ? "udp" : normalizeTransport(options.transport);
+  const localPref =
+    typeof options === "number"
+      ? options
+      : options.localPreference ??
+        candidateLocalPreference({
+          candidateType,
+          transport,
+          tcptype: options.tcptype,
+          otherPreference: options.otherPreference,
+        });
+  const typePref = candidateTypePreference(candidateType, transport);
   return (
     (1 << 24) * typePref + (1 << 8) * localPref + (256 - candidateComponent)
   );
+}
+
+export function remoteTcpTypeForIncoming(localTcpType?: string): TcpCandidateType {
+  switch (localTcpType) {
+    case "passive":
+      return "active";
+    case "active":
+      return "passive";
+    default:
+      return "so";
+  }
 }

@@ -30,6 +30,7 @@ import {
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
 import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
+import { datachannel_ice_tcp } from "./handler/datachannel/iceTcp";
 import { datachannel_turn_relay } from "./handler/datachannel/turnRelay";
 import {
   ice_restart_node_trigger,
@@ -148,6 +149,7 @@ function attachWebSocketServer() {
     const tests = {
       datachannel_answer: new datachannel_answer(),
       datachannel_ice_lite_answer: new datachannel_ice_lite_answer(),
+      datachannel_ice_tcp: new datachannel_ice_tcp(),
       datachannel_offer: new datachannel_offer(),
       datachannel_turn_relay: new datachannel_turn_relay(),
       mediachannel_sendrecv_answer: new mediachannel_sendrecv_answer(),
