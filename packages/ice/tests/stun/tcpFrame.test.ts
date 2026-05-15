@@ -5,7 +5,10 @@ describe("tcpFrame", () => {
     // Arrange: 2 つの独立した payload を RFC 4571 framing で連結する。
     const first = Buffer.from("first");
     const second = Buffer.from("second");
-    const framed = Buffer.concat([encodeTcpFrame(first), encodeTcpFrame(second)]);
+    const framed = Buffer.concat([
+      encodeTcpFrame(first),
+      encodeTcpFrame(second),
+    ]);
 
     // Act: 連結された TCP バッファをフレーム境界で分割する。
     const { frames, rest } = splitTcpFrames(framed);

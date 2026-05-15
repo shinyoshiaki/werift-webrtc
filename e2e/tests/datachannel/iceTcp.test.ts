@@ -50,11 +50,36 @@ function getDirectTcpCandidateLines(sdp: string) {
     );
 }
 
+function addSyntheticActiveTcpCandidate(sdp: string) {
+  const syntheticCandidate =
+    "a=candidate:1 1 tcp 1518280447 0.0.0.0 9 typ host tcptype active generation 0";
+  return sdp
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      if (line === "a=end-of-candidates") {
+        return [syntheticCandidate, line];
+      }
+      return [line];
+    })
+    .join("\r\n");
+}
+
+async function hasDirectTcpAllocation(pc: RTCPeerConnection) {
+  const stats = (await pc.getStats()) as unknown as Map<string, RTCStats>;
+  return Array.from(stats.values()).some(
+    (stat) =>
+      stat.type === "local-candidate" &&
+      (stat as any).candidateType === "host" &&
+      (stat as any).protocol === "tcp" &&
+      (stat as any).tcpType === "active",
+  );
+}
+
 describe("datachannel/ice tcp", () => {
   test(
-    "exchanges data over direct ICE-TCP between Chrome and werift when the browser exposes TCP candidates",
+    "exchanges data over direct ICE-TCP between Chrome and werift",
     async ({ skip }: { skip: (message?: string) => void }) => {
-      // Arrange: Chrome 側で candidate gathering を完了させ、direct TCP candidate の有無を確認する。
+      // Arrange: Chrome 側で candidate gathering を完了させ、direct TCP 経路の有無を確認する。
       await ensurePeerConnected();
       const pc = new RTCPeerConnection({
         iceServers: [],
@@ -68,18 +93,27 @@ describe("datachannel/ice tcp", () => {
         const directTcpCandidates = getDirectTcpCandidateLines(
           pc.localDescription?.sdp ?? "",
         );
-        if (directTcpCandidates.length === 0) {
-          skip("Chromium does not expose direct ICE-TCP candidates in this environment");
+        const hasHiddenTcpAllocation = await hasDirectTcpAllocation(pc);
+        const hasTcpAllocation =
+          directTcpCandidates.length > 0 || hasHiddenTcpAllocation;
+        if (!hasTcpAllocation) {
+          skip("Chromium does not provide direct ICE-TCP candidates in this environment");
           return;
         }
 
-        // Act: 双方に TCP candidate だけを適用し、DataChannel を開通させる。
+        // Act: werift 側の passive TCP answer に対して、Chrome の active TCP check で DataChannel を開通させる。
+        const tcpOnlyOfferSdp =
+          directTcpCandidates.length > 0
+            ? filterSdpToTcp(pc.localDescription!.sdp)
+            : addSyntheticActiveTcpCandidate(
+                filterSdpToTcp(pc.localDescription!.sdp),
+              );
         const answer = await peer.request("datachannel_ice_tcp", {
           type: "init",
           payload: {
             offer: {
-              ...pc.localDescription!,
-              sdp: filterSdpToTcp(pc.localDescription!.sdp),
+              type: pc.localDescription!.type,
+              sdp: tcpOnlyOfferSdp,
             },
           },
         });

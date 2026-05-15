@@ -34,8 +34,8 @@ import {
 } from "./iceBase";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
-import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import { StunProtocol } from "./stun/protocol";
+import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import { createStunOverTurnClient } from "./turn/protocol";
 import type { Protocol } from "./types/model";
 import { getHostAddresses } from "./utils";
@@ -738,13 +738,13 @@ export class Connection implements IceConnection {
             break;
           }
 
-      const request = this.buildRequest({
-        nominate: false,
-        localUsername,
-        remoteUsername,
-        iceControlling,
-        localCandidate: nominated.localCandidate,
-      });
+          const request = this.buildRequest({
+            nominate: false,
+            localUsername,
+            remoteUsername,
+            iceControlling,
+            localCandidate: nominated.localCandidate,
+          });
           try {
             nominated.consentRequestsSent++;
             nominated.requestsSent++;
@@ -1314,15 +1314,13 @@ export class Connection implements IceConnection {
   }) {
     const txUsername = encodeTxUsername({ remoteUsername, localUsername });
     const request = new Message(methods.BINDING, classes.REQUEST);
-    request
-      .setAttribute("USERNAME", txUsername)
-      .setAttribute(
-        "PRIORITY",
-        candidatePriority("prflx", {
-          transport: localCandidate?.transport,
-          tcptype: localCandidate?.tcptype,
-        }),
-      );
+    request.setAttribute("USERNAME", txUsername).setAttribute(
+      "PRIORITY",
+      candidatePriority("prflx", {
+        transport: localCandidate?.transport,
+        tcptype: localCandidate?.tcptype,
+      }),
+    );
     if (iceControlling) {
       request.setAttribute("ICE-CONTROLLING", this.tieBreaker);
       if (nominate) {
@@ -1345,7 +1343,9 @@ export class Connection implements IceConnection {
         typeof protocol.pruneForSelection === "function"
       ) {
         void protocol.pruneForSelection(
-          protocol === selectedPair.protocol ? selectedPair.remoteAddr : undefined,
+          protocol === selectedPair.protocol
+            ? selectedPair.remoteAddr
+            : undefined,
         );
       }
     }

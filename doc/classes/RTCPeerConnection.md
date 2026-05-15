@@ -1173,6 +1173,10 @@ Advertise local ICE lite and operate in the controlled role.
 
 such as google cloud run
 
+##### iceUseTcp
+
+> **iceUseTcp**: `boolean`
+
 ##### maxMessageSize
 
 > **maxMessageSize**: `number`
