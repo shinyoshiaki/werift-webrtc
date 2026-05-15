@@ -21,8 +21,7 @@ export class Transaction {
     private retransmissions?: number,
     private onRequestSent?: (attempt: number) => void,
   ) {
-    this.triesMax =
-      1 + (this.retransmissions ? this.retransmissions : RETRY_MAX);
+    this.triesMax = 1 + (this.retransmissions ?? RETRY_MAX);
   }
 
   responseReceived = (message: Message, addr: Address) => {
