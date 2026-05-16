@@ -1,10 +1,11 @@
 import { Event } from "../../imports/common";
 
-import { OpusRtpPayload, buffer2ArrayBuffer } from "../..";
+import { OpusRtpPayload } from "../..";
 import {
   type DataType,
   Mp4Container,
   type Mp4SupportedCodec,
+  annexb2avcSample,
   annexb2avcc,
 } from "../container/mp4";
 import type { AVProcessor } from "./interface";
@@ -19,14 +20,18 @@ export type Mp4Input = {
   eol?: boolean;
 };
 
-export interface Mp4Output {
-  type: DataType;
-  timestamp: number;
-  duration: number;
-  data: Uint8Array;
-  eol?: boolean;
-  kind: "audio" | "video";
-}
+export type Mp4Output =
+  | {
+      type: DataType;
+      timestamp: number;
+      duration: number;
+      data: Uint8Array;
+      eol?: false | undefined;
+      kind: "audio" | "video";
+    }
+  | {
+      eol: true;
+    };
 
 export interface MP4Option {
   /**ms */
@@ -36,14 +41,16 @@ export interface MP4Option {
 }
 
 export class MP4Base implements AVProcessor<Mp4Input> {
+  audioStopped = false;
   private internalStats = {};
   private container: Mp4Container;
   stopped = false;
   onStopped = new Event();
+  videoStopped = false;
 
   constructor(
     public tracks: Track[],
-    private output: (output: Mp4Output) => void,
+    private output: (output: Mp4Output) => void | Promise<void>,
     private options: MP4Option = {},
   ) {
     this.container = new Mp4Container({
@@ -52,8 +59,8 @@ export class MP4Base implements AVProcessor<Mp4Input> {
         video: !!this.tracks.find((t) => t.kind === "video"),
       },
     });
-    this.container.onData.subscribe((data) => {
-      this.output(data);
+    this.container.onData.subscribe(async (data) => {
+      await this.output(data);
     });
   }
 
@@ -63,89 +70,127 @@ export class MP4Base implements AVProcessor<Mp4Input> {
     };
   }
 
-  processAudioInput = ({ frame }: Mp4Input) => {
-    const track = this.tracks.find((t) => t.kind === "audio")!;
+  processVideoInput = ({ eol, frame }: Mp4Input) => {
+    if (this.stopped) {
+      return;
+    }
 
-    if (frame) {
-      if (!this.container.audioTrack) {
+    if (!frame) {
+      if (eol) {
+        this.videoStopped = true;
+        if (
+          !this.tracks.some((track) => track.kind === "audio") ||
+          this.audioStopped
+        ) {
+          void this.stop();
+        }
+      }
+      return;
+    }
+
+    const track = this.tracks.find((t) => t.kind === "video")!;
+
+    this.videoStopped = false;
+    if (!this.container.videoTrack) {
+      if (frame.isKeyframe) {
+        const avcc = annexb2avcc(frame.data);
+        const sample = annexb2avcSample(frame.data);
+
+        const [displayAspectWidth, displayAspectHeight] = computeRatio(
+          track.width!,
+          track.height!,
+        );
+
         this.container.write({
-          codec: track.codec,
-          description: buffer2ArrayBuffer(
-            OpusRtpPayload.createCodecPrivate(),
-          ) as ArrayBuffer,
-          numberOfChannels: 2,
-          sampleRate: track.clockRate,
-          track: "audio",
+          codec: avccToCodecString(avcc),
+          codedWidth: track.width,
+          codedHeight: track.height,
+          description: toArrayBuffer(Buffer.from(avcc)),
+          displayAspectWidth,
+          displayAspectHeight,
+          track: "video",
         });
-      } else {
         this.container.write({
-          byteLength: frame.data.length,
+          byteLength: sample.length,
           duration: null,
           timestamp: frame.time * 1000,
           type: "key",
           copyTo: (destination) => {
-            //@ts-expect-error
-            frame.data.copy(destination);
-          },
-          track: "audio",
-        });
-      }
-    }
-  };
-
-  processVideoInput = ({ frame }: Mp4Input) => {
-    const track = this.tracks.find((t) => t.kind === "video")!;
-
-    if (frame) {
-      if (!this.container.videoTrack) {
-        if (frame.isKeyframe) {
-          const avcc = annexb2avcc(frame.data);
-
-          const [displayAspectWidth, displayAspectHeight] = computeRatio(
-            track.width!,
-            track.height!,
-          );
-
-          this.container.write({
-            codec: track.codec,
-            codedWidth: track.width,
-            codedHeight: track.height,
-            description: avcc.buffer as ArrayBuffer,
-            displayAspectWidth,
-            displayAspectHeight,
-            track: "video",
-          });
-          this.container.write({
-            byteLength: frame.data.length,
-            duration: null,
-            timestamp: frame.time * 1000,
-            type: "key",
-            copyTo: (destination) => {
-              //@ts-expect-error
-              frame.data.copy(destination);
-            },
-            track: "video",
-          });
-        }
-      } else {
-        this.container.write({
-          byteLength: frame.data.length,
-          duration: null,
-          timestamp: frame.time * 1000,
-          type: frame.isKeyframe ? "key" : "delta",
-          copyTo: (destination) => {
-            //@ts-expect-error
-            frame.data.copy(destination);
+            new Uint8Array(destination).set(sample);
           },
           track: "video",
         });
       }
+    } else {
+      const sample = annexb2avcSample(frame.data);
+      this.container.write({
+        byteLength: sample.length,
+        duration: null,
+        timestamp: frame.time * 1000,
+        type: frame.isKeyframe ? "key" : "delta",
+        copyTo: (destination) => {
+          new Uint8Array(destination).set(sample);
+        },
+        track: "video",
+      });
+    }
+  };
+
+  processAudioInput = ({ eol, frame }: Mp4Input) => {
+    if (this.stopped) {
+      return;
+    }
+
+    if (!frame) {
+      if (eol) {
+        this.audioStopped = true;
+        if (
+          !this.tracks.some((track) => track.kind === "video") ||
+          this.videoStopped
+        ) {
+          void this.stop();
+        }
+      }
+      return;
+    }
+
+    const track = this.tracks.find((t) => t.kind === "audio")!;
+
+    this.audioStopped = false;
+    if (!this.container.audioTrack) {
+      this.container.write({
+        codec: track.codec,
+        description: toArrayBuffer(OpusRtpPayload.createCodecPrivate()),
+        numberOfChannels: 2,
+        sampleRate: track.clockRate,
+        track: "audio",
+      });
+    } else {
+      this.container.write({
+        byteLength: frame.data.length,
+        duration: null,
+        timestamp: frame.time * 1000,
+        type: "key",
+        copyTo: (destination) => {
+          new Uint8Array(destination).set(frame.data);
+        },
+        track: "audio",
+      });
     }
   };
 
   protected start() {}
 
-  stop() {}
+  async stop() {
+    if (this.stopped) {
+      return;
+    }
+
+    this.stopped = true;
+    await this.container.stop();
+    await this.output({ eol: true });
+    await this.onStopped.execute();
+  }
 }
 
 function computeRatio(a: number, b: number) {
@@ -169,4 +214,23 @@ export interface Track {
   codec: Mp4SupportedCodec;
   clockRate: number;
   trackNumber: number;
+}
+
+function avccToCodecString(avcc: Uint8Array) {
+  if (avcc.byteLength < 4) {
+    throw new Error("invalid avcc decoder configuration record");
+  }
+
+  return `avc1.${toHex(avcc[1])}${toHex(avcc[2])}${toHex(avcc[3])}`;
+}
+
+function toHex(value: number) {
+  return value.toString(16).padStart(2, "0");
+}
+
+function toArrayBuffer(buffer: Buffer) {
+  return buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  ) as ArrayBuffer;
 }

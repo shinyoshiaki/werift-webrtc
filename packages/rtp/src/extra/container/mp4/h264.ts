@@ -224,3 +224,19 @@ export function annexb2avcc(data: Buffer) {
   );
   return avcc.getData();
 }
+
+export function annexb2avcSample(data: Buffer) {
+  const annexbParser = new H264AnnexBParser(data);
+  const nalUnits: Buffer[] = [];
+  let naluPayload: H264NaluPayload | null = null;
+
+  while ((naluPayload = annexbParser.readNextNaluPayload()) != null) {
+    nalUnits.push(Buffer.from(new H264NaluAVC1(naluPayload).data));
+  }
+
+  if (nalUnits.length === 0) {
+    throw new Error("annexb sample does not contain nal units");
+  }
+
+  return Buffer.concat(nalUnits);
+}
