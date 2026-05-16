@@ -1,8 +1,12 @@
-import { randomBytes } from "crypto";
 import { createSocket } from "dgram";
-import { jspack } from "@shinyoshiaki/jspack";
 import { RTCRtpCodecParameters } from "..";
 import { MediaStream, MediaStreamTrack } from "../media/track";
+import {
+  type DummyAudioOptions,
+  type DummyVideoOptions,
+  createDummyAudioTrack,
+  createDummyVideoTrack,
+} from "./dummyMedia";
 
 export class Navigator {
   mediaDevices: MediaDevices;
@@ -15,10 +19,9 @@ export class Navigator {
 export class MediaDevices extends EventTarget {
   video?: MediaStreamTrack;
   audio?: MediaStreamTrack;
+  private readonly activeSourceStops = new Map<MediaStreamTrack, () => void>();
 
-  constructor(
-    readonly props: { video?: MediaStreamTrack; audio?: MediaStreamTrack },
-  ) {
+  constructor(readonly props: MediaDeviceProps = {}) {
     super();
     this.video = props.video;
     this.audio = props.audio;
@@ -27,36 +30,20 @@ export class MediaDevices extends EventTarget {
   readonly getUserMedia = async (
     constraints: MediaStreamConstraints,
   ): Promise<MediaStream> => {
-    const video = constraints.video
-      ? new MediaStreamTrack({ kind: "video" })
-      : undefined;
-    if (video) {
-      this.video?.onReceiveRtp.subscribe((rtp) => {
-        const cloned = rtp.clone();
-        cloned.header.ssrc = jspack.Unpack("!L", randomBytes(4))[0];
-        video.onReceiveRtp.execute(cloned);
-      });
-    }
-    const audio = constraints.audio
-      ? new MediaStreamTrack({ kind: "audio" })
-      : undefined;
-    if (audio) {
-      this.audio?.onReceiveRtp.subscribe((rtp) => {
-        const cloned = rtp.clone();
-        cloned.header.ssrc = jspack.Unpack("!L", randomBytes(4))[0];
-        audio.onReceiveRtp.execute(cloned);
-      });
+    const tracks = [
+      ...(constraints.audio
+        ? [this.createTrack("audio", constraints.audio)]
+        : []),
+      ...(constraints.video
+        ? [this.createTrack("video", constraints.video)]
+        : []),
+    ];
+
+    if (tracks.length === 0) {
+      throw new Error("At least one audio or video track is required");
     }
 
-    if (constraints.video && constraints.audio) {
-      return new MediaStream([video!, audio!]);
-    } else if (constraints.audio) {
-      return new MediaStream([audio!]);
-    } else if (constraints.video) {
-      return new MediaStream([video!]);
-    }
-
-    throw new Error("Not implemented");
+    return new MediaStream(tracks);
   };
 
   readonly getDisplayMedia = this.getUserMedia;
@@ -87,6 +74,90 @@ export class MediaDevices extends EventTarget {
     };
 
     return { track, disposer };
+  };
+
+  cleanup() {
+    for (const stop of this.activeSourceStops.values()) {
+      stop();
+    }
+    this.activeSourceStops.clear();
+  }
+
+  private createTrack(
+    kind: "audio" | "video",
+    constraints: boolean | MediaTrackConstraints,
+  ) {
+    const existingTrack = kind === "audio" ? this.audio : this.video;
+    if (existingTrack) {
+      return this.createClonedTrack(kind, existingTrack);
+    }
+    if (this.props.dummyMedia?.enabled) {
+      return this.createDummyTrack(kind, constraints);
+    }
+    throw new Error(`No ${kind} source configured for getUserMedia`);
+  }
+
+  private createClonedTrack(
+    kind: "audio" | "video",
+    sourceTrack: MediaStreamTrack,
+  ) {
+    const track = new MediaStreamTrack({ kind });
+    const { unSubscribe } = sourceTrack.onReceiveRtp.subscribe((rtp) => {
+      track.onReceiveRtp.execute(rtp.clone());
+    });
+    this.attachTrackStop(track, () => {
+      unSubscribe();
+    });
+    return track;
+  }
+
+  private createDummyTrack(
+    kind: "audio" | "video",
+    constraints: boolean | MediaTrackConstraints,
+  ) {
+    const dummy =
+      kind === "audio"
+        ? createDummyAudioTrack(this.props.dummyMedia?.audio)
+        : createDummyVideoTrack({
+            ...this.props.dummyMedia?.video,
+            ...resolveVideoOptions(constraints),
+          });
+
+    this.attachTrackStop(dummy.track, () => {
+      dummy.source.stop();
+    });
+
+    return dummy.track;
+  }
+
+  private attachTrackStop(track: MediaStreamTrack, stop: () => void) {
+    let disposed = false;
+    const originalStop = track.stop;
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      stop();
+      this.activeSourceStops.delete(track);
+    };
+
+    track.stop = () => {
+      dispose();
+      originalStop();
+    };
+
+    this.activeSourceStops.set(track, dispose);
+  }
+}
+
+interface MediaDeviceProps {
+  video?: MediaStreamTrack;
+  audio?: MediaStreamTrack;
+  dummyMedia?: {
+    enabled: boolean;
+    audio?: Partial<DummyAudioOptions>;
+    video?: Partial<DummyVideoOptions>;
   };
 }
 
@@ -148,3 +219,33 @@ interface DoubleRange {
 }
 
 export const navigator = new Navigator();
+
+function resolveVideoOptions(
+  constraints: boolean | MediaTrackConstraints,
+): Partial<DummyVideoOptions> {
+  if (typeof constraints === "boolean") {
+    return {};
+  }
+
+  const fps = resolveConstrainNumber(constraints.frameRate);
+  if (!fps) {
+    return {};
+  }
+
+  return {
+    fps,
+    keyframeIntervalFrames: Math.max(1, Math.round(fps)),
+  };
+}
+
+function resolveConstrainNumber(
+  value?: ConstrainDouble | ConstrainULong,
+): number | undefined {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  return value.exact ?? value.ideal ?? value.max ?? value.min;
+}

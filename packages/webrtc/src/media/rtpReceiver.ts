@@ -49,6 +49,7 @@ const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
+  private readonly defaultTrack: MediaStreamTrack;
   private get codecArray() {
     return Object.values(this.codecs).sort(
       (a, b) => a.payloadType - b.payloadType,
@@ -80,6 +81,7 @@ export class RTCRtpReceiver {
   receiverTWCC?: ReceiverTWCC;
   stopped = false;
   remoteStreamId?: string;
+  remoteStreamIds: string[] = [];
   remoteTrackId?: string;
 
   rtcpRunning = false;
@@ -97,6 +99,7 @@ export class RTCRtpReceiver {
     public kind: Kind,
     public rtcpSsrc: number,
   ) {
+    this.defaultTrack = new MediaStreamTrack({ kind, remote: true });
     this.onPacketLost.subscribe((nack) => {
       this.nackCountBySsrc[nack.mediaSourceSsrc] =
         (this.nackCountBySsrc[nack.mediaSourceSsrc] ?? 0) + 1;
@@ -109,7 +112,7 @@ export class RTCRtpReceiver {
 
   // todo fix
   get track() {
-    return this.tracks[0] ?? new MediaStreamTrack({ kind: this.kind });
+    return this.tracks[0] ?? this.defaultTrack;
   }
 
   get nackEnabled() {

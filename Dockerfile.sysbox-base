@@ -8,10 +8,13 @@ RUN apt-get update \
   && apt-get install -y nodejs \
   && npm install -g @anthropic-ai/claude-code @google/gemini-cli @github/copilot @openai/codex opencode-ai \
   && rm -rf /var/lib/apt/lists/*
-
-RUN npx playwright install-deps chromium
-
 RUN set -eux; \
+  docker_socket=""; \
+  if [ -S /var/run/docker.sock ]; then \
+    docker_socket=/var/run/docker.sock; \
+  elif [ -S /run/docker.sock ]; then \
+    docker_socket=/run/docker.sock; \
+  fi; \
   if ! getent group "$HOST_GID" >/dev/null; then \
     if getent group sakhost >/dev/null; then \
       groupmod -g "$HOST_GID" sakhost; \
@@ -26,6 +29,26 @@ RUN set -eux; \
       useradd --uid "$HOST_UID" --gid "$HOST_GID" -m -s /bin/bash sak; \
     fi; \
   fi; \
+  runtime_user="$(getent passwd "$HOST_UID" | cut -d: -f1 || true)"; \
+  if [ -z "$runtime_user" ]; then \
+    echo "Failed to resolve runtime user for HOST_UID=$HOST_UID" >&2; \
+    exit 1; \
+  fi; \
+  docker_group="docker"; \
+  if [ -n "$docker_socket" ]; then \
+    docker_gid="$(stat -c '%g' "$docker_socket")"; \
+    existing_docker_group="$(getent group "$docker_gid" | cut -d: -f1 || true)"; \
+    if [ -n "$existing_docker_group" ]; then \
+      docker_group="$existing_docker_group"; \
+    elif getent group "$docker_group" >/dev/null; then \
+      groupmod -g "$docker_gid" "$docker_group"; \
+    else \
+      groupadd --gid "$docker_gid" "$docker_group"; \
+    fi; \
+  elif ! getent group "$docker_group" >/dev/null; then \
+    groupadd "$docker_group"; \
+  fi; \
+  usermod -aG "$docker_group" "$runtime_user"; \
   mkdir -p /workspace /var/lib/docker; \
   chown -R "$HOST_UID:$HOST_GID" /workspace /var/lib/docker; \
   user_home="$(getent passwd "$HOST_UID" | cut -d: -f6 || true)"; \

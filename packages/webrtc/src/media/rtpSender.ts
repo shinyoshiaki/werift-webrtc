@@ -76,7 +76,7 @@ import {
   generateStatsId,
   getStatsTimestamp,
 } from "./stats";
-import type { MediaStreamTrack } from "./track";
+import type { MediaStream, MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
@@ -88,7 +88,6 @@ export class RTCRtpSender {
   readonly kind: Kind;
   readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
   readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
-  streamId = randomUUID().toString();
   readonly trackId = randomUUID().toString();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -107,6 +106,7 @@ export class RTCRtpSender {
   redEncoder = new RedEncoder(this._redDistance);
   private headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
   private disposeTrack?: () => void;
+  private sendEncodings: Array<Record<string, unknown>> = [{}];
 
   // # stats
   private lastSRtimestamp?: number;
@@ -138,7 +138,8 @@ export class RTCRtpSender {
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
-  track?: MediaStreamTrack;
+  track: MediaStreamTrack | null = null;
+  streamIds: string[] = [];
   stopped = false;
   rtcpRunning = false;
   private rtcpCancel = new AbortController();
@@ -149,11 +150,16 @@ export class RTCRtpSender {
         ? this.trackOrKind
         : this.trackOrKind.kind;
     if (typeof trackOrKind !== "string") {
-      if (trackOrKind.streamId) {
-        this.streamId = trackOrKind.streamId;
-      }
       this.registerTrack(trackOrKind);
     }
+  }
+
+  get streamId() {
+    return this.streamIds[0];
+  }
+
+  set streamId(value: string | undefined) {
+    this.streamIds = value ? [value] : [];
   }
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
@@ -231,9 +237,23 @@ export class RTCRtpSender {
     });
   }
 
+  setStreams(streams: MediaStream[] = []) {
+    this.streamIds = [...new Set(streams.map((stream) => stream.id))];
+  }
+
+  setSendEncodings(encodings: Array<Record<string, unknown>> = []) {
+    this.sendEncodings =
+      encodings.length > 0
+        ? encodings.map((encoding) => ({ ...encoding }))
+        : [{}];
+  }
+
   async replaceTrack(track: MediaStreamTrack | null) {
     if (track === null) {
-      // todo impl
+      if (this.disposeTrack) {
+        this.disposeTrack();
+      }
+      this.track = null;
       return;
     }
 
@@ -257,7 +277,7 @@ export class RTCRtpSender {
     if (this.disposeTrack) {
       this.disposeTrack();
     }
-    this.track = undefined;
+    this.track = null;
   }
 
   async runRtcp() {
@@ -533,12 +553,16 @@ export class RTCRtpSender {
   // todo impl
   getParameters() {
     return {
-      encodings: [],
+      encodings: this.sendEncodings.map((encoding) => ({ ...encoding })),
     };
   }
 
   // todo impl
-  setParameters(params: any) {}
+  setParameters(params: { encodings?: Array<Record<string, unknown>> }) {
+    if (params.encodings) {
+      this.setSendEncodings(params.encodings);
+    }
+  }
 
   private get outboundRtpStatsId() {
     return generateStatsId("outbound-rtp", this.trackId);

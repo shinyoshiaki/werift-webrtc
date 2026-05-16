@@ -1,7 +1,11 @@
 import { createSocket } from "node:dgram";
 import { readFileSync } from "node:fs";
 import { type Socket as TcpSocket, connect } from "node:net";
-import { type TLSSocket, connect as connectTls } from "node:tls";
+import {
+  type TLSSocket,
+  connect as connectTls,
+  createServer as createTlsServer,
+} from "node:tls";
 
 import { describe, expect, test, vi } from "vitest";
 
@@ -101,9 +105,11 @@ async function allocateRelay(
 async function exchangeAllocate(
   server: NodeTurnServer,
   transport: "udp" | "tcp" | "tls",
+  serverAddressOverride?: Address,
 ) {
   const serverAddress =
-    transport === "tls" ? server.tlsAddress! : server.address!;
+    serverAddressOverride ??
+    (transport === "tls" ? server.tlsAddress! : server.address!);
   if (transport === "udp") {
     const client = createSocket("udp4");
     await new Promise<void>((resolve) => {
@@ -714,6 +720,68 @@ describe("NodeTurnServer", () => {
       }
     },
   );
+
+  test("serves Allocate over externally attached TLS sockets", async () => {
+    const server = new NodeTurnServer({
+      host: "127.0.0.1",
+      port: 0,
+      relayAddress: "127.0.0.1",
+      relayBindAddress: "127.0.0.1",
+      realm: TURN_CREDENTIALS.realm,
+      credentials: {
+        [TURN_CREDENTIALS.username]: TURN_CREDENTIALS.password,
+      },
+      udp: false,
+      tcp: false,
+      tls: {
+        external: true,
+      },
+    });
+    await server.listen();
+
+    const tlsServer = createTlsServer(getLocalTlsServerOptions(), (socket) => {
+      server.attachTlsSocket(socket);
+    });
+    await new Promise<void>((resolve, reject) => {
+      tlsServer.once("error", reject);
+      tlsServer.listen(0, "127.0.0.1", () => {
+        tlsServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    try {
+      const address = tlsServer.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TLS address info");
+      }
+
+      // Act: 外部 TLS listener 経由で TURN Allocate を流し、socket hand-off 後も処理できることを確認する。
+      const response = await exchangeAllocate(server, "tls", [
+        "127.0.0.1",
+        address.port,
+      ]);
+
+      // 外部 TLS listener から渡された socket でも TURN Allocate が完了することを確認する。
+      expect(response.messageClass).toBe(classes.RESPONSE);
+      expect(response.messageMethod).toBe(methods.ALLOCATE);
+      expect(response.getAttributeValue("XOR-RELAYED-ADDRESS")).toEqual([
+        "127.0.0.1",
+        expect.any(Number),
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        tlsServer.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      await server.close();
+    }
+  });
 
   test("pads channel data on UDP responses", async () => {
     const server = new NodeTurnServer({

@@ -14,6 +14,12 @@
 
 ***
 
+### sendEncodings
+
+> **sendEncodings**: [`RTCRtpEncodingParameters`](RTCRtpEncodingParameters.md)[]
+
+***
+
 ### simulcast
 
 > **simulcast**: `object`[]

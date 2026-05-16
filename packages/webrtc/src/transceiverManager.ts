@@ -1,10 +1,12 @@
 import { ReceiverDirection, SenderDirections } from "./const";
+import { createWebRtcDomException } from "./errors";
 import { Event, debug } from "./imports/common";
 import {
   MediaStream,
   type MediaStreamTrack,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
+  type RTCRtpEncodingParameters,
   type RTCRtpParameters,
   type RTCRtpReceiveParameters,
   RTCRtpReceiver,
@@ -36,7 +38,7 @@ export class TransceiverManager {
       {
         track: MediaStreamTrack;
         transceiver: RTCRtpTransceiver;
-        stream: MediaStream;
+        streams: MediaStream[];
       },
     ]
   >();
@@ -94,6 +96,12 @@ export class TransceiverManager {
       direction,
     );
     newTransceiver.options = options;
+    newTransceiver.sender.setStreams(options.streams ?? []);
+    newTransceiver.sender.setSendEncodings(
+      (
+        (options.sendEncodings as RTCRtpEncodingParameters[] | undefined) ?? []
+      ).map((encoding) => ({ ...encoding })),
+    );
     this.router.registerRtpSender(newTransceiver.sender);
 
     // reuse inactive
@@ -116,9 +124,15 @@ export class TransceiverManager {
     return newTransceiver;
   }
 
-  addTrack(track: MediaStreamTrack, ms?: MediaStream): RTCRtpTransceiver {
+  addTrack(
+    track: MediaStreamTrack,
+    streams: MediaStream[] = [],
+  ): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
-      throw new Error("Track already added");
+      throw createWebRtcDomException(
+        "InvalidAccessError",
+        "Track already added",
+      );
     }
 
     const emptyTrackSenderTransceiver = this.transceivers.find(
@@ -129,7 +143,12 @@ export class TransceiverManager {
     );
     if (emptyTrackSenderTransceiver) {
       const sender = emptyTrackSenderTransceiver.sender;
+      sender.setStreams(streams);
       sender.registerTrack(track);
+      emptyTrackSenderTransceiver.options = {
+        ...emptyTrackSenderTransceiver.options,
+        streams,
+      };
       return emptyTrackSenderTransceiver;
     }
 
@@ -142,7 +161,12 @@ export class TransceiverManager {
     );
     if (notSendTransceiver) {
       const sender = notSendTransceiver.sender;
+      sender.setStreams(streams);
       sender.registerTrack(track);
+      notSendTransceiver.options = {
+        ...notSendTransceiver.options,
+        streams,
+      };
       switch (notSendTransceiver.direction) {
         case "recvonly":
           notSendTransceiver.setDirection("sendrecv");
@@ -155,6 +179,7 @@ export class TransceiverManager {
     } else {
       const transceiver = this.addTransceiver(track, undefined, {
         direction: "sendrecv",
+        streams,
       });
       return transceiver;
     }
@@ -162,7 +187,10 @@ export class TransceiverManager {
 
   removeTrack(sender: RTCRtpSender): void {
     if (!this.getSenders().find(({ ssrc }) => sender.ssrc === ssrc)) {
-      throw new Error("Sender does not exist");
+      throw createWebRtcDomException(
+        "InvalidAccessError",
+        "Sender does not exist",
+      );
     }
 
     const transceiver = this.transceivers.find(
@@ -170,24 +198,24 @@ export class TransceiverManager {
     );
     if (!transceiver) throw new Error("No matching transceiver found");
 
+    if (transceiver.stopping || transceiver.stopped) {
+      return;
+    }
+
     sender.stop();
 
-    if (transceiver.currentDirection === "recvonly") {
+    if (["recvonly", "inactive"].includes(transceiver.currentDirection ?? "")) {
       this.onNegotiationNeeded.execute();
       return;
     }
 
-    if (transceiver.stopping || transceiver.stopped) {
+    if (transceiver.direction === "sendrecv") {
+      transceiver.setDirection("recvonly");
+    } else if (
+      transceiver.direction === "sendonly" ||
+      transceiver.direction === "recvonly"
+    ) {
       transceiver.setDirection("inactive");
-    } else {
-      if (transceiver.direction === "sendrecv") {
-        transceiver.setDirection("recvonly");
-      } else if (
-        transceiver.direction === "sendonly" ||
-        transceiver.direction === "recvonly"
-      ) {
-        transceiver.setDirection("inactive");
-      }
     }
   }
 
@@ -272,7 +300,7 @@ export class TransceiverManager {
     mLineIndex: number,
   ): void {
     if (!transceiver.mid) {
-      transceiver.mid = remoteMedia.rtp.muxId;
+      transceiver.mid = remoteMedia.rtp.muxId ?? null;
     }
     transceiver.mLineIndex = mLineIndex;
 
@@ -333,20 +361,28 @@ export class TransceiverManager {
       // register ssrc receiver
       this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
     }
-    if (["sendonly", "sendrecv"].includes(mediaDirection)) {
-      if (remoteMedia.msid) {
-        const [streamId, trackId] = remoteMedia.msid.split(" ");
-        transceiver.receiver.remoteStreamId = streamId;
-        transceiver.receiver.remoteTrackId = trackId;
-      }
+    if (
+      remoteMedia.port !== 0 &&
+      ["sendonly", "sendrecv"].includes(mediaDirection)
+    ) {
+      const remoteStreamIds = [
+        ...new Set(remoteMedia.msids.map((msid) => msid.split(" ")[0])),
+      ];
+      const remoteTrackId = remoteMedia.msids[0]?.split(" ")[1];
+      transceiver.receiver.remoteStreamId = remoteStreamIds[0];
+      transceiver.receiver.remoteStreamIds = remoteStreamIds;
+      transceiver.receiver.remoteTrackId = remoteTrackId;
 
       this.onTrack.execute({
         track: transceiver.receiver.track,
         transceiver,
-        stream: new MediaStream({
-          id: transceiver.receiver.remoteStreamId,
-          tracks: [transceiver.receiver.track],
-        }),
+        streams: remoteStreamIds.map(
+          (id) =>
+            new MediaStream({
+              id,
+              tracks: [transceiver.receiver.track],
+            }),
+        ),
       });
     }
 
@@ -399,8 +435,7 @@ export class TransceiverManager {
    */
   close() {
     for (const transceiver of this.transceivers) {
-      transceiver.receiver.stop();
-      transceiver.sender.stop();
+      transceiver.forceStop();
     }
 
     this.onTransceiverAdded.allUnsubscribe();

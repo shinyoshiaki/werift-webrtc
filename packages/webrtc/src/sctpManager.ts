@@ -1,3 +1,4 @@
+import { createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
@@ -48,15 +49,30 @@ export class SctpTransportManager {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    const maxPacketLifeTime = coerceUnsignedShortOption(
+      options.maxPacketLifeTime,
+      "maxPacketLifeTime",
+    );
+    const maxRetransmits = coerceUnsignedShortOption(
+      options.maxRetransmits,
+      "maxRetransmits",
+    );
     const base: typeof options = {
       protocol: "",
       ordered: true,
       negotiated: false,
     };
-    const settings: Required<typeof base> = { ...base, ...options } as any;
+    const settings: Required<typeof base> = {
+      ...base,
+      ...options,
+      maxPacketLifeTime,
+      maxRetransmits,
+    } as any;
 
-    if (settings.maxPacketLifeTime && settings.maxRetransmits) {
-      throw new Error("can not select both");
+    if (settings.maxPacketLifeTime != null && settings.maxRetransmits != null) {
+      throw createWebRtcTypeError(
+        "maxPacketLifeTime and maxRetransmits cannot both be set",
+      );
     }
 
     if (!this.sctpTransport) {
@@ -149,4 +165,25 @@ export class SctpTransportManager {
 
     return stats;
   }
+}
+
+function coerceUnsignedShortOption(
+  value: unknown,
+  name: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const coerced = Number(value);
+  if (
+    !Number.isFinite(coerced) ||
+    !Number.isInteger(coerced) ||
+    coerced < 0 ||
+    coerced > 65535
+  ) {
+    throw createWebRtcTypeError(`${name} must be an unsigned short`);
+  }
+
+  return coerced;
 }

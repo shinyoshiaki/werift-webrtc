@@ -76,7 +76,7 @@ export class MediaStream {
   id!: string;
   tracks: MediaStreamTrack[] = [];
 
-  constructor(props: Partial<MediaStream> | MediaStreamTrack[]) {
+  constructor(props: Partial<MediaStream> | MediaStreamTrack[] = {}) {
     if (Array.isArray(props)) {
       this.tracks = props;
     } else {
@@ -88,6 +88,13 @@ export class MediaStream {
   addTrack(track: MediaStreamTrack) {
     track.streamId = this.id;
     this.tracks.push(track);
+  }
+
+  removeTrack(track: MediaStreamTrack) {
+    this.tracks = this.tracks.filter((currentTrack) => currentTrack !== track);
+    if (track.streamId === this.id) {
+      track.streamId = undefined;
+    }
   }
 
   getTracks() {

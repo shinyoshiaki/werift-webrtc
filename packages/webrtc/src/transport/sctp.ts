@@ -237,7 +237,7 @@ export class RTCSctpTransport {
   }
 
   dataChannelOpen(channel: RTCDataChannel) {
-    if (channel.id) {
+    if (channel.id !== undefined) {
       if (this.dataChannels[channel.id])
         throw new Error(
           `Data channel with ID ${channel.id} already registered`,
@@ -252,10 +252,10 @@ export class RTCSctpTransport {
     if (!channel.ordered) {
       channelType = 0x80;
     }
-    if (channel.maxRetransmits) {
+    if (channel.maxRetransmits !== null) {
       channelType = 1;
       reliability = channel.maxRetransmits;
-    } else if (channel.maxPacketLifeTime) {
+    } else if (channel.maxPacketLifeTime !== null) {
       channelType = 2;
       reliability = channel.maxPacketLifeTime;
     }
@@ -307,13 +307,14 @@ export class RTCSctpTransport {
           ordered: true,
         });
       } else {
-        const expiry = channel.maxPacketLifeTime
-          ? Date.now() + channel.maxPacketLifeTime / 1000
-          : undefined;
+        const expiry =
+          channel.maxPacketLifeTime !== null
+            ? Date.now() + channel.maxPacketLifeTime / 1000
+            : undefined;
 
         await this.sctp.send(streamId, protocol, userData, {
           expiry,
-          maxRetransmits: channel.maxRetransmits,
+          maxRetransmits: channel.maxRetransmits ?? undefined,
           ordered: channel.ordered,
         });
         channel.addBufferedAmount(-userData.length);
@@ -405,7 +406,7 @@ export class RTCSctpTransport {
         this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
           (streamId) => streamId !== channel.id,
         );
-        if (channel.id) {
+        if (channel.id !== undefined) {
           delete this.dataChannels[channel.id];
         }
         channel.setReadyState("closed");

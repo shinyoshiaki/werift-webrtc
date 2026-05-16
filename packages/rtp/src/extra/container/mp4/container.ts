@@ -1,9 +1,43 @@
+import {
+  EncodedAudioPacketSource,
+  EncodedPacket,
+  EncodedVideoPacketSource,
+  Mp4OutputFormat,
+  NullTarget,
+  Output,
+} from "mediabunny";
 import { Event } from "../../../imports/common";
-
-import * as MP4 from "./mp4box";
 
 type DecoderConfig = AudioDecoderConfig | VideoDecoderConfig;
 type EncodedChunk = EncodedAudioChunk | EncodedVideoChunk;
+type TrackKind = "audio" | "video";
+
+interface AudioChunkMetadata {
+  decoderConfig: {
+    codec: "opus";
+    description?: Uint8Array;
+    numberOfChannels: number;
+    sampleRate: number;
+  };
+}
+
+interface VideoChunkMetadata {
+  decoderConfig: {
+    codec: string;
+    codedHeight: number;
+    codedWidth: number;
+    description?: Uint8Array;
+    displayAspectHeight?: number;
+    displayAspectWidth?: number;
+  };
+}
+
+interface FragmentMeta {
+  duration: number;
+  kind: TrackKind;
+  timestamp: number;
+  type: DataType;
+}
 
 export type DataType = "init" | "delta" | "key";
 
@@ -16,23 +50,38 @@ export interface Mp4Data {
 }
 
 export class Mp4Container {
-  #mp4: MP4.ISOFile;
-  #audioFrame?: EncodedAudioChunk | EncodedVideoChunk;
-  #videoFrame?: EncodedAudioChunk | EncodedVideoChunk; // 1 frame buffer
+  #audioFrame?: (EncodedChunk & { track: TrackKind }) | undefined;
+  #audioMeta?: AudioChunkMetadata;
+  #audioSource?: EncodedAudioPacketSource;
+  #currentFragment?: FragmentMeta;
+  #ftyp?: Uint8Array;
+  #initializationEmitted = false;
+  #lastAudioDuration = 0;
+  #lastMoof?: Uint8Array;
+  #lastMoofTimestamp = 0;
+  #lastVideoDuration = 0;
+  #moov?: Uint8Array;
+  #onDataOperation = Promise.resolve();
+  #operation = Promise.resolve();
+  #output?: Output<Mp4OutputFormat, NullTarget> | undefined;
+  #startPromise?: Promise<void>;
+  #stopPromise?: Promise<void>;
+  #stopped = false;
+  #videoFrame?: (EncodedChunk & { track: TrackKind }) | undefined;
+  #videoMeta?: VideoChunkMetadata;
+  #videoSource?: EncodedVideoPacketSource;
   audioTrack?: number;
+  frameBuffer: (EncodedChunk & {
+    track: TrackKind;
+  })[] = [];
+  onData = new Event<[Mp4Data | { eol: true }]>();
   videoTrack?: number;
-  #audioSegment = 0;
-  #videoSegment = 0;
-  onData = new Event<[Mp4Data]>();
 
   constructor(
     private props: {
       track: { audio: boolean; video: boolean };
     },
-  ) {
-    this.#mp4 = new MP4.ISOFile();
-    this.#mp4.init();
-  }
+  ) {}
 
   get tracksReady() {
     let ready = true;
@@ -47,7 +96,7 @@ export class Mp4Container {
 
   write(
     frame: (DecoderConfig | EncodedChunk) & {
-      track: "video" | "audio";
+      track: TrackKind;
     },
   ) {
     if (isDecoderConfig(frame)) {
@@ -59,198 +108,328 @@ export class Mp4Container {
 
   #init(
     frame: DecoderConfig & {
-      track: "video" | "audio";
+      track: TrackKind;
     },
   ) {
-    let codec = frame.codec.substring(0, 4);
-    if (codec == "opus") {
-      codec = "Opus";
-    }
-
-    const options: MP4.TrackOptions = {
-      type: codec,
-      timescale: 1_000_000,
-    };
-
-    if (isVideoConfig(frame)) {
-      options.width = frame.codedWidth;
-      options.height = frame.codedHeight;
-    } else {
-      options.channel_count = frame.numberOfChannels;
-      options.samplerate = frame.sampleRate;
-      options.hdlr = "soun";
-    }
-
-    if (!frame.description) throw new Error("missing frame description");
-    const desc = frame.description as ArrayBufferLike;
-
-    if (codec === "avc1") {
-      options.avcDecoderConfigRecord = desc;
-    } else if (codec === "hev1") {
-      options.hevcDecoderConfigRecord = desc;
-    } else if (codec === "Opus") {
-      // description is an identification header: https://datatracker.ietf.org/doc/html/rfc7845#section-5.1
-      // The first 8 bytes are the magic string "OpusHead", followed by what we actually want.
-      const dops = new MP4.BoxParser.dOpsBox();
-
-      // Annoyingly, the header is little endian while MP4 is big endian, so we have to parse.
-      dops.parse(new MP4.Stream(desc, 8, MP4.Stream.LITTLE_ENDIAN));
-
-      options.description = dops;
-    } else {
-      throw new Error(`unsupported codec: ${codec}`);
-    }
-
-    const track = this.#mp4.addTrack(options);
-    if (track == undefined) {
-      throw new Error("failed to initialize MP4 track");
-    }
     if (frame.track === "audio") {
-      this.audioTrack = track;
+      if (isVideoConfig(frame)) {
+        throw new Error("audio track requires an audio decoder config");
+      }
+      if (frame.codec !== "opus") {
+        throw new Error(`unsupported codec: ${frame.codec}`);
+      }
+      this.#audioMeta = {
+        decoderConfig: {
+          codec: "opus",
+          description:
+            frame.description != undefined
+              ? new Uint8Array(frame.description)
+              : undefined,
+          numberOfChannels: frame.numberOfChannels,
+          sampleRate: frame.sampleRate,
+        },
+      };
+      this.audioTrack = 1;
     } else {
-      this.videoTrack = track;
+      if (!isVideoConfig(frame)) {
+        throw new Error("video track requires a video decoder config");
+      }
+      if (!frame.codec.startsWith("avc1")) {
+        throw new Error(`unsupported codec: ${frame.codec}`);
+      }
+      if (frame.codedWidth == undefined || frame.codedHeight == undefined) {
+        throw new Error("missing coded video dimensions");
+      }
+      this.#videoMeta = {
+        decoderConfig: {
+          codec: frame.codec,
+          codedHeight: frame.codedHeight,
+          codedWidth: frame.codedWidth,
+          description:
+            frame.description != undefined
+              ? new Uint8Array(frame.description)
+              : undefined,
+          displayAspectHeight: frame.displayAspectHeight,
+          displayAspectWidth: frame.displayAspectWidth,
+        },
+      };
+      this.videoTrack = this.props.track.audio ? 2 : 1;
     }
 
     if (!this.tracksReady) {
       return;
     }
 
-    const buffer = MP4.ISOFile.writeInitializationSegment(
-      this.#mp4.ftyp!,
-      this.#mp4.moov!,
-      0,
-      0,
-    );
-    const data = new Uint8Array(buffer);
-    const res = {
-      type: "init",
-      timestamp: 0,
-      duration: 0,
-      data,
-      kind: frame.track,
-    } as const;
-    this.onData.execute(res);
+    void this.#enqueueOperation(async () => {
+      await this.#ensureOutputStarted();
+      await this.#drainFrameBuffer();
+    });
   }
-
-  frameBuffer: (EncodedChunk & {
-    track: "video" | "audio";
-  })[] = [];
 
   #enqueue(
     frame: EncodedChunk & {
-      track: "video" | "audio";
+      track: TrackKind;
     },
   ) {
     this.frameBuffer.push(frame);
     if (!this.tracksReady) {
       return;
     }
-    for (const frame of this.frameBuffer) {
-      this._enqueue(frame);
-    }
-    this.frameBuffer = [];
+    void this.#enqueueOperation(async () => {
+      await this.#ensureOutputStarted();
+      await this.#drainFrameBuffer();
+    });
   }
 
-  private _enqueue(
-    frame: EncodedChunk & {
-      track: "video" | "audio";
-    },
-  ) {
-    const track = frame.track === "audio" ? this.audioTrack : this.videoTrack;
-    if (!track) {
-      throw new Error("track missing");
+  stop() {
+    if (this.#stopPromise) {
+      return this.#stopPromise;
     }
 
-    // Check if we should create a new segment
-    if (frame.track === "video") {
-      if (frame.type == "key") {
-        this.#videoSegment += 1;
-      } else if (this.#videoSegment == 0) {
-        throw new Error("must start with keyframe");
-      }
-    } else {
-      this.#audioSegment += 1;
-    }
-
-    // We need a one frame buffer to compute the duration
-    if (frame.track === "video") {
-      if (!this.#videoFrame) {
-        this.#videoFrame = frame;
+    this.#stopped = true;
+    this.#stopPromise = this.#enqueueOperation(async () => {
+      if (!this.tracksReady) {
+        this.frameBuffer = [];
         return;
       }
-    } else {
-      if (!this.#audioFrame) {
-        this.#audioFrame = frame;
-        return;
+
+      await this.#ensureOutputStarted();
+      await this.#drainFrameBuffer();
+      await this.#flushPendingFrame("audio");
+      await this.#flushPendingFrame("video");
+
+      this.#audioSource?.close();
+      this.#videoSource?.close();
+      if (this.#output) {
+        await this.#output.finalize();
       }
+      await this.#flushOnData();
+    });
+    return this.#stopPromise;
+  }
+
+  async #drainFrameBuffer() {
+    const frames = this.frameBuffer;
+    this.frameBuffer = [];
+
+    for (const frame of frames) {
+      await this.#processFrame(frame);
+    }
+  }
+
+  async #ensureOutputStarted() {
+    if (this.#startPromise) {
+      await this.#startPromise;
+      return;
+    }
+    if (!this.tracksReady) {
+      return;
     }
 
-    const bufferFrame =
-      frame.track === "video" ? this.#videoFrame : this.#audioFrame;
+    const output = new Output({
+      format: new Mp4OutputFormat({
+        fastStart: "fragmented",
+        minimumFragmentDuration: 0,
+        onFtyp: (data) => {
+          this.#ftyp = copyBytes(data);
+        },
+        onMdat: (data) => {
+          if (!this.#lastMoof) {
+            throw new Error("moof missing before mdat");
+          }
 
-    if (!bufferFrame) {
-      throw new Error("bufferFrame missing");
-    }
+          const fragment = this.#currentFragment;
+          const timestamp = fragment
+            ? fragment.timestamp
+            : Math.round(this.#lastMoofTimestamp * 1_000_000);
+          const duration = fragment?.duration ?? 0;
+          const kind = fragment?.kind ?? this.#defaultKind();
+          const type = fragment?.type ?? "key";
+          const segment = concatBytes(this.#lastMoof, data);
 
-    const duration = frame.timestamp - bufferFrame.timestamp;
+          this.#currentFragment = undefined;
+          this.#lastMoof = undefined;
 
-    // TODO avoid this extra copy by writing to the mdat directly
-    // ...which means changing mp4box.js to take an offset instead of ArrayBuffer
-
-    const buffer = new ArrayBuffer(bufferFrame.byteLength);
-    bufferFrame.copyTo(buffer);
-
-    // Add the sample to the container
-    this.#mp4.addSample(track, buffer, {
-      duration,
-      dts: bufferFrame.timestamp,
-      cts: bufferFrame.timestamp,
-      is_sync: bufferFrame.type == "key",
+          void this.#emitData({
+            type,
+            timestamp,
+            duration,
+            data: segment,
+            kind,
+          });
+        },
+        onMoof: (data, _position, timestamp) => {
+          this.#lastMoof = copyBytes(data);
+          this.#lastMoofTimestamp = timestamp;
+        },
+        onMoov: (data) => {
+          this.#moov = copyBytes(data);
+          this.#emitInitializationSegment();
+        },
+      }),
+      target: new NullTarget(),
     });
 
-    const stream = new MP4.Stream(undefined, 0, MP4.Stream.BIG_ENDIAN);
-
-    // Moof and mdat atoms are written in pairs.
-    // TODO remove the moof/mdat from the Box to reclaim memory once everything works
-    for (;;) {
-      const moof = this.#mp4.moofs.shift();
-      const mdat = this.#mp4.mdats.shift();
-
-      if (!moof && !mdat) break;
-      if (!moof) throw new Error("moof missing");
-      if (!mdat) throw new Error("mdat missing");
-
-      moof.write(stream);
-      mdat.write(stream);
+    if (this.#audioMeta) {
+      this.#audioSource = new EncodedAudioPacketSource("opus");
+      output.addAudioTrack(this.#audioSource);
+    }
+    if (this.#videoMeta) {
+      this.#videoSource = new EncodedVideoPacketSource("avc");
+      output.addVideoTrack(this.#videoSource);
     }
 
-    // TODO avoid this extra copy by writing to the buffer provided in copyTo
-    const data = new Uint8Array(stream.buffer);
-
-    if (frame.track === "video") {
-      this.#videoFrame = frame;
-    } else {
-      this.#audioFrame = frame;
-    }
-
-    const res = {
-      type: bufferFrame.type,
-      timestamp: bufferFrame.timestamp,
-      kind: frame.track,
-      duration,
-      data,
-    };
-    this.onData.execute(res);
+    this.#output = output;
+    this.#startPromise = output.start();
+    await this.#startPromise;
   }
 
-  /* TODO flush the last frame
-	#flush(controller: TransformStreamDefaultController<Chunk>) {
-		if (this.#frame) {
-			// TODO guess the duration
-			this.#enqueue(this.#frame, 0, controller)
-		}
-	}
-	*/
+  #emitInitializationSegment() {
+    if (this.#initializationEmitted || !this.#ftyp || !this.#moov) {
+      return;
+    }
+
+    this.#initializationEmitted = true;
+    void this.#emitData({
+      type: "init",
+      timestamp: 0,
+      duration: 0,
+      data: concatBytes(this.#ftyp, this.#moov),
+      kind: this.#defaultKind(),
+    });
+  }
+
+  #emitData(data: Mp4Data | { eol: true }) {
+    const next = this.#onDataOperation.then(() => this.onData.execute(data));
+    this.#onDataOperation = next;
+    return next;
+  }
+
+  async #flushOnData() {
+    await this.#onDataOperation;
+  }
+
+  #enqueueOperation(operation: () => Promise<void>) {
+    const next = this.#operation.then(operation);
+    this.#operation = next;
+    return next;
+  }
+
+  #defaultKind(): TrackKind {
+    return this.props.track.video ? "video" : "audio";
+  }
+
+  async #flushPendingFrame(track: TrackKind) {
+    const buffered = track === "audio" ? this.#audioFrame : this.#videoFrame;
+    if (!buffered) {
+      return;
+    }
+
+    const duration =
+      track === "audio" ? this.#lastAudioDuration : this.#lastVideoDuration;
+    await this.#writePacket(buffered, duration);
+
+    if (track === "audio") {
+      this.#audioFrame = undefined;
+    } else {
+      this.#videoFrame = undefined;
+    }
+  }
+
+  async #processFrame(
+    frame: EncodedChunk & {
+      track: TrackKind;
+    },
+  ) {
+    const buffered =
+      frame.track === "audio" ? this.#audioFrame : this.#videoFrame;
+    if (!buffered) {
+      if (frame.track === "audio") {
+        this.#audioFrame = frame;
+      } else {
+        this.#videoFrame = frame;
+      }
+      return;
+    }
+
+    const duration = Math.max(frame.timestamp - buffered.timestamp, 0);
+    await this.#writePacket(buffered, duration);
+
+    if (frame.track === "audio") {
+      this.#audioFrame = frame;
+      this.#lastAudioDuration = duration;
+    } else {
+      this.#videoFrame = frame;
+      this.#lastVideoDuration = duration;
+    }
+  }
+
+  async #writePacket(
+    frame: EncodedChunk & {
+      track: TrackKind;
+    },
+    duration: number,
+  ) {
+    const data = new Uint8Array(frame.byteLength);
+    frame.copyTo(data.buffer);
+
+    const packet = new EncodedPacket(
+      data,
+      frame.type,
+      frame.timestamp / 1_000_000,
+      duration / 1_000_000,
+    );
+
+    if (frame.track === "audio") {
+      if (!this.#audioSource || !this.#audioMeta) {
+        throw new Error("audio track missing");
+      }
+
+      await this.#audioSource.add(packet, this.#audioMeta);
+    } else {
+      if (!this.#videoSource || !this.#videoMeta) {
+        throw new Error("video track missing");
+      }
+
+      await this.#videoSource.add(packet, this.#videoMeta);
+    }
+
+    this.#rememberFragmentPacket(
+      frame.track,
+      frame.type,
+      frame.timestamp,
+      duration,
+    );
+  }
+
+  #rememberFragmentPacket(
+    kind: TrackKind,
+    type: EncodedChunk["type"],
+    timestamp: number,
+    duration: number,
+  ) {
+    const end = timestamp + duration;
+    if (!this.#currentFragment) {
+      this.#currentFragment = {
+        kind,
+        type,
+        timestamp,
+        duration,
+      };
+      return;
+    }
+
+    if (kind === "video" && type === "key") {
+      this.#currentFragment.type = "key";
+    }
+
+    const fragmentEnd = Math.max(
+      this.#currentFragment.timestamp + this.#currentFragment.duration,
+      end,
+    );
+    this.#currentFragment.duration =
+      fragmentEnd - this.#currentFragment.timestamp;
+  }
 }
 
 function isDecoderConfig(
@@ -303,3 +482,20 @@ type EncodedVideoChunkType = "delta" | "key";
 
 export const mp4SupportedCodecs = ["avc1", "opus"] as const;
 export type Mp4SupportedCodec = (typeof mp4SupportedCodecs)[number];
+
+function concatBytes(...parts: Uint8Array[]) {
+  const size = parts.reduce((sum, part) => sum + part.byteLength, 0);
+  const combined = new Uint8Array(size);
+  let offset = 0;
+
+  for (const part of parts) {
+    combined.set(part, offset);
+    offset += part.byteLength;
+  }
+
+  return combined;
+}
+
+function copyBytes(data: Uint8Array) {
+  return new Uint8Array(data);
+}

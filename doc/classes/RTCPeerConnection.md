@@ -12,6 +12,9 @@ reviewable diff does not depend on external PR text.
 - `current/pending*Description`, `canTrickleIceCandidates`, `sctp`,
   `addIceCandidate(null)`, and `RTCConfiguration` round-trip behavior are
   implemented here and covered by `tests/wpt/peerConnectionApiCompatibility.test.ts`.
+- `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
+  `usernameFragment` against the applied remote description and appends
+  candidates or end-of-candidates markers to the corresponding m-section.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
   returns the normalized value.
@@ -97,57 +100,15 @@ reviewable diff does not depend on external PR text.
 
 ***
 
-### onconnectionstatechange?
-
-> `optional` **onconnectionstatechange**: `Callback`
-
-***
-
-### ondatachannel?
-
-> `optional` **ondatachannel**: `CallbackWithValue`\<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
-
-***
-
 ### onDataChannel
 
 > `readonly` **onDataChannel**: [`Event`](Event.md)\<\[[`RTCDataChannel`](RTCDataChannel.md)\]\>
 
 ***
 
-### onicecandidate?
-
-> `optional` **onicecandidate**: `CallbackWithValue`\<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
-
-***
-
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`RTCIceCandidate`](RTCIceCandidate.md)\]\>
-
-***
-
-### onicecandidateerror?
-
-> `optional` **onicecandidateerror**: `CallbackWithValue`\<`any`\>
-
-***
-
-### oniceconnectionstatechange?
-
-> `optional` **oniceconnectionstatechange**: `Callback`
-
-***
-
-### onicegatheringstatechange?
-
-> `optional` **onicegatheringstatechange**: `CallbackWithValue`\<`any`\>
-
-***
-
-### onnegotiationneeded?
-
-> `optional` **onnegotiationneeded**: `CallbackWithValue`\<`any`\>
 
 ***
 
@@ -160,18 +121,6 @@ reviewable diff does not depend on external PR text.
 ### onRemoteTransceiverAdded
 
 > `readonly` **onRemoteTransceiverAdded**: [`Event`](Event.md)\<\[[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
-
-***
-
-### onsignalingstatechange?
-
-> `optional` **onsignalingstatechange**: `CallbackWithValue`\<`any`\>
-
-***
-
-### ontrack?
-
-> `optional` **ontrack**: `CallbackWithValue`\<[`RTCTrackEvent`](../interfaces/RTCTrackEvent.md)\>
 
 ***
 
@@ -332,11 +281,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **currentLocalDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **currentLocalDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -344,11 +293,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **currentRemoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **currentRemoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -440,11 +389,245 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **localDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **localDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+
+***
+
+### onconnectionstatechange
+
+#### Get Signature
+
+> **get** **onconnectionstatechange**(): `Callback`
+
+##### Returns
+
+`Callback`
+
+#### Set Signature
+
+> **set** **onconnectionstatechange**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`Callback`
+
+##### Returns
+
+`void`
+
+***
+
+### ondatachannel
+
+#### Get Signature
+
+> **get** **ondatachannel**(): `CallbackWithValue`\<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
+
+##### Returns
+
+`CallbackWithValue`\<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
+
+#### Set Signature
+
+> **set** **ondatachannel**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<[`RTCDataChannelEvent`](../interfaces/RTCDataChannelEvent.md)\>
+
+##### Returns
+
+`void`
+
+***
+
+### onicecandidate
+
+#### Get Signature
+
+> **get** **onicecandidate**(): `CallbackWithValue`\<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
+
+##### Returns
+
+`CallbackWithValue`\<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
+
+#### Set Signature
+
+> **set** **onicecandidate**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<[`RTCPeerConnectionIceEvent`](../interfaces/RTCPeerConnectionIceEvent.md)\>
+
+##### Returns
+
+`void`
+
+***
+
+### onicecandidateerror
+
+#### Get Signature
+
+> **get** **onicecandidateerror**(): `CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`CallbackWithValue`\<`any`\>
+
+#### Set Signature
+
+> **set** **onicecandidateerror**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`void`
+
+***
+
+### oniceconnectionstatechange
+
+#### Get Signature
+
+> **get** **oniceconnectionstatechange**(): `Callback`
+
+##### Returns
+
+`Callback`
+
+#### Set Signature
+
+> **set** **oniceconnectionstatechange**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`Callback`
+
+##### Returns
+
+`void`
+
+***
+
+### onicegatheringstatechange
+
+#### Get Signature
+
+> **get** **onicegatheringstatechange**(): `CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`CallbackWithValue`\<`any`\>
+
+#### Set Signature
+
+> **set** **onicegatheringstatechange**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`void`
+
+***
+
+### onnegotiationneeded
+
+#### Get Signature
+
+> **get** **onnegotiationneeded**(): `CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`CallbackWithValue`\<`any`\>
+
+#### Set Signature
+
+> **set** **onnegotiationneeded**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`void`
+
+***
+
+### onsignalingstatechange
+
+#### Get Signature
+
+> **get** **onsignalingstatechange**(): `CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`CallbackWithValue`\<`any`\>
+
+#### Set Signature
+
+> **set** **onsignalingstatechange**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<`any`\>
+
+##### Returns
+
+`void`
+
+***
+
+### ontrack
+
+#### Get Signature
+
+> **get** **ontrack**(): `CallbackWithValue`\<[`RTCTrackEvent`](RTCTrackEvent.md)\>
+
+##### Returns
+
+`CallbackWithValue`\<[`RTCTrackEvent`](RTCTrackEvent.md)\>
+
+#### Set Signature
+
+> **set** **ontrack**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`CallbackWithValue`\<[`RTCTrackEvent`](RTCTrackEvent.md)\>
+
+##### Returns
+
+`void`
 
 ***
 
@@ -452,11 +635,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **pendingLocalDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **pendingLocalDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -464,11 +647,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **pendingRemoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **pendingRemoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -476,11 +659,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **remoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **remoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
 
 ***
 
@@ -500,11 +683,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **sctp**(): `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+> **get** **sctp**(): `null` \| [`RTCSctpTransport`](RTCSctpTransport.md)
 
 ##### Returns
 
-`undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+`null` \| [`RTCSctpTransport`](RTCSctpTransport.md)
 
 ***
 
@@ -644,7 +827,7 @@ v0.1.26
 
 ### addTrack()
 
-> **addTrack**(`track`, `ms`?): [`RTCRtpSender`](RTCRtpSender.md)
+> **addTrack**(`track`, ...`streams`): [`RTCRtpSender`](RTCRtpSender.md)
 
 #### Parameters
 
@@ -652,11 +835,9 @@ v0.1.26
 
 [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### ms?
+##### streams
 
-[`MediaStream`](MediaStream.md)
-
-todo impl
+...[`MediaStream`](MediaStream.md)[]
 
 #### Returns
 

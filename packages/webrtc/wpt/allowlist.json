@@ -1,0 +1,149 @@
+{
+  "targets": [
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "enabled": true,
+      "reason": "Migrates the existing local removeTrack WPT coverage onto the upstream source file.",
+      "subtests": [
+        "addTransceiver - Calling removeTrack when connection is closed should throw InvalidStateError",
+        "addTrack - Calling removeTrack when connection is closed should throw InvalidStateError",
+        "addTransceiver - Calling removeTrack on different connection that is closed should throw InvalidStateError",
+        "addTrack - Calling removeTrack on different connection that is closed should throw InvalidStateError",
+        "addTransceiver - Calling removeTrack on different connection should throw InvalidAccessError",
+        "addTrack - Calling removeTrack on different connection should throw InvalidAccessError",
+        "addTransceiver - Calling removeTrack with valid sender should set sender.track to null",
+        "addTrack - Calling removeTrack with valid sender should set sender.track to null",
+        "Calling removeTrack with currentDirection sendrecv should set direction to recvonly",
+        "Calling removeTrack with currentDirection sendonly should set direction to inactive",
+        "Calling removeTrack with currentDirection recvonly should not change direction",
+        "Calling removeTrack with currentDirection inactive should not change direction"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-ontrack.https.html",
+      "enabled": true,
+      "reason": "Covers upstream ontrack event semantics that match the previous local port.",
+      "subtests": [
+        "addTrack() should cause remote connection to fire ontrack when setRemoteDescription()",
+        "addTransceiver('video') should cause remote connection to fire ontrack when setRemoteDescription()",
+        "addTransceiver() with inactive direction should not cause remote connection to fire ontrack when setRemoteDescription()"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "Exercises the current negotiationneeded compatibility surface with the upstream file.",
+      "subtests": [
+        "Creating first data channel should fire negotiationneeded event",
+        "calling createDataChannel twice should fire negotiationneeded event once",
+        "addTransceiver() should fire negotiationneeded event",
+        "Calling addTransceiver() twice should fire negotiationneeded event once",
+        "Calling both addTransceiver() and createDataChannel() should fire negotiationneeded event once",
+        "negotiationneeded event should not fire if signaling state is not stable",
+        "negotiationneeded event should fire only after signaling state goes back to stable after setRemoteDescription",
+        "negotiationneeded event should fire only after signaling state goes back to stable after setLocalDescription",
+        "addTrack should cause negotiationneeded to fire",
+        "removeTrack should cause negotiationneeded to fire on the caller"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-canTrickleIceCandidates.html",
+      "enabled": true,
+      "reason": "Matches the current canTrickleIceCandidates compatibility work.",
+      "subtests": [
+        "canTrickleIceCandidates property is null prior to setRemoteDescription",
+        "canTrickleIceCandidates property is true after setRemoteDescription with a=ice-options:trickle",
+        "canTrickleIceCandidates property is false after setRemoteDescription without a=ice-options:trickle"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "Starts with the addIceCandidate cases already covered by the current compatibility tests.",
+      "subtests": [
+        "Add ICE candidate before setting remote description should reject with InvalidStateError",
+        "addIceCandidate(undefined) works",
+        "addIceCandidate(null) works",
+        "addIceCandidate({}) works",
+        "Add ICE candidate with RTCIceCandidate should succeed",
+        "Add candidate with only valid sdpMid should succeed",
+        "Add candidate with only valid sdpMid and RTCIceCandidate should succeed"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-parameterless.https.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "Covers parameterless setLocalDescription flows that the current implementation aims to support.",
+      "subtests": [
+        "Parameterless SLD() in a full O/A exchange succeeds"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-rollback.html",
+      "enabled": true,
+      "reason": "Tracks the rollback behavior already under active compatibility work.",
+      "subtests": [
+        "setLocalDescription(rollback) should ignore invalid sdp content and succeed"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "Tracks the upstream rollback scenarios that overlap with the current local coverage.",
+      "subtests": [
+        "setRemoteDescription(rollback) should ignore invalid sdp content and succeed",
+        "local offer created before setRemoteDescription(remote offer) then rollback should still be usable",
+        "local offer created before setRemoteDescription(remote offer) with different transceiver level assignments then rollback should still be usable"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "enabled": true,
+      "reason": "Uses upstream addTrack coverage once getUserMedia is backed by deterministic dummy RTP sources.",
+      "subtests": [
+        "addTrack when pc is closed should throw InvalidStateError",
+        "addTrack with single track argument and no stream should succeed",
+        "Adding the same track multiple times should throw InvalidAccessError",
+        "addTrack with existing sender with null track, same kind, and recvonly direction should reuse sender",
+        "addTrack with existing sender that has not been used to send should reuse the sender",
+        "addTrack with existing sender that has been used to send should create new sender",
+        "addTrack with existing sender with null track, different kind, and recvonly direction should create new sender"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-track-stats.https.html",
+      "enabled": false,
+      "reason": "Deferred until the dummy media source and stats surface are validated against a larger upstream subset."
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-createDataChannel.html",
+      "enabled": false,
+      "variant": "?rest",
+      "reason": "Deferred until createDataChannel fully matches Web IDL coercion and DOMException semantics."
+    },
+    {
+      "file": "webrtc/RTCConfiguration-bundlePolicy.html",
+      "enabled": false,
+      "reason": "Deferred because bundlePolicy currently normalizes balanced to max-compat in werift."
+    },
+    {
+      "file": "webrtc/RTCDataChannel-send.html",
+      "enabled": false,
+      "reason": "Deferred until the SCTP / RTCDataChannel behavior is aligned with the upstream browser expectations."
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "enabled": false,
+      "reason": "Deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-getStats.https.html",
+      "enabled": false,
+      "reason": "Deferred until the stats surface is baselined against upstream expectations."
+    }
+  ]
+}

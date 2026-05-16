@@ -450,7 +450,10 @@ export class IceCandidate {
       if (!data.candidate) {
         throw new Error("candidate is required");
       }
-      const candidate = candidateFromSdp(data.candidate);
+      const normalizedCandidate = data.candidate.startsWith("candidate:")
+        ? data.candidate.slice("candidate:".length)
+        : data.candidate;
+      const candidate = candidateFromSdp(normalizedCandidate);
       candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
       candidate.sdpMid = data.sdpMid ?? undefined;
       return candidate;

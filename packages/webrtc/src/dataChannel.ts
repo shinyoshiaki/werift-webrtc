@@ -74,11 +74,11 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   }
 
   get maxRetransmits() {
-    return this.parameters.maxRetransmits;
+    return this.parameters.maxRetransmits ?? null;
   }
 
   get maxPacketLifeTime() {
-    return this.parameters.maxPacketLifeTime;
+    return this.parameters.maxPacketLifeTime ?? null;
   }
 
   get label() {

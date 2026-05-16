@@ -198,7 +198,7 @@ export class SessionDescription {
               currentMedia.rtp.muxId = value;
               break;
             case "msid":
-              currentMedia.msid = value;
+              currentMedia.msids.push(value);
               break;
             case "rtcp":
               {
@@ -387,7 +387,7 @@ export class MediaDescription {
   // rtp
   host?: string;
   direction?: MediaDirection;
-  msid?: string;
+  msids: string[] = [];
 
   // rtcp
   rtcpPort?: number;
@@ -424,6 +424,14 @@ export class MediaDescription {
     public profile: string,
     public fmt: string[] | number[],
   ) {}
+
+  get msid() {
+    return this.msids[0];
+  }
+
+  set msid(value: string | undefined) {
+    this.msids = value ? [value] : [];
+  }
 
   toString() {
     const lines: string[] = [];
@@ -471,9 +479,7 @@ export class MediaDescription {
     if (this.rtp.muxId) {
       lines.push(`a=mid:${this.rtp.muxId}`);
     }
-    if (this.msid) {
-      lines.push(`a=msid:${this.msid}`);
-    }
+    this.msids.forEach((msid) => lines.push(`a=msid:${msid}`));
 
     if (this.rtcpPort && this.rtcpHost) {
       lines.push(`a=rtcp:${this.rtcpPort} ${ipAddressToSdp(this.rtcpHost)}`);

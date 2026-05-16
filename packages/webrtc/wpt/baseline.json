@@ -1,0 +1,287 @@
+{
+  "generatedAt": "2026-05-10T08:01:09.545Z",
+  "results": [
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTransceiver - Calling removeTrack when connection is closed should throw InvalidStateError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack - Calling removeTrack when connection is closed should throw InvalidStateError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTransceiver - Calling removeTrack on different connection that is closed should throw InvalidStateError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack - Calling removeTrack on different connection that is closed should throw InvalidStateError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTransceiver - Calling removeTrack on different connection should throw InvalidAccessError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack - Calling removeTrack on different connection should throw InvalidAccessError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTransceiver - Calling removeTrack with valid sender should set sender.track to null",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack - Calling removeTrack with valid sender should set sender.track to null",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "Calling removeTrack with currentDirection sendrecv should set direction to recvonly",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "Calling removeTrack with currentDirection sendonly should set direction to inactive",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "Calling removeTrack with currentDirection recvonly should not change direction",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
+      "variant": "",
+      "subtest": "Calling removeTrack with currentDirection inactive should not change direction",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-ontrack.https.html",
+      "variant": "",
+      "subtest": "addTrack() should cause remote connection to fire ontrack when setRemoteDescription()",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-ontrack.https.html",
+      "variant": "",
+      "subtest": "addTransceiver('video') should cause remote connection to fire ontrack when setRemoteDescription()",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-ontrack.https.html",
+      "variant": "",
+      "subtest": "addTransceiver() with inactive direction should not cause remote connection to fire ontrack when setRemoteDescription()",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "Creating first data channel should fire negotiationneeded event",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "calling createDataChannel twice should fire negotiationneeded event once",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "addTransceiver() should fire negotiationneeded event",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "Calling addTransceiver() twice should fire negotiationneeded event once",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "Calling both addTransceiver() and createDataChannel() should fire negotiationneeded event once",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "negotiationneeded event should not fire if signaling state is not stable",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "negotiationneeded event should fire only after signaling state goes back to stable after setRemoteDescription",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "negotiationneeded event should fire only after signaling state goes back to stable after setLocalDescription",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "addTrack should cause negotiationneeded to fire",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onnegotiationneeded.html",
+      "variant": "?rest",
+      "subtest": "removeTrack should cause negotiationneeded to fire on the caller",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-canTrickleIceCandidates.html",
+      "variant": "",
+      "subtest": "canTrickleIceCandidates property is null prior to setRemoteDescription",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-canTrickleIceCandidates.html",
+      "variant": "",
+      "subtest": "canTrickleIceCandidates property is true after setRemoteDescription with a=ice-options:trickle",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-canTrickleIceCandidates.html",
+      "variant": "",
+      "subtest": "canTrickleIceCandidates property is false after setRemoteDescription without a=ice-options:trickle",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "Add ICE candidate before setting remote description should reject with InvalidStateError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "addIceCandidate(undefined) works",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "addIceCandidate(null) works",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "addIceCandidate({}) works",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "Add ICE candidate with RTCIceCandidate should succeed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "Add candidate with only valid sdpMid should succeed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addIceCandidate.html",
+      "variant": "?rest",
+      "subtest": "Add candidate with only valid sdpMid and RTCIceCandidate should succeed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-parameterless.https.html",
+      "variant": "?rest",
+      "subtest": "Parameterless SLD() in a full O/A exchange succeeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setLocalDescription-rollback.html",
+      "variant": "",
+      "subtest": "setLocalDescription(rollback) should ignore invalid sdp content and succeed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
+      "variant": "?rest",
+      "subtest": "setRemoteDescription(rollback) should ignore invalid sdp content and succeed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
+      "variant": "?rest",
+      "subtest": "local offer created before setRemoteDescription(remote offer) then rollback should still be usable",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
+      "variant": "?rest",
+      "subtest": "local offer created before setRemoteDescription(remote offer) with different transceiver level assignments then rollback should still be usable",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack when pc is closed should throw InvalidStateError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack with single track argument and no stream should succeed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "Adding the same track multiple times should throw InvalidAccessError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack with existing sender with null track, same kind, and recvonly direction should reuse sender",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack with existing sender that has not been used to send should reuse the sender",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack with existing sender that has been used to send should create new sender",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-addTrack.https.html",
+      "variant": "",
+      "subtest": "addTrack with existing sender with null track, different kind, and recvonly direction should create new sender",
+      "status": "PASS"
+    }
+  ]
+}

@@ -90,9 +90,9 @@
 
 ***
 
-### msid?
+### msids
 
-> `optional` **msid**: `string`
+> **msids**: `string`[] = `[]`
 
 ***
 
@@ -169,6 +169,32 @@
 ### ssrcGroup
 
 > **ssrcGroup**: [`GroupDescription`](GroupDescription.md)[] = `[]`
+
+## Accessors
+
+### msid
+
+#### Get Signature
+
+> **get** **msid**(): `undefined` \| `string`
+
+##### Returns
+
+`undefined` \| `string`
+
+#### Set Signature
+
+> **set** **msid**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`undefined` | `string`
+
+##### Returns
+
+`void`
 
 ## Methods
 

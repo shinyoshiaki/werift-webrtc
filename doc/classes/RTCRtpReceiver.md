@@ -111,6 +111,12 @@ seconds
 
 ***
 
+### remoteStreamIds
+
+> **remoteStreamIds**: `string`[] = `[]`
+
+***
+
 ### remoteTrackId?
 
 > `optional` **remoteTrackId**: `string`

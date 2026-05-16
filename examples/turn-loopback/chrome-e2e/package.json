@@ -1,0 +1,20 @@
+{
+  "name": "werift-example-turn-loopback-chrome-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "chrome": "vitest run ./tests --config vitest.config.mts",
+    "ci": "npm run install:browsers && node run-ci.js",
+    "ci:silent": "npm run install:browsers && node run-ci.js silent",
+    "install:browsers": "node ensure-browser.js",
+    "stop": "node stop.js",
+    "type": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "playwright": "^1.55.1",
+    "typescript": "^5.7.3",
+    "vitest": "3.0.5"
+  }
+}
