@@ -13,7 +13,7 @@ server.on("connection", async (socket) => {
     codecs: {
       video: [
         new RTCRtpCodecParameters({
-          mimeType: "video/H264",
+          mimeType: "video/VP8",
           clockRate: 90000,
           rtcpFeedback: [
             { type: "nack" },
@@ -33,14 +33,16 @@ server.on("connection", async (socket) => {
   });
 
   const stream = await getUserMedia({
-    path: "~/Downloads/test.mp4",
+    path: "~/Downloads/test.webm",
     loop: true,
-    width: 320,
-    height: 240,
   });
 
-  pc.addTransceiver(stream.audio, { direction: "sendonly" });
-  pc.addTransceiver(stream.video, { direction: "sendonly" });
+  if (stream.audio) {
+    pc.addTransceiver(stream.audio, { direction: "sendonly" });
+  }
+  if (stream.video) {
+    pc.addTransceiver(stream.video, { direction: "sendonly" });
+  }
 
   pc.connectionStateChange
     .watch((state) => state === "connected")

@@ -17,7 +17,7 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
     codecs: {
       video: [
         new RTCRtpCodecParameters({
-          mimeType: "video/h264",
+          mimeType: "video/VP8",
           clockRate: 90000,
           rtcpFeedback: [
             { type: "nack" },
@@ -30,12 +30,16 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
   });
 
   const stream = await getUserMedia({
-    path: "~/Downloads/test.mp4",
+    path: "~/Downloads/test.webm",
     loop: true,
   });
 
-  pc.addTransceiver(stream.audio, { direction: "sendonly" });
-  pc.addTransceiver(stream.video, { direction: "sendonly" });
+  if (stream.audio) {
+    pc.addTransceiver(stream.audio, { direction: "sendonly" });
+  }
+  if (stream.video) {
+    pc.addTransceiver(stream.video, { direction: "sendonly" });
+  }
 
   pc.connectionStateChange
     .watch((state) => state === "connected")
@@ -57,7 +61,7 @@ new Server({ port: 8888 }).on("connection", async (socket) => {
     codecs: {
       video: [
         new RTCRtpCodecParameters({
-          mimeType: "video/h264",
+          mimeType: "video/VP8",
           clockRate: 90000,
           rtcpFeedback: [
             { type: "nack" },
@@ -80,10 +84,10 @@ gst-launch-1.0 -v \
 rtpbin name=rtpbin rtp-profile=avpf ntp-time-source=ntp rtcp-sync-send-time=false buffer-mode=synced latency=2000 max-rtcp-rtp-time-diff=2000 \
 udpsrc address=127.0.0.1 port=${audioRtp} caps="application/x-rtp, media=audio, encoding-name=OPUS, clock-rate=48000" ! rtpbin.recv_rtp_sink_0 \
 udpsrc address=127.0.0.1 port=${audioRtcp} caps="application/x-rtcp" ! rtpbin.recv_rtcp_sink_0 \
-udpsrc address=127.0.0.1 port=${videoRtp} caps="application/x-rtp, media=video, encoding-name=H264, clock-rate=90000" ! rtpbin.recv_rtp_sink_1 \
+udpsrc address=127.0.0.1 port=${videoRtp} caps="application/x-rtp, media=video, encoding-name=VP8, clock-rate=90000" ! rtpbin.recv_rtp_sink_1 \
 udpsrc address=127.0.0.1 port=${videoRtcp} caps="application/x-rtcp" ! rtpbin.recv_rtcp_sink_1 \
 rtpbin. ! rtpopusdepay ! queue ! opusdec ! autoaudiosink sync=true \
-rtpbin. ! rtph264depay ! queue ! decodebin ! autovideosink sync=true
+rtpbin. ! rtpvp8depay ! queue ! decodebin ! autovideosink sync=true
 `;
 
   console.log(cmd);
