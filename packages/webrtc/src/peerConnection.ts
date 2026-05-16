@@ -1121,6 +1121,17 @@ export class RTCPeerConnection extends EventTarget {
   }
 }
 
+export type DebugConfig = Partial<{
+  /**% */
+  inboundPacketLoss: number;
+  /**% */
+  outboundPacketLoss: number;
+  /**ms */
+  receiverReportDelay: number;
+  disableSendNack: boolean;
+  disableRecvRetransmit: boolean;
+}>;
+
 export interface PeerConfig {
   codecs: Partial<{
     /**
@@ -1167,16 +1178,7 @@ export interface PeerConfig {
   rtcpMuxPolicy: "require";
   iceCandidatePoolSize: number;
   certificates: RTCCertificate[];
-  debug: Partial<{
-    /**% */
-    inboundPacketLoss: number;
-    /**% */
-    outboundPacketLoss: number;
-    /**ms */
-    receiverReportDelay: number;
-    disableSendNack: boolean;
-    disableRecvRetransmit: boolean;
-  }>;
+  debug: DebugConfig;
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
