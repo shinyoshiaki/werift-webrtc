@@ -3,8 +3,8 @@ import { readFileSync } from "fs";
 import { BufferSource, Input, MP4 } from "mediabunny";
 
 import { MP4Callback, type Track } from "../src/extra";
-import type { Transport } from "../src/transport";
 import type { Mp4Output } from "../src/extra/processor/mp4";
+import type { Transport } from "../src/transport";
 
 export function load(name: string) {
   const base = __dirname;

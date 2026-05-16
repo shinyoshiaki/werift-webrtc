@@ -155,9 +155,9 @@ describe("packages/rtp/tests/processor/mp4.test.ts", () => {
     );
 
     // Assert: 初期化セグメントに加えてメディア断片が届き、終端通知は 1 回だけであることを確認する。
-    expect(outputs.filter((output) => "eol" in output && output.eol)).toHaveLength(
-      1,
-    );
+    expect(
+      outputs.filter((output) => "eol" in output && output.eol),
+    ).toHaveLength(1);
     expect(outputs.at(-1)).toEqual({ eol: true });
     expect(
       outputs.filter((output) => "data" in output && output.type === "init"),
@@ -190,9 +190,9 @@ describe("packages/rtp/tests/processor/mp4.test.ts", () => {
     );
 
     // Assert: destroy 後も初期化セグメントだけで終わらず、最終メディア断片と単一 EOL が届くことを確認する。
-    expect(outputs.filter((output) => "eol" in output && output.eol)).toHaveLength(
-      1,
-    );
+    expect(
+      outputs.filter((output) => "eol" in output && output.eol),
+    ).toHaveLength(1);
     expect(outputs.at(-1)).toEqual({ eol: true });
     expect(
       outputs.filter((output) => "data" in output && output.type === "init"),
