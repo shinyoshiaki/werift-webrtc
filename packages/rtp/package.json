@@ -43,7 +43,7 @@
     "aes-js": "^3.1.2",
     "buffer": "^6.0.3",
     "@shinyoshiaki/jspack": "^0.0.6",
-    "mp4box": "^0.5.3"
+    "mediabunny": "^1.45.2"
   },
   "devDependencies": {
     "@types/aes-js": "^3.1.4"
