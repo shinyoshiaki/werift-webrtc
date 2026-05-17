@@ -1,32 +1,8 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
+import { createCandidateBuffer } from "../candidateBuffer";
 import { acceptLocalDescription } from "../localDescription";
-
-type PendingCandidate = Parameters<RTCPeerConnection["addIceCandidate"]>[0];
-
-function createCandidateBuffer(pc: RTCPeerConnection) {
-  const pending: PendingCandidate[] = [];
-
-  return {
-    async add(candidate: PendingCandidate) {
-      if (!pc.remoteDescription) {
-        pending.push(candidate);
-        return;
-      }
-      await pc.addIceCandidate(candidate);
-    },
-    async flush() {
-      if (!pc.remoteDescription) {
-        return;
-      }
-      while (pending.length > 0) {
-        const candidate = pending.shift();
-        await pc.addIceCandidate(candidate);
-      }
-    },
-  };
-}
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 export class ice_restart_web_trigger {
