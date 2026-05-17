@@ -1,19 +1,44 @@
 import { tmpdir } from "os";
 import { join } from "path";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import {
+  appendFile,
+  mkdtemp,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from "fs/promises";
 
 import {
+  BufferSource,
   BufferTarget,
   EncodedAudioPacketSource,
   EncodedPacket,
+  EncodedPacketSink,
   EncodedVideoPacketSource,
+  Input,
+  MP4,
   Output,
+  WEBM,
   WebMOutputFormat,
 } from "mediabunny";
 
+import {
+  RTCPeerConnection,
+  type RTCRtpCodecParameters,
+  useOPUS,
+} from "../../src";
 import type { RtpPacket } from "../../src/imports/rtp";
 import type { MediaStreamTrack } from "../../src/media/track";
-import { MP4Callback } from "../../src/nonstandard";
+import {
+  DepacketizeCallback,
+  JitterBufferCallback,
+  MP4Callback,
+  RtpSourceCallback,
+  RtpTimeCallback,
+  WebmCallback,
+  getUserMedia,
+} from "../../src/nonstandard";
 
 export async function createAvMp4Buffer() {
   const outputs: Uint8Array[] = [];
@@ -267,4 +292,328 @@ function createDeferred<T>() {
   });
 
   return { promise, resolve, reject };
+}
+
+export function getUserMediaE2EAssetPath(
+  name: "h264-opus.mp4" | "vp8-opus.webm",
+) {
+  return join(process.cwd(), "tests/data/nonstandard/userMedia-e2e", name);
+}
+
+export async function extractVideoKeyframes(path: string) {
+  const input = new Input({
+    source: new BufferSource(await readFile(path)),
+    formats: [MP4, WEBM],
+  });
+
+  try {
+    if (!(await input.canRead())) {
+      throw new Error(`Unable to parse media asset at ${path}`);
+    }
+
+    const videoTrack = await input.getPrimaryVideoTrack();
+    if (!videoTrack) {
+      throw new Error(`No video track found in ${path}`);
+    }
+
+    const packetSink = new EncodedPacketSink(videoTrack);
+    const keyframes: Buffer[] = [];
+
+    for await (const packet of packetSink.packets(undefined, undefined, {
+      verifyKeyPackets: true,
+    })) {
+      if (packet.type === "key") {
+        keyframes.push(Buffer.from(packet.data));
+      }
+    }
+
+    if (keyframes.length === 0) {
+      throw new Error(`No keyframes found in ${path}`);
+    }
+
+    return keyframes;
+  } finally {
+    input.dispose();
+  }
+}
+
+export async function roundTripMediaAsset({
+  sourcePath,
+  videoCodec,
+  recordingFormat,
+}: {
+  sourcePath: string;
+  videoCodec: RTCRtpCodecParameters;
+  recordingFormat: "mp4" | "webm";
+}) {
+  const sender = new RTCPeerConnection({
+    codecs: {
+      audio: [useOPUS()],
+      video: [videoCodec],
+    },
+  });
+  const receiver = new RTCPeerConnection({
+    codecs: {
+      audio: [useOPUS()],
+      video: [videoCodec],
+    },
+  });
+  const outputDirectory = await mkdtemp(
+    join(tmpdir(), "werift-user-media-e2e-"),
+  );
+  const outputPath = join(outputDirectory, `recorded.${recordingFormat}`);
+  let keepOutput = false;
+
+  try {
+    exchangeIceCandidates(sender, receiver);
+    const remoteTracksPromise = waitForRemoteTracks(receiver);
+    const media = await getUserMedia({ path: sourcePath });
+
+    if (!media.audio || !media.video) {
+      throw new Error(`Expected audio and video tracks in ${sourcePath}`);
+    }
+
+    sender.addTrack(media.audio);
+    sender.addTrack(media.video);
+
+    await exchangeOfferAnswer(sender, receiver);
+    await Promise.all([
+      waitForPeerConnected(sender),
+      waitForPeerConnected(receiver),
+    ]);
+
+    const remoteTracks = await remoteTracksPromise;
+    const recording = await createTrackRecorder({
+      ...remoteTracks,
+      path: outputPath,
+      recordingFormat,
+    });
+
+    try {
+      // 実行: asset を getUserMedia から送出し、対向 peer でそのままファイルへ録画する。
+      await media.start();
+      await waitUntil(
+        () => !(media as any).session && !(media as any).running,
+        10_000,
+      );
+      await waitUntil(() => recording.videoPackets.length > 0, 5_000);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    } finally {
+      media.stop();
+      await recording.stop();
+    }
+
+    keepOutput = true;
+    return {
+      outputPath,
+      recordedVideoPacketCount: recording.videoPackets.length,
+      recordedAudioPacketCount: recording.audioPackets.length,
+      cleanup: async () => {
+        await rm(outputDirectory, { recursive: true, force: true });
+      },
+    };
+  } finally {
+    await Promise.allSettled([sender.close(), receiver.close()]);
+    if (!keepOutput) {
+      await rm(outputDirectory, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  }
+}
+
+function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
+  const pipe = (localPc: RTCPeerConnection, remotePc: RTCPeerConnection) => {
+    localPc.onIceCandidate.subscribe((candidate) => {
+      if (!candidate) {
+        return;
+      }
+      remotePc.addIceCandidate(candidate).catch((error) => {
+        if ((error as Error).message !== "The remote description was null") {
+          throw error;
+        }
+      });
+    });
+  };
+
+  pipe(pc1, pc2);
+  pipe(pc2, pc1);
+}
+
+async function exchangeOfferAnswer(
+  caller: RTCPeerConnection,
+  callee: RTCPeerConnection,
+) {
+  await caller.setLocalDescription(await caller.createOffer());
+  await callee.setRemoteDescription(caller.localDescription!);
+  const answer = await callee.createAnswer();
+  await caller.setRemoteDescription(answer);
+  await callee.setLocalDescription(answer);
+}
+
+async function waitForPeerConnected(pc: RTCPeerConnection) {
+  if (pc.connectionState === "connected") {
+    return;
+  }
+  await pc.connectionStateChange.watch(
+    (state) => state === "connected",
+    10_000,
+  );
+}
+
+function waitForRemoteTracks(pc: RTCPeerConnection) {
+  return new Promise<{ audio: MediaStreamTrack; video: MediaStreamTrack }>(
+    (resolve) => {
+      const tracks: Partial<Record<"audio" | "video", MediaStreamTrack>> = {};
+
+      const resolveIfReady = () => {
+        if (tracks.audio && tracks.video) {
+          resolve({
+            audio: tracks.audio,
+            video: tracks.video,
+          });
+        }
+      };
+
+      pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+        transceiver.onTrack.subscribe((track) => {
+          tracks[track.kind] = track;
+          resolveIfReady();
+        });
+      });
+    },
+  );
+}
+
+async function createTrackRecorder({
+  audio,
+  video,
+  path,
+  recordingFormat,
+}: {
+  audio: MediaStreamTrack;
+  video: MediaStreamTrack;
+  path: string;
+  recordingFormat: "mp4" | "webm";
+}) {
+  await unlink(path).catch(() => undefined);
+
+  const audioSource = new RtpSourceCallback();
+  const videoSource = new RtpSourceCallback();
+  const audioPackets: RtpPacket[] = [];
+  const videoPackets: RtpPacket[] = [];
+  const finished = createDeferred<void>();
+
+  const audioSubscription = audio.onReceiveRtp.subscribe((rtp) => {
+    const cloned = rtp.clone();
+    audioPackets.push(cloned);
+    audioSource.input(cloned);
+  });
+  const videoSubscription = video.onReceiveRtp.subscribe((rtp) => {
+    const cloned = rtp.clone();
+    videoPackets.push(cloned);
+    videoSource.input(cloned);
+  });
+
+  if (recordingFormat === "mp4") {
+    const mp4 = new MP4Callback([
+      {
+        kind: "audio",
+        codec: "opus",
+        clockRate: 48_000,
+        trackNumber: 1,
+      },
+      {
+        kind: "video",
+        codec: "avc1",
+        clockRate: 90_000,
+        width: 160,
+        height: 120,
+        trackNumber: 2,
+      },
+    ]);
+
+    mp4.pipe(async (output) => {
+      if ("data" in output) {
+        await appendFile(path, output.data);
+        return;
+      }
+      if ("eol" in output && output.eol) {
+        finished.resolve();
+      }
+    });
+
+    const audioTime = new RtpTimeCallback(48_000);
+    const audioDepacketizer = new DepacketizeCallback("opus");
+    audioSource.pipe(audioTime.input);
+    audioTime.pipe(audioDepacketizer.input);
+    audioDepacketizer.pipe(mp4.inputAudio);
+
+    const videoJitterBuffer = new JitterBufferCallback(90_000);
+    const videoTime = new RtpTimeCallback(90_000);
+    const videoDepacketizer = new DepacketizeCallback("MPEG4/ISO/AVC", {
+      isFinalPacketInSequence: (header) => header.marker,
+    });
+    videoSource.pipe(videoJitterBuffer.input);
+    videoJitterBuffer.pipe(videoTime.input);
+    videoTime.pipe(videoDepacketizer.input);
+    videoDepacketizer.pipe(mp4.inputVideo);
+  } else {
+    const webm = new WebmCallback(
+      [
+        {
+          kind: "audio",
+          codec: "OPUS",
+          clockRate: 48_000,
+          trackNumber: 1,
+        },
+        {
+          kind: "video",
+          codec: "VP8",
+          clockRate: 90_000,
+          width: 160,
+          height: 120,
+          trackNumber: 2,
+        },
+      ],
+      { duration: 10_000 },
+    );
+
+    webm.pipe(async (output) => {
+      if (output.saveToFile) {
+        await appendFile(path, output.saveToFile);
+      }
+      if (output.eol) {
+        finished.resolve();
+      }
+    });
+
+    const audioTime = new RtpTimeCallback(48_000);
+    const audioDepacketizer = new DepacketizeCallback("opus");
+    audioSource.pipe(audioTime.input);
+    audioTime.pipe(audioDepacketizer.input);
+    audioDepacketizer.pipe(webm.inputAudio);
+
+    const videoJitterBuffer = new JitterBufferCallback(90_000);
+    const videoTime = new RtpTimeCallback(90_000);
+    const videoDepacketizer = new DepacketizeCallback("VP8", {
+      isFinalPacketInSequence: (header) => header.marker,
+    });
+    videoSource.pipe(videoJitterBuffer.input);
+    videoJitterBuffer.pipe(videoTime.input);
+    videoTime.pipe(videoDepacketizer.input);
+    videoDepacketizer.pipe(webm.inputVideo);
+  }
+
+  return {
+    audioPackets,
+    videoPackets,
+    stop: async () => {
+      audioSource.stop();
+      videoSource.stop();
+      await finished.promise;
+      audioSubscription.unSubscribe();
+      videoSubscription.unSubscribe();
+    },
+  };
 }
