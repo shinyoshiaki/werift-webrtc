@@ -48,6 +48,7 @@ export class SessionDescription {
   icePassword!: string;
   iceUsernameFragment!: string;
   dtlsFingerprints: RTCDtlsFingerprint[] = [];
+  private cachedJson?: RTCSessionDescription;
 
   static parse(sdp: string) {
     const [sessionLines, mediaGroups] = groupLines(sdp);
@@ -372,7 +373,15 @@ export class SessionDescription {
   }
 
   toJSON() {
-    return new RTCSessionDescription(this.string, this.type);
+    const sdp = this.string;
+    if (
+      !this.cachedJson ||
+      this.cachedJson.sdp !== sdp ||
+      this.cachedJson.type !== this.type
+    ) {
+      this.cachedJson = new RTCSessionDescription(sdp, this.type);
+    }
+    return this.cachedJson;
   }
 
   toSdp() {
@@ -648,10 +657,25 @@ export function candidateFromSdp(sdp: string) {
 }
 
 export class RTCSessionDescription {
-  constructor(
-    public sdp: string,
-    public type: "offer" | "answer" | "pranswer",
-  ) {}
+  readonly sdp!: string;
+  readonly type!: "offer" | "answer" | "pranswer";
+
+  constructor(sdp: string, type: "offer" | "answer" | "pranswer") {
+    Object.defineProperties(this, {
+      sdp: {
+        configurable: true,
+        enumerable: true,
+        value: sdp,
+        writable: false,
+      },
+      type: {
+        configurable: true,
+        enumerable: true,
+        value: type,
+        writable: false,
+      },
+    });
+  }
 
   static isThis(o: any) {
     if (typeof o?.sdp === "string") return true;

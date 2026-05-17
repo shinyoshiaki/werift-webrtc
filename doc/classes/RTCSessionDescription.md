@@ -30,13 +30,13 @@
 
 ### sdp
 
-> **sdp**: `string`
+> `readonly` **sdp**: `string`
 
 ***
 
 ### type
 
-> **type**: `"offer"` \| `"answer"` \| `"pranswer"`
+> `readonly` **type**: `"offer"` \| `"answer"` \| `"pranswer"`
 
 ## Methods
 

@@ -333,9 +333,29 @@ v0.1.26
 
 ***
 
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+`EventTarget.dispatchEvent`
+
+***
+
 ### emit()
 
-> **emit**\<`K`\>(`eventName`, ...`args`): `boolean`
+> **emit**(`type`, ...`args`): `boolean`
 
 Synchronously calls each of the listeners registered for the event named `eventName`, in the order they were registered, passing the supplied arguments
 to each.
@@ -375,19 +395,15 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 // event with parameters 1, 2, 3, 4, 5 in third listener
 ```
 
-#### Type Parameters
-
-• **K**
-
 #### Parameters
 
-##### eventName
+##### type
 
 `string` | `symbol`
 
 ##### args
 
-...`AnyRest`
+...`any`[]
 
 #### Returns
 

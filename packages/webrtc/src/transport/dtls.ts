@@ -5,6 +5,7 @@ import { setTimeout } from "timers/promises";
 import { Event, type Transport } from "../imports/common";
 
 import type { AddressInfo } from "net";
+import { EventTarget as DomEventTarget } from "../helper";
 import {
   CipherContext,
   DtlsClient,
@@ -106,6 +107,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onRtp = new Event<[RtpPacket]>();
+  private readonly events = new DomEventTarget();
+  onstatechange?: () => void;
 
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
@@ -119,6 +122,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   ) {
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
   }
+
+  addEventListener = (
+    type: string,
+    listener: (...args: any[]) => void,
+    options?: boolean | { once?: boolean },
+  ) => {
+    this.events.addEventListener(type, listener, options);
+  };
+
+  removeEventListener = (type: string, listener: (...args: any[]) => void) => {
+    this.events.removeEventListener(type, listener);
+  };
+
+  dispatchEvent = (event: globalThis.Event) => this.events.dispatchEvent(event);
 
   get localParameters() {
     return new RTCDtlsParameters(
@@ -473,15 +490,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.iceTransport.connection.send(enc).catch(() => {});
   }
 
-  private setState(state: DtlsState) {
+  private setState(state: DtlsState, emitEvent = true) {
     if (state != this.state) {
       this.state = state;
       this.onStateChange.execute(state);
+      if (emitEvent) {
+        this.onstatechange?.();
+        this.events.emit("statechange");
+      }
     }
   }
 
   async stop() {
-    this.setState("closed");
+    this.setState("closed", false);
     // todo impl send alert
     await this.iceTransport.stop();
   }
@@ -502,7 +523,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       packetsReceived: this.packetsReceived,
       dtlsState: this.state,
       iceState: this.iceTransport.state,
-      iceRole: this.iceTransport.role,
+      iceRole:
+        this.iceTransport.role === "unknown"
+          ? undefined
+          : this.iceTransport.role,
       iceLocalUsernameFragment:
         this.iceTransport.localParameters.usernameFragment,
       selectedCandidatePairId: this.iceTransport.connection.nominated

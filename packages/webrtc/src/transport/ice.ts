@@ -7,6 +7,7 @@ import {
   type IceConnection,
   type IceOptions,
 } from "../../../ice/src";
+import { EventTarget as DomEventTarget } from "../helper";
 import {
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
@@ -63,9 +64,13 @@ export class RTCIceTransport {
   readonly id = randomUUID().toString();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
+  readonly component = "rtp";
   iceRestarts = 0;
   private waitStart?: Event<[]>;
   private renominating = false;
+  private readonly events = new DomEventTarget();
+  onstatechange?: () => void;
+  ongatheringstatechange?: () => void;
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
@@ -79,9 +84,30 @@ export class RTCIceTransport {
     this.iceGather.onIceCandidate = (candidate) => {
       this.onIceCandidate.execute(candidate);
     };
+    this.iceGather.onGatheringStateChange.subscribe(() => {
+      this.ongatheringstatechange?.();
+      this.events.emit("gatheringstatechange");
+    });
   }
 
+  addEventListener = (
+    type: string,
+    listener: (...args: any[]) => void,
+    options?: boolean | { once?: boolean },
+  ) => {
+    this.events.addEventListener(type, listener, options);
+  };
+
+  removeEventListener = (type: string, listener: (...args: any[]) => void) => {
+    this.events.removeEventListener(type, listener);
+  };
+
+  dispatchEvent = (event: globalThis.Event) => this.events.dispatchEvent(event);
+
   get role() {
+    if (!this.connection.remoteUsername || !this.connection.remotePassword) {
+      return "unknown";
+    }
     if (this.connection.iceControlling) return "controlling";
     else return "controlled";
   }
@@ -98,11 +124,57 @@ export class RTCIceTransport {
     return this.iceGather.localParameters;
   }
 
-  private setState(state: RTCIceConnectionState) {
+  getRemoteCandidates() {
+    return this.connection.remoteCandidates
+      .filter((candidate) => candidate.type !== "prflx")
+      .map((candidate) => candidateFromIce(candidate).toJSON());
+  }
+
+  getLocalCandidates() {
+    return this.connection.localCandidates.map((candidate) =>
+      candidateFromIce(candidate).toJSON(),
+    );
+  }
+
+  getSelectedCandidatePair() {
+    const pair =
+      this.connection.candidatePairs.find((candidate) => candidate.nominated) ??
+      this.connection.candidatePairs.find((candidate) => candidate.state === 3);
+    if (!pair) {
+      return null;
+    }
+
+    return {
+      local: candidateFromIce(pair.localCandidate).toJSON(),
+      remote: candidateFromIce(pair.remoteCandidate).toJSON(),
+    };
+  }
+
+  getLocalParameters() {
+    return this.localParameters ?? null;
+  }
+
+  getRemoteParameters() {
+    if (!this.connection.remoteUsername || !this.connection.remotePassword) {
+      return null;
+    }
+
+    return new RTCIceParameters({
+      iceLite: this.connection.remoteIsLite,
+      password: this.connection.remotePassword,
+      usernameFragment: this.connection.remoteUsername,
+    });
+  }
+
+  private setState(state: RTCIceConnectionState, emitEvent = true) {
     if (state !== this.state) {
       this.state = state;
 
       this.onStateChange.execute(state);
+      if (emitEvent) {
+        this.onstatechange?.();
+        this.events.emit("statechange");
+      }
     }
   }
 
@@ -112,11 +184,9 @@ export class RTCIceTransport {
 
   addRemoteCandidate = (candidate?: IceCandidate) => {
     if (!this.connection.remoteCandidatesEnd) {
-      if (!candidate) {
-        return this.connection.addRemoteCandidate(undefined);
-      } else {
-        return this.connection.addRemoteCandidate(candidateToIce(candidate));
-      }
+      return !candidate
+        ? this.connection.addRemoteCandidate(undefined)
+        : this.connection.addRemoteCandidate(candidateToIce(candidate));
     }
   };
 
@@ -180,7 +250,7 @@ export class RTCIceTransport {
 
   async stop() {
     if (this.state !== "closed") {
-      this.setState("closed");
+      this.setState("closed", false);
       await this.connection.close();
     }
     this.onStateChange.complete();

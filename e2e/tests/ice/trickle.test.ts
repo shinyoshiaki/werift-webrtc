@@ -1,17 +1,22 @@
 import { peer, sleep, waitVideoPlay } from "../fixture";
+import { createCandidateBuffer } from "../candidateBuffer";
 
 function attachCandidateHandler(
   label: string,
   pc: RTCPeerConnection,
   done: () => void,
 ) {
+  const candidates = createCandidateBuffer(pc);
   const eventPeer = peer as typeof peer & {
     on: (
       event: "request",
-      listener: (
-        request: { method: string; data: RTCIceCandidateInit },
-        accept: () => void,
-      ) => void,
+        listener: (
+          request: {
+            method: string;
+            data: { candidate: RTCIceCandidateInit | null };
+          },
+          accept: () => void,
+        ) => void,
     ) => void;
     removeListener: (event: string, listener: (...args: any[]) => void) => void;
   };
@@ -20,17 +25,20 @@ function attachCandidateHandler(
     (pc as RTCPeerConnection & { signalingState: string }).signalingState ===
       "closed";
   const onRequest = async (
-    request: { method: string; data: RTCIceCandidateInit },
+    request: {
+      method: string;
+      data: { candidate: RTCIceCandidateInit | null };
+    },
     accept: () => void,
   ) => {
     if (request.method !== label) return;
-    const candidate = request.data;
+    const candidate = request.data.candidate;
     if (isClosed()) {
       accept();
       return;
     }
     try {
-      await pc.addIceCandidate(candidate);
+      await candidates.add(candidate);
     } catch (error) {
       if (!isClosed()) {
         throw error;
@@ -60,6 +68,7 @@ describe("ice/trickle", () => {
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
+      const candidates = createCandidateBuffer(pc);
       const finish = attachCandidateHandler(label, pc, done);
       pc.ondatachannel = ({ channel }) => {
         channel.onmessage = ({ data }) => {
@@ -72,20 +81,19 @@ describe("ice/trickle", () => {
         waitVideoPlay(ev.track);
       };
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate) {
-          peer
-            .request(label, {
-              type: "candidate",
-              payload: candidate,
-            })
-            .catch(() => {});
-        }
+        peer
+          .request(label, {
+            type: "candidate",
+            payload: candidate ?? null,
+          })
+          .catch(() => {});
       };
 
       const offer = await peer.request(label, {
         type: "init",
       });
       await pc.setRemoteDescription(offer);
+      await candidates.flush();
       await pc.setLocalDescription(await pc.createAnswer());
 
       peer
@@ -97,8 +105,8 @@ describe("ice/trickle", () => {
     }));
 
   it("offer", async () =>
-    new Promise<void>(async (done) => {
-      const label = "ice_trickle_offer";
+      new Promise<void>(async (done) => {
+        const label = "ice_trickle_offer";
 
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
       await sleep(100);
@@ -106,6 +114,7 @@ describe("ice/trickle", () => {
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
+      const candidates = createCandidateBuffer(pc);
       const finish = attachCandidateHandler(label, pc, done);
       const channel = pc.createDataChannel("dc");
       channel.onopen = () => {
@@ -119,7 +128,7 @@ describe("ice/trickle", () => {
         peer
           .request(label, {
             type: "candidate",
-            payload: candidate,
+            payload: candidate ?? null,
           })
           .catch(() => {});
       };
@@ -130,5 +139,6 @@ describe("ice/trickle", () => {
         payload: pc.localDescription,
       });
       await pc.setRemoteDescription(answer);
+      await candidates.flush();
     }));
 });

@@ -34,6 +34,31 @@ export class PromiseQueue {
 }
 
 export class EventTarget extends EventEmitter {
+  override emit(type: string | symbol, ...args: any[]) {
+    if (typeof type !== "string") {
+      return super.emit(type, ...args);
+    }
+
+    if (args.length === 0) {
+      return super.emit(type, new Event(type));
+    }
+
+    const [event, ...rest] = args;
+    if (event && typeof event === "object" && !("type" in event)) {
+      try {
+        Object.defineProperty(event, "type", {
+          configurable: true,
+          enumerable: true,
+          value: type,
+        });
+      } catch {
+        return super.emit(type, { type, ...event }, ...rest);
+      }
+    }
+
+    return super.emit(type, event, ...rest);
+  }
+
   addEventListener = (
     type: string,
     listener: (...args: any[]) => void,
@@ -49,4 +74,6 @@ export class EventTarget extends EventEmitter {
   removeEventListener = (type: string, listener: (...args: any[]) => void) => {
     this.removeListener(type, listener);
   };
+
+  dispatchEvent = (event: Event) => this.emit(event.type, event);
 }

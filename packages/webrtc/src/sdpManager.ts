@@ -1,4 +1,5 @@
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
+import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
 import { RTCRtpSimulcastParameters } from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
@@ -193,7 +194,7 @@ export class SDPManager {
     type: "offer" | "answer" | "pranswer";
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
-    this.validateDescription({ description, isLocal, signalingState });
+    this.validateDescription({ description, isLocal, signalingState, type });
     description.type = type;
     return description;
   }
@@ -202,32 +203,50 @@ export class SDPManager {
     description,
     isLocal,
     signalingState,
+    type,
   }: {
     description: SessionDescription;
     isLocal: boolean;
     signalingState: string;
+    type: "offer" | "answer" | "pranswer";
   }) {
     if (isLocal) {
-      if (description.type === "offer") {
+      if (type === "offer") {
         if (!["stable", "have-local-offer"].includes(signalingState))
-          throw new Error("Cannot handle offer in signaling state");
-      } else if (["answer", "pranswer"].includes(description.type)) {
+          throw createWebRtcDomException(
+            "InvalidStateError",
+            "Cannot handle offer in signaling state",
+          );
+      } else if (["answer", "pranswer"].includes(type)) {
         if (
           !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
         ) {
-          throw new Error("Cannot handle answer in signaling state");
+          throw createWebRtcDomException(
+            "InvalidStateError",
+            "Cannot handle answer in signaling state",
+          );
         }
       }
     } else {
-      if (description.type === "offer") {
-        if (!["stable", "have-remote-offer"].includes(signalingState)) {
-          throw new Error("Cannot handle offer in signaling state");
+      if (type === "offer") {
+        if (
+          !["stable", "have-remote-offer", "have-local-offer"].includes(
+            signalingState,
+          )
+        ) {
+          throw createWebRtcDomException(
+            "InvalidStateError",
+            "Cannot handle offer in signaling state",
+          );
         }
-      } else if (["answer", "pranswer"].includes(description.type)) {
+      } else if (["answer", "pranswer"].includes(type)) {
         if (
           !["have-local-offer", "have-remote-pranswer"].includes(signalingState)
         ) {
-          throw new Error("Cannot handle answer in signaling state");
+          throw createWebRtcDomException(
+            "InvalidStateError",
+            "Cannot handle answer in signaling state",
+          );
         }
       }
     }
@@ -439,7 +458,8 @@ export class SDPManager {
       if (
         !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
       ) {
-        throw new Error(
+        throw createWebRtcDomException(
+          "InvalidStateError",
           "Cannot rollback remote description in signaling state",
         );
       }
@@ -475,10 +495,11 @@ export class SDPManager {
   }
 
   rollbackLocalDescription(signalingState: string) {
-    if (
-      !["have-local-offer", "have-remote-pranswer"].includes(signalingState)
-    ) {
-      throw new Error("Cannot rollback local description in signaling state");
+    if (!["have-local-offer", "have-local-pranswer"].includes(signalingState)) {
+      throw createWebRtcDomException(
+        "InvalidStateError",
+        "Cannot rollback local description in signaling state",
+      );
     }
     this.pendingLocalDescription = undefined;
     this.pendingRemoteDescription = undefined;

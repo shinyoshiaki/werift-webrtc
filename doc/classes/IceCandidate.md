@@ -158,7 +158,7 @@
 
 ##### data
 
-[`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md) | [`RTCIceCandidate`](RTCIceCandidate.md)
+[`RTCIceCandidate`](RTCIceCandidate.md) | [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md)
 
 #### Returns
 

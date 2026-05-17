@@ -47,6 +47,10 @@ export class RTCSctpTransport {
     public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
   ) {}
 
+  get transport() {
+    return this.dtlsTransport;
+  }
+
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
     if (this.dtlsTransport && this.dtlsTransport.id === dtlsTransport.id) {
       return;
