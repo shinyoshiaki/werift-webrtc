@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "fs/promises";
 import { dirname } from "path";
+import { updateWptProgressReport } from "./progress";
 import {
   defaultMarkdownReportPath,
   formatProgressEvent,
@@ -21,6 +22,7 @@ async function main() {
 
   await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
   await writeFile(defaultMarkdownReportPath, markdown, "utf8");
+  await updateWptProgressReport(report);
 
   await new Promise<void>((resolve) => {
     process.stdout.write(markdown, () => resolve());

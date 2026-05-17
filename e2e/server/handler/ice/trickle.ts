@@ -1,6 +1,7 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
+import { acceptLocalDescription } from "../localDescription";
 
 export class ice_trickle_answer {
   pc!: RTCPeerConnection;
@@ -15,23 +16,24 @@ export class ice_trickle_answer {
             dc.send(msg + "pong");
           });
           this.pc.onIceCandidate.subscribe((candidate) => {
-            peer.request("ice_trickle_answer", candidate).catch(() => {});
+            peer
+              .request("ice_trickle_answer", { candidate: candidate ?? null })
+              .catch(() => {});
           });
 
           const offer = await this.pc.createOffer();
-          this.pc.setLocalDescription(offer);
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(this.pc, offer, accept);
         }
         break;
       case "candidate":
         {
-          this.pc.addIceCandidate(payload);
+          await this.pc.addIceCandidate(payload);
           accept({});
         }
         break;
       case "answer":
         {
-          this.pc.setRemoteDescription(payload);
+          await this.pc.setRemoteDescription(payload);
           accept({});
         }
         break;
@@ -53,12 +55,16 @@ export class ice_trickle_offer {
             });
           });
           this.pc.onIceCandidate.subscribe((candidate) => {
-            peer.request("ice_trickle_offer", candidate).catch(() => {});
+            peer
+              .request("ice_trickle_offer", { candidate: candidate ?? null })
+              .catch(() => {});
           });
           await this.pc.setRemoteDescription(payload);
-          this.pc.setLocalDescription(await this.pc.createAnswer());
-
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createAnswer(),
+            accept,
+          );
         }
         break;
       case "candidate":

@@ -8,7 +8,7 @@ type IceLiteStats = {
   iceConnectionState: string;
   iceTransports: {
     iceLite: boolean;
-    iceRole: "controlling" | "controlled";
+    iceRole: "unknown" | "controlling" | "controlled";
     localCandidateTypes: string[];
     remoteCandidateTypes: string[];
     nominated?: {
