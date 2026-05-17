@@ -1,13 +1,11 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
-import { createCandidateBuffer } from "../candidateBuffer";
 import { acceptLocalDescription } from "../localDescription";
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 export class ice_restart_web_trigger {
   pc!: RTCPeerConnection;
-  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
@@ -17,7 +15,6 @@ export class ice_restart_web_trigger {
             ...(await peerConfig),
             icePasswordPrefix: "restartw",
           });
-          this.candidates = createCandidateBuffer(this.pc);
           this.pc.onIceCandidate.subscribe((candidate) => {
             peer
               .request(ice_restart_web_trigger_label + "ice", {
@@ -49,21 +46,19 @@ export class ice_restart_web_trigger {
         break;
       case "candidate":
         {
-          await this.candidates.add(payload);
+          await this.pc.addIceCandidate(payload);
           accept({});
         }
         break;
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
-          await this.candidates.flush();
           accept({});
         }
         break;
       case "offer":
         {
           await this.pc.setRemoteDescription(payload);
-          await this.candidates.flush();
           const answer = await this.pc.createAnswer();
           await acceptLocalDescription(this.pc, answer, accept);
         }
@@ -81,14 +76,12 @@ export class ice_restart_web_trigger {
 const ice_restart_node_trigger_label = "ice_restart_node_trigger";
 export class ice_restart_node_trigger {
   pc!: RTCPeerConnection;
-  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
       case "init":
         {
           this.pc = new RTCPeerConnection(await peerConfig);
-          this.candidates = createCandidateBuffer(this.pc);
           this.pc.onIceCandidate.subscribe((candidate) => {
             peer
               .request(ice_restart_node_trigger_label + "ice", {
@@ -120,14 +113,13 @@ export class ice_restart_node_trigger {
         break;
       case "candidate":
         {
-          await this.candidates.add(payload);
+          await this.pc.addIceCandidate(payload);
           accept({});
         }
         break;
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
-          await this.candidates.flush();
           accept({});
         }
         break;

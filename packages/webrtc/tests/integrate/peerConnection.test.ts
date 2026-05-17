@@ -498,21 +498,33 @@ a=ssrc:1001 cname:some
     }
   });
 
-  test("addIceCandidate rejects candidates before a remote description exists", async () => {
+  test("addIceCandidate buffers candidates before a remote description exists", async () => {
     const pc = new RTCPeerConnection();
 
     try {
-      // Arrange: remoteDescription をまだ設定していない peer を用意する。
       const candidate = {
         candidate: addIceCandidateLine1,
-        sdpMid: "0",
+        sdpMid: addIceCandidateSdpMid1,
+        sdpMLineIndex: addIceCandidateSdpMLineIndex1,
+        usernameFragment: addIceCandidateUsernameFragment1,
       };
 
-      // Act / Assert: trickle candidate を先に適用すると InvalidStateError になる。
-      await expect(pc.addIceCandidate(candidate)).rejects.toMatchObject({
-        name: "InvalidStateError",
-        message: "The remote description was null",
+      // Act: remoteDescription より先に届いた candidate を先行投入する。
+      await expect(pc.addIceCandidate(candidate)).resolves.toBeUndefined();
+      await pc.setRemoteDescription({
+        type: "offer",
+        sdp: addIceCandidateWptSdp,
       });
+
+      // Assert: setRemoteDescription 完了時に保留 candidate が反映される。
+      expect(
+        isCandidateLineBetween(
+          pc.remoteDescription!.sdp,
+          addIceCandidateMediaLine1,
+          `a=${addIceCandidateLine1}`,
+          addIceCandidateMediaLine2,
+        ),
+      ).toBeTruthy();
     } finally {
       await pc.close();
     }
@@ -838,6 +850,8 @@ function assertHasDtls(sdp: string, setup: string) {
 
 const addIceCandidateMediaLine1 = "m=audio";
 const addIceCandidateMediaLine2 = "m=video";
+const addIceCandidateSdpMid1 = "a1";
+const addIceCandidateSdpMLineIndex1 = 0;
 const addIceCandidateSdpMid2 = "v1";
 const addIceCandidateSdpMLineIndex2 = 1;
 const addIceCandidateUsernameFragment1 = "ETEn";

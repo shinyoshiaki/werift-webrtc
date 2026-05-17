@@ -137,7 +137,7 @@ describe("ice/trickle", () => {
       const answer = await peer.request(label, {
         type: "init",
         payload: pc.localDescription,
-      });
+        });
       await pc.setRemoteDescription(answer);
       await candidates.flush();
     }));

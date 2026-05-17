@@ -75,6 +75,8 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
  *   `usernameFragment` against the applied remote description and appends
  *   candidates or end-of-candidates markers to the corresponding m-section.
+ *   The public API keeps werift's historical pre-SRD buffering behavior, while
+ *   the WPT runner wraps the class to exercise strict spec rejection.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
  *   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
  *   returns the normalized value.
@@ -103,6 +105,9 @@ export class RTCPeerConnection extends EventTarget {
   private shouldNegotiationneeded = false;
   private lastCreatedAnswer?: RTCSessionDescription;
   private lastCreatedOffer?: RTCSessionDescription;
+  private readonly pendingRemoteCandidates: Array<
+    RTCIceCandidate | RTCIceCandidateInit | null
+  > = [];
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -810,18 +815,20 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    if (!this.remoteDescription) {
-      throw createWebRtcDomException(
-        "InvalidStateError",
-        "The remote description was null",
-      );
+
+    if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
+      this.pendingRemoteCandidates.push(candidateMessage);
+      return;
     }
+    await this.applyRemoteIceCandidate(candidateMessage);
+  }
+
+  private async applyRemoteIceCandidate(
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+  ) {
     const sdp = this.sdpManager._remoteDescription;
     if (!sdp) {
-      throw createWebRtcDomException(
-        "InvalidStateError",
-        "The remote description was null",
-      );
+      return;
     }
     const appliedCandidate = await this.secureManager.addIceCandidate(
       sdp,
@@ -848,6 +855,17 @@ export class RTCPeerConnection extends EventTarget {
         continue;
       }
       media.iceCandidates.push(appliedCandidate.candidate);
+    }
+  }
+
+  private async flushPendingRemoteCandidates() {
+    while (
+      this.pendingRemoteCandidates.length > 0 &&
+      this.remoteDescription &&
+      this.sdpManager._remoteDescription
+    ) {
+      const candidate = this.pendingRemoteCandidates.shift();
+      await this.applyRemoteIceCandidate(candidate ?? null);
     }
   }
 
@@ -1066,6 +1084,8 @@ export class RTCPeerConnection extends EventTarget {
       this.setSignalingState("have-remote-pranswer");
     }
 
+    await this.flushPendingRemoteCandidates();
+
     // connect transports
     if (remoteSdp.type === "answer") {
       log("caller start connect");
@@ -1194,6 +1214,7 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) return;
 
     this.isClosed = true;
+    this.pendingRemoteCandidates.length = 0;
     this.setSignalingState("closed");
 
     this.transceiverManager.close();
