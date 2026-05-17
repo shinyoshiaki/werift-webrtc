@@ -6,11 +6,13 @@ coverage
 .parcel-cache
 dist
 *.webm
+!packages/webrtc/tests/data/nonstandard/userMedia-e2e/*.webm
 *.log
 *.key
 *.mpd
 *.mp3
 *.mp4
+!packages/webrtc/tests/data/nonstandard/userMedia-e2e/*.mp4
 *.m4a
 credential.env
 __screenshots__
