@@ -180,13 +180,14 @@ class Av1Packetizer extends BasePacketizer {
     }
 
     let firstPacketInFrame = true;
+    const startsNewCodedVideoSequence = packet.type === "key";
     for (const obu of obus) {
       if (obu.length <= fragmentSize) {
         const aggregationHeader = createAv1AggregationHeader({
           startsWithFragment: false,
           endsWithFragment: false,
           startsNewCodedVideoSequence:
-            firstPacketInFrame && packet.type === "key",
+            firstPacketInFrame && startsNewCodedVideoSequence,
         });
         packets.push(
           this.buildPacket(
@@ -208,7 +209,7 @@ class Av1Packetizer extends BasePacketizer {
           startsWithFragment: offset > 0,
           endsWithFragment: offset + chunk.length < obu.length,
           startsNewCodedVideoSequence:
-            firstPacketInFrame && packet.type === "key",
+            firstPacketInFrame && startsNewCodedVideoSequence,
         });
         packets.push(
           this.buildPacket(

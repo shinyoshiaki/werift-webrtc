@@ -3,7 +3,10 @@ import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
 import { Readable } from "stream";
 import { readFile } from "fs/promises";
-import { setTimeout as wait } from "timers/promises";
+import {
+  setImmediate as onNextTurn,
+  setTimeout as wait,
+} from "timers/promises";
 
 import {
   BufferSource,
@@ -16,8 +19,10 @@ import {
   WEBM,
 } from "mediabunny";
 
+import { Event } from "../imports/common";
 import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
+import { codecParametersFromString } from "../sdp";
 import {
   type SupportedSourceCodec,
   createPacketizer,
@@ -43,13 +48,16 @@ export type FileMediaTrackSource = UserMediaSource & {
 };
 
 export const getUserMedia = async (options: FileMediaTrackSource) => {
-  const input = await createInput(options);
+  assertSupportedOptions(options);
+  const replayableSource = await createReplayableSource(options);
+  const input = await createInput(replayableSource);
   try {
     if (!(await input.canRead())) {
       throw new Error("Only MP4 and WebM file playback is supported");
     }
 
-    const playbackTracks = await selectPlaybackTracks(input);
+    const streamId = randomUUID().toString();
+    const playbackTracks = await selectPlaybackTracks(input, streamId);
     if (playbackTracks.length === 0) {
       throw new Error(
         "The media source does not contain playable audio or video tracks",
@@ -61,10 +69,14 @@ export const getUserMedia = async (options: FileMediaTrackSource) => {
     );
 
     return new MediaPlayer({
-      input,
+      source: replayableSource,
       loop: options.loop ?? false,
-      mediaStartTimestamp,
-      playbackTracks,
+      streamId,
+      session: createPlaybackSession({
+        input,
+        mediaStartTimestamp,
+        playbackTracks,
+      }),
     });
   } catch (error) {
     input.dispose();
@@ -75,41 +87,37 @@ export const getUserMedia = async (options: FileMediaTrackSource) => {
 class MediaPlayer {
   readonly audio?: MediaStreamTrack;
   readonly video?: MediaStreamTrack;
+  readonly onError = new Event<[Error]>();
 
-  private readonly runners: TrackPlaybackRunner[];
-  private readonly input: Input;
+  private readonly source: ReplayableUserMediaSource;
   private readonly loop: boolean;
-  private readonly mediaStartTimestamp: number;
+  private readonly streamId: string;
+  private session?: PlaybackSession;
   private running?: Promise<void>;
   private abortController?: AbortController;
+  private hasStartedPlayback = false;
   private stopped = false;
 
   constructor({
-    input,
+    source,
     loop,
-    mediaStartTimestamp,
-    playbackTracks,
+    streamId,
+    session,
   }: {
-    input: Input;
+    source: ReplayableUserMediaSource;
     loop: boolean;
-    mediaStartTimestamp: number;
-    playbackTracks: PlaybackTrack[];
+    streamId: string;
+    session: PlaybackSession;
   }) {
-    this.input = input;
+    this.source = source;
     this.loop = loop;
-    this.mediaStartTimestamp = mediaStartTimestamp;
-    this.runners = playbackTracks.map(
-      (playbackTrack) =>
-        new TrackPlaybackRunner({
-          mediaStartTimestamp,
-          ...playbackTrack,
-        }),
-    );
+    this.streamId = streamId;
+    this.session = session;
 
-    this.audio = playbackTracks.find(
+    this.audio = session.playbackTracks.find(
       ({ track }) => track.kind === "audio",
     )?.track;
-    this.video = playbackTracks.find(
+    this.video = session.playbackTracks.find(
       ({ track }) => track.kind === "video",
     )?.track;
   }
@@ -122,43 +130,72 @@ class MediaPlayer {
       return;
     }
 
-    this.runners.forEach((runner) => runner.assertReady());
-
     const abortController = new AbortController();
     this.abortController = abortController;
 
-    this.running = this.run(abortController)
-      .catch((error) => {
-        if (!abortController.signal.aborted) {
-          console.error("userMedia playback failed", error);
-        }
-      })
-      .finally(() => {
-        if (this.abortController === abortController) {
-          this.abortController = undefined;
-        }
-        this.running = undefined;
-        this.stopped = true;
-        this.input.dispose();
-      });
+    let startupPending = true;
+    let session: PlaybackSession | undefined;
+    const playback = (async () => {
+      session = await this.getOrCreateSession();
+      if (abortController.signal.aborted || this.stopped) {
+        return;
+      }
+
+      session.runners.forEach((runner) => runner.assertReady());
+
+      const initialSourceChanged = this.hasStartedPlayback;
+      this.hasStartedPlayback = true;
+      await this.run(session, abortController, initialSourceChanged);
+    })();
+    const observedPlayback = playback.catch((error) => {
+      if (abortController.signal.aborted) {
+        return;
+      }
+
+      this.onError.execute(toError(error));
+      if (startupPending) {
+        throw error;
+      }
+    });
+
+    this.running = observedPlayback.finally(() => {
+      if (this.abortController === abortController) {
+        this.abortController = undefined;
+      }
+      this.running = undefined;
+      this.disposeSession(session);
+    });
+
+    try {
+      await Promise.race([this.running, onNextTurn()]);
+    } finally {
+      startupPending = false;
+    }
   }
 
   stop() {
     if (this.stopped) {
       return;
     }
+    // File playback mirrors the previous process-backed behavior: stop() is terminal.
     this.stopped = true;
     this.abortController?.abort();
-    this.input.dispose();
+    if (!this.running) {
+      this.disposeSession();
+    }
   }
 
-  private async run(abortController: AbortController) {
-    let sourceChanged = false;
+  private async run(
+    session: PlaybackSession,
+    abortController: AbortController,
+    initialSourceChanged: boolean,
+  ) {
+    let sourceChanged = initialSourceChanged;
 
     do {
       const startedAt = performance.now();
       await Promise.all(
-        this.runners.map((runner) =>
+        session.runners.map((runner) =>
           runner.play({
             startedAt,
             signal: abortController.signal,
@@ -171,6 +208,50 @@ class MediaPlayer {
       }
       sourceChanged = true;
     } while (!abortController.signal.aborted);
+  }
+
+  private async getOrCreateSession() {
+    if (this.session) {
+      return this.session;
+    }
+
+    const input = await createInput(this.source);
+    try {
+      if (!(await input.canRead())) {
+        throw new Error("Only MP4 and WebM file playback is supported");
+      }
+
+      const playbackTracks = await selectPlaybackTracks(
+        input,
+        this.streamId,
+        buildExistingTrackMap(this.audio, this.video),
+      );
+      const mediaStartTimestamp = await input.getFirstTimestamp(
+        playbackTracks.map(({ inputTrack }) => inputTrack),
+      );
+
+      const session = createPlaybackSession({
+        input,
+        mediaStartTimestamp,
+        playbackTracks,
+      });
+      this.session = session;
+      return session;
+    } catch (error) {
+      input.dispose();
+      throw error;
+    }
+  }
+
+  private disposeSession(session = this.session) {
+    if (!session) {
+      return;
+    }
+
+    session.input.dispose();
+    if (this.session === session) {
+      this.session = undefined;
+    }
   }
 }
 
@@ -240,7 +321,12 @@ class TrackPlaybackRunner {
   }
 
   assertReady() {
-    this.requireNegotiatedCodec();
+    const codec = this.requireNegotiatedCodec();
+    createPacketizer({
+      codec,
+      sourceCodec: this.props.sourceCodec,
+      decoderDescription: this.props.decoderDescription,
+    });
   }
 
   private requireNegotiatedCodec() {
@@ -267,6 +353,14 @@ class TrackPlaybackRunner {
       );
     }
 
+    assertCodecParameters({
+      trackKind: this.props.track.kind === "audio" ? "audio" : "video",
+      codec,
+      sourceCodec: this.props.sourceCodec,
+      decoderDescription: this.props.decoderDescription,
+      sourceChannels: this.props.sourceChannels,
+    });
+
     return codec;
   }
 }
@@ -276,10 +370,21 @@ interface PlaybackTrack {
   track: MediaStreamTrack;
   sourceCodec: SupportedSourceCodec;
   decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  sourceChannels?: number;
 }
 
-async function selectPlaybackTracks(input: Input) {
-  const streamId = randomUUID().toString();
+interface PlaybackSession {
+  input: Input;
+  mediaStartTimestamp: number;
+  playbackTracks: PlaybackTrack[];
+  runners: TrackPlaybackRunner[];
+}
+
+async function selectPlaybackTracks(
+  input: Input,
+  streamId: string,
+  existingTracks: Partial<Record<"audio" | "video", MediaStreamTrack>> = {},
+) {
   const primaryVideoTrack = await input.getPrimaryVideoTrack();
   const primaryAudioTrack = primaryVideoTrack
     ? ((await primaryVideoTrack.getPrimaryPairableAudioTrack()) ??
@@ -288,17 +393,33 @@ async function selectPlaybackTracks(input: Input) {
 
   const playbackTracks: PlaybackTrack[] = [];
   if (primaryAudioTrack) {
-    playbackTracks.push(await createPlaybackTrack(primaryAudioTrack, streamId));
+    playbackTracks.push(
+      await createPlaybackTrack(
+        primaryAudioTrack,
+        streamId,
+        existingTracks.audio,
+      ),
+    );
   }
   if (primaryVideoTrack) {
-    playbackTracks.push(await createPlaybackTrack(primaryVideoTrack, streamId));
+    playbackTracks.push(
+      await createPlaybackTrack(
+        primaryVideoTrack,
+        streamId,
+        existingTracks.video,
+      ),
+    );
   }
 
   if (!primaryVideoTrack && !primaryAudioTrack) {
     const fallbackAudioTrack = await input.getPrimaryAudioTrack();
     if (fallbackAudioTrack) {
       playbackTracks.push(
-        await createPlaybackTrack(fallbackAudioTrack, streamId),
+        await createPlaybackTrack(
+          fallbackAudioTrack,
+          streamId,
+          existingTracks.audio,
+        ),
       );
     }
   }
@@ -309,9 +430,11 @@ async function selectPlaybackTracks(input: Input) {
 async function createPlaybackTrack(
   inputTrack: InputAudioTrack | InputVideoTrack,
   streamId: string,
+  track?: MediaStreamTrack,
 ): Promise<PlaybackTrack> {
   const sourceCodec = await requireSupportedCodec(inputTrack);
   const decoderConfig = await inputTrack.getDecoderConfig();
+  const kind = inputTrack.isAudioTrack() ? "audio" : "video";
 
   return {
     inputTrack,
@@ -320,10 +443,16 @@ async function createPlaybackTrack(
       decoderConfig && "description" in decoderConfig
         ? (decoderConfig.description ?? null)
         : null,
-    track: new MediaStreamTrack({
-      kind: inputTrack.isAudioTrack() ? "audio" : "video",
-      streamId,
-    }),
+    sourceChannels:
+      decoderConfig && "numberOfChannels" in decoderConfig
+        ? decoderConfig.numberOfChannels
+        : undefined,
+    track:
+      track ??
+      new MediaStreamTrack({
+        kind,
+        streamId,
+      }),
   };
 }
 
@@ -343,7 +472,26 @@ async function requireSupportedCodec(inputTrack: InputTrack) {
   );
 }
 
-async function createInput(options: UserMediaSource) {
+type ReplayableUserMediaSource =
+  | { path: string; buffer?: never }
+  | { path?: never; buffer: Buffer };
+
+async function createReplayableSource(
+  options: UserMediaSource,
+): Promise<ReplayableUserMediaSource> {
+  if (typeof options.path === "string") {
+    return { path: options.path };
+  }
+
+  const buffer =
+    options.buffer != undefined
+      ? toBuffer(options.buffer)
+      : await readStreamToBuffer(options.stream);
+
+  return { buffer };
+}
+
+async function createInput(options: ReplayableUserMediaSource) {
   if (typeof options.path === "string") {
     const buffer = await readFile(resolveUserMediaPath(options.path));
     return new Input({
@@ -352,13 +500,8 @@ async function createInput(options: UserMediaSource) {
     });
   }
 
-  const buffer =
-    options.buffer != undefined
-      ? toBuffer(options.buffer)
-      : await readStreamToBuffer(options.stream);
-
   return new Input({
-    source: new BufferSource(buffer),
+    source: new BufferSource(options.buffer),
     formats: [MP4, WEBM],
   });
 }
@@ -422,6 +565,132 @@ function normalizeMimeType(mimeType: string) {
   return mimeType.toLowerCase();
 }
 
+function assertSupportedOptions(options: FileMediaTrackSource) {
+  const legacyOptions = options as FileMediaTrackSource & {
+    width?: unknown;
+    height?: unknown;
+  };
+
+  if (legacyOptions.width != undefined || legacyOptions.height != undefined) {
+    throw new Error(
+      "getUserMedia({ width, height }) is no longer supported for file playback. Resize or re-encode the source before calling getUserMedia().",
+    );
+  }
+}
+
+function createPlaybackSession({
+  input,
+  mediaStartTimestamp,
+  playbackTracks,
+}: {
+  input: Input;
+  mediaStartTimestamp: number;
+  playbackTracks: PlaybackTrack[];
+}): PlaybackSession {
+  return {
+    input,
+    mediaStartTimestamp,
+    playbackTracks,
+    runners: playbackTracks.map(
+      (playbackTrack) =>
+        new TrackPlaybackRunner({
+          mediaStartTimestamp,
+          ...playbackTrack,
+        }),
+    ),
+  };
+}
+
+function buildExistingTrackMap(
+  audio?: MediaStreamTrack,
+  video?: MediaStreamTrack,
+): Partial<Record<"audio" | "video", MediaStreamTrack>> {
+  return {
+    ...(audio ? { audio } : {}),
+    ...(video ? { video } : {}),
+  };
+}
+
+function assertCodecParameters({
+  trackKind,
+  codec,
+  sourceCodec,
+  decoderDescription,
+  sourceChannels,
+}: {
+  trackKind: "audio" | "video";
+  codec: RTCRtpCodecParameters;
+  sourceCodec: SupportedSourceCodec;
+  decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  sourceChannels?: number;
+}) {
+  if (sourceCodec === "opus" && sourceChannels && codec.channels != undefined) {
+    if (codec.channels !== sourceChannels) {
+      throw new Error(
+        `Input ${trackKind} channels ${sourceChannels} do not match negotiated channels ${codec.channels}`,
+      );
+    }
+    return;
+  }
+
+  if (sourceCodec !== "avc") {
+    // mediabunny exposes codec-specific decoder configuration for H264 only here.
+    return;
+  }
+
+  const negotiatedParameters = codecParametersFromString(
+    codec.parameters ?? "",
+  );
+  const negotiatedPacketizationMode = Number(
+    negotiatedParameters["packetization-mode"] ?? 1,
+  );
+  if (negotiatedPacketizationMode !== 1) {
+    throw new Error(
+      `Input ${trackKind} packetization-mode 1 does not match negotiated packetization-mode ${negotiatedPacketizationMode}`,
+    );
+  }
+
+  const sourceProfileLevelId = getH264ProfileLevelId(decoderDescription);
+  const negotiatedProfileLevelId = normalizeOptionalHexParameter(
+    negotiatedParameters["profile-level-id"],
+  );
+
+  if (!sourceProfileLevelId) {
+    return;
+  }
+
+  if (!negotiatedProfileLevelId) {
+    throw new Error(
+      `Input ${trackKind} profile-level-id ${sourceProfileLevelId} does not match negotiated profile-level-id <missing>`,
+    );
+  }
+
+  if (sourceProfileLevelId !== negotiatedProfileLevelId) {
+    throw new Error(
+      `Input ${trackKind} profile-level-id ${sourceProfileLevelId} does not match negotiated profile-level-id ${negotiatedProfileLevelId}`,
+    );
+  }
+}
+
+function getH264ProfileLevelId(
+  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+) {
+  if (!decoderDescription) {
+    return undefined;
+  }
+
+  const description = toDescriptionBuffer(decoderDescription);
+  if (description.length < 4) {
+    throw new Error("invalid H264 decoder configuration");
+  }
+
+  return description.subarray(1, 4).toString("hex");
+}
+
+function normalizeOptionalHexParameter(value: unknown) {
+  return typeof value === "string" ? value.toLowerCase() : undefined;
+}
+
 function toRtpTimestamp(
   packetTimestamp: number,
   mediaStartTimestamp: number,
@@ -437,4 +706,22 @@ function isAbortError(error: unknown) {
     (error.name === "AbortError" ||
       error.message === "The operation was aborted")
   );
+}
+
+function toError(error: unknown) {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function toDescriptionBuffer(
+  decoderDescription: ArrayBuffer | ArrayBufferView,
+) {
+  if (ArrayBuffer.isView(decoderDescription)) {
+    return Buffer.from(
+      decoderDescription.buffer,
+      decoderDescription.byteOffset,
+      decoderDescription.byteLength,
+    );
+  }
+
+  return Buffer.from(decoderDescription);
 }
