@@ -37,6 +37,40 @@ describe("iceTransport", () => {
     expect(transport2.state).toBe("closed");
   });
 
+  test("gather includes TCP host candidates when enabled", async () => {
+    const gatherer = new RTCIceGatherer({
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      await gatherer.gather();
+
+      // Assert: opt-in 時だけ IPv4 アドレスごとの active / passive TCP host candidate が公開される。
+      const tcpCandidates = gatherer.localCandidates.filter(
+        (candidate) => candidate.protocol === "tcp",
+      );
+      expect(tcpCandidates.map((candidate) => candidate.tcpType)).toContain(
+        "active",
+      );
+      expect(tcpCandidates.map((candidate) => candidate.tcpType)).toContain(
+        "passive",
+      );
+      expect(
+        tcpCandidates.every(
+          (candidate) =>
+            candidate.type === "host" &&
+            (candidate.tcpType === "active"
+              ? candidate.port === 9
+              : candidate.tcpType === "passive" && candidate.port > 0),
+        ),
+      ).toBe(true);
+    } finally {
+      await gatherer.connection.close();
+    }
+  });
+
   test.skip("portRange", async () => {
     const gatherer = new RTCIceGatherer({
       stunServer: ["stun.l.google.com", 19302],

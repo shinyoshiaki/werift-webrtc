@@ -48,7 +48,7 @@ readonly \[`string`, `number`\]
 
 #### transport?
 
-`"tcp"` \| `"tls"` \| `"udp"`
+`"udp"` \| `"tcp"` \| `"tls"`
 
 ## Returns
 

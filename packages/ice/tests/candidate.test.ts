@@ -61,6 +61,36 @@ describe("candidate", () => {
     expect(a.canPairWith(b)).toBe(false);
   });
 
+  test("test_can_pair_tcp_active_passive", () => {
+    const a = Candidate.fromSdp(
+      "1936595596 1 tcp 1518214911 1.2.3.4 9 typ host tcptype active generation 0",
+    );
+    const b = Candidate.fromSdp(
+      "1936595597 1 tcp 1518214655 1.2.3.4 40000 typ host tcptype passive generation 0",
+    );
+    expect(a.canPairWith(b)).toBe(true);
+  });
+
+  test("test_cannot_pair_tcp_active_active", () => {
+    const a = Candidate.fromSdp(
+      "1936595596 1 tcp 1518214911 1.2.3.4 9 typ host tcptype active generation 0",
+    );
+    const b = Candidate.fromSdp(
+      "1936595597 1 tcp 1518214911 1.2.3.4 9 typ host tcptype active generation 0",
+    );
+    expect(a.canPairWith(b)).toBe(false);
+  });
+
+  test("test_cannot_pair_tcp_passive_passive", () => {
+    const a = Candidate.fromSdp(
+      "1936595596 1 tcp 1518214655 1.2.3.4 40000 typ host tcptype passive generation 0",
+    );
+    const b = Candidate.fromSdp(
+      "1936595597 1 tcp 1518214655 1.2.3.4 40001 typ host tcptype passive generation 0",
+    );
+    expect(a.canPairWith(b)).toBe(false);
+  });
+
   test("test_from_sdp_udp", () => {
     const candidate = Candidate.fromSdp(
       "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",

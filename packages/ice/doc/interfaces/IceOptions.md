@@ -112,7 +112,7 @@ Advertise and operate as an ICE lite agent.
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
 
 ***
 
@@ -137,3 +137,9 @@ Advertise and operate as an ICE lite agent.
 ### useLinkLocalAddress?
 
 > `optional` **useLinkLocalAddress**: `boolean`
+
+***
+
+### useTcp
+
+> **useTcp**: `boolean`

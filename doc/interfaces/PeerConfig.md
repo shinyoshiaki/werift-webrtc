@@ -144,6 +144,12 @@ such as google cloud run
 
 ***
 
+### iceUseTcp
+
+> **iceUseTcp**: `boolean`
+
+***
+
 ### maxMessageSize
 
 > **maxMessageSize**: `number`

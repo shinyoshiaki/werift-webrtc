@@ -7,7 +7,12 @@ import * as timers from "node:timers/promises";
 import isEqual from "fast-deep-equal";
 import { type Address, Event, debug } from "./imports/common";
 
-import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
+import {
+  Candidate,
+  candidateFoundation,
+  candidatePriority,
+  remoteTcpTypeForIncoming,
+} from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
 import type { TransactionError } from "./exceptions";
 import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
@@ -30,6 +35,7 @@ import {
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
+import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import { createStunOverTurnClient } from "./turn/protocol";
 import type { Protocol } from "./types/model";
 import { getHostAddresses } from "./utils";
@@ -303,7 +309,7 @@ export class Connection implements IceConnection {
   }
 
   private getCandidatePromises(addresses: string[], timeout = 5) {
-    const candidatePromises: Promise<Candidate | void>[] = [];
+    const candidatePromises: Promise<unknown>[] = [];
     const { stunServer, turnServer } = this;
     const { turnUsername, turnPassword } = this.options;
     const gatherIceLite = this.iceLite;
@@ -350,7 +356,7 @@ export class Connection implements IceConnection {
               candidateFoundation("host", "udp", candidateAddress[0]),
               1,
               "udp",
-              candidatePriority("host"),
+              candidatePriority("host", { transport: "udp" }),
               candidateAddress[0],
               candidateAddress[1],
               "host",
@@ -376,6 +382,63 @@ export class Connection implements IceConnection {
           localPromise.then((protocol) => protocol?.localCandidate),
         ),
       );
+    }
+
+    if (!gatherRelayOnly && this.options.useTcp) {
+      const tcpCandidatePromises = addresses.map(async (address) => {
+        const passiveProtocol = new TcpPassiveProtocol();
+        this.ensureProtocol(passiveProtocol);
+        await passiveProtocol.connectionMade(address, this.options.portRange);
+        passiveProtocol.localIp = address;
+        passiveProtocol.localCandidate = new Candidate(
+          candidateFoundation("host", "tcp", address),
+          1,
+          "tcp",
+          candidatePriority("host", {
+            transport: "tcp",
+            tcptype: "passive",
+          }),
+          address,
+          passiveProtocol.listeningPort,
+          "host",
+          undefined,
+          undefined,
+          "passive",
+          this.generation,
+          this.localUsername,
+        );
+        this.protocols.push(passiveProtocol);
+        this.appendLocalCandidate(passiveProtocol.localCandidate);
+
+        if (!gatherIceLite) {
+          const activeProtocol = new TcpActiveProtocol();
+          this.ensureProtocol(activeProtocol);
+          await activeProtocol.connectionMade(address);
+          activeProtocol.localIp = address;
+          activeProtocol.localCandidate = new Candidate(
+            candidateFoundation("host", "tcp", address),
+            1,
+            "tcp",
+            candidatePriority("host", {
+              transport: "tcp",
+              tcptype: "active",
+            }),
+            address,
+            9,
+            "host",
+            undefined,
+            undefined,
+            "active",
+            this.generation,
+            this.localUsername,
+          );
+          this.protocols.push(activeProtocol);
+          this.pairLocalProtocol(activeProtocol);
+          this.appendLocalCandidate(activeProtocol.localCandidate);
+        }
+      });
+
+      candidatePromises.push(...tcpCandidatePromises);
     }
 
     if (!gatherIceLite && !gatherRelayOnly && stunServer) {
@@ -680,6 +743,7 @@ export class Connection implements IceConnection {
             localUsername,
             remoteUsername,
             iceControlling,
+            localCandidate: nominated.localCandidate,
           });
           try {
             nominated.consentRequestsSent++;
@@ -881,6 +945,7 @@ export class Connection implements IceConnection {
         log("nominated", pair.toJSON());
         this.nominated = pair;
         this.nominating = false;
+        this.pruneTcpConnections(pair);
 
         // 8.1.2.  Updating States
 
@@ -968,6 +1033,7 @@ export class Connection implements IceConnection {
         localUsername,
         remoteUsername,
         iceControlling: this.iceControlling,
+        localCandidate: pair.localCandidate,
       });
 
       // Record start time for RTT calculation
@@ -979,7 +1045,7 @@ export class Connection implements IceConnection {
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
-          4,
+          pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
           (attempt) => {
             if (attempt > 0) {
               pair.retransmissionsSent++;
@@ -1066,6 +1132,7 @@ export class Connection implements IceConnection {
           localUsername,
           remoteUsername,
           iceControlling: this.iceControlling,
+          localCandidate: pair.localCandidate,
         });
         try {
           pair.requestsSent++;
@@ -1073,7 +1140,7 @@ export class Connection implements IceConnection {
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
-            undefined,
+            pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
             (attempt) => {
               if (attempt > 0) {
                 pair.retransmissionsSent++;
@@ -1123,14 +1190,16 @@ export class Connection implements IceConnection {
       remoteCandidate = new Candidate(
         randomString(10),
         1,
-        "udp",
+        protocol.localCandidate?.transport ?? "udp",
         message.getAttributeValue("PRIORITY"),
         host,
         port,
         "prflx",
         undefined,
         undefined,
-        undefined,
+        protocol.localCandidate?.transport === "tcp"
+          ? remoteTcpTypeForIncoming(protocol.localCandidate.tcptype)
+          : undefined,
         undefined,
         undefined,
       );
@@ -1195,6 +1264,11 @@ export class Connection implements IceConnection {
   private tryPair(protocol: Protocol, remoteCandidate: Candidate) {
     if (
       protocol.localCandidate?.canPairWith(remoteCandidate) &&
+      !(
+        protocol.localCandidate.transport.toLowerCase() === "tcp" &&
+        protocol.localCandidate.tcptype === "passive" &&
+        remoteCandidate.type !== "prflx"
+      ) &&
       !this.findPair(protocol, remoteCandidate)
     ) {
       const pair = new CandidatePair(
@@ -1230,17 +1304,23 @@ export class Connection implements IceConnection {
     remoteUsername,
     localUsername,
     iceControlling,
+    localCandidate,
   }: {
     nominate: boolean;
     remoteUsername: string;
     localUsername: string;
     iceControlling: boolean;
+    localCandidate?: Candidate;
   }) {
     const txUsername = encodeTxUsername({ remoteUsername, localUsername });
     const request = new Message(methods.BINDING, classes.REQUEST);
-    request
-      .setAttribute("USERNAME", txUsername)
-      .setAttribute("PRIORITY", candidatePriority("prflx"));
+    request.setAttribute("USERNAME", txUsername).setAttribute(
+      "PRIORITY",
+      candidatePriority("prflx", {
+        transport: localCandidate?.transport,
+        tcptype: localCandidate?.tcptype,
+      }),
+    );
     if (iceControlling) {
       request.setAttribute("ICE-CONTROLLING", this.tieBreaker);
       if (nominate) {
@@ -1250,6 +1330,25 @@ export class Connection implements IceConnection {
       request.setAttribute("ICE-CONTROLLED", this.tieBreaker);
     }
     return request;
+  }
+
+  private pruneTcpConnections(selectedPair: CandidatePair) {
+    for (const protocol of this.protocols) {
+      if (protocol.localCandidate?.transport.toLowerCase() !== "tcp") {
+        continue;
+      }
+
+      if (
+        "pruneForSelection" in protocol &&
+        typeof protocol.pruneForSelection === "function"
+      ) {
+        void protocol.pruneForSelection(
+          protocol === selectedPair.protocol
+            ? selectedPair.remoteAddr
+            : undefined,
+        );
+      }
+    }
   }
 
   private respondError(

@@ -192,6 +192,7 @@ export type IceState =
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
   iceLite: boolean;
+  useTcp: boolean;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
@@ -216,6 +217,7 @@ export interface IceOptions {
 
 export const defaultOptions: IceOptions = {
   iceLite: false,
+  useTcp: false,
   useIpv4: true,
   useIpv6: true,
 };
@@ -285,15 +287,23 @@ export async function serverReflexiveCandidate(
     }
 
     const candidate = new Candidate(
-      candidateFoundation("srflx", "udp", localCandidate.host),
+      candidateFoundation(
+        "srflx",
+        localCandidate.transport,
+        localCandidate.host,
+      ),
       localCandidate.component,
       localCandidate.transport,
-      candidatePriority("srflx"),
+      candidatePriority("srflx", {
+        transport: localCandidate.transport,
+        tcptype: localCandidate.tcptype,
+      }),
       response.getAttributeValue("XOR-MAPPED-ADDRESS")[0],
       response.getAttributeValue("XOR-MAPPED-ADDRESS")[1],
       "srflx",
       localCandidate.host,
       localCandidate.port,
+      localCandidate.tcptype,
     );
     return candidate;
   } catch (error) {

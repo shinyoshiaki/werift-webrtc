@@ -211,6 +211,143 @@ describe("ice", () => {
     await b.close();
   });
 
+  test("test_connect_tcp", async () => {
+    const a = createTestConnection(true, {
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+    const b = createTestConnection(false, {
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: offer/answer 交換では TCP candidate だけを相手へ見せる。
+      await a.gatherCandidates();
+      b.remoteCandidates = a.localCandidates.filter(
+        (candidate) => candidate.transport === "tcp",
+      );
+      b.remoteUsername = a.localUsername;
+      b.remotePassword = a.localPassword;
+
+      await b.gatherCandidates();
+      a.remoteCandidates = b.localCandidates.filter(
+        (candidate) => candidate.transport === "tcp",
+      );
+      a.remoteUsername = b.localUsername;
+      a.remotePassword = b.localPassword;
+
+      const tcpCandidatesA = a.localCandidates.filter(
+        (candidate) => candidate.transport === "tcp",
+      );
+      const tcpCandidatesB = b.localCandidates.filter(
+        (candidate) => candidate.transport === "tcp",
+      );
+
+      // Assert: gather 時点で IPv4 アドレスごとの active / passive TCP host candidate が作られる。
+      expect(tcpCandidatesA.map((candidate) => candidate.tcptype)).toContain(
+        "active",
+      );
+      expect(tcpCandidatesA.map((candidate) => candidate.tcptype)).toContain(
+        "passive",
+      );
+      expect(tcpCandidatesB.map((candidate) => candidate.tcptype)).toContain(
+        "active",
+      );
+      expect(tcpCandidatesB.map((candidate) => candidate.tcptype)).toContain(
+        "passive",
+      );
+      expect(
+        tcpCandidatesA.every(
+          (candidate) =>
+            candidate.type === "host" &&
+            (candidate.tcptype === "active"
+              ? candidate.port === 9
+              : candidate.tcptype === "passive" && candidate.port > 0),
+        ),
+      ).toBe(true);
+      expect(
+        tcpCandidatesB.every(
+          (candidate) =>
+            candidate.type === "host" &&
+            (candidate.tcptype === "active"
+              ? candidate.port === 9
+              : candidate.tcptype === "passive" && candidate.port > 0),
+        ),
+      ).toBe(true);
+
+      // Act: TCP candidate だけで connectivity check と nomination を完了させる。
+      await Promise.all([
+        a.addRemoteCandidate(undefined),
+        b.addRemoteCandidate(undefined),
+      ]);
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: controlling 側は active/passive の TCP pair を選ぶ。
+      expect(a.nominated?.localCandidate.transport).toBe("tcp");
+      expect(a.nominated?.localCandidate.tcptype).toBe("active");
+      expect(a.nominated?.remoteCandidate.transport).toBe("tcp");
+      expect(a.nominated?.remoteCandidate.tcptype).toBe("passive");
+      expect(a.nominated?.protocol.type).toBe("tcp");
+
+      // Assert: controlled 側も TCP pair を選び、incoming check から peer-reflexive candidate を学習している。
+      expect(b.nominated?.localCandidate.transport).toBe("tcp");
+      expect(b.nominated?.remoteCandidate.transport).toBe("tcp");
+      expect(b.nominated?.protocol.type).toBe("tcp");
+      expect(
+        b.remoteCandidates.some(
+          (candidate) =>
+            candidate.transport === "tcp" &&
+            candidate.type === "prflx" &&
+            candidate.tcptype === "active",
+        ),
+      ).toBe(true);
+
+      // Act: nomination 済み TCP pair 上で双方向に application data を流す。
+      await a.send(Buffer.from("howdee over tcp"));
+      const [data] = await b.onData.asPromise();
+      await b.send(Buffer.from("gotcha over tcp"));
+      const [echo] = await a.onData.asPromise();
+      await setTimeout(50);
+
+      // Assert: RFC 4571 framing の内側でデータが欠損なく到達する。
+      expect(data.toString()).toBe("howdee over tcp");
+      expect(echo.toString()).toBe("gotcha over tcp");
+
+      const tcpProtocolsA = (
+        (a as any).protocols as Array<{
+          localCandidate?: Candidate;
+          activeSocketCount?: number;
+        }>
+      ).filter((protocol) => protocol.localCandidate?.transport === "tcp");
+      const tcpProtocolsB = (
+        (b as any).protocols as Array<{
+          localCandidate?: Candidate;
+          activeSocketCount?: number;
+        }>
+      ).filter((protocol) => protocol.localCandidate?.transport === "tcp");
+
+      // Assert: selected pair に対応する TCP connection が維持されている。
+      expect(
+        tcpProtocolsA.reduce(
+          (count, protocol) => count + (protocol.activeSocketCount ?? 0),
+          0,
+        ),
+      ).toBeGreaterThan(0);
+      expect(
+        tcpProtocolsB.reduce(
+          (count, protocol) => count + (protocol.activeSocketCount ?? 0),
+          0,
+        ),
+      ).toBeGreaterThan(0);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+
   // test("test_connect_two_components", async () => {
   //   const a = new Connection(true, { components: 2 });
   //   const b = new Connection(false, { components: 2 });

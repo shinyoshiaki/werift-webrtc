@@ -18,6 +18,8 @@
 - [Message](classes/Message.md)
 - [StunOverTurnProtocol](classes/StunOverTurnProtocol.md)
 - [StunProtocol](classes/StunProtocol.md)
+- [TcpActiveProtocol](classes/TcpActiveProtocol.md)
+- [TcpPassiveProtocol](classes/TcpPassiveProtocol.md)
 - [TurnProtocol](classes/TurnProtocol.md)
 
 ## Interfaces
@@ -32,6 +34,7 @@
 ## Type Aliases
 
 - [IceState](type-aliases/IceState.md)
+- [TcpCandidateType](type-aliases/TcpCandidateType.md)
 
 ## Variables
 
@@ -54,10 +57,12 @@
 ## Functions
 
 - [candidateFoundation](functions/candidateFoundation.md)
+- [candidateLocalPreference](functions/candidateLocalPreference.md)
 - [candidatePairPriority](functions/candidatePairPriority.md)
 - [candidatePriority](functions/candidatePriority.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
+- [encodeTcpFrame](functions/encodeTcpFrame.md)
 - [getGlobalIp](functions/getGlobalIp.md)
 - [getHostAddresses](functions/getHostAddresses.md)
 - [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
@@ -68,8 +73,10 @@
 - [paddingLength](functions/paddingLength.md)
 - [parseMessage](functions/parseMessage.md)
 - [randomPort](functions/randomPort.md)
+- [remoteTcpTypeForIncoming](functions/remoteTcpTypeForIncoming.md)
 - [serverReflexiveCandidate](functions/serverReflexiveCandidate.md)
 - [sortCandidatePairs](functions/sortCandidatePairs.md)
+- [splitTcpFrames](functions/splitTcpFrames.md)
 - [url2Address](functions/url2Address.md)
 - [validateAddress](functions/validateAddress.md)
 - [validateRemoteCandidate](functions/validateRemoteCandidate.md)

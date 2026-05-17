@@ -1,6 +1,8 @@
 export { randomPort } from "../../common/src";
 
 export * from "./stun/const";
+export * from "./stun/tcpFrame";
+export * from "./stun/tcpProtocol";
 export * from "./stun/message";
 export * from "./stun/protocol";
 export * from "./turn/protocol";

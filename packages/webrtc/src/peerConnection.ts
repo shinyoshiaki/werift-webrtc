@@ -1260,6 +1260,7 @@ export interface PeerConfig {
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
   iceUseIpv6: boolean;
+  iceUseTcp: boolean;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /** @deprecated Prefer turn URL transport parameters or turnTransport. */
@@ -1362,6 +1363,7 @@ function generateDefaultPeerConfig(): PeerConfig {
     iceAdditionalHostAddresses: undefined,
     iceUseIpv4: true,
     iceUseIpv6: true,
+    iceUseTcp: false,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     iceFilterStunResponse: undefined,
