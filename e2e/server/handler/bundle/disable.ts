@@ -1,12 +1,10 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
-import { createCandidateBuffer } from "../candidateBuffer";
 import { acceptLocalDescription } from "../localDescription";
 
 export class bundle_disable_answer {
   pc!: RTCPeerConnection;
-  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
@@ -16,7 +14,6 @@ export class bundle_disable_answer {
             ...(await peerConfig),
             bundlePolicy: "disable",
           });
-          this.candidates = createCandidateBuffer(this.pc);
           const dc = this.pc.createDataChannel("dc");
           dc.onmessage = (e) => {
             if (e.data === "ping") {
@@ -48,7 +45,7 @@ export class bundle_disable_answer {
         break;
       case "candidate":
         {
-          await this.candidates.add(payload);
+          await this.pc.addIceCandidate(payload);
           try {
             accept({});
           } catch (error) {}
@@ -57,7 +54,6 @@ export class bundle_disable_answer {
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
-          await this.candidates.flush();
           accept({});
         }
         break;
@@ -67,7 +63,6 @@ export class bundle_disable_answer {
 
 export class bundle_disable_offer {
   pc!: RTCPeerConnection;
-  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
@@ -77,7 +72,6 @@ export class bundle_disable_offer {
             ...(await peerConfig),
             bundlePolicy: "disable",
           });
-          this.candidates = createCandidateBuffer(this.pc);
           this.pc.ondatachannel = ({ channel }) => {
             channel.onmessage = (e) => {
               if (e.data === "ping") {
@@ -104,7 +98,6 @@ export class bundle_disable_offer {
           };
 
           await this.pc.setRemoteDescription(payload);
-          await this.candidates.flush();
           await acceptLocalDescription(
             this.pc,
             await this.pc.createAnswer(),
@@ -114,7 +107,7 @@ export class bundle_disable_offer {
         break;
       case "candidate":
         {
-          await this.candidates.add(payload);
+          await this.pc.addIceCandidate(payload);
           accept({});
         }
         break;
