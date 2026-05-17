@@ -154,6 +154,10 @@ export class RTCRtpSender {
     }
   }
 
+  get transport() {
+    return this.dtlsTransport ?? null;
+  }
+
   get streamId() {
     return this.streamIds[0];
   }

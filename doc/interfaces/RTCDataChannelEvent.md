@@ -11,3 +11,9 @@
 ### channel
 
 > **channel**: [`RTCDataChannel`](../classes/RTCDataChannel.md)
+
+***
+
+### type?
+
+> `optional` **type**: `"datachannel"`

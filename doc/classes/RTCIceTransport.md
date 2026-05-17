@@ -45,6 +45,12 @@
 
 ## Properties
 
+### component
+
+> `readonly` **component**: `"rtp"` = `"rtp"`
+
+***
+
 ### connection
 
 > **connection**: [`IceConnection`](../interfaces/IceConnection.md)
@@ -63,6 +69,16 @@
 
 ***
 
+### ongatheringstatechange()?
+
+> `optional` **ongatheringstatechange**: () => `void`
+
+#### Returns
+
+`void`
+
+***
+
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`IceCandidate`](IceCandidate.md)\]\>
@@ -72,6 +88,16 @@
 ### onNegotiationNeeded
 
 > `readonly` **onNegotiationNeeded**: [`Event`](Event.md)\<\[\]\>
+
+***
+
+### onstatechange()?
+
+> `optional` **onstatechange**: () => `void`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -127,13 +153,37 @@
 
 #### Get Signature
 
-> **get** **role**(): `"controlling"` \| `"controlled"`
+> **get** **role**(): `"unknown"` \| `"controlling"` \| `"controlled"`
 
 ##### Returns
 
-`"controlling"` \| `"controlled"`
+`"unknown"` \| `"controlling"` \| `"controlled"`
 
 ## Methods
+
+### addEventListener()
+
+> **addEventListener**(`type`, `listener`, `options`?): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` | \{ `once`: `boolean`; \}
+
+#### Returns
+
+`void`
+
+***
 
 ### addRemoteCandidate()
 
@@ -151,6 +201,22 @@
 
 ***
 
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### gather()
 
 > **gather**(): `Promise`\<`void`\>
@@ -158,6 +224,56 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### getLocalCandidates()
+
+> **getLocalCandidates**(): [`RTCIceCandidate`](RTCIceCandidate.md)[]
+
+#### Returns
+
+[`RTCIceCandidate`](RTCIceCandidate.md)[]
+
+***
+
+### getLocalParameters()
+
+> **getLocalParameters**(): [`RTCIceParameters`](RTCIceParameters.md)
+
+#### Returns
+
+[`RTCIceParameters`](RTCIceParameters.md)
+
+***
+
+### getRemoteCandidates()
+
+> **getRemoteCandidates**(): [`RTCIceCandidate`](RTCIceCandidate.md)[]
+
+#### Returns
+
+[`RTCIceCandidate`](RTCIceCandidate.md)[]
+
+***
+
+### getRemoteParameters()
+
+> **getRemoteParameters**(): `null` \| [`RTCIceParameters`](RTCIceParameters.md)
+
+#### Returns
+
+`null` \| [`RTCIceParameters`](RTCIceParameters.md)
+
+***
+
+### getSelectedCandidatePair()
+
+> **getSelectedCandidatePair**(): `null` \| \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \}
+
+#### Returns
+
+`null` \| \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \}
 
 ***
 
@@ -178,6 +294,26 @@
 #### Returns
 
 `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
+
+### removeEventListener()
+
+> **removeEventListener**(`type`, `listener`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+#### Returns
+
+`void`
 
 ***
 

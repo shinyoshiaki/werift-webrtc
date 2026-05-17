@@ -38,6 +38,7 @@ import { SctpTransportManager } from "./sctpManager";
 import {
   type BundlePolicy,
   type MediaDescription,
+  type RTCSessionDescription,
   SessionDescription,
 } from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
@@ -74,6 +75,8 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
  *   `usernameFragment` against the applied remote description and appends
  *   candidates or end-of-candidates markers to the corresponding m-section.
+ *   The public API keeps werift's historical pre-SRD buffering behavior, while
+ *   the WPT runner wraps the class to exercise strict spec rejection.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
  *   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
  *   returns the normalized value.
@@ -100,6 +103,11 @@ export class RTCPeerConnection extends EventTarget {
   private readonly secureManager: SecureTransportManager;
   private isClosed = false;
   private shouldNegotiationneeded = false;
+  private lastCreatedAnswer?: RTCSessionDescription;
+  private lastCreatedOffer?: RTCSessionDescription;
+  private readonly pendingRemoteCandidates: Array<
+    RTCIceCandidate | RTCIceCandidateInit | null
+  > = [];
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -224,7 +232,7 @@ export class RTCPeerConnection extends EventTarget {
     this.sctpManager = new SctpTransportManager();
     this.sctpManager.onDataChannel.subscribe((channel) => {
       this.onDataChannel.execute(channel);
-      const event: RTCDataChannelEvent = { channel };
+      const event: RTCDataChannelEvent = { type: "datachannel", channel };
       this.ondatachannel?.(event);
       this.emit("datachannel", event);
     });
@@ -235,7 +243,9 @@ export class RTCPeerConnection extends EventTarget {
     });
     this.secureManager.iceGatheringStateChange.subscribe((state) => {
       this.iceGatheringStateChange.execute(state);
-      this.onicegatheringstatechange?.({});
+      this.onicegatheringstatechange?.(
+        new globalThis.Event("icegatheringstatechange"),
+      );
       this.emit("icegatheringstatechange");
     });
     this.secureManager.iceConnectionStateChange.subscribe((state) => {
@@ -254,8 +264,12 @@ export class RTCPeerConnection extends EventTarget {
     this.secureManager.onIceCandidate.subscribe((candidate) => {
       const iceCandidate = candidate ? candidate.toJSON() : undefined;
       this.onIceCandidate.execute(iceCandidate);
-      this.onicecandidate?.({ candidate: iceCandidate });
-      this.emit("icecandidate", { candidate: iceCandidate });
+      const event: RTCPeerConnectionIceEvent = {
+        type: "icecandidate",
+        candidate: iceCandidate,
+      };
+      this.onicecandidate?.(event);
+      this.emit("icecandidate", event);
     });
   }
 
@@ -489,7 +503,9 @@ export class RTCPeerConnection extends EventTarget {
       this.transceiverManager.getTransceivers(),
       this.sctpTransport,
     );
-    return description.toJSON();
+    const createdOffer = description.toJSON();
+    this.lastCreatedOffer = createdOffer;
+    return createdOffer;
   }
 
   private createSctpTransport() {
@@ -534,6 +550,7 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private needNegotiation = async () => {
+    this.invalidateLastCreatedDescriptions();
     this.shouldNegotiationneeded = true;
     if (this.negotiationneeded || this.signalingState !== "stable") {
       return;
@@ -542,10 +559,26 @@ export class RTCPeerConnection extends EventTarget {
     setImmediate(() => {
       this.negotiationneeded = true;
       this.onNegotiationneeded.execute();
-      if (this.onnegotiationneeded) this.onnegotiationneeded({});
+      if (this.onnegotiationneeded) {
+        this.onnegotiationneeded(new globalThis.Event("negotiationneeded"));
+      }
       this.emit("negotiationneeded");
     });
   };
+
+  private invalidateLastCreatedDescriptions() {
+    this.lastCreatedAnswer = undefined;
+    this.lastCreatedOffer = undefined;
+  }
+
+  private async waitForPendingDescriptionTask() {
+    this.assertNotClosed();
+    await Promise.resolve();
+
+    if (this.isClosed) {
+      await new Promise<never>(() => undefined);
+    }
+  }
 
   private findOrCreateTransport() {
     const existingDtlsTransport = this.dtlsTransports.find(
@@ -634,12 +667,15 @@ export class RTCPeerConnection extends EventTarget {
       "have-remote-pranswer",
     ];
 
+    await this.waitForPendingDescriptionTask();
+
     if (sessionDescription?.type === "rollback") {
       this.sdpManager.rollbackLocalDescription(this.signalingState);
       this.setSignalingState("stable");
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
       }
+      this.invalidateLastCreatedDescriptions();
       return;
     }
 
@@ -650,13 +686,13 @@ export class RTCPeerConnection extends EventTarget {
 
     const generatedDescription = needsGeneratedDescription
       ? sessionDescription?.type === "offer"
-        ? await this.createOffer()
+        ? (this.lastCreatedOffer ?? (await this.createOffer()))
         : sessionDescription?.type === "answer" ||
             sessionDescription?.type === "pranswer"
-          ? await this.createAnswer()
+          ? (this.lastCreatedAnswer ?? (await this.createAnswer()))
           : implicitOfferState.includes(this.signalingState)
-            ? await this.createOffer()
-            : await this.createAnswer()
+            ? (this.lastCreatedOffer ?? (await this.createOffer()))
+            : (this.lastCreatedAnswer ?? (await this.createAnswer()))
       : undefined;
 
     sessionDescription = {
@@ -666,6 +702,17 @@ export class RTCPeerConnection extends EventTarget {
           ? sessionDescription.sdp
           : generatedDescription!.sdp,
     };
+
+    if (
+      sessionDescription.type === "offer" &&
+      this.lastCreatedOffer &&
+      sessionDescription.sdp !== this.lastCreatedOffer.sdp
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "setLocalDescription must use the latest created offer",
+      );
+    }
 
     // # parse and validate description
     const descriptionType = sessionDescription.type as Exclude<
@@ -752,6 +799,7 @@ export class RTCPeerConnection extends EventTarget {
       this.needNegotiation();
     }
 
+    this.invalidateLastCreatedDescriptions();
     return description;
   }
 
@@ -767,18 +815,20 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    if (!this.remoteDescription) {
-      throw createWebRtcDomException(
-        "InvalidStateError",
-        "The remote description was null",
-      );
+
+    if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
+      this.pendingRemoteCandidates.push(candidateMessage);
+      return;
     }
+    await this.applyRemoteIceCandidate(candidateMessage);
+  }
+
+  private async applyRemoteIceCandidate(
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+  ) {
     const sdp = this.sdpManager._remoteDescription;
     if (!sdp) {
-      throw createWebRtcDomException(
-        "InvalidStateError",
-        "The remote description was null",
-      );
+      return;
     }
     const appliedCandidate = await this.secureManager.addIceCandidate(
       sdp,
@@ -805,6 +855,17 @@ export class RTCPeerConnection extends EventTarget {
         continue;
       }
       media.iceCandidates.push(appliedCandidate.candidate);
+    }
+  }
+
+  private async flushPendingRemoteCandidates() {
+    while (
+      this.pendingRemoteCandidates.length > 0 &&
+      this.remoteDescription &&
+      this.sdpManager._remoteDescription
+    ) {
+      const candidate = this.pendingRemoteCandidates.shift();
+      await this.applyRemoteIceCandidate(candidate ?? null);
     }
   }
 
@@ -865,7 +926,17 @@ export class RTCPeerConnection extends EventTarget {
       sessionDescription = sessionDescription.toSdp();
     }
 
-    await Promise.resolve();
+    await this.waitForPendingDescriptionTask();
+
+    const needsImplicitLocalRollback =
+      sessionDescription.type === "offer" &&
+      ["have-local-offer", "have-local-pranswer"].includes(this.signalingState);
+    if (needsImplicitLocalRollback) {
+      this.sdpManager.rollbackLocalDescription(this.signalingState);
+      this.shouldNegotiationneeded = true;
+      this.setSignalingState("stable");
+      await Promise.resolve();
+    }
 
     // # parse and validate description
     const remoteSdp = this.sdpManager.setRemoteDescription(
@@ -877,6 +948,7 @@ export class RTCPeerConnection extends EventTarget {
       if (this.shouldNegotiationneeded) {
         this.needNegotiation();
       }
+      this.invalidateLastCreatedDescriptions();
       return;
     }
     let bundleTransport: RTCDtlsTransport | undefined;
@@ -1012,6 +1084,8 @@ export class RTCPeerConnection extends EventTarget {
       this.setSignalingState("have-remote-pranswer");
     }
 
+    await this.flushPendingRemoteCandidates();
+
     // connect transports
     if (remoteSdp.type === "answer") {
       log("caller start connect");
@@ -1025,6 +1099,7 @@ export class RTCPeerConnection extends EventTarget {
     if (this.shouldNegotiationneeded) {
       this.needNegotiation();
     }
+    this.invalidateLastCreatedDescriptions();
   }
 
   addTransceiver(
@@ -1068,7 +1143,9 @@ export class RTCPeerConnection extends EventTarget {
       sctpTransport: this.sctpTransport,
       signalingState: this.signalingState,
     });
-    return description.toJSON();
+    const createdAnswer = description.toJSON();
+    this.lastCreatedAnswer = createdAnswer;
+    return createdAnswer;
   }
 
   private assertNotClosed() {
@@ -1081,11 +1158,14 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private setSignalingState(state: RTCSignalingState) {
+    if (this.signalingState === state) {
+      return;
+    }
     log("signalingStateChange", state);
     this.signalingState = state;
     this.signalingStateChange.execute(state);
     if (this.onsignalingstatechange) {
-      this.onsignalingstatechange({});
+      this.onsignalingstatechange(new globalThis.Event("signalingstatechange"));
     }
     this.emit("signalingstatechange");
   }
@@ -1134,6 +1214,7 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) return;
 
     this.isClosed = true;
+    this.pendingRemoteCandidates.length = 0;
     this.setSignalingState("closed");
 
     this.transceiverManager.close();
@@ -1387,6 +1468,7 @@ function clonePeerConfiguration(config: PeerConfig) {
 }
 
 export class RTCTrackEvent {
+  readonly type = "track";
   readonly track: MediaStreamTrack;
   readonly streams: MediaStream[];
   readonly transceiver: RTCRtpTransceiver;
@@ -1406,10 +1488,12 @@ export class RTCTrackEvent {
 }
 
 export interface RTCDataChannelEvent {
+  type?: "datachannel";
   channel: RTCDataChannel;
 }
 
 export interface RTCPeerConnectionIceEvent {
+  type?: "icecandidate";
   candidate?: RTCIceCandidate;
 }
 

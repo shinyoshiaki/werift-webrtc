@@ -1,4 +1,5 @@
 import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
+import { createNativeCandidateQueue } from "../nativeCandidateQueue";
 
 describe("bundle_max_bundle", () => {
   it(
@@ -19,10 +20,11 @@ describe("bundle_max_bundle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           bundlePolicy: "max-bundle",
         });
+        const candidates = createNativeCandidateQueue(pc);
         peer.on("notification", (e) => {
           if (e.method === "candidate") {
             if (pc.signalingState === "closed") return;
-            pc.addIceCandidate(e.data!);
+            void candidates.add(e.data?.candidate ?? null);
           }
         });
         pc.ontrack = async ({ track }) => {
@@ -57,13 +59,14 @@ describe("bundle_max_bundle", () => {
           type: "init",
         });
         await pc.setRemoteDescription(offer);
+        await candidates.flush();
         await pc.setLocalDescription(await pc.createAnswer());
 
         pc.onicecandidate = ({ candidate }) => {
           peer
             .request(label, {
               type: "candidate",
-              payload: candidate,
+              payload: candidate ?? null,
             })
             .catch(() => {});
         };
@@ -96,6 +99,7 @@ describe("bundle_max_bundle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           bundlePolicy: "max-bundle",
         });
+        const candidates = createNativeCandidateQueue(pc);
         pc.ontrack = async ({ track }) => {
           await waitVideoPlay(track);
           counter.done();
@@ -104,7 +108,7 @@ describe("bundle_max_bundle", () => {
         peer.on("notification", (e) => {
           if (e.method === "candidate") {
             if (pc.signalingState === "closed") return;
-            pc.addIceCandidate(e.data!);
+            void candidates.add(e.data?.candidate ?? null);
           }
         });
 
@@ -134,7 +138,7 @@ describe("bundle_max_bundle", () => {
           peer
             .request(label, {
               type: "candidate",
-              payload: candidate,
+              payload: candidate ?? null,
             })
             .catch(() => {});
         };
@@ -145,6 +149,7 @@ describe("bundle_max_bundle", () => {
           payload: pc.localDescription,
         });
         await pc.setRemoteDescription(answer);
+        await candidates.flush();
       }),
     20 * 1000,
   );

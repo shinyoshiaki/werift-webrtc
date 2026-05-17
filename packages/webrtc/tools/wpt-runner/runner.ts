@@ -9,6 +9,8 @@ import {
   MediaStreamTrack,
   RTCDataChannel,
   RTCIceCandidate,
+  RTCDtlsTransport,
+  RTCIceTransport,
   RTCPeerConnection,
   RTCTrackEvent,
   RTCRtpReceiver,
@@ -466,7 +468,9 @@ function createContext(input: {
     MediaStreamTrack,
     RTCPeerConnection: WptRTCPeerConnection,
     RTCDataChannel,
+    RTCDtlsTransport,
     RTCIceCandidate,
+    RTCIceTransport,
     RTCRtpReceiver,
     RTCRtpSender,
     RTCTrackEvent,
@@ -551,6 +555,16 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
     override addIceCandidate(
       ...args: Parameters<RTCPeerConnection["addIceCandidate"]>
     ) {
+      if (!this.remoteDescription) {
+        const promise = Promise.reject(
+          new DOMException(
+            "The remote description was null",
+            "InvalidStateError",
+          ),
+        );
+        promise.catch(() => undefined);
+        return promise;
+      }
       const promise = super.addIceCandidate(...args);
       promise.catch(() => undefined);
       return promise;

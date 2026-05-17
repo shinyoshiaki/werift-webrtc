@@ -1,4 +1,5 @@
 import { peer, sleep, waitVideoPlay } from "../fixture";
+import { createNativeCandidateQueue } from "../nativeCandidateQueue";
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 const ice_restart_node_trigger_label = "ice_restart_node_trigger";
@@ -11,6 +12,7 @@ describe("ice/restart", () => {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
+    const candidates = createNativeCandidateQueue(pc);
     // pc.oniceconnectionstatechange = () => {
     //   console.log("ice connection state change", pc.iceConnectionState);
     // };
@@ -19,7 +21,7 @@ describe("ice/restart", () => {
         peer
           .request(ice_restart_web_trigger_label, {
             type: "candidate",
-            payload: candidate,
+            payload: candidate ?? null,
           })
           .catch(() => {});
       }
@@ -34,8 +36,8 @@ describe("ice/restart", () => {
       if (request.method !== ice_restart_web_trigger_label + "ice") {
         return;
       }
-      const candidate = request.data;
-      pc.addIceCandidate(candidate);
+      const candidate = request.data.candidate;
+      await candidates.add(candidate);
       accept();
     });
 
@@ -43,6 +45,7 @@ describe("ice/restart", () => {
       type: "init",
     });
     await pc.setRemoteDescription(offer);
+    await candidates.flush();
     await pc.setLocalDescription(await pc.createAnswer());
 
     peer
@@ -80,6 +83,7 @@ describe("ice/restart", () => {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
+    const candidates = createNativeCandidateQueue(pc);
     // pc.oniceconnectionstatechange = () => {
     //   console.log("ice connection state change", pc.iceConnectionState);
     // };
@@ -88,7 +92,7 @@ describe("ice/restart", () => {
         peer
           .request(ice_restart_node_trigger_label, {
             type: "candidate",
-            payload: candidate,
+            payload: candidate ?? null,
           })
           .catch(() => {});
       }
@@ -103,8 +107,8 @@ describe("ice/restart", () => {
       if (request.method !== ice_restart_node_trigger_label + "ice") {
         return;
       }
-      const candidate = request.data;
-      pc.addIceCandidate(candidate);
+      const candidate = request.data.candidate;
+      await candidates.add(candidate);
       accept();
     });
 
@@ -112,6 +116,7 @@ describe("ice/restart", () => {
       type: "init",
     });
     await pc.setRemoteDescription(offer);
+    await candidates.flush();
     await pc.setLocalDescription(await pc.createAnswer());
 
     peer
@@ -129,6 +134,7 @@ describe("ice/restart", () => {
         type: "restart",
       });
       await pc.setRemoteDescription(offer);
+      await candidates.flush();
       await pc.setLocalDescription(await pc.createAnswer());
     }
 

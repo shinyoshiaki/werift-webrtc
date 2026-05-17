@@ -59,3 +59,9 @@
 ### transceiver
 
 > `readonly` **transceiver**: [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+***
+
+### type
+
+> `readonly` **type**: `"track"` = `"track"`

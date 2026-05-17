@@ -15,6 +15,8 @@ reviewable diff does not depend on external PR text.
 - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
   `usernameFragment` against the applied remote description and appends
   candidates or end-of-candidates markers to the corresponding m-section.
+  The public API keeps werift's historical pre-SRD buffering behavior, while
+  the WPT runner wraps the class to exercise strict spec rejection.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
   returns the normalized value.
@@ -783,7 +785,7 @@ v13.6.0, v12.17.0
 
 ##### candidateMessage
 
-`null` | [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md) | [`RTCIceCandidate`](RTCIceCandidate.md)
+`null` | [`RTCIceCandidate`](RTCIceCandidate.md) | [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md)
 
 #### Returns
 
@@ -923,9 +925,29 @@ v0.1.26
 
 ***
 
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+`EventTarget.dispatchEvent`
+
+***
+
 ### emit()
 
-> **emit**\<`K`\>(`eventName`, ...`args`): `boolean`
+> **emit**(`type`, ...`args`): `boolean`
 
 Synchronously calls each of the listeners registered for the event named `eventName`, in the order they were registered, passing the supplied arguments
 to each.
@@ -965,19 +987,15 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 // event with parameters 1, 2, 3, 4, 5 in third listener
 ```
 
-#### Type Parameters
-
-• **K**
-
 #### Parameters
 
-##### eventName
+##### type
 
 `string` | `symbol`
 
 ##### args
 
-...`AnyRest`
+...`any`[]
 
 #### Returns
 

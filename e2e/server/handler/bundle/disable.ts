@@ -1,6 +1,7 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
+import { acceptLocalDescription } from "../localDescription";
 
 export class bundle_disable_answer {
   pc!: RTCPeerConnection;
@@ -20,7 +21,7 @@ export class bundle_disable_answer {
             }
           };
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", e.candidate);
+            peer.notify("candidate", { candidate: e.candidate ?? null });
           };
 
           {
@@ -35,8 +36,11 @@ export class bundle_disable_answer {
               transceiver.sender.replaceTrack(track);
             });
           }
-          this.pc.setLocalDescription(await this.pc.createOffer());
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createOffer(),
+            accept,
+          );
         }
         break;
       case "candidate":
@@ -90,12 +94,15 @@ export class bundle_disable_offer {
           }
 
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", e.candidate);
+            peer.notify("candidate", { candidate: e.candidate ?? null });
           };
 
           await this.pc.setRemoteDescription(payload);
-          this.pc.setLocalDescription(await this.pc.createAnswer());
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createAnswer(),
+            accept,
+          );
         }
         break;
       case "candidate":

@@ -118,6 +118,16 @@
 
 ***
 
+### onstatechange()?
+
+> `optional` **onstatechange**: () => `void`
+
+#### Returns
+
+`void`
+
+***
+
 ### onStateChange
 
 > `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`\]\>
@@ -204,6 +214,46 @@
 
 ## Methods
 
+### addEventListener()
+
+> **addEventListener**(`type`, `listener`, `options`?): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` | \{ `once`: `boolean`; \}
+
+#### Returns
+
+`void`
+
+***
+
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### getStats()
 
 > **getStats**(`timestamp`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
@@ -217,6 +267,26 @@
 #### Returns
 
 `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
+
+### removeEventListener()
+
+> **removeEventListener**(`type`, `listener`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+#### Returns
+
+`void`
 
 ***
 
