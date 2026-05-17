@@ -55,3 +55,26 @@ test("WPT runner fails when the checkout is still missing after initialization",
   );
   expect(updateSubmodule).toHaveBeenCalledWith("/repo");
 });
+
+test("WPT runner falls back to git clone when submodule initialization fails", async () => {
+  const updateSubmodule = vi.fn(() => {
+    throw new Error("pathspec did not match");
+  });
+  const cloneCheckout = vi.fn();
+  let hasCheckout = false;
+
+  const updated = await ensureWptCheckout("/repo", "/repo/third_party/wpt", {
+    async hasWptWebrtcDirectory() {
+      return hasCheckout;
+    },
+    updateSubmodule,
+    cloneCheckout(_root, _wptRoot) {
+      cloneCheckout(_root, _wptRoot);
+      hasCheckout = true;
+    },
+  });
+
+  expect(updated).toBe(true);
+  expect(updateSubmodule).toHaveBeenCalledWith("/repo");
+  expect(cloneCheckout).toHaveBeenCalledWith("/repo", "/repo/third_party/wpt");
+});
