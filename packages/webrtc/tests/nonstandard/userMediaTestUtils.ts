@@ -60,8 +60,56 @@ export async function createAvMp4Buffer() {
 }
 
 export async function createAvWebmBuffer() {
+  return createWebmBuffer({
+    videoCodec: "vp8",
+    videoFrames: createVp8Frames(),
+    videoDecoderConfig: {
+      codec: "vp8",
+      codedWidth: 640,
+      codedHeight: 360,
+    },
+  });
+}
+
+export async function createVp9OpusWebmBuffer() {
+  return createWebmBuffer({
+    videoCodec: "vp9",
+    videoFrames: createVp9Frames(),
+    videoDecoderConfig: {
+      codec: "vp09.00.10.08",
+      codedWidth: 640,
+      codedHeight: 360,
+    },
+  });
+}
+
+export async function createAv1OpusWebmBuffer() {
+  return createWebmBuffer({
+    videoCodec: "av1",
+    videoFrames: createAv1Frames(),
+    videoDecoderConfig: {
+      codec: "av01.0.01M.08",
+      codedWidth: 640,
+      codedHeight: 360,
+    },
+  });
+}
+
+async function createWebmBuffer({
+  videoCodec,
+  videoFrames,
+  videoDecoderConfig,
+}: {
+  videoCodec: "vp8" | "vp9" | "av1";
+  videoFrames: ReturnType<typeof createFrame>[];
+  videoDecoderConfig: {
+    codec: string;
+    codedWidth: number;
+    codedHeight: number;
+  };
+}) {
   const audioSource = new EncodedAudioPacketSource("opus");
-  const videoSource = new EncodedVideoPacketSource("vp8");
+  const videoSource = new EncodedVideoPacketSource(videoCodec);
   const output = new Output({
     format: new WebMOutputFormat(),
     target: new BufferTarget(),
@@ -72,7 +120,6 @@ export async function createAvWebmBuffer() {
   await output.start();
 
   const audioFrames = createOpusFrames();
-  const videoFrames = createVp8Frames();
   for (const frame of audioFrames) {
     await audioSource.add(
       new EncodedPacket(frame.data, "key", frame.time / 1_000, 0.02),
@@ -94,11 +141,7 @@ export async function createAvWebmBuffer() {
         0.033,
       ),
       {
-        decoderConfig: {
-          codec: "vp8",
-          codedWidth: 640,
-          codedHeight: 360,
-        },
+        decoderConfig: videoDecoderConfig,
       },
     );
   }
@@ -158,7 +201,7 @@ export function createH264Frames() {
   return [
     createFrame(
       Buffer.from(
-        "000000016742001eda01e0089f970110000003000100000300320f1831960000000168ce06e20000000165888421a0",
+        "000000016742e01fda01e0089f970110000003000100000300320f1831960000000168ce06e20000000165888421a0",
         "hex",
       ),
       true,
@@ -188,6 +231,26 @@ export function createVp8Frames() {
     ),
     createFrame(Buffer.from([0x10, 0x11, 0x00, 0x00]), false, 33),
     createFrame(Buffer.from([0x10, 0x12, 0x00, 0x00]), false, 66),
+  ];
+}
+
+export function createVp9Frames() {
+  return [
+    createFrame(Buffer.alloc(1_500, 0x7b), true, 0),
+    createFrame(Buffer.alloc(24, 0x2a), false, 33),
+    createFrame(Buffer.alloc(24, 0x3b), false, 66),
+  ];
+}
+
+export function createAv1Frames() {
+  return [
+    createFrame(
+      Buffer.concat([Buffer.from([0x30]), Buffer.alloc(1_500, 0x55)]),
+      true,
+      0,
+    ),
+    createFrame(Buffer.from([0x32, 0xaa, 0xbb, 0xcc]), false, 33),
+    createFrame(Buffer.from([0x32, 0xdd, 0xee, 0xff]), false, 66),
   ];
 }
 
