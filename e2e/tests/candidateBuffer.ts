@@ -3,6 +3,8 @@ export function createCandidateBuffer(pc: RTCPeerConnection) {
 
   return {
     async add(candidate: RTCIceCandidateInit | null) {
+      // addIceCandidate() は remoteDescription 未設定の間は reject されるため、
+      // trickle で先行到着した候補をブラウザ側でも一時保留する。
       if (!pc.remoteDescription) {
         pending.push(candidate);
         return;

@@ -498,6 +498,26 @@ a=ssrc:1001 cname:some
     }
   });
 
+  test("addIceCandidate rejects candidates before a remote description exists", async () => {
+    const pc = new RTCPeerConnection();
+
+    try {
+      // Arrange: remoteDescription をまだ設定していない peer を用意する。
+      const candidate = {
+        candidate: addIceCandidateLine1,
+        sdpMid: "0",
+      };
+
+      // Act / Assert: trickle candidate を先に適用すると InvalidStateError になる。
+      await expect(pc.addIceCandidate(candidate)).rejects.toMatchObject({
+        name: "InvalidStateError",
+        message: "The remote description was null",
+      });
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("addTransceiver preserves initial sendEncodings in sender.getParameters()", async () => {
     const pc = new RTCPeerConnection();
     const track = new MediaStreamTrack({ kind: "audio" });
