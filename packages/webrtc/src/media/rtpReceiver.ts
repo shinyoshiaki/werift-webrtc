@@ -106,6 +106,10 @@ export class RTCRtpReceiver {
     });
   }
 
+  get transport() {
+    return this.dtlsTransport ?? null;
+  }
+
   setDtlsTransport(dtls: RTCDtlsTransport) {
     this.dtlsTransport = dtls;
   }

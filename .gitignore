@@ -15,3 +15,4 @@ dist
 credential.env
 __screenshots__
 .env
+packages/webrtc/wpt/progress.state.json

@@ -1,9 +1,36 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
+import { acceptLocalDescription } from "../localDescription";
+
+type PendingCandidate = Parameters<RTCPeerConnection["addIceCandidate"]>[0];
+
+function createCandidateBuffer(pc: RTCPeerConnection) {
+  const pending: PendingCandidate[] = [];
+
+  return {
+    async add(candidate: PendingCandidate) {
+      if (!pc.remoteDescription) {
+        pending.push(candidate);
+        return;
+      }
+      await pc.addIceCandidate(candidate);
+    },
+    async flush() {
+      if (!pc.remoteDescription) {
+        return;
+      }
+      while (pending.length > 0) {
+        const candidate = pending.shift();
+        await pc.addIceCandidate(candidate);
+      }
+    },
+  };
+}
 
 export class bundle_max_bundle_answer {
   pc!: RTCPeerConnection;
+  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
@@ -13,6 +40,7 @@ export class bundle_max_bundle_answer {
             ...(await peerConfig),
             bundlePolicy: "max-bundle",
           });
+          this.candidates = createCandidateBuffer(this.pc);
           const dc = this.pc.createDataChannel("dc");
           dc.onmessage = (e) => {
             if (e.data === "ping") {
@@ -20,7 +48,7 @@ export class bundle_max_bundle_answer {
             }
           };
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", e.candidate);
+            peer.notify("candidate", { candidate: e.candidate ?? null });
           };
 
           {
@@ -35,13 +63,16 @@ export class bundle_max_bundle_answer {
               transceiver.sender.replaceTrack(track);
             });
           }
-          this.pc.setLocalDescription(await this.pc.createOffer());
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createOffer(),
+            accept,
+          );
         }
         break;
       case "candidate":
         {
-          await this.pc.addIceCandidate(payload);
+          await this.candidates.add(payload);
           try {
             accept({});
           } catch (error) {}
@@ -50,6 +81,7 @@ export class bundle_max_bundle_answer {
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
+          await this.candidates.flush();
           accept({});
         }
         break;
@@ -59,6 +91,7 @@ export class bundle_max_bundle_answer {
 
 export class bundle_max_bundle_offer {
   pc!: RTCPeerConnection;
+  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
@@ -68,6 +101,7 @@ export class bundle_max_bundle_offer {
             ...(await peerConfig),
             bundlePolicy: "max-bundle",
           });
+          this.candidates = createCandidateBuffer(this.pc);
           this.pc.ondatachannel = ({ channel }) => {
             channel.onmessage = (e) => {
               if (e.data === "ping") {
@@ -90,17 +124,21 @@ export class bundle_max_bundle_offer {
           }
 
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", e.candidate);
+            peer.notify("candidate", { candidate: e.candidate ?? null });
           };
 
           await this.pc.setRemoteDescription(payload);
-          this.pc.setLocalDescription(await this.pc.createAnswer());
-          accept(this.pc.localDescription);
+          await this.candidates.flush();
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createAnswer(),
+            accept,
+          );
         }
         break;
       case "candidate":
         {
-          await this.pc.addIceCandidate(payload);
+          await this.candidates.add(payload);
           accept({});
         }
         break;

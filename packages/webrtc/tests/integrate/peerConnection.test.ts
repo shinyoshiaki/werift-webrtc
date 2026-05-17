@@ -217,6 +217,61 @@ describe("peerConnection", () => {
     }
   });
 
+  test("setRemoteDescription implicitly rolls back a local offer before applying a remote offer", async () => {
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+    const states: string[] = [];
+    let negotiationNeededCount = 0;
+    let resolveNegotiationNeeded: (() => void) | undefined;
+    const negotiationNeeded = new Promise<void>((resolve) => {
+      resolveNegotiationNeeded = resolve;
+    });
+
+    try {
+      // Arrange: それぞれの peer に別々の transceiver を追加して競合する offer を作れる状態にする。
+      pc1.addTransceiver("audio");
+      pc2.addTransceiver("video");
+      pc1.onsignalingstatechange = () => {
+        states.push(pc1.signalingState);
+      };
+      pc1.onnegotiationneeded = () => {
+        negotiationNeededCount += 1;
+        resolveNegotiationNeeded?.();
+      };
+
+      // Act: local offer を pending にした peer へ remote offer を適用し、implicit rollback を発生させる。
+      await pc1.setLocalDescription(await pc1.createOffer());
+      expect(pc1.signalingState).toBe("have-local-offer");
+      await pc1.setRemoteDescription(await pc2.createOffer());
+
+      // Assert: rollback を経由して have-remote-offer へ遷移し、その後 answer を作成できる。
+      expect(states).toEqual([
+        "have-local-offer",
+        "stable",
+        "have-remote-offer",
+      ]);
+      expect(pc1.pendingLocalDescription).toBeNull();
+      expect(pc1.currentLocalDescription).toBeNull();
+      expect(pc1.signalingState).toBe("have-remote-offer");
+
+      // Act: rollback 後の state を前提に answer を生成・適用する。
+      await pc1.setLocalDescription(await pc1.createAnswer());
+      await negotiationNeeded;
+
+      // Assert: answer 適用後に stable へ戻り、rollback で保留された negotiationneeded が再通知される。
+      expect(pc1.signalingState).toBe("stable");
+      expect(states).toEqual([
+        "have-local-offer",
+        "stable",
+        "have-remote-offer",
+        "stable",
+      ]);
+      expect(negotiationNeededCount).toBeGreaterThan(0);
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+
   test("removeTrack is a no-op for a stopped transceiver", async () => {
     const pc = new RTCPeerConnection();
     const stream = new MediaStream();

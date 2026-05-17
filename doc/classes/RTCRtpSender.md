@@ -194,6 +194,18 @@
 
 `void`
 
+***
+
+### transport
+
+#### Get Signature
+
+> **get** **transport**(): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### Returns
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
+
 ## Methods
 
 ### collectStats()

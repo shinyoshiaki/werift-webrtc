@@ -1,10 +1,37 @@
 import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
+import { acceptLocalDescription } from "../localDescription";
+
+type PendingCandidate = Parameters<RTCPeerConnection["addIceCandidate"]>[0];
+
+function createCandidateBuffer(pc: RTCPeerConnection) {
+  const pending: PendingCandidate[] = [];
+
+  return {
+    async add(candidate: PendingCandidate) {
+      if (!pc.remoteDescription) {
+        pending.push(candidate);
+        return;
+      }
+      await pc.addIceCandidate(candidate);
+    },
+    async flush() {
+      if (!pc.remoteDescription) {
+        return;
+      }
+      while (pending.length > 0) {
+        const candidate = pending.shift();
+        await pc.addIceCandidate(candidate);
+      }
+    },
+  };
+}
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 export class ice_restart_web_trigger {
   pc!: RTCPeerConnection;
+  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
@@ -14,15 +41,15 @@ export class ice_restart_web_trigger {
             ...(await peerConfig),
             icePasswordPrefix: "restartw",
           });
+          this.candidates = createCandidateBuffer(this.pc);
           this.pc.onIceCandidate.subscribe((candidate) => {
             peer
-              .request(ice_restart_web_trigger_label + "ice", candidate)
+              .request(ice_restart_web_trigger_label + "ice", {
+                candidate: candidate ?? null,
+              })
               .catch((e) => {
                 console.error(e);
               });
-          });
-          this.pc.iceConnectionStateChange.subscribe((state) => {
-            console.log(state);
           });
 
           const transceiver = this.pc.addTransceiver("video");
@@ -37,28 +64,32 @@ export class ice_restart_web_trigger {
             }, 3000);
           });
 
-          this.pc.setLocalDescription(await this.pc.createOffer());
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createOffer(),
+            accept,
+          );
         }
         break;
       case "candidate":
         {
-          this.pc.addIceCandidate(payload);
+          await this.candidates.add(payload);
           accept({});
         }
         break;
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
+          await this.candidates.flush();
           accept({});
         }
         break;
       case "offer":
         {
           await this.pc.setRemoteDescription(payload);
+          await this.candidates.flush();
           const answer = await this.pc.createAnswer();
-          this.pc.setLocalDescription(answer);
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(this.pc, answer, accept);
         }
         break;
       case "fin":
@@ -74,21 +105,22 @@ export class ice_restart_web_trigger {
 const ice_restart_node_trigger_label = "ice_restart_node_trigger";
 export class ice_restart_node_trigger {
   pc!: RTCPeerConnection;
+  private candidates!: ReturnType<typeof createCandidateBuffer>;
 
   async exec(type: string, payload: any, accept: AcceptFn, peer: Peer) {
     switch (type) {
       case "init":
         {
           this.pc = new RTCPeerConnection(await peerConfig);
+          this.candidates = createCandidateBuffer(this.pc);
           this.pc.onIceCandidate.subscribe((candidate) => {
             peer
-              .request(ice_restart_node_trigger_label + "ice", candidate)
+              .request(ice_restart_node_trigger_label + "ice", {
+                candidate: candidate ?? null,
+              })
               .catch((e) => {
                 console.error(e);
               });
-          });
-          this.pc.iceConnectionStateChange.subscribe((state) => {
-            console.log(state);
           });
 
           const transceiver = this.pc.addTransceiver("video");
@@ -103,28 +135,33 @@ export class ice_restart_node_trigger {
             }, 3000);
           });
 
-          this.pc.setLocalDescription(await this.pc.createOffer());
-          accept(this.pc.localDescription);
+          await acceptLocalDescription(
+            this.pc,
+            await this.pc.createOffer(),
+            accept,
+          );
         }
         break;
       case "candidate":
         {
-          this.pc.addIceCandidate(payload);
+          await this.candidates.add(payload);
           accept({});
         }
         break;
       case "answer":
         {
           await this.pc.setRemoteDescription(payload);
+          await this.candidates.flush();
           accept({});
         }
         break;
       case "restart":
         {
-          await this.pc.setLocalDescription(
+          await acceptLocalDescription(
+            this.pc,
             await this.pc.createOffer({ iceRestart: true }),
+            accept,
           );
-          accept(this.pc.localDescription);
         }
         break;
       case "fin":
