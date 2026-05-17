@@ -1,12 +1,12 @@
 import { peer, sleep, waitVideoPlay } from "../fixture";
-import { createCandidateBuffer } from "../candidateBuffer";
+import { createNativeCandidateQueue } from "../nativeCandidateQueue";
 
 function attachCandidateHandler(
   label: string,
   pc: RTCPeerConnection,
   done: () => void,
 ) {
-  const candidates = createCandidateBuffer(pc);
+  const candidates = createNativeCandidateQueue(pc);
   const eventPeer = peer as typeof peer & {
     on: (
       event: "request",
@@ -68,7 +68,7 @@ describe("ice/trickle", () => {
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
-      const candidates = createCandidateBuffer(pc);
+      const candidates = createNativeCandidateQueue(pc);
       const finish = attachCandidateHandler(label, pc, done);
       pc.ondatachannel = ({ channel }) => {
         channel.onmessage = ({ data }) => {
@@ -114,7 +114,7 @@ describe("ice/trickle", () => {
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
-      const candidates = createCandidateBuffer(pc);
+      const candidates = createNativeCandidateQueue(pc);
       const finish = attachCandidateHandler(label, pc, done);
       const channel = pc.createDataChannel("dc");
       channel.onopen = () => {

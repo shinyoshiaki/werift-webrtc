@@ -1,5 +1,5 @@
 import { peer, sleep, waitVideoPlay } from "../fixture";
-import { createCandidateBuffer } from "../candidateBuffer";
+import { createNativeCandidateQueue } from "../nativeCandidateQueue";
 
 const ice_restart_web_trigger_label = "ice_restart_web_trigger";
 const ice_restart_node_trigger_label = "ice_restart_node_trigger";
@@ -12,7 +12,7 @@ describe("ice/restart", () => {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-    const candidates = createCandidateBuffer(pc);
+    const candidates = createNativeCandidateQueue(pc);
     // pc.oniceconnectionstatechange = () => {
     //   console.log("ice connection state change", pc.iceConnectionState);
     // };
@@ -83,7 +83,7 @@ describe("ice/restart", () => {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-    const candidates = createCandidateBuffer(pc);
+    const candidates = createNativeCandidateQueue(pc);
     // pc.oniceconnectionstatechange = () => {
     //   console.log("ice connection state change", pc.iceConnectionState);
     // };

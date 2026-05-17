@@ -1,4 +1,4 @@
-export function createCandidateBuffer(pc: RTCPeerConnection) {
+export function createNativeCandidateQueue(pc: RTCPeerConnection) {
   const pending: Array<RTCIceCandidateInit | null> = [];
 
   return {
