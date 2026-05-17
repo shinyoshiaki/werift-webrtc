@@ -1,5 +1,5 @@
 import { Counter, peer, sleep, waitVideoPlay } from "../fixture";
-import { createCandidateBuffer } from "../candidateBuffer";
+import { createNativeCandidateQueue } from "../nativeCandidateQueue";
 
 describe("bundle_max_bundle", () => {
   it(
@@ -20,7 +20,7 @@ describe("bundle_max_bundle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           bundlePolicy: "max-bundle",
         });
-        const candidates = createCandidateBuffer(pc);
+        const candidates = createNativeCandidateQueue(pc);
         peer.on("notification", (e) => {
           if (e.method === "candidate") {
             if (pc.signalingState === "closed") return;
@@ -99,7 +99,7 @@ describe("bundle_max_bundle", () => {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
           bundlePolicy: "max-bundle",
         });
-        const candidates = createCandidateBuffer(pc);
+        const candidates = createNativeCandidateQueue(pc);
         pc.ontrack = async ({ track }) => {
           await waitVideoPlay(track);
           counter.done();

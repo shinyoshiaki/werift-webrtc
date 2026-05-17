@@ -15,6 +15,8 @@ reviewable diff does not depend on external PR text.
 - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
   `usernameFragment` against the applied remote description and appends
   candidates or end-of-candidates markers to the corresponding m-section.
+  The public API keeps werift's historical pre-SRD buffering behavior, while
+  the WPT runner wraps the class to exercise strict spec rejection.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
   normalized to werift's `"max-compat"` behavior, so `getConfiguration()`
   returns the normalized value.
