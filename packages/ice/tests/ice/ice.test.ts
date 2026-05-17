@@ -239,19 +239,44 @@ describe("ice", () => {
       a.remoteUsername = b.localUsername;
       a.remotePassword = b.localPassword;
 
-      // Assert: gather 時点で active / passive の TCP host candidate が作られる。
+      const tcpCandidatesA = a.localCandidates.filter(
+        (candidate) => candidate.transport === "tcp",
+      );
+      const tcpCandidatesB = b.localCandidates.filter(
+        (candidate) => candidate.transport === "tcp",
+      );
+
+      // Assert: gather 時点で IPv4 アドレスごとの active / passive TCP host candidate が作られる。
+      expect(tcpCandidatesA.map((candidate) => candidate.tcptype)).toContain(
+        "active",
+      );
+      expect(tcpCandidatesA.map((candidate) => candidate.tcptype)).toContain(
+        "passive",
+      );
+      expect(tcpCandidatesB.map((candidate) => candidate.tcptype)).toContain(
+        "active",
+      );
+      expect(tcpCandidatesB.map((candidate) => candidate.tcptype)).toContain(
+        "passive",
+      );
       expect(
-        a.localCandidates
-          .filter((candidate) => candidate.transport === "tcp")
-          .map((candidate) => candidate.tcptype)
-          .sort(),
-      ).toEqual(["active", "passive"]);
+        tcpCandidatesA.every(
+          (candidate) =>
+            candidate.type === "host" &&
+            (candidate.tcptype === "active"
+              ? candidate.port === 9
+              : candidate.tcptype === "passive" && candidate.port > 0),
+        ),
+      ).toBe(true);
       expect(
-        b.localCandidates
-          .filter((candidate) => candidate.transport === "tcp")
-          .map((candidate) => candidate.tcptype)
-          .sort(),
-      ).toEqual(["active", "passive"]);
+        tcpCandidatesB.every(
+          (candidate) =>
+            candidate.type === "host" &&
+            (candidate.tcptype === "active"
+              ? candidate.port === 9
+              : candidate.tcptype === "passive" && candidate.port > 0),
+        ),
+      ).toBe(true);
 
       // Act: TCP candidate だけで connectivity check と nomination を完了させる。
       await Promise.all([

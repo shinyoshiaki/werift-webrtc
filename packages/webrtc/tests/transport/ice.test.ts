@@ -47,13 +47,25 @@ describe("iceTransport", () => {
     try {
       await gatherer.gather();
 
-      // Assert: opt-in 時だけ active / passive の TCP host candidate が公開される。
+      // Assert: opt-in 時だけ IPv4 アドレスごとの active / passive TCP host candidate が公開される。
       const tcpCandidates = gatherer.localCandidates.filter(
         (candidate) => candidate.protocol === "tcp",
       );
+      expect(tcpCandidates.map((candidate) => candidate.tcpType)).toContain(
+        "active",
+      );
+      expect(tcpCandidates.map((candidate) => candidate.tcpType)).toContain(
+        "passive",
+      );
       expect(
-        tcpCandidates.map((candidate) => candidate.tcpType).sort(),
-      ).toEqual(["active", "passive"]);
+        tcpCandidates.every(
+          (candidate) =>
+            candidate.type === "host" &&
+            (candidate.tcpType === "active"
+              ? candidate.port === 9
+              : candidate.tcpType === "passive" && candidate.port > 0),
+        ),
+      ).toBe(true);
     } finally {
       await gatherer.connection.close();
     }
