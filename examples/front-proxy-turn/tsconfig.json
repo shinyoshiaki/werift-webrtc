@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "esModuleInterop": true,
+    "pretty": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "noUnusedLocals": false,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src", "tests"]
+}
