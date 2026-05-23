@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { type TLSSocket, connect as connectTls } from "node:tls";
 
 import type { Address } from "../../../packages/common/src";
@@ -191,4 +193,12 @@ export function createTurnTcpReader(socket: TLSSocket) {
 
 export function writeTurnFrame(socket: TLSSocket, frame: Buffer) {
   socket.write(padTurnFrame(frame));
+}
+
+export function readTestTlsOptions() {
+  const assetDir = resolve(__dirname, "../../../packages/dtls/assets");
+  return {
+    cert: readFileSync(resolve(assetDir, "cert.pem")),
+    key: readFileSync(resolve(assetDir, "key.pem")),
+  };
 }

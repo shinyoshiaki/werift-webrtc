@@ -1,3 +1,5 @@
+import type { Duplex } from "node:stream";
+
 import type { Address } from "../../../packages/common/src";
 
 export type ClientTransportKey = string;
@@ -22,6 +24,24 @@ export type PublicTurnAddress = {
 export type RelayConnectionContext = {
   originalClientAddress: ClientTransportAddress;
   publicTurnAddress: PublicTurnAddress;
+};
+
+export type RelayEnvelope = {
+  stream: Duplex;
+  context: RelayConnectionContext;
+  reportRelayFailure(error?: Error): void;
+};
+
+export type RelayAttachment = {
+  relayId: string;
+  clientTransportKey: ClientTransportKey;
+  detach(): void;
+  close(): void;
+};
+
+export type RelayEndpoint = {
+  id: string;
+  acceptEnvelope(envelope: RelayEnvelope): RelayAttachment;
 };
 
 export function addressTuple(address: ClientTransportAddress): Address {

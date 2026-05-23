@@ -3,7 +3,6 @@ import {
   type ServerResponse,
   createServer as createHttpServer,
 } from "node:http";
-import type { Duplex } from "node:stream";
 
 import {
   type Message,
@@ -19,7 +18,9 @@ import type { SharedFrontProxyKv } from "./kv";
 import {
   type ClientTransportKey,
   type PublicTurnAddress,
+  type RelayAttachment,
   type RelayConnectionContext,
+  type RelayEnvelope,
   computeClientTransportKey,
 } from "./types";
 
@@ -65,9 +66,11 @@ export class FrontProxyRelay {
     return this.options.id;
   }
 
-  acceptConnection(stream: Duplex, context: RelayConnectionContext) {
+  acceptEnvelope(envelope: RelayEnvelope): RelayAttachment {
+    const { stream, context } = envelope;
     const clientTransportKey = computeClientTransportKey(context);
     let turn: ActiveTurnConnection | undefined;
+    let detached = false;
 
     const sink: RelaySink = {
       write: (data) =>
@@ -86,7 +89,12 @@ export class FrontProxyRelay {
     };
 
     const detach = () => {
+      if (detached) {
+        return;
+      }
+      detached = true;
       stream.off("data", onData);
+      stream.off("close", detach);
       if (turn?.backend) {
         turn.backend.detachRelay(clientTransportKey, sink);
       }
@@ -115,6 +123,7 @@ export class FrontProxyRelay {
     stream.once("close", detach);
 
     return {
+      relayId: this.id,
       clientTransportKey,
       close: () => stream.destroy(),
       detach,
@@ -127,7 +136,11 @@ export class FrontProxyRelay {
     sink: RelaySink = { write: () => {}, close: () => {} },
   ) {
     const clientTransportKey = computeClientTransportKey(context);
-    const backend = this.resolveBackendForFrame(frame, clientTransportKey);
+    const backend = this.resolveBackendForFrame(
+      frame,
+      clientTransportKey,
+      context,
+    );
     backend.attachRelay(clientTransportKey, sink);
     await backend.handleFrame({ clientTransportKey, payload: frame }, context);
     return backend;
@@ -150,6 +163,7 @@ export class FrontProxyRelay {
       const backend = this.resolveBackendForFrame(
         frame,
         turn.clientTransportKey,
+        context,
       );
       if (backend !== turn.backend) {
         turn.backend?.detachRelay(turn.clientTransportKey, turn.sink);
@@ -166,7 +180,11 @@ export class FrontProxyRelay {
     }
   }
 
-  resolveBackendForFrame(frame: Buffer, clientTransportKey: string) {
+  resolveBackendForFrame(
+    frame: Buffer,
+    clientTransportKey: string,
+    context?: RelayConnectionContext,
+  ) {
     if (isChannelData(frame)) {
       return this.backendFromClientTransport(clientTransportKey);
     }
@@ -188,7 +206,7 @@ export class FrontProxyRelay {
     }
 
     if (message.messageMethod === methods.ALLOCATE) {
-      return this.backendForAllocate(message, clientTransportKey);
+      return this.backendForAllocate(message, clientTransportKey, context);
     }
 
     if (requiresUsernameRoute(message.messageMethod)) {
@@ -199,24 +217,27 @@ export class FrontProxyRelay {
     return this.backendFromClientTransport(clientTransportKey);
   }
 
-  private backendForAllocate(message: Message, clientTransportKey: string) {
+  private backendForAllocate(
+    message: Message,
+    clientTransportKey: string,
+    context?: RelayConnectionContext,
+  ) {
     const username = message.getAttributeValue("USERNAME");
-    const existingBackendId =
-      this.options.kv.getClientTransportBackend(clientTransportKey);
-    if (existingBackendId) {
-      if (username) {
-        this.options.kv.setUsernameBackend(username, existingBackendId);
-      }
-      return this.backendById(existingBackendId);
-    }
-
     if (username) {
       const backend = this.backendFromUsername(username);
       this.options.kv.setClientTransportBackend(clientTransportKey, backend.id);
       return backend;
     }
 
-    const backend = this.chooseBackend();
+    const existingBackendId =
+      this.options.kv.getClientTransportBackend(clientTransportKey);
+    if (existingBackendId) {
+      return this.backendById(existingBackendId);
+    }
+
+    const backend = this.chooseBackendForClient(
+      context?.originalClientAddress.ip ?? clientTransportKey,
+    );
     this.options.kv.setClientTransportBackend(clientTransportKey, backend.id);
     return backend;
   }
@@ -245,6 +266,19 @@ export class FrontProxyRelay {
     return this.options.backends[
       Math.floor(this.random() * this.options.backends.length)
     ];
+  }
+
+  private chooseBackendForClient(clientAffinityKey: string) {
+    const normalized = clientAffinityKey.trim();
+    if (normalized.length === 0) {
+      return this.chooseBackend();
+    }
+
+    let hash = 0;
+    for (const character of normalized) {
+      hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+    }
+    return this.options.backends[hash % this.options.backends.length];
   }
 
   private backendById(backendId: string) {
@@ -284,7 +318,9 @@ export class FrontProxyRelay {
 
       if (request.method === "POST" && pathname === "/credentials") {
         await drainRequest(request);
-        const backend = this.chooseBackend();
+        const backend = this.chooseBackendForClient(
+          request.socket.remoteAddress?.split("%")[0] ?? "",
+        );
         const credentials = this.options.credentialIssuer.issue(backend.id);
         writeJson(response, 200, {
           ...credentials,

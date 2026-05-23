@@ -30,12 +30,12 @@ type CredentialResponse = {
 };
 
 describe("front-proxy-turn integration", () => {
-  test("serves HTTPS credentials and TURN/TLS Allocate on one TLS address", async () => {
+  test("serves HTTPS credentials and keeps multi-backend Allocate routing on one TLS address", async () => {
     const app = createFrontProxyTurnExample({
       port: 0,
       publicPort: 0,
       relayCount: 2,
-      backendCount: 1,
+      backendCount: 2,
       credentialSecret: "front-proxy-turn-integration-secret",
       realm: TURN_REALM,
     });
@@ -61,6 +61,12 @@ describe("front-proxy-turn integration", () => {
         socket.write(firstAllocateFrame.subarray(0, 5));
         socket.write(firstAllocateFrame.subarray(5));
         const unauthorized = parseMessage(await readFrame())!;
+        const afterUnauthorized = app.kv.snapshot().clientTransportToBackend;
+
+        // Assert: unauthenticated Allocate でも credentials 発行 backend に nonce challenge が pin される。
+        expect(Object.values(afterUnauthorized)).toEqual([
+          credentials.backendId,
+        ]);
 
         // Act: 認証済み Allocate を retry し、Backend TURN の virtual transport に allocation を作る。
         writeTurnFrame(

@@ -46,10 +46,11 @@ Because the key is derived from the LB-provided original source address and the 
 
 ## Routing
 
-1. `POST /credentials`: Relay selects a Backend TURN, issues `<backend-id>.<random>.<mac>`, and stores `username -> backend TURN`.
-2. `Allocate`: Relay reads `USERNAME` when present, routes to the username backend, and stores `clientTransportKey -> backend TURN`. The initial unauthenticated Allocate has no `USERNAME`, so the sample pins that `clientTransportKey` to the backend that issued the nonce.
+1. `POST /credentials`: Relay deterministically selects a Backend TURN from the original client IP, issues `<backend-id>.<random>.<mac>`, and stores `username -> backend TURN`.
+2. `Allocate`: Relay treats `USERNAME` as authoritative when present, routes to the username backend, and stores `clientTransportKey -> backend TURN` from that result. The initial unauthenticated Allocate has no `USERNAME`, so the sample uses the same original-client-IP affinity to pin the nonce challenge to the same backend that `/credentials` chose.
 3. `Refresh`, `CreatePermission`, `ChannelBind`: Relay reads `USERNAME` and routes by `username -> backend TURN`.
 4. `Send indication`, `ChannelData`: Relay does not require `USERNAME`; it routes by `clientTransportKey -> backend TURN`.
+5. LB keeps a relay envelope per client TLS stream. If that internal relay path is lost, LB reselects another relay and re-attaches the same client stream while preserving the same `clientTransportKey`.
 
 ## Run
 
@@ -92,7 +93,9 @@ npm run type --workspace examples/front-proxy-turn
 npm test --workspace examples/front-proxy-turn
 ```
 
-The tests cover routing decisions, TURN/TCP frame splitting through Relay, Backend TURN virtual transport re-attach, HTTPS credential issuance, and TURN/TLS Allocate through the single TLS listener.
+`npm test` reuses a local Chromium when present and otherwise installs the Playwright Chromium runtime once before running the headless browser check.
+
+The tests cover routing decisions, TURN/TCP frame splitting through Relay, LB relay re-selection, Backend TURN virtual transport re-attach, HTTPS credential issuance, TURN/TLS Allocate through the single TLS listener, and a headless Chromium relay-only DataChannel exchange against the example.
 
 ## Constraints and non-goals
 
@@ -106,4 +109,4 @@ Non-goals:
 - routing by ICE `ufrag`
 - moving strict proxy behavior into `packages/ice-server`
 
-For multi-backend deployments, unauthenticated Allocate challenge affinity must remain consistent with the later authenticated retry. This sample keeps the runnable browser demo to one backend by default and still exposes the two required KV mappings and backend-id username routing for understanding the front-proxy design.
+For multi-backend deployments, unauthenticated Allocate challenge affinity must remain consistent with the later authenticated retry. This sample does that by deriving both `/credentials` backend selection and the initial Allocate challenge backend from the original client IP, while still making authenticated Allocate username-authoritative.

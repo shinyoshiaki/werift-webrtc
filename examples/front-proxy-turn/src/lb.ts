@@ -1,10 +1,13 @@
+import type { Duplex } from "node:stream";
 import { type TLSSocket, type TlsOptions, createServer } from "node:tls";
 
-import type { FrontProxyRelay } from "./relay";
 import type {
   ClientTransportAddress,
   PublicTurnAddress,
+  RelayAttachment,
   RelayConnectionContext,
+  RelayEndpoint,
+  RelayEnvelope,
 } from "./types";
 
 type RandomSource = () => number;
@@ -14,7 +17,7 @@ export type FrontProxyLoadBalancerOptions = {
   port: number;
   publicTurnAddress: PublicTurnAddress;
   tls: TlsOptions;
-  relays: FrontProxyRelay[];
+  relays: RelayEndpoint[];
   random?: RandomSource;
 };
 
@@ -50,6 +53,9 @@ export class FrontProxyLoadBalancer {
       socket.destroy();
     }
     this.serverConnections.clear();
+    if (!this.server.listening) {
+      return;
+    }
     await new Promise<void>((resolve) => {
       this.server.close(() => resolve());
     });
@@ -77,7 +83,11 @@ export class FrontProxyLoadBalancer {
       originalClientAddress: this.originalClientAddress(socket),
       publicTurnAddress: this.options.publicTurnAddress,
     };
-    this.selectRelay().acceptConnection(socket, context);
+    this.attachRelayEnvelope(socket, context);
+  }
+
+  routeEnvelopeForTest(stream: Duplex, context: RelayConnectionContext) {
+    return this.attachRelayEnvelope(stream, context);
   }
 
   private originalClientAddress(socket: TLSSocket): ClientTransportAddress {
@@ -85,5 +95,28 @@ export class FrontProxyLoadBalancer {
       ip: socket.remoteAddress?.split("%")[0] ?? "0.0.0.0",
       port: socket.remotePort ?? 0,
     };
+  }
+
+  private attachRelayEnvelope(stream: Duplex, context: RelayConnectionContext) {
+    let attachment: RelayAttachment | undefined;
+
+    const attach = (excludeRelayId?: string) => {
+      const relay = this.selectRelay(excludeRelayId);
+      const envelope: RelayEnvelope = {
+        stream,
+        context,
+        reportRelayFailure: () => {
+          if (stream.destroyed) {
+            return;
+          }
+          attachment?.detach();
+          attach(relay.id);
+        },
+      };
+      attachment = relay.acceptEnvelope(envelope);
+      return attachment;
+    };
+
+    return attach();
   }
 }

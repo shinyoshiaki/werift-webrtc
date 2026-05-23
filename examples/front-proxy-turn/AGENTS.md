@@ -29,6 +29,7 @@ Instructions for coding agents working in `examples/front-proxy-turn`.
 
 | Task | Command |
 | --- | --- |
+| install browser runtime | `npm run install:browsers` |
 | run sample | `npm run server` |
 | test sample | `npm test` |
 | type-check | `npm run type` |
@@ -36,6 +37,7 @@ Instructions for coding agents working in `examples/front-proxy-turn`.
 ## Validation
 
 * Logic or test changes: run `npm run type && npm test`.
+* `npm test` ensures a usable Chromium runtime is available before running the headless relay-only browser check.
 * Docs-only edits: no code validation required.
 
 ## Maintenance

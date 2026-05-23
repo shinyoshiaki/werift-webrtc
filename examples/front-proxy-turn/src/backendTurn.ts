@@ -124,7 +124,15 @@ export class BackendTurnServer {
     if (!sink) {
       return;
     }
-    await sink.write(padTurnFrame(action.data));
+    try {
+      await sink.write(padTurnFrame(action.data));
+    } catch (error) {
+      if (!isClosedClientWriteError(error)) {
+        throw error;
+      }
+      this.relaySinks.delete(action.clientId);
+      await sink.close();
+    }
   }
 
   private async sendRelay(
@@ -251,4 +259,14 @@ export function createBackendTurnServer(
     ...options,
     id: options.id ?? `backend-${randomUUID()}`,
   });
+}
+
+function isClosedClientWriteError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return (
+    code === "EPIPE" || code === "ECONNRESET" || code === "ERR_STREAM_DESTROYED"
+  );
 }

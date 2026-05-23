@@ -33,6 +33,7 @@ describe("front-proxy-turn routing", () => {
       makeAllocateRequest().setAttribute("USERNAME", credentials.username)
         .bytes,
       key,
+      context,
     );
 
     // Assert: HTTP credentials 発行時に保存した username route が Allocate に使われる。
@@ -71,27 +72,50 @@ describe("front-proxy-turn routing", () => {
     expect(channelDataBackend).toBe(backends[1]);
   });
 
-  test("keeps unauthenticated Allocate on the same backend until credentials are attached", () => {
+  test("keeps USERNAME authoritative for authenticated Allocate even when transport state is stale", () => {
+    const { issuer, relay, kv, backends } = createRelayHarness(() => 0);
+    const context = createContext();
+    const key = computeClientTransportKey(context);
+    const credentials = issuer.issue("backend-2");
+    kv.setClientTransportBackend(key, "backend-1");
+
+    // Act: 認証済み Allocate は既存 transport route より USERNAME backend を優先する。
+    const allocateBackend = relay.resolveBackendForFrame(
+      makeAllocateRequest().setAttribute("USERNAME", credentials.username)
+        .bytes,
+      key,
+      context,
+    );
+
+    // Assert: USERNAME backend が authoritative になり、clientTransportKey route もその結果へ更新される。
+    expect(allocateBackend).toBe(backends[1]);
+    expect(kv.getClientTransportBackend(key)).toBe("backend-2");
+    expect(kv.getUsernameBackend(credentials.username)).toBe("backend-2");
+  });
+
+  test("pins unauthenticated Allocate to the same backend selected for credentials by client-IP affinity", () => {
     const { issuer, relay, kv, backends } = createRelayHarness(() => 0);
     const context = createContext();
     const key = computeClientTransportKey(context);
     const credentials = issuer.issue("backend-2");
 
-    // Act: 初回の認証なし Allocate は USERNAME がないため clientTransportKey に backend を仮保存する。
+    // Act: 初回の認証なし Allocate は client-IP affinity で backend を決め、NONCE の行き先を安定させる。
     const firstBackend = relay.resolveBackendForFrame(
       makeAllocateRequest().bytes,
       key,
+      context,
     );
     const retryBackend = relay.resolveBackendForFrame(
       makeAllocateRequest().setAttribute("USERNAME", credentials.username)
         .bytes,
       key,
+      context,
     );
 
-    // Assert: NONCE を発行した backend に認証付き retry も届き、TURN 認証が崩れない。
-    expect(firstBackend).toBe(backends[0]);
-    expect(retryBackend).toBe(backends[0]);
-    expect(kv.getClientTransportBackend(key)).toBe("backend-1");
-    expect(kv.getUsernameBackend(credentials.username)).toBe("backend-1");
+    // Assert: credentials 発行 backend と同じ backend に unauthenticated / authenticated Allocate が届く。
+    expect(firstBackend).toBe(backends[1]);
+    expect(retryBackend).toBe(backends[1]);
+    expect(kv.getClientTransportBackend(key)).toBe("backend-2");
+    expect(kv.getUsernameBackend(credentials.username)).toBe("backend-2");
   });
 });
