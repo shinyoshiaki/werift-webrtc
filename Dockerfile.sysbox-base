@@ -1,12 +1,29 @@
-FROM nestybox/ubuntu-noble-systemd-docker
+# sak-sysbox-base ubuntu-version=24.04
+FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
+ENV container=sysbox
 ARG HOST_UID=1000
 ARG HOST_GID=1000
 RUN apt-get update \
-  && apt-get install -y bash ca-certificates curl dbus dbus-user-session git gnome-keyring gnupg libsecret-1-0 libsecret-tools sudo uidmap libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio \
-  && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-  && apt-get install -y nodejs \
-  && npm install -g @anthropic-ai/claude-code @google/gemini-cli @github/copilot @openai/codex opencode-ai \
+  && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+  && install -m 0755 -d /etc/apt/keyrings \
+  && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+  && chmod a+r /etc/apt/keyrings/docker.asc \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
+  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+  && chmod a+r /etc/apt/keyrings/nodesource.gpg \
+  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+  && printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+  && chmod +x /usr/sbin/policy-rc.d \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl dbus dbus-user-session git gnome-keyring gnupg iproute2 iptables kmod libsecret-1-0 libsecret-tools procps sudo systemd systemd-sysv uidmap xz-utils containerd.io docker-buildx-plugin docker-ce docker-ce-cli docker-compose-plugin nodejs \
+  && rm /usr/sbin/policy-rc.d \
+  && systemctl enable containerd.service docker.service \
+  && dbus-uuidgen --ensure=/etc/machine-id \
+  && npm install -g @anthropic-ai/claude-code @google/gemini-cli @github/copilot @openai/codex opencode-ai
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio
+RUN apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
   docker_socket=""; \
@@ -54,7 +71,20 @@ RUN set -eux; \
   user_home="$(getent passwd "$HOST_UID" | cut -d: -f6 || true)"; \
   if [ -n "$user_home" ] && [ -d "$user_home" ]; then \
     chown -R "$HOST_UID:$HOST_GID" "$user_home"; \
+  fi; \
+  if [ -n "$runtime_user" ] && [ -n "$user_home" ]; then \
+    runuser -u "$runtime_user" -- bash -lc 'curl -fsSL https://cursor.com/install | bash'; \
+    if [ -L "$user_home/.local/bin/cursor-agent" ]; then \
+      actual_binary="$(readlink -f "$user_home/.local/bin/cursor-agent")"; \
+      actual_dir="$(dirname "$actual_binary")"; \
+      if [ -n "$actual_dir" ] && [ -d "$actual_dir" ]; then \
+        mkdir -p /usr/local/lib/cursor-agent; \
+        cp -a "$actual_dir"/. /usr/local/lib/cursor-agent/; \
+        ln -sf /usr/local/lib/cursor-agent/cursor-agent /usr/local/bin/cursor-agent; \
+        ln -sf /usr/local/bin/cursor-agent /usr/local/bin/agent; \
+      fi; \
+    fi; \
   fi
 WORKDIR /workspace
-
-  CMD ["/sbin/init"]
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
