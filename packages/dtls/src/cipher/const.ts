@@ -20,12 +20,16 @@ export const CipherSuite = {
   TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199: 0xc02f, //49199
   /** TLS 1.3 AES-128-GCM-SHA256 */
   TLS_AES_128_GCM_SHA256_0x1301: 0x1301,
+  TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256_52393: 0xcca9, //52393
+  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_52392: 0xcca8, //52392
 } as const;
 export type CipherSuites = (typeof CipherSuite)[keyof typeof CipherSuite];
 /** DTLS 1.2 cipher suites only (default negotiation list). */
 export const CipherSuiteList: CipherSuites[] = [
   CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
   CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+  CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256_52393,
+  CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_52392,
 ];
 export const TLS13_CIPHER_SUITES = [
   CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
