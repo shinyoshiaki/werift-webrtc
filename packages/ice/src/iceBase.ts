@@ -43,6 +43,8 @@ export interface IceConnection {
 
   restart(): void;
 
+  setIceServers(options: Partial<IceOptions>): void;
+
   setRemoteParams(params: {
     iceLite: boolean;
     usernameFragment: string;

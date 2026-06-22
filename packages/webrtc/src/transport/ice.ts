@@ -182,6 +182,10 @@ export class RTCIceTransport {
     return this.iceGather.gather();
   }
 
+  setIceServers(options: Partial<IceOptions>) {
+    this.iceGather.setIceServers(options);
+  }
+
   addRemoteCandidate = (candidate?: IceCandidate) => {
     if (!this.connection.remoteCandidatesEnd) {
       return !candidate
@@ -386,6 +390,10 @@ export class RTCIceGatherer {
       this.onIceCandidate(undefined);
       this.setState("complete");
     }
+  }
+
+  setIceServers(options: Partial<IceOptions>) {
+    this.connection.setIceServers(options);
   }
 
   get localCandidates() {

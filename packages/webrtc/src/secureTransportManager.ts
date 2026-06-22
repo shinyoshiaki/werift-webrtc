@@ -90,19 +90,39 @@ export class SecureTransportManager {
     );
   }
 
-  createTransport() {
-    const existing = this.iceTransports.find(
-      (transport) => transport.state !== "closed",
-    );
+  private resolveIceServerOptions() {
     const iceServerOptions = parseIceServers(this.config.iceServers);
     const turnTransport = resolveTurnTransport({
       parsedTurnTransport: iceServerOptions.turnTransport,
       configuredTurnTransport: this.config.turnTransport,
       forceTurnTCP: this.config.forceTurnTCP,
     });
+    return { ...iceServerOptions, turnTransport };
+  }
+
+  /**
+   * Re-apply ICE servers from the current config to every live ICE transport.
+   * Used when TURN is learned after the gatherer was built (e.g. from a WHIP
+   * Link header) so the next gather pass can produce a relay candidate.
+   */
+  updateIceServers() {
+    const options = {
+      ...this.resolveIceServerOptions(),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      useTcp: this.config.iceUseTcp,
+    };
+    for (const iceTransport of this.iceTransports) {
+      iceTransport.setIceServers(options);
+    }
+  }
+
+  createTransport() {
+    const existing = this.iceTransports.find(
+      (transport) => transport.state !== "closed",
+    );
 
     const iceGatherer = new RTCIceGatherer({
-      ...iceServerOptions,
+      ...this.resolveIceServerOptions(),
       iceLite: this.config.iceLite,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
@@ -114,7 +134,6 @@ export class SecureTransportManager {
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
       useTcp: this.config.iceUseTcp,
-      turnTransport,
       turnTlsOptions: this.config.turnTlsOptions,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });

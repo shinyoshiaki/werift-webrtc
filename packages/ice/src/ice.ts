@@ -102,6 +102,24 @@ export class Connection implements IceConnection {
     log("new Connection", this.options);
   }
 
+  /**
+   * Update STUN/TURN servers after construction but before gathering.
+   * The gatherer captures ICE servers when it is built (at createOffer time),
+   * yet a relay candidate can only be gathered if TURN is known before the
+   * single gather pass. This lets servers learned later (e.g. from a WHIP
+   * Link header) be applied before setLocalDescription triggers gathering.
+   */
+  setIceServers(options: Partial<IceOptions>) {
+    this.options = { ...this.options, ...options };
+    const { stunServer, turnServer } = this.options;
+    this.stunServer = validateAddress(stunServer) ?? [
+      "stun.l.google.com",
+      19302,
+    ];
+    this.turnServer = validateAddress(turnServer);
+    log("Connection ice servers updated", this.options);
+  }
+
   get iceControlling() {
     return this._iceControlling;
   }

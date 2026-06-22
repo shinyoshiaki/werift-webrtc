@@ -475,6 +475,19 @@ export class RTCPeerConnection extends EventTarget {
     ].forEach((v, i) => {
       v.id = 1 + i;
     });
+
+    // Propagate ICE server changes to a transport that already exists but has
+    // not gathered yet. werift binds ICE servers when the gatherer is built
+    // (at createOffer); this lets TURN learned afterwards (e.g. from a WHIP
+    // Link header) take effect before setLocalDescription triggers gathering.
+    if (
+      isReconfiguration &&
+      this.secureManager &&
+      normalizedConfig.iceServers !== undefined &&
+      this.secureManager.iceGatheringState === "new"
+    ) {
+      this.secureManager.updateIceServers();
+    }
   }
 
   getConfiguration() {
