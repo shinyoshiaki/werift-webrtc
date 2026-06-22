@@ -232,6 +232,13 @@ export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
   iceLite: boolean;
   useTcp: boolean;
+  /**
+   * Gather passive TCP host candidates (opens a listening TCP server per
+   * interface). Defaults to true. Send-only agents that never accept inbound
+   * connections can set this false to avoid the listener while still gathering
+   * active TCP candidates.
+   */
+  tcpPassive?: boolean;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
