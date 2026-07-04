@@ -28,6 +28,8 @@ requires at least Node.js 16
 https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
 
 - TURN/TLS HTTPS loopback sample: `examples/turn-loopback`
+- Audio RED (RFC 2198) send/recv sample: `examples/mediachannel/red`
+- RTP processing utilities (jitter buffer, RED encoder/decoder, DTX, NACK, lip sync): `packages/rtp/src/extra/processor`
 
 ### SFU
 
