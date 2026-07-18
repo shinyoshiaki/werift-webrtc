@@ -203,6 +203,43 @@ describe("codec negotiation", () => {
       await caller.close();
     });
 
+    it("does not overwrite explicitly configured red fmtp parameters", async () => {
+      // Arrange: 明示 parameters は自動解決で上書きしない
+      const caller = new RTCPeerConnection({
+        codecs: {
+          audio: [
+            new RTCRtpCodecParameters({
+              mimeType: "audio/red",
+              clockRate: 48000,
+              channels: 2,
+              payloadType: 63,
+              parameters: "99/99",
+            }),
+            new RTCRtpCodecParameters({
+              mimeType: "audio/opus",
+              clockRate: 48000,
+              channels: 2,
+              payloadType: 111,
+            }),
+          ],
+        },
+      });
+
+      const track = new MediaStreamTrack({ kind: "audio" });
+      // Act
+      caller.addTrack(track);
+      const offer = await caller.setLocalDescription(
+        await caller.createOffer(),
+      );
+
+      // Assert: 明示値 99/99 のまま（opus の 111/111 に差し替えない）
+      const [media] = offer.media;
+      const red = media.rtp.codecs.find((c) => c.name === "red")!;
+      expect(red.parameters).toBe("99/99");
+
+      await caller.close();
+    });
+
     it("red fmtp does not reference a payload type filtered out by direction", async () => {
       // Arrange: 先頭 Opus は recvonly のみ、sendonly 側に残るのは後続 Opus
       const caller = new RTCPeerConnection({
