@@ -467,22 +467,10 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    // audio RED redundancy must reference the primary audio codec's payload
-    // type, which is only known once every codec has one assigned. Deriving
-    // it from the RED payload type breaks when RED is not listed directly
-    // before the primary codec or when payload types are set explicitly.
-    const audioCodecs = this.config.codecs.audio || [];
-    const audioRed = audioCodecs.find((c) => c.name.toLowerCase() === "red");
-    if (audioRed && audioRed.parameters == undefined) {
-      const primary = audioCodecs.find(
-        (c) =>
-          !["red", "rtx"].includes(c.name.toLowerCase()) &&
-          c.payloadType != undefined,
-      );
-      if (primary) {
-        audioRed.parameters = `${primary.payloadType}/${primary.payloadType}`;
-      }
-    }
+    // audio RED fmtp is filled per media section after direction filtering
+    // (see TransceiverManager.assignTransceiverCodecs) so it only references
+    // payload types that actually appear on that m-line, and so different
+    // transceivers do not share / pollute a single global parameters value.
 
     [
       ...(this.config.headerExtensions.audio || []),

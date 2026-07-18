@@ -4,7 +4,6 @@ import { Event, debug } from "./imports/common";
 import {
   MediaStream,
   type MediaStreamTrack,
-  type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   type RTCRtpEncodingParameters,
   type RTCRtpParameters,
@@ -19,6 +18,7 @@ import {
   Sendrecv,
   type TransceiverOptions,
 } from "./media";
+import { RTCRtpCodecParameters } from "./media/parameters";
 import type { RTCStats } from "./media/stats";
 import { type PeerConfig, findCodecByMimeType } from "./peerConnection";
 import { type MediaDescription, codecParametersFromString } from "./sdp";
@@ -27,6 +27,46 @@ import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
+
+function cloneCodecParameters(
+  codec: RTCRtpCodecParameters,
+): RTCRtpCodecParameters {
+  return new RTCRtpCodecParameters({
+    mimeType: codec.mimeType,
+    clockRate: codec.clockRate,
+    channels: codec.channels,
+    payloadType: codec.payloadType,
+    rtcpFeedback: codec.rtcpFeedback.map((fb) => ({
+      type: fb.type,
+      parameter: fb.parameter,
+    })),
+    parameters: codec.parameters,
+    direction: codec.direction,
+  });
+}
+
+/**
+ * RFC 2198: RED fmtp encodings must exist on the same m-line and share the
+ * primary encoding's clock rate. Resolve primary from the direction-filtered
+ * codec list for this media section only; leave explicit parameters alone.
+ */
+function applyAudioRedPrimaryFmtp(codecs: RTCRtpCodecParameters[]): void {
+  for (const red of codecs) {
+    if (red.name.toLowerCase() !== "red") continue;
+    if (red.contentType !== "audio") continue;
+    if (red.parameters !== undefined) continue;
+
+    const primary = codecs.find(
+      (codec) =>
+        !["red", "rtx"].includes(codec.name.toLowerCase()) &&
+        codec.clockRate === red.clockRate &&
+        codec.payloadType != undefined,
+    );
+    if (primary) {
+      red.parameters = `${primary.payloadType}/${primary.payloadType}`;
+    }
+  }
+}
 
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
@@ -220,30 +260,39 @@ export class TransceiverManager {
   }
 
   assignTransceiverCodecs(transceiver: RTCRtpTransceiver): void {
+    // Clone after direction filtering so RED fmtp and other per-section
+    // mutations never rewrite the shared PeerConnection codec config.
     const codecs = (
       this.config.codecs[transceiver.kind] as RTCRtpCodecParameters[]
-    ).filter((codecCandidate) => {
-      switch (codecCandidate.direction) {
-        case "recvonly": {
-          if (ReceiverDirection.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendonly": {
-          if (SenderDirections.includes(transceiver.direction)) return true;
-          return false;
-        }
-        case "sendrecv": {
-          if ([Sendrecv, Recvonly, Sendonly].includes(transceiver.direction))
+    )
+      .filter((codecCandidate) => {
+        switch (codecCandidate.direction) {
+          case "recvonly": {
+            if (ReceiverDirection.includes(transceiver.direction)) return true;
+            return false;
+          }
+          case "sendonly": {
+            if (SenderDirections.includes(transceiver.direction)) return true;
+            return false;
+          }
+          case "sendrecv": {
+            if ([Sendrecv, Recvonly, Sendonly].includes(transceiver.direction))
+              return true;
+            return false;
+          }
+          case "all": {
             return true;
-          return false;
+          }
+          default:
+            return false;
         }
-        case "all": {
-          return true;
-        }
-        default:
-          return false;
-      }
-    });
+      })
+      .map(cloneCodecParameters);
+
+    if (transceiver.kind === "audio") {
+      applyAudioRedPrimaryFmtp(codecs);
+    }
+
     transceiver.codecs = codecs;
   }
 
