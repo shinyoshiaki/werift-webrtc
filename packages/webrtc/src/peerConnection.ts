@@ -460,12 +460,27 @@ export class RTCPeerConnection extends EventTarget {
         case "red":
           {
             if (codecParams.contentType === "audio") {
-              const redundant = codecParams.payloadType + 1;
-              codecParams.parameters = `${redundant}/${redundant}`;
               codecParams.payloadType = 63;
             }
           }
           break;
+      }
+    }
+
+    // audio RED redundancy must reference the primary audio codec's payload
+    // type, which is only known once every codec has one assigned. Deriving
+    // it from the RED payload type breaks when RED is not listed directly
+    // before the primary codec or when payload types are set explicitly.
+    const audioCodecs = this.config.codecs.audio || [];
+    const audioRed = audioCodecs.find((c) => c.name.toLowerCase() === "red");
+    if (audioRed && audioRed.parameters == undefined) {
+      const primary = audioCodecs.find(
+        (c) =>
+          !["red", "rtx"].includes(c.name.toLowerCase()) &&
+          c.payloadType != undefined,
+      );
+      if (primary) {
+        audioRed.parameters = `${primary.payloadType}/${primary.payloadType}`;
       }
     }
 
