@@ -330,5 +330,8 @@ function getCandidateLines(sdp?: string) {
   }
   return sdp
     .split(/\r?\n/)
-    .filter((line) => line.startsWith("a=candidate:") || line === "a=end-of-candidates");
+    .filter(
+      (line) =>
+        line.startsWith("a=candidate:") || line === "a=end-of-candidates",
+    );
 }

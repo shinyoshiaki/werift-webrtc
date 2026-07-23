@@ -69,11 +69,17 @@ function runCommand(cwd, args, env) {
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (signal) {
-        reject(new Error(`command exited with signal ${signal}: npm ${args.join(" ")}`));
+        reject(
+          new Error(
+            `command exited with signal ${signal}: npm ${args.join(" ")}`,
+          ),
+        );
         return;
       }
       if (code !== 0) {
-        reject(new Error(`command exited with code ${code}: npm ${args.join(" ")}`));
+        reject(
+          new Error(`command exited with code ${code}: npm ${args.join(" ")}`),
+        );
         return;
       }
       resolve();
@@ -86,9 +92,7 @@ function request(url) {
   return new Promise((resolve, reject) => {
     const request = client.get(
       url,
-      url.startsWith("https:")
-        ? { rejectUnauthorized: false }
-        : undefined,
+      url.startsWith("https:") ? { rejectUnauthorized: false } : undefined,
       (response) => {
         const chunks = [];
         response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
@@ -143,11 +147,17 @@ async function main() {
     TURN_LOOPBACK_E2E_SERVER_BASE_URL: serverBaseUrl,
     TURN_LOOPBACK_E2E_DEV_BASE_URL: devClientBaseUrl,
   };
-  const serverStdio = mode === "silent" ? ["ignore", "pipe", "pipe"] : "inherit";
+  const serverStdio =
+    mode === "silent" ? ["ignore", "pipe", "pipe"] : "inherit";
 
   await runCommand(exampleDir, ["run", "build"], baseEnv);
 
-  const server = spawnCommand(exampleDir, ["run", "server"], baseEnv, serverStdio);
+  const server = spawnCommand(
+    exampleDir,
+    ["run", "server"],
+    baseEnv,
+    serverStdio,
+  );
   if (serverStdio !== "inherit") {
     server.stdout?.pipe(process.stdout);
     server.stderr?.pipe(process.stderr);
@@ -238,8 +248,8 @@ async function main() {
 
 main().catch(async (error) => {
   console.error(error);
-  await requestServerStop(process.env.TURN_LOOPBACK_E2E_SERVER_PORT ?? "8443").catch(
-    () => undefined,
-  );
+  await requestServerStop(
+    process.env.TURN_LOOPBACK_E2E_SERVER_PORT ?? "8443",
+  ).catch(() => undefined);
   process.exit(1);
 });

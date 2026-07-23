@@ -94,7 +94,11 @@ export function App() {
       await peer.setRemoteDescription(config.offer);
       await peer.setLocalDescription(await peer.createAnswer());
       await waitForIceGatheringComplete(peer);
-      await completeSession(sessionBaseUrl, config.username, peer.localDescription);
+      await completeSession(
+        sessionBaseUrl,
+        config.username,
+        peer.localDescription,
+      );
       setStatus("waiting-for-echo");
     } catch (error) {
       setStatus("failed");
@@ -112,7 +116,9 @@ export function App() {
         </p>
 
         <label className="field">
-          <span>{isDev ? "HTTPS signaling base URL" : "Hosted signaling base URL"}</span>
+          <span>
+            {isDev ? "HTTPS signaling base URL" : "Hosted signaling base URL"}
+          </span>
           <input
             data-testid="signaling-base-url"
             value={sessionBaseUrl}
@@ -159,7 +165,9 @@ export function App() {
           </div>
           <div>
             <dt>Received loopback</dt>
-            <dd data-testid="received-message-value">{receivedMessage || "-"}</dd>
+            <dd data-testid="received-message-value">
+              {receivedMessage || "-"}
+            </dd>
           </div>
         </dl>
 
@@ -173,14 +181,19 @@ export function App() {
   );
 }
 
-async function requestSession(signalingBaseUrl: string): Promise<SessionConfig> {
-  const response = await fetch(`${trimTrailingSlash(signalingBaseUrl)}/session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+async function requestSession(
+  signalingBaseUrl: string,
+): Promise<SessionConfig> {
+  const response = await fetch(
+    `${trimTrailingSlash(signalingBaseUrl)}/session`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
     },
-    body: JSON.stringify({}),
-  });
+  );
   if (!response.ok) {
     throw new Error(`POST /session failed: ${response.status}`);
   }
@@ -196,16 +209,19 @@ async function completeSession(
     throw new Error("local answer is missing");
   }
 
-  const response = await fetch(`${trimTrailingSlash(signalingBaseUrl)}/session`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `${trimTrailingSlash(signalingBaseUrl)}/session`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username,
+        answer,
+      }),
     },
-    body: JSON.stringify({
-      username,
-      answer,
-    }),
-  });
+  );
   if (!response.ok) {
     throw new Error(`PUT /session failed: ${response.status}`);
   }

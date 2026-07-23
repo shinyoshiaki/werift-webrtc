@@ -51,5 +51,7 @@ function formatAuthority(hostname: string, port: string) {
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return `${hostname}:${port}`;
   }
-  return hostname.includes(":") ? `[${hostname}]:${port}` : `${hostname}:${port}`;
+  return hostname.includes(":")
+    ? `[${hostname}]:${port}`
+    : `${hostname}:${port}`;
 }

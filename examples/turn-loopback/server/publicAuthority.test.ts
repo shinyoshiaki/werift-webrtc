@@ -1,5 +1,5 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 
 import { normalizeAuthority, resolvePublicAuthority } from "./publicAuthority";
 
@@ -16,7 +16,10 @@ test("normalizes bare IPv6 values by bracketing them once", () => {
 });
 
 test("keeps hostname authorities stable", () => {
-  assert.equal(normalizeAuthority("example.test:8443", 9443), "example.test:8443");
+  assert.equal(
+    normalizeAuthority("example.test:8443", 9443),
+    "example.test:8443",
+  );
 });
 
 test("uses the request host when only the public port is configured", () => {
