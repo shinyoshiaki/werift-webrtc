@@ -467,11 +467,6 @@ export class RTCPeerConnection extends EventTarget {
       }
     }
 
-    // audio RED fmtp is filled per media section after direction filtering
-    // (see TransceiverManager.assignTransceiverCodecs) so it only references
-    // payload types that actually appear on that m-line, and so different
-    // transceivers do not share / pollute a single global parameters value.
-
     [
       ...(this.config.headerExtensions.audio || []),
       ...(this.config.headerExtensions.video || []),
