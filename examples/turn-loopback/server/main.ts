@@ -2,16 +2,16 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
-  createServer as createHttpServer,
   type IncomingMessage,
   type ServerResponse,
+  createServer as createHttpServer,
 } from "node:http";
 import { createRequire } from "node:module";
 import { extname, resolve, sep } from "node:path";
 import {
-  createServer as createTlsServer,
   type TLSSocket,
   type TlsOptions,
+  createServer as createTlsServer,
 } from "node:tls";
 import { fileURLToPath } from "node:url";
 
@@ -53,7 +53,9 @@ type PeerConnectionLike = {
   createDataChannel(label: string): DataChannelLike;
   createOffer(): Promise<RTCSessionDescriptionInit>;
   setLocalDescription(description: RTCSessionDescriptionInit): Promise<unknown>;
-  setRemoteDescription(description: RTCSessionDescriptionInit): Promise<unknown>;
+  setRemoteDescription(
+    description: RTCSessionDescriptionInit,
+  ): Promise<unknown>;
   close(): void;
 };
 
@@ -122,7 +124,9 @@ const dtlsAssetsDir = resolve(exampleRootDir, "../../packages/dtls/assets");
 const host = process.env.TURN_LOOPBACK_HOST ?? "0.0.0.0";
 const port = numberFromEnv("TURN_LOOPBACK_PORT", 8443);
 const publicPort = numberFromEnv("TURN_LOOPBACK_PUBLIC_PORT", port);
-const configuredPublicAuthority = readOptionalEnv("TURN_LOOPBACK_PUBLIC_AUTHORITY");
+const configuredPublicAuthority = readOptionalEnv(
+  "TURN_LOOPBACK_PUBLIC_AUTHORITY",
+);
 const publicHost =
   readOptionalEnv("TURN_LOOPBACK_PUBLIC_HOST") ??
   (host === "0.0.0.0" ? "127.0.0.1" : host);
@@ -280,7 +284,9 @@ async function handleRequest(
   }
 }
 
-async function createSession(request: IncomingMessage): Promise<SessionResponse> {
+async function createSession(
+  request: IncomingMessage,
+): Promise<SessionResponse> {
   const username = `turn-loopback-${randomUUID()}`;
   const password = randomBytes(18).toString("base64url");
   const peer = new RTCPeerConnection({});
@@ -323,7 +329,10 @@ async function applyAnswer(body: JsonRecord) {
     throw createHttpError(404, `session not found: ${username}`);
   }
   if (session.state !== "awaiting-answer") {
-    throw createHttpError(409, `session is not waiting for an answer: ${username}`);
+    throw createHttpError(
+      409,
+      `session is not waiting for an answer: ${username}`,
+    );
   }
 
   await session.peer.setRemoteDescription(answer);
@@ -339,7 +348,11 @@ function wireSessionLifecycle(session: SessionRecord) {
   );
 
   session.channel.onMessage.subscribe((message: string | Buffer) => {
-    scheduleSessionTimeout(session, activeSessionTtlMs, "idle data channel timeout");
+    scheduleSessionTimeout(
+      session,
+      activeSessionTtlMs,
+      "idle data channel timeout",
+    );
     session.channel.send(message);
   });
 
@@ -359,7 +372,11 @@ function wireSessionLifecycle(session: SessionRecord) {
 
   session.peer.connectionStateChange.subscribe((state: PeerConnectionState) => {
     if (state === "connected") {
-      scheduleSessionTimeout(session, activeSessionTtlMs, "connected peer timeout");
+      scheduleSessionTimeout(
+        session,
+        activeSessionTtlMs,
+        "connected peer timeout",
+      );
       return;
     }
     if (state === "closed" || state === "failed") {
@@ -415,7 +432,9 @@ function routeSecureSocket(socket: TLSSocket) {
 }
 
 function isHttpRequestChunk(chunk: Buffer) {
-  const prefix = chunk.subarray(0, Math.min(chunk.length, 16)).toString("ascii");
+  const prefix = chunk
+    .subarray(0, Math.min(chunk.length, 16))
+    .toString("ascii");
   return /^(GET |POST |PUT |PATCH |DELETE |OPTIONS |HEAD )/.test(prefix);
 }
 
@@ -505,14 +524,16 @@ async function waitForIceGatheringComplete(peer: PeerConnectionLike) {
       subscription.unSubscribe();
       reject(new Error("ICE gathering did not complete in time"));
     }, 15_000);
-    const subscription = peer.iceGatheringStateChange.subscribe((state: string) => {
-      if (state !== "complete") {
-        return;
-      }
-      clearTimeout(timer);
-      subscription.unSubscribe();
-      resolvePromise();
-    });
+    const subscription = peer.iceGatheringStateChange.subscribe(
+      (state: string) => {
+        if (state !== "complete") {
+          return;
+        }
+        clearTimeout(timer);
+        subscription.unSubscribe();
+        resolvePromise();
+      },
+    );
   });
 }
 
@@ -542,9 +563,7 @@ function readPem(
     return readFileSync(resolve(process.cwd(), pemFile));
   }
 
-  return readFileSync(
-    resolve(dtlsAssetsDir, defaultAssetName),
-  );
+  return readFileSync(resolve(dtlsAssetsDir, defaultAssetName));
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<JsonRecord> {
@@ -580,7 +599,10 @@ function readSessionDescription(
   fieldName: string,
 ): RTCSessionDescriptionInit {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw createHttpError(400, `${fieldName} must be a session description object`);
+    throw createHttpError(
+      400,
+      `${fieldName} must be a session description object`,
+    );
   }
 
   const type = (value as RTCSessionDescriptionInit).type;

@@ -1,4 +1,10 @@
-import { closeBrowser, closePage, openDevPage, readText, startEchoSession } from "./fixture";
+import {
+  closeBrowser,
+  closePage,
+  openDevPage,
+  readText,
+  startEchoSession,
+} from "./fixture";
 
 describe("dev turn-loopback app", () => {
   afterAll(async () => {

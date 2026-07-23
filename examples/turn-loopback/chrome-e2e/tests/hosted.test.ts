@@ -31,9 +31,9 @@ describe("hosted turn-loopback app", () => {
       expect(await readText(page, "turn-url-value")).toBe(
         getServerBaseUrl().replace("https://", "turns:") + "?transport=tcp",
       );
-      await expect.poll(async () => readText(page, "connection-state-value")).toBe(
-        "connected",
-      );
+      await expect
+        .poll(async () => readText(page, "connection-state-value"))
+        .toBe("connected");
     } finally {
       await closePage(page);
     }
@@ -45,7 +45,10 @@ describe("hosted turn-loopback app", () => {
 
     try {
       // Act: 2 ページを並行で起動し、それぞれ独立したセッションを同時に張る。
-      await Promise.all([startEchoSession(firstPage), startEchoSession(secondPage)]);
+      await Promise.all([
+        startEchoSession(firstPage),
+        startEchoSession(secondPage),
+      ]);
 
       // Assert: 各ページが自分の username と echo 結果を保持し、セッションが衝突していないことを確認する。
       await assertIndependentSession(firstPage, secondPage);
@@ -64,12 +67,13 @@ async function assertIndependentSession(firstPage: Page, secondPage: Page) {
   expect(secondUsername).not.toBe("");
   expect(firstUsername).not.toBe(secondUsername);
 
-  const [firstSent, firstReceived, secondSent, secondReceived] = await Promise.all([
-    readText(firstPage, "sent-message-value"),
-    readText(firstPage, "received-message-value"),
-    readText(secondPage, "sent-message-value"),
-    readText(secondPage, "received-message-value"),
-  ]);
+  const [firstSent, firstReceived, secondSent, secondReceived] =
+    await Promise.all([
+      readText(firstPage, "sent-message-value"),
+      readText(firstPage, "received-message-value"),
+      readText(secondPage, "sent-message-value"),
+      readText(secondPage, "received-message-value"),
+    ]);
 
   expect(firstReceived).toBe(firstSent);
   expect(secondReceived).toBe(secondSent);
