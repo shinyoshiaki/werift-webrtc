@@ -84,8 +84,7 @@ export const iceLitePeerConfig: Promise<Partial<PeerConfig>> = (async () => {
       ? { udp4: iceLiteInterfaceAddress }
       : undefined,
     iceFilterStunResponse: iceLiteInterfaceAddress
-      ? (_, __, protocol) =>
-          protocol.localCandidate?.host === iceLiteInterfaceAddress
+      ? (_, __, protocol) => protocol.localCandidate?.host === iceLiteInterfaceAddress
       : undefined,
     iceFilterCandidatePair: iceLiteInterfaceAddress
       ? (pair) => pair.localCandidate.host === iceLiteInterfaceAddress

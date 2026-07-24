@@ -10,13 +10,13 @@ function attachCandidateHandler(
   const eventPeer = peer as typeof peer & {
     on: (
       event: "request",
-      listener: (
-        request: {
-          method: string;
-          data: { candidate: RTCIceCandidateInit | null };
-        },
-        accept: () => void,
-      ) => void,
+        listener: (
+          request: {
+            method: string;
+            data: { candidate: RTCIceCandidateInit | null };
+          },
+          accept: () => void,
+        ) => void,
     ) => void;
     removeListener: (event: string, listener: (...args: any[]) => void) => void;
   };
@@ -105,8 +105,8 @@ describe("ice/trickle", () => {
     }));
 
   it("offer", async () =>
-    new Promise<void>(async (done) => {
-      const label = "ice_trickle_offer";
+      new Promise<void>(async (done) => {
+        const label = "ice_trickle_offer";
 
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));
       await sleep(100);
@@ -137,7 +137,7 @@ describe("ice/trickle", () => {
       const answer = await peer.request(label, {
         type: "init",
         payload: pc.localDescription,
-      });
+        });
       await pc.setRemoteDescription(answer);
       await candidates.flush();
     }));

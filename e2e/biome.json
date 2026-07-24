@@ -1,15 +1,4 @@
 {
-  "files": {
-    "ignore": [
-      ".sak-link",
-      "**/build",
-      "**/build/**",
-      "**/dist",
-      "**/dist/**",
-      "**/lib",
-      "**/lib/**"
-    ]
-  },
   "formatter": {
     "indentStyle": "space"
   },

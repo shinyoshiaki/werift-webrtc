@@ -20,9 +20,7 @@
 
 ##### config
 
-###### debug?
-
-`Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+[`PeerConfig`](../interfaces/PeerConfig.md)
 
 ##### iceTransport
 
@@ -64,11 +62,7 @@
 
 ### config
 
-> `readonly` **config**: `object`
-
-#### debug?
-
-> `optional` **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> `readonly` **config**: [`PeerConfig`](../interfaces/PeerConfig.md)
 
 ***
 
