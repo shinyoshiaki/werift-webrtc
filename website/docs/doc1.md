@@ -5,22 +5,22 @@ sidebar_label: How to use
 slug: /
 ---
 
-# インストール方法
+# Installation Method
 
 ```sh
 npm install werift
 ```
 
-# 設計思想
+# Design Philosophy
 
-werift は DataChannel と MediaChannel に対応しています。
-werift はコーデックなどのメディア周りは実装していないので getUserMedia などの API は利用できません。そのため、werift からメディアを送信する場合は、RTP パケットを直接、用意された API に入力します。また受信する場合には RTP のパケットを直接受け取ることができます。
+Werift supports DataChannel and MediaChannel.
+Werift does not implement media-related features such as codecs, so APIs like getUserMedia cannot be used. Therefore, to send media from werift, you need to directly input RTP packets into the provided API. Similarly, when receiving media, you can directly receive RTP packets.
 
-# ドキュメント
+# Documentation
 
 ## RTCPeerConnection
 
-### コンストラクタ
+### Constructor
 
 ```typescript
 new RTCPeerConnection(config?: Partial<PeerConfig>): RTCPeerConnection
@@ -42,8 +42,8 @@ export type PeerConfig = {
 
 #### codecs
 
-利用するコーデックを指定します。
-werift はコーデックなどのメディアの実装は行われていないので、ここでは対向のデバイスが対応している任意のコーデックを入力します。
+Specify the codecs to be used.
+Werift does not implement media-related features such as codecs, so you can input any codecs supported by the peer device here.
 
 ```typescript
 const pc = new RTCPeerConnection({
@@ -78,8 +78,8 @@ const pc = new RTCPeerConnection({
 
 #### headerExtensions
 
-利用する headerExtensions を指定します。
-werift が対応している headerExtensions は以下です。
+Specify the header extensions to be used.
+The header extensions supported by werift are as follows:
 
 ```typescript
 const RTP_EXTENSION_URI = {
@@ -91,7 +91,7 @@ const RTP_EXTENSION_URI = {
 };
 ```
 
-##### 指定方法
+##### Specification Method
 
 ```typescript
 const pc = new RTCPeerConnection({
@@ -101,12 +101,12 @@ const pc = new RTCPeerConnection({
 });
 ```
 
-サイマルキャスト機能を利用する場合は必ず`useSdesRTPStreamID()`を指定する必要があります。
+If you want to use the simulcast feature, you must specify `useSdesRTPStreamID()`.
 
 #### iceConfig
 
-ice の設定を指定します。
-werift は STUN と TURN-UDP に対応しています。
+Specify the ICE configuration.
+Werift supports STUN and TURN-UDP.
 
 ```typescript
 const pc = new RTCPeerConnection({
@@ -122,7 +122,7 @@ type IceConfig = {
 };
 ```
 
-### シグナリング
+### Signaling
 
 #### Vanilla Ice
 
