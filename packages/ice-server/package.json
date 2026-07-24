@@ -23,7 +23,9 @@
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "debug": "4.4.0"
+  },
   "devDependencies": {},
   "engines": {
     "node": ">=16"

@@ -28,7 +28,9 @@
     "unused": "organize-imports-cli **/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
-  "dependencies": {},
+  "dependencies": {
+    "debug": "4.4.0"
+  },
   "engines": {
     "node": ">=10"
   },

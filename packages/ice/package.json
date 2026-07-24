@@ -30,6 +30,7 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
+    "debug": "4.4.0",
     "multicast-dns": "^7.2.5"
   },
   "devDependencies": {
