@@ -1,4 +1,7 @@
-/** Unsigned LEB128 encoder (package-private; not re-exported from public barrel). */
+/**
+ * Unsigned LEB128 encoder（package-private）。
+ * `codec/index.ts` の public barrel からは re-export しない。decode は `av1.ts` 側の公開 API を維持する。
+ */
 export function leb128encode(value: number): Buffer {
   if (!Number.isInteger(value) || value < 0 || !Number.isSafeInteger(value)) {
     throw new Error("LEB128 encode requires a non-negative safe integer");
