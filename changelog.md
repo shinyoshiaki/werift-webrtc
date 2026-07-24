@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.24.1
+
+### 🚀 Features & Improvements
+
+- **Runtime dependency reduction**: Replace low-cost third-party packages with Node.js stdlib and package-local helpers across the stack (`packages/common`, `ice`, `ice-server`, `rtp`, `sctp`, `webrtc`). Public protocol behavior is unchanged.
+  - Dropped runtime deps (where previously declared): `@shinyoshiaki/jspack`, `@minhducsun2002/leb128`, `aes-js`, `fast-deep-equal`, `int64-buffer`, `ip` (and related `@types/*`)
+  - **common**: `random16` / `random32` via `Buffer.readUInt*BE` instead of jspack
+  - **ice**: Host address selection extracted to package-private `selectAddressesFromInterfaces`; stop relying on the `ip` package for loopback filtering
+  - **ice-server**: Local STUN wire IP encode/decode (`ip.ts`) using `node:net` validation
+  - **rtp**: Package-private LEB128 encode helper; SRTP key derivation AES-128-ECB via `crypto.createCipheriv` instead of `aes-js`
+  - **sctp / webrtc**: SCTP reconfig parameter pack/unpack rewritten with direct `Buffer` reads/writes
+
+### 🐛 Bug Fixes
+
+- **Published package deps**: Declare missing `debug` on `werift-dtls`, `werift-ice`, `werift-ice-server`, `werift-rtp`, and `werift-sctp` so installs outside the monorepo resolve correctly (#642).
+
+### 📦 Packaging / versions
+
+- **`werift`** (`packages/webrtc`): `0.24.0` → **`0.24.1`**
+- Lower-level packages keep the same published versions as v0.24.0 (`werift-common` 0.0.3, `werift-ice` 0.2.2, `werift-rtp` 0.8.8, `werift-sctp` 0.0.11, `werift-dtls` 0.5.7, `werift-ice-server` 0.0.1) with dependency list cleanups as above.
+
+### 🧪 Testing & tooling
+
+- Unit coverage for binary helpers, ICE address selection / STUN attributes, LEB128 / AV1 paths, RTX, SRTP context, and related package tests expanded alongside the dependency swaps.
+- Dev/security dependency bumps in the workspace lockfile: `shell-quote`, `js-yaml`, `markdown-it`.
+
+### 📚 Docs
+
+- Regenerated Typedoc under `doc/` (`RTCDtlsTransport`, `PeerConfig`, `DebugConfig`, `globals`).
+- WPT progress baseline touch-up under `packages/webrtc/wpt/progress.md`.
+
+### ⚠️ Notes
+
+- Patch release: no intentional WebRTC/ICE/DTLS/SCTP/RTP wire-format or public API behavior changes.
+- Consumers that depended on transitive installs of removed libraries (`jspack`, `leb128`, `aes-js`, `ip`, etc.) should depend on those packages directly if still needed in app code.
+
 ## v0.24.0
 
 ### 🚀 Features & Improvements
