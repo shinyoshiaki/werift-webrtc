@@ -4,6 +4,7 @@ import { normalizeFamilyNodeV18 } from "../imports/common";
 /**
  * Interface 辞書から host 候補アドレスを選別する（package-private）。
  * 公開 barrel (`src/index.ts`) からは export しない。
+ * テストは本 helper への依存注入で行う。
  */
 export function selectAddressesFromInterfaces(
   interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[] | undefined>,
