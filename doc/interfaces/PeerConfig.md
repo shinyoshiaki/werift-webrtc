@@ -28,7 +28,7 @@
 
 ### debug
 
-> **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> **debug**: `Partial`
 
 ***
 
