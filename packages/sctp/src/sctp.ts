@@ -1,5 +1,4 @@
 import { createHmac, randomBytes } from "crypto";
-import { jspack } from "@shinyoshiaki/jspack";
 
 import { nextTick } from "process";
 import {
@@ -347,8 +346,11 @@ export class SCTP {
           ack.initialTsn = this.localTsn;
           this.setExtensions(ack.params);
 
-          const time = Date.now() / 1000;
-          let cookie = Buffer.from(jspack.Pack("!L", [time]));
+          // cookie timestamp は秒単位の整数 (小数を混入させない)
+          const time = Math.floor(Date.now() / 1000);
+          const cookieTime = Buffer.allocUnsafe(4);
+          cookieTime.writeUInt32BE(time, 0);
+          let cookie = cookieTime;
           cookie = Buffer.concat([
             cookie,
             createHmac("sha1", this.hmacKey).update(cookie).digest(),
@@ -452,8 +454,8 @@ export class SCTP {
             log("x State cookie is invalid");
             return;
           }
-          const now = Date.now() / 1000;
-          const stamp = jspack.Unpack("!L", cookie)[0];
+          const now = Math.floor(Date.now() / 1000);
+          const stamp = cookie.readUInt32BE(0);
           if (stamp < now - COOKIE_LIFETIME || stamp > now) {
             const error = new ErrorChunk(0, undefined);
             error.params.push([
@@ -1242,10 +1244,9 @@ export class SCTP {
 
     if (this.flightSize === 0 && this.outboundQueue.length === 0) {
       const heartbeat = new HeartbeatChunk();
-      heartbeat.params.push([
-        1,
-        Buffer.from(jspack.Pack("!L", [Math.floor(Date.now() / 1000)])),
-      ]);
+      const heartbeatTime = Buffer.allocUnsafe(4);
+      heartbeatTime.writeUInt32BE(Math.floor(Date.now() / 1000), 0);
+      heartbeat.params.push([1, heartbeatTime]);
       await this.sendChunk(heartbeat).catch((err: Error) => {
         log("send heartbeat failed", err.message);
       });

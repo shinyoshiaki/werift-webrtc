@@ -1,9 +1,8 @@
 // RTP Payload Format For AV1 https://aomediacodec.github.io/av1-rtp-spec/
 
-import { LEB128 } from "@minhducsun2002/leb128";
-
 import type { RtpHeader } from "..";
 import { BitWriter2, debug, getBit } from "../imports/common";
+import { leb128encode } from "./leb128";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
 
@@ -215,9 +214,9 @@ export class AV1Obu {
       .set(this.obu_extension_flag)
       .set(this.obu_has_size_field)
       .set(this.obu_reserved_1bit).buffer;
-    let obuSize: Uint8Array | Buffer = Buffer.alloc(0);
+    let obuSize: Buffer = Buffer.alloc(0);
     if (this.obu_has_size_field) {
-      obuSize = LEB128.encode(this.payload.length);
+      obuSize = leb128encode(this.payload.length);
     }
     return Buffer.concat([header, obuSize, this.payload]);
   }
@@ -227,14 +226,20 @@ export function leb128decode(buf: Buffer) {
   let value = 0;
   let leb128bytes = 0;
   for (let i = 0; i < 8; i++) {
+    if (i >= buf.length) {
+      throw new Error("LEB128 decode incomplete");
+    }
     const leb128byte = buf.readUInt8(i);
-    value |= (leb128byte & 0x7f) << (i * 7);
+    value += (leb128byte & 0x7f) * 128 ** i;
     leb128bytes++;
     if (!(leb128byte & 0x80)) {
-      break;
+      if (!Number.isSafeInteger(value)) {
+        throw new Error("LEB128 value exceeds safe integer");
+      }
+      return [value, leb128bytes];
     }
   }
-  return [value, leb128bytes];
+  throw new Error("LEB128 decode incomplete");
 }
 
 const OBU_TYPES = {

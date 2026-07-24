@@ -1,6 +1,3 @@
-import * as Int64 from "int64-buffer";
-import nodeIp from "ip";
-
 import type { Address } from "../../../common/src";
 
 import {
@@ -9,17 +6,18 @@ import {
   IPV4_PROTOCOL,
   IPV6_PROTOCOL,
 } from "./const";
+import { bufferToIpAddress, ipAddressToBuffer, isIpV4Address } from "./ip";
 
 function packAddress(value: Address) {
   const [address] = value;
-  const protocol = nodeIp.isV4Format(address) ? IPV4_PROTOCOL : IPV6_PROTOCOL;
+  const protocol = isIpV4Address(address) ? IPV4_PROTOCOL : IPV6_PROTOCOL;
 
   const buffer = Buffer.alloc(4);
   buffer.writeUInt8(0, 0);
   buffer.writeUInt8(protocol, 1);
   buffer.writeUInt16BE(value[1], 2);
 
-  return Buffer.concat([buffer, nodeIp.toBuffer(address)]);
+  return Buffer.concat([buffer, ipAddressToBuffer(address)]);
 }
 
 export function unpackErrorCode(data: Buffer): [number, string] {
@@ -47,12 +45,12 @@ function unpackAddress(data: Buffer): Address {
       if (address.length !== 4) {
         throw new Error("STUN address has invalid length for IPv4");
       }
-      return [nodeIp.toString(address), port];
+      return [bufferToIpAddress(address), port];
     case IPV6_PROTOCOL:
       if (address.length !== 16) {
         throw new Error("STUN address has invalid length for IPv6");
       }
-      return [nodeIp.toString(address), port];
+      return [bufferToIpAddress(address), port];
     default:
       throw new Error("STUN address has unknown protocol");
   }
@@ -129,13 +127,12 @@ const packUnsignedShort = (value: number) => {
 const unpackUnsignedShort = (data: Buffer) => data.readUInt16BE(0);
 
 const packUnsigned64 = (value: bigint) => {
-  return new Int64.Int64BE(value.toString()).toBuffer();
+  const buffer = Buffer.allocUnsafe(8);
+  buffer.writeBigUInt64BE(value, 0);
+  return buffer;
 };
 
-const unpackUnsigned64 = (data: Buffer) => {
-  const int = new Int64.Int64BE(data);
-  return BigInt(int.toString());
-};
+const unpackUnsigned64 = (data: Buffer) => data.readBigUInt64BE(0);
 
 const packString = (value: string) => Buffer.from(value, "utf8");
 const unpackString = (data: Buffer) => data.toString("utf8");
