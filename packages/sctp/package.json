@@ -29,7 +29,8 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6"
+    "@shinyoshiaki/jspack": "^0.0.6",
+    "debug": "4.4.0"
   },
   "engines": {
     "node": ">=10"
