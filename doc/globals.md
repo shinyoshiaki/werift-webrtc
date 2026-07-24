@@ -169,6 +169,7 @@
 - [CurrentDirection](type-aliases/CurrentDirection.md)
 - [CurveTypes](type-aliases/CurveTypes.md)
 - [DCState](type-aliases/DCState.md)
+- [DebugConfig](type-aliases/DebugConfig.md)
 - [DepacketizerCodec](type-aliases/DepacketizerCodec.md)
 - [DtlsKeys](type-aliases/DtlsKeys.md)
 - [DtlsRole](type-aliases/DtlsRole.md)
