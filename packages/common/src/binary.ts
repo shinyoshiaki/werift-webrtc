@@ -1,12 +1,11 @@
 import { randomBytes } from "crypto";
-import { jspack } from "@shinyoshiaki/jspack";
 
 export function random16() {
-  return jspack.Unpack("!H", randomBytes(2))[0];
+  return randomBytes(2).readUInt16BE(0);
 }
 
 export function random32() {
-  return jspack.Unpack("!L", randomBytes(4))[0];
+  return randomBytes(4).readUInt32BE(0);
 }
 
 export function bufferXor(a: Buffer, b: Buffer): Buffer {

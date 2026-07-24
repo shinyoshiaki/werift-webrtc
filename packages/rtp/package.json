@@ -39,15 +39,10 @@
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "@minhducsun2002/leb128": "^1.0.0",
-    "aes-js": "^3.1.2",
     "buffer": "^6.0.3",
-    "@shinyoshiaki/jspack": "^0.0.6",
     "mediabunny": "^1.45.2"
   },
-  "devDependencies": {
-    "@types/aes-js": "^3.1.4"
-  },
+  "devDependencies": {},
   "engines": {
     "node": ">=10"
   },

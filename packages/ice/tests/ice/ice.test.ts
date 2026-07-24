@@ -147,6 +147,48 @@ describe("ice", () => {
     expect(pair.state).toBe(CandidatePairState.FAILED);
   });
 
+  test("test_response_with_mismatched_port_fails", async () => {
+    // Arrange: host は一致するが port が異なる応答
+    const connection = createTestConnection(true);
+    connection.remotePassword = "remote-password";
+    connection.remoteUsername = "remote-username";
+
+    const protocol: any = new ProtocolMock();
+    protocol.responseAddr = ["2.3.4.5", 9999];
+    protocol.responseMessage = "bad";
+
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("some-foundation", 1, "udp", 2345, "2.3.4.5", 2345, "host"),
+      true,
+    );
+
+    // Act: connectivity check を実行する
+    await connection.checkStart(pair).awaitable;
+
+    // Assert: port 不一致は一致と判定しないこと
+    expect(pair.state).toBe(CandidatePairState.FAILED);
+  });
+
+  test("test_same_protocol_and_candidate_instance_does_not_duplicate_pair", () => {
+    // Arrange
+    const connection = createTestConnection(true);
+    connection.remotePassword = "remote-password";
+    connection.remoteUsername = "remote-username";
+    const protocol = new ProtocolMock() as any;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("PRIORITY", 456789);
+    request.setAttribute("USERNAME", `a:b`);
+
+    // Act: 同一 Protocol / 同一 remote candidate 経路で2回受信する
+    connection.checkIncoming(request, ["2.3.4.5", 2345], protocol);
+    connection.checkIncoming(request, ["2.3.4.5", 2345], protocol);
+
+    // Assert: candidate pair は重複作成されないこと
+    expect(connection.checkList.length).toBe(1);
+    expect(connection.remoteCandidates.length).toBe(1);
+  });
+
   test("test_ice_lite_replies_role_conflict_without_switching_role", async () => {
     const connection = createTestConnection(false, { iceLite: true });
     connection.remotePassword = "remote-password";

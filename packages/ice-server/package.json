@@ -23,11 +23,7 @@
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts"
   },
-  "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6",
-    "int64-buffer": "1.1.0",
-    "ip": "^2.0.1"
-  },
+  "dependencies": {},
   "devDependencies": {},
   "engines": {
     "node": ">=16"

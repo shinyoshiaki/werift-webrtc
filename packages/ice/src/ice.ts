@@ -1,10 +1,7 @@
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 
-import * as Int64 from "int64-buffer";
-
 import * as timers from "node:timers/promises";
-import isEqual from "fast-deep-equal";
 import { type Address, Event, debug } from "./imports/common";
 
 import {
@@ -57,9 +54,7 @@ export class Connection implements IceConnection {
   localCandidatesEnd = false;
   generation = -1;
   userHistory: { [username: string]: string } = {};
-  private readonly tieBreaker: bigint = BigInt(
-    new Int64.Uint64BE(randomBytes(64)).toString(),
-  );
+  private readonly tieBreaker: bigint = randomBytes(8).readBigUInt64BE(0);
   state: IceState = "new";
   lookup?: MdnsLookup;
 
@@ -913,8 +908,7 @@ export class Connection implements IceConnection {
   private findPair(protocol: Protocol, remoteCandidate: Candidate) {
     const pair = this.checkList.find(
       (pair) =>
-        isEqual(pair.protocol, protocol) &&
-        isEqual(pair.remoteCandidate, remoteCandidate),
+        pair.protocol === protocol && pair.remoteCandidate === remoteCandidate,
     );
     return pair;
   }
@@ -1113,7 +1107,10 @@ export class Connection implements IceConnection {
       }
 
       // # check remote address matches
-      if (!isEqual(result.addr, pair.remoteAddr)) {
+      if (
+        result.addr[0] !== pair.remoteAddr[0] ||
+        result.addr[1] !== pair.remoteAddr[1]
+      ) {
         pair.updateState(CandidatePairState.FAILED);
         this.checkComplete(pair);
         r();

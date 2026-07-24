@@ -28,9 +28,7 @@
     "unused": "organize-imports-cli **/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
-  "dependencies": {
-    "@shinyoshiaki/jspack": "^0.0.6"
-  },
+  "dependencies": {},
   "engines": {
     "node": ">=10"
   },

@@ -1,4 +1,9 @@
 import {
+  bufferToIpAddress,
+  ipAddressToBuffer,
+} from "../../../ice-server/src/stun/ip";
+import {
+  ATTRIBUTES_BY_NAME,
   packErrorCode,
   packXorAddress,
   unpackErrorCode,
@@ -113,5 +118,38 @@ describe("stun", () => {
     expect(data).toEqual(
       Buffer.from("0002a1470113a9faa5d3f179bc25f4b5bed2b9d9", "hex"),
     );
+  });
+
+  test.each([0n, 5943294521425135761n, 2n ** 64n - 1n])(
+    "unsigned 64-bit ICE-CONTROLLING pack/unpack %s",
+    (value) => {
+      // Arrange
+      const [, , pack, unpack] = ATTRIBUTES_BY_NAME["ICE-CONTROLLING"];
+
+      // Act: unsigned 64 bit を encode / decode する
+      const encoded = pack(value);
+      const decoded = unpack(encoded);
+
+      // Assert: 全域の値が往復すること
+      expect(encoded.length).toBe(8);
+      expect(decoded).toBe(value);
+    },
+  );
+
+  test.each([
+    "192.0.2.1",
+    "::1",
+    "2001:db8::1",
+    "2001:db8:1234:5678:11:2233:4455:6677",
+    "::ffff:192.0.2.1",
+  ])("ip address binary round-trip %s", (address) => {
+    // Act: text → binary → text → binary
+    const binary = ipAddressToBuffer(address);
+    const text = bufferToIpAddress(binary);
+    const binaryAgain = ipAddressToBuffer(text);
+
+    // Assert: 文字列表現が異なっても binary は同一であること
+    expect(binaryAgain.equals(binary)).toBe(true);
+    expect(binary.length === 4 || binary.length === 16).toBe(true);
   });
 });
