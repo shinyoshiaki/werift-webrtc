@@ -1,5 +1,4 @@
-import { createHmac } from "crypto";
-import AES from "aes-js";
+import { createCipheriv, createHmac } from "crypto";
 
 import type { CipherAesBase } from "../cipher";
 import { CipherAesCtr } from "../cipher/ctr";
@@ -9,6 +8,13 @@ import {
   ProtectionProfileAes128CmHmacSha1_80,
   type SrtpProfile,
 } from "../const";
+
+/** AES-128-ECB single-block encrypt for SRTP KDF (no padding). */
+export function aes128EcbEncrypt(key: Buffer, plaintext: Buffer): Buffer {
+  const cipher = createCipheriv("aes-128-ecb", key, null);
+  cipher.setAutoPadding(false);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
+}
 
 export class Context {
   srtpSSRCStates: { [ssrc: number]: SrtpSsrcState } = {};
@@ -30,7 +36,7 @@ export class Context {
     public profile: SrtpProfile,
   ) {
     {
-      // aes-js plaintext require 16byte
+      // AES-ECB plaintext require 16byte
       // so need to padding to 14 byte
       const diff = 14 - masterSalt.length;
       if (diff > 0) {
@@ -91,8 +97,7 @@ export class Context {
     }
 
     sessionKey = Buffer.concat([sessionKey, Buffer.from([0x00, 0x00])]);
-    const block = new AES.AES(this.masterKey);
-    return Buffer.from(block.encrypt(sessionKey) as ArrayBuffer);
+    return aes128EcbEncrypt(this.masterKey, sessionKey);
   }
 
   generateSessionSalt(label: number) {
@@ -114,8 +119,7 @@ export class Context {
       sessionSalt[j] = sessionSalt[j] ^ labelAndIndexOverKdr[i];
     }
     sessionSalt = Buffer.concat([sessionSalt, Buffer.from([0x00, 0x00])]);
-    const block = new AES.AES(this.masterKey);
-    sessionSalt = Buffer.from(block.encrypt(sessionSalt) as ArrayBuffer);
+    sessionSalt = aes128EcbEncrypt(this.masterKey, sessionSalt);
     return sessionSalt.subarray(0, 14);
   }
 
@@ -145,9 +149,8 @@ export class Context {
       sessionAuthTag,
       Buffer.from([0x00, 0x01]),
     ]);
-    const block = new AES.AES(this.masterKey);
-    firstRun = Buffer.from(block.encrypt(firstRun) as ArrayBuffer);
-    secondRun = Buffer.from(block.encrypt(secondRun) as ArrayBuffer);
+    firstRun = aes128EcbEncrypt(this.masterKey, firstRun);
+    secondRun = aes128EcbEncrypt(this.masterKey, secondRun);
     return Buffer.concat([firstRun, secondRun.subarray(0, 4)]);
   }
 

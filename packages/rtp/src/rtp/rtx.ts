@@ -1,5 +1,3 @@
-import { jspack } from "@shinyoshiaki/jspack";
-
 import { RtpHeader, RtpPacket } from "./rtp";
 
 export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
@@ -7,7 +5,7 @@ export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
     new RtpHeader({
       payloadType,
       marker: rtx.header.marker,
-      sequenceNumber: jspack.Unpack("!H", rtx.payload.subarray(0, 2))[0],
+      sequenceNumber: rtx.payload.readUInt16BE(0),
       timestamp: rtx.header.timestamp,
       ssrc,
     }),
@@ -22,6 +20,8 @@ export function wrapRtx(
   sequenceNumber: number,
   ssrc: number,
 ) {
+  const originalSequence = Buffer.allocUnsafe(2);
+  originalSequence.writeUInt16BE(packet.header.sequenceNumber, 0);
   const rtx = new RtpPacket(
     new RtpHeader({
       payloadType,
@@ -32,10 +32,7 @@ export function wrapRtx(
       csrc: packet.header.csrc,
       extensions: packet.header.extensions,
     }),
-    Buffer.concat([
-      Buffer.from(jspack.Pack("!H", [packet.header.sequenceNumber])),
-      packet.payload,
-    ]),
+    Buffer.concat([originalSequence, packet.payload]),
   );
   return rtx;
 }

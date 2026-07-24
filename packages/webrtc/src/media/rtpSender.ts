@@ -21,7 +21,6 @@ Figure 2: Example for round-trip time computation
  */
 
 import { randomBytes } from "crypto";
-import { jspack } from "@shinyoshiaki/jspack";
 
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
@@ -86,8 +85,8 @@ const RTT_ALPHA = 0.85;
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
-  readonly ssrc = jspack.Unpack("!L", randomBytes(4))[0];
-  readonly rtxSsrc = jspack.Unpack("!L", randomBytes(4))[0];
+  readonly ssrc = randomBytes(4).readUInt32BE(0);
+  readonly rtxSsrc = randomBytes(4).readUInt32BE(0);
   readonly trackId = randomUUID().toString();
   readonly onReady = new Event();
   readonly onRtcp = new Event<[RtcpPacket]>();

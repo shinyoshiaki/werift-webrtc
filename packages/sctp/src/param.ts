@@ -1,5 +1,3 @@
-import { jspack } from "@shinyoshiaki/jspack";
-
 // This parameter is used by the sender to request the reset of some or
 // all outgoing streams.
 //  0                   1                   2                   3
@@ -35,29 +33,30 @@ export class OutgoingSSNResetRequestParam {
   }
 
   get bytes() {
-    const data = Buffer.from(
-      jspack.Pack("!LLL", [
-        this.requestSequence,
-        this.responseSequence,
-        this.lastTsn,
-      ]),
-    );
+    // !LLL — requestSequence / responseSequence / lastTsn (big-endian uint32)
+    const data = Buffer.allocUnsafe(12);
+    data.writeUInt32BE(this.requestSequence, 0);
+    data.writeUInt32BE(this.responseSequence, 4);
+    data.writeUInt32BE(this.lastTsn, 8);
 
     return Buffer.concat([
       data,
-      ...this.streams.map((stream) => Buffer.from(jspack.Pack("!H", [stream]))),
+      ...this.streams.map((stream) => {
+        const buf = Buffer.allocUnsafe(2);
+        buf.writeUInt16BE(stream, 0);
+        return buf;
+      }),
     ]);
   }
 
   static parse(data: Buffer) {
-    const [requestSequence, responseSequence, lastTsn] = jspack.Unpack(
-      "!LLL",
-      data,
-    );
+    const requestSequence = data.readUInt32BE(0);
+    const responseSequence = data.readUInt32BE(4);
+    const lastTsn = data.readUInt32BE(8);
     const stream: number[] = [];
 
     for (let pos = 12; pos < data.length; pos += 2) {
-      stream.push(jspack.Unpack("!H", data.slice(pos))[0]);
+      stream.push(data.readUInt16BE(pos));
     }
 
     return new OutgoingSSNResetRequestParam(
@@ -82,13 +81,17 @@ export class StreamAddOutgoingParam {
   }
 
   get bytes() {
-    return Buffer.from(
-      jspack.Pack("!LHH", [this.requestSequence, this.newStreams, 0]),
-    );
+    // !LHH — requestSequence / newStreams / reserved
+    const buf = Buffer.allocUnsafe(8);
+    buf.writeUInt32BE(this.requestSequence, 0);
+    buf.writeUInt16BE(this.newStreams, 4);
+    buf.writeUInt16BE(0, 6);
+    return buf;
   }
 
   static parse(data: Buffer) {
-    const [requestSequence, newStreams] = jspack.Unpack("!LHH", data);
+    const requestSequence = data.readUInt32BE(0);
+    const newStreams = data.readUInt16BE(4);
     return new StreamAddOutgoingParam(requestSequence, newStreams);
   }
 }
@@ -128,13 +131,16 @@ export class ReconfigResponseParam {
   }
 
   get bytes() {
-    return Buffer.from(
-      jspack.Pack("!LL", [this.responseSequence, this.result]),
-    );
+    // !LL — responseSequence / result
+    const buf = Buffer.allocUnsafe(8);
+    buf.writeUInt32BE(this.responseSequence, 0);
+    buf.writeUInt32BE(this.result, 4);
+    return buf;
   }
 
   static parse(data: Buffer) {
-    const [requestSequence, result] = jspack.Unpack("!LL", data);
+    const requestSequence = data.readUInt32BE(0);
+    const result = data.readUInt32BE(4);
     return new ReconfigResponseParam(requestSequence, result as ReconfigResult);
   }
 }

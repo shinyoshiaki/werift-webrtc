@@ -1,11 +1,11 @@
 import * as os from "node:os";
-import nodeIp from "ip";
 import {
   type Address,
   type InterfaceAddresses,
   debug,
   normalizeFamilyNodeV18,
 } from "./imports/common";
+import { selectAddressesFromInterfaces } from "./internal/selectAddresses";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -47,42 +47,14 @@ export function nodeIpAddress(
     useLinkLocalAddress?: boolean;
   } = {},
 ): string[] {
-  // https://chromium.googlesource.com/external/webrtc/+/master/rtc_base/network.cc#236
-  const costlyNetworks = ["ipsec", "tun", "utun", "tap"];
-  const banNetworks = ["vmnet", "veth"];
-
   const interfaces = os.networkInterfaces();
-
   logger(interfaces);
-
-  const all = Object.keys(interfaces)
-    .map((nic) => {
-      for (const word of [...costlyNetworks, ...banNetworks]) {
-        if (nic.startsWith(word)) {
-          return {
-            nic,
-            addresses: [],
-          };
-        }
-      }
-      const addresses = interfaces[nic]!.filter(
-        (details) =>
-          normalizeFamilyNodeV18(details.family) === family &&
-          !nodeIp.isLoopback(details.address) &&
-          (useLinkLocalAddress ? true : !isLinkLocalAddress(details)),
-      );
-      return {
-        nic,
-        addresses: addresses.map((address) => address.address),
-      };
-    })
-    .filter((address) => !!address);
-
-  // os.networkInterfaces doesn't actually return addresses in a good order.
-  // have seen instances where en0 (ethernet) is after en1 (wlan), etc.
-  // eth0 > eth1
-  all.sort((a, b) => a.nic.localeCompare(b.nic));
-  return Object.values(all).flatMap((entry) => entry.addresses);
+  return selectAddressesFromInterfaces(
+    interfaces,
+    family,
+    { useLinkLocalAddress },
+    isLinkLocalAddress,
+  );
 }
 
 export function getHostAddresses(

@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import { jspack } from "@shinyoshiaki/jspack";
 
 import { Event, debug } from "../imports/common";
 
@@ -126,14 +125,11 @@ export class RTCSctpTransport {
             }
 
             if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
-              const [
-                ,
-                channelType,
-                ,
-                reliability,
-                labelLength,
-                protocolLength,
-              ] = jspack.Unpack("!BBHLHH", data);
+              // !BBHLHH — 12 byte DCEP OPEN header (big-endian)
+              const channelType = data.readUInt8(1);
+              const reliability = data.readUInt32BE(4);
+              const labelLength = data.readUInt16BE(8);
+              const protocolLength = data.readUInt16BE(10);
 
               let pos = 12;
               const label = data.slice(pos, pos + labelLength).toString("utf8");
@@ -175,11 +171,9 @@ export class RTCSctpTransport {
             }
 
             const channel = this.dataChannels[streamId];
-            this.dataChannelQueue.push([
-              channel,
-              WEBRTC_DCEP,
-              Buffer.from(jspack.Pack("!B", [DATA_CHANNEL_ACK])),
-            ]);
+            const ack = Buffer.allocUnsafe(1);
+            ack.writeUInt8(DATA_CHANNEL_ACK, 0);
+            this.dataChannelQueue.push([channel, WEBRTC_DCEP, ack]);
             await this.dataChannelFlush();
           }
           break;
@@ -265,16 +259,16 @@ export class RTCSctpTransport {
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
-    const data = jspack.Pack("!BBHLHH", [
-      DATA_CHANNEL_OPEN,
-      channelType,
-      priority,
-      reliability,
-      channel.label.length,
-      channel.protocol.length,
-    ]);
+    // !BBHLHH — message type / channel type / priority / reliability / label len / protocol len
+    const data = Buffer.allocUnsafe(12);
+    data.writeUInt8(DATA_CHANNEL_OPEN, 0);
+    data.writeUInt8(channelType, 1);
+    data.writeUInt16BE(priority, 2);
+    data.writeUInt32BE(reliability, 4);
+    data.writeUInt16BE(channel.label.length, 8);
+    data.writeUInt16BE(channel.protocol.length, 10);
     const send = Buffer.concat([
-      Buffer.from(data),
+      data,
       Buffer.from(channel.label, "utf8"),
       Buffer.from(channel.protocol, "utf8"),
     ]);

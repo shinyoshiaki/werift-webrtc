@@ -1,6 +1,10 @@
 import type { CipherAesCtr } from "../../../src/srtp/cipher/ctr";
 import { ProtectionProfileAes128CmHmacSha1_80 } from "../../../src/srtp/const";
-import { Context, type SrtpSsrcState } from "../../../src/srtp/context/context";
+import {
+  Context,
+  type SrtpSsrcState,
+  aes128EcbEncrypt,
+} from "../../../src/srtp/context/context";
 
 describe("srtp/context", () => {
   test("TestValidSessionKeys", () => {
@@ -40,6 +44,30 @@ describe("srtp/context", () => {
 
     const sessionAuthTag = c.generateSessionAuthTag(1);
     expect(sessionAuthTag).toEqual(expectedSessionAuthTag);
+  });
+
+  test("aes128EcbEncrypt does not add padding and encrypts 16-byte block", () => {
+    // Arrange: RFC 由来の master key と 16 byte plaintext
+    const key = Buffer.from([
+      0xe1, 0xf9, 0x7a, 0x0d, 0x3e, 0x01, 0x8b, 0xe0, 0xd6, 0x4f, 0xa3, 0x2c,
+      0x06, 0xde, 0x41, 0x39,
+    ]);
+    const plaintext = Buffer.from([
+      0x0e, 0xc6, 0x75, 0xad, 0x49, 0x8a, 0xfe, 0xeb, 0xb6, 0x96, 0x0b, 0x3a,
+      0xab, 0xe6, 0x00, 0x00,
+    ]);
+
+    // Act: padding なしで AES-ECB 1 block を暗号化する
+    const ciphertext = aes128EcbEncrypt(key, plaintext);
+
+    // Assert: 出力も 16 byte で、既知 session key と一致すること
+    expect(ciphertext.length).toBe(16);
+    expect(ciphertext).toEqual(
+      Buffer.from([
+        0xc6, 0x1e, 0x7a, 0x93, 0x74, 0x4f, 0x39, 0xee, 0x10, 0x73, 0x4a, 0xfe,
+        0x3f, 0xf7, 0xa0, 0x87,
+      ]),
+    );
   });
 
   test("TestValidPacketCounter", () => {

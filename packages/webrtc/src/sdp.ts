@@ -1,6 +1,5 @@
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-import * as Int64 from "int64-buffer";
 
 import {
   DTLS_ROLE_SETUP,
@@ -694,7 +693,7 @@ export function addSDPHeader(
   description: SessionDescription,
 ) {
   const username = "-";
-  const sessionId = new Int64.Uint64BE(randomBytes(64)).toString().slice(0, 8);
+  const sessionId = randomBytes(8).readBigUInt64BE(0).toString().slice(0, 8);
   const sessionVersion = 0;
 
   description.origin = `${username} ${sessionId} ${sessionVersion} IN IP4 0.0.0.0`;
