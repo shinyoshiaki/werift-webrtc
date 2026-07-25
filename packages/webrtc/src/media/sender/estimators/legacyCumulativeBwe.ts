@@ -1,4 +1,4 @@
-import { Event, uint16Gt } from "../../../imports/common";
+import { Event } from "../../../imports/common";
 import { Int, type TransportWideCC } from "../../../imports/rtp";
 import { milliTime } from "../../../utils";
 import type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
