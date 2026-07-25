@@ -41,11 +41,12 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 
 | API | Role |
 | --- | --- |
-| `RTCRtpSender.senderBWE` | Active `BandwidthEstimator` (default: legacy cumulative) |
+| `RTCRtpSender.senderBWE` | **Getter** for active `BandwidthEstimator` (default: legacy). Replace only via setter. |
 | `RTCRtpSender.setBandwidthEstimator(impl)` | Swap algorithm instance (e.g. `new GccBandwidthEstimator()`) |
 | **`sender.onAvailableBitrate`** | **bps**; fires only when the recommended bitrate **changes**. Survives estimator swap — prefer this for apps. |
-| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target |
+| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target (`ProbePacingController`) |
 | `sender.onProbeClusterConfig` | GCC probe cluster targets for pacing / encoder ramp |
+| `isProbePacingController(e)` | Type guard for probe/pacing hooks (not on common interface) |
 
 ```ts
 import {

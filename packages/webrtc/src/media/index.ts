@@ -9,7 +9,15 @@ export * from "./rtpTransceiver";
 export * from "./stats";
 export * from "../transceiverManager";
 export * from "./track";
-export type { BandwidthEstimator, SentInfo } from "./sender/bandwidthEstimator";
+export type {
+  BandwidthEstimator,
+  ProbePacingController,
+  SentInfo,
+} from "./sender/bandwidthEstimator";
+export {
+  isProbePacingController,
+  setAvailableBitrateIfChanged,
+} from "./sender/bandwidthEstimator";
 export {
   LegacyCumulativeBandwidthEstimator,
   SenderBandwidthEstimator,

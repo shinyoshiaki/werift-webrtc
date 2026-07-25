@@ -1,7 +1,11 @@
 import { Event } from "../../../../imports/common";
 import type { TransportWideCC } from "../../../../imports/rtp";
 import { milliTime } from "../../../../utils";
-import type { BandwidthEstimator, SentInfo } from "../../bandwidthEstimator";
+import type {
+  BandwidthEstimator,
+  ProbePacingController,
+  SentInfo,
+} from "../../bandwidthEstimator";
 import { setAvailableBitrateIfChanged } from "../../bandwidthEstimator";
 import { AimdRateControl } from "./aimdRateControl";
 import {
@@ -40,7 +44,9 @@ interface GroupSample {
  * Bitrate is published only after at least one **known** sent sequence is
  * observed in TWCC (empty / unmatched feedback does not notify).
  */
-export class GccBandwidthEstimator implements BandwidthEstimator {
+export class GccBandwidthEstimator
+  implements BandwidthEstimator, ProbePacingController
+{
   /** @internal */
   _availableBitrate = 0;
 
@@ -199,6 +205,12 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     const known = received + lost;
     const lossFraction = known > 0 ? lost / known : 0;
     const ackedBps = this.measureAckedBitrate(nowMs);
+    // Bytes in this matched batch (for observation sending-rate context).
+    let batchBytes = 0;
+    for (const result of results) {
+      const info = this.sentInfos.get(result.sequenceNumber & 0xffff);
+      if (info) batchBytes += info.size;
+    }
 
     this.flushGroup(nowMs);
     const usage = this.trendline.state;
@@ -212,6 +224,10 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
       lossFraction,
       this.delayBasedBps,
       ackedBps,
+      known,
+      lost,
+      nowMs,
+      batchBytes,
     );
 
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);

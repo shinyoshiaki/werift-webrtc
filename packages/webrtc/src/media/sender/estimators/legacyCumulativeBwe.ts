@@ -129,10 +129,13 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
 
   rtpPacketSent(sentInfo: SentInfo) {
     const latest = sentInfo.wideSeq & 0xffff;
-    // Drop history older than the latest wide seq (16-bit wrap-aware).
+    // Keep a reordering window of recent wide-seq numbers (wrap-aware).
+    // Do not delete every older seq — TWCC batches need history.
+    const window = 2048;
     for (const key of Object.keys(this.sentInfos)) {
       const seq = Number(key) & 0xffff;
-      if (seq !== latest && !uint16Gt(seq, latest)) {
+      const age = (latest - seq + 0x10000) & 0xffff;
+      if (age > window && age < 0x8000) {
         delete this.sentInfos[seq];
       }
     }

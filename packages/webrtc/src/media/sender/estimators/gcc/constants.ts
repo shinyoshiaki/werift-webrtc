@@ -65,8 +65,21 @@ export const kReactionTimeMs = 100;
 export const kBitrateWindowMs = 1000;
 export const kDefaultRttMs = 100;
 
-// --- Loss-based ---
+// --- Loss-based (LossBasedBweV2-style) ---
 
+/** Observation window size (libwebrtc default-ish). */
+export const kLossBasedObservationWindow = 20;
+
+/** Candidate bandwidth factors relative to current estimate. */
+export const kLossBasedCandidateFactors = [1.02, 1.0, 0.95, 0.9] as const;
+
+/** Lower bound on inherent (non-congestion) loss. */
+export const kLossBasedInherentLossLowerBound = 1e-3;
+
+/** Cap increasing estimates vs acknowledged rate (V2 ramp-up bound). */
+export const kLossBasedRampupUpperBoundFactor = 1.1;
+
+/** Legacy threshold names kept for test / draft interop. */
 export const kLossIncreaseThreshold = 0.02;
 export const kLossDecreaseThreshold = 0.1;
 export const kLossBasedIncreaseFactor = 1.05;
@@ -82,10 +95,10 @@ export const kProbeMinPackets = 5;
 export const kProbeResultTimeoutMs = 1000;
 
 /**
- * Max padding packet payload size when RTCRtpSender injects probe padding
- * (libwebrtc uses padding to fill probe clusters when media is sparse).
+ * RTP padding size (bytes) when RTCRtpSender injects probe padding.
+ * Must fit in a single octet (RFC 3550 last padding byte = length), so ≤255.
  */
-export const kProbePaddingPacketBytes = 256;
+export const kProbePaddingPacketBytes = 224;
 
 /** Max probe padding packets emitted per sendRtp / maybeSendProbePadding call. */
 export const kProbePaddingMaxBurst = 8;
@@ -102,8 +115,8 @@ export const kSentInfoMaxAgeMs = 10_000;
  *   not webrtc::PacedSender / PacketRouter.
  */
 export const GCC_KNOWN_DIFFERENCES = [
-  "LossBasedBwe uses libwebrtc-aligned thresholds/states, not full LossBasedBweV2 candidate enumeration",
+  "LossBasedBweV2 uses observation window + candidates + objective ranking; Newton's method iterations simplified",
   "No REMB integration; TWCC feedback path only",
-  "RTCRtpSender injects RTP padding for probe clusters when media is sparse (simplified vs webrtc pacer)",
+  "RTCRtpSender injects RTP padding (P-bit + paddingSize) for probe clusters when media is sparse",
   "Numerical results may differ slightly due to language/time-source differences",
 ] as const;

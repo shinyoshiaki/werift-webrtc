@@ -20,12 +20,8 @@ export interface SentInfo {
 /**
  * Common contract for send-side bandwidth estimators driven by TWCC feedback.
  *
- * TWCC ({@link https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01})
- * only defines the feedback transport; the estimation algorithm is pluggable.
- *
- * The shared output is limited to the recommended send bitrate (`availableBitrate`)
- * and its change notifications. Algorithm-specific signals (congestion score,
- * overuse, probe state, …) stay on concrete implementations.
+ * Limited to TWCC I/O + recommended bitrate. Probe / pacing hooks live on
+ * {@link ProbePacingController} so the shared surface stays thin.
  */
 export interface BandwidthEstimator {
   /**
@@ -36,13 +32,7 @@ export interface BandwidthEstimator {
 
   /**
    * Fires when the recommended send bitrate (**bps**) **changes**.
-   *
-   * - Fired on the first valid estimate and whenever the value differs from the previous notification.
-   * - Not fired when the estimator re-computes the same bitrate.
-   * - Unit is always bits per second (bps).
-   *
-   * Application bitrate adaptation should subscribe to this event. Algorithm-specific
-   * events (legacy congestion score, GCC overuse, …) are only available on concrete types.
+   * Unit is always bits per second (bps). Change-only (not every recompute).
    */
   readonly onAvailableBitrate: Event<[number]>;
 
@@ -52,40 +42,49 @@ export interface BandwidthEstimator {
   /** Process a Transport-Wide CC RTCP feedback packet and update the estimate. */
   receiveTWCC(feedback: TransportWideCC): void;
 
-  /**
-   * When true, the next outgoing RTP packet should be tagged as a probe
-   * (`SentInfo.isProbation`) so the estimator can attribute probe clusters.
-   * Optional; only estimators that implement bandwidth probing need this.
-   */
-  shouldTagProbePacket?(): boolean;
-
-  /**
-   * Optional pacing target (bps) for the send engine.
-   * While probing this is typically `max(availableBitrate, probeTarget)`.
-   * {@link RTCRtpSender} uses this for its lightweight token-bucket pacer.
-   */
-  getPacingBitrateBps?(): number;
-
-  /**
-   * Optional: number of padding packets the sender should inject to fill the
-   * active probe cluster when media traffic alone is insufficient.
-   */
-  pendingProbePaddingPackets?(packetBytes?: number): number;
-
-  /**
-   * Clear internal history / estimates (e.g. after estimator swap or transport restart).
-   * Optional for lightweight implementations.
-   */
+  /** Clear internal history / estimates. */
   reset?(): void;
 
   /**
-   * Release listeners / timers. Optional; called when the sender replaces the estimator.
-   *
-   * Implementations that clear `onAvailableBitrate` subscribers should be aware
-   * that {@link RTCRtpSender} rebinds its stable `onAvailableBitrate` bridge after
-   * dispose — callers of the sender event do not need to re-subscribe on swap.
+   * Release listeners / timers when the sender replaces the estimator.
+   * {@link RTCRtpSender} rebinds its stable `onAvailableBitrate` bridge after dispose.
    */
   dispose?(): void;
+}
+
+/**
+ * Optional probe / pacing control surface used by {@link RTCRtpSender}.
+ *
+ * Not part of the common {@link BandwidthEstimator} contract — only estimators
+ * that implement probing (e.g. GCC) need this. Use {@link isProbePacingController}.
+ */
+export interface ProbePacingController {
+  /** Tag the next outgoing packet as a probe (`SentInfo.isProbation`). */
+  shouldTagProbePacket(): boolean;
+
+  /**
+   * Pacing target (bps) for the send engine.
+   * Typically `max(availableBitrate, activeProbeTarget)`.
+   */
+  getPacingBitrateBps(): number;
+
+  /**
+   * Number of padding packets the sender should inject to fill the active
+   * probe cluster when media alone is insufficient.
+   */
+  pendingProbePaddingPackets(packetBytes?: number): number;
+}
+
+/** Type guard for estimators that drive probe padding / pacing. */
+export function isProbePacingController(
+  e: BandwidthEstimator,
+): e is BandwidthEstimator & ProbePacingController {
+  const c = e as BandwidthEstimator & Partial<ProbePacingController>;
+  return (
+    typeof c.shouldTagProbePacket === "function" &&
+    typeof c.getPacingBitrateBps === "function" &&
+    typeof c.pendingProbePaddingPackets === "function"
+  );
 }
 
 /**

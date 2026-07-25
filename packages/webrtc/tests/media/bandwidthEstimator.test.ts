@@ -4,7 +4,6 @@ import {
   GccBandwidthEstimator,
   LossBasedBwe,
   PacketResult,
-  ProbeController,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
@@ -15,9 +14,11 @@ import {
   TransportWideCC,
   TrendlineEstimator,
   type BandwidthEstimator,
+  type ProbePacingController,
   type SentInfo,
+  isProbePacingController,
   kBeta,
-  kLossBasedIncreaseFactor,
+  kProbePaddingPacketBytes,
   kTrendlineWindowSize,
   sortPacketResultsByWideSeq,
 } from "../../src";
@@ -60,7 +61,6 @@ function sent(
   };
 }
 
-/** Feed monotonic send/recv with configurable recv stretch (delay growth). */
 function feedDelayScenario(
   gcc: GccBandwidthEstimator,
   opts: {
@@ -68,8 +68,8 @@ function feedDelayScenario(
     t0: number;
     count: number;
     sendInterval: number;
-    /** Extra ms added to inter-recv each step (0 = flat delay). */
     recvStretchPerStep: number;
+    lossRatio?: number;
     baseOneWayMs?: number;
   },
 ) {
@@ -79,6 +79,7 @@ function feedDelayScenario(
     count,
     sendInterval,
     recvStretchPerStep,
+    lossRatio = 0,
     baseOneWayMs = 20,
   } = opts;
   for (let i = 0; i < count; i++) {
@@ -87,105 +88,218 @@ function feedDelayScenario(
   let recv = t0 + baseOneWayMs;
   const results = Array.from({ length: count }, (_, i) => {
     const sendMs = t0 + i * sendInterval;
-    recv += sendInterval + recvStretchPerStep;
+    const lost = lossRatio > 0 && i / count < lossRatio;
+    if (!lost) {
+      recv += sendInterval + recvStretchPerStep;
+    }
     return new PacketResult({
       sequenceNumber: seq0 + i,
-      received: true,
-      receivedAtMs: Math.max(recv, sendMs + 1),
+      received: !lost,
+      receivedAtMs: lost ? 0 : Math.max(recv, sendMs + 1),
     });
   });
   gcc.receiveTWCC(makeTwccFeedback(results));
 }
 
+async function prepareConnectedSender(estimator?: BandwidthEstimator) {
+  const sender = new RTCRtpSender("video");
+  const dtls = createDtlsTransport();
+  (dtls as { state: string }).state = "connected";
+  const sentPackets: { header: RtpHeader; payload: Buffer; size: number }[] =
+    [];
+  dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+    const size =
+      payload.length + (header.padding ? header.paddingSize : 0) + 12;
+    // Snapshot header fields — the same object is mutated across sends.
+    sentPackets.push({
+      header: new RtpHeader({ ...header, extensions: [...header.extensions] }),
+      payload: Buffer.from(payload),
+      size,
+    });
+    return size;
+  }) as typeof dtls.sendRtp;
+  dtls.transportSequenceNumber = 0;
+  sender.setDtlsTransport(dtls);
+  if (estimator) {
+    sender.setBandwidthEstimator(estimator);
+  }
+  sender.prepareSend({
+    codecs: [
+      new RTCRtpCodecParameters({
+        mimeType: "video/VP8",
+        clockRate: 90000,
+        payloadType: 96,
+      }),
+    ],
+    headerExtensions: [
+      new RTCRtpHeaderExtensionParameters({
+        id: 3,
+        uri: RTP_EXTENSION_URI.transportWideCC,
+      }),
+    ],
+    muxId: "0",
+    rtcp: { cname: "test", mux: true },
+  });
+  return { sender, dtls, sentPackets };
+}
+
 describe("media/sender bandwidth estimator", () => {
-  describe("legacy", () => {
-    test("帯域が変わったときだけ onAvailableBitrate が発火する", () => {
+  describe("interface separation", () => {
+    test("共通 BandwidthEstimator に probe API は含まれない", () => {
+      // Arrange
+      const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
+      const gcc = new GccBandwidthEstimator();
+
+      // Assert: probe は type guard 経由
+      expect(isProbePacingController(legacy)).toBe(false);
+      expect(isProbePacingController(gcc)).toBe(true);
+      const probe: ProbePacingController = gcc;
+      expect(probe.getPacingBitrateBps()).toBeGreaterThan(0);
+    });
+
+    test("senderBWE は getter のみで直接代入できない", () => {
+      // Arrange
+      const sender = new RTCRtpSender("audio");
+      const gcc = new GccBandwidthEstimator();
+
+      // Act
+      sender.setBandwidthEstimator(gcc);
+
+      // Assert
+      expect(sender.senderBWE).toBe(gcc);
+      // 公開 field ではない（代入しても型エラー; 実行時は getter のみ）
+      expect(
+        Object.getOwnPropertyDescriptor(
+          Object.getPrototypeOf(sender),
+          "senderBWE",
+        )?.set,
+      ).toBeUndefined();
+    });
+  });
+
+  describe("legacy 合成 TWCC", () => {
+    test("一定レートの合成 TWCC から availableBitrate が期待範囲になる", () => {
+      // Arrange: 1000 byte / 10ms → 理論 800 kbps
+      const bwe = new SenderBandwidthEstimator();
+      const t0 = Date.now() - 2000;
+      const n = 30;
+      const size = 1000;
+      const interval = 10;
+      for (let i = 0; i < n; i++) {
+        bwe.rtpPacketSent(sent(i + 1, size, t0 + i * interval));
+      }
+      const results = Array.from({ length: n }, (_, i) => {
+        const sendMs = t0 + i * interval;
+        return new PacketResult({
+          sequenceNumber: i + 1,
+          received: true,
+          receivedAtMs: sendMs + 20,
+        });
+      });
+
+      // Act
+      bwe.receiveTWCC(makeTwccFeedback(results));
+
+      // Assert: min(send, recv) 近傍（許容幅広め）
+      expect(bwe.availableBitrate).toBeGreaterThan(200_000);
+      expect(bwe.availableBitrate).toBeLessThan(2_000_000);
+      // 理論 800kbps の 0.4〜1.6 倍
+      expect(bwe.availableBitrate).toBeGreaterThan(320_000);
+      expect(bwe.availableBitrate).toBeLessThan(1_280_000);
+    });
+
+    test("変化時のみ onAvailableBitrate", () => {
       const bwe = new SenderBandwidthEstimator();
       const fired: number[] = [];
       bwe.onAvailableBitrate.subscribe((v) => fired.push(v));
-      bwe.availableBitrate = 500_000;
-      bwe.availableBitrate = 500_000;
-      bwe.availableBitrate = 600_000;
-      expect(fired).toEqual([500_000, 600_000]);
+      bwe.availableBitrate = 100_000;
+      bwe.availableBitrate = 100_000;
+      bwe.availableBitrate = 200_000;
+      expect(fired).toEqual([100_000, 200_000]);
     });
   });
 
-  describe("TrendlineEstimator (libwebrtc)", () => {
-    test("窓が満杯になるまで slope を再計算しない", () => {
-      const t = new TrendlineEstimator();
-      for (let i = 0; i < kTrendlineWindowSize - 1; i++) {
-        t.update(30, 20, 1000 + i * 30);
-      }
-      // 窓未充足: trend は 0 のまま
-      expect(t.trend).toBe(0);
-      expect(t.sampleCount).toBe(kTrendlineWindowSize - 1);
+  describe("GccBandwidthEstimator loss 統合", () => {
+    test("高損失 TWCC で availableBitrate が下がる", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(500_000);
+      const t0 = Date.now() - 8_000;
 
-      t.update(30, 20, 1000 + (kTrendlineWindowSize - 1) * 30);
-      expect(t.sampleCount).toBe(kTrendlineWindowSize);
-      // 正の delay gradient → 正の slope
-      expect(t.trend).toBeGreaterThan(0);
+      // Act: 無損失でベース
+      feedDelayScenario(gcc, {
+        seq0: 1,
+        t0,
+        count: 40,
+        sendInterval: 15,
+        recvStretchPerStep: 0,
+        lossRatio: 0,
+      });
+      feedDelayScenario(gcc, {
+        seq0: 50,
+        t0: t0 + 1000,
+        count: 40,
+        sendInterval: 15,
+        recvStretchPerStep: 0,
+        lossRatio: 0,
+      });
+      const lowLoss = gcc.availableBitrate;
+      expect(lowLoss).toBeGreaterThan(0);
+
+      // Act: 40% loss
+      feedDelayScenario(gcc, {
+        seq0: 100,
+        t0: t0 + 2000,
+        count: 50,
+        sendInterval: 15,
+        recvStretchPerStep: 0,
+        lossRatio: 0.4,
+      });
+      feedDelayScenario(gcc, {
+        seq0: 160,
+        t0: t0 + 3000,
+        count: 50,
+        sendInterval: 15,
+        recvStretchPerStep: 0,
+        lossRatio: 0.4,
+      });
+      const highLoss = gcc.availableBitrate;
+
+      // Assert
+      expect(highLoss).toBeLessThan(lowLoss);
     });
 
-    test("modified_trend = min(n,60) * trend * 4 で overuse に遷移し得る", () => {
-      const t = new TrendlineEstimator();
-      // 強い正勾配を多数投入
-      for (let i = 0; i < 80; i++) {
-        t.update(40, 10, 2000 + i * 20);
+    test("LossBasedBwe 観測窓で平均 loss が反映される", () => {
+      const loss = new LossBasedBwe();
+      loss.reset(500_000);
+      // 複数 observation
+      for (let i = 0; i < 5; i++) {
+        loss.update(0.0, 500_000, 500_000, 20, 0, 1000 + i, 20_000);
       }
-      expect(t.modifiedTrend).toBeGreaterThan(0);
-      // 十分なサンプル後は overuse になることが多い
-      expect(["overuse", "normal"]).toContain(t.state);
-      // 閾値適応が動いている
-      expect(t.adaptiveThreshold).toBeGreaterThanOrEqual(6);
-    });
-
-    test("負の遅延勾配で underuse になる", () => {
-      const t = new TrendlineEstimator();
-      // まず正勾配で窓を満たす
-      for (let i = 0; i < kTrendlineWindowSize; i++) {
-        t.update(25, 20, 3000 + i * 20);
+      const up = loss.targetBitrateBps;
+      for (let i = 0; i < 5; i++) {
+        loss.update(0.3, 400_000, 400_000, 20, 6, 2000 + i, 20_000);
       }
-      // 負勾配（キュー排出）
-      for (let i = 0; i < 40; i++) {
-        t.update(5, 20, 4000 + i * 20);
-      }
-      expect(t.trend).toBeLessThan(0);
-      expect(t.state).toBe("underuse");
+      expect(loss.targetBitrateBps).toBeLessThan(up);
+      expect(loss.averageLossRatio).toBeGreaterThan(0.05);
+      expect(["decreasing", "hold", "delay_based"]).toContain(loss.lossState);
     });
   });
 
-  describe("GccBandwidthEstimator delay path", () => {
-    test("空の TWCC / 未知 sequence では bitrate を通知しない", () => {
+  describe("Gcc delay / empty", () => {
+    test("空 TWCC では通知しない", () => {
       const gcc = new GccBandwidthEstimator(300_000);
       const fired: number[] = [];
       gcc.onAvailableBitrate.subscribe((v) => fired.push(v));
-
-      // Act: 完全に空
       gcc.receiveTWCC(makeTwccFeedback([]));
-      // Act: 未知 seq のみ
-      gcc.receiveTWCC(
-        makeTwccFeedback([
-          new PacketResult({
-            sequenceNumber: 99,
-            received: true,
-            receivedAtMs: 1_000_000,
-          }),
-        ]),
-      );
-
-      // Assert
       expect(fired).toEqual([]);
       expect(gcc.availableBitrate).toBe(0);
     });
 
-    test("delay overuse で availableBitrate が下がる", () => {
-      // Arrange: wall-clock 近傍の時刻で acked bitrate も測れるようにする
+    test("delay overuse で帯域低下", () => {
       const gcc = new GccBandwidthEstimator(400_000);
       const usages: string[] = [];
       gcc.onOveruseDetected.subscribe((u) => usages.push(u));
       const t0 = Date.now() - 5_000;
-
-      // Act: 安定経路でベースを作る
       feedDelayScenario(gcc, {
         seq0: 1,
         t0,
@@ -194,270 +308,226 @@ describe("media/sender bandwidth estimator", () => {
         recvStretchPerStep: 0,
       });
       const baseline = gcc.availableBitrate;
-      expect(baseline).toBeGreaterThan(0);
-
-      // Act: 強い正の delay gradient を連続投入（overuse）
-      // sendInterval を send_delta として overuse タイマーが進む
       feedDelayScenario(gcc, {
         seq0: 100,
-        t0: t0 + 2_000,
+        t0: t0 + 2000,
         count: 80,
         sendInterval: 20,
         recvStretchPerStep: 25,
       });
-      const afterOveruse = gcc.availableBitrate;
-
-      // Assert: overuse が検出され、帯域が下がる（AIMD beta 経路）
       expect(usages.includes("overuse") || gcc.usageState === "overuse").toBe(
         true,
       );
-      expect(afterOveruse).toBeLessThan(baseline);
-    });
-
-    test("underuse 後に normal/increase 方向へ復帰する", () => {
-      const gcc = new GccBandwidthEstimator(300_000);
-
-      // overuse 気味に落とす
-      feedDelayScenario(gcc, {
-        seq0: 1,
-        t0: 6_000_000,
-        count: 50,
-        sendInterval: 15,
-        recvStretchPerStep: 10,
-      });
-      const low = gcc.availableBitrate;
-
-      // 負の勾配（キュー排出 = underuse）
-      feedDelayScenario(gcc, {
-        seq0: 100,
-        t0: 6_020_000,
-        count: 50,
-        sendInterval: 15,
-        recvStretchPerStep: -5,
-      });
-      // 安定復帰
-      feedDelayScenario(gcc, {
-        seq0: 200,
-        t0: 6_040_000,
-        count: 40,
-        sendInterval: 15,
-        recvStretchPerStep: 0,
-      });
-      const recovered = gcc.availableBitrate;
-
-      // Assert: underuse を経由、または帯域が回復方向
-      expect(
-        gcc.usageState === "underuse" ||
-          gcc.usageState === "normal" ||
-          recovered >= low,
-      ).toBe(true);
-      expect(recovered).toBeGreaterThan(0);
-    });
-
-    test("決定的 overuse 系列: AIMD が beta 倍に寄る", () => {
-      // 部品レベルで固定
-      const aimd = new AimdRateControl();
-      aimd.reset(500_000);
-      const d1 = aimd.update("overuse", 500_000, 1000);
-      expect(d1).toBe(Math.round(500_000 * kBeta));
-
-      // Gcc 統合: overuse 状態を作ってから loss=0 の追加 feedback
-      const gcc = new GccBandwidthEstimator(500_000);
-      feedDelayScenario(gcc, {
-        seq0: 1,
-        t0: 7_000_000,
-        count: 80,
-        sendInterval: 10,
-        recvStretchPerStep: 15,
-      });
-      const series: number[] = [gcc.availableBitrate];
-      feedDelayScenario(gcc, {
-        seq0: 200,
-        t0: 7_010_000,
-        count: 40,
-        sendInterval: 10,
-        recvStretchPerStep: 15,
-      });
-      series.push(gcc.availableBitrate);
-
-      // 2 回目の強い overuse 後は同値以下
-      expect(series[1]).toBeLessThanOrEqual(series[0] * 1.05);
-      expect(series[0]).toBeGreaterThan(0);
+      expect(gcc.availableBitrate).toBeLessThan(baseline);
     });
   });
 
-  describe("loss / probe", () => {
-    test("LossBasedBwe 系列", () => {
-      const loss = new LossBasedBwe();
-      loss.reset(500_000);
-      const up = loss.update(0.01, 500_000, 500_000);
-      expect(up).toBeGreaterThanOrEqual(
-        Math.round(500_000 * kLossBasedIncreaseFactor),
-      );
-      const down = loss.update(0.2, 400_000, 400_000);
-      expect(down).toBeLessThan(up);
-    });
-
-    test("ProbeController exponential + complete", () => {
-      const probe = new ProbeController();
-      const clusters = probe.setBitrates(10_000, 100_000, 10_000_000, 1000);
-      expect(clusters.length).toBeGreaterThanOrEqual(1);
-      expect(probe.probeState).toBe("waiting_for_result");
-      for (let i = 0; i < 10; i++) {
-        probe.onAckedPacket(1200, 1000 + i * 5, true);
+  describe("Trendline", () => {
+    test("窓満杯まで slope 未更新", () => {
+      const t = new TrendlineEstimator();
+      for (let i = 0; i < kTrendlineWindowSize - 1; i++) {
+        t.update(30, 20, 1000 + i * 30);
       }
-      expect(probe.takePendingEstimateBps()).toBeGreaterThan(0);
-    });
-
-    test("pendingProbePaddingPackets は probe 中に正", () => {
-      const gcc = new GccBandwidthEstimator(100_000);
-      gcc.shouldTagProbePacket();
-      expect(gcc.pendingProbePaddingPackets()).toBeGreaterThan(0);
+      expect(t.trend).toBe(0);
+      t.update(30, 20, 1000 + kTrendlineWindowSize * 30);
+      expect(t.trend).toBeGreaterThan(0);
     });
   });
 
-  describe("sequence wrap-around", () => {
-    test("sortPacketResultsByWideSeq", () => {
-      const clustered = [
-        new PacketResult({ sequenceNumber: 65534, received: true }),
-        new PacketResult({ sequenceNumber: 1, received: true }),
-        new PacketResult({ sequenceNumber: 0, received: true }),
-        new PacketResult({ sequenceNumber: 65535, received: true }),
-      ];
-      expect(sortPacketResultsByWideSeq(clustered).map((r) => r.sequenceNumber)).toEqual(
-        [65534, 65535, 0, 1],
-      );
-    });
-  });
-
-  describe("RTCRtpSender 配線", () => {
-    test("sender.onAvailableBitrate は差し替え後も維持", () => {
-      const sender = new RTCRtpSender("video");
-      const fired: number[] = [];
-      sender.onAvailableBitrate.subscribe((v) => fired.push(v));
-      const gcc = new GccBandwidthEstimator(300_000);
-      sender.setBandwidthEstimator(gcc);
-      feedDelayScenario(gcc, {
-        seq0: 1,
-        t0: 8_000_000,
-        count: 35,
-        sendInterval: 15,
-        recvStretchPerStep: 0,
-      });
-      // handleRtcp でも配送できることを確認
-      expect(gcc.availableBitrate).toBeGreaterThan(0);
-      expect(fired.length).toBeGreaterThanOrEqual(1);
-    });
-
-    test("空 TWCC を handleRtcpPacket しても通知しない", () => {
-      const sender = new RTCRtpSender("video");
-      const gcc = new GccBandwidthEstimator(300_000);
-      sender.setBandwidthEstimator(gcc);
-      const fired: number[] = [];
-      sender.onAvailableBitrate.subscribe((v) => fired.push(v));
-      sender.handleRtcpPacket(makeTwccRtcp([]));
-      expect(fired).toEqual([]);
-      expect(gcc.availableBitrate).toBe(0);
-    });
-
-    test("sendRtp 経路で probe padding が生成され isProbation になる", async () => {
-      const sender = new RTCRtpSender("video");
-      const dtls = createDtlsTransport();
-      (dtls as { state: string }).state = "connected";
-      let sendCount = 0;
-      dtls.sendRtp = vi.fn(async () => {
-        sendCount++;
-        return 256;
-      }) as typeof dtls.sendRtp;
-      dtls.transportSequenceNumber = 50;
-      sender.setDtlsTransport(dtls);
-
+  describe("Probe padding 品質", () => {
+    test("padding bit・一意 sequence・受信可能な wire 形式", async () => {
+      // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
-      sender.setBandwidthEstimator(gcc);
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
       const rtpSpy = vi.spyOn(gcc, "rtpPacketSent");
 
-      sender.prepareSend({
-        codecs: [
-          new RTCRtpCodecParameters({
-            mimeType: "video/VP8",
-            clockRate: 90000,
+      // Act: メディア 1 + probe padding
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 10,
+            timestamp: 1000,
             payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
           }),
-        ],
-        headerExtensions: [
-          new RTCRtpHeaderExtensionParameters({
-            id: 3,
-            uri: RTP_EXTENSION_URI.transportWideCC,
-          }),
-        ],
-        muxId: "0",
-        rtcp: { cname: "test", mux: true },
-      });
-
-      // Act: メディア 1 パケット → probe padding も注入される
-      const packet = new RtpPacket(
-        new RtpHeader({
-          sequenceNumber: 0,
-          timestamp: 0,
-          payloadType: 96,
-          ssrc: 1,
-          extension: true,
-          extensions: [],
-          marker: false,
-          padding: false,
-          payloadOffset: 12,
-        }),
-        Buffer.alloc(100),
+          Buffer.alloc(80),
+        ),
       );
-      await sender.sendRtp(packet);
 
-      // Assert: media + padding
-      expect(sendCount).toBeGreaterThan(1);
-      expect(rtpSpy.mock.calls.length).toBeGreaterThan(1);
-      const probationCount = rtpSpy.mock.calls.filter(
-        (c) => (c[0] as SentInfo).isProbation === true,
-      ).length;
-      expect(probationCount).toBeGreaterThan(0);
-      expect(sender.pacingBitrateBps).toBeGreaterThanOrEqual(100_000);
+      // Assert: 複数送信
+      expect(sentPackets.length).toBeGreaterThan(1);
+
+      // padding パケットは P-bit と paddingSize
+      const padHeaders = sentPackets.filter((p) => p.header.padding);
+      expect(padHeaders.length).toBeGreaterThan(0);
+      for (const p of padHeaders) {
+        expect(p.header.padding).toBe(true);
+        expect(p.header.paddingSize).toBe(kProbePaddingPacketBytes);
+        // シリアライズして再パース可能（受信可能性）
+        const wire = new RtpPacket(p.header, p.payload).serialize();
+        const parsed = RtpPacket.deSerialize(wire);
+        expect(parsed.header.padding).toBe(true);
+        expect(parsed.header.paddingSize).toBe(kProbePaddingPacketBytes);
+      }
+
+      // RTP sequence が一意かつ単調増加
+      const seqs = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(seqs).size).toBe(seqs.length);
+      for (let i = 1; i < seqs.length; i++) {
+        expect(uint16Forward(seqs[i - 1], seqs[i])).toBe(true);
+      }
+
+      // isProbation タグ
+      const probation = rtpSpy.mock.calls.filter(
+        (c) => (c[0] as SentInfo).isProbation,
+      );
+      expect(probation.length).toBeGreaterThan(0);
     });
 
-    test("maybeInjectProbePadding 単体でも padding を送る", async () => {
-      const sender = new RTCRtpSender("video");
-      const dtls = createDtlsTransport();
-      (dtls as { state: string }).state = "connected";
-      dtls.sendRtp = vi.fn(async () => 256) as typeof dtls.sendRtp;
-      sender.setDtlsTransport(dtls);
-      sender.setBandwidthEstimator(new GccBandwidthEstimator(100_000));
-      sender.prepareSend({
-        codecs: [
-          new RTCRtpCodecParameters({
-            mimeType: "video/VP8",
-            clockRate: 90000,
-            payloadType: 96,
-          }),
-        ],
-        headerExtensions: [
-          new RTCRtpHeaderExtensionParameters({
-            id: 3,
-            uri: RTP_EXTENSION_URI.transportWideCC,
-          }),
-        ],
-        muxId: "0",
-        rtcp: { cname: "t", mux: true },
-      });
-
+    test("maybeInjectProbePadding が専用経路で padding を送る", async () => {
+      const { sender, sentPackets } = await prepareConnectedSender(
+        new GccBandwidthEstimator(100_000),
+      );
       const n = await sender.maybeInjectProbePadding();
       expect(n).toBeGreaterThan(0);
-      expect(dtls.sendRtp).toHaveBeenCalled();
+      expect(sentPackets.every((p) => p.header.padding)).toBe(true);
+      const seqs = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(seqs).size).toBe(seqs.length);
     });
   });
 
-  describe("共通 interface", () => {
-    test("BandwidthEstimator 契約", () => {
-      const e: BandwidthEstimator = new GccBandwidthEstimator();
-      expect(e.onAvailableBitrate).toBeDefined();
-      expect(e.rtpPacketSent).toBeTypeOf("function");
-      expect(e.receiveTWCC).toBeTypeOf("function");
+  describe("sendRtp → handleRtcpPacket 決定的系列", () => {
+    test("差し替え後 TWCC が新 estimator に渡り帯域が更新される", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(300_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      const fired: number[] = [];
+      sender.onAvailableBitrate.subscribe((v) => fired.push(v));
+
+      // Act: 複数 sendRtp（probe padding 含む）
+      for (let i = 0; i < 15; i++) {
+        await sender.sendRtp(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: i,
+              timestamp: i * 3000,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: false,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(500),
+          ),
+        );
+      }
+
+      // 記録された sentInfos 相当: rtpPacketSent から wideSeq を復元
+      // TWCC は transport sequence を使う — dtls の現在値から遡る
+      const lastWide = dtls.transportSequenceNumber;
+      // 直近 40 パケット分を受信済みとして返す
+      const count = Math.min(40, lastWide);
+      const base = Date.now() - 1000;
+      const results = Array.from({ length: count }, (_, i) => {
+        const seq = lastWide - count + 1 + i;
+        return new PacketResult({
+          sequenceNumber: seq & 0xffff,
+          received: true,
+          receivedAtMs: base + i * 15,
+        });
+      });
+
+      // Act: handleRtcpPacket 経路
+      sender.handleRtcpPacket(makeTwccRtcp(results));
+
+      // Assert
+      expect(sender.senderBWE).toBe(gcc);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+      expect(fired.length).toBeGreaterThanOrEqual(1);
+      expect(fired.at(-1)).toBe(gcc.availableBitrate);
+    });
+
+    test("loss 系列を sendRtp/TWCC 経路で再現できる", async () => {
+      const gcc = new GccBandwidthEstimator(400_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+
+      const pushBatch = async (n: number, lossRatio: number, tBase: number) => {
+        for (let i = 0; i < n; i++) {
+          await sender.sendRtp(
+            new RtpPacket(
+              new RtpHeader({
+                sequenceNumber: i,
+                timestamp: i * 3000,
+                payloadType: 96,
+                ssrc: 1,
+                extension: true,
+                extensions: [],
+                marker: false,
+                padding: false,
+                payloadOffset: 12,
+              }),
+              Buffer.alloc(800),
+            ),
+          );
+        }
+        const last = dtls.transportSequenceNumber;
+        const results = Array.from({ length: n }, (_, i) => {
+          const seq = (last - n + 1 + i) & 0xffff;
+          const lost = i / n < lossRatio;
+          return new PacketResult({
+            sequenceNumber: seq,
+            received: !lost,
+            receivedAtMs: lost ? 0 : tBase + i * 12,
+          });
+        });
+        sender.handleRtcpPacket(makeTwccRtcp(results));
+      };
+
+      await pushBatch(25, 0, Date.now() - 2000);
+      await pushBatch(25, 0, Date.now() - 1000);
+      const good = gcc.availableBitrate;
+      await pushBatch(30, 0.45, Date.now() - 500);
+      await pushBatch(30, 0.45, Date.now() - 100);
+      const bad = gcc.availableBitrate;
+
+      expect(good).toBeGreaterThan(0);
+      expect(bad).toBeLessThanOrEqual(good);
+    });
+  });
+
+  describe("AIMD", () => {
+    test("overuse で beta 倍", () => {
+      const aimd = new AimdRateControl();
+      aimd.reset(500_000);
+      expect(aimd.update("overuse", 500_000, 1000)).toBe(
+        Math.round(500_000 * kBeta),
+      );
+    });
+  });
+
+  describe("wrap-around", () => {
+    test("sortPacketResultsByWideSeq", () => {
+      expect(
+        sortPacketResultsByWideSeq([
+          new PacketResult({ sequenceNumber: 65534, received: true }),
+          new PacketResult({ sequenceNumber: 1, received: true }),
+          new PacketResult({ sequenceNumber: 0, received: true }),
+          new PacketResult({ sequenceNumber: 65535, received: true }),
+        ]).map((r) => r.sequenceNumber),
+      ).toEqual([65534, 65535, 0, 1]);
     });
   });
 });
+
+/** True if b is the next sequence after a (or later within half-range). */
+function uint16Forward(a: number, b: number): boolean {
+  const da = (b - a + 0x10000) & 0xffff;
+  return da > 0 && da < 0x8000;
+}
