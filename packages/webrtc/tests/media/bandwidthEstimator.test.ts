@@ -1,10 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
+import type { Config } from "../../../rtp/src/srtp/session";
+import { SrtpSession } from "../../../rtp/src/srtp/srtp";
 import {
   AimdRateControl,
+  type BandwidthEstimator,
   GccBandwidthEstimator,
   LossBasedBwe,
   PacketResult,
   PacketStatus,
+  type ProbePacingController,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
@@ -13,11 +17,9 @@ import {
   RtpHeader,
   RtpPacket,
   SenderBandwidthEstimator,
+  type SentInfo,
   TransportWideCC,
   TrendlineEstimator,
-  type BandwidthEstimator,
-  type ProbePacingController,
-  type SentInfo,
   appendRfc3550Padding,
   isProbePacingController,
   kBeta,
@@ -26,8 +28,6 @@ import {
   sortPacketResultsByWideSeq,
 } from "../../src";
 import { RTP_EXTENSION_URI } from "../../src/imports/rtp";
-import type { Config } from "../../../rtp/src/srtp/session";
-import { SrtpSession } from "../../../rtp/src/srtp/srtp";
 import { createDtlsTransport } from "../fixture";
 
 function makeTwccFeedback(results: PacketResult[]): TransportWideCC {
@@ -236,12 +236,14 @@ describe("media/sender bandwidth estimator", () => {
         // 送信時刻も相対的でよい（inter-arrival 用）
         gcc.rtpPacketSent(sent(i + 1, size, twccRecvBase + i * interval));
       }
-      const results = Array.from({ length: n }, (_, i) =>
-        new PacketResult({
-          sequenceNumber: i + 1,
-          received: true,
-          receivedAtMs: twccRecvBase + i * interval + 5,
-        }),
+      const results = Array.from(
+        { length: n },
+        (_, i) =>
+          new PacketResult({
+            sequenceNumber: i + 1,
+            received: true,
+            receivedAtMs: twccRecvBase + i * interval + 5,
+          }),
       );
 
       // Act
@@ -333,20 +335,20 @@ describe("media/sender bandwidth estimator", () => {
         referenceTime: twcc.referenceTime + 10,
         fbPktCount: (twcc.fbPktCount + 1) & 0xff,
       });
-      const batchResults = Array.from({ length: n }, (_, i) =>
-        new PacketResult({
-          sequenceNumber: baseSeq + 10 + i,
-          received: true,
-          receivedAtMs: Number(BigInt(batch.referenceTime) * 64n) + i * 15,
-        }),
+      const batchResults = Array.from(
+        { length: n },
+        (_, i) =>
+          new PacketResult({
+            sequenceNumber: baseSeq + 10 + i,
+            received: true,
+            receivedAtMs: Number(BigInt(batch.referenceTime) * 64n) + i * 15,
+          }),
       );
       Object.defineProperty(batch, "packetResults", {
         get: () => batchResults,
       });
       for (let i = 0; i < n; i++) {
-        gcc.rtpPacketSent(
-          sent(baseSeq + 10 + i, 1000, 40_000 + 100 + i * 15),
-        );
+        gcc.rtpPacketSent(sent(baseSeq + 10 + i, 1000, 40_000 + 100 + i * 15));
       }
       gcc.receiveTWCC(batch);
 
@@ -539,7 +541,10 @@ describe("media/sender bandwidth estimator", () => {
 
       // 2nd exponential cluster が残っていれば waiting、完了なら complete
       // 続けて 2nd を消化
-      if (gcc.probeState === "waiting_for_result" || gcc.shouldTagProbePacket()) {
+      if (
+        gcc.probeState === "waiting_for_result" ||
+        gcc.shouldTagProbePacket()
+      ) {
         runProbe(100, 9_500, 15);
       }
       const afterSecond = gcc.availableBitrate;

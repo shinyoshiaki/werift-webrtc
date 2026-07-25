@@ -23,6 +23,8 @@ RUN apt-get update \
 RUN npm install -g @anthropic-ai/claude-code @github/copilot @openai/codex opencode-ai
 # Playwright Chromium system libraries (ubuntu 24.04 / noble package names).
 # Required for ice-server chrome-e2e, e2e/, and turn-loopback Playwright runs.
+# GStreamer is required by e2e mediachannel handlers that inject test RTP
+# (addTrack / red / rtx / removeTrack) via gst-launch-1.0.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     fonts-freefont-ttf \
@@ -32,6 +34,12 @@ RUN apt-get update \
     fonts-tlwg-loma-otf \
     fonts-unifont \
     fonts-wqy-zenhei \
+    gstreamer1.0-libav \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-tools \
     libasound2t64 \
     libatk-bridge2.0-0t64 \
     libatk1.0-0t64 \
@@ -44,6 +52,7 @@ RUN apt-get update \
     libfreetype6 \
     libgbm1 \
     libglib2.0-0t64 \
+    libgstreamer1.0-0 \
     libnspr4 \
     libnss3 \
     libpango-1.0-0 \

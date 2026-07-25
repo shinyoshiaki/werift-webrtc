@@ -1,26 +1,28 @@
 import type { ChildProcess } from "child_process";
-import { createSocket } from "dgram";
+import type { Socket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-  randomPort,
 } from "../../";
 import { DtlsKeysContext } from "../../fixture";
 import { spawnGstreamerPipeline, stopGstreamerProcess } from "../../gstreamer";
+import { closeUdpSource, openUdpSource } from "../../udpSource";
 
 export class mediachannel_red_client_answer {
   pc!: RTCPeerConnection;
   process?: ChildProcess;
-  udp = createSocket("udp4");
+  udp?: Socket;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
+          await stopGstreamerProcess(this.process);
+          this.process = undefined;
+          const { udp, port } = await openUdpSource(this.udp);
+          this.udp = udp;
 
           this.pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -74,8 +76,10 @@ export class mediachannel_red_client_answer {
         break;
       case "done":
         {
-          this.udp.close();
+          closeUdpSource(this.udp);
+          this.udp = undefined;
           await stopGstreamerProcess(this.process);
+          this.process = undefined;
           this.pc.close();
           accept({});
         }
@@ -87,7 +91,7 @@ export class mediachannel_red_client_answer {
 export class mediachannel_red_client_offer {
   pc!: RTCPeerConnection;
   process?: ChildProcess;
-  udp = createSocket("udp4");
+  udp?: Socket;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -116,8 +120,10 @@ export class mediachannel_red_client_offer {
         break;
       case "offer":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
+          await stopGstreamerProcess(this.process);
+          this.process = undefined;
+          const { udp, port } = await openUdpSource(this.udp);
+          this.udp = udp;
 
           const track = new MediaStreamTrack({ kind: "audio" });
           this.pc.addTrack(track);
@@ -149,8 +155,10 @@ export class mediachannel_red_client_offer {
         break;
       case "done":
         {
-          this.udp.close();
+          closeUdpSource(this.udp);
+          this.udp = undefined;
           await stopGstreamerProcess(this.process);
+          this.process = undefined;
           this.pc.close();
           accept({});
         }

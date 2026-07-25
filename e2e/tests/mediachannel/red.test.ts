@@ -60,7 +60,10 @@ describe("mediachannel_red", () => {
       };
       pc.ontrack = async (ev) => {
         const receiver = ev.receiver;
-        receiverTransform(receiver, 97, () => {
+        receiverTransform(receiver, 97, async () => {
+          await peer
+            .request(mediachannel_red_client_answer, { type: "done" })
+            .catch(() => {});
           pc.close();
           done();
         });
@@ -95,7 +98,10 @@ describe("mediachannel_red", () => {
       });
       pc.ontrack = async (ev) => {
         const receiver = ev.receiver;
-        receiverTransform(receiver, 111, () => {
+        receiverTransform(receiver, 111, async () => {
+          await peer
+            .request(mediachannel_red_client_offer, { type: "done" })
+            .catch(() => {});
           pc.close();
           done();
         });

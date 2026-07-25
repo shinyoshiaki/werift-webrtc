@@ -94,7 +94,9 @@ export class GccBandwidthEstimator
 
   getPacingBitrateBps(): number {
     const estimate =
-      this._availableBitrate > 0 ? this._availableBitrate : this.startBitrateBps;
+      this._availableBitrate > 0
+        ? this._availableBitrate
+        : this.startBitrateBps;
     const probeTarget = this.probe.currentProbeTargetBps;
     return Math.max(estimate, probeTarget);
   }
@@ -108,9 +110,7 @@ export class GccBandwidthEstimator
    * How many padding packets the sender should inject to progress the active
    * probe cluster when media is sparse. 0 if not probing or cluster is full.
    */
-  pendingProbePaddingPackets(
-    packetBytes = kProbePaddingPacketBytes,
-  ): number {
+  pendingProbePaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
     this.ensureProbing(milliTime());
     if (!this.probe.shouldTagProbePacket()) return 0;
     const targetBps = this.probe.currentProbeTargetBps;

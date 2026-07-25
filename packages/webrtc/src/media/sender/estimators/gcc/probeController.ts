@@ -1,12 +1,12 @@
 import {
   kDefaultStartBitrateBps,
+  kFurtherProbeThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeBitrateMultipliers,
   kProbeMinDurationMs,
   kProbeMinPackets,
   kProbeResultTimeoutMs,
-  kFurtherProbeThreshold,
 } from "./constants";
 
 /**
@@ -122,13 +122,13 @@ export class ProbeController {
   /** Application / recovery request for additional probes. */
   requestProbe(estimatedBps: number, nowMs: number): ProbeClusterConfig[] {
     if (this.state === "waiting_for_result") return [];
-    const base = Math.max(estimatedBps, this.startBitrateBps, kDefaultStartBitrateBps);
-    const target = clamp(base * 1.5, this.maxBitrateBps);
-    return this.enqueueClusters(
-      nowMs,
-      [target],
-      /*probeFurther*/ false,
+    const base = Math.max(
+      estimatedBps,
+      this.startBitrateBps,
+      kDefaultStartBitrateBps,
     );
+    const target = clamp(base * 1.5, this.maxBitrateBps);
+    return this.enqueueClusters(nowMs, [target], /*probeFurther*/ false);
   }
 
   setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
@@ -150,10 +150,7 @@ export class ProbeController {
    * Advance timeouts / promote queued clusters.
    */
   process(nowMs: number): ProbeClusterConfig[] {
-    if (
-      this.active &&
-      nowMs - this.active.startMs > kProbeResultTimeoutMs
-    ) {
+    if (this.active && nowMs - this.active.startMs > kProbeResultTimeoutMs) {
       // Timed out waiting for enough acks — drop cluster, continue queue.
       this.active = undefined;
       if (this.queue.length === 0 && this.state === "waiting_for_result") {

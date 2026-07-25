@@ -1,15 +1,15 @@
 import type { ChildProcess } from "child_process";
-import { createSocket } from "dgram";
+import type { Socket } from "dgram";
 import type { AcceptFn } from "protoo-server";
 import {
   MediaStreamTrack,
   MediaStreamTrackFactory,
   RTCPeerConnection,
   RtpPacket,
-  randomPort,
 } from "../../";
 import { peerConfig } from "../../fixture";
 import { spawnGstreamerPipeline, stopGstreamerProcess } from "../../gstreamer";
+import { closeUdpSource, openUdpSource } from "../../udpSource";
 
 export class mediachannel_addTrack_answer {
   pc!: RTCPeerConnection;
@@ -20,6 +20,17 @@ export class mediachannel_addTrack_answer {
     switch (type) {
       case "init":
         {
+          // vitest retry reuses this handler; tear down previous resources first
+          this.disposer();
+          this.disposer = () => {};
+          await stopGstreamerProcess(this.process);
+          this.process = undefined;
+          try {
+            this.pc?.close();
+          } catch {
+            // ignore
+          }
+
           const [track, port, disposer] =
             await MediaStreamTrackFactory.rtpSource({ kind: "video" });
           this.disposer = disposer;
@@ -53,8 +64,10 @@ export class mediachannel_addTrack_answer {
       case "done":
         {
           this.disposer();
+          this.disposer = () => {};
           this.pc.close();
           await stopGstreamerProcess(this.process);
+          this.process = undefined;
           accept({});
         }
         break;
@@ -65,20 +78,27 @@ export class mediachannel_addTrack_answer {
 export class mediachannel_addTrack_offer {
   pc!: RTCPeerConnection;
   process?: ChildProcess;
-  udp = createSocket("udp4");
+  udp?: Socket;
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init":
         {
+          try {
+            this.pc?.close();
+          } catch {
+            // ignore
+          }
           this.pc = new RTCPeerConnection(await peerConfig);
           accept({});
         }
         break;
       case "offer":
         {
-          const port = await randomPort();
-          this.udp.bind(port);
+          await stopGstreamerProcess(this.process);
+          this.process = undefined;
+          const { udp, port } = await openUdpSource(this.udp);
+          this.udp = udp;
 
           const track = new MediaStreamTrack({ kind: "video" });
           this.pc.addTrack(track);
@@ -109,9 +129,11 @@ export class mediachannel_addTrack_offer {
         break;
       case "done":
         {
-          this.udp.close();
+          closeUdpSource(this.udp);
+          this.udp = undefined;
           this.pc.close();
           await stopGstreamerProcess(this.process);
+          this.process = undefined;
           accept({});
         }
         break;

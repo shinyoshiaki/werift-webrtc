@@ -25,8 +25,10 @@ export function sortPacketResultsByWideSeq<
   if (results.length <= 1) return [...results];
   const origin = results[0].sequenceNumber & 0xffff;
   return [...results].sort((a, b) => {
-    const da = ((a.sequenceNumber & 0xffff) - origin + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
-    const db = ((b.sequenceNumber & 0xffff) - origin + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+    const da =
+      ((a.sequenceNumber & 0xffff) - origin + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+    const db =
+      ((b.sequenceNumber & 0xffff) - origin + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
     return da - db;
   });
 }

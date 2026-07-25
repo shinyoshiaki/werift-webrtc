@@ -135,10 +135,7 @@ export class LossBasedBwe {
       this.acknowledgedBps = acknowledgedBps;
     }
 
-    const n =
-      packetCount > 0
-        ? packetCount
-        : 20;
+    const n = packetCount > 0 ? packetCount : 20;
     const lost =
       packetCount > 0
         ? lostCount
@@ -160,7 +157,7 @@ export class LossBasedBwe {
 
     const prev = this.current.lossLimitedBandwidthBps;
     let best = { ...this.current };
-    let bestObjective = -Infinity;
+    let bestObjective = Number.NEGATIVE_INFINITY;
 
     for (const candidate of this.getCandidates(delayBasedBps)) {
       this.newtonsMethodUpdate(candidate);
@@ -276,7 +273,10 @@ export class LossBasedBwe {
     return bandwidths.map((bw) => {
       let lossLimited = bw;
       if (bw > this.current.lossLimitedBandwidthBps) {
-        lossLimited = Math.min(bw, Math.max(this.current.lossLimitedBandwidthBps, rampupCap));
+        lossLimited = Math.min(
+          bw,
+          Math.max(this.current.lossLimitedBandwidthBps, rampupCap),
+        );
       }
       const candidate: ChannelParameters = {
         inherentLoss: this.current.inherentLoss,
@@ -315,7 +315,10 @@ export class LossBasedBwe {
     );
   }
 
-  private getDerivatives(c: ChannelParameters): { first: number; second: number } {
+  private getDerivatives(c: ChannelParameters): {
+    first: number;
+    second: number;
+  } {
     let first = 0;
     let second = 0;
     for (const o of this.observations) {
@@ -325,13 +328,9 @@ export class LossBasedBwe {
         o.sendingRateBps,
       );
       const w = this.temporalWeightFor(o);
-      first +=
-        w *
-        (o.numLostPackets / lp - o.numReceivedPackets / (1 - lp));
+      first += w * (o.numLostPackets / lp - o.numReceivedPackets / (1 - lp));
       second -=
-        w *
-        (o.numLostPackets / lp ** 2 +
-          o.numReceivedPackets / (1 - lp) ** 2);
+        w * (o.numLostPackets / lp ** 2 + o.numReceivedPackets / (1 - lp) ** 2);
     }
     if (second >= 0) second = -1e-6;
     return { first, second };
@@ -341,8 +340,7 @@ export class LossBasedBwe {
     if (this.observations.length === 0) return;
     for (let i = 0; i < kLossBasedNewtonIterations; i++) {
       const d = this.getDerivatives(c);
-      c.inherentLoss -=
-        (kLossBasedNewtonStepSize * d.first) / d.second;
+      c.inherentLoss -= (kLossBasedNewtonStepSize * d.first) / d.second;
       c.inherentLoss = this.getFeasibleInherentLoss(c);
     }
   }

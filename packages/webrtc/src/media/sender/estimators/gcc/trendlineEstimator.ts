@@ -190,7 +190,8 @@ export class TrendlineEstimator {
         ? kThresholdGainDown
         : kThresholdGainUp;
     const timeDeltaMs = Math.min(nowMs - this.lastUpdateMs, 100);
-    this.threshold += k * (Math.abs(modifiedTrend) - this.threshold) * timeDeltaMs;
+    this.threshold +=
+      k * (Math.abs(modifiedTrend) - this.threshold) * timeDeltaMs;
     this.threshold = Math.min(
       Math.max(this.threshold, kMinThresholdMs),
       kMaxThresholdMs,

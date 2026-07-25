@@ -68,10 +68,7 @@ import {
   kProbePaddingMaxBurst,
   kProbePaddingPacketBytes,
 } from "./sender/estimators/gcc/constants";
-import {
-  SenderBandwidthEstimator,
-  type SentInfo,
-} from "./sender/senderBWE";
+import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import {
   type RTCCodecStats,
   type RTCMediaSourceStats,
@@ -135,7 +132,14 @@ export class RTCRtpSender {
    * active estimator is {@link GccBandwidthEstimator}.
    */
   readonly onProbeClusterConfig = new Event<
-    [{ id: number; targetBps: number; minPackets: number; minDurationMs: number }]
+    [
+      {
+        id: number;
+        targetBps: number;
+        minPackets: number;
+        minDurationMs: number;
+      },
+    ]
   >();
   private bweProbeUnsub?: () => void;
 
@@ -274,7 +278,14 @@ export class RTCRtpSender {
     this.bweProbeUnsub = undefined;
     const maybeGcc = impl as BandwidthEstimator & {
       onProbeClusterConfig?: Event<
-        [{ id: number; targetBps: number; minPackets: number; minDurationMs: number }]
+        [
+          {
+            id: number;
+            targetBps: number;
+            minPackets: number;
+            minDurationMs: number;
+          },
+        ]
       >;
     };
     if (maybeGcc.onProbeClusterConfig) {
@@ -571,8 +582,7 @@ export class RTCRtpSender {
     // Token-bucket pacing only for estimators that implement ProbePacingController
     // (e.g. GCC). Legacy default estimator must not alter send timing.
     const padBytes = header.padding ? header.paddingSize : 0;
-    const payloadLen =
-      payload.length + padBytes + (header.serializeSize || 12);
+    const payloadLen = payload.length + padBytes + (header.serializeSize || 12);
     if (isProbePacingController(this._senderBWE)) {
       if (!(await this.awaitPacingBudget(payloadLen))) {
         return;

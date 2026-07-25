@@ -155,11 +155,10 @@ export class AimdRateControl {
         (1 - alpha) * this.avgMaxBitrateKbps + alpha * ackKbps;
     }
     const norm = ackKbps - this.avgMaxBitrateKbps;
-    this.varMaxBitrateKbps =
-      Math.max(
-        (1 - alpha) * this.varMaxBitrateKbps + alpha * norm * norm,
-        0.4,
-      );
+    this.varMaxBitrateKbps = Math.max(
+      (1 - alpha) * this.varMaxBitrateKbps + alpha * norm * norm,
+      0.4,
+    );
   }
 }
 
