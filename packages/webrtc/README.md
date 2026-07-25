@@ -51,10 +51,9 @@ import {
   type SenderBandwidthEstimator,
 } from "werift";
 
-// Default is legacy (mediasoup-style cumulative min send/recv bitrate).
-// Common adaptation path — bps, change-only:
-sender.senderBWE.onAvailableBitrate.subscribe((bps) => {
-  // drive encoder / simulcast layer selection
+// Prefer the sender-level event — subscriptions survive setBandwidthEstimator.
+sender.onAvailableBitrate.subscribe((bps) => {
+  // drive encoder / simulcast layer selection (bps, change-only)
 });
 
 // Optional: switch to Google Congestion Control (delay + loss + probe).

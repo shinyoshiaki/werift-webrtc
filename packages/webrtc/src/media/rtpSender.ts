@@ -102,12 +102,20 @@ export class RTCRtpSender {
    * Default is {@link SenderBandwidthEstimator} (legacy cumulative algorithm).
    * Replace with {@link setBandwidthEstimator} (e.g. `new GccBandwidthEstimator()`).
    *
-   * Subscribe to `senderBWE.onAvailableBitrate` for recommended bitrate in **bps**
-   * (fires only when the estimate changes). Algorithm-specific events such as
-   * legacy `onCongestion` / `onCongestionScore` or GCC `onOveruseDetected` are
-   * only available on the concrete instance after casting / before swap.
+   * Prefer {@link onAvailableBitrate} on this sender for bitrate notifications that
+   * survive estimator swaps. `senderBWE.onAvailableBitrate` is the underlying
+   * estimator event and is rebound on swap — algorithm-specific events
+   * (`onCongestion*`, `onOveruseDetected`, …) remain on concrete instances only.
    */
   senderBWE: BandwidthEstimator = new SenderBandwidthEstimator();
+
+  /**
+   * Stable recommended send bitrate event (**bps**, change-only).
+   * Bridged from the active {@link BandwidthEstimator}; subscriptions survive
+   * {@link setBandwidthEstimator} without re-subscribing.
+   */
+  readonly onAvailableBitrate = new Event<[number]>();
+  private bweAvailableBitrateUnsub?: () => void;
 
   private cname?: string;
   private mid?: string;
@@ -166,6 +174,7 @@ export class RTCRtpSender {
     if (typeof trackOrKind !== "string") {
       this.registerTrack(trackOrKind);
     }
+    this.bindBandwidthEstimatorEvents(this.senderBWE);
   }
 
   get transport() {
@@ -203,21 +212,31 @@ export class RTCRtpSender {
    *
    * Behavior on swap:
    * 1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
-   * 2. Calls `dispose()` (or `reset()`) on the previous instance when available.
-   * 3. Starts the new instance clean (no implicit state merge).
+   * 2. Unbinds the stable {@link onAvailableBitrate} bridge, then `dispose()`/`reset()` the old instance.
+   * 3. Starts the new instance clean (no implicit state merge) and rebinds the bridge.
    *
-   * Re-subscribe algorithm-specific events on the new concrete instance;
-   * only `onAvailableBitrate` is guaranteed on {@link BandwidthEstimator}.
+   * Subscriptions to {@link onAvailableBitrate} on this sender are preserved.
+   * Re-subscribe algorithm-specific events on the new concrete instance.
    */
   setBandwidthEstimator(impl: BandwidthEstimator): void {
     const prev = this.senderBWE;
     if (prev === impl) return;
+    this.bweAvailableBitrateUnsub?.();
+    this.bweAvailableBitrateUnsub = undefined;
     if (prev.dispose) {
       prev.dispose();
     } else {
       prev.reset?.();
     }
     this.senderBWE = impl;
+    this.bindBandwidthEstimatorEvents(impl);
+  }
+
+  private bindBandwidthEstimatorEvents(impl: BandwidthEstimator) {
+    this.bweAvailableBitrateUnsub?.();
+    this.bweAvailableBitrateUnsub = impl.onAvailableBitrate.subscribe((bps) => {
+      this.onAvailableBitrate.execute(bps);
+    }).unSubscribe;
   }
 
   get redDistance() {
@@ -489,6 +508,8 @@ export class RTCRtpSender {
       size,
       sendingAtMs: millitime,
       sentAtMs: millitime,
+      // Tag probe cluster packets so GCC (and similar) can estimate probe bitrate.
+      isProbation: this.senderBWE.shouldTagProbePacket?.() === true,
     };
     this.senderBWE.rtpPacketSent(sentInfo);
   }

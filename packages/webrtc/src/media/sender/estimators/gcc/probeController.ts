@@ -112,15 +112,15 @@ export class ProbeController {
 
   /**
    * Feed an acked packet that may belong to the active probe cluster.
-   * Prefer packets marked isProbation; also accept any packet while probing.
+   *
+   * Only packets tagged as probe/probation (`isProbe === true`) contribute to
+   * the probe bitrate estimate. Untagged media is ignored so normal traffic
+   * does not silently complete a probe cluster.
    */
   onAckedPacket(sizeBytes: number, receivedAtMs: number, isProbe: boolean) {
     const cluster = this.activeCluster;
     if (!cluster || this.state !== "probing") return;
-    if (!isProbe && cluster.packets === 0) {
-      // Wait for at least one explicit probe packet when available.
-      // If sender never marks probation, still accumulate after start.
-    }
+    if (!isProbe) return;
 
     cluster.bytes += sizeBytes;
     cluster.packets += 1;
@@ -139,6 +139,13 @@ export class ProbeController {
       this.activeCluster = undefined;
       this.state = "cooldown";
     }
+  }
+
+  /**
+   * Whether the sender should mark the next packet as a probe (`isProbation`).
+   */
+  shouldTagProbePacket(): boolean {
+    return this.state === "probing" && !!this.activeCluster;
   }
 
   /** Force-finish probe without a result (e.g. timeout). */

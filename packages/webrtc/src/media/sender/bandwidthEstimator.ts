@@ -53,6 +53,13 @@ export interface BandwidthEstimator {
   receiveTWCC(feedback: TransportWideCC): void;
 
   /**
+   * When true, the next outgoing RTP packet should be tagged as a probe
+   * (`SentInfo.isProbation`) so the estimator can attribute probe clusters.
+   * Optional; only estimators that implement bandwidth probing need this.
+   */
+  shouldTagProbePacket?(): boolean;
+
+  /**
    * Clear internal history / estimates (e.g. after estimator swap or transport restart).
    * Optional for lightweight implementations.
    */
@@ -60,6 +67,10 @@ export interface BandwidthEstimator {
 
   /**
    * Release listeners / timers. Optional; called when the sender replaces the estimator.
+   *
+   * Implementations that clear `onAvailableBitrate` subscribers should be aware
+   * that {@link RTCRtpSender} rebinds its stable `onAvailableBitrate` bridge after
+   * dispose — callers of the sender event do not need to re-subscribe on swap.
    */
   dispose?(): void;
 }

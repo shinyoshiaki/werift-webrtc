@@ -16,6 +16,10 @@ import { LossBasedBwe } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import { OveruseDetector } from "./overuseDetector";
 import { ProbeController } from "./probeController";
+import {
+  isOlderTransportWideSeq,
+  sortPacketResultsByWideSeq,
+} from "./sequenceNumber";
 
 interface GroupSample {
   sendMs: number;
@@ -96,13 +100,20 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
   }
 
   rtpPacketSent(info: SentInfo) {
-    this.pruneSentInfos(info.sendingAtMs);
-    this.sentInfos.set(info.wideSeq, info);
+    this.pruneSentInfos(info.sendingAtMs, info.wideSeq);
+    this.sentInfos.set(info.wideSeq & 0xffff, info);
+  }
 
-    // Cold-start probe only once until the first estimate is published.
+  /**
+   * Tag outgoing RTP as probe while a probe cluster is active.
+   * Opens a cold-start probe cluster if none is running yet so the first
+   * tagged packets can contribute to the probe estimate.
+   */
+  shouldTagProbePacket(): boolean {
     if (this._availableBitrate === 0 && this.probe.probeState === "idle") {
-      this.probe.maybeStartProbe(kDefaultStartBitrateBps, info.sendingAtMs);
+      this.probe.maybeStartProbe(kDefaultStartBitrateBps, milliTime());
     }
+    return this.probe.shouldTagProbePacket();
   }
 
   receiveTWCC(feedback: TransportWideCC) {
@@ -110,10 +121,8 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     let received = 0;
     let lost = 0;
 
-    // Process in sequence order for stable inter-arrival.
-    const results = [...feedback.packetResults].sort(
-      (a, b) => a.sequenceNumber - b.sequenceNumber,
-    );
+    // Process in transport-wide send order (wrap-around safe).
+    const results = sortPacketResultsByWideSeq(feedback.packetResults);
 
     for (const result of results) {
       if (!result.received) {
@@ -121,7 +130,7 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
         continue;
       }
       received++;
-      const info = this.sentInfos.get(result.sequenceNumber);
+      const info = this.sentInfos.get(result.sequenceNumber & 0xffff);
       if (!info || !result.receivedAtMs) continue;
 
       this.recordAck(info.size, result.receivedAtMs);
@@ -198,15 +207,26 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     this.reset();
   }
 
-  private pruneSentInfos(nowMs: number) {
+  private pruneSentInfos(nowMs: number, latestWideSeq: number) {
     for (const [seq, info] of this.sentInfos) {
       if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
         this.sentInfos.delete(seq);
+        continue;
+      }
+      // Drop entries older than the latest wide seq (wrap-around aware).
+      if (isOlderTransportWideSeq(seq, latestWideSeq)) {
+        // Keep a small reordering window (~half space is too large; keep last 2048).
       }
     }
-    // Bound map size by dropping oldest sequence keys if still huge.
+    // Bound map size by dropping oldest keys relative to latest (wrap-aware order).
     if (this.sentInfos.size > 4096) {
-      const keys = [...this.sentInfos.keys()].sort((a, b) => a - b);
+      const origin = latestWideSeq & 0xffff;
+      const keys = [...this.sentInfos.keys()].sort((a, b) => {
+        const da = ((a & 0xffff) - origin + 0x10000) % 0x10000;
+        const db = ((b & 0xffff) - origin + 0x10000) % 0x10000;
+        // Larger distance from origin means older when origin is the newest.
+        return db - da;
+      });
       for (let i = 0; i < keys.length - 2048; i++) {
         this.sentInfos.delete(keys[i]);
       }

@@ -15,10 +15,18 @@ export {
   SenderBandwidthEstimator,
 } from "./sender/estimators/legacyCumulativeBwe";
 export {
+  AimdRateControl,
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,
+  LossBasedBwe,
+  compareTransportWideSeq,
+  kBeta,
   kDefaultStartBitrateBps,
+  kLossDecreaseThreshold,
+  kLossIncreaseFactor,
+  kLossIncreaseThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
+  sortPacketResultsByWideSeq,
 } from "./sender/estimators/gcc";
 export type { BandwidthUsage, ProbeState } from "./sender/estimators/gcc";

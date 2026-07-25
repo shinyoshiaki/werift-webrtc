@@ -107,6 +107,7 @@ export const GCC_KNOWN_DIFFERENCES = [
   "Kalman arrival-time filter (draft) instead of libwebrtc TrendlineEstimator",
   "Loss-based uses draft §6 thresholds, not LossBasedBweV2",
   "No REMB integration; TWCC feedback path only",
-  "Probe does not control a native pacer; probe clusters inferred from sent/feedback",
+  "Probe does not own a pacer; RTCRtpSender tags isProbation while shouldTagProbePacket() is true",
+  "Only isProbation-tagged acks contribute to probe bitrate (media-only traffic does not complete probes)",
   "Numerical results may differ slightly due to language/time-source differences",
 ] as const;

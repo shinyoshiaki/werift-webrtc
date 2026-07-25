@@ -75,11 +75,11 @@ server.on("connection", async (socket) => {
   // To use GCC instead:
   //   import { GccBandwidthEstimator } from "werift";
   //   senderTransceiver.sender.setBandwidthEstimator(new GccBandwidthEstimator());
-  // Common contract: onAvailableBitrate fires in bps when the estimate changes.
-  const bwe = senderTransceiver.sender.senderBWE;
-  bwe.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
+  // Prefer sender.onAvailableBitrate (survives estimator swap); unit is bps, change-only.
+  const sender = senderTransceiver.sender;
+  sender.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
   // onCongestionScore / onCongestion are legacy-only (not on BandwidthEstimator).
-  const legacyBwe = bwe as SenderBandwidthEstimator;
+  const legacyBwe = sender.senderBWE as SenderBandwidthEstimator;
   legacyBwe.onCongestionScore.subscribe((score) => {
     console.log({ score });
     if (score >= 5) {
