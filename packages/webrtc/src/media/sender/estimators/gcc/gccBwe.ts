@@ -16,10 +16,7 @@ import { LossBasedBwe } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import { OveruseDetector } from "./overuseDetector";
 import { ProbeController } from "./probeController";
-import {
-  isOlderTransportWideSeq,
-  sortPacketResultsByWideSeq,
-} from "./sequenceNumber";
+import { sortPacketResultsByWideSeq } from "./sequenceNumber";
 
 interface GroupSample {
   sendMs: number;
@@ -208,17 +205,14 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
   }
 
   private pruneSentInfos(nowMs: number, latestWideSeq: number) {
+    // Age-based eviction.
     for (const [seq, info] of this.sentInfos) {
       if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
         this.sentInfos.delete(seq);
-        continue;
-      }
-      // Drop entries older than the latest wide seq (wrap-around aware).
-      if (isOlderTransportWideSeq(seq, latestWideSeq)) {
-        // Keep a small reordering window (~half space is too large; keep last 2048).
       }
     }
     // Bound map size by dropping oldest keys relative to latest (wrap-aware order).
+    // Keep a reordering window of ~2048 transport-wide sequence numbers.
     if (this.sentInfos.size > 4096) {
       const origin = latestWideSeq & 0xffff;
       const keys = [...this.sentInfos.keys()].sort((a, b) => {

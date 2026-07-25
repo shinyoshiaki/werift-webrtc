@@ -1,4 +1,4 @@
-import { Event } from "../../../imports/common";
+import { Event, uint16Gt } from "../../../imports/common";
 import { Int, type TransportWideCC } from "../../../imports/rtp";
 import { milliTime } from "../../../utils";
 import type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
@@ -128,14 +128,15 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
   }
 
   rtpPacketSent(sentInfo: SentInfo) {
-    Object.keys(this.sentInfos)
-      .map((v) => Number(v))
-      .sort()
-      .filter((seq) => seq < sentInfo.wideSeq)
-      .forEach((seq) => {
+    const latest = sentInfo.wideSeq & 0xffff;
+    // Drop history older than the latest wide seq (16-bit wrap-aware).
+    for (const key of Object.keys(this.sentInfos)) {
+      const seq = Number(key) & 0xffff;
+      if (seq !== latest && !uint16Gt(seq, latest)) {
         delete this.sentInfos[seq];
-      });
-    this.sentInfos[sentInfo.wideSeq] = sentInfo;
+      }
+    }
+    this.sentInfos[latest] = sentInfo;
   }
 
   reset() {
