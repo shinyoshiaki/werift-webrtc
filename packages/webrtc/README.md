@@ -60,8 +60,10 @@ sender.onAvailableBitrate.subscribe((bps) => {
 
 // Optional: switch to Google Congestion Control (trendline + loss + probe).
 sender.setBandwidthEstimator(new GccBandwidthEstimator());
-// During probes, sender.pacingBitrateBps is raised to the probe target and
-// RTCRtpSender applies a lightweight token-bucket pacer automatically.
+// During probes:
+// - sender.pacingBitrateBps is raised to the probe target
+// - RTCRtpSender paces with a token-bucket and injects RTP padding when media
+//   alone cannot fill the probe cluster (see maybeInjectProbePadding)
 sender.onProbeClusterConfig.subscribe((cfg) => {
   // optional: raise encoder toward cfg.targetBps for the cluster duration
 });

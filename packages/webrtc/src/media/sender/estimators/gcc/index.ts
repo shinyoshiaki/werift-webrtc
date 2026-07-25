@@ -10,6 +10,10 @@ export {
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeBitrateMultipliers,
+  kProbePaddingPacketBytes,
+  kTrendlineMinNumDeltas,
+  kTrendlineThresholdGain,
+  kTrendlineWindowSize,
 } from "./constants";
 export { AimdRateControl } from "./aimdRateControl";
 export { GccBandwidthEstimator } from "./gccBwe";

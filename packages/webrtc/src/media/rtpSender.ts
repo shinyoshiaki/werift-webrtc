@@ -41,7 +41,7 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
-  type RtpHeader,
+  RtpHeader,
   RtpPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
@@ -63,6 +63,10 @@ import type {
   RTCRtpSendParameters,
 } from "./parameters";
 import type { BandwidthEstimator } from "./sender/bandwidthEstimator";
+import {
+  kProbePaddingMaxBurst,
+  kProbePaddingPacketBytes,
+} from "./sender/estimators/gcc/constants";
 import {
   SenderBandwidthEstimator,
   type SentInfo,
@@ -268,7 +272,12 @@ export class RTCRtpSender {
       this.bweProbeUnsub = maybeGcc.onProbeClusterConfig.subscribe((cfg) => {
         this.onProbeClusterConfig.execute(cfg);
         // Fill budget so probe packets can leave promptly at the new target.
-        this.paceBudgetBytes = Math.max(this.paceBudgetBytes, cfg.targetBps / 8);
+        this.paceBudgetBytes = Math.max(
+          this.paceBudgetBytes,
+          (cfg.targetBps / 8) * 0.05,
+        );
+        // Inject padding when media alone may not fill the probe cluster.
+        void this.maybeInjectProbePadding();
       }).unSubscribe;
     }
   }
@@ -460,6 +469,52 @@ export class RTCRtpSender {
   }
 
   async sendRtp(rtp: Buffer | RtpPacket) {
+    await this.sendRtpInternal(rtp, { injectProbePadding: true });
+  }
+
+  /**
+   * Inject RTP padding packets while a GCC probe cluster is active and media
+   * alone has not yet filled min packets / min bitrate×duration.
+   *
+   * Responsibility split:
+   * - Estimator (`ProbeController` / `pendingProbePaddingPackets`) decides need
+   * - Sender generates padding RTP with TWCC seq + `isProbation` and paces them
+   */
+  async maybeInjectProbePadding(): Promise<number> {
+    if (this.dtlsTransport?.state !== "connected" || !this.codec) {
+      return 0;
+    }
+    const pending =
+      this.senderBWE.pendingProbePaddingPackets?.(kProbePaddingPacketBytes) ??
+      0;
+    const n = Math.min(pending, kProbePaddingMaxBurst);
+    for (let i = 0; i < n; i++) {
+      const pad = new RtpPacket(
+        new RtpHeader({
+          sequenceNumber: this.sequenceNumber ?? 0,
+          timestamp: this.timestamp ?? 0,
+          payloadType: this.codec.payloadType,
+          ssrc: this.ssrc,
+          extension: true,
+          extensions: [],
+          marker: false,
+          padding: false,
+          payloadOffset: 12,
+        }),
+        Buffer.alloc(kProbePaddingPacketBytes),
+      );
+      await this.sendRtpInternal(pad, {
+        injectProbePadding: false,
+        forceProbeTag: true,
+      });
+    }
+    return n;
+  }
+
+  private async sendRtpInternal(
+    rtp: Buffer | RtpPacket,
+    opts: { injectProbePadding?: boolean; forceProbeTag?: boolean } = {},
+  ) {
     if (this.dtlsTransport.state !== "connected" || !this.codec) {
       return;
     }
@@ -486,7 +541,7 @@ export class RTCRtpSender {
     const originalHeaderExtensions = [...header.extensions];
     header.extensions = this.headerExtensions
       .map((extension) => {
-        const payload = (() => {
+        const extPayload = (() => {
           switch (extension.uri) {
             case RTP_EXTENSION_URI.sdesMid:
               if (this.mid) {
@@ -518,7 +573,7 @@ export class RTCRtpSender {
           }
         })();
 
-        if (payload) return { id: extension.id, payload };
+        if (extPayload) return { id: extension.id, payload: extPayload };
       })
       .filter((v) => v) as Extension[];
     for (const ext of originalHeaderExtensions) {
@@ -541,7 +596,7 @@ export class RTCRtpSender {
 
     let rtpPayload = payload;
 
-    if (this.redRedundantPayloadType) {
+    if (this.redRedundantPayloadType && !opts.forceProbeTag) {
       this.redEncoder.push({
         block: rtpPayload,
         timestamp: header.timestamp,
@@ -560,10 +615,16 @@ export class RTCRtpSender {
       size,
       sendingAtMs: millitime,
       sentAtMs: millitime,
-      // Tag probe cluster packets so GCC (and similar) can estimate probe bitrate.
-      isProbation: this.senderBWE.shouldTagProbePacket?.() === true,
+      // Tag probe cluster packets so GCC can attribute probe bitrate.
+      isProbation:
+        opts.forceProbeTag === true ||
+        this.senderBWE.shouldTagProbePacket?.() === true,
     };
     this.senderBWE.rtpPacketSent(sentInfo);
+
+    if (opts.injectProbePadding) {
+      await this.maybeInjectProbePadding();
+    }
   }
 
   /**

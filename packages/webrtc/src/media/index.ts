@@ -30,6 +30,8 @@ export {
   kLossIncreaseThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
+  kProbePaddingPacketBytes,
+  kTrendlineWindowSize,
   sortPacketResultsByWideSeq,
 } from "./sender/estimators/gcc";
 export type {

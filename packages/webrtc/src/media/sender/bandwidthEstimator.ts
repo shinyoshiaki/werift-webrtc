@@ -67,6 +67,12 @@ export interface BandwidthEstimator {
   getPacingBitrateBps?(): number;
 
   /**
+   * Optional: number of padding packets the sender should inject to fill the
+   * active probe cluster when media traffic alone is insufficient.
+   */
+  pendingProbePaddingPackets?(packetBytes?: number): number;
+
+  /**
    * Clear internal history / estimates (e.g. after estimator swap or transport restart).
    * Optional for lightweight implementations.
    */
