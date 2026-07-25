@@ -8,10 +8,8 @@ import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
-  RecvDelta,
   RtcpPacketConverter,
   RtcpTransportLayerFeedback,
-  RunLengthChunk,
   RtpHeader,
   RtpPacket,
   SenderBandwidthEstimator,
@@ -20,6 +18,7 @@ import {
   type BandwidthEstimator,
   type ProbePacingController,
   type SentInfo,
+  appendRfc3550Padding,
   isProbePacingController,
   kBeta,
   kProbePaddingPacketBytes,
@@ -27,6 +26,8 @@ import {
   sortPacketResultsByWideSeq,
 } from "../../src";
 import { RTP_EXTENSION_URI } from "../../src/imports/rtp";
+import type { Config } from "../../../rtp/src/srtp/session";
+import { SrtpSession } from "../../../rtp/src/srtp/srtp";
 import { createDtlsTransport } from "../fixture";
 
 function makeTwccFeedback(results: PacketResult[]): TransportWideCC {
@@ -112,8 +113,8 @@ async function prepareConnectedSender(estimator?: BandwidthEstimator) {
   const sentPackets: { header: RtpHeader; payload: Buffer; size: number }[] =
     [];
   dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-    const size =
-      payload.length + (header.padding ? header.paddingSize : 0) + 12;
+    // payload already includes RFC 3550 padding bytes when P=1.
+    const size = payload.length + header.serializeSize;
     // Snapshot header fields — the same object is mutated across sends.
     sentPackets.push({
       header: new RtpHeader({ ...header, extensions: [...header.extensions] }),
@@ -470,7 +471,7 @@ describe("media/sender bandwidth estimator", () => {
   });
 
   describe("Probe padding 品質", () => {
-    test("padding bit・一意 sequence・受信可能な wire 形式", async () => {
+    test("padding bit・実 padding bytes・一意 sequence", async () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
@@ -497,17 +498,34 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: 複数送信
       expect(sentPackets.length).toBeGreaterThan(1);
 
-      // padding パケットは P-bit と paddingSize
-      const padHeaders = sentPackets.filter((p) => p.header.padding);
-      expect(padHeaders.length).toBeGreaterThan(0);
-      for (const p of padHeaders) {
+      // padding パケット: P-bit + payload 末尾が RFC 3550 padding
+      const padPackets = sentPackets.filter((p) => p.header.padding);
+      expect(padPackets.length).toBeGreaterThan(0);
+      for (const p of padPackets) {
         expect(p.header.padding).toBe(true);
         expect(p.header.paddingSize).toBe(kProbePaddingPacketBytes);
-        // シリアライズして再パース可能（受信可能性）
+        // 実 payload に padding が含まれる
+        expect(p.payload.length).toBe(kProbePaddingPacketBytes);
+        expect(p.payload[p.payload.length - 1]).toBe(kProbePaddingPacketBytes);
+        // メディア部なし（ゼロ埋め + 末尾 length）
+        expect(p.payload.subarray(0, -1).every((b) => b === 0)).toBe(true);
+        // フル RTP を再パース可能
         const wire = new RtpPacket(p.header, p.payload).serialize();
         const parsed = RtpPacket.deSerialize(wire);
         expect(parsed.header.padding).toBe(true);
         expect(parsed.header.paddingSize).toBe(kProbePaddingPacketBytes);
+      }
+
+      // SentInfo.size は実送信サイズ（モック戻り値）と一致
+      // メディアも probe 中は isProbation になり得るため、padding パケットのみ照合
+      expect(padPackets.length).toBeGreaterThan(0);
+      const sentInfos = rtpSpy.mock.calls.map((c) => c[0] as SentInfo);
+      const padSizes = sentInfos
+        .filter((s) => s.size >= kProbePaddingPacketBytes)
+        .map((s) => s.size);
+      expect(padSizes.length).toBeGreaterThan(0);
+      for (const p of padPackets) {
+        expect(padSizes).toContain(p.size);
       }
 
       // RTP sequence が一意かつ単調増加
@@ -516,12 +534,6 @@ describe("media/sender bandwidth estimator", () => {
       for (let i = 1; i < seqs.length; i++) {
         expect(uint16Forward(seqs[i - 1], seqs[i])).toBe(true);
       }
-
-      // isProbation タグ
-      const probation = rtpSpy.mock.calls.filter(
-        (c) => (c[0] as SentInfo).isProbation,
-      );
-      expect(probation.length).toBeGreaterThan(0);
     });
 
     test("maybeInjectProbePadding が専用経路で padding を送る", async () => {
@@ -531,8 +543,106 @@ describe("media/sender bandwidth estimator", () => {
       const n = await sender.maybeInjectProbePadding();
       expect(n).toBeGreaterThan(0);
       expect(sentPackets.every((p) => p.header.padding)).toBe(true);
+      for (const p of sentPackets) {
+        expect(p.payload.length).toBe(kProbePaddingPacketBytes);
+        expect(p.payload[p.payload.length - 1]).toBe(kProbePaddingPacketBytes);
+      }
       const seqs = sentPackets.map((p) => p.header.sequenceNumber);
       expect(new Set(seqs).size).toBe(seqs.length);
+    });
+
+    test("SRTP encrypt/decrypt を通した probe padding が復元できる", () => {
+      // Arrange: 実 SRTP セッション（モック transport なし）
+      const config: Config = {
+        profile: 0x0001,
+        keys: {
+          localMasterKey: Buffer.from([
+            0xe1, 0xf9, 0x7a, 0x0d, 0x3e, 0x01, 0x8b, 0xe0, 0xd6, 0x4f, 0xa3,
+            0x2c, 0x06, 0xde, 0x41, 0x39,
+          ]),
+          localMasterSalt: Buffer.from([
+            0x0e, 0xc6, 0x75, 0xad, 0x49, 0x8a, 0xfe, 0xeb, 0xb6, 0x96, 0x0b,
+            0x3a, 0xab, 0xe6,
+          ]),
+          remoteMasterKey: Buffer.from([
+            0xe1, 0xf9, 0x7a, 0x0d, 0x3e, 0x01, 0x8b, 0xe0, 0xd6, 0x4f, 0xa3,
+            0x2c, 0x06, 0xde, 0x41, 0x39,
+          ]),
+          remoteMasterSalt: Buffer.from([
+            0x0e, 0xc6, 0x75, 0xad, 0x49, 0x8a, 0xfe, 0xeb, 0xb6, 0x96, 0x0b,
+            0x3a, 0xab, 0xe6,
+          ]),
+        },
+      };
+      const senderSrtp = new SrtpSession(config);
+      const receiverSrtp = new SrtpSession(config);
+
+      const padSize = kProbePaddingPacketBytes;
+      const header = new RtpHeader({
+        version: 2,
+        padding: true,
+        paddingSize: padSize,
+        sequenceNumber: 42,
+        timestamp: 90000,
+        ssrc: 0x12345678,
+        payloadType: 96,
+        marker: false,
+        extension: false,
+      });
+      // Act: RFC 3550 padding を payload に付加して encrypt
+      const plainPayload = appendRfc3550Padding(Buffer.alloc(0), padSize);
+      expect(plainPayload.length).toBe(padSize);
+      expect(plainPayload[padSize - 1]).toBe(padSize);
+
+      const encrypted = senderSrtp.encrypt(plainPayload, header);
+      // 暗号文長 = header + payload(with pad) + auth tag (> payload)
+      expect(encrypted.length).toBeGreaterThan(plainPayload.length + 12);
+
+      // Act: decrypt → RTP として解釈
+      const decrypted = receiverSrtp.decrypt(encrypted);
+      const rtp = RtpPacket.deSerialize(decrypted);
+
+      // Assert
+      expect(rtp.header.padding).toBe(true);
+      expect(rtp.header.paddingSize).toBe(padSize);
+      expect(rtp.header.sequenceNumber).toBe(42);
+      expect(rtp.header.ssrc).toBe(0x12345678);
+      // deSerialize は padding を除いた media payload を返す（空）
+      expect(rtp.payload.length).toBe(0);
+      // 復号バッファ末尾は padding length byte
+      expect(decrypted[decrypted.length - 1]).toBe(padSize);
+    });
+
+    test("SentInfo.size は実送 payload（padding 含む）と一致する", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, dtls } = await prepareConnectedSender(gcc);
+      const sizes: number[] = [];
+      const payloads: Buffer[] = [];
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        payloads.push(Buffer.from(payload));
+        // 実 DTLS 経路と同様、送信バイト数を返す
+        const n = payload.length + header.serializeSize;
+        sizes.push(n);
+        return n;
+      }) as typeof dtls.sendRtp;
+
+      const spy = vi.spyOn(gcc, "rtpPacketSent");
+      await sender.maybeInjectProbePadding();
+
+      // Assert
+      const padCalls = spy.mock.calls
+        .map((c) => c[0] as SentInfo)
+        .filter((s) => s.isProbation);
+      expect(padCalls.length).toBeGreaterThan(0);
+      expect(payloads.length).toBe(padCalls.length);
+      for (let i = 0; i < padCalls.length; i++) {
+        expect(payloads[i].length).toBe(kProbePaddingPacketBytes);
+        expect(payloads[i][payloads[i].length - 1]).toBe(
+          kProbePaddingPacketBytes,
+        );
+        expect(padCalls[i].size).toBe(sizes[i]);
+      }
     });
   });
 

@@ -636,7 +636,6 @@ export class RTCRtpSender {
 
     this.ntpTimestamp = ntpTimestamp;
     this.rtpTimestamp = header.timestamp;
-    this.octetCount += payload.length;
     this.headerBytesSent += header.serializeSize;
     this.packetCount = uint32Add(this.packetCount, 1);
 
@@ -654,12 +653,19 @@ export class RTCRtpSender {
       rtpPayload = red.serialize();
     }
 
-    // Probe padding keeps P-bit + paddingSize on the header (RFC 3550).
-    // dtlsTransport.sendRtp sends payload+header; account padding in BWE size.
-    let size = await this.dtlsTransport.sendRtp(rtpPayload, header);
+    // RFC 3550 §5.1: if P=1, the payload ends with padding octets and the last
+    // octet is the padding length (including itself). SRTP encrypts this region
+    // as-is, so padding must be in the buffer passed to sendRtp — not only in
+    // header.paddingSize metadata.
     if (header.padding && header.paddingSize > 0) {
-      size += header.paddingSize;
+      rtpPayload = appendRfc3550Padding(rtpPayload, header.paddingSize);
     }
+
+    this.octetCount += rtpPayload.length;
+
+    // size is actual on-wire SRTP length returned by the transport (includes
+    // real padding bytes when present). Do not invent size from paddingSize.
+    const size = await this.dtlsTransport.sendRtp(rtpPayload, header);
 
     this.runRtcp();
     const millitime = milliTime();
@@ -970,4 +976,21 @@ export class RTCRtpSender {
 
     return buildStatsReport(stats, this.getStatsRootIds());
   }
+}
+
+/**
+ * Append RFC 3550 padding to an RTP payload.
+ * The last octet is the padding length (including itself); preceding pad bytes are zero.
+ * @param paddingSize total padding octets in [1, 255]
+ */
+export function appendRfc3550Padding(
+  payload: Buffer,
+  paddingSize: number,
+): Buffer {
+  if (paddingSize < 1 || paddingSize > 255) {
+    throw new Error(`invalid RTP padding size: ${paddingSize}`);
+  }
+  const pad = Buffer.alloc(paddingSize);
+  pad.writeUInt8(paddingSize, paddingSize - 1);
+  return payload.length === 0 ? pad : Buffer.concat([payload, pad]);
 }
