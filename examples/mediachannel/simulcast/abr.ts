@@ -3,6 +3,7 @@ import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type SenderBandwidthEstimator,
   useAbsSendTime,
   useFIR,
   useNACK,
@@ -70,9 +71,16 @@ server.on("connection", async (socket) => {
       receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
     }, 1000);
   });
+  // Default BWE is legacy cumulative (SenderBandwidthEstimator).
+  // To use GCC instead:
+  //   import { GccBandwidthEstimator } from "werift";
+  //   senderTransceiver.sender.setBandwidthEstimator(new GccBandwidthEstimator());
+  // Common contract: onAvailableBitrate fires in bps when the estimate changes.
   const bwe = senderTransceiver.sender.senderBWE;
   bwe.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
-  bwe.onCongestionScore.subscribe((score) => {
+  // onCongestionScore / onCongestion are legacy-only (not on BandwidthEstimator).
+  const legacyBwe = bwe as SenderBandwidthEstimator;
+  legacyBwe.onCongestionScore.subscribe((score) => {
     console.log({ score });
     if (score >= 5) {
       if (state != "low") {
@@ -92,7 +100,7 @@ server.on("connection", async (socket) => {
       }
     }
   });
-  bwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
+  legacyBwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
 
   {
     await receiver.setLocalDescription(await receiver.createOffer());

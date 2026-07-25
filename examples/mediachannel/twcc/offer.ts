@@ -3,6 +3,7 @@ import { Server } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type SenderBandwidthEstimator,
   useAbsSendTime,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
@@ -58,9 +59,12 @@ server.on("connection", async (socket) => {
   const senderTransceiver = sender.addTransceiver("video", {
     direction: "sendonly",
   });
-  senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) =>
-    console.log("congestion", b),
-  );
+  // onCongestion is legacy SenderBandwidthEstimator-only (default BWE).
+  // Common path: senderBWE.onAvailableBitrate (bps, change-only).
+  // GCC: sender.setBandwidthEstimator(new GccBandwidthEstimator()).
+  const legacyBwe = senderTransceiver.sender
+    .senderBWE as SenderBandwidthEstimator;
+  legacyBwe.onCongestion.subscribe((b) => console.log("congestion", b));
 
   receiverTransceiver.onTrack.subscribe(async (track) => {
     track.onReceiveRtp.once((rtp) => {

@@ -62,7 +62,11 @@ import type {
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
 } from "./parameters";
-import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
+import type { BandwidthEstimator } from "./sender/bandwidthEstimator";
+import {
+  SenderBandwidthEstimator,
+  type SentInfo,
+} from "./sender/senderBWE";
 import {
   type RTCCodecStats,
   type RTCMediaSourceStats,
@@ -92,7 +96,18 @@ export class RTCRtpSender {
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onPictureLossIndication = new Event<[]>();
   readonly onGenericNack = new Event<[GenericNack]>();
-  readonly senderBWE = new SenderBandwidthEstimator();
+  /**
+   * Active send-side bandwidth estimator (TWCC-driven).
+   *
+   * Default is {@link SenderBandwidthEstimator} (legacy cumulative algorithm).
+   * Replace with {@link setBandwidthEstimator} (e.g. `new GccBandwidthEstimator()`).
+   *
+   * Subscribe to `senderBWE.onAvailableBitrate` for recommended bitrate in **bps**
+   * (fires only when the estimate changes). Algorithm-specific events such as
+   * legacy `onCongestion` / `onCongestionScore` or GCC `onOveruseDetected` are
+   * only available on the concrete instance after casting / before swap.
+   */
+  senderBWE: BandwidthEstimator = new SenderBandwidthEstimator();
 
   private cname?: string;
   private mid?: string;
@@ -178,6 +193,31 @@ export class RTCRtpSender {
         }
       }).unSubscribe,
     ];
+  }
+
+  /**
+   * Replace the send-side bandwidth estimator used for TWCC-driven BWE.
+   *
+   * Default is the legacy {@link SenderBandwidthEstimator}. Pass e.g.
+   * `new GccBandwidthEstimator()` to use Google Congestion Control.
+   *
+   * Behavior on swap:
+   * 1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+   * 2. Calls `dispose()` (or `reset()`) on the previous instance when available.
+   * 3. Starts the new instance clean (no implicit state merge).
+   *
+   * Re-subscribe algorithm-specific events on the new concrete instance;
+   * only `onAvailableBitrate` is guaranteed on {@link BandwidthEstimator}.
+   */
+  setBandwidthEstimator(impl: BandwidthEstimator): void {
+    const prev = this.senderBWE;
+    if (prev === impl) return;
+    if (prev.dispose) {
+      prev.dispose();
+    } else {
+      prev.reset?.();
+    }
+    this.senderBWE = impl;
   }
 
   get redDistance() {
