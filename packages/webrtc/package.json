@@ -48,7 +48,8 @@
     "upgrade-interactive": "npx npm-check-updates -i",
     "wpt:list": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/list.ts",
     "wpt": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/run.ts",
-    "wpt:coverage": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/coverage.ts"
+    "wpt:coverage": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/coverage.ts",
+    "test:sim": "vitest run --config ./simulations/vitest.config.mts"
   },
   "dependencies": {
     "@fidm/x509": "^1.2.1",

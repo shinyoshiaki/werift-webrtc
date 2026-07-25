@@ -5,8 +5,9 @@ import type { FullIntraRequest } from "../../../src/rtcp/psfb/fullIntraRequest";
 describe("fullIntraRequest", () => {
   test("valid", () => {
     const data = Buffer.from([
-      // v=2, p=0, FMT=4, PSFB, len=3
-      0x84, 0xce, 0x00, 0x03,
+      // v=2, p=0, FMT=4, PSFB, len=4
+      // (header + 4 words of body = 5 words total → length = 4)
+      0x84, 0xce, 0x00, 0x04,
       // ssrc=0x0
       0x00, 0x00, 0x00, 0x00,
       // ssrc=0x4bc4fcb4

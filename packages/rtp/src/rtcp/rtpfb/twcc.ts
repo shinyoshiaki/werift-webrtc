@@ -207,19 +207,23 @@ export class TransportWideCC {
         .filter((v) => v) as Buffer[],
     );
 
-    const buf = Buffer.concat([constBuf, chunks, deltas]);
+    let body = Buffer.concat([constBuf, chunks, deltas]);
 
-    if (this.header.padding && buf.length % 4 !== 0) {
-      const rest = 4 - (buf.length % 4);
+    // RTCP packets must be 32-bit aligned (RFC 3550). Always pad when needed
+    // and set the P bit; previously padding was applied only if header.padding
+    // was already true, which left misaligned TWCC feedback that SRTCP/receivers
+    // could not parse (onAvailableBitrate never updated on real peer paths).
+    if (body.length % 4 !== 0) {
+      const rest = 4 - (body.length % 4);
       const padding = Buffer.alloc(rest);
       padding[padding.length - 1] = padding.length;
-
-      this.header.length = Math.floor((buf.length + padding.length) / 4);
-      return Buffer.concat([this.header.serialize(), buf, padding]);
+      body = Buffer.concat([body, padding]);
+      this.header.padding = true;
     }
 
-    this.header.length = Math.floor(buf.length / 4);
-    return Buffer.concat([this.header.serialize(), buf]);
+    // length = (header + body) in 32-bit words minus 1  →  body.length / 4
+    this.header.length = body.length / 4;
+    return Buffer.concat([this.header.serialize(), body]);
   }
 
   get packetResults(): PacketResult[] {

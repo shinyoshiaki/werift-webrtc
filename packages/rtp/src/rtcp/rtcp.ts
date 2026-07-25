@@ -26,11 +26,15 @@ export class RtcpPacketConverter {
       );
       pos += RTCP_HEADER_SIZE;
 
-      let payload = data.subarray(pos);
-      pos += header.length * 4;
+      const payloadLen = header.length * 4;
+      let payload = data.subarray(pos, pos + payloadLen);
+      pos += payloadLen;
 
-      if (header.padding) {
-        payload = payload.subarray(0, payload.length - payload.subarray(-1)[0]);
+      if (header.padding && payload.length > 0) {
+        const pad = payload[payload.length - 1];
+        if (pad > 0 && pad <= payload.length) {
+          payload = payload.subarray(0, payload.length - pad);
+        }
       }
 
       try {
