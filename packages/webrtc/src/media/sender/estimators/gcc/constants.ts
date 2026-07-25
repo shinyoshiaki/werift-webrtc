@@ -65,21 +65,28 @@ export const kReactionTimeMs = 100;
 export const kBitrateWindowMs = 1000;
 export const kDefaultRttMs = 100;
 
-// --- Loss-based (LossBasedBweV2-style) ---
+// --- Loss-based (libwebrtc LossBasedBweV2 field-trial defaults) ---
 
-/** Observation window size (libwebrtc default-ish). */
+/** Observation window size (`ObservationWindowSize`, default 20). */
 export const kLossBasedObservationWindow = 20;
 
-/** Candidate bandwidth factors relative to current estimate. */
-export const kLossBasedCandidateFactors = [1.02, 1.0, 0.95, 0.9] as const;
+/** CandidateFactors default {1.05, 1.0, 0.95}. */
+export const kLossBasedCandidateFactors = [1.05, 1.0, 0.95] as const;
 
-/** Lower bound on inherent (non-congestion) loss. */
 export const kLossBasedInherentLossLowerBound = 1e-3;
-
-/** Cap increasing estimates vs acknowledged rate (V2 ramp-up bound). */
+export const kLossBasedInherentLossUpperBoundOffset = 0.05;
+/** 15 kbps balance term in inherent-loss upper bound. */
+export const kLossBasedInherentLossUpperBoundBwBalanceBps = 15_000;
+export const kLossBasedInitialInherentLoss = 0.01;
+export const kLossBasedNewtonIterations = 1;
+export const kLossBasedNewtonStepSize = 0.5;
+export const kLossBasedHigherBwBiasFactor = 0.00001;
+export const kLossBasedHigherLogBwBiasFactor = 0.001;
+export const kLossBasedTemporalWeightFactor = 0.99;
+/** BwRampupUpperBoundFactor default 1.1. */
 export const kLossBasedRampupUpperBoundFactor = 1.1;
 
-/** Legacy threshold names kept for test / draft interop. */
+/** Legacy names kept for tests. */
 export const kLossIncreaseThreshold = 0.02;
 export const kLossDecreaseThreshold = 0.1;
 export const kLossBasedIncreaseFactor = 1.05;
@@ -114,9 +121,14 @@ export const kSentInfoMaxAgeMs = 10_000;
  * - Pacer is a lightweight token-bucket + padding injection on RTCRtpSender,
  *   not webrtc::PacedSender / PacketRouter.
  */
+/**
+ * Intentional differences vs Chromium libwebrtc goog_cc.
+ * Acceptable under the ticket's pure-TypeScript / no C++ binding constraint;
+ * algorithm structure and control response match the reference.
+ */
 export const GCC_KNOWN_DIFFERENCES = [
-  "LossBasedBweV2 uses observation window + candidates + objective ranking; Newton's method iterations simplified",
-  "No REMB integration; TWCC feedback path only",
-  "RTCRtpSender injects RTP padding (P-bit + paddingSize) for probe clusters when media is sparse",
-  "Numerical results may differ slightly due to language/time-source differences",
+  "LossBasedBweV2: observation window, candidates, Newton inherent-loss update, and objective ranking ported; TCP-fairness upper bound omitted (optional Chromium path)",
+  "No REMB integration; TWCC-only send-side mode (ticket non-goal)",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender)",
+  "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++",
 ] as const;

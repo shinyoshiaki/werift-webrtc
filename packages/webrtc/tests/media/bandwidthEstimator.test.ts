@@ -4,10 +4,14 @@ import {
   GccBandwidthEstimator,
   LossBasedBwe,
   PacketResult,
+  PacketStatus,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
+  RecvDelta,
+  RtcpPacketConverter,
   RtcpTransportLayerFeedback,
+  RunLengthChunk,
   RtpHeader,
   RtpPacket,
   SenderBandwidthEstimator,
@@ -219,6 +223,137 @@ describe("media/sender bandwidth estimator", () => {
     });
   });
 
+  describe("acked bitrate (TWCC 相対時刻)", () => {
+    test("TWCC 受信時刻が壁時計と大きくずれても acked bitrate > 0 になる", () => {
+      // Arrange: TWCC receivedAtMs は referenceTime 由来で壁時計と無関係
+      const gcc = new GccBandwidthEstimator(300_000);
+      const twccRecvBase = 50_000; // 壁時計とは無関係な小さなタイムライン
+      const n = 40;
+      const size = 1200;
+      const interval = 20;
+      for (let i = 0; i < n; i++) {
+        // 送信時刻も相対的でよい（inter-arrival 用）
+        gcc.rtpPacketSent(sent(i + 1, size, twccRecvBase + i * interval));
+      }
+      const results = Array.from({ length: n }, (_, i) =>
+        new PacketResult({
+          sequenceNumber: i + 1,
+          received: true,
+          receivedAtMs: twccRecvBase + i * interval + 5,
+        }),
+      );
+
+      // Act
+      const fired: number[] = [];
+      gcc.onAvailableBitrate.subscribe((v) => fired.push(v));
+      gcc.receiveTWCC(makeTwccFeedback(results));
+
+      // Assert: 壁時計比較バグなら available が 0 のまま / AIMD が異常
+      expect(fired.length).toBeGreaterThanOrEqual(1);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+      // 1200B / 20ms → 480 kbps オーダー
+      expect(gcc.availableBitrate).toBeGreaterThan(50_000);
+    });
+  });
+
+  describe("legacy pacing 非適用", () => {
+    test("legacy estimator では sendRtp が pacing で遅延しない", async () => {
+      // Arrange: デフォルト legacy
+      const { sender } = await prepareConnectedSender();
+      expect(isProbePacingController(sender.senderBWE)).toBe(false);
+
+      const t0 = performance.now();
+      for (let i = 0; i < 20; i++) {
+        await sender.sendRtp(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: i,
+              timestamp: i * 3000,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: false,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(1200),
+          ),
+        );
+      }
+      const elapsed = performance.now() - t0;
+
+      // Assert: token-bucket があれば数百 ms かかるが、legacy は即時
+      expect(elapsed).toBeLessThan(50);
+    });
+  });
+
+  describe("wire TWCC fixture", () => {
+    test("serialize/deserialize した実 TWCC で GCC が更新される", () => {
+      // Arrange: rtp パッケージの既知ワイヤ（example1, RunLength）を round-trip
+      const wire = Buffer.from([
+        0xaf, 0xcd, 0x0, 0x5, 0xfa, 0x17, 0xfa, 0x17, 0x43, 0x3, 0x2f, 0xa0,
+        0x0, 0x99, 0x0, 0x1, 0x3d, 0xe8, 0x2, 0x17, 0x20, 0x1, 0x94, 0x1,
+      ]);
+      const [rtpfb] = RtcpPacketConverter.deSerialize(wire) as [
+        RtcpTransportLayerFeedback,
+      ];
+      const twcc = rtpfb.feedback as TransportWideCC;
+      expect(rtpfb.serialize()).toEqual(wire);
+
+      // 同一内容を再シリアライズ → 再パース
+      const wire2 = rtpfb.serialize();
+      const [rtpfb2] = RtcpPacketConverter.deSerialize(wire2) as [
+        RtcpTransportLayerFeedback,
+      ];
+      const restored = rtpfb2.feedback as TransportWideCC;
+      expect(restored.baseSequenceNumber).toBe(twcc.baseSequenceNumber);
+      expect(restored.packetResults.length).toBeGreaterThan(0);
+
+      // Act: wire 復元 TWCC + 追加の相対時刻バッチで GCC を更新
+      // （example1 は 1 パケットのため、実時間線のバッチを同経路で合成）
+      const gcc = new GccBandwidthEstimator(300_000);
+      const baseSeq = restored.baseSequenceNumber;
+      // first packet from wire fixture
+      for (const r of restored.packetResults) {
+        if (r.received) {
+          gcc.rtpPacketSent(sent(r.sequenceNumber, 1000, 40_000));
+        }
+      }
+      gcc.receiveTWCC(restored);
+
+      // multi-packet relative-time batch (also via TransportWideCC instance)
+      const n = 30;
+      const batch = new TransportWideCC({
+        senderSsrc: twcc.senderSsrc,
+        mediaSourceSsrc: twcc.mediaSourceSsrc,
+        baseSequenceNumber: baseSeq + 10,
+        packetStatusCount: n,
+        referenceTime: twcc.referenceTime + 10,
+        fbPktCount: (twcc.fbPktCount + 1) & 0xff,
+      });
+      const batchResults = Array.from({ length: n }, (_, i) =>
+        new PacketResult({
+          sequenceNumber: baseSeq + 10 + i,
+          received: true,
+          receivedAtMs: Number(BigInt(batch.referenceTime) * 64n) + i * 15,
+        }),
+      );
+      Object.defineProperty(batch, "packetResults", {
+        get: () => batchResults,
+      });
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(
+          sent(baseSeq + 10 + i, 1000, 40_000 + 100 + i * 15),
+        );
+      }
+      gcc.receiveTWCC(batch);
+
+      // Assert: wire round-trip 成功 + 相対時刻バッチで推定 > 0
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+  });
+
   describe("GccBandwidthEstimator loss 統合", () => {
     test("高損失 TWCC で availableBitrate が下がる", () => {
       // Arrange
@@ -268,20 +403,20 @@ describe("media/sender bandwidth estimator", () => {
       expect(highLoss).toBeLessThan(lowLoss);
     });
 
-    test("LossBasedBwe 観測窓で平均 loss が反映される", () => {
+    test("LossBasedBwe 観測窓 + Newton で高損失時に帯域が下がる", () => {
       const loss = new LossBasedBwe();
       loss.reset(500_000);
-      // 複数 observation
       for (let i = 0; i < 5; i++) {
-        loss.update(0.0, 500_000, 500_000, 20, 0, 1000 + i, 20_000);
+        loss.update(0.0, 500_000, 480_000, 20, 0, 1000 + i, 20_000, 200);
       }
       const up = loss.targetBitrateBps;
-      for (let i = 0; i < 5; i++) {
-        loss.update(0.3, 400_000, 400_000, 20, 6, 2000 + i, 20_000);
+      for (let i = 0; i < 10; i++) {
+        // 高い送信レートに対して 40% loss → capacity 推定を下げる
+        loss.update(0.4, 300_000, 200_000, 40, 16, 2000 + i, 40_000, 200);
       }
       expect(loss.targetBitrateBps).toBeLessThan(up);
-      expect(loss.averageLossRatio).toBeGreaterThan(0.05);
-      expect(["decreasing", "hold", "delay_based"]).toContain(loss.lossState);
+      expect(loss.averageLossRatio).toBeGreaterThan(0.1);
+      expect(loss.inherentLossEstimate).toBeGreaterThan(0);
     });
   });
 

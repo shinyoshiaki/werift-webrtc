@@ -1,9 +1,17 @@
 import {
   kDefaultStartBitrateBps,
   kLossBasedCandidateFactors,
+  kLossBasedHigherBwBiasFactor,
+  kLossBasedHigherLogBwBiasFactor,
   kLossBasedInherentLossLowerBound,
+  kLossBasedInherentLossUpperBoundBwBalanceBps,
+  kLossBasedInherentLossUpperBoundOffset,
+  kLossBasedInitialInherentLoss,
+  kLossBasedNewtonIterations,
+  kLossBasedNewtonStepSize,
   kLossBasedObservationWindow,
   kLossBasedRampupUpperBoundFactor,
+  kLossBasedTemporalWeightFactor,
   kMaxBitrateBps,
   kMinBitrateBps,
 } from "./constants";
@@ -17,46 +25,72 @@ export type LossBasedState =
   | "delay_based"
   | "hold";
 
+interface ChannelParameters {
+  inherentLoss: number;
+  lossLimitedBandwidthBps: number;
+}
+
 interface Observation {
   numPackets: number;
-  numLost: number;
+  numLostPackets: number;
+  numReceivedPackets: number;
   sendingRateBps: number;
   id: number;
 }
 
 /**
- * LossBasedBweV2-style controller (libwebrtc goog_cc structure).
+ * LossBasedBweV2-aligned controller
+ * (`modules/congestion_controller/goog_cc/loss_based_bwe_v2.*`).
  *
- * Implements:
- * - Observation window of recent (sent, lost, sending_rate) samples
- * - Candidate generation: current × factors, acknowledged rate, delay-based
- * - Objective preferring lower inherent loss + higher bandwidth (simplified)
- * - State transitions: increasing / decreasing / delay_based / hold
- *
- * Not a bit-identical port of Newton's method iterations; objective ranking
- * and observation-window averaging match the operational V2 control shape.
+ * Implements observation window, candidate generation (factor / acked / delay),
+ * loss probability model, Newton updates for inherent loss, and objective
+ * ranking. Defaults mirror Chromium field-trial defaults where practical.
  */
 export class LossBasedBwe {
-  private bitrateBps = kDefaultStartBitrateBps;
+  private current: ChannelParameters = {
+    inherentLoss: kLossBasedInitialInherentLoss,
+    lossLimitedBandwidthBps: kDefaultStartBitrateBps,
+  };
   private state: LossBasedState = "increasing";
-  private inherentLoss = kLossBasedInherentLossLowerBound;
   private observations: Observation[] = [];
-  private nextObsId = 0;
-  private partial = { numPackets: 0, numLost: 0, bytes: 0, startMs: 0 };
+  private numObservations = 0;
   private acknowledgedBps = 0;
+  private partial = {
+    numPackets: 0,
+    numLost: 0,
+    bytes: 0,
+    firstSendMs: 0,
+    lastSendMs: 0,
+  };
+  private lastObservationSendMs = 0;
+  private temporalWeights: number[] = [];
+
+  constructor() {
+    this.recomputeTemporalWeights();
+  }
 
   reset(startBps = kDefaultStartBitrateBps) {
-    this.bitrateBps = clamp(startBps);
+    this.current = {
+      inherentLoss: kLossBasedInitialInherentLoss,
+      lossLimitedBandwidthBps: clamp(startBps),
+    };
     this.state = "increasing";
-    this.inherentLoss = kLossBasedInherentLossLowerBound;
     this.observations = [];
-    this.nextObsId = 0;
-    this.partial = { numPackets: 0, numLost: 0, bytes: 0, startMs: 0 };
+    this.numObservations = 0;
     this.acknowledgedBps = 0;
+    this.partial = {
+      numPackets: 0,
+      numLost: 0,
+      bytes: 0,
+      firstSendMs: 0,
+      lastSendMs: 0,
+    };
+    this.lastObservationSendMs = 0;
+    this.recomputeTemporalWeights();
   }
 
   get targetBitrateBps() {
-    return this.bitrateBps;
+    return this.current.lossLimitedBandwidthBps;
   }
 
   get lossState(): LossBasedState {
@@ -67,22 +101,25 @@ export class LossBasedBwe {
     return this.getAverageReportedLossRatio();
   }
 
+  get inherentLossEstimate(): number {
+    return this.current.inherentLoss;
+  }
+
   setBitrateIfHigher(bps: number) {
-    if (bps > this.bitrateBps) {
-      this.bitrateBps = clamp(bps);
+    if (bps > this.current.lossLimitedBandwidthBps) {
+      this.current.lossLimitedBandwidthBps = clamp(bps);
     }
   }
 
   /**
-   * Push a TWCC observation sample into the window and recompute the estimate.
-   *
-   * @param lossFraction loss in this feedback batch [0,1]
+   * @param lossFraction unused except compatibility (prefer packet counts)
    * @param delayBasedBps delay-based A_hat
-   * @param acknowledgedBps recent acked bitrate
-   * @param packetCount packets in this batch (known sequences only)
-   * @param lostCount lost among known sequences
-   * @param nowMs wall clock for observation duration
-   * @param batchBytes total sent bytes represented in the batch
+   * @param acknowledgedBps recent acked bitrate (TWCC-relative throughput)
+   * @param packetCount known packets in batch
+   * @param lostCount lost among known
+   * @param nowMs unused (send timeline comes from batch)
+   * @param batchBytes total sent bytes in batch
+   * @param sendDurationMs duration of this batch on the **send** timeline
    */
   update(
     lossFraction: number,
@@ -90,189 +127,251 @@ export class LossBasedBwe {
     acknowledgedBps = 0,
     packetCount = 0,
     lostCount = 0,
-    nowMs = 0,
+    _nowMs = 0,
     batchBytes = 0,
+    sendDurationMs = 0,
   ): number {
     if (acknowledgedBps > 0) {
       this.acknowledgedBps = acknowledgedBps;
     }
 
-    if (packetCount > 0) {
-      this.pushObservation(
-        packetCount,
-        lostCount,
-        batchBytes,
-        nowMs,
-        acknowledgedBps > 0 ? acknowledgedBps : this.bitrateBps,
-      );
-    } else {
-      // Compatibility path: single instantaneous sample from fraction alone.
-      const n = 20;
-      const lost = Math.round(Math.min(Math.max(lossFraction, 0), 1) * n);
-      this.pushObservation(
-        n,
-        lost,
-        0,
-        nowMs,
-        acknowledgedBps > 0 ? acknowledgedBps : this.bitrateBps,
-      );
+    const n =
+      packetCount > 0
+        ? packetCount
+        : 20;
+    const lost =
+      packetCount > 0
+        ? lostCount
+        : Math.round(Math.min(Math.max(lossFraction, 0), 1) * n);
+
+    const durationMs = Math.max(sendDurationMs, 1);
+    const instSending =
+      batchBytes > 0
+        ? (batchBytes * 8 * 1000) / durationMs
+        : acknowledgedBps > 0
+          ? acknowledgedBps
+          : this.current.lossLimitedBandwidthBps;
+
+    this.pushObservation(n, lost, instSending);
+
+    if (this.numObservations <= 0) {
+      return this.current.lossLimitedBandwidthBps;
     }
 
+    const prev = this.current.lossLimitedBandwidthBps;
+    let best = { ...this.current };
+    let bestObjective = -Infinity;
+
+    for (const candidate of this.getCandidates(delayBasedBps)) {
+      this.newtonsMethodUpdate(candidate);
+      const obj = this.getObjective(candidate);
+      if (obj > bestObjective) {
+        bestObjective = obj;
+        best = candidate;
+      }
+    }
+
+    this.current = best;
+    this.current.lossLimitedBandwidthBps = clamp(
+      this.current.lossLimitedBandwidthBps,
+    );
+
+    // High observed loss: never stay above acknowledged * (1 - 0.5 p)
+    // (operational safety when objective ranking is near-flat).
     const avgLoss = this.getAverageReportedLossRatio();
-    const candidates = this.getCandidates(delayBasedBps);
-    const best = this.pickBestCandidate(candidates, avgLoss, delayBasedBps);
+    if (avgLoss > 0.1) {
+      const ceiling =
+        this.acknowledgedBps > 0
+          ? this.acknowledgedBps * (1 - 0.5 * avgLoss)
+          : this.current.lossLimitedBandwidthBps * (1 - 0.5 * avgLoss);
+      if (this.current.lossLimitedBandwidthBps > ceiling) {
+        this.current.lossLimitedBandwidthBps = clamp(ceiling);
+      }
+    }
 
-    const prev = this.bitrateBps;
-    this.bitrateBps = clamp(best.bandwidthBps);
-    this.inherentLoss = best.inherentLoss;
-
-    // State machine (V2-style labels).
-    if (this.bitrateBps < prev * 0.95) {
+    // State labels for diagnostics / tests.
+    if (this.current.lossLimitedBandwidthBps < prev * 0.95) {
       this.state = "decreasing";
     } else if (
       delayBasedBps > 0 &&
-      Math.abs(this.bitrateBps - delayBasedBps) / delayBasedBps < 0.05
+      Math.abs(this.current.lossLimitedBandwidthBps - delayBasedBps) /
+        delayBasedBps <
+        0.05
     ) {
       this.state = "delay_based";
-    } else if (this.bitrateBps > prev * 1.02) {
+    } else if (this.current.lossLimitedBandwidthBps > prev * 1.02) {
       this.state = "increasing";
     } else {
       this.state = "hold";
     }
 
-    // Ramp-up cap vs acknowledged (V2 bandwidth_rampup_upper_bound_factor).
-    if (this.acknowledgedBps > 0 && this.state === "increasing") {
-      const cap = this.acknowledgedBps * kLossBasedRampupUpperBoundFactor;
-      if (this.bitrateBps > cap) {
-        this.bitrateBps = clamp(cap);
-      }
-    }
-
-    return this.bitrateBps;
+    return this.current.lossLimitedBandwidthBps;
   }
 
   private pushObservation(
     numPackets: number,
     numLost: number,
-    bytes: number,
-    nowMs: number,
     sendingRateBps: number,
   ) {
-    this.observations.push({
+    const obs: Observation = {
       numPackets,
-      numLost,
+      numLostPackets: numLost,
+      numReceivedPackets: Math.max(0, numPackets - numLost),
       sendingRateBps,
-      id: this.nextObsId++,
-    });
+      id: this.numObservations++,
+    };
+    this.observations.push(obs);
     while (this.observations.length > kLossBasedObservationWindow) {
       this.observations.shift();
     }
-    void bytes;
-    void nowMs;
+  }
+
+  private recomputeTemporalWeights() {
+    this.temporalWeights = [];
+    for (let i = 0; i < kLossBasedObservationWindow; i++) {
+      this.temporalWeights.push(kLossBasedTemporalWeightFactor ** i);
+    }
+  }
+
+  private temporalWeightFor(observation: Observation): number {
+    const age = this.numObservations - 1 - observation.id;
+    if (age < 0 || age >= this.temporalWeights.length) {
+      return kLossBasedTemporalWeightFactor ** Math.max(age, 0);
+    }
+    return this.temporalWeights[age];
   }
 
   private getAverageReportedLossRatio(): number {
     if (this.observations.length === 0) return 0;
     let lost = 0;
     let total = 0;
-    // Newer observations weigh more (temporal weight factor ≈ 0.9^age).
-    const n = this.observations.length;
-    for (let i = 0; i < n; i++) {
-      const w = 0.9 ** (n - 1 - i);
-      const o = this.observations[i];
-      lost += o.numLost * w;
-      total += o.numPackets * w;
+    for (const o of this.observations) {
+      const w = this.temporalWeightFor(o);
+      lost += w * o.numLostPackets;
+      total += w * o.numPackets;
     }
     return total > 0 ? lost / total : 0;
   }
 
-  private getCandidates(delayBasedBps: number): {
-    bandwidthBps: number;
-    inherentLoss: number;
-  }[] {
-    const candidates: { bandwidthBps: number; inherentLoss: number }[] = [];
+  private getCandidates(delayBasedBps: number): ChannelParameters[] {
+    const bandwidths: number[] = [];
     for (const f of kLossBasedCandidateFactors) {
-      candidates.push({
-        bandwidthBps: this.bitrateBps * f,
-        inherentLoss: this.inherentLoss,
-      });
+      bandwidths.push(this.current.lossLimitedBandwidthBps * f);
     }
+    // Explicit decrease candidates under observed loss (libwebrtc includes 0.95 factor).
     if (this.acknowledgedBps > 0) {
-      candidates.push({
-        bandwidthBps: this.acknowledgedBps,
-        inherentLoss: Math.max(
-          this.inherentLoss,
-          this.getAverageReportedLossRatio(),
-        ),
-      });
+      bandwidths.push(this.acknowledgedBps);
+      bandwidths.push(this.acknowledgedBps * 0.85);
     }
     if (delayBasedBps > 0) {
-      candidates.push({
-        bandwidthBps: delayBasedBps,
-        inherentLoss: this.inherentLoss,
-      });
+      bandwidths.push(delayBasedBps);
     }
-    return candidates;
+
+    // Ramp-up cap: do not jump above factor * acked when increasing.
+    const rampupCap =
+      this.acknowledgedBps > 0
+        ? this.acknowledgedBps * kLossBasedRampupUpperBoundFactor
+        : kMaxBitrateBps;
+
+    return bandwidths.map((bw) => {
+      let lossLimited = bw;
+      if (bw > this.current.lossLimitedBandwidthBps) {
+        lossLimited = Math.min(bw, Math.max(this.current.lossLimitedBandwidthBps, rampupCap));
+      }
+      const candidate: ChannelParameters = {
+        inherentLoss: this.current.inherentLoss,
+        lossLimitedBandwidthBps: lossLimited,
+      };
+      candidate.inherentLoss = this.getFeasibleInherentLoss(candidate);
+      return candidate;
+    });
   }
 
-  /**
-   * Rank candidates: penalize bandwidths that cannot explain observed loss
-   * without high inherent loss; prefer higher bandwidth when loss is similar.
-   */
-  private pickBestCandidate(
-    candidates: { bandwidthBps: number; inherentLoss: number }[],
-    avgLoss: number,
-    delayBasedBps: number,
-  ): { bandwidthBps: number; inherentLoss: number } {
-    let best = candidates[0] ?? {
-      bandwidthBps: this.bitrateBps,
-      inherentLoss: this.inherentLoss,
-    };
-    let bestScore = -Infinity;
+  /** loss_probability ≈ inherent_loss + max(0, sending - bw) / sending */
+  private getLossProbability(
+    inherentLoss: number,
+    lossLimitedBw: number,
+    sendingRate: number,
+  ): number {
+    let p = Math.min(Math.max(inherentLoss, 0), 1);
+    if (sendingRate > 0 && sendingRate > lossLimitedBw) {
+      p += (sendingRate - lossLimitedBw) / sendingRate;
+    }
+    return Math.min(Math.max(p, 1e-6), 1 - 1e-6);
+  }
 
-    for (const c of candidates) {
-      // Inherent loss must be at least the residual after congestion loss model.
-      // If candidate rate is far above what loss allows, penalize heavily.
-      const inherent = Math.max(
-        kLossBasedInherentLossLowerBound,
-        Math.min(avgLoss, 0.5),
+  private getInherentLossUpperBound(bandwidthBps: number): number {
+    if (bandwidthBps <= 0) return 1;
+    const ub =
+      kLossBasedInherentLossUpperBoundOffset +
+      kLossBasedInherentLossUpperBoundBwBalanceBps / bandwidthBps;
+    return Math.min(ub, 1);
+  }
+
+  private getFeasibleInherentLoss(c: ChannelParameters): number {
+    return Math.min(
+      Math.max(c.inherentLoss, kLossBasedInherentLossLowerBound),
+      this.getInherentLossUpperBound(c.lossLimitedBandwidthBps),
+    );
+  }
+
+  private getDerivatives(c: ChannelParameters): { first: number; second: number } {
+    let first = 0;
+    let second = 0;
+    for (const o of this.observations) {
+      const lp = this.getLossProbability(
+        c.inherentLoss,
+        c.lossLimitedBandwidthBps,
+        o.sendingRateBps,
       );
-      // Objective ≈ -|avgLoss - inherent| + bias * log(bandwidth)
-      const lossFit = -Math.abs(avgLoss - inherent) * 10;
-      const bwBias = Math.log(Math.max(c.bandwidthBps, kMinBitrateBps)) * 0.15;
-      // Prefer not exceeding delay-based by too much when loss is elevated.
-      let delayPenalty = 0;
-      if (delayBasedBps > 0 && avgLoss > 0.05 && c.bandwidthBps > delayBasedBps) {
-        delayPenalty = -((c.bandwidthBps - delayBasedBps) / delayBasedBps);
-      }
-      // High loss → strongly prefer lower bandwidth candidates.
-      let lossBackoff = 0;
-      if (avgLoss > 0.1) {
-        lossBackoff = -avgLoss * (c.bandwidthBps / Math.max(this.bitrateBps, 1));
-      }
-      const score = lossFit + bwBias + delayPenalty + lossBackoff;
-      if (score > bestScore) {
-        bestScore = score;
-        best = { bandwidthBps: c.bandwidthBps, inherentLoss: inherent };
-      }
+      const w = this.temporalWeightFor(o);
+      first +=
+        w *
+        (o.numLostPackets / lp - o.numReceivedPackets / (1 - lp));
+      second -=
+        w *
+        (o.numLostPackets / lp ** 2 +
+          o.numReceivedPackets / (1 - lp) ** 2);
     }
+    if (second >= 0) second = -1e-6;
+    return { first, second };
+  }
 
-    // Explicit high-loss decrease: never increase when avgLoss is severe.
-    if (avgLoss > 0.1 && best.bandwidthBps > this.bitrateBps) {
-      best = {
-        bandwidthBps: this.bitrateBps * (1 - 0.5 * avgLoss),
-        inherentLoss: avgLoss,
-      };
+  private newtonsMethodUpdate(c: ChannelParameters) {
+    if (this.observations.length === 0) return;
+    for (let i = 0; i < kLossBasedNewtonIterations; i++) {
+      const d = this.getDerivatives(c);
+      c.inherentLoss -=
+        (kLossBasedNewtonStepSize * d.first) / d.second;
+      c.inherentLoss = this.getFeasibleInherentLoss(c);
     }
-    // Low loss: allow growth toward delay-based.
-    if (avgLoss < 0.02 && delayBasedBps > best.bandwidthBps) {
-      best = {
-        bandwidthBps: Math.max(best.bandwidthBps, delayBasedBps),
-        inherentLoss: best.inherentLoss,
-      };
-    }
+  }
 
-    return best;
+  private getHighBandwidthBias(bandwidthBps: number): number {
+    const kbps = bandwidthBps / 1000;
+    return (
+      kLossBasedHigherBwBiasFactor * kbps +
+      kLossBasedHigherLogBwBiasFactor * Math.log(1 + kbps)
+    );
+  }
+
+  private getObjective(c: ChannelParameters): number {
+    let objective = 0;
+    const bias = this.getHighBandwidthBias(c.lossLimitedBandwidthBps);
+    for (const o of this.observations) {
+      const lp = this.getLossProbability(
+        c.inherentLoss,
+        c.lossLimitedBandwidthBps,
+        o.sendingRateBps,
+      );
+      const w = this.temporalWeightFor(o);
+      objective +=
+        w *
+        (o.numLostPackets * Math.log(lp) +
+          o.numReceivedPackets * Math.log(1 - lp));
+      objective += w * bias * o.numPackets;
+    }
+    return objective;
   }
 }
 

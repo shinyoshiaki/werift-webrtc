@@ -219,6 +219,20 @@ export class GccBandwidthEstimator
       this.onOveruseDetected.execute(usage);
     }
 
+    // Send-timeline duration of this batch (for loss observation sending rate).
+    let firstSend = Number.POSITIVE_INFINITY;
+    let lastSend = 0;
+    for (const result of results) {
+      const info = this.sentInfos.get(result.sequenceNumber & 0xffff);
+      if (!info) continue;
+      if (info.sendingAtMs < firstSend) firstSend = info.sendingAtMs;
+      if (info.sendingAtMs > lastSend) lastSend = info.sendingAtMs;
+    }
+    const sendDurationMs =
+      Number.isFinite(firstSend) && lastSend > firstSend
+        ? lastSend - firstSend
+        : 0;
+
     this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
     this.lossBasedBps = this.lossBwe.update(
       lossFraction,
@@ -228,6 +242,7 @@ export class GccBandwidthEstimator
       lost,
       nowMs,
       batchBytes,
+      sendDurationMs,
     );
 
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
@@ -334,9 +349,20 @@ export class GccBandwidthEstimator
     }
   }
 
+  /**
+   * Record an acked packet using TWCC receive timeline only.
+   * `recvMs` is the feedback-derived receive timestamp (referenceTime + deltas),
+   * not the sender wall clock — so real sessions where TWCC times are far from
+   * `Date.now()` still yield a valid throughput estimate.
+   */
   private recordAck(sizeBytes: number, recvMs: number) {
     this.ackedBytesWindow.push({ tMs: recvMs, bytes: sizeBytes });
-    const cutoff = recvMs - kBitrateWindowMs;
+    // Prune using the latest TWCC-relative time in the window (not wall clock).
+    let latest = recvMs;
+    for (const s of this.ackedBytesWindow) {
+      if (s.tMs > latest) latest = s.tMs;
+    }
+    const cutoff = latest - kBitrateWindowMs;
     while (
       this.ackedBytesWindow.length &&
       this.ackedBytesWindow[0].tMs < cutoff
@@ -345,20 +371,25 @@ export class GccBandwidthEstimator
     }
   }
 
-  private measureAckedBitrate(nowMs: number): number {
-    const cutoff = nowMs - kBitrateWindowMs;
+  /**
+   * Acknowledged bitrate from TWCC receive-time intervals and packet sizes.
+   * Does **not** compare TWCC timestamps to sender wall clock.
+   */
+  private measureAckedBitrate(_nowMs?: number): number {
+    if (this.ackedBytesWindow.length === 0) return 0;
     let bytes = 0;
-    let first = 0;
-    let last = 0;
+    let first = this.ackedBytesWindow[0].tMs;
+    let last = this.ackedBytesWindow[0].tMs;
     for (const s of this.ackedBytesWindow) {
-      if (s.tMs < cutoff) continue;
-      if (first === 0) first = s.tMs;
-      last = s.tMs;
       bytes += s.bytes;
+      if (s.tMs < first) first = s.tMs;
+      if (s.tMs > last) last = s.tMs;
     }
-    const dt = Math.max(last - first, 1);
+    const dt = last - first;
     if (bytes === 0) return 0;
-    return (bytes * 8 * 1000) / dt;
+    // Single-sample or zero-duration window: treat as instantaneous over 1 ms.
+    const intervalMs = Math.max(dt, 1);
+    return (bytes * 8 * 1000) / intervalMs;
   }
 
   private pushInterArrival(sendMs: number, recvMs: number, size: number) {

@@ -562,12 +562,15 @@ export class RTCRtpSender {
 
     const { header, payload } = rtp;
 
-    // Lightweight token-bucket pacing driven by BWE / probe target.
+    // Token-bucket pacing only for estimators that implement ProbePacingController
+    // (e.g. GCC). Legacy default estimator must not alter send timing.
     const padBytes = header.padding ? header.paddingSize : 0;
     const payloadLen =
       payload.length + padBytes + (header.serializeSize || 12);
-    if (!(await this.awaitPacingBudget(payloadLen))) {
-      return;
+    if (isProbePacingController(this._senderBWE)) {
+      if (!(await this.awaitPacingBudget(payloadLen))) {
+        return;
+      }
     }
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
