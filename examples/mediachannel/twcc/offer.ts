@@ -59,11 +59,14 @@ server.on("connection", async (socket) => {
   const senderTransceiver = sender.addTransceiver("video", {
     direction: "sendonly",
   });
+  // Prefer rtpSender.onAvailableBitrate (bps, change-only; survives estimator swap).
   // onCongestion is legacy SenderBandwidthEstimator-only (default BWE).
-  // Common path: senderBWE.onAvailableBitrate (bps, change-only).
-  // GCC: sender.setBandwidthEstimator(new GccBandwidthEstimator()).
-  const legacyBwe = senderTransceiver.sender
-    .senderBWE as SenderBandwidthEstimator;
+  // GCC: rtpSender.setBandwidthEstimator(new GccBandwidthEstimator()).
+  const rtpSender = senderTransceiver.sender;
+  rtpSender.onAvailableBitrate.subscribe((bps) =>
+    console.log("availableBitrate", bps),
+  );
+  const legacyBwe = rtpSender.senderBWE as SenderBandwidthEstimator;
   legacyBwe.onCongestion.subscribe((b) => console.log("congestion", b));
 
   receiverTransceiver.onTrack.subscribe(async (track) => {
