@@ -1,33 +1,47 @@
 import {
   kDefaultStartBitrateBps,
+  kLossBasedBackoffFactor,
+  kLossBasedIncreaseFactor,
   kLossDecreaseThreshold,
-  kLossIncreaseFactor,
   kLossIncreaseThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
 } from "./constants";
 
 /**
- * Loss-based bandwidth estimate As_hat (draft-ietf-rmcat-gcc-02 §6).
+ * Loss-based BWE state (libwebrtc goog_cc loss path intent).
  *
- * - loss < 2%: As *= 1.05
- * - 2% ≤ loss ≤ 10%: hold
- * - loss > 10%: As *= (1 - 0.5 * p)
+ * Aligns with the operational thresholds used in Chromium send-side BWE:
+ * - low loss → increase toward / with delay-based estimate
+ * - medium loss → hold (balance inherent loss vs congestion)
+ * - high loss → decrease from acknowledged throughput
+ *
+ * Not a full port of LossBasedBweV2 candidate enumeration; update rules and
+ * constants follow the practical libwebrtc control response used with TWCC.
  */
+export type LossBasedState =
+  | "increasing"
+  | "decreasing"
+  | "delay_based"
+  | "hold";
+
 export class LossBasedBwe {
   private bitrateBps = kDefaultStartBitrateBps;
+  private state: LossBasedState = "increasing";
 
   reset(startBps = kDefaultStartBitrateBps) {
     this.bitrateBps = clamp(startBps);
+    this.state = "increasing";
   }
 
   get targetBitrateBps() {
     return this.bitrateBps;
   }
 
-  /**
-   * Seed / raise floor from delay-based estimate when loss controller is cold.
-   */
+  get lossState(): LossBasedState {
+    return this.state;
+  }
+
   setBitrateIfHigher(bps: number) {
     if (bps > this.bitrateBps) {
       this.bitrateBps = clamp(bps);
@@ -35,23 +49,46 @@ export class LossBasedBwe {
   }
 
   /**
-   * @param lossFraction fraction of packets lost in the feedback window [0, 1]
-   * @param delayBasedBps latest delay-based A_hat (used as a soft upper reference)
+   * @param lossFraction loss ratio over known sent sequences in [0, 1]
+   * @param delayBasedBps delay-based A_hat
+   * @param acknowledgedBps recent acked bitrate (TWCC-derived)
    */
-  update(lossFraction: number, delayBasedBps: number): number {
+  update(
+    lossFraction: number,
+    delayBasedBps: number,
+    acknowledgedBps = 0,
+  ): number {
     const p = Math.min(Math.max(lossFraction, 0), 1);
+    const ack = acknowledgedBps > 0 ? acknowledgedBps : this.bitrateBps;
 
     if (p < kLossIncreaseThreshold) {
-      this.bitrateBps = this.bitrateBps * kLossIncreaseFactor;
-      // When increasing with low loss, track at least the delay-based floor so
-      // As_hat is not stuck far below A_hat after a previous decrease.
-      if (delayBasedBps > this.bitrateBps) {
-        this.bitrateBps = delayBasedBps;
-      }
+      // Low loss: push toward delay-based (or modest multiplicative growth).
+      this.state = "increasing";
+      const increased = Math.max(
+        this.bitrateBps * kLossBasedIncreaseFactor,
+        delayBasedBps > 0 ? delayBasedBps : this.bitrateBps,
+      );
+      this.bitrateBps = increased;
     } else if (p > kLossDecreaseThreshold) {
-      this.bitrateBps = this.bitrateBps * (1 - 0.5 * p);
+      // High loss: pull down from acknowledged rate (libwebrtc-style backoff).
+      this.state = "decreasing";
+      const decreased = ack * (1 - kLossBasedBackoffFactor * p);
+      this.bitrateBps = Math.min(this.bitrateBps, decreased);
+    } else {
+      // Inherent / moderate loss band: hold estimate, prefer delay-based cap.
+      this.state = "hold";
+      if (delayBasedBps > 0) {
+        this.bitrateBps = Math.min(this.bitrateBps, delayBasedBps * 1.05);
+      }
     }
-    // else hold (2%–10% loss)
+
+    if (
+      delayBasedBps > 0 &&
+      this.state !== "decreasing" &&
+      Math.abs(this.bitrateBps - delayBasedBps) / delayBasedBps < 0.05
+    ) {
+      this.state = "delay_based";
+    }
 
     this.bitrateBps = clamp(this.bitrateBps);
     return this.bitrateBps;

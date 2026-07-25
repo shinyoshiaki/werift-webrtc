@@ -43,7 +43,9 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 | --- | --- |
 | `RTCRtpSender.senderBWE` | Active `BandwidthEstimator` (default: legacy cumulative) |
 | `RTCRtpSender.setBandwidthEstimator(impl)` | Swap algorithm instance (e.g. `new GccBandwidthEstimator()`) |
-| `senderBWE.onAvailableBitrate` | **bps**; fires only when the recommended bitrate **changes** |
+| **`sender.onAvailableBitrate`** | **bps**; fires only when the recommended bitrate **changes**. Survives estimator swap — prefer this for apps. |
+| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target |
+| `sender.onProbeClusterConfig` | GCC probe cluster targets for pacing / encoder ramp |
 
 ```ts
 import {
@@ -51,14 +53,18 @@ import {
   type SenderBandwidthEstimator,
 } from "werift";
 
-// Prefer the sender-level event — subscriptions survive setBandwidthEstimator.
+// Recommended: sender-level event (survives setBandwidthEstimator).
 sender.onAvailableBitrate.subscribe((bps) => {
   // drive encoder / simulcast layer selection (bps, change-only)
 });
 
-// Optional: switch to Google Congestion Control (delay + loss + probe).
+// Optional: switch to Google Congestion Control (trendline + loss + probe).
 sender.setBandwidthEstimator(new GccBandwidthEstimator());
-// Re-subscribe algorithm-specific events on the concrete instance after swap.
+// During probes, sender.pacingBitrateBps is raised to the probe target and
+// RTCRtpSender applies a lightweight token-bucket pacer automatically.
+sender.onProbeClusterConfig.subscribe((cfg) => {
+  // optional: raise encoder toward cfg.targetBps for the cluster duration
+});
 
 // Legacy-only (default estimator) congestion score:
 const legacy = sender.senderBWE as SenderBandwidthEstimator;

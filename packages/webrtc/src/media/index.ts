@@ -19,9 +19,12 @@ export {
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,
   LossBasedBwe,
+  ProbeController,
+  TrendlineEstimator,
   compareTransportWideSeq,
   kBeta,
   kDefaultStartBitrateBps,
+  kLossBasedIncreaseFactor,
   kLossDecreaseThreshold,
   kLossIncreaseFactor,
   kLossIncreaseThreshold,
@@ -29,4 +32,9 @@ export {
   kMinBitrateBps,
   sortPacketResultsByWideSeq,
 } from "./sender/estimators/gcc";
-export type { BandwidthUsage, ProbeState } from "./sender/estimators/gcc";
+export type {
+  BandwidthUsage,
+  LossBasedState,
+  ProbeClusterConfig,
+  ProbeState,
+} from "./sender/estimators/gcc";

@@ -60,6 +60,13 @@ export interface BandwidthEstimator {
   shouldTagProbePacket?(): boolean;
 
   /**
+   * Optional pacing target (bps) for the send engine.
+   * While probing this is typically `max(availableBitrate, probeTarget)`.
+   * {@link RTCRtpSender} uses this for its lightweight token-bucket pacer.
+   */
+  getPacingBitrateBps?(): number;
+
+  /**
    * Clear internal history / estimates (e.g. after estimator swap or transport restart).
    * Optional for lightweight implementations.
    */

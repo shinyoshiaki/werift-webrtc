@@ -9,14 +9,17 @@ import {
   kBitrateWindowMs,
   kBurstTimeMs,
   kDefaultStartBitrateBps,
+  kMaxBitrateBps,
+  kMinBitrateBps,
   kSentInfoMaxAgeMs,
 } from "./constants";
-import { KalmanArrivalFilter } from "./kalmanArrivalFilter";
 import { LossBasedBwe } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import { OveruseDetector } from "./overuseDetector";
+import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
 import { sortPacketResultsByWideSeq } from "./sequenceNumber";
+import { TrendlineEstimator } from "./trendlineEstimator";
 
 interface GroupSample {
   sendMs: number;
@@ -25,71 +28,89 @@ interface GroupSample {
 }
 
 /**
- * Google Congestion Control send-side bandwidth estimator.
+ * Google Congestion Control send-side bandwidth estimator (libwebrtc-aligned).
  *
- * Combines delay-based (Kalman + overuse + AIMD), loss-based (draft §6),
- * and probe estimation. Final target is `min(delay, loss)`, optionally raised
- * by a successful probe. Implements {@link BandwidthEstimator}.
+ * Components:
+ * - {@link TrendlineEstimator} delay gradient (libwebrtc, not draft Kalman)
+ * - {@link OveruseDetector} + {@link AimdRateControl}
+ * - {@link LossBasedBwe} threshold/state loss path
+ * - {@link ProbeController} exponential / further probes
  *
- * GCC-specific signals are exposed via `onOveruseDetected` / `usageState` /
- * `probeState` and are **not** part of the shared interface.
+ * Final estimate: `min(delay-based, loss-based)`, raised by successful probes.
+ * While a probe cluster is active, {@link getPacingBitrateBps} returns the probe
+ * target so {@link RTCRtpSender} can pace/send at the exploratory rate.
  *
- * @see https://datatracker.ietf.org/doc/html/draft-ietf-rmcat-gcc-02
- * @see GCC_KNOWN_DIFFERENCES
+ * Loss is computed only over transport-wide sequences this estimator has sent
+ * and not yet finalized; unknown / late / duplicate feedback is ignored.
  */
 export class GccBandwidthEstimator implements BandwidthEstimator {
   /** @internal */
   _availableBitrate = 0;
 
-  /**
-   * Fires when recommended send bitrate (**bps**) changes.
-   * @see BandwidthEstimator.onAvailableBitrate
-   */
   readonly onAvailableBitrate = new Event<[number]>();
 
-  /**
-   * GCC-only: fires when the overuse detector hypothesis changes
-   * (`normal` / `overuse` / `underuse`).
-   */
+  /** GCC-only: overuse detector hypothesis changes. */
   readonly onOveruseDetected = new Event<[BandwidthUsage]>();
 
-  private readonly kalman = new KalmanArrivalFilter();
+  /**
+   * GCC-only: probe cluster configs the sender/pacer should execute
+   * (target bitrate, min packets/duration).
+   */
+  readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
+
+  private readonly trendline = new TrendlineEstimator();
   private readonly overuse = new OveruseDetector();
   private readonly aimd = new AimdRateControl();
   private readonly lossBwe = new LossBasedBwe();
   private readonly probe = new ProbeController();
 
   private sentInfos = new Map<number, SentInfo>();
+  /** Sequences already counted as received or lost (dedupe delayed TWCC). */
+  private finalizedSeqs = new Set<number>();
   private prevGroup?: GroupSample;
   private currentGroup?: GroupSample;
   private lastUsage: BandwidthUsage = "normal";
   private ackedBytesWindow: { tMs: number; bytes: number }[] = [];
   private delayBasedBps = kDefaultStartBitrateBps;
   private lossBasedBps = kDefaultStartBitrateBps;
+  private startBitrateBps: number;
+  private probingConfigured = false;
 
   get availableBitrate() {
     return this._availableBitrate;
   }
 
-  /** Current overuse-detector hypothesis (GCC-specific). */
   get usageState(): BandwidthUsage {
     return this.overuse.state;
   }
 
-  /** Current probe controller state (GCC-specific). */
-  get probeState() {
+  get probeState(): ProbeState {
     return this.probe.probeState;
   }
 
-  /** Advisory probe target bitrate while probing (0 if idle). */
   get suggestedProbeBitrateBps() {
     return this.probe.suggestedProbeBitrateBps;
   }
 
-  /** Documented intentional differences vs libwebrtc / draft. */
+  /**
+   * Bitrate the sender should pace at now: max(estimate, active probe target).
+   * Used by {@link RTCRtpSender} token-bucket pacing during probe clusters.
+   */
+  getPacingBitrateBps(): number {
+    const estimate = this._availableBitrate || this.startBitrateBps;
+    const probeTarget = this.probe.currentProbeTargetBps;
+    return Math.max(estimate, probeTarget);
+  }
+
+  shouldTagProbePacket(): boolean {
+    this.ensureProbing(milliTime());
+    return this.probe.shouldTagProbePacket();
+  }
+
   static readonly knownDifferences = GCC_KNOWN_DIFFERENCES;
 
   constructor(startBitrateBps = kDefaultStartBitrateBps) {
+    this.startBitrateBps = startBitrateBps;
     this.aimd.reset(startBitrateBps);
     this.lossBwe.reset(startBitrateBps);
     this.delayBasedBps = startBitrateBps;
@@ -98,19 +119,14 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
 
   rtpPacketSent(info: SentInfo) {
     this.pruneSentInfos(info.sendingAtMs, info.wideSeq);
-    this.sentInfos.set(info.wideSeq & 0xffff, info);
-  }
-
-  /**
-   * Tag outgoing RTP as probe while a probe cluster is active.
-   * Opens a cold-start probe cluster if none is running yet so the first
-   * tagged packets can contribute to the probe estimate.
-   */
-  shouldTagProbePacket(): boolean {
-    if (this._availableBitrate === 0 && this.probe.probeState === "idle") {
-      this.probe.maybeStartProbe(kDefaultStartBitrateBps, milliTime());
+    const seq = info.wideSeq & 0xffff;
+    this.sentInfos.set(seq, info);
+    // New send invalidates any stale finalized flag for this seq (wrap reuse).
+    this.finalizedSeqs.delete(seq);
+    this.ensureProbing(info.sendingAtMs);
+    for (const cfg of this.probe.process(info.sendingAtMs)) {
+      this.onProbeClusterConfig.execute(cfg);
     }
-    return this.probe.shouldTagProbePacket();
   }
 
   receiveTWCC(feedback: TransportWideCC) {
@@ -118,18 +134,30 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     let received = 0;
     let lost = 0;
 
-    // Process in transport-wide send order (wrap-around safe).
     const results = sortPacketResultsByWideSeq(feedback.packetResults);
 
     for (const result of results) {
-      if (!result.received) {
-        lost++;
+      const seq = result.sequenceNumber & 0xffff;
+
+      // Only sequences this estimator has actually sent count toward loss / delay.
+      const info = this.sentInfos.get(seq);
+      if (!info) {
         continue;
       }
-      received++;
-      const info = this.sentInfos.get(result.sequenceNumber & 0xffff);
-      if (!info || !result.receivedAtMs) continue;
 
+      // Duplicate / delayed re-delivery of the same feedback: ignore.
+      if (this.finalizedSeqs.has(seq)) {
+        continue;
+      }
+
+      if (!result.received || !result.receivedAtMs) {
+        lost++;
+        this.finalizedSeqs.add(seq);
+        continue;
+      }
+
+      received++;
+      this.finalizedSeqs.add(seq);
       this.recordAck(info.size, result.receivedAtMs);
       this.probe.onAckedPacket(
         info.size,
@@ -139,11 +167,10 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
       this.pushInterArrival(info.sendingAtMs, result.receivedAtMs, info.size);
     }
 
-    const lossFraction =
-      received + lost > 0 ? lost / (received + lost) : 0;
+    const known = received + lost;
+    const lossFraction = known > 0 ? lost / known : 0;
     const ackedBps = this.measureAckedBitrate(nowMs);
 
-    // Delay-based path: flush current group and run filter / detector / AIMD.
     this.flushGroup(nowMs);
     const usage = this.overuse.state;
     if (usage !== this.lastUsage) {
@@ -152,13 +179,14 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     }
 
     this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
-    this.lossBasedBps = this.lossBwe.update(lossFraction, this.delayBasedBps);
+    this.lossBasedBps = this.lossBwe.update(
+      lossFraction,
+      this.delayBasedBps,
+      ackedBps,
+    );
 
-    // Final target: min(delay-based, loss-based) per draft §6.
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
 
-    // Apply a newly completed probe once (capacity discovery); do not re-apply
-    // on every subsequent feedback, which would undo loss/overuse decreases.
     const probeBps = this.probe.takePendingEstimateBps();
     if (probeBps > target) {
       target = probeBps;
@@ -166,64 +194,90 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
       this.lossBwe.reset(probeBps);
       this.delayBasedBps = probeBps;
       this.lossBasedBps = probeBps;
+      for (const cfg of this.probe.setEstimatedBitrate(probeBps, nowMs)) {
+        this.onProbeClusterConfig.execute(cfg);
+      }
     }
 
     if (target > 0) {
       setAvailableBitrateIfChanged(this, target);
     }
 
-    // Restart probe after recovery (underuse) or while still near cold start.
-    if (
-      usage === "underuse" ||
-      (this._availableBitrate > 0 &&
-        this._availableBitrate < kDefaultStartBitrateBps)
-    ) {
-      this.probe.maybeStartProbe(this._availableBitrate || target, nowMs);
+    // Recovery / underuse → request additional probe clusters.
+    if (usage === "underuse") {
+      for (const cfg of this.probe.requestProbe(
+        this._availableBitrate || target,
+        nowMs,
+      )) {
+        this.onProbeClusterConfig.execute(cfg);
+      }
+    }
+
+    for (const cfg of this.probe.process(nowMs)) {
+      this.onProbeClusterConfig.execute(cfg);
     }
   }
 
   reset() {
-    this.kalman.reset();
+    this.trendline.reset();
     this.overuse.reset();
-    this.aimd.reset();
-    this.lossBwe.reset();
+    this.aimd.reset(this.startBitrateBps);
+    this.lossBwe.reset(this.startBitrateBps);
     this.probe.reset();
     this.sentInfos.clear();
+    this.finalizedSeqs.clear();
     this.prevGroup = undefined;
     this.currentGroup = undefined;
     this.lastUsage = "normal";
     this.ackedBytesWindow = [];
     this._availableBitrate = 0;
-    this.delayBasedBps = kDefaultStartBitrateBps;
-    this.lossBasedBps = kDefaultStartBitrateBps;
+    this.delayBasedBps = this.startBitrateBps;
+    this.lossBasedBps = this.startBitrateBps;
+    this.probingConfigured = false;
   }
 
   dispose() {
     this.onAvailableBitrate.allUnsubscribe();
     this.onOveruseDetected.allUnsubscribe();
+    this.onProbeClusterConfig.allUnsubscribe();
     this.reset();
   }
 
+  private ensureProbing(nowMs: number) {
+    if (this.probingConfigured) return;
+    this.probingConfigured = true;
+    for (const cfg of this.probe.setBitrates(
+      kMinBitrateBps,
+      this.startBitrateBps,
+      kMaxBitrateBps,
+      nowMs,
+    )) {
+      this.onProbeClusterConfig.execute(cfg);
+    }
+  }
+
   private pruneSentInfos(nowMs: number, latestWideSeq: number) {
-    // Age-based eviction.
     for (const [seq, info] of this.sentInfos) {
       if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
         this.sentInfos.delete(seq);
+        this.finalizedSeqs.delete(seq);
       }
     }
-    // Bound map size by dropping oldest keys relative to latest (wrap-aware order).
-    // Keep a reordering window of ~2048 transport-wide sequence numbers.
     if (this.sentInfos.size > 4096) {
       const origin = latestWideSeq & 0xffff;
       const keys = [...this.sentInfos.keys()].sort((a, b) => {
         const da = ((a & 0xffff) - origin + 0x10000) % 0x10000;
         const db = ((b & 0xffff) - origin + 0x10000) % 0x10000;
-        // Larger distance from origin means older when origin is the newest.
         return db - da;
       });
       for (let i = 0; i < keys.length - 2048; i++) {
         this.sentInfos.delete(keys[i]);
+        this.finalizedSeqs.delete(keys[i]);
       }
+    }
+    // Bound finalized set similarly.
+    if (this.finalizedSeqs.size > 8192) {
+      this.finalizedSeqs.clear();
     }
   }
 
@@ -254,9 +308,6 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     return (bytes * 8 * 1000) / dt;
   }
 
-  /**
-   * Pre-filtering / grouping (draft §5.2) then inter-group delay variation.
-   */
   private pushInterArrival(sendMs: number, recvMs: number, size: number) {
     if (!this.currentGroup) {
       this.currentGroup = { sendMs, recvMs, size };
@@ -268,11 +319,9 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
     const d = interRecv - interSend;
 
     const sameBurst =
-      interSend <= kBurstTimeMs ||
-      (interRecv < kBurstTimeMs && d < 0);
+      interSend <= kBurstTimeMs || (interRecv < kBurstTimeMs && d < 0);
 
     if (sameBurst) {
-      // Merge into current group (last packet defines times).
       this.currentGroup.sendMs = sendMs;
       this.currentGroup.recvMs = recvMs;
       this.currentGroup.size += size;
@@ -286,7 +335,6 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
   private flushGroup(nowMs: number) {
     if (this.currentGroup) {
       this.emitGroup(this.currentGroup, nowMs);
-      // Keep current group as prev baseline only via emitGroup.
     }
   }
 
@@ -295,10 +343,9 @@ export class GccBandwidthEstimator implements BandwidthEstimator {
       const interSend = group.sendMs - this.prevGroup.sendMs;
       const interRecv = group.recvMs - this.prevGroup.recvMs;
       if (interSend > 0) {
-        const d = interRecv - interSend;
         const ts = nowMs ?? group.recvMs;
-        const mHat = this.kalman.update(d, ts);
-        this.overuse.detect(mHat, ts);
+        const offset = this.trendline.update(interRecv, interSend, ts);
+        this.overuse.detect(offset, ts);
       }
     }
     this.prevGroup = group;

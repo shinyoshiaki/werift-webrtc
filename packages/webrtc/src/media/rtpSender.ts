@@ -113,9 +113,24 @@ export class RTCRtpSender {
    * Stable recommended send bitrate event (**bps**, change-only).
    * Bridged from the active {@link BandwidthEstimator}; subscriptions survive
    * {@link setBandwidthEstimator} without re-subscribing.
+   *
+   * Prefer this over `senderBWE.onAvailableBitrate` for application adaptation.
    */
   readonly onAvailableBitrate = new Event<[number]>();
   private bweAvailableBitrateUnsub?: () => void;
+
+  /**
+   * GCC probe cluster configs (target bps / min packets). Bridged when the
+   * active estimator is {@link GccBandwidthEstimator}.
+   */
+  readonly onProbeClusterConfig = new Event<
+    [{ id: number; targetBps: number; minPackets: number; minDurationMs: number }]
+  >();
+  private bweProbeUnsub?: () => void;
+
+  /** Token-bucket pacer state for probe / target rate enforcement. */
+  private paceBudgetBytes = 0;
+  private lastPaceMs = 0;
 
   private cname?: string;
   private mid?: string;
@@ -223,6 +238,8 @@ export class RTCRtpSender {
     if (prev === impl) return;
     this.bweAvailableBitrateUnsub?.();
     this.bweAvailableBitrateUnsub = undefined;
+    this.bweProbeUnsub?.();
+    this.bweProbeUnsub = undefined;
     if (prev.dispose) {
       prev.dispose();
     } else {
@@ -230,6 +247,8 @@ export class RTCRtpSender {
     }
     this.senderBWE = impl;
     this.bindBandwidthEstimatorEvents(impl);
+    this.paceBudgetBytes = 0;
+    this.lastPaceMs = 0;
   }
 
   private bindBandwidthEstimatorEvents(impl: BandwidthEstimator) {
@@ -237,6 +256,32 @@ export class RTCRtpSender {
     this.bweAvailableBitrateUnsub = impl.onAvailableBitrate.subscribe((bps) => {
       this.onAvailableBitrate.execute(bps);
     }).unSubscribe;
+
+    this.bweProbeUnsub?.();
+    this.bweProbeUnsub = undefined;
+    const maybeGcc = impl as BandwidthEstimator & {
+      onProbeClusterConfig?: Event<
+        [{ id: number; targetBps: number; minPackets: number; minDurationMs: number }]
+      >;
+    };
+    if (maybeGcc.onProbeClusterConfig) {
+      this.bweProbeUnsub = maybeGcc.onProbeClusterConfig.subscribe((cfg) => {
+        this.onProbeClusterConfig.execute(cfg);
+        // Fill budget so probe packets can leave promptly at the new target.
+        this.paceBudgetBytes = Math.max(this.paceBudgetBytes, cfg.targetBps / 8);
+      }).unSubscribe;
+    }
+  }
+
+  /**
+   * Effective send pacing rate (bps): estimator estimate, raised to the active
+   * probe target while probing. 0 when unknown.
+   */
+  get pacingBitrateBps(): number {
+    return (
+      this.senderBWE.getPacingBitrateBps?.() ??
+      this.senderBWE.availableBitrate
+    );
   }
 
   get redDistance() {
@@ -422,6 +467,13 @@ export class RTCRtpSender {
     rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
     const { header, payload } = rtp;
+
+    // Lightweight token-bucket pacing driven by BWE / probe target.
+    // Probe clusters raise getPacingBitrateBps() so exploratory traffic can flow.
+    const payloadLen = payload.length + (header.serializeSize || 12);
+    if (!(await this.awaitPacingBudget(payloadLen))) {
+      return;
+    }
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
@@ -512,6 +564,57 @@ export class RTCRtpSender {
       isProbation: this.senderBWE.shouldTagProbePacket?.() === true,
     };
     this.senderBWE.rtpPacketSent(sentInfo);
+  }
+
+  /**
+   * Token-bucket wait against {@link pacingBitrateBps}.
+   * Returns false only if the sender is stopped while waiting.
+   */
+  private async awaitPacingBudget(packetBytes: number): Promise<boolean> {
+    const rateBps = this.pacingBitrateBps;
+    if (rateBps <= 0) {
+      return true;
+    }
+
+    const now = milliTime();
+    if (this.lastPaceMs === 0) {
+      this.lastPaceMs = now;
+      // Initial burst: 30 ms of rate.
+      this.paceBudgetBytes = (rateBps / 8) * 0.03;
+    } else {
+      const elapsedSec = Math.max(0, (now - this.lastPaceMs) / 1000);
+      this.paceBudgetBytes += elapsedSec * (rateBps / 8);
+      // Cap accumulated budget to 100 ms of the current rate.
+      const maxBudget = (rateBps / 8) * 0.1;
+      if (this.paceBudgetBytes > maxBudget) {
+        this.paceBudgetBytes = maxBudget;
+      }
+      this.lastPaceMs = now;
+    }
+
+    if (this.paceBudgetBytes >= packetBytes) {
+      this.paceBudgetBytes -= packetBytes;
+      return true;
+    }
+
+    const need = packetBytes - this.paceBudgetBytes;
+    const waitMs = Math.ceil((need * 8 * 1000) / rateBps);
+    if (waitMs > 0) {
+      try {
+        await setTimeout(Math.min(waitMs, 200), undefined, {
+          signal: this.rtcpCancel.signal,
+        });
+      } catch {
+        return !this.stopped;
+      }
+      if (this.stopped) return false;
+      const after = milliTime();
+      const elapsedSec = Math.max(0, (after - this.lastPaceMs) / 1000);
+      this.paceBudgetBytes += elapsedSec * (rateBps / 8);
+      this.lastPaceMs = after;
+    }
+    this.paceBudgetBytes = Math.max(0, this.paceBudgetBytes - packetBytes);
+    return true;
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {
