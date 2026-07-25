@@ -66,6 +66,7 @@ import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
+import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
 import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();
@@ -190,6 +191,8 @@ function attachWebSocketServer() {
         new mediachannel_offer_replace_second(),
       ice_restart_web_trigger: new ice_restart_web_trigger(),
       ice_restart_node_trigger: new ice_restart_node_trigger(),
+      // CI 対象外: e2e/simulations/ から明示実行される帯域 sim
+      sim_gcc_twcc_chrome: new sim_gcc_twcc_chrome(),
     };
 
     const transport = accept();

@@ -29,3 +29,11 @@ npm run test:sim
 1. 仮想上限帯域（例: 200 kbps）を超える固定レートで RTP を送る。
 2. 遅延増加・ドロップが発生し、GCC の `onAvailableBitrate` が下がる。
 3. アプリが推定帯域に送信レートを合わせると、追加ドロップが減少する。
+
+## 関連: Chrome 間シミュレーション
+
+werift ↔ Chrome は `e2e/simulations/`（ネットワーク制限は werift 側 ICE）。
+
+```bash
+cd e2e && npm run test:sim
+```
