@@ -506,40 +506,46 @@ export class RTCRtpSender {
       return 0;
     }
     this.probePaddingInFlight = true;
+    let totalSent = 0;
     try {
-      const pending = e.pendingProbePaddingPackets(kProbePaddingPacketBytes);
-      const n = Math.min(pending, kProbePaddingMaxBurst);
-      // Pre-allocate unique absolute RTP sequence numbers for this burst.
-      let seq =
-        this.sequenceNumber === undefined
-          ? 0
-          : uint16Add(this.sequenceNumber, 1);
-      for (let i = 0; i < n; i++) {
-        const nextSeq = i === 0 ? seq : uint16Add(seq, i);
-        const pad = new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: nextSeq,
-            timestamp: this.timestamp ?? 0,
-            payloadType: this.codec.payloadType,
-            ssrc: this.ssrc,
-            extension: true,
-            extensions: [],
-            marker: false,
-            // RFC 3550 padding: P bit + trailing padding size byte.
-            padding: true,
-            paddingSize: kProbePaddingPacketBytes,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(0),
-        );
-        await this.sendRtpInternal(pad, {
-          injectProbePadding: false,
-          forceProbeTag: true,
-          absoluteSequenceNumber: nextSeq,
-          isProbePadding: true,
-        });
+      // Drain the full probe cluster across multiple bursts if needed.
+      // Without this, large clusters stall when only maxBurst packets are sent.
+      for (let safety = 0; safety < 64; safety++) {
+        const pending = e.pendingProbePaddingPackets(kProbePaddingPacketBytes);
+        if (pending <= 0) break;
+        const n = Math.min(pending, kProbePaddingMaxBurst);
+        const seq0 =
+          this.sequenceNumber === undefined
+            ? 0
+            : uint16Add(this.sequenceNumber, 1);
+        for (let i = 0; i < n; i++) {
+          const nextSeq = i === 0 ? seq0 : uint16Add(seq0, i);
+          const pad = new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: nextSeq,
+              timestamp: this.timestamp ?? 0,
+              payloadType: this.codec.payloadType,
+              ssrc: this.ssrc,
+              extension: true,
+              extensions: [],
+              marker: false,
+              // RFC 3550 padding: P bit + trailing padding size byte.
+              padding: true,
+              paddingSize: kProbePaddingPacketBytes,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(0),
+          );
+          await this.sendRtpInternal(pad, {
+            injectProbePadding: false,
+            forceProbeTag: true,
+            absoluteSequenceNumber: nextSeq,
+            isProbePadding: true,
+          });
+          totalSent++;
+        }
       }
-      return n;
+      return totalSent;
     } finally {
       this.probePaddingInFlight = false;
     }
@@ -704,39 +710,42 @@ export class RTCRtpSender {
       // Initial burst: 30 ms of rate.
       this.paceBudgetBytes = (rateBps / 8) * 0.03;
     } else {
-      const elapsedSec = Math.max(0, (now - this.lastPaceMs) / 1000);
-      this.paceBudgetBytes += elapsedSec * (rateBps / 8);
-      // Cap accumulated budget to 100 ms of the current rate.
-      const maxBudget = (rateBps / 8) * 0.1;
-      if (this.paceBudgetBytes > maxBudget) {
-        this.paceBudgetBytes = maxBudget;
-      }
-      this.lastPaceMs = now;
+      this.refillPaceBudget(rateBps, now);
     }
 
-    if (this.paceBudgetBytes >= packetBytes) {
-      this.paceBudgetBytes -= packetBytes;
-      return true;
-    }
-
-    const need = packetBytes - this.paceBudgetBytes;
-    const waitMs = Math.ceil((need * 8 * 1000) / rateBps);
-    if (waitMs > 0) {
+    // Wait in a loop until the token bucket can cover this packet.
+    // Cap accumulation so a single large packet is still eventually sendable.
+    const maxBudget = Math.max((rateBps / 8) * 0.1, packetBytes);
+    while (this.paceBudgetBytes < packetBytes) {
+      if (this.stopped) return false;
+      const need = packetBytes - this.paceBudgetBytes;
+      const waitMs = Math.max(1, Math.ceil((need * 8 * 1000) / rateBps));
       try {
-        await setTimeout(Math.min(waitMs, 200), undefined, {
+        await setTimeout(Math.min(waitMs, 100), undefined, {
           signal: this.rtcpCancel.signal,
         });
       } catch {
         return !this.stopped;
       }
       if (this.stopped) return false;
-      const after = milliTime();
-      const elapsedSec = Math.max(0, (after - this.lastPaceMs) / 1000);
-      this.paceBudgetBytes += elapsedSec * (rateBps / 8);
-      this.lastPaceMs = after;
+      this.refillPaceBudget(rateBps, milliTime(), maxBudget);
     }
-    this.paceBudgetBytes = Math.max(0, this.paceBudgetBytes - packetBytes);
+
+    this.paceBudgetBytes -= packetBytes;
     return true;
+  }
+
+  private refillPaceBudget(
+    rateBps: number,
+    nowMs: number,
+    maxBudget = (rateBps / 8) * 0.1,
+  ) {
+    const elapsedSec = Math.max(0, (nowMs - this.lastPaceMs) / 1000);
+    this.paceBudgetBytes += elapsedSec * (rateBps / 8);
+    if (this.paceBudgetBytes > maxBudget) {
+      this.paceBudgetBytes = maxBudget;
+    }
+    this.lastPaceMs = nowMs;
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {

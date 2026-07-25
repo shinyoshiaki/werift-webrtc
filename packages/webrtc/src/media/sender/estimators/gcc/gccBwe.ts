@@ -212,7 +212,8 @@ export class GccBandwidthEstimator
       if (info) batchBytes += info.size;
     }
 
-    this.flushGroup(nowMs);
+    // Use TWCC receive times for trendline (not sender wall clock).
+    this.flushGroup();
     const usage = this.trendline.state;
     if (usage !== this.lastUsage) {
       this.lastUsage = usage;
@@ -416,20 +417,19 @@ export class GccBandwidthEstimator
     this.currentGroup = { sendMs, recvMs, size };
   }
 
-  private flushGroup(nowMs: number) {
+  private flushGroup() {
     if (this.currentGroup) {
-      this.emitGroup(this.currentGroup, nowMs);
+      this.emitGroup(this.currentGroup);
     }
   }
 
-  private emitGroup(group: GroupSample, nowMs?: number) {
+  private emitGroup(group: GroupSample) {
     if (this.prevGroup) {
       const interSend = group.sendMs - this.prevGroup.sendMs;
       const interRecv = group.recvMs - this.prevGroup.recvMs;
       if (interSend > 0) {
-        const ts = nowMs ?? group.recvMs;
-        // Trendline owns overuse detection (libwebrtc).
-        this.trendline.update(interRecv, interSend, ts);
+        // Always pass TWCC-derived receive time for a consistent timeline.
+        this.trendline.update(interRecv, interSend, group.recvMs);
       }
     }
     this.prevGroup = group;

@@ -107,8 +107,11 @@ export const kProbeResultTimeoutMs = 1000;
  */
 export const kProbePaddingPacketBytes = 224;
 
-/** Max probe padding packets emitted per sendRtp / maybeSendProbePadding call. */
-export const kProbePaddingMaxBurst = 8;
+/**
+ * Max probe padding packets per inner burst (outer loop drains remaining).
+ * Keeps event-loop responsive while still completing large clusters.
+ */
+export const kProbePaddingMaxBurst = 16;
 
 export const kSentInfoMaxAgeMs = 10_000;
 

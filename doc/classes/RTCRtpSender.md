@@ -42,6 +42,18 @@
 
 ***
 
+### onAvailableBitrate
+
+> `readonly` **onAvailableBitrate**: [`Event`](Event.md)\<\[`number`\]\>
+
+Stable recommended send bitrate event (**bps**, change-only).
+Bridged from the active [BandwidthEstimator](../interfaces/BandwidthEstimator.md); subscriptions survive
+[setBandwidthEstimator](RTCRtpSender.md#setbandwidthestimator) without re-subscribing.
+
+Prefer this over `senderBWE.onAvailableBitrate` for application adaptation.
+
+***
+
 ### onGenericNack
 
 > `readonly` **onGenericNack**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
@@ -51,6 +63,15 @@
 ### onPictureLossIndication
 
 > `readonly` **onPictureLossIndication**: [`Event`](Event.md)\<\[\]\>
+
+***
+
+### onProbeClusterConfig
+
+> `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[\{ `id`: `number`; `minDurationMs`: `number`; `minPackets`: `number`; `targetBps`: `number`; \}\]\>
+
+GCC probe cluster configs (target bps / min packets). Bridged when the
+active estimator is [GccBandwidthEstimator](GccBandwidthEstimator.md).
 
 ***
 
@@ -96,12 +117,6 @@
 
 ***
 
-### senderBWE
-
-> `readonly` **senderBWE**: `SenderBandwidthEstimator`
-
-***
-
 ### ssrc
 
 > `readonly` **ssrc**: `number`
@@ -144,6 +159,21 @@
 
 ## Accessors
 
+### pacingBitrateBps
+
+#### Get Signature
+
+> **get** **pacingBitrateBps**(): `number`
+
+Effective send pacing rate (bps): estimator estimate, raised to the active
+probe target while probing. 0 when unknown.
+
+##### Returns
+
+`number`
+
+***
+
 ### redDistance
 
 #### Get Signature
@@ -167,6 +197,26 @@
 ##### Returns
 
 `void`
+
+***
+
+### senderBWE
+
+#### Get Signature
+
+> **get** **senderBWE**(): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+
+Active send-side bandwidth estimator (TWCC-driven).
+
+Default is [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md) (legacy cumulative algorithm).
+Replace only with [setBandwidthEstimator](RTCRtpSender.md#setbandwidthestimator) (e.g. `new GccBandwidthEstimator()`).
+
+Prefer [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender for bitrate notifications that
+survive estimator swaps. Algorithm-specific events remain on concrete instances.
+
+##### Returns
+
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
 
 ***
 
@@ -278,6 +328,19 @@
 
 ***
 
+### maybeInjectProbePadding()
+
+> **maybeInjectProbePadding**(): `Promise`\<`number`\>
+
+Dedicated probe-padding path: unique RTP sequence numbers and P-bit set.
+Media uses [sendRtp](RTCRtpSender.md#sendrtp); padding never re-enters media RED path.
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
 ### prepareSend()
 
 > **prepareSend**(`params`): `void`
@@ -369,6 +432,35 @@
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### setBandwidthEstimator()
+
+> **setBandwidthEstimator**(`impl`): `void`
+
+Replace the send-side bandwidth estimator used for TWCC-driven BWE.
+
+Default is the legacy [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md). Pass e.g.
+`new GccBandwidthEstimator()` to use Google Congestion Control.
+
+Behavior on swap:
+1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+2. Unbinds the stable [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
+3. Starts the new instance clean (no implicit state merge) and rebinds the bridge.
+
+Subscriptions to [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender are preserved.
+Re-subscribe algorithm-specific events on the new concrete instance.
+
+#### Parameters
+
+##### impl
+
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+
+#### Returns
+
+`void`
 
 ***
 

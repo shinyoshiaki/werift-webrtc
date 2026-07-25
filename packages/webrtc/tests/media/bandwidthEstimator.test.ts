@@ -470,6 +470,127 @@ describe("media/sender bandwidth estimator", () => {
     });
   });
 
+  describe("Probe 成功・失敗・再 probe", () => {
+    test("probe ACK 後に availableBitrate が初期値より上昇する", () => {
+      // Arrange
+      const start = 100_000;
+      const gcc = new GccBandwidthEstimator(start);
+      expect(gcc.shouldTagProbePacket()).toBe(true);
+      const probeTarget = gcc.suggestedProbeBitrateBps;
+      expect(probeTarget).toBeGreaterThanOrEqual(start * 2);
+
+      // Act: 高レートで probation パケットを送受信（cluster 完了）
+      const n = 20;
+      const base = 8_000;
+      const size = 1400;
+      const interval = 2; // 高 bitrate 探索
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(
+          sent(i + 1, size, base + i * interval, { isProbation: true }),
+        );
+      }
+      const results = Array.from({ length: n }, (_, i) => {
+        const sendMs = base + i * interval;
+        return new PacketResult({
+          sequenceNumber: i + 1,
+          received: true,
+          receivedAtMs: sendMs + 3 + i * interval,
+        });
+      });
+      gcc.receiveTWCC(makeTwccFeedback(results));
+
+      // Assert: 推定がスタートより明確に上がる
+      expect(gcc.availableBitrate).toBeGreaterThan(start);
+      // 理論: 1400B / 2ms ≈ 5.6 Mbps オーダー（clamp あり）
+      expect(gcc.availableBitrate).toBeGreaterThan(200_000);
+    });
+
+    test("probe 成功後に further probe または complete へ遷移する", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      gcc.shouldTagProbePacket();
+      const clusters: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => clusters.push(c.targetBps));
+
+      const runProbe = (seq0: number, t0: number, n: number) => {
+        for (let i = 0; i < n; i++) {
+          gcc.rtpPacketSent(
+            sent(seq0 + i, 1200, t0 + i * 2, { isProbation: true }),
+          );
+        }
+        gcc.receiveTWCC(
+          makeTwccFeedback(
+            Array.from({ length: n }, (_, i) => {
+              const sendMs = t0 + i * 2;
+              return new PacketResult({
+                sequenceNumber: seq0 + i,
+                received: true,
+                receivedAtMs: sendMs + 2 + i * 2,
+              });
+            }),
+          ),
+        );
+      };
+
+      // Act: 初回 cluster 完了（setBitrates は 3x と 6x をキュー）
+      runProbe(1, 9_000, 15);
+      const afterFirst = gcc.availableBitrate;
+      expect(afterFirst).toBeGreaterThan(100_000);
+
+      // 2nd exponential cluster が残っていれば waiting、完了なら complete
+      // 続けて 2nd を消化
+      if (gcc.probeState === "waiting_for_result" || gcc.shouldTagProbePacket()) {
+        runProbe(100, 9_500, 15);
+      }
+      const afterSecond = gcc.availableBitrate;
+
+      // Assert: 推定は維持または上昇、state は complete か次 probe 待ち
+      expect(afterSecond).toBeGreaterThanOrEqual(afterFirst * 0.9);
+      expect(["complete", "waiting_for_result"]).toContain(gcc.probeState);
+      // 少なくとも 1 つ以上の probe cluster が発行されている
+      expect(clusters.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("probe 失敗（未 ACK）では推定がスタート付近のまま", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      gcc.shouldTagProbePacket();
+      const fired: number[] = [];
+      gcc.onAvailableBitrate.subscribe((v) => fired.push(v));
+
+      // Act: 送信だけして TWCC を返さない / 未知 seq のみ
+      for (let i = 0; i < 10; i++) {
+        gcc.rtpPacketSent(
+          sent(i + 1, 1200, 10_000 + i * 2, { isProbation: true }),
+        );
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 9999,
+            received: true,
+            receivedAtMs: 11_000,
+          }),
+        ]),
+      );
+
+      // Assert: 有効サンプルなし → 通知なし
+      expect(fired).toEqual([]);
+      expect(gcc.availableBitrate).toBe(0);
+    });
+
+    test("大きな probe cluster でも padding が完遂できる", async () => {
+      // Arrange: 高 start → 3x probe target が大きく、minBytes が maxBurst を超える
+      const gcc = new GccBandwidthEstimator(1_000_000);
+      const { sender } = await prepareConnectedSender(gcc);
+      // Act
+      const n = await sender.maybeInjectProbePadding();
+      // Assert: 単一 maxBurst では足りず、外側ループで完遂する
+      expect(n).toBeGreaterThan(16);
+      expect(gcc.pendingProbePaddingPackets()).toBe(0);
+    });
+  });
+
   describe("Probe padding 品質", () => {
     test("padding bit・実 padding bytes・一意 sequence", async () => {
       // Arrange

@@ -39,6 +39,47 @@ WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
 
+## TWCC send-side bandwidth estimation
+
+[TWCC](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01) provides transport-wide feedback; the **estimation algorithm is pluggable**.
+
+| API | Role |
+| --- | --- |
+| `RTCRtpSender.senderBWE` | **Getter** for active `BandwidthEstimator` (default: legacy). Replace only via setter. |
+| `RTCRtpSender.setBandwidthEstimator(impl)` | Swap algorithm instance (e.g. `new GccBandwidthEstimator()`) |
+| **`sender.onAvailableBitrate`** | **bps**; fires only when the recommended bitrate **changes**. Survives estimator swap — prefer this for apps. |
+| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target (`ProbePacingController`) |
+| `sender.onProbeClusterConfig` | GCC probe cluster targets for pacing / encoder ramp |
+| `isProbePacingController(e)` | Type guard for probe/pacing hooks (not on common interface) |
+
+```ts
+import {
+  GccBandwidthEstimator,
+  type SenderBandwidthEstimator,
+} from "werift";
+
+// Recommended: sender-level event (survives setBandwidthEstimator).
+sender.onAvailableBitrate.subscribe((bps) => {
+  // drive encoder / simulcast layer selection (bps, change-only)
+});
+
+// Optional: switch to Google Congestion Control (trendline + loss + probe).
+sender.setBandwidthEstimator(new GccBandwidthEstimator());
+// During probes (GCC / ProbePacingController only — legacy is unpaced):
+// - sender.pacingBitrateBps is raised to the probe target
+// - RTCRtpSender paces with a token-bucket and injects RTP padding when media
+//   alone cannot fill the probe cluster (see maybeInjectProbePadding)
+sender.onProbeClusterConfig.subscribe((cfg) => {
+  // optional: raise encoder toward cfg.targetBps for the cluster duration
+});
+
+// Legacy-only (default estimator) congestion score:
+const legacy = sender.senderBWE as SenderBandwidthEstimator;
+legacy.onCongestionScore.subscribe((score) => { /* … */ });
+```
+
+Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay `0`.
+
 # examples
 
 https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
