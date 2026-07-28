@@ -60,7 +60,7 @@
 
 ### request()
 
-> **request**: (`message`, `addr`, `integrityKey`?, `retransmissions`?, `onRequestSent`?) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
+> **request**: (`message`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -76,9 +76,9 @@ readonly \[`string`, `number`\]
 
 `Buffer`\<`ArrayBufferLike`\>
 
-##### retransmissions?
+##### retransmissionsOrOptions?
 
-`any`
+`number` | [`TransactionRequestOptions`](TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

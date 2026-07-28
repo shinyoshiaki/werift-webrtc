@@ -1,8 +1,8 @@
-[**werift-ice**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-ice](../globals.md) / CONSENT\_RESPONSE\_TIMEOUT\_MIN
+[werift](../globals.md) / CONSENT\_RESPONSE\_TIMEOUT\_MIN
 
 # Variable: CONSENT\_RESPONSE\_TIMEOUT\_MIN
 
