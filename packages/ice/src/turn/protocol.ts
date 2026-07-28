@@ -20,7 +20,11 @@ import {
 } from "../imports/common";
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
-import { Transaction, buildTransactionOptions } from "../stun/transaction";
+import {
+  Transaction,
+  buildTransactionOptions,
+  resolveRequestAddress,
+} from "../stun/transaction";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import {
   decodeChannelData,
@@ -106,12 +110,14 @@ export class StunOverTurnProtocol implements Protocol {
     // Peer-facing STUN over TURN must honor retransmissions/responseTimeout
     // (consent uses retransmissions: 0). Do not confuse with TURN server
     // allocation/refresh policy on TurnProtocol.
+    // Peer addresses are already IPs from candidates; resolve for safety.
+    const resolvedAddr = await resolveRequestAddress(addr);
     const options = buildTransactionOptions(
       integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
-    const transaction = new Transaction(request, addr, this, options);
+    const transaction = new Transaction(request, resolvedAddr, this, options);
     this.turn.transactions[request.transactionIdHex] = transaction;
 
     try {
@@ -341,12 +347,13 @@ export class TurnProtocol implements Protocol {
     // TURN server allocation/refresh uses default STUN retry policy unless
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     // Prefer the TURN session integrity key for response verification.
+    const resolvedAddr = await resolveRequestAddress(addr);
     const options = buildTransactionOptions(
       this.integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
-    const transaction = new Transaction(request, addr, this, options);
+    const transaction = new Transaction(request, resolvedAddr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

@@ -31,16 +31,25 @@ function bindingResponse(transactionId: Buffer, key?: Buffer) {
   return response;
 }
 
+/** request() resolves DNS before send; yield so the first sendStun can run. */
+async function flushRequestStart() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe("consent wire-level protocol paths", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
   it("StunProtocol: consent request は1回だけ送信し、正しい integrity/address の応答を受理する", async () => {
     // Arrange
     const protocol = new StunProtocol();
     const sentBuffers: Buffer[] = [];
     (protocol as any).transport = {
       closed: false,
+      socketType: "udp4",
+      type: "udp",
       send: async (data: Buffer) => {
         sentBuffers.push(Buffer.from(data));
       },
@@ -51,6 +60,7 @@ describe("consent wire-level protocol paths", () => {
       retransmissions: 0,
       responseTimeout: CONSENT_RESPONSE_TIMEOUT,
     });
+    await flushRequestStart();
 
     // Assert: wire 上は1パケット
     expect(sentBuffers.length).toBe(1);
@@ -91,6 +101,8 @@ describe("consent wire-level protocol paths", () => {
     const sentBuffers: Buffer[] = [];
     (protocol as any).transport = {
       closed: false,
+      socketType: "udp4",
+      type: "udp",
       send: async (data: Buffer) => {
         sentBuffers.push(Buffer.from(data));
       },
@@ -106,6 +118,7 @@ describe("consent wire-level protocol paths", () => {
         () => "ok" as const,
         () => "timeout" as const,
       );
+    await flushRequestStart();
 
     // Act: timeout 直前まで進める
     await vi.advanceTimersByTimeAsync(999);
@@ -119,21 +132,13 @@ describe("consent wire-level protocol paths", () => {
   });
 
   it("TcpActiveProtocol: request options を Transaction に渡し1回送信する", async () => {
-    // Arrange: TCP 実ソケットの代わりに sendFrame 経路を差し替え
+    // Arrange: TCP 実ソケットの代わりに sendStun を差し替え
     const protocol = new TcpActiveProtocol();
     let sendCount = 0;
-    (protocol as any).sendFrame = async () => {
-      sendCount++;
-    };
-    // getSocket を bypass するため sendStun を直接カウント
-    const originalSendStun = protocol.sendStun.bind(protocol);
     const sent: Message[] = [];
-    protocol.sendStun = async (message, addr) => {
+    protocol.sendStun = async (message) => {
       sent.push(message);
       sendCount++;
-      // skip real socket write
-      void originalSendStun;
-      void addr;
     };
 
     const request = bindingRequest();
@@ -141,6 +146,7 @@ describe("consent wire-level protocol paths", () => {
       retransmissions: 0,
       responseTimeout: 500,
     });
+    await flushRequestStart();
 
     // Assert: 送信1回
     expect(sent.length).toBe(1);
@@ -174,6 +180,7 @@ describe("consent wire-level protocol paths", () => {
       retransmissions: 0,
       responseTimeout: 800,
     });
+    await flushRequestStart();
 
     // Assert: peer 向け STUN が1回
     expect(sent.length).toBe(1);
@@ -215,6 +222,7 @@ describe("consent wire-level protocol paths", () => {
         () => "ok" as const,
         () => "timeout" as const,
       );
+    await flushRequestStart();
 
     // Act: 誤った鍵で署名された応答
     const bad = bindingResponse(

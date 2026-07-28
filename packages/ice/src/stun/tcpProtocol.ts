@@ -6,7 +6,11 @@ import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
 import { encodeTcpFrame, splitTcpFrames } from "./tcpFrame";
-import { Transaction, buildTransactionOptions } from "./transaction";
+import {
+  Transaction,
+  buildTransactionOptions,
+  resolveRequestAddress,
+} from "./transaction";
 
 const log = debug("werift-ice:packages/ice/src/stun/tcpProtocol.ts");
 
@@ -193,12 +197,13 @@ abstract class BaseTcpProtocol implements Protocol {
       request.addFingerprint();
     }
 
+    const resolvedAddr = await resolveRequestAddress(addr);
     const options = buildTransactionOptions(
       integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
-    const transaction = new Transaction(request, addr, this, options);
+    const transaction = new Transaction(request, resolvedAddr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

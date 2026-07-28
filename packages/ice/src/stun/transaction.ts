@@ -1,3 +1,6 @@
+import { promises as dns } from "node:dns";
+import { isIP } from "node:net";
+
 import { type Address, Event, debug } from "../imports/common";
 
 import { TransactionFailed, TransactionTimeout } from "../exceptions";
@@ -6,6 +9,21 @@ import { RETRY_MAX, RETRY_RTO, classes } from "./const";
 import type { Message } from "./message";
 
 const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
+
+/**
+ * Resolve a request target to a concrete IP before creating a Transaction so
+ * response source-address checks match the UDP peer address (hostname ≠ IP).
+ */
+export async function resolveRequestAddress(
+  addr: Address,
+  family: 0 | 4 | 6 = 0,
+): Promise<Address> {
+  if (isIP(addr[0])) {
+    return addr;
+  }
+  const looked = await dns.lookup(addr[0], { family });
+  return [looked.address, addr[1]];
+}
 
 /**
  * Normalize legacy positional args and the options-object form into one shape.
