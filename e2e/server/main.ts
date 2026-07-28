@@ -2,10 +2,7 @@ import { createServer } from "node:http";
 import express from "express";
 
 import { Room, WebSocketServer } from "protoo-server";
-import {
-  cleanupGstreamerProcesses,
-  isGstreamerAvailable,
-} from "./gstreamer";
+import { cleanupGstreamerProcesses } from "./gstreamer";
 import {
   bundle_disable_answer,
   bundle_disable_offer,
@@ -142,12 +139,6 @@ app.put("/stop", (_, res) => {
 
 app.get("/turn-config", (_, res) => {
   res.json(getTurnRelayConfig());
-});
-
-app.get("/capabilities", (_, res) => {
-  res.json({
-    gstreamer: isGstreamerAvailable(),
-  });
 });
 
 const room = new Room();

@@ -237,6 +237,87 @@ describe("consent wire-level protocol paths", () => {
     vi.useRealTimers();
   });
 
+  it.each([
+    {
+      name: "StunProtocol (UDP)",
+      setup: () => {
+        const protocol = new StunProtocol();
+        (protocol as any).transport = {
+          closed: false,
+          socketType: "udp4",
+          type: "udp",
+          send: async () => undefined,
+        };
+        return {
+          protocol,
+          inject: (bytes: Buffer) =>
+            (protocol as any).datagramReceived(bytes, peerAddr),
+        };
+      },
+    },
+    {
+      name: "TcpActiveProtocol (ICE-TCP)",
+      setup: () => {
+        const protocol = new TcpActiveProtocol();
+        protocol.sendStun = async () => undefined;
+        return {
+          protocol,
+          inject: (bytes: Buffer) =>
+            (protocol as any).handleFrame(bytes, peerAddr),
+        };
+      },
+    },
+    {
+      name: "StunOverTurnProtocol (TURN)",
+      setup: () => {
+        const onData = new Event<[Buffer, readonly [string, number]]>();
+        const turnStub = {
+          transactions: {} as Record<string, any>,
+          onData,
+          sendData: async () => undefined,
+          close: async () => undefined,
+        };
+        const protocol = new StunOverTurnProtocol(turnStub as any);
+        protocol.sendStun = async () => undefined;
+        return {
+          protocol,
+          inject: (bytes: Buffer) =>
+            (protocol as any).handleStunMessage(bytes, peerAddr),
+        };
+      },
+    },
+  ])(
+    "$name: 未署名 response は integrityKey 付き transaction で受理されず timeout になる",
+    async ({ setup }) => {
+      // Arrange: integrityKey 付きの単発 request
+      vi.useFakeTimers();
+      const { protocol, inject } = setup();
+      const request = bindingRequest();
+      const pending = protocol
+        .request(request, peerAddr, remotePassword, {
+          retransmissions: 0,
+          responseTimeout: 400,
+        })
+        .then(
+          () => "ok" as const,
+          () => "timeout" as const,
+        );
+      await flushRequestStart();
+
+      // Act: MESSAGE-INTEGRITY 無しの success 風 response を注入
+      const unsigned = bindingResponse(request.transactionId);
+      expect(unsigned.attributesKeys).not.toContain("MESSAGE-INTEGRITY");
+      // parseMessage(key) でも未署名は拒否されること
+      expect(parseMessage(unsigned.bytes, remotePassword)).toBeUndefined();
+      inject(unsigned.bytes);
+      await vi.advanceTimersByTimeAsync(400);
+
+      // Assert: 認証必須のため timeout（consent を更新しない）
+      expect(await pending).toBe("timeout");
+      vi.useRealTimers();
+    },
+  );
+
   it("consentResponseTimeoutMs が pair RTT を反映する", () => {
     // Assert
     expect(consentResponseTimeoutMs(0.1)).toBe(500); // floor

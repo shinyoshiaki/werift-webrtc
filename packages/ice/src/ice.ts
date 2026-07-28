@@ -194,6 +194,16 @@ export class Connection implements IceConnection {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
 
+      // ICE restart keeps transport protocols; re-advertise their host candidates
+      // with the new generation / ufrag before gathering additional addresses.
+      for (const protocol of this.protocols) {
+        if (protocol.localCandidate) {
+          protocol.localCandidate.generation = this.generation;
+          protocol.localCandidate.ufrag = this.localUsername;
+          this.appendLocalCandidate(protocol.localCandidate);
+        }
+      }
+
       let address = getHostAddresses(
         this.options.useIpv4,
         this.options.useIpv6,

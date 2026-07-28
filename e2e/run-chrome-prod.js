@@ -1,15 +1,8 @@
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { requestServerStop } = require("./stop");
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
-function isGstreamerAvailable() {
-  const result = spawnSync("gst-launch-1.0", ["--version"], {
-    stdio: "ignore",
-  });
-  return result.status === 0;
 }
 
 function signalExitCode(signal) {
@@ -30,29 +23,23 @@ function waitForExit(child) {
 }
 
 async function main() {
-  const vitestArgs = [
-    "exec",
-    "--",
-    "vitest",
-    "run",
-    "./tests",
-    "--browser.headless",
-    "--reporter=dot",
-  ];
-  // mediachannel e2e spawns gst-launch-1.0 on the server host.
-  // Skip those suites when gstreamer is not installed (CI sandbox).
-  if (!isGstreamerAvailable()) {
-    console.warn(
-      "gstreamer (gst-launch-1.0) not found; excluding tests/mediachannel/** from e2e",
-    );
-    vitestArgs.push("--exclude", "**/mediachannel/**");
-  }
-
-  const child = spawn(npmCommand(), vitestArgs, {
-    cwd: __dirname,
-    env: process.env,
-    stdio: "inherit",
-  });
+  const child = spawn(
+    npmCommand(),
+    [
+      "exec",
+      "--",
+      "vitest",
+      "run",
+      "./tests",
+      "--browser.headless",
+      "--reporter=dot",
+    ],
+    {
+      cwd: __dirname,
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
 
   let requestedExitCode;
   let stopPromise;
