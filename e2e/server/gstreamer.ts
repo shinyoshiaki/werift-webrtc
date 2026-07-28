@@ -1,6 +1,14 @@
-import { type ChildProcess, spawn } from "child_process";
+import { type ChildProcess, spawn, spawnSync } from "child_process";
 
 const STOP_TIMEOUT_MS = 2_000;
+
+/** True when gst-launch-1.0 is on PATH (mediachannel e2e needs it). */
+export function isGstreamerAvailable(): boolean {
+  const result = spawnSync("gst-launch-1.0", ["--version"], {
+    stdio: "ignore",
+  });
+  return result.status === 0;
+}
 
 const activeProcesses = new Set<ChildProcess>();
 const stopPromises = new WeakMap<ChildProcess, Promise<void>>();

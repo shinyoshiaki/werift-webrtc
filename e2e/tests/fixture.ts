@@ -10,6 +10,19 @@ const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
 
 console.log({ browserName, version: browser.getBrowserVersion() });
 
+export type E2ECapabilities = {
+  gstreamer: boolean;
+};
+
+/** Server-side capabilities (gstreamer for mediachannel pipelines). */
+export async function getE2ECapabilities(): Promise<E2ECapabilities> {
+  const res = await fetch(`${e2eBaseUrl}/capabilities`);
+  if (!res.ok) {
+    return { gstreamer: false };
+  }
+  return (await res.json()) as E2ECapabilities;
+}
+
 const transport = new WebSocketTransport(`ws://localhost:${e2ePort}`);
 export const peer = new Peer(transport);
 

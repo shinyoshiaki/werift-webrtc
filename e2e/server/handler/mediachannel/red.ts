@@ -20,6 +20,10 @@ export class mediachannel_red_client_answer {
       case "init":
         {
           const port = await randomPort();
+          try {
+            this.udp.close();
+          } catch {}
+          this.udp = createSocket("udp4");
           this.udp.bind(port);
 
           this.pc = new RTCPeerConnection({
@@ -117,6 +121,10 @@ export class mediachannel_red_client_offer {
       case "offer":
         {
           const port = await randomPort();
+          try {
+            this.udp.close();
+          } catch {}
+          this.udp = createSocket("udp4");
           this.udp.bind(port);
 
           const track = new MediaStreamTrack({ kind: "audio" });
