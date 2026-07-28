@@ -1,7 +1,8 @@
 import { decode, types } from "@shinyoshiaki/binary-data";
 
 import { setTimeout } from "timers/promises";
-import { Event, type Transport, debug } from "./imports/common";
+import { Event, debug } from "./imports/common";
+import type { Address, Transport } from "./imports/common";
 
 import {
   NamedCurveAlgorithmList,
@@ -192,12 +193,12 @@ export class DtlsSocket {
   }
 
   /**send application data */
-  send = async (buf: Buffer) => {
+  send = async (buf: Buffer, addr?: Address) => {
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],
       ++this.dtls.recordSequenceNumber,
     )[0];
-    await this.transport.send(this.cipher.encryptPacket(pkt).serialize());
+    await this.transport.send(this.cipher.encryptPacket(pkt).serialize(), addr);
   };
 
   close() {
