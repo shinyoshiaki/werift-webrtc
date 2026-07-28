@@ -21,8 +21,13 @@ export function normalizeTransactionOptions(
   ) {
     return retransmissionsOrOptions;
   }
+  // After the object branch, only number | undefined remains (legacy positional API).
+  const retransmissions =
+    typeof retransmissionsOrOptions === "number"
+      ? retransmissionsOrOptions
+      : undefined;
   return {
-    retransmissions: retransmissionsOrOptions,
+    retransmissions,
     onRequestSent,
   };
 }
