@@ -20,6 +20,11 @@ export interface TransactionRequestOptions {
   onRequestSent?: (attempt: number) => void;
   /** Abort the outstanding transaction (e.g. consent lifecycle teardown). */
   signal?: AbortSignal;
+  /**
+   * When set, responses must pass MESSAGE-INTEGRITY verification
+   * (re-parsed with this key) before the transaction accepts them.
+   */
+  integrityKey?: Buffer;
 }
 
 export interface Protocol {

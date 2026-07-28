@@ -27,6 +27,11 @@ export function normalizeTransactionOptions(
   };
 }
 
+/** Compare ICE transport addresses (host, port). */
+export function addressEquals(a: Address, b: Address): boolean {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
 export class Transaction {
   private timeoutDelay: number;
   ended = false;
@@ -35,6 +40,13 @@ export class Transaction {
   private readonly onResponse = new Event<[Message, Address]>();
   private readonly onRequestSent?: (attempt: number) => void;
   private readonly signal?: AbortSignal;
+  /** Remote address this transaction was sent to; responses must match. */
+  readonly expectedAddr: Address;
+  /**
+   * When set, protocol layers re-parse the wire response with this key so
+   * MESSAGE-INTEGRITY failures are rejected before responseReceived.
+   */
+  readonly integrityKey?: Buffer;
   private waitTimer?: ReturnType<typeof setTimeout>;
   private waitResolve?: () => void;
   private onAbort?: () => void;
@@ -56,16 +68,37 @@ export class Transaction {
     this.timeoutDelay = options.responseTimeout ?? RETRY_RTO;
     this.onRequestSent = options.onRequestSent;
     this.signal = options.signal;
+    this.expectedAddr = addr;
+    this.integrityKey = options.integrityKey;
   }
 
+  /**
+   * Accept a matching authenticated non-error response from the expected
+   * remote address. Wrong address or non-success class is rejected without
+   * completing the transaction (wrong address is ignored so we keep waiting).
+   */
   responseReceived = (message: Message, addr: Address) => {
-    if (this.onResponse.length > 0) {
-      if (message.messageClass === classes.RESPONSE) {
-        this.onResponse.execute(message, addr);
-        this.onResponse.complete();
-      } else {
-        this.onResponse.error(new TransactionFailed(message, addr));
-      }
+    if (this.ended || this.onResponse.length === 0) {
+      return;
+    }
+
+    // RFC 7675 / ICE: only responses from the request's transport address.
+    if (!addressEquals(this.expectedAddr, addr)) {
+      log(
+        "ignore STUN response from unexpected address",
+        addr,
+        "expected",
+        this.expectedAddr,
+      );
+      return;
+    }
+
+    if (message.messageClass === classes.RESPONSE) {
+      this.onResponse.execute(message, addr);
+      this.onResponse.complete();
+    } else {
+      // ERROR class or other non-success
+      this.onResponse.error(new TransactionFailed(message, addr));
     }
   };
 
@@ -160,4 +193,23 @@ export class Transaction {
       this.onAbort = undefined;
     }
   }
+}
+
+/**
+ * Build Transaction options for Protocol.request, folding integrityKey into
+ * options so response path can re-verify MESSAGE-INTEGRITY.
+ */
+export function buildTransactionOptions(
+  integrityKey: Buffer | undefined,
+  retransmissionsOrOptions?: number | TransactionRequestOptions,
+  onRequestSent?: (attempt: number) => void,
+): TransactionRequestOptions {
+  const options = normalizeTransactionOptions(
+    retransmissionsOrOptions,
+    onRequestSent,
+  );
+  if (integrityKey && !options.integrityKey) {
+    options.integrityKey = integrityKey;
+  }
+  return options;
 }

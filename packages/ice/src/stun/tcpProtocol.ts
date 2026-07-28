@@ -6,7 +6,7 @@ import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
 import { encodeTcpFrame, splitTcpFrames } from "./tcpFrame";
-import { Transaction } from "./transaction";
+import { Transaction, buildTransactionOptions } from "./transaction";
 
 const log = debug("werift-ice:packages/ice/src/stun/tcpProtocol.ts");
 
@@ -139,10 +139,15 @@ abstract class BaseTcpProtocol implements Protocol {
           message.messageClass === classes.ERROR) &&
         this.transactions[message.transactionIdHex]
       ) {
-        this.transactions[message.transactionIdHex].responseReceived(
-          message,
-          addr,
-        );
+        const transaction = this.transactions[message.transactionIdHex];
+        const verified = transaction.integrityKey
+          ? parseMessage(data, transaction.integrityKey)
+          : message;
+        if (!verified) {
+          log("STUN response failed MESSAGE-INTEGRITY check");
+          return;
+        }
+        transaction.responseReceived(verified, addr);
       } else if (message.messageClass === classes.REQUEST) {
         this.onRequestReceived.execute(message, addr, data);
       }
@@ -188,13 +193,12 @@ abstract class BaseTcpProtocol implements Protocol {
       request.addFingerprint();
     }
 
-    const transaction = new Transaction(
-      request,
-      addr,
-      this,
+    const options = buildTransactionOptions(
+      integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
+    const transaction = new Transaction(request, addr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

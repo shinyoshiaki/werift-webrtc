@@ -184,11 +184,33 @@ export const CONSENT_FAILURES = 6;
 export const CONSENT_TIMEOUT = 30;
 
 /**
- * Conservative single-shot response wait for consent requests (ms).
- * Independent of retransmission count; must not fall below RFC 8445 RTO floor
- * when RTT is unknown. Downstream ICE-lite peers typically answer in 150–300ms.
+ * Default single-shot response wait for consent requests (ms) when RTT is unknown.
+ * Independent of retransmission count. Downstream ICE-lite peers typically
+ * answer in 150–300ms; 1s is a conservative default used by interop patches.
  */
 export const CONSENT_RESPONSE_TIMEOUT = 1000;
+
+/** RFC 8445 §14.3: ICE RTO must not be less than 500ms. */
+export const CONSENT_RESPONSE_TIMEOUT_MIN = 500;
+
+/**
+ * Compute consent response wait from pair RTT (seconds).
+ * Uses 2×RTT + 200ms jitter margin, floored at {@link CONSENT_RESPONSE_TIMEOUT_MIN}.
+ * Falls back to {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+ */
+export function consentResponseTimeoutMs(rttSeconds?: number): number {
+  if (
+    rttSeconds === undefined ||
+    !Number.isFinite(rttSeconds) ||
+    rttSeconds <= 0
+  ) {
+    return CONSENT_RESPONSE_TIMEOUT;
+  }
+  return Math.max(
+    CONSENT_RESPONSE_TIMEOUT_MIN,
+    Math.round(rttSeconds * 1000 * 2 + 200),
+  );
+}
 
 export enum CandidatePairState {
   FROZEN = 0,

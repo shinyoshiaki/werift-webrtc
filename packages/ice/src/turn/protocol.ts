@@ -20,7 +20,8 @@ import {
 } from "../imports/common";
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
-import { Transaction } from "../stun/transaction";
+import { Transaction, buildTransactionOptions } from "../stun/transaction";
+import type { Protocol, TransactionRequestOptions } from "../types/model";
 import {
   decodeChannelData,
   encodeChannelData,
@@ -28,8 +29,6 @@ import {
   padTurnFrame,
   splitTurnTcpFrames,
 } from "./frame";
-
-import type { Protocol, TransactionRequestOptions } from "../types/model";
 
 const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 
@@ -71,7 +70,14 @@ export class StunOverTurnProtocol implements Protocol {
       ) {
         const transaction = this.turn.transactions[message.transactionIdHex];
         if (transaction) {
-          transaction.responseReceived(message, addr);
+          const verified = transaction.integrityKey
+            ? parseMessage(data, transaction.integrityKey)
+            : message;
+          if (!verified) {
+            log("STUN over TURN response failed MESSAGE-INTEGRITY check");
+            return;
+          }
+          transaction.responseReceived(verified, addr);
         }
       } else if (message.messageClass === classes.REQUEST) {
         this.onRequestReceived.execute(message, addr, data);
@@ -100,13 +106,12 @@ export class StunOverTurnProtocol implements Protocol {
     // Peer-facing STUN over TURN must honor retransmissions/responseTimeout
     // (consent uses retransmissions: 0). Do not confuse with TURN server
     // allocation/refresh policy on TurnProtocol.
-    const transaction = new Transaction(
-      request,
-      addr,
-      this,
+    const options = buildTransactionOptions(
+      integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
+    const transaction = new Transaction(request, addr, this, options);
     this.turn.transactions[request.transactionIdHex] = transaction;
 
     try {
@@ -218,7 +223,14 @@ export class TurnProtocol implements Protocol {
       ) {
         const transaction = this.transactions[message.transactionIdHex];
         if (transaction) {
-          transaction.responseReceived(message, addr);
+          const verified = transaction.integrityKey
+            ? parseMessage(data, transaction.integrityKey)
+            : message;
+          if (!verified) {
+            log("TURN STUN response failed MESSAGE-INTEGRITY check");
+            return;
+          }
+          transaction.responseReceived(verified, addr);
         }
       } else if (message.messageClass === classes.REQUEST) {
         this.onData.execute(data, addr);
@@ -328,13 +340,13 @@ export class TurnProtocol implements Protocol {
 
     // TURN server allocation/refresh uses default STUN retry policy unless
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
-    const transaction = new Transaction(
-      request,
-      addr,
-      this,
+    // Prefer the TURN session integrity key for response verification.
+    const options = buildTransactionOptions(
+      this.integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
+    const transaction = new Transaction(request, addr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

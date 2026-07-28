@@ -1,0 +1,12 @@
+[**werift-ice**](../README.md)
+
+***
+
+[werift-ice](../globals.md) / CONSENT\_RESPONSE\_TIMEOUT\_MIN
+
+# Variable: CONSENT\_RESPONSE\_TIMEOUT\_MIN
+
+> `const` **CONSENT\_RESPONSE\_TIMEOUT\_MIN**: `500` = `500`
+
+RFC 8445 §14.3: ICE RTO must not be less than 500 milliseconds. Used as the
+floor for consent response wait estimation.

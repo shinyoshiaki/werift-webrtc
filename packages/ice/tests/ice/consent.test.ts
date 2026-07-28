@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONSENT_FAILURES,
   CONSENT_RESPONSE_TIMEOUT,
+  CONSENT_RESPONSE_TIMEOUT_MIN,
   CONSENT_TIMEOUT,
   CandidatePair,
+  consentResponseTimeoutMs,
 } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
@@ -195,6 +197,85 @@ describe("ICE consent freshness (RFC 7675)", () => {
     await harness.connection.send(Buffer.from("after-restart"));
     expect(sendSpy).toHaveBeenCalledTimes(1);
     expect(harness.connection.state).toBe("new");
+  });
+
+  it("resetNominatedPair で consent lifecycle を停止し、新 pair 指名で再開する", async () => {
+    // Arrange
+    const harness = createConsentHarness(
+      Array.from({ length: 20 }, () => "timeout" as const),
+    );
+    connections.push(harness.connection);
+    const oldSession = (harness.connection as any).consentSessionId;
+
+    // Act: selected pair をリセット
+    harness.connection.resetNominatedPair();
+
+    // Assert: consent session が無効化され送信不可
+    expect((harness.connection as any).consentSessionId).toBeGreaterThan(
+      oldSession,
+    );
+    expect((harness.connection as any).consentFresh).toBe(false);
+    expect((harness.connection as any).queryConsentHandle).toBeUndefined();
+
+    // Act: 新 pair を指名（connected 中の renomination）
+    const fresh = new ConsentMockProtocol({
+      outcomes: Array.from({ length: 10 }, () => "success" as const),
+    });
+    const newPair = new CandidatePair(
+      fresh,
+      createConsentCandidate("192.0.2.9", 5009, "remote"),
+      true,
+    );
+    newPair.nominated = true;
+    harness.connection.nominated = newPair;
+    harness.connection.state = "connected";
+    // checkComplete 相当: connected 中の新 pair で consent 再開
+    (harness.connection as any).queryConsent();
+
+    // Assert: 新しい session で request が再開される
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fresh.requestTimes.length).toBeGreaterThanOrEqual(1);
+    expect(harness.connection.state).toBe("connected");
+  });
+
+  it("consent response timeout は RTT 推定と 500ms 下限を使う", () => {
+    // Assert: RTT 不明時は既定 1s
+    expect(consentResponseTimeoutMs(undefined)).toBe(CONSENT_RESPONSE_TIMEOUT);
+    // Assert: 小さい RTT でも RFC 8445 の 500ms を下回らない
+    expect(consentResponseTimeoutMs(0.05)).toBe(CONSENT_RESPONSE_TIMEOUT_MIN);
+    // Assert: 既知 RTT では 2*RTT+200ms
+    expect(consentResponseTimeoutMs(0.4)).toBe(1000);
+  });
+
+  it("異なる送信元アドレスの応答は consent を更新しない", async () => {
+    // Arrange
+    const sendStun = vi.fn(async () => undefined);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    const transaction = new Transaction(
+      request,
+      ["192.0.2.2", 5000],
+      { sendStun } as any,
+      { retransmissions: 0, responseTimeout: 1000 },
+    );
+    const result = transaction.run().then(
+      () => "fulfilled" as const,
+      () => "rejected" as const,
+    );
+
+    // Act: 別アドレスからの応答は無視
+    transaction.responseReceived(
+      new Message(methods.BINDING, classes.RESPONSE, request.transactionId),
+      ["198.51.100.1", 9],
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    // 正しいアドレスからの応答で完了
+    transaction.responseReceived(
+      new Message(methods.BINDING, classes.RESPONSE, request.transactionId),
+      ["192.0.2.2", 5000],
+    );
+
+    // Assert
+    expect(await result).toBe("fulfilled");
   });
 
   it("失効後は failed となり application data を送らず、明示 close の closed と区別される", async () => {

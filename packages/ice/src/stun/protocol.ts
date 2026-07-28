@@ -6,7 +6,7 @@ import type { Candidate } from "../candidate";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
-import { Transaction } from "./transaction";
+import { Transaction, buildTransactionOptions } from "./transaction";
 
 const log = debug("werift-ice : packages/ice/src/stun/protocol.ts");
 
@@ -65,7 +65,15 @@ export class StunProtocol implements Protocol {
         this.transactionsKeys.includes(message.transactionIdHex)
       ) {
         const transaction = this.transactions[message.transactionIdHex];
-        transaction.responseReceived(message, addr);
+        // Re-parse with integrity key so unauthenticated responses are dropped.
+        const verified = transaction.integrityKey
+          ? parseMessage(data, transaction.integrityKey)
+          : message;
+        if (!verified) {
+          log("STUN response failed MESSAGE-INTEGRITY check");
+          return;
+        }
+        transaction.responseReceived(verified, addr);
       } else if (message.messageClass === classes.REQUEST) {
         this.onRequestReceived.execute(message, addr, data);
       }
@@ -116,12 +124,16 @@ export class StunProtocol implements Protocol {
       request.addFingerprint();
     }
 
+    const options = buildTransactionOptions(
+      integrityKey,
+      retransmissionsOrOptions,
+      onRequestSent,
+    );
     const transaction: Transaction = new Transaction(
       request,
       addr,
       this,
-      retransmissionsOrOptions,
-      onRequestSent,
+      options,
     );
     this.transactions[request.transactionIdHex] = transaction;
 

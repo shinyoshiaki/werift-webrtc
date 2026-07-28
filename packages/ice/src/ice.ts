@@ -15,7 +15,6 @@ import type { TransactionError } from "./exceptions";
 import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
 import {
   CONSENT_INTERVAL,
-  CONSENT_RESPONSE_TIMEOUT,
   CONSENT_TIMEOUT,
   CandidatePair,
   CandidatePairState,
@@ -24,6 +23,7 @@ import {
   type IceConnection,
   type IceOptions,
   type IceState,
+  consentResponseTimeoutMs,
   defaultOptions,
   serverReflexiveCandidate,
   sortCandidatePairs,
@@ -170,6 +170,8 @@ export class Connection implements IceConnection {
     log("resetNominatedPair");
     this.nominated = undefined;
     this.nominating = false;
+    // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
+    this.stopConsentLifecycle();
   }
 
   setRemoteParams({
@@ -886,6 +888,10 @@ export class Connection implements IceConnection {
           nominated.consentRequestsSent++;
           nominated.requestsSent++;
 
+          // RTT-aware wait (floor 500ms); independent of retransmissions: 0.
+          const responseTimeout = consentResponseTimeoutMs(nominated.rtt);
+          const requestStartedAt = performance.now();
+
           // Do not await here: response wait must not stretch the 4–6s cadence.
           nominated.protocol
             .request(
@@ -894,7 +900,7 @@ export class Connection implements IceConnection {
               Buffer.from(remotePassword, "utf8"),
               {
                 retransmissions: 0,
-                responseTimeout: CONSENT_RESPONSE_TIMEOUT,
+                responseTimeout,
                 signal: requestAbort.signal,
                 onRequestSent: (attempt) => {
                   if (attempt > 0) {
@@ -905,6 +911,7 @@ export class Connection implements IceConnection {
             )
             .then(() => {
               // Accept only responses for the current pair / generation / session.
+              // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
               if (sessionId !== this.consentSessionId || canceled) {
                 return;
               }
@@ -921,6 +928,11 @@ export class Connection implements IceConnection {
               if (this.remotePassword !== remotePassword) {
                 return;
               }
+
+              const rtt = (performance.now() - requestStartedAt) / 1000; // seconds
+              nominated.rtt = rtt;
+              nominated.totalRoundTripTime += rtt;
+              nominated.roundTripTimeMeasurements++;
 
               nominated.responsesReceived++;
               this.consentFresh = true;
@@ -1111,6 +1123,15 @@ export class Connection implements IceConnection {
         this.nominated = pair;
         this.nominating = false;
         this.pruneTcpConnections(pair);
+
+        // After resetNominatedPair / renomination while already connected,
+        // restart consent freshness on the new selected pair.
+        if (
+          !this.iceLite &&
+          (this.state === "connected" || this.state === "completed")
+        ) {
+          this.queryConsent();
+        }
 
         // 8.1.2.  Updating States
 
