@@ -171,8 +171,24 @@ export class CandidatePair implements CandidatePairStats {
 export const ICE_COMPLETED = 1 as const;
 export const ICE_FAILED = 2 as const;
 
+/** Basic consent check period in seconds (RFC 7675). Actual interval is 0.8–1.2× this. */
 export const CONSENT_INTERVAL = 5;
+
+/**
+ * @deprecated Consent expiry is based on {@link CONSENT_TIMEOUT} (30s after the
+ * last valid response), not a consecutive failure count. Kept for API compatibility.
+ */
 export const CONSENT_FAILURES = 6;
+
+/** RFC 7675: consent expires this many seconds after the last valid response. */
+export const CONSENT_TIMEOUT = 30;
+
+/**
+ * Conservative single-shot response wait for consent requests (ms).
+ * Independent of retransmission count; must not fall below RFC 8445 RTO floor
+ * when RTT is unknown. Downstream ICE-lite peers typically answer in 150–300ms.
+ */
+export const CONSENT_RESPONSE_TIMEOUT = 1000;
 
 export enum CandidatePairState {
   FROZEN = 0,
@@ -187,7 +203,8 @@ export type IceState =
   | "closed"
   | "completed"
   | "new"
-  | "connected";
+  | "connected"
+  | "failed";
 
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */

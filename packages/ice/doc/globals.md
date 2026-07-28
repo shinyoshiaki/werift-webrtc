@@ -41,6 +41,8 @@
 - [AttributeKeys](variables/AttributeKeys.md)
 - [CONSENT\_FAILURES](variables/CONSENT_FAILURES.md)
 - [CONSENT\_INTERVAL](variables/CONSENT_INTERVAL.md)
+- [CONSENT\_RESPONSE\_TIMEOUT](variables/CONSENT_RESPONSE_TIMEOUT.md)
+- [CONSENT\_TIMEOUT](variables/CONSENT_TIMEOUT.md)
 - [COOKIE](variables/COOKIE.md)
 - [defaultOptions](variables/defaultOptions.md)
 - [FINGERPRINT\_LENGTH](variables/FINGERPRINT_LENGTH.md)

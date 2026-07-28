@@ -3,7 +3,7 @@ import { Event, UdpTransport, debug } from "../imports/common";
 import type { Address, InterfaceAddresses } from "../../../common/src/network";
 import type { Candidate } from "../candidate";
 
-import type { Protocol } from "../types/model";
+import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
 import { Transaction } from "./transaction";
@@ -102,7 +102,7 @@ export class StunProtocol implements Protocol {
     request: Message,
     addr: Address,
     integrityKey?: Buffer,
-    retransmissions?: number,
+    retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
   ) {
     // """
@@ -120,7 +120,7 @@ export class StunProtocol implements Protocol {
       request,
       addr,
       this,
-      retransmissions,
+      retransmissionsOrOptions,
       onRequestSent,
     );
     this.transactions[request.transactionIdHex] = transaction;

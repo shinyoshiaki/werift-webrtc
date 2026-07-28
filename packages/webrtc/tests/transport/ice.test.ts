@@ -1,7 +1,61 @@
 import { RTCIceGatherer, RTCIceTransport } from "../../src";
+import { RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";
 
 describe("iceTransport", () => {
+  test("ICE consent failure maps to failed without closing PeerConnection", async () => {
+    // Arrange: 接続済みの ICE transport を PeerConnection 経由で持つ
+    const pc1 = new RTCPeerConnection({
+      iceServers: [],
+    });
+    const pc2 = new RTCPeerConnection({
+      iceServers: [],
+    });
+    try {
+      pc1.createDataChannel("consent");
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(pc1.localDescription!);
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(pc2.localDescription!);
+
+      await Promise.all([
+        new Promise<void>((r) => {
+          if (pc1.iceConnectionState === "connected") r();
+          else
+            pc1.iceConnectionStateChange.subscribe((s) => {
+              if (s === "connected") r();
+            });
+        }),
+        new Promise<void>((r) => {
+          if (pc2.iceConnectionState === "connected") r();
+          else
+            pc2.iceConnectionStateChange.subscribe((s) => {
+              if (s === "connected") r();
+            });
+        }),
+      ]);
+
+      const ice = (pc1 as any).secureManager
+        .iceTransports[0] as RTCIceTransport;
+      expect(ice.state).toBe("connected");
+
+      // Act: 下位 ICE が consent 失効相当の failed を通知
+      (ice.connection as any).setState("failed");
+
+      // Assert: transport / iceConnectionState / connectionState は failed。
+      // PeerConnection 自体は closed にならない（明示 close と区別）。
+      expect(ice.state).toBe("failed");
+      expect(pc1.iceConnectionState).toBe("failed");
+      expect(pc1.connectionState).toBe("failed");
+      expect(pc1.signalingState).not.toBe("closed");
+    } finally {
+      await pc1.close();
+      await pc2.close();
+    }
+  });
+
   test("test_connect", async () => {
     const gatherer1 = new RTCIceGatherer({
       stunServer: ["stun.l.google.com", 19302],

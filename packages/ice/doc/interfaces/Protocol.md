@@ -60,7 +60,13 @@
 
 ### request()
 
-> **request**: (`message`, `addr`, `integrityKey`?, `retransmissions`?, `onRequestSent`?) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
+> **request**: (`message`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
+
+The 4th argument accepts either a legacy retransmission count (`number`) or a
+`TransactionRequestOptions` object (`retransmissions`, `responseTimeout`,
+`onRequestSent`, `signal`). Consent freshness uses `{ retransmissions: 0,
+responseTimeout: CONSENT_RESPONSE_TIMEOUT }` so a single send can wait longer
+than the default STUN RTO without retransmitting.
 
 #### Parameters
 
@@ -76,9 +82,9 @@ readonly \[`string`, `number`\]
 
 `Buffer`\<`ArrayBufferLike`\>
 
-##### retransmissions?
+##### retransmissionsOrOptions?
 
-`any`
+`number` \| `TransactionRequestOptions`
 
 ##### onRequestSent?
 

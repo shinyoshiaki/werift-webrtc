@@ -14,8 +14,9 @@ import { MdnsLookup } from "./dns/lookup";
 import type { TransactionError } from "./exceptions";
 import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
 import {
-  CONSENT_FAILURES,
   CONSENT_INTERVAL,
+  CONSENT_RESPONSE_TIMEOUT,
+  CONSENT_TIMEOUT,
   CandidatePair,
   CandidatePairState,
   ICE_COMPLETED,
@@ -69,6 +70,12 @@ export class Connection implements IceConnection {
   private localCandidatesStart = false;
   private protocols: Protocol[] = [];
   private queryConsentHandle?: Cancelable<void>;
+  /** RFC 7675 consent-to-send: application data may use the selected pair. */
+  private consentFresh = false;
+  /** Invalidates in-flight consent callbacks on restart / close / replace / expire. */
+  private consentSessionId = 0;
+  private consentExpiryTimer?: ReturnType<typeof setTimeout>;
+  private consentRequestAbort?: AbortController;
 
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -155,8 +162,8 @@ export class Connection implements IceConnection {
       }
     }
 
-    this.queryConsentHandle?.resolve?.();
-    this.queryConsentHandle = undefined;
+    // Tear down consent timers/transactions; new credentials require a new session.
+    this.stopConsentLifecycle();
   }
 
   resetNominatedPair() {
@@ -692,90 +699,255 @@ export class Connection implements IceConnection {
     return false;
   }
 
-  // 4.1.1.4 ? 生存確認 life check
+  /**
+   * Stop consent request cadence, expiry timer, and outstanding transactions.
+   * Does not change ICE state by itself.
+   */
+  private stopConsentLifecycle() {
+    this.consentSessionId++;
+    this.consentFresh = false;
+    if (this.consentExpiryTimer !== undefined) {
+      clearTimeout(this.consentExpiryTimer);
+      this.consentExpiryTimer = undefined;
+    }
+    this.consentRequestAbort?.abort();
+    this.consentRequestAbort = undefined;
+    const handle = this.queryConsentHandle;
+    this.queryConsentHandle = undefined;
+    // Resolve after clearing the field so a stale onCancel cannot wipe a replacement.
+    handle?.resolve?.();
+  }
+
+  /**
+   * ICE-lite interop only (not required by RFC 7675): mirror libwebrtc
+   * semi-aggressive nomination — attach USE-CANDIDATE when we are controlling,
+   * the remote is ICE-lite, and the target is the current selected pair.
+   */
+  private shouldNominateConsentRequest(pair: CandidatePair): boolean {
+    return (
+      this.iceControlling && this.remoteIsLite && this.nominated?.id === pair.id
+    );
+  }
+
+  private canSendApplicationData(): boolean {
+    if (!this.nominated) {
+      return false;
+    }
+    if (this.state === "closed" || this.state === "failed") {
+      return false;
+    }
+    // Local ICE-lite does not run consent checks; full agents need fresh consent.
+    if (this.iceLite) {
+      return true;
+    }
+    return this.consentFresh;
+  }
+
+  private abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException("The operation was aborted", "AbortError"));
+        return;
+      }
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException("The operation was aborted", "AbortError"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  // RFC 7675 consent freshness
   private queryConsent = () => {
     if (this.iceLite) {
       return;
     }
-    if (this.queryConsentHandle) {
-      this.queryConsentHandle.resolve();
-    }
 
-    this.queryConsentHandle = cancelable(async (_, __, onCancel) => {
-      let failures = 0;
+    // Invalidate any previous consent session before starting a new one.
+    this.stopConsentLifecycle();
+    const sessionId = this.consentSessionId;
+    this.consentFresh = true;
+
+    const handle = cancelable<void>(async (_, __, onCancel) => {
       let canceled = false;
-
       const cancelEvent = new AbortController();
+
+      const clearConsentExpiry = () => {
+        if (this.consentExpiryTimer === undefined) {
+          return;
+        }
+        clearTimeout(this.consentExpiryTimer);
+        this.consentExpiryTimer = undefined;
+      };
+
+      const refreshConsentExpiry = () => {
+        // Only the active session may refresh the shared expiry timer.
+        if (canceled || sessionId !== this.consentSessionId) {
+          return;
+        }
+        clearConsentExpiry();
+        this.consentExpiryTimer = setTimeout(() => {
+          this.consentExpiryTimer = undefined;
+          if (canceled || sessionId !== this.consentSessionId) {
+            return;
+          }
+          if (this.state === "closed" || this.state === "failed") {
+            return;
+          }
+          log("Consent to send expired");
+          // Expire independently of request cadence / failure count (RFC 7675).
+          this.consentFresh = false;
+          this.consentSessionId++;
+          this.consentRequestAbort?.abort();
+          this.consentRequestAbort = undefined;
+          if (this.queryConsentHandle === handle) {
+            this.queryConsentHandle = undefined;
+          }
+          canceled = true;
+          cancelEvent.abort();
+          // Transport stays available for ICE restart; explicit close() uses "closed".
+          this.setState("failed");
+        }, CONSENT_TIMEOUT * 1000);
+      };
+
       onCancel.once(() => {
         canceled = true;
-        failures += CONSENT_FAILURES;
+        // Avoid clearing a replacement session's timer/handle.
+        if (sessionId === this.consentSessionId) {
+          clearConsentExpiry();
+          this.consentRequestAbort?.abort();
+          this.consentRequestAbort = undefined;
+        }
         cancelEvent.abort();
-        this.queryConsentHandle = undefined;
+        if (this.queryConsentHandle === handle) {
+          this.queryConsentHandle = undefined;
+        }
       });
 
-      const { localUsername, remoteUsername, iceControlling } = this;
+      // Initial ICE check success is the first valid consent response.
+      refreshConsentExpiry();
 
-      // """
-      // Periodically check consent (RFC 7675).
-      // """
+      const randomizedConsentInterval = () =>
+        CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000;
+
+      // Cadence is measured between request *starts*, not response completions.
+      let nextConsentAt = Date.now() + randomizedConsentInterval();
+      const isTerminalState = () =>
+        this.state === "closed" || this.state === "failed";
 
       try {
-        while (this.state !== "closed" && !canceled) {
-          // # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
-          await timers.setTimeout(
-            CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000,
-            undefined,
-            { signal: cancelEvent.signal },
+        while (
+          !isTerminalState() &&
+          !canceled &&
+          sessionId === this.consentSessionId
+        ) {
+          await this.abortableDelay(
+            Math.max(0, nextConsentAt - Date.now()),
+            cancelEvent.signal,
           );
 
-          const nominated = this.nominated;
-          if (!nominated || canceled) {
+          if (
+            canceled ||
+            isTerminalState() ||
+            sessionId !== this.consentSessionId
+          ) {
             break;
           }
 
+          // Fix next start time before awaiting any response (independent timers).
+          nextConsentAt = Date.now() + randomizedConsentInterval();
+
+          const nominated = this.nominated;
+          if (!nominated) {
+            break;
+          }
+
+          const pairId = nominated.id;
+          const generation = this.generation;
+          const remotePassword = this.remotePassword;
+          const { localUsername, remoteUsername, iceControlling } = this;
+
           const request = this.buildRequest({
-            nominate: false,
+            nominate: this.shouldNominateConsentRequest(nominated),
             localUsername,
             remoteUsername,
             iceControlling,
             localCandidate: nominated.localCandidate,
           });
-          try {
-            nominated.consentRequestsSent++;
-            nominated.requestsSent++;
-            await nominated.protocol.request(
+
+          this.consentRequestAbort?.abort();
+          const requestAbort = new AbortController();
+          this.consentRequestAbort = requestAbort;
+
+          nominated.consentRequestsSent++;
+          nominated.requestsSent++;
+
+          // Do not await here: response wait must not stretch the 4–6s cadence.
+          nominated.protocol
+            .request(
               request,
               nominated.remoteAddr,
-              Buffer.from(this.remotePassword, "utf8"),
-              0,
-              (attempt) => {
-                if (attempt > 0) {
-                  nominated.retransmissionsSent++;
-                }
+              Buffer.from(remotePassword, "utf8"),
+              {
+                retransmissions: 0,
+                responseTimeout: CONSENT_RESPONSE_TIMEOUT,
+                signal: requestAbort.signal,
+                onRequestSent: (attempt) => {
+                  if (attempt > 0) {
+                    nominated.retransmissionsSent++;
+                  }
+                },
               },
-            );
-            nominated.responsesReceived++;
-            failures = 0;
-            if (this.state === "disconnected") {
-              this.setState("connected");
-            }
-          } catch (error) {
-            if (nominated.id === this.nominated?.id) {
-              log("no stun response");
-              failures++;
-              this.setState("disconnected");
-              break;
-            }
-          }
-          if (failures >= CONSENT_FAILURES) {
-            log("Consent to send expired");
-            this.queryConsentHandle = undefined;
-            this.setState("closed");
-            break;
-          }
+            )
+            .then(() => {
+              // Accept only responses for the current pair / generation / session.
+              if (sessionId !== this.consentSessionId || canceled) {
+                return;
+              }
+              const state = this.state;
+              if (state === "closed" || state === "failed") {
+                return;
+              }
+              if (this.nominated?.id !== pairId) {
+                return;
+              }
+              if (this.generation !== generation) {
+                return;
+              }
+              if (this.remotePassword !== remotePassword) {
+                return;
+              }
+
+              nominated.responsesReceived++;
+              this.consentFresh = true;
+              refreshConsentExpiry();
+              if (state === "disconnected") {
+                this.setState("connected");
+              }
+            })
+            .catch((error) => {
+              // Individual request loss is expected; keep monitoring (RFC 7675).
+              if (
+                sessionId === this.consentSessionId &&
+                this.nominated?.id === pairId
+              ) {
+                log("no stun response", error);
+              }
+            });
         }
-      } catch (error) {}
+      } catch (error) {
+        // Abort during delay is normal on cancel / expire.
+      } finally {
+        if (sessionId === this.consentSessionId) {
+          clearConsentExpiry();
+        }
+      }
     });
+    this.queryConsentHandle = handle;
   };
 
   async close() {
@@ -786,7 +958,7 @@ export class Connection implements IceConnection {
     this.setState("closed");
 
     // # stop consent freshness tests
-    this.queryConsentHandle?.resolve?.();
+    this.stopConsentLifecycle();
 
     // # stop check list
     if (this.checkList && !this.checkListDone) {
@@ -856,17 +1028,16 @@ export class Connection implements IceConnection {
   }
 
   send = async (data: Buffer) => {
-    const activePair = this.nominated;
-    if (activePair) {
-      await activePair.protocol.sendData(data, activePair.remoteAddr);
-
-      // Update statistics
-      activePair.packetsSent++;
-      activePair.bytesSent += data.length;
-    } else {
-      // log("Cannot send data, ice not connected");
+    // RFC 7675: after consent expiry, do not send application data on the 5-tuple.
+    if (!this.canSendApplicationData()) {
       return;
     }
+    const activePair = this.nominated!;
+    await activePair.protocol.sendData(data, activePair.remoteAddr);
+
+    // Update statistics
+    activePair.packetsSent++;
+    activePair.bytesSent += data.length;
   };
 
   getDefaultCandidate() {

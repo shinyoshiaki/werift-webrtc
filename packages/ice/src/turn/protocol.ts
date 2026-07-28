@@ -29,7 +29,7 @@ import {
   splitTurnTcpFrames,
 } from "./frame";
 
-import type { Protocol } from "../types/model";
+import type { Protocol, TransactionRequestOptions } from "../types/model";
 
 const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 
@@ -85,7 +85,7 @@ export class StunOverTurnProtocol implements Protocol {
     request: Message,
     addr: Address,
     integrityKey?: Buffer,
-    _retransmissions?: number,
+    retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
   ) {
     if (this.turn.transactions[request.transactionIdHex]) {
@@ -97,11 +97,14 @@ export class StunOverTurnProtocol implements Protocol {
       request.addFingerprint();
     }
 
+    // Peer-facing STUN over TURN must honor retransmissions/responseTimeout
+    // (consent uses retransmissions: 0). Do not confuse with TURN server
+    // allocation/refresh policy on TurnProtocol.
     const transaction = new Transaction(
       request,
       addr,
       this,
-      undefined,
+      retransmissionsOrOptions,
       onRequestSent,
     );
     this.turn.transactions[request.transactionIdHex] = transaction;
@@ -308,7 +311,7 @@ export class TurnProtocol implements Protocol {
     request: Message,
     addr: Address,
     _integrityKey?: Buffer,
-    _retransmissions?: number,
+    retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
   ): Promise<[Message, Address]> {
     if (this.transactions[request.transactionIdHex]) {
@@ -323,11 +326,13 @@ export class TurnProtocol implements Protocol {
         .addFingerprint();
     }
 
+    // TURN server allocation/refresh uses default STUN retry policy unless
+    // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     const transaction = new Transaction(
       request,
       addr,
       this,
-      undefined,
+      retransmissionsOrOptions,
       onRequestSent,
     );
     this.transactions[request.transactionIdHex] = transaction;
