@@ -1,7 +1,74 @@
-import { RTCIceGatherer, RTCIceTransport } from "../../src";
+import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";
 
 describe("iceTransport", () => {
+  test("ICE consent failure maps to failed without closing PeerConnection", async () => {
+    // Arrange: 外部ネットワーク不要。datachannel 作成で ICE transport を用意する
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    try {
+      pc.createDataChannel("consent");
+      const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
+      expect(ice).toBeDefined();
+
+      // Act: connected の後に consent 失効相当の failed を通知
+      (ice.connection as any).setState("connected");
+      expect(ice.state).toBe("connected");
+      (ice.connection as any).setState("failed");
+
+      // Assert: transport / iceConnectionState / connectionState は failed。
+      // PeerConnection 自体は closed にならない（明示 close と区別）。
+      expect(ice.state).toBe("failed");
+      expect(pc.iceConnectionState).toBe("failed");
+      expect(pc.connectionState).toBe("failed");
+      expect(pc.signalingState).not.toBe("closed");
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("consent expiry 後の ICE transport restart で新 credentials により再接続できる", async () => {
+    // Arrange: host のみの ICE transport pair
+    const [transport1, transport2] = await iceTransportPair();
+    try {
+      expect(transport1.state).toBe("connected");
+      expect(transport2.state).toBe("connected");
+      const oldUfrag = transport1.connection.localUsername;
+      const oldSession = (transport1.connection as any).consentSessionId;
+
+      // Act: consent 失効相当
+      (transport1.connection as any).stopConsentLifecycle?.();
+      (transport1.connection as any).setState("failed");
+      expect(transport1.state).toBe("failed");
+
+      // Act: 両端 restart → 再 gather / 再 start
+      transport1.restart();
+      transport2.restart();
+      expect(transport1.connection.localUsername).not.toBe(oldUfrag);
+
+      await Promise.all([transport1.gather(), transport2.gather()]);
+      transport2.localCandidates.forEach(transport1.addRemoteCandidate);
+      transport1.localCandidates.forEach(transport2.addRemoteCandidate);
+      transport1.setRemoteParams(transport2.localParameters);
+      transport2.setRemoteParams(transport1.localParameters);
+      await Promise.all([transport1.start(), transport2.start()]);
+
+      // Assert: 新 credentials で connected に復帰
+      expect(transport1.state).toBe("connected");
+      expect(transport2.state).toBe("connected");
+      expect((transport1.connection as any).consentFresh).toBe(true);
+      expect((transport1.connection as any).consentSessionId).toBeGreaterThan(
+        oldSession ?? 0,
+      );
+
+      // Assert: 新 selected pair で application data を送れる
+      const recv = transport2.connection.onData.asPromise();
+      await transport1.connection.send(Buffer.from("post-restart"));
+      expect((await recv)[0].toString()).toBe("post-restart");
+    } finally {
+      await Promise.all([transport1.stop(), transport2.stop()]);
+    }
+  }, 20_000);
+
   test("test_connect", async () => {
     const gatherer1 = new RTCIceGatherer({
       stunServer: ["stun.l.google.com", 19302],

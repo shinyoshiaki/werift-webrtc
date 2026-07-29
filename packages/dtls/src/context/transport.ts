@@ -1,9 +1,9 @@
-import type { Transport } from "../imports/common";
+import type { Address, Transport } from "../imports/common";
 
 export class TransportContext {
   constructor(public socket: Transport) {}
 
-  readonly send = (buf: Buffer) => {
-    return this.socket.send(buf);
+  readonly send = (buf: Buffer, addr?: Address) => {
+    return this.socket.send(buf, addr);
   };
 }

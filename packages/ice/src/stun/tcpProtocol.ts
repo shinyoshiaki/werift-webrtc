@@ -2,11 +2,15 @@ import { type AddressInfo, type Socket, connect, createServer } from "node:net";
 
 import type { Candidate } from "../candidate";
 import { type Address, Event, debug } from "../imports/common";
-import type { Protocol } from "../types/model";
+import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
 import { encodeTcpFrame, splitTcpFrames } from "./tcpFrame";
-import { Transaction } from "./transaction";
+import {
+  Transaction,
+  buildTransactionOptions,
+  resolveRequestAddress,
+} from "./transaction";
 
 const log = debug("werift-ice:packages/ice/src/stun/tcpProtocol.ts");
 
@@ -139,10 +143,15 @@ abstract class BaseTcpProtocol implements Protocol {
           message.messageClass === classes.ERROR) &&
         this.transactions[message.transactionIdHex]
       ) {
-        this.transactions[message.transactionIdHex].responseReceived(
-          message,
-          addr,
-        );
+        const transaction = this.transactions[message.transactionIdHex];
+        const verified = transaction.integrityKey
+          ? parseMessage(data, transaction.integrityKey)
+          : message;
+        if (!verified) {
+          log("STUN response failed MESSAGE-INTEGRITY check");
+          return;
+        }
+        transaction.responseReceived(verified, addr);
       } else if (message.messageClass === classes.REQUEST) {
         this.onRequestReceived.execute(message, addr, data);
       }
@@ -176,7 +185,7 @@ abstract class BaseTcpProtocol implements Protocol {
     request: Message,
     addr: Address,
     integrityKey?: Buffer,
-    retransmissions?: number,
+    retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
   ) {
     if (this.transactions[request.transactionIdHex]) {
@@ -188,13 +197,13 @@ abstract class BaseTcpProtocol implements Protocol {
       request.addFingerprint();
     }
 
-    const transaction = new Transaction(
-      request,
-      addr,
-      this,
-      retransmissions,
+    const resolvedAddr = await resolveRequestAddress(addr);
+    const options = buildTransactionOptions(
+      integrityKey,
+      retransmissionsOrOptions,
       onRequestSent,
     );
+    const transaction = new Transaction(request, resolvedAddr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 
     try {

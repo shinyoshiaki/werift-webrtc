@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.24.2
+
+### 🐛 Bug Fixes
+
+- **ICE consent freshness (RFC 7675)** (#649): Align consent-to-send monitoring with RFC 7675 so long-lived sessions against **ICE-lite** peers (e.g. OpenAI Realtime) no longer drop media after ~30s.
+  - **Cadence**: Schedule the next consent Binding from the previous *request start* time at 0.8–1.2× `CONSENT_INTERVAL` (5s base), not after response completion.
+  - **Expiry**: Independent 30s timer from the last valid consent response (`CONSENT_TIMEOUT`); a single request timeout no longer stops monitoring.
+  - **Single-shot requests**: Consent transactions use `retransmissions: 0` with an RTT-based response wait (`consentResponseTimeoutMs`, min 500ms / default 1s) instead of a ~50ms RTO death.
+  - **Authenticity**: Accept only responses from the selected-pair remote address, and require `MESSAGE-INTEGRITY` when an integrity key is set.
+  - **Protocols**: UDP / ICE-TCP / TURN (`StunOverTurnProtocol`) all honor the same `TransactionRequestOptions` (TURN no longer drops `retransmissions`).
+  - **ICE-lite interop**: When controlling against a remote ICE-lite selected pair, attach `USE-CANDIDATE` on consent requests (libwebrtc-style semi-aggressive nomination).
+  - **On expiry**: Mark transport `failed` (not `closed`), gate application data via `consentFresh`, and leave the transport available for ICE restart.
+- **ICE restart role reassignment** (#649): After consent gating made app-data depend on a fresh selected pair, Chrome-initiated ICE restart could leave both sides controlling.
+  - Allow ICE role to be reassigned from offer/answer once `nominated` is cleared; keep `switchRole` force-switch for RFC 8445 role conflict.
+  - E2E `ice_restart_web_trigger`: apply the restart answer via `setRemoteDescription` and flush candidates so media recovers.
+- **DTLS send destination** (#648): Add optional `addr?: Address` to `DtlsSocket.send` / `TransportContext.send` and forward it to the underlying transport.
+  - Avoids mis-routing application data when a shared UDP socket’s last `rinfo` changes between a sync reply and a later async send (e.g. multi-client DTLS server).
+
+### 📦 Packaging / versions
+
+- **`werift`** (`packages/webrtc`): `0.24.1` → **`0.24.2`**
+- **`werift-dtls`** (`packages/dtls`): `0.5.7` → **`0.5.8`**
+- **`werift-rtp`** (`packages/rtp`): `0.8.8` → **`0.8.9`**
+
 ## v0.24.1
 
 ### 🚀 Features & Improvements

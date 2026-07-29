@@ -171,8 +171,46 @@ export class CandidatePair implements CandidatePairStats {
 export const ICE_COMPLETED = 1 as const;
 export const ICE_FAILED = 2 as const;
 
+/** Basic consent check period in seconds (RFC 7675). Actual interval is 0.8–1.2× this. */
 export const CONSENT_INTERVAL = 5;
+
+/**
+ * @deprecated Consent expiry is based on {@link CONSENT_TIMEOUT} (30s after the
+ * last valid response), not a consecutive failure count. Kept for API compatibility.
+ */
 export const CONSENT_FAILURES = 6;
+
+/** RFC 7675: consent expires this many seconds after the last valid response. */
+export const CONSENT_TIMEOUT = 30;
+
+/**
+ * Default single-shot response wait for consent requests (ms) when RTT is unknown.
+ * Independent of retransmission count. Downstream ICE-lite peers typically
+ * answer in 150–300ms; 1s is a conservative default used by interop patches.
+ */
+export const CONSENT_RESPONSE_TIMEOUT = 1000;
+
+/** RFC 8445 §14.3: ICE RTO must not be less than 500ms. */
+export const CONSENT_RESPONSE_TIMEOUT_MIN = 500;
+
+/**
+ * Compute consent response wait from pair RTT (seconds).
+ * Uses 2×RTT + 200ms jitter margin, floored at {@link CONSENT_RESPONSE_TIMEOUT_MIN}.
+ * Falls back to {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+ */
+export function consentResponseTimeoutMs(rttSeconds?: number): number {
+  if (
+    rttSeconds === undefined ||
+    !Number.isFinite(rttSeconds) ||
+    rttSeconds <= 0
+  ) {
+    return CONSENT_RESPONSE_TIMEOUT;
+  }
+  return Math.max(
+    CONSENT_RESPONSE_TIMEOUT_MIN,
+    Math.round(rttSeconds * 1000 * 2 + 200),
+  );
+}
 
 export enum CandidatePairState {
   FROZEN = 0,
@@ -187,7 +225,8 @@ export type IceState =
   | "closed"
   | "completed"
   | "new"
-  | "connected";
+  | "connected"
+  | "failed";
 
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
