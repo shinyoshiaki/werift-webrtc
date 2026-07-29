@@ -97,8 +97,9 @@ export class Transaction {
 
   /**
    * Accept a matching authenticated non-error response from the expected
-   * remote address. Wrong address or non-success class is rejected without
-   * completing the transaction (wrong address is ignored so we keep waiting).
+   * remote address. Wrong address, missing MESSAGE-INTEGRITY (when required),
+   * or non-success class is rejected without completing the transaction
+   * (wrong address / unauthenticated responses are ignored so we keep waiting).
    */
   responseReceived = (message: Message, addr: Address) => {
     if (this.ended || this.onResponse.length === 0) {
@@ -114,6 +115,22 @@ export class Transaction {
         this.expectedAddr,
       );
       return;
+    }
+
+    // RFC 7675 authenticated consent: integrityKey requires MESSAGE-INTEGRITY.
+    // Wire HMAC is verified by protocol layers via parseMessage(data, key);
+    // this presence check is defense-in-depth if responseReceived is called
+    // with a constructed Message that skipped the wire re-parse path.
+    if (this.integrityKey) {
+      const hasIntegrity =
+        message.attributesKeys.includes("MESSAGE-INTEGRITY") ||
+        message.attributesKeys.includes("MESSAGE-INTEGRITY-SHA256");
+      if (!hasIntegrity) {
+        log(
+          "ignore unauthenticated STUN response (MESSAGE-INTEGRITY required)",
+        );
+        return;
+      }
     }
 
     if (message.messageClass === classes.RESPONSE) {

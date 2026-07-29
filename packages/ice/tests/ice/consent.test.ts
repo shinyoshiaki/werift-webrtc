@@ -48,7 +48,7 @@ describe("ICE consent freshness (RFC 7675)", () => {
   });
 
   it("150〜300ms の遅延応答を受理し、同一 transaction を再送しない", async () => {
-    // Arrange: retransmissions=0 と明示的な responseTimeout
+    // Arrange: retransmissions=0 と明示的な responseTimeout（integrity 無しの遅延のみ検証）
     const sendStun = vi.fn(async () => undefined);
     const request = new Message(methods.BINDING, classes.REQUEST);
     const transaction = new Transaction(
@@ -76,6 +76,41 @@ describe("ICE consent freshness (RFC 7675)", () => {
 
     // Assert: 受理され、再送なし
     expect(await result).toBe("fulfilled");
+    expect(sendStun).toHaveBeenCalledTimes(1);
+  });
+
+  it("integrityKey 付き Transaction は未署名 response を無視して timeout する", async () => {
+    // Arrange: consent 相当（再送0・integrity 必須）
+    const integrityKey = Buffer.from("remote-password", "utf8");
+    const sendStun = vi.fn(async () => undefined);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    const transaction = new Transaction(
+      request,
+      ["192.0.2.2", 5000],
+      { sendStun } as any,
+      {
+        retransmissions: 0,
+        responseTimeout: CONSENT_RESPONSE_TIMEOUT,
+        integrityKey,
+      },
+    );
+    const result = transaction.run().then(
+      () => "fulfilled" as const,
+      () => "rejected" as const,
+    );
+
+    // Act: MESSAGE-INTEGRITY 無しの success 風 response を注入
+    const unsigned = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    );
+    expect(unsigned.attributesKeys).not.toContain("MESSAGE-INTEGRITY");
+    transaction.responseReceived(unsigned, ["192.0.2.2", 5000]);
+    await vi.advanceTimersByTimeAsync(CONSENT_RESPONSE_TIMEOUT);
+
+    // Assert: 未署名は受理せず timeout
+    expect(await result).toBe("rejected");
     expect(sendStun).toHaveBeenCalledTimes(1);
   });
 

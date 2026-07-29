@@ -21,8 +21,10 @@ export interface TransactionRequestOptions {
   /** Abort the outstanding transaction (e.g. consent lifecycle teardown). */
   signal?: AbortSignal;
   /**
-   * When set, responses must pass MESSAGE-INTEGRITY verification
-   * (re-parsed with this key) before the transaction accepts them.
+   * When set, responses must include MESSAGE-INTEGRITY and pass HMAC
+   * verification (protocol re-parses the wire bytes with this key; the
+   * transaction also rejects unsigned Messages as defense-in-depth).
+   * Unsigned or forged responses must not complete the transaction.
    */
   integrityKey?: Buffer;
 }
