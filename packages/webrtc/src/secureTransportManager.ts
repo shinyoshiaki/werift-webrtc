@@ -460,6 +460,17 @@ export class SecureTransportManager {
     log("iceConnectionStateChange", newState);
     this.iceConnectionState = newState;
     this.iceConnectionStateChange.execute(newState);
+
+    // Runtime ICE failure (e.g. RFC 7675 consent expiry) must surface on
+    // PeerConnection.connectionState without treating it as an explicit close().
+    if (newState === "failed" && this.connectionState !== "closed") {
+      this.setConnectionState("failed");
+    } else if (
+      newState === "disconnected" &&
+      this.connectionState === "connected"
+    ) {
+      this.setConnectionState("disconnected");
+    }
   }
 
   async gatherCandidates(remoteIsBundled: boolean) {
@@ -481,6 +492,9 @@ export class SecureTransportManager {
   }
 
   setConnectionState(state: ConnectionState) {
+    if (this.connectionState === state) {
+      return;
+    }
     log("connectionStateChange", state);
     this.connectionState = state;
     this.connectionStateChange.execute(state);

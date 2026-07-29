@@ -68,7 +68,7 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
@@ -271,11 +271,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`
+> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`
+`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
 
 ***
 

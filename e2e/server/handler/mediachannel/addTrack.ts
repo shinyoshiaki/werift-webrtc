@@ -78,6 +78,10 @@ export class mediachannel_addTrack_offer {
       case "offer":
         {
           const port = await randomPort();
+          try {
+            this.udp.close();
+          } catch {}
+          this.udp = createSocket("udp4");
           this.udp.bind(port);
 
           const track = new MediaStreamTrack({ kind: "video" });

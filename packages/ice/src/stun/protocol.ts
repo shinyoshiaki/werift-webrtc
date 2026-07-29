@@ -3,10 +3,14 @@ import { Event, UdpTransport, debug } from "../imports/common";
 import type { Address, InterfaceAddresses } from "../../../common/src/network";
 import type { Candidate } from "../candidate";
 
-import type { Protocol } from "../types/model";
+import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
-import { Transaction } from "./transaction";
+import {
+  Transaction,
+  buildTransactionOptions,
+  resolveRequestAddress,
+} from "./transaction";
 
 const log = debug("werift-ice : packages/ice/src/stun/protocol.ts");
 
@@ -65,7 +69,15 @@ export class StunProtocol implements Protocol {
         this.transactionsKeys.includes(message.transactionIdHex)
       ) {
         const transaction = this.transactions[message.transactionIdHex];
-        transaction.responseReceived(message, addr);
+        // Re-parse with integrity key so unauthenticated responses are dropped.
+        const verified = transaction.integrityKey
+          ? parseMessage(data, transaction.integrityKey)
+          : message;
+        if (!verified) {
+          log("STUN response failed MESSAGE-INTEGRITY check");
+          return;
+        }
+        transaction.responseReceived(verified, addr);
       } else if (message.messageClass === classes.REQUEST) {
         this.onRequestReceived.execute(message, addr, data);
       }
@@ -102,7 +114,7 @@ export class StunProtocol implements Protocol {
     request: Message,
     addr: Address,
     integrityKey?: Buffer,
-    retransmissions?: number,
+    retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
   ) {
     // """
@@ -116,12 +128,22 @@ export class StunProtocol implements Protocol {
       request.addFingerprint();
     }
 
+    // Match DNS family to the bound socket so STUN hostname targets resolve correctly.
+    const socketType = (this.transport as unknown as { socketType?: string })
+      .socketType;
+    const family: 4 | 6 = socketType === "udp6" ? 6 : 4;
+    const resolvedAddr = await resolveRequestAddress(addr, family);
+
+    const options = buildTransactionOptions(
+      integrityKey,
+      retransmissionsOrOptions,
+      onRequestSent,
+    );
     const transaction: Transaction = new Transaction(
       request,
-      addr,
+      resolvedAddr,
       this,
-      retransmissions,
-      onRequestSent,
+      options,
     );
     this.transactions[request.transactionIdHex] = transaction;
 

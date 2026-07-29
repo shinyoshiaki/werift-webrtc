@@ -1,18 +1,18 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-07-24T13:36:04.916Z |
+| Generated at | 2026-07-28T05:00:50.109Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| webrtc/RTCPeerConnection-setDescription-transceiver.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
 | webrtc/RTCRtpSender-transport.https.html | (default) | 1 | 7 | 0 | 8 | 0 | 1/8 | 12.5% | active |
 | webrtc/RTCPeerConnection-setRemoteDescription-replaceTrack.https.html | (default) | 1 | 2 | 4 | 7 | 0 | 1/7 | 14.3% | active |
 | webrtc/RTCSctpTransport-maxMessageSize.html | (default) | 1 | 6 | 0 | 7 | 0 | 1/7 | 14.3% | active |
-| webrtc/RTCPeerConnection-setDescription-transceiver.html | (default) | 1 | 5 | 0 | 6 | 0 | 1/6 | 16.7% | active |
 | webrtc/legacy/munge-dont.html | (default) | 1 | 4 | 0 | 5 | 0 | 1/5 | 20.0% | active |
 | webrtc/RTCDataChannel-id.html | (default) | 1 | 4 | 0 | 5 | 0 | 1/5 | 20.0% | active |
 | webrtc/legacy/RTCPeerConnection-createOffer-offerToReceive.optional.html | (default) | 4 | 14 | 0 | 18 | 0 | 4/18 | 22.2% | active |

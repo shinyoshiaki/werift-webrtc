@@ -28,6 +28,7 @@
 - [IceConnection](interfaces/IceConnection.md)
 - [IceOptions](interfaces/IceOptions.md)
 - [Protocol](interfaces/Protocol.md)
+- [TransactionRequestOptions](interfaces/TransactionRequestOptions.md)
 - [TurnClientConfig](interfaces/TurnClientConfig.md)
 - [TurnClientOptions](interfaces/TurnClientOptions.md)
 
@@ -39,8 +40,11 @@
 ## Variables
 
 - [AttributeKeys](variables/AttributeKeys.md)
-- [CONSENT\_FAILURES](variables/CONSENT_FAILURES.md)
+- [~~CONSENT\_FAILURES~~](variables/CONSENT_FAILURES.md)
 - [CONSENT\_INTERVAL](variables/CONSENT_INTERVAL.md)
+- [CONSENT\_RESPONSE\_TIMEOUT](variables/CONSENT_RESPONSE_TIMEOUT.md)
+- [CONSENT\_RESPONSE\_TIMEOUT\_MIN](variables/CONSENT_RESPONSE_TIMEOUT_MIN.md)
+- [CONSENT\_TIMEOUT](variables/CONSENT_TIMEOUT.md)
 - [COOKIE](variables/COOKIE.md)
 - [defaultOptions](variables/defaultOptions.md)
 - [FINGERPRINT\_LENGTH](variables/FINGERPRINT_LENGTH.md)
@@ -60,6 +64,7 @@
 - [candidateLocalPreference](functions/candidateLocalPreference.md)
 - [candidatePairPriority](functions/candidatePairPriority.md)
 - [candidatePriority](functions/candidatePriority.md)
+- [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
 - [encodeTcpFrame](functions/encodeTcpFrame.md)

@@ -38,6 +38,9 @@ export function parseMessage(
 
   const attributeRepository = new AttributeRepository();
   const rawAttributes: RawAttribute[] = [];
+  // When integrityKey is provided, MESSAGE-INTEGRITY must be present and valid
+  // (RFC 5389 short-term credentials / RFC 7675 authenticated consent responses).
+  let messageIntegrityVerified = false;
 
   for (let pos = HEADER_LENGTH; pos < data.length; ) {
     if (pos + 4 > data.length) {
@@ -87,6 +90,7 @@ export function parseMessage(
         if (!integrity.equals(expected)) {
           return undefined;
         }
+        messageIntegrityVerified = true;
       }
     } else {
       rawAttributes.push({
@@ -97,6 +101,11 @@ export function parseMessage(
     }
 
     pos = valueEnd + padLen;
+  }
+
+  // Reject unsigned messages when the caller required authentication.
+  if (integrityKey && !messageIntegrityVerified) {
+    return undefined;
   }
 
   return new Message(
