@@ -9,4 +9,3 @@
 > `const` **CONSENT\_TIMEOUT**: `30` = `30`
 
 RFC 7675: consent expires this many seconds after the last valid response.
-
