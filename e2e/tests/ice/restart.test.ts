@@ -59,14 +59,16 @@ describe("ice/restart", () => {
     await waitVideoPlay(remote);
 
     {
+      // Browser initiates ICE restart; apply the answer so both sides share
+      // the new credentials and can re-nominate a pair.
       const offer = await pc.createOffer({ iceRestart: true });
       await pc.setLocalDescription(offer);
-      peer
-        .request(ice_restart_web_trigger_label, {
-          type: "offer",
-          payload: pc.localDescription,
-        })
-        .catch(() => {});
+      const answer = await peer.request(ice_restart_web_trigger_label, {
+        type: "offer",
+        payload: pc.localDescription,
+      });
+      await pc.setRemoteDescription(answer);
+      await candidates.flush();
     }
 
     await waitVideoPlay(remote);

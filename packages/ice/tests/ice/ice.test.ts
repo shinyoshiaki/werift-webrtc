@@ -708,6 +708,32 @@ describe("ice", () => {
     1000 * 60 * 60,
   );
 
+  test("ICE restart 後は offer/answer に合わせて controlling を再割当できる", async () => {
+    // Arrange: initial offerer が controlling
+    const a = createTestConnection(true);
+    expect(a.iceControlling).toBe(true);
+
+    // Act: 1 回目の generation を進め nominated を模す
+    await a.restart();
+    expect(a.generation).toBeGreaterThan(0);
+    // restart 直後は nominated が無いので answerer 側ロールへ変更できる
+    a.iceControlling = false;
+
+    // Assert
+    expect(a.iceControlling).toBe(false);
+
+    // Act: selected pair がある間は通常の setter ではロールを変えない
+    (a as any).nominated = { id: "pair-1" };
+    a.iceControlling = true;
+    expect(a.iceControlling).toBe(false);
+
+    // Act: role conflict 修復は nominated 中でも強制的に切替可能
+    (a as any).switchRole(true);
+    expect(a.iceControlling).toBe(true);
+
+    await a.close();
+  });
+
   test(
     "test_connect_role_conflict_both_controlled",
     async () => {

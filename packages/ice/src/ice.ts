@@ -110,13 +110,13 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       value = false;
     }
-    if (this.generation > 0 || this.nominated) {
+    // While a pair is selected, keep the negotiated role. ICE restart clears
+    // `nominated`, so offer/answer role and RFC 8445 role-conflict repair can
+    // reassign controlling/controlled for the new generation.
+    if (this.nominated) {
       return;
     }
-    this._iceControlling = value;
-    for (const pair of this.checkList) {
-      pair.iceControlling = value;
-    }
+    this.applyIceControlling(value);
   }
 
   get iceLite() {
@@ -1106,9 +1106,21 @@ export class Connection implements IceConnection {
     return pair;
   }
 
+  private applyIceControlling(iceControlling: boolean) {
+    this._iceControlling = iceControlling;
+    for (const pair of this.checkList) {
+      pair.iceControlling = iceControlling;
+    }
+  }
+
   private switchRole(iceControlling: boolean) {
     log("switch role", iceControlling);
-    this.iceControlling = iceControlling;
+    // Role conflicts must be repaired even after a prior generation or while
+    // connectivity checks are in flight (RFC 8445 §7.2.5.1 / §7.3.1.1).
+    if (this.iceLite) {
+      iceControlling = false;
+    }
+    this.applyIceControlling(iceControlling);
     this.sortCheckList();
   }
 
