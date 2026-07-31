@@ -1,3 +1,4 @@
+import { createSocket } from "node:dgram";
 import { setTimeout } from "timers/promises";
 
 import { type Address, Event } from "../../../common/src";
@@ -774,6 +775,53 @@ describe("ice", () => {
       await server.close();
     }
   });
+
+  testWithLocalStun(
+    "test_gather_queries_every_stun_server_in_stun_servers",
+    async () => {
+      // stunServers の 2 番目以降にも binding request が飛ぶこと
+      // （先頭だけ使って打ち切らないこと）を確認する。
+      // SkyWay の rtcConfig.stunPorts に複数ポートを指定する用途がこれに当たる。
+      const reachable = await createLocalStunServer(localStunHost!);
+      const probe = createSocket("udp4");
+      let probeRequests = 0;
+      probe.on("message", () => {
+        probeRequests += 1;
+      });
+      await new Promise<void>((resolve) => {
+        probe.bind({ address: localStunHost!, port: 0 }, resolve);
+      });
+      const probeAddress = probe.address();
+
+      try {
+        const stunServers: Address[] = [
+          reachable.address!,
+          [localStunHost!, probeAddress.port],
+        ];
+        const connection = createTestConnection(true, { stunServers });
+        connection.stunServers = stunServers;
+
+        try {
+          await connection.gatherCandidates();
+
+          // 先頭の STUN サーバーからは srflx candidate が得られる
+          expect(
+            connection.localCandidates.filter(
+              (candidate) => candidate.type === "srflx",
+            ).length,
+          ).toBeGreaterThan(0);
+          // 2 番目の STUN サーバーにも問い合わせが届いている
+          expect(probeRequests).toBeGreaterThan(0);
+        } finally {
+          await connection.close();
+        }
+      } finally {
+        await new Promise<void>((resolve) => probe.close(resolve));
+        await reachable.close();
+      }
+    },
+    60 * 1000,
+  );
 
   test(
     "test_connect_with_stun_server_dns_lookup_error",

@@ -48,7 +48,8 @@ export class Connection implements IceConnection {
   remoteUsername: string = "";
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
-  stunServer?: Address;
+  /** 実際に server reflexive candidate の収集に使う STUN サーバーの一覧 */
+  stunServers: Address[] = [];
   turnServer?: Address;
   options: IceOptions;
   remoteCandidatesEnd = false;
@@ -92,14 +93,35 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       this._iceControlling = false;
     }
-    const { stunServer, turnServer } = this.options;
-    this.stunServer = validateAddress(stunServer) ?? [
-      "stun.l.google.com",
-      19302,
-    ];
+    const { stunServer, stunServers, turnServer } = this.options;
+    // stunServer(単数) と stunServers(複数) の両方を受け付ける。
+    // 同一 host:port の重複指定は候補が二重に集まるだけなので除去する。
+    const candidates = [stunServer, ...(stunServers ?? [])]
+      .map((address) => validateAddress(address))
+      .filter((address): address is Address => address != null);
+    const deduped = new Map<string, Address>();
+    for (const address of candidates) {
+      deduped.set(`${address[0]}:${address[1]}`, address);
+    }
+    this.stunServers =
+      deduped.size > 0
+        ? [...deduped.values()]
+        : [["stun.l.google.com", 19302]];
     this.turnServer = validateAddress(turnServer);
     this.restart();
     log("new Connection", this.options);
+  }
+
+  /**
+   * 後方互換用。単数プロパティへの代入は「その 1 台だけを使う」意図として扱い、
+   * undefined の代入は STUN サーバーを使わない指定になる。
+   */
+  get stunServer(): Address | undefined {
+    return this.stunServers[0];
+  }
+
+  set stunServer(stunServer: Address | undefined) {
+    this.stunServers = stunServer ? [stunServer] : [];
   }
 
   get iceControlling() {
@@ -152,6 +174,15 @@ export class Connection implements IceConnection {
     this.earlyChecks = [];
     this.earlyChecksDone = false;
     this.localCandidatesStart = false;
+
+    // close 済みの protocol は earlyCheck にも使えないうえ、残すと
+    // getCandidatePromises の「同じアドレスを二重に追加しない」フィルタが
+    // 効いてしまい、そのアドレスで新しいソケットを張り直せない。結果として
+    // ICE restart 後に candidate が 1 つも作れず nominated が選出されないため、
+    // ここで捨てる。
+    this.protocols = this.protocols.filter(
+      (protocol) => protocol.closed !== true,
+    );
 
     // protocolsはincomingのearlyCheckに使うかもしれないので残す
     for (const protocol of this.protocols) {
@@ -231,7 +262,15 @@ export class Connection implements IceConnection {
 
       this.localCandidatesEnd = true;
     }
-    this.setState("completed");
+    // 初回の gathering では従来どおり completed を通知する
+    // （RTCIceTransport は gather() 完了時点で completed になる既存セマンティクス）。
+    // 一方 ICE restart 後は、nominated（採用された candidate pair）が未選出のまま
+    // completed にすると上位が「再接続できた」と誤判定し、実際には経路が無いのに
+    // 送信を続けてメディアが復帰しない。restart 後は pair が選ばれるまで
+    // 接続状態を進めない。
+    if (this.generation === 0 || this.nominated) {
+      this.setState("completed");
+    }
   }
 
   private appendLocalCandidate(candidate: Candidate) {
@@ -324,7 +363,7 @@ export class Connection implements IceConnection {
 
   private getCandidatePromises(addresses: string[], timeout = 5) {
     const candidatePromises: Promise<unknown>[] = [];
-    const { stunServer, turnServer } = this;
+    const { stunServers, turnServer } = this;
     const { turnUsername, turnPassword } = this.options;
     const gatherIceLite = this.iceLite;
     const gatherRelayOnly =
@@ -455,9 +494,11 @@ export class Connection implements IceConnection {
       candidatePromises.push(...tcpCandidatePromises);
     }
 
-    if (!gatherIceLite && !gatherRelayOnly && stunServer) {
-      const stunCandidatePromises = localStunPromises.map(
-        async (protocolPromise) => {
+    if (!gatherIceLite && !gatherRelayOnly && stunServers.length > 0) {
+      // 指定された全ての STUN サーバーに問い合わせる。1 つが応答しなくても
+      // 他のサーバーからの候補は収集できるように、サーバー単位で独立させる。
+      const stunCandidatePromises = stunServers.flatMap((stunServer) =>
+        localStunPromises.map(async (protocolPromise) => {
           const protocol = await protocolPromise;
           if (!protocol) return;
 
@@ -490,7 +531,7 @@ export class Connection implements IceConnection {
           });
 
           return stunCandidatePromise;
-        },
+        }),
       );
 
       candidatePromises.push(...stunCandidatePromises);

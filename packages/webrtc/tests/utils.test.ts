@@ -13,6 +13,32 @@ describe("utils", () => {
       expect(turnUsername).toBeFalsy();
     });
 
+    test("multiple stun servers on the same host with different ports", () => {
+      // SkyWay の rtcConfig.stunPorts に 443 と 3478 を両方指定した場合の形
+      const iceServers = [
+        { urls: "stun:stun.skyway.ntt.com:443" },
+        { urls: "stun:stun.skyway.ntt.com:3478" },
+      ];
+      const { stunServer, stunServers } = parseIceServers(iceServers);
+      expect(stunServer).toEqual(["stun.skyway.ntt.com", 443]);
+      expect(stunServers).toEqual([
+        ["stun.skyway.ntt.com", 443],
+        ["stun.skyway.ntt.com", 3478],
+      ]);
+    });
+
+    test("duplicated stun servers are deduplicated", () => {
+      const iceServers = [
+        { urls: ["stun:stun.l.google.com:19302", "stun:stun.l.google.com"] },
+        { urls: "stun:stun.l.google.com:19302" },
+      ];
+      const { stunServers } = parseIceServers(iceServers);
+      expect(stunServers).toEqual([
+        ["stun.l.google.com", 19302],
+        ["stun.l.google.com", 3478],
+      ]);
+    });
+
     test("turn", () => {
       const iceServers: RTCIceServer[] = [
         {

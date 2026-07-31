@@ -880,7 +880,18 @@ export class RTCPeerConnection extends EventTarget {
         }
         const checkDtlsConnected = () => dtlsTransport.state === "connected";
 
-        if (checkDtlsConnected()) {
+        // ICE restart 後は ICE の connectivity check を再実行する必要がある。
+        // DTLS は ICE restart をまたいで維持される仕様なので、「DTLS が connected
+        // だから何もしない」と早期 return してしまうと ICE が start されず、
+        // nominated pair が選出されないまま（送信は続くのに相手に届かない）状態に
+        // なる。ICE 側が再接続を要する状態のときは start まで進める。
+        // なお ICE start 後の DTLS 再ハンドシェイクは後続の checkDtlsConnected()
+        // でスキップされるため、既存の DTLS セッションは維持される。
+        const iceNeedsRestart = ["new", "disconnected", "failed"].includes(
+          iceTransport.state,
+        );
+
+        if (checkDtlsConnected() && !iceNeedsRestart) {
           return;
         }
 

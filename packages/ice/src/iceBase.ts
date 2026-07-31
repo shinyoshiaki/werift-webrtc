@@ -28,6 +28,7 @@ export interface IceConnection {
   remoteCandidates: Candidate[];
   candidatePairs: CandidatePair[];
   stunServer?: Address;
+  stunServers: Address[];
   turnServer?: Address;
   generation: number;
   options: IceOptions;
@@ -233,6 +234,11 @@ export interface IceOptions {
   iceLite: boolean;
   useTcp: boolean;
   stunServer?: Address;
+  /**
+   * 複数の STUN サーバーを使う場合に指定する。指定された全てのサーバーに対して
+   * server reflexive candidate の収集を行う。`stunServer` は先頭要素として扱われる。
+   */
+  stunServers?: Address[];
   turnServer?: Address;
   turnUsername?: string;
   turnPassword?: string;

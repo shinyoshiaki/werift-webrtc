@@ -113,11 +113,17 @@ export const compactNtp = (ntp: bigint) => {
 export function parseIceServers(iceServers: RTCIceServer[]) {
   const options: {
     stunServer?: Address;
+    stunServers?: Address[];
     turnServer?: Address;
     turnUsername?: string;
     turnPassword?: string;
     turnTransport?: "udp" | "tcp" | "tls";
   } = {};
+
+  // 同一ホストの別ポート(例: SkyWay の stunPorts=[443, 3478])を使えるように
+  // STUN サーバーは全て収集する。stunServer は後方互換のため先頭を入れておく。
+  const stunServers: Address[] = [];
+  const seenStunServers = new Set<string>();
 
   for (const iceServer of iceServers) {
     const urls = Array.isArray(iceServer.urls)
@@ -129,8 +135,12 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
         continue;
       }
 
-      if (!options.stunServer && parsed.kind === "stun") {
-        options.stunServer = parsed.address;
+      if (parsed.kind === "stun") {
+        const key = `${parsed.address[0]}:${parsed.address[1]}`;
+        if (!seenStunServers.has(key)) {
+          seenStunServers.add(key);
+          stunServers.push(parsed.address);
+        }
       }
 
       if (!options.turnServer && parsed.kind === "turn") {
@@ -140,6 +150,11 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
         options.turnPassword = iceServer.credential;
       }
     }
+  }
+
+  if (stunServers.length > 0) {
+    options.stunServer = stunServers[0];
+    options.stunServers = stunServers;
   }
 
   log("iceOptions", options);

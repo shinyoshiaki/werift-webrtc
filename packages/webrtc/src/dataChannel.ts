@@ -29,6 +29,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   onopen?: Callback;
   onclose?: Callback;
   onclosing?: Callback;
+  onbufferedamountlow?: Callback;
   onmessage?: CallbackWithValue<MessageEvent>;
   // todo impl
   onerror?: CallbackWithValue<RTCErrorEvent>;
@@ -140,6 +141,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this.bufferedAmount += amount;
     if (crossesThreshold) {
       this.bufferedAmountLow.execute();
+      if (this.onbufferedamountlow) this.onbufferedamountlow();
       this.emit("bufferedamountlow");
     }
   }

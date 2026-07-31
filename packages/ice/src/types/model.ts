@@ -31,6 +31,11 @@ export interface TransactionRequestOptions {
 
 export interface Protocol {
   type: string;
+  /**
+   * 既に close 済みかどうか。ICE restart 時に使えない protocol を判別するために使う。
+   * 実装が持たない場合は undefined。
+   */
+  closed?: boolean;
   onRequestReceived: Event<[Message, Address, Buffer]>;
   onDataReceived: Event<[Buffer]>;
   request: (
