@@ -263,7 +263,8 @@ export class Connection implements IceConnection {
       this.localCandidatesEnd = true;
     }
     // 初回の gathering では従来どおり completed を通知する
-    // （RTCIceTransport は gather() 完了時点で completed になる既存セマンティクス）。
+    // （RTCIceTransport は gather() 完了時点で completed になる既存セマンティクス。
+    // werift の webrtc 側 fixture もこれを前提にしている）。
     // 一方 ICE restart 後は、nominated（採用された candidate pair）が未選出のまま
     // completed にすると上位が「再接続できた」と誤判定し、実際には経路が無いのに
     // 送信を続けてメディアが復帰しない。restart 後は pair が選ばれるまで

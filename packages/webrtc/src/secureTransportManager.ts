@@ -470,6 +470,9 @@ export class SecureTransportManager {
       this.connectionState === "connected"
     ) {
       this.setConnectionState("disconnected");
+    } else if (newState === "connected" || newState === "completed") {
+      // connect() が ICE の完了前に返っていた場合、ここで connected へ引き上げる。
+      this.promoteConnectionStateIfReady();
     }
   }
 
@@ -488,6 +491,39 @@ export class SecureTransportManager {
         // エラーハンドリングを追加 (例: ログ出力)
         log("gatherCandidates failed", e);
       });
+    }
+  }
+
+  /**
+   * ICE / DTLS の実状態が揃っているときだけ connectionState を connected にする。
+   *
+   * connect() は「DTLS が既に connected」の経路で早期 return するため、ICE がまだ
+   * checking（ICE restart 後の connectivity check 中など）でも connected を宣言して
+   * しまっていた。その状態では採用された candidate pair が無く、送信しても相手に
+   * 届かないので、上位が「再接続できた」と誤判定する。
+   *
+   * また RTCIceTransport.state は gather() 完了時点で completed になる（werift の
+   * 既存セマンティクス）ため、state だけでは経路の有無を判断できない。採用された
+   * candidate pair（nominated）の有無も条件にする。
+   *
+   * 降格はしない（disconnected / failed は _setIceConnectionState 側が扱う）。
+   * ICE が後から connected になった場合はそちらから再評価される。
+   */
+  promoteConnectionStateIfReady() {
+    if (this.connectionState === "closed") {
+      return;
+    }
+    const iceReady = this.iceTransports.every(
+      (transport) =>
+        transport.state === "closed" ||
+        (["connected", "completed"].includes(transport.state) &&
+          transport.connection.nominated != undefined),
+    );
+    const dtlsReady = this.dtlsTransports.every((transport) =>
+      ["connected", "closed"].includes(transport.state),
+    );
+    if (iceReady && dtlsReady) {
+      this.setConnectionState("connected");
     }
   }
 

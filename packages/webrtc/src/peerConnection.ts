@@ -65,6 +65,9 @@ import { andDirection, deepMerge } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/peerConnection.ts");
 
+// remote description の適用を待つ candidate の保持上限。
+const maxPendingRemoteCandidates = 200;
+
 /**
  * W3C compatibility notes kept near the public RTCPeerConnection surface so the
  * reviewable diff does not depend on external PR text.
@@ -820,7 +823,50 @@ export class RTCPeerConnection extends EventTarget {
       this.pendingRemoteCandidates.push(candidateMessage);
       return;
     }
+
+    // ICE restart 中は、相手の新しい usernameFragment を持つ candidate が、
+    // 対応する remote description を適用する前に届くことがある。ここで仕様どおり
+    // OperationError にすると呼び出し側はその candidate を失い、restart 後の
+    // candidate pair が作られないまま（送信は続くのに相手に届かない）状態になる。
+    // remote description が未適用のときと同じように buffer して、対応する
+    // description を適用したあとに反映する。
+    if (this.isUsernameFragmentUnapplied(candidateMessage)) {
+      this.bufferRemoteCandidate(candidateMessage);
+      return;
+    }
+
     await this.applyRemoteIceCandidate(candidateMessage);
+  }
+
+  /**
+   * candidate の usernameFragment が、適用済みの remote description のどの
+   * media section にも一致しないか（= まだ適用していない世代のものか）。
+   */
+  private isUsernameFragmentUnapplied(
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+  ) {
+    const usernameFragment = candidateMessage?.usernameFragment;
+    if (typeof usernameFragment !== "string") {
+      return false;
+    }
+    const sdp = this.sdpManager._remoteDescription;
+    if (!sdp) {
+      return false;
+    }
+    return !sdp.media.some(
+      (media) => media.iceParams?.usernameFragment === usernameFragment,
+    );
+  }
+
+  private bufferRemoteCandidate(
+    candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+  ) {
+    // 一致する description が結局来ない相手でも無制限に溜めないよう上限を設ける。
+    if (this.pendingRemoteCandidates.length >= maxPendingRemoteCandidates) {
+      log("dropping buffered remote candidate, buffer is full");
+      return;
+    }
+    this.pendingRemoteCandidates.push(candidateMessage);
   }
 
   private async applyRemoteIceCandidate(
@@ -859,14 +905,26 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   private async flushPendingRemoteCandidates() {
+    const retained: Array<RTCIceCandidate | RTCIceCandidateInit | null> = [];
+
     while (
       this.pendingRemoteCandidates.length > 0 &&
       this.remoteDescription &&
       this.sdpManager._remoteDescription
     ) {
-      const candidate = this.pendingRemoteCandidates.shift();
-      await this.applyRemoteIceCandidate(candidate ?? null);
+      const candidate = this.pendingRemoteCandidates.shift() ?? null;
+
+      // まだ対応する世代の description が来ていないものは次の
+      // setRemoteDescription まで持ち越す（捨てると restart 後の pair が作れない）。
+      if (this.isUsernameFragmentUnapplied(candidate)) {
+        retained.push(candidate);
+        continue;
+      }
+
+      await this.applyRemoteIceCandidate(candidate);
     }
+
+    this.pendingRemoteCandidates.unshift(...retained);
   }
 
   private async connect() {
@@ -923,7 +981,9 @@ export class RTCPeerConnection extends EventTarget {
     if (res.find((r) => r.status === "rejected")) {
       this.secureManager.setConnectionState("failed");
     } else {
-      this.secureManager.setConnectionState("connected");
+      // ICE がまだ pair を選んでいない場合は connecting のまま。ICE が connected に
+      // なった時点で secureManager 側から connected へ引き上げられる。
+      this.secureManager.promoteConnectionStateIfReady();
     }
   }
 
