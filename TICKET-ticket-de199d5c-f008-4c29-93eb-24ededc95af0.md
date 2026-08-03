@@ -1,9 +1,5 @@
 # タスク詳細化: Expand RTP packetizer and depacketizer codec coverage
 
-> 元チケット (Motivation / Proposal / Acceptance criteria) は本ファイル末尾の「元チケット」欄に原文のまま残す。
-
----
-
 ## 1. タスクの目的と背景
 
 `packages/rtp` (werift-rtp) はブラウザ間 WebRTC 以外でも、SIP ゲートウェイ、RTSP カメラ、メディアリレー、録音/録画パイプラインなどで再利用できるように設計されている。しかし現状のコーデック対応は以下の通り偏っており、実務で頻出するペイロード形式を扱えない。
@@ -120,6 +116,21 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 - 生成物 (ベクタ) は**リポジトリにコミット**し、テスト本体 (`vitest`) は GStreamer 無しで実行できる (CI ではコミット済みベクタのみ使用)。再生成は手動でスクリプトを実行する。
 - パイプライン例・代替手段は §3.3 に詳述。
 
+### 2.8 仕様 (RFC) の入手と仕様照合による検証
+
+**RFC 原文を `docs/rfc/` 以下にダウンロードして保存し、実装と仕様の正しさを検証することを必須要件とする**:
+
+- 対象 RFC を **rfc-editor.org のテキスト版 (`https://www.rfc-editor.org/rfc/rfc<num>.txt`) からダウンロード** し、`docs/rfc/rfc<num>.txt` としてコミットする:
+  - `rfc3551.txt` (PCMU / PCMA / G.722 の静的 PT・クロックレート)
+  - `rfc3640.txt` (AAC / MPEG4-GENERIC の AU Header Section)
+  - `rfc4733.txt` (named telephone event)
+  - `rfc7798.txt` (H.265 / HEVC の AP / FU / 単一 NAL)
+- 既存の `docs/rfc/rfc8445.txt` / `rfc8656.txt` と同じ慣習に従う (ファイルは RFC のまま配置し、パッケージに同梱しない)。
+- **仕様照合の進め方**:
+  - 各コードは実装ファイルの冒頭に RFC 番号と対応セクション (§4.3 の落とし穴リストの根拠となる箇所) をコメントで残す (vp9.ts が draft 番号をコメントしている慣習と同様)。
+  - 合成ベクタや GStreamer 生成ベクタの期待値は、RFC 本文の図・具体例 (RFC 7798 付録 A、RFC 3640 §3.3.6 など) と突き合わせ、テストコメントに参照セクションを残す。
+  - 実装・テストのレビュー時は `docs/rfc/` の原文を正として、ビットレイアウト・静的 PT/クロック・marker 規則のズレを検出する。
+
 ---
 
 ## 3. 技術的な実装アプローチ (調査結果)
@@ -141,8 +152,11 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 | テストの手本 | `packages/rtp/tests/codec/h264.test.ts` | `describe("packages/rtp/tests/codec/h264.test.ts")` 形式。既知 wire ベクタ (pion/rtp 由来) を検証 |
 | 既存 DTMF フィクスチャ | `packages/rtp/tests/data/rtp_dtmf.bin` | PT 101 / 4 バイトペイロード。RFC 4733 depacketizer の wire ベクタに流用可能 (`tests/rtp/packet.test.ts:64`) |
 | 非 WebRTC 例 | `packages/rtp/examples/node/depaketize/gst.ts` | dgram + `gst-launch-1.0` で RTP-over-UDP 受信 + depacketize する既存パターン |
+| RFC 原文の保管 | `docs/rfc/` | `rfc8445.txt` / `rfc8656.txt` を既に保持。本タスクで `rfc3551` / `rfc3640` / `rfc4733` / `rfc7798` を追加 (rfc-editor.org のテキスト版) |
 
 ### 3.2 各コーデックの wire フォーマット要点 (RFC から)
+
+> 各項目の根拠は `docs/rfc/` に保存した RFC 原文 (rfc3551 / rfc3640 / rfc4733 / rfc7798) であり、実装・テストの照合に使用する。
 
 - **H.265**: ペイロードヘッダ 2 バイト固定 (F/Type/LayerId/TID)。AP=0 / FU=1 / 単一 NAL=2–63。AP は DONL 省略時「2 バイトサイズ + NAL」列。FU ヘッダは S/E/FuType。IRAP = type 16–21。
 - **PCMU=PT0/8000Hz、PCMA=PT8/8000Hz、G.722=PT9/8000Hz** (RFC 3551 の静的割当。G.722 のクロックは 8kHz)。
@@ -169,7 +183,7 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 
 ### 3.4 作業順序の目安
 
-1. `codec/base.ts` に `PacketizerBase` 追加 → 2. 音声系 (g711 / g722、単純) → 3. telephoneEvent → 4. mp4a (AAC) → 5. h265 (最複雑) → 6. レジストリ更新 → 7. **ベクタ生成スクリプト (`tools/generateVectors/`) の実装・実行 (GStreamer)** → 8. テスト (コミット済みベクタ + 合成ベクタ) → 9. webrtc 補助定数 → 10. 例 (Node UDP ピア) + ドキュメント。
+0. **RFC 入手**: rfc-editor.org から `rfc3551` / `rfc3640` / `rfc4733` / `rfc7798` を `docs/rfc/` に追加 → 1. `codec/base.ts` に `PacketizerBase` 追加 → 2. 音声系 (g711 / g722、単純) → 3. telephoneEvent → 4. mp4a (AAC) → 5. h265 (最複雑) → 6. レジストリ更新 → 7. **ベクタ生成スクリプト (`tools/generateVectors/`) の実装・実行 (GStreamer)** → 8. テスト (コミット済みベクタ + 合成ベクタ) → 9. webrtc 補助定数 → 10. 例 (Node UDP ピア) + ドキュメント。各ステップで §2.8 の仕様照合を行う。
 
 ---
 
@@ -192,6 +206,7 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 - H.265 の単一 NAL は Type 2–63 (Type 0=AP, 1=FU は H.264 と意味が違う)。
 - AP の DONL は非インタリーブ (DON 無し) を前提にしつつ、DONL 付き入力の耐性だけ持たせる。
 - DTMF の marker は「イベント開始」で 1。
+- **仕様の正しさは `docs/rfc/` の RFC 原文を根拠に検証する**: ビットレイアウト・静的 PT/クロック・marker 規則は、実装前に必ず該当セクション (RFC 7798 §4.4 系、RFC 3640 §3.3.6、RFC 4733 §2 など) で確認する。セクション番号は実装・テストのコメントに残し、レビューで突き合わせる。
 
 ### 4.4 スコープ・パッケージ境界
 - 新規依存パッケージを追加しない (Node >= 10、dgram は組み込み)。
@@ -204,6 +219,7 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 - クロスパッケージ (webrtc 補助定数変更時): `npm run type` と `npm run test:small`
 - 例の実行・検証: **Node 製の別 UDP ピアで自己検証** (GStreamer 不要)。
 - テストベクタ生成・再生成時のみ: GStreamer (`gst-launch-1.0`) が必要。生成スクリプト `packages/rtp/tools/generateVectors/` に実行手順と必要プラグインを明記し、成果物はコミット済み (開発/CI 環境に GStreamer が無くてもテストは実行可能)。
+- 仕様照合: `docs/rfc/` の RFC 原文と、実装・テストに残したセクション参照を突き合わせる (手動レビュー + コメント参照)。RFC のダウンロードは rfc-editor.org から一度行いコミットするため、通常のビルド・テストには不要。
 
 ---
 
@@ -218,4 +234,5 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 7. `packages/rtp/src/codec/index.ts` のレジストリ (`depacketizerCodecs` + `dePacketizeRtpPackets`) に新コーデックが登録され、`packages/rtp/src/index.ts` の **public export と API ドキュメント (typedoc 再生成) に全コーデックが記載**される。README と `changelog.md` も更新。
 8. **非 WebRTC の統合例** (`examples/node/rtp_over_udp/` 等) が動作し、**Node 製の別 UDP ピアとの送受信 round-trip** を確認できる (GStreamer 不要)。
 9. **テストベクタ生成スクリプト** (`packages/rtp/tools/generateVectors/`) が実装され、実行して H.265 / PCMU / PCMA / G.722 / AAC (DTMF は合成) のベクタを `tests/data/` に生成・コミットできる。
-10. 検証: `cd packages/rtp && npm run type && npm test` が全て成功。webrtc 定数追加後は `npm run type` / `npm run test:small` も成功。
+10. **RFC 原文が `docs/rfc/` に追加されている** (`rfc3551` / `rfc3640` / `rfc4733` / `rfc7798`)。各実装・テストに RFC のセクション参照コメントが残り、ビットレイアウト・静的 PT/クロック・marker 規則が RFC 原文と照合済みである。
+11. 検証: `cd packages/rtp && npm run type && npm test` が全て成功。webrtc 定数追加後は `npm run type` / `npm run test:small` も成功。
