@@ -98,18 +98,27 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 
 ### 2.5 統合例 (非 WebRTC ユースケース)
 
-`packages/rtp/examples/node/` に **plain RTP-over-UDP** の送受信例を追加 (既存 `depaketize/gst.ts` の dgram + `gst-launch-1.0` 連携パターンを踏襲):
+`packages/rtp/examples/node/` に **plain RTP-over-UDP** の送受信例を追加。**検証は Node 製の別 UDP ピアで代替検証する方針に決定 (GStreamer には依存しない)**:
 
-- `examples/node/rtp_over_udp/`: `dgram` で UDP ソケットを張り、
-  - **受信**: `gst-launch-1.0` の `rtppcmupay` / `rtpg722pay` / `rtph265pay` + `udpsink` からの RTP を受けて新 depacketizer でフレーム化。
-  - **送信**: 新 packetizer で PCMU/G.722/AAC を RTP 化して `udpsink` / 別プロセスへ送出。
-- 相互検証可能な起動手順 (GStreamer コマンド) をファイル先頭コメントに記載。
+- `examples/node/rtp_over_udp/`:
+  - **送信側** (`send.ts`): 新 packetizer で PCMU/G.722/AAC/H.265 を RTP 化し、`dgram` の UDP ソケットで宛先へ送出。
+  - **受信側** (`recv.ts`): Node 製の別 UDP ピア (別プロセス、または同一プロセス内の別 dgram ソケット) から RTP を受信し、新 depacketizer でフレーム化して送信前データとの round-trip を自己検証。
+  - 送信側と受信側を 127.0.0.1 のエフェメラルポートで接続し、外部ツール無しで動作・検証できる構成を基本とする。別プロセスとしての送受信は `npm run example` 相当のスクリプトで起動手順を示す。
+- 参考として既存 `depaketize/gst.ts` の dgram 連携パターンは踏襲可能だが、実行・検証の必須条件にはしない。GStreamer は **テストベクタ生成 (後述 §2.7 / §3.3) にのみ**使用する。
 
 ### 2.6 ドキュメント / 公開 API の更新
 
 - `packages/rtp/README.md`: 対応コーデック一覧と簡単な使用例 (packetize / depacketize) を追記。
 - API ドキュメント再生成: `cd packages/rtp && npm run doc` (typedoc → `packages/rtp/doc`)。
 - ルート `changelog.md`: 既存フォーマットに従い werift-rtp の機能追加として追記。
+
+### 2.7 テストベクタ生成スクリプト (GStreamer)
+
+外部リポジトリ (pion/rtp) や Wireshark pcap からの調達に依存せず、**GStreamer (`gst-launch-1.0`) で全コーデックのテストベクタを生成するスクリプトを実装して実行する**方針に決定:
+
+- `packages/rtp/tools/generateVectors/`: `gst-launch-1.0` の各コーデック用ペイローダが `udpsink` へ送出する RTP を、既存 `depaketize/gst.ts` と同様に Node (dgram) で受信し、**各 RTP パケットのペイロードを生バイナリとして `packages/rtp/tests/data/` に保存**する。
+- 生成物 (ベクタ) は**リポジトリにコミット**し、テスト本体 (`vitest`) は GStreamer 無しで実行できる (CI ではコミット済みベクタのみ使用)。再生成は手動でスクリプトを実行する。
+- パイプライン例・代替手段は §3.3 に詳述。
 
 ---
 
@@ -140,17 +149,27 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 - **AAC-hbr**: AU-headers-length (bit、16 の倍数) → AU-Header 列 (AU-size=バイト−1、13bit)。先頭フラグメントのみヘッダ。
 - **telephone event**: event/E/R/volume/duration の 4 バイト。marker はイベント先頭パケットのみ。
 
-### 3.3 テストベクタの調達方針
+### 3.3 テストベクタの調達方針 (GStreamer による一括生成)
 
-- H.265: RFC 7798 付録 A のサンプルパケット構造を基にした合成ベクタ + 各モード (単一 NAL / AP / FU) の round-trip ベクタ。pion/rtp の `h265p packet` テストベクタを移植 (h264.test.ts と同様のクレジット付き)。
-- PCMU / PCMA / G.722: 既知バイト列 (例: µ-law/A-law 符号化表の代表値、`0xff/0x55/0x00` 等) での round-trip + 静的 PT/クロック定数の検証。可能なら Wireshark サンプル pcap の実パケット。
-- AAC: RFC 3640 §3.3.6 の AU ヘッダ例 + フラグメンテーション (MTU 超過 AU → 複数 RTP) の round-trip。
-- DTMF: `tests/data/rtp_dtmf.bin` + 手組み 4 バイトベクタ。
+外部リポジトリ (pion/rtp) や Wireshark pcap からの調達には依存しない。**GStreamer (`gst-launch-1.0`) で全コーデックのテストベクタを生成するスクリプトを実装し、実行して成果物をコミット**する:
+
+- **生成スクリプト** `packages/rtp/tools/generateVectors/`: `gst-launch-1.0` のペイローダが `udpsink` へ送出する RTP を Node (dgram) で受信し、各パケットの **ペイロードを生バイナリで `tests/data/` に保存** する (既存 `depaketize/gst.ts` と同じ連携方式)。
+  - **H.265**: `videotestsrc ! video/x-raw,width=640,height=480,format=I420 ! x265enc ! rtph265pay ! udpsink` (環境に x265enc が無い場合は、コミット済みの H.265 Annex-B エレメンタリストリームを `filesrc ! h265parse ! rtph265pay` で入力)。単一 NAL / AP / FU の各モードを収録。
+  - **PCMU**: `audiotestsrc ! audioconvert ! audio/x-raw,rate=8000,channels=1 ! mulawenc ! rtppcmupay ! udpsink`
+  - **PCMA**: `audiotestsrc ! audioconvert ! audio/x-raw,rate=8000,channels=1 ! alawenc ! rtppcmapay ! udpsink`
+  - **G.722**: `audiotestsrc ! audioconvert ! audio/x-raw,rate=16000,channels=1 ! g722enc ! rtpg722pay ! udpsink`
+  - **AAC (MPEG4-GENERIC / aac-hbr)**: `audiotestsrc ! audioconvert ! audio/x-raw,rate=48000,channels=2 ! avenc_aac ! rtpgstpay` 相当 (`rtpmp4gpay`) で AU ヘッダ付きペイロードを収録。AU が MTU を超える設定 (`max-size-time` 等) でフラグメンテーションも収録。
+  - **DTMF**: 標準 GStreamer に telephone-event RTP ペイローダが無いため、この 1 コーデックのみ Node 側で合成した固定ベクタ (既存 `rtp_dtmf.bin` と同一形式) をコミットする。
+- **生成物はリポジトリにコミット** し、テスト本体は GStreamer 無しで実行できる。スクリプトには必要なプラグイン (`gst-plugins-good` の mulawenc/alawenc、`gst-plugins-ugly` の x265enc 等) と起動手順をコメントで明記する。
+- 補助として各モードの構造を検証する**合成ベクタ**も併用:
+  - H.265: RFC 7798 付録 A のサンプルパケット構造を基に、単一 NAL / AP / FU の round-trip ベクタ (pion/rtp の `h265p packet` ベクタがあれば移植、h264.test.ts と同様のクレジット付き)。
+  - AAC: RFC 3640 §3.3.6 の AU ヘッダ例 + フラグメンテーション (MTU 超過 AU → 複数 RTP) の round-trip。
+  - DTMF: `tests/data/rtp_dtmf.bin` + 手組み 4 バイトベクタ。
 - 全コーデック: **シーケンス番号連番・マーカ位置・MTU 分割境界** の検証 (既存 packetizer との一貫性)。
 
 ### 3.4 作業順序の目安
 
-1. `codec/base.ts` に `PacketizerBase` 追加 → 2. 音声系 (g711 / g722、単純) → 3. telephoneEvent → 4. mp4a (AAC) → 5. h265 (最複雑) → 6. レジストリ更新 → 7. テスト → 8. webrtc 補助定数 → 9. 例 + ドキュメント。
+1. `codec/base.ts` に `PacketizerBase` 追加 → 2. 音声系 (g711 / g722、単純) → 3. telephoneEvent → 4. mp4a (AAC) → 5. h265 (最複雑) → 6. レジストリ更新 → 7. **ベクタ生成スクリプト (`tools/generateVectors/`) の実装・実行 (GStreamer)** → 8. テスト (コミット済みベクタ + 合成ベクタ) → 9. webrtc 補助定数 → 10. 例 (Node UDP ピア) + ドキュメント。
 
 ---
 
@@ -183,49 +202,20 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 ### 4.5 検証コマンド
 - パッケージ内: `cd packages/rtp && npm run type && npm test`
 - クロスパッケージ (webrtc 補助定数変更時): `npm run type` と `npm run test:small`
-- 例の実行: GStreamer (`gst-launch-1.0`) が必要 (README に依存明記)。
+- 例の実行・検証: **Node 製の別 UDP ピアで自己検証** (GStreamer 不要)。
+- テストベクタ生成・再生成時のみ: GStreamer (`gst-launch-1.0`) が必要。生成スクリプト `packages/rtp/tools/generateVectors/` に実行手順と必要プラグインを明記し、成果物はコミット済み (開発/CI 環境に GStreamer が無くてもテストは実行可能)。
 
 ---
 
 ## 5. 完了条件
 
-1. 各コーデックの **packetization / depacketization テストが既知 wire-format ベクタで合格** する (`tests/codec/h265.test.ts`, `g711.test.ts`, `g722.test.ts`, `aac.test.ts`, `telephoneEvent.test.ts`)。
+1. 各コーデックの **packetization / depacketization テストが既知 wire-format ベクタで合格** する (`tests/codec/h265.test.ts`, `g711.test.ts`, `g722.test.ts`, `aac.test.ts`, `telephoneEvent.test.ts`)。ベクタは GStreamer 生成スクリプト (`packages/rtp/tools/generateVectors/`) の成果物を `tests/data/` にコミットした実パケットと、RFC を基にした合成ベクタで構成され、**テスト本体は GStreamer 無しで実行できる**。
 2. H.265 が **Annex-B と長さ前置の両入力**、**AP / FU / 単一 NAL** を処理できる。AP によるパラメータセット (VPS/SPS/PPS) 集約が packetizer にあり、キーフレーム検出 (IRAP 16–21) が正しい。
 3. AAC が **AU Header Section (hbr: AU-size=バイト−1) のパース** と、**MTU 超過 AU のフラグメンテーション** (先頭のみヘッダ付与) を正しく処理する。
 4. **PCMU (PT 0 / 8000Hz)、PCMA (PT 8 / 8000Hz)、G.722 (PT 9 / 8000Hz)** の静的 PT・クロックレート定数が公開され、テストで検証される。
 5. 不正ペイロード (AP サイズ超過、AU-headers-length 不正、短すぎる入力) が**予測可能な例外で失敗**し、無制限なメモリ確保・無限ループがないこと。
 6. **シーケンス番号 / タイムスタンプ / マーカ / MTU 挙動** が既存 packetizer と一貫している (テストで担保)。
 7. `packages/rtp/src/codec/index.ts` のレジストリ (`depacketizerCodecs` + `dePacketizeRtpPackets`) に新コーデックが登録され、`packages/rtp/src/index.ts` の **public export と API ドキュメント (typedoc 再生成) に全コーデックが記載**される。README と `changelog.md` も更新。
-8. **非 WebRTC の統合例** (`examples/node/rtp_over_udp/` 等) が動作し、GStreamer (または別 UDP ピア) との送受信 round-trip を確認できる。
-9. 検証: `cd packages/rtp && npm run type && npm test` が全て成功。webrtc 定数追加後は `npm run type` / `npm run test:small` も成功。
-
----
-
-## 元チケット (原文)
-
-### Motivation
-
-The RTP package is useful outside browser-to-browser WebRTC, including SIP gateways, RTSP cameras, media relays, and recording pipelines. Several commonly encountered RTP payload formats are not currently available as reusable packetizer/depacketizer implementations.
-
-### Proposal
-
-Add packetizer and depacketizer support for:
-
-- H.265 / HEVC according to RFC 7798, including single NAL units, aggregation packets, and fragmentation units.
-- G.711 PCMU and PCMA according to RFC 3551.
-- G.722, including the RTP 8 kHz clock-rate rule.
-- AAC-hbr according to RFC 3640.
-- RFC 4733 named telephone events as a lower-level RTP primitive.
-
-The APIs should follow the existing codec module conventions and support both direct class construction and generic codec-driven pipelines where appropriate.
-
-### Acceptance criteria
-
-- Each codec has packetization and depacketization tests using known wire-format vectors.
-- H.265 supports Annex-B and length-prefixed input where practical, plus AP and FU handling.
-- AAC supports AU headers and fragmentation of access units larger than the configured MTU.
-- Static payload types and clock rates for PCMU, PCMA, and G.722 are represented correctly.
-- Malformed payloads fail predictably without unbounded allocation.
-- Sequence number, timestamp, marker, and MTU behavior are consistent with existing packetizers.
-- Public exports and API documentation list all newly supported codecs.
-- At least one integration example demonstrates a non-WebRTC RTP use case such as RTSP/SIP ingest or plain RTP-over-UDP.
+8. **非 WebRTC の統合例** (`examples/node/rtp_over_udp/` 等) が動作し、**Node 製の別 UDP ピアとの送受信 round-trip** を確認できる (GStreamer 不要)。
+9. **テストベクタ生成スクリプト** (`packages/rtp/tools/generateVectors/`) が実装され、実行して H.265 / PCMU / PCMA / G.722 / AAC (DTMF は合成) のベクタを `tests/data/` に生成・コミットできる。
+10. 検証: `cd packages/rtp && npm run type && npm test` が全て成功。webrtc 定数追加後は `npm run type` / `npm run test:small` も成功。
