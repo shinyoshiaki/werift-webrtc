@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### 🚀 Features & Improvements
+
+- **werift-rtp codec coverage** (`packages/rtp`): Add package-local packetizers and expanded depacketizers for non-WebRTC / SIP / RTSP reuse.
+  - **H.265 / HEVC** (RFC 7798): `H265RtpPayload` + `H265Packetizer` — single NAL, AP (Type 48), FU (Type 49), Annex-B and length-prefixed input, IRAP keyframe detection, optional parameter-set AP on keyframes.
+  - **G.711**: `PcmuRtpPayload` / `PcmaRtpPayload` + packetizers; static PT 0 / 8, clock 8000 Hz (RFC 3551).
+  - **G.722**: `G722RtpPayload` + `G722Packetizer`; static PT 9, **RTP clock 8000 Hz** (RFC 3551 §4.5.2).
+  - **AAC-hbr** (RFC 3640): `AacHbrRtpPayload` + `AacHbrPacketizer`; registry name `MPEG4-GENERIC`; AU Header Section validation; MTU fragmentation (header on first fragment).
+  - **telephone-event** (RFC 4733): `TelephoneEventRtpPayload` (serialize/deSerialize) + `TelephoneEventPacketizer`; marker on event start; not frame-aggregated in `dePacketizeRtpPackets`.
+  - **PacketizerBase** in `codec/base.ts` (sequence/`random16`, MTU default 1200, marker left to codecs).
+  - Registry: `depacketizerCodecs` / `dePacketizeRtpPackets` gain `H265`, `PCMU`, `PCMA`, `G722`, `MPEG4-GENERIC`.
+  - Example: `packages/rtp/examples/node/rtp_over_udp/` (Node UDP peer round-trip).
+  - Vector tooling: `packages/rtp/tools/generateVectors/`; RFCs `docs/rfc/rfc3551.txt`, `rfc3640.txt`, `rfc4733.txt`, `rfc7798.txt`.
+- **werift codec helpers** (`packages/webrtc`): `usePCMA` (PT 8 / 8000), `useG722` (PT 9 / 8000). Not added to `supportedCodecs` (negotiation still opt-in).
+
 ## v0.24.3
 
 ### 📦 Packaging / versions

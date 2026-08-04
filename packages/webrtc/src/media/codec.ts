@@ -52,6 +52,26 @@ export const usePCMU = (props: Partial<RTCRtpCodecParameters> = {}) =>
     ...props,
   });
 
+/** RFC 3551 static PT 8 / 8000 Hz. Not added to supportedCodecs (negotiation optional). */
+export const usePCMA = (props: Partial<RTCRtpCodecParameters> = {}) =>
+  new RTCRtpCodecParameters({
+    mimeType: "audio/PCMA",
+    clockRate: 8000,
+    channels: 1,
+    payloadType: 8,
+    ...props,
+  });
+
+/** RFC 3551 static PT 9 / RTP clock 8000 Hz (codec samples at 16 kHz). */
+export const useG722 = (props: Partial<RTCRtpCodecParameters> = {}) =>
+  new RTCRtpCodecParameters({
+    mimeType: "audio/G722",
+    clockRate: 8000,
+    channels: 1,
+    payloadType: 9,
+    ...props,
+  });
+
 export const supportedCodecs = [
   useAV1X(),
   useVP9(),
