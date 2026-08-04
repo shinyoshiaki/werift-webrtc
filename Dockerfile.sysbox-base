@@ -21,6 +21,12 @@ RUN apt-get update \
   && systemctl enable containerd.service docker.service \
   && dbus-uuidgen --ensure=/etc/machine-id
 RUN npm install -g @anthropic-ai/claude-code @github/copilot @openai/codex opencode-ai
+# Playwright Chromium system libraries (ubuntu 24.04 / noble package names).
+# Required for ice-server chrome-e2e, e2e/, and turn-loopback Playwright runs.
+# GStreamer is required by e2e mediachannel handlers that inject test RTP
+# (addTrack / red / rtx / removeTrack) via gst-launch-1.0.
+# Native build toolchain (clang/llvm) and media codec dev headers are required
+# by werift native addon / pipeline build targets.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends clang llvm lld build-essential pkg-config libssl-dev cmake make libavcodec-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 xfonts-cyrillic xfonts-scalable xvfb
 # sak-additional-run-commands
