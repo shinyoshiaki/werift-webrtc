@@ -28,7 +28,7 @@
     "got": "11.8.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "ring-client-api": "^13.2.1",
+    "ring-client-api": "^14.3.0",
     "rx.mini": "^1.4.0",
     "sdp-transform": "^2.15.0",
     "socket.io-client": "^4.8.1",
