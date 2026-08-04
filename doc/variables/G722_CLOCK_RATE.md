@@ -1,8 +1,8 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / G722\_CLOCK\_RATE
+[werift](../globals.md) / G722\_CLOCK\_RATE
 
 # Variable: G722\_CLOCK\_RATE
 

@@ -1,13 +1,15 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / AacHbrPacketizer
+[werift](../globals.md) / H265Packetizer
 
-# Class: AacHbrPacketizer
+# Class: H265Packetizer
 
-AAC-hbr packetizer (RFC 3640 §3.3.6).
-AU-size fields store the Access Unit size in octets (not size−1).
+Shared RTP packet construction for package-local packetizers.
+Sequence number increments by 1 (uint16 wrap) per packet.
+Marker semantics are left to each codec (typically last packet of a frame;
+telephone-event is the RFC 4733 exception: marker on the first event packet).
 
 ## Extends
 
@@ -15,19 +17,19 @@ AU-size fields store the Access Unit size in octets (not size−1).
 
 ## Constructors
 
-### new AacHbrPacketizer()
+### new H265Packetizer()
 
-> **new AacHbrPacketizer**(`options`): [`AacHbrPacketizer`](AacHbrPacketizer.md)
+> **new H265Packetizer**(`options`): [`H265Packetizer`](H265Packetizer.md)
 
 #### Parameters
 
 ##### options
 
-[`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
+[`H265PacketizerOptions`](../type-aliases/H265PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`AacHbrPacketizer`](AacHbrPacketizer.md)
+[`H265Packetizer`](H265Packetizer.md)
 
 #### Overrides
 
@@ -124,23 +126,3 @@ AU-size fields store the Access Unit size in octets (not size−1).
 #### Overrides
 
 [`PacketizerBase`](PacketizerBase.md).[`packetize`](PacketizerBase.md#packetize)
-
-***
-
-### packetizeAccessUnits()
-
-> **packetizeAccessUnits**(`aus`, `rtpTimestamp`): [`RtpPacket`](RtpPacket.md)[]
-
-#### Parameters
-
-##### aus
-
-`Buffer`\<`ArrayBufferLike`\>[]
-
-##### rtpTimestamp
-
-`number`
-
-#### Returns
-
-[`RtpPacket`](RtpPacket.md)[]

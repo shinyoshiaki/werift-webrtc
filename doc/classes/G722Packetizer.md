@@ -1,13 +1,15 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / AacHbrPacketizer
+[werift](../globals.md) / G722Packetizer
 
-# Class: AacHbrPacketizer
+# Class: G722Packetizer
 
-AAC-hbr packetizer (RFC 3640 §3.3.6).
-AU-size fields store the Access Unit size in octets (not size−1).
+Shared RTP packet construction for package-local packetizers.
+Sequence number increments by 1 (uint16 wrap) per packet.
+Marker semantics are left to each codec (typically last packet of a frame;
+telephone-event is the RFC 4733 exception: marker on the first event packet).
 
 ## Extends
 
@@ -15,19 +17,19 @@ AU-size fields store the Access Unit size in octets (not size−1).
 
 ## Constructors
 
-### new AacHbrPacketizer()
+### new G722Packetizer()
 
-> **new AacHbrPacketizer**(`options`): [`AacHbrPacketizer`](AacHbrPacketizer.md)
+> **new G722Packetizer**(`options`): [`G722Packetizer`](G722Packetizer.md)
 
 #### Parameters
 
 ##### options
 
-[`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
+[`G722PacketizerOptions`](../type-aliases/G722PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`AacHbrPacketizer`](AacHbrPacketizer.md)
+[`G722Packetizer`](G722Packetizer.md)
 
 #### Overrides
 
@@ -124,23 +126,3 @@ AU-size fields store the Access Unit size in octets (not size−1).
 #### Overrides
 
 [`PacketizerBase`](PacketizerBase.md).[`packetize`](PacketizerBase.md#packetize)
-
-***
-
-### packetizeAccessUnits()
-
-> **packetizeAccessUnits**(`aus`, `rtpTimestamp`): [`RtpPacket`](RtpPacket.md)[]
-
-#### Parameters
-
-##### aus
-
-`Buffer`\<`ArrayBufferLike`\>[]
-
-##### rtpTimestamp
-
-`number`
-
-#### Returns
-
-[`RtpPacket`](RtpPacket.md)[]

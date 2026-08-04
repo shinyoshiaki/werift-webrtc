@@ -1,8 +1,8 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / TelephoneEventPacketizeInput
+[werift](../globals.md) / TelephoneEventPacketizeInput
 
 # Type Alias: TelephoneEventPacketizeInput
 

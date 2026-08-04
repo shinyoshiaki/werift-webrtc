@@ -116,6 +116,7 @@
 - [ExtensionProfiles](variables/ExtensionProfiles.md)
 - [G711\_CLOCK\_RATE](variables/G711_CLOCK_RATE.md)
 - [G722\_CLOCK\_RATE](variables/G722_CLOCK_RATE.md)
+- [G722\_OCTET\_RATE](variables/G722_OCTET_RATE.md)
 - [G722\_PAYLOAD\_TYPE](variables/G722_PAYLOAD_TYPE.md)
 - [H265\_IRAP\_NAL\_TYPES](variables/H265_IRAP_NAL_TYPES.md)
 - [H265\_NAL\_TYPE](variables/H265_NAL_TYPE.md)

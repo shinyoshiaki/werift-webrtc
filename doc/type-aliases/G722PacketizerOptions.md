@@ -1,8 +1,8 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / G722PacketizerOptions
+[werift](../globals.md) / G722PacketizerOptions
 
 # Type Alias: G722PacketizerOptions
 

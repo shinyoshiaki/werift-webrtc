@@ -1,8 +1,8 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / AuHeader
+[werift](../globals.md) / AuHeader
 
 # Type Alias: AuHeader
 

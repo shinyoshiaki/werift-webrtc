@@ -1,8 +1,8 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / TelephoneEventPacketizer
+[werift](../globals.md) / TelephoneEventPacketizer
 
 # Class: TelephoneEventPacketizer
 
