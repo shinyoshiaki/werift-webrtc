@@ -70,7 +70,8 @@ async function selfTest() {
       break;
     }
     case "g722": {
-      expected = Buffer.alloc(320, 0x3c);
+      // RFC 3551 §4.5.2: 8000 octets/s → 20 ms = 160 octets
+      expected = Buffer.alloc(160, 0x3c);
       packets = new G722Packetizer({ sequenceNumber: 1 }).packetize(expected, 0);
       break;
     }

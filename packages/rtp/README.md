@@ -66,14 +66,11 @@ Not registered in `dePacketizeRtpPackets` (single-packet primitive; marker on
 import { TelephoneEventPacketizer, TelephoneEventRtpPayload } from "werift-rtp";
 
 const p = new TelephoneEventPacketizer(); // PT 101 default
-const start = p.packetizeEvent(
-  { event: 1, volume: 10, duration: 160, start: true },
-  ts,
-);
-const end = p.packetizeEvent(
-  { event: 1, volume: 10, duration: 800, end: true },
-  ts,
-);
+// Prefer Start / Continue / End for RFC marker + E-bit control
+const start = p.packetizeStart(1, 10, 160, ts); // marker=1
+const cont = p.packetizeContinue(1, 10, 480, ts);
+const end = p.packetizeEnd(1, 10, 800, ts); // E=1
+// Or: p.packetize({ event, volume, duration, start: true }, ts)
 const fields = TelephoneEventRtpPayload.deSerialize(start.payload);
 ```
 
@@ -112,6 +109,7 @@ that codec without overwriting committed files.
 Where earlier task notes disagreed with the RFCs, **`docs/rfc/` text is authoritative** (ticket text has been aligned):
 
 - **H.265** (RFC 7798): AP Type=**48**, FU Type=**49**. AP PayloadHdr: **F = OR** of aggregated NALs, **LayerId/TID = minimum**. FU **F** equals the fragmented NAL’s F bit.
+- **G.722** (RFC 3551 §4.5.2): RTP clock **and** octet rate are **8000**/s (20 ms = **160** octets, not 320).
 - **AAC-hbr** (RFC 3640 §3.2.1.1 / §3.3.6): AU-size is the size **in octets** (not size−1); max 8191. CTS/DTS are optional via `AacHbrDepacketizerOptions`.
 
 # reference

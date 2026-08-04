@@ -46,7 +46,8 @@ function buildFrames(codecName: string): { packets: import("../../../src").RtpPa
       return { packets: p.packetize(data, 0), label: "PCMA 20ms" };
     }
     case "g722": {
-      const data = Buffer.alloc(320, 0x3c);
+      // RFC 3551 §4.5.2: 8000 octets/s → 20 ms = 160 octets
+      const data = Buffer.alloc(160, 0x3c);
       const p = new G722Packetizer({ sequenceNumber: 1, ssrc: 0x11223344 });
       return { packets: p.packetize(data, 0), label: "G722 20ms" };
     }

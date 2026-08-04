@@ -450,6 +450,17 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
     expect(res.payload).toBeUndefined();
   });
 
+  it("rejects naluLengthSize outside 1–4 and zero-length NAL", () => {
+    // Act / Assert: naluLengthSize 境界
+    expect(() => new H265Packetizer({ naluLengthSize: 0 })).toThrow(/1–4/);
+    expect(() => new H265Packetizer({ naluLengthSize: 5 })).toThrow(/1–4/);
+    // 長さ 0 の NAL
+    const zeroLen = Buffer.alloc(4); // 4-byte length = 0
+    expect(() =>
+      new H265Packetizer({ naluLengthSize: 4 }).packetize(zeroLen, 0),
+    ).toThrow(/length 0/);
+  });
+
   it("MTU split FU: shared timestamp, marker only on last", () => {
     // Arrange
     const nal = makeNal(1, Buffer.alloc(400, 0xcd));

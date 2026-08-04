@@ -117,6 +117,16 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     expect(packets.every((p) => p.payload.length <= 100)).toBe(true);
   });
 
+  it("PacketizerBase rejects non-positive maxPayloadSize", () => {
+    // Act / Assert
+    expect(() => new PcmuPacketizer({ maxPayloadSize: 0 })).toThrow(
+      /positive integer/,
+    );
+    expect(() => new PcmuPacketizer({ maxPayloadSize: -1 })).toThrow(
+      /positive integer/,
+    );
+  });
+
   it("MTU split advances timestamp and sets marker on each audio chunk", () => {
     // Arrange: maxPayloadSize がフレームより小さい場合の境界
     const data = Buffer.alloc(250, 0x42);

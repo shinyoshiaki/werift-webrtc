@@ -78,7 +78,8 @@ export function writeSyntheticVectors(): void {
   );
   writeFileSync(join(OUT_DIR, "vector_pcmu_expected.bin"), pcmuData);
 
-  const g722Data = prngBytes(320, 0x47373232);
+  // RFC 3551 §4.5.2: 8000 octets/s → 20 ms = 160 octets
+  const g722Data = prngBytes(160, 0x47373232);
   writeFileSync(
     join(OUT_DIR, "vector_g722.bin"),
     encode(

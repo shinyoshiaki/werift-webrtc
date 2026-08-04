@@ -52,7 +52,13 @@ export abstract class PacketizerBase implements Packetizer {
   protected readonly ssrc: number;
 
   constructor(options: PacketizerBaseOptions = {}) {
-    this.maxPayloadSize = options.maxPayloadSize ?? MTU;
+    const max = options.maxPayloadSize ?? MTU;
+    if (!Number.isInteger(max) || max <= 0) {
+      throw new Error(
+        `PacketizerBase: maxPayloadSize must be a positive integer, got ${max}`,
+      );
+    }
+    this.maxPayloadSize = max;
     this.payloadType = options.payloadType ?? 96;
     this.sequenceNumber = options.sequenceNumber ?? random16();
     this.ssrc = options.ssrc ?? 0;

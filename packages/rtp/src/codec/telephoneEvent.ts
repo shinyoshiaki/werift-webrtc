@@ -2,16 +2,14 @@
 //
 // Named telephone events are a "lower-level RTP primitive" (RFC 4733 §2.1):
 // they are not aggregated into media frames by dePacketizeRtpPackets.
-// Use TelephoneEventRtpPayload deSerialize/serialize (and the packetizer)
-// directly on individual RtpPacket instances.
+// Use TelephoneEventRtpPayload + TelephoneEventPacketizer directly.
 //
 // Wire format (4 octets, RFC 4733 §2.3 Figure 1):
 //   event(8) | E(1) | R(1) | volume(6) | duration(16)
 // Marker bit: set on the *first* packet of an event (RFC 4733 §2.5.1.1) —
 // opposite of the usual "last packet of frame" convention.
 
-import type { RtpHeader } from "../rtp/rtp";
-import type { RtpPacket } from "../rtp/rtp";
+import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 
 /** Common dynamic PT for telephone-event (SDP: telephone-event/8000). */
@@ -98,6 +96,11 @@ export class TelephoneEventRtpPayload {
 
 export type TelephoneEventPacketizerOptions = PacketizerBaseOptions;
 
+/**
+ * Fields for one telephone-event RTP packet (RFC 4733 §2.5).
+ * Use with {@link TelephoneEventPacketizer.packetize} / packetizeEvent /
+ * packetizeStart / packetizeContinue / packetizeEnd.
+ */
 export type TelephoneEventPacketizeInput = {
   event: number;
   volume: number;
@@ -113,32 +116,58 @@ export type TelephoneEventPacketizeInput = {
 };
 
 /**
- * Packetize named telephone events.
- * Callers manage start/continue/end lifecycle via `start` and `end` flags;
- * each call produces one RTP packet (RFC 4733 multi-packet updates).
+ * Packetize named telephone events (RFC 4733).
+ *
+ * Preferred APIs for RFC-correct marker/E-bit control:
+ * - {@link packetizeStart} / {@link packetizeContinue} / {@link packetizeEnd}
+ * - {@link packetizeEvent} with start/end flags
+ * - {@link packetize}(fields, timestamp) with structured fields
+ *
+ * {@link packetizeBuffer} exists only to re-wrap a pre-serialized 4-byte
+ * payload (marker defaults to false — not for new event starts).
  */
 export class TelephoneEventPacketizer extends PacketizerBase {
   constructor(options: TelephoneEventPacketizerOptions = {}) {
     super({
-      payloadType: options.payloadType ?? TELEPHONE_EVENT_DEFAULT_PAYLOAD_TYPE,
       ...options,
+      payloadType: options.payloadType ?? TELEPHONE_EVENT_DEFAULT_PAYLOAD_TYPE,
     });
   }
 
   /**
-   * Standard Packetizer interface — treats data as a pre-built 4-byte payload.
-   * Prefer {@link packetizeEvent} for structured fields.
+   * Packetize a telephone-event snapshot.
+   * Accepts structured fields (recommended) or a pre-built 4-byte Buffer.
+   * For Buffer input, marker is false unless you use packetizeEvent/Start.
    */
-  packetize(data: Buffer, rtpTimestamp: number): RtpPacket[] {
+  packetize(
+    data: Buffer | TelephoneEventPacketizeInput,
+    rtpTimestamp: number,
+  ): RtpPacket[] {
+    if (Buffer.isBuffer(data)) {
+      return [this.packetizeBuffer(data, rtpTimestamp, false)];
+    }
+    return [this.packetizeEvent(data, rtpTimestamp)];
+  }
+
+  /**
+   * Re-wrap a pre-serialized 4-byte payload. Marker is controlled explicitly;
+   * default false (not suitable for event start without marker=true).
+   */
+  packetizeBuffer(
+    data: Buffer,
+    rtpTimestamp: number,
+    marker = false,
+  ): RtpPacket {
     if (data.length < PAYLOAD_SIZE) {
       throw new Error(
         `telephone-event packetize: payload must be at least ${PAYLOAD_SIZE} bytes`,
       );
     }
-    // Marker left false when using raw buffer; use packetizeEvent for marker control
-    return [
-      this.buildPacket(data.subarray(0, PAYLOAD_SIZE), rtpTimestamp, false),
-    ];
+    return this.buildPacket(
+      data.subarray(0, PAYLOAD_SIZE),
+      rtpTimestamp,
+      marker,
+    );
   }
 
   /**
@@ -158,5 +187,44 @@ export class TelephoneEventPacketizer extends PacketizerBase {
       end: !!input.end,
     }).serialize();
     return this.buildPacket(payload, rtpTimestamp, !!input.start);
+  }
+
+  /** First packet of an event: marker=1, E=0 (RFC 4733 §2.5.1.1). */
+  packetizeStart(
+    event: number,
+    volume: number,
+    duration: number,
+    rtpTimestamp: number,
+  ): RtpPacket {
+    return this.packetizeEvent(
+      { event, volume, duration, start: true, end: false },
+      rtpTimestamp,
+    );
+  }
+
+  /** Intermediate update: marker=0, E=0; duration is cumulative. */
+  packetizeContinue(
+    event: number,
+    volume: number,
+    duration: number,
+    rtpTimestamp: number,
+  ): RtpPacket {
+    return this.packetizeEvent(
+      { event, volume, duration, start: false, end: false },
+      rtpTimestamp,
+    );
+  }
+
+  /** Final packet(s): marker=0, E=1; duration is cumulative. */
+  packetizeEnd(
+    event: number,
+    volume: number,
+    duration: number,
+    rtpTimestamp: number,
+  ): RtpPacket {
+    return this.packetizeEvent(
+      { event, volume, duration, start: false, end: true },
+      rtpTimestamp,
+    );
   }
 }

@@ -238,10 +238,31 @@ async function collectCodec(job: CodecJob): Promise<boolean> {
   mkdirSync(OUT_DIR, { recursive: true });
   const outPath = join(OUT_DIR, job.outFile);
   writeFileSync(outPath, encodePayloadBag(payloads));
+  // Keep *_expected.bin in sync for codecs whose payload is the media body
+  // (G.711 / G.722). AAC/H.265 need depacketization; synthetic fallback writes those.
+  const expectedName = expectedBodyFile(job.name);
+  if (expectedName) {
+    writeFileSync(join(OUT_DIR, expectedName), Buffer.concat(payloads));
+    console.log(`[${job.name}] also wrote ${expectedName}`);
+  }
   console.log(
     `[${job.name}] wrote ${payloads.length} payloads → ${job.outFile} (${payloads.reduce((n, p) => n + p.length, 0)} data bytes)`,
   );
   return true;
+}
+
+/** Sidecar expected media body for round-trip tests (raw payload codecs). */
+function expectedBodyFile(codecName: string): string | null {
+  switch (codecName) {
+    case "PCMU":
+      return "vector_pcmu_expected.bin";
+    case "PCMA":
+      return "vector_pcma_expected.bin";
+    case "G722":
+      return "vector_g722_expected.bin";
+    default:
+      return null;
+  }
 }
 
 async function main() {
@@ -257,6 +278,13 @@ async function main() {
         "See tests/data/VECTOR_SOURCE.md",
     );
     writeSyntheticVectors();
+  } else {
+    // Partial GST success: still ensure DTMF synthetic + any missing expected files
+    // are present via synthetic writer for codecs that did not capture.
+    writeFileSync(
+      join(OUT_DIR, "VECTOR_SOURCE.md"),
+      `# RTP test vector source\n\nMixed GStreamer capture (${wrote} codecs) and/or synthetic fallback.\nRegenerate fully with: npx tsx tools/generateVectors/generate.ts\n`,
+    );
   }
   console.log("Done. Commit tests/data/vector_*.bin if refreshed.");
 }

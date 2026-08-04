@@ -360,6 +360,15 @@ export function splitH265NalUnits(
   sample: Buffer,
   naluLengthSize = 4,
 ): Buffer[] {
+  if (
+    naluLengthSize < 1 ||
+    naluLengthSize > 4 ||
+    !Number.isInteger(naluLengthSize)
+  ) {
+    throw new Error(
+      `H.265 naluLengthSize must be an integer 1–4, got ${naluLengthSize}`,
+    );
+  }
   if (sample.length === 0) {
     return [];
   }
@@ -375,6 +384,9 @@ export function splitH265NalUnits(
     }
     const length = readUintLength(sample, offset, naluLengthSize);
     offset += naluLengthSize;
+    if (length === 0) {
+      throw new Error("H.265 length-prefixed sample: NAL length 0 is invalid");
+    }
     if (offset + length > sample.length) {
       throw new Error(
         `H.265 length-prefixed sample: NAL length ${length} exceeds buffer`,
@@ -413,7 +425,13 @@ export class H265Packetizer extends PacketizerBase {
 
   constructor(options: H265PacketizerOptions = {}) {
     super(options);
-    this.naluLengthSize = options.naluLengthSize ?? 4;
+    const nls = options.naluLengthSize ?? 4;
+    if (nls < 1 || nls > 4 || !Number.isInteger(nls)) {
+      throw new Error(
+        `H265Packetizer: naluLengthSize must be an integer 1–4, got ${nls}`,
+      );
+    }
+    this.naluLengthSize = nls;
     this.parameterSets = options.parameterSets ?? [];
   }
 

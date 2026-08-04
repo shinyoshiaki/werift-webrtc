@@ -1,5 +1,11 @@
 // RFC 3551 §4.5.2 — G.722
-// Codec samples at 16 kHz, but RTP clock rate is 8000 Hz (RFC 3551 §4.5.2).
+//
+// "Even though the actual sampling rate for G.722 audio is 16,000 Hz,
+//  the RTP clock rate for the G722 payload format is 8,000 Hz ...
+//  The octet rate or sample-pair rate is 8,000 Hz."
+//
+// Therefore payload size and RTP timestamp both track **8000 octets/second**
+// (1 octet ↔ 1 RTP clock tick). A 20 ms packet is 160 octets, not 320.
 // Static PT = 9. Payload is raw G.722 bitstream (no codec-specific header).
 
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
@@ -9,15 +15,20 @@ import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 /** RFC 3551 static payload type for G.722. */
 export const G722_PAYLOAD_TYPE = 9;
 /**
- * RTP clock rate for G.722 (Hz).
- * Note: the codec itself is 16 kHz; RFC 3551 mandates 8000 for RTP timestamps.
+ * RTP clock rate for G.722 (Hz) and octet rate (octets/s).
+ * RFC 3551 §4.5.2: both are 8000 (not 16000).
  */
 export const G722_CLOCK_RATE = 8000;
+/** Octets per second of G.722 RTP payload (RFC 3551 §4.5.2). */
+export const G722_OCTET_RATE = 8000;
 
 const DEFAULT_FRAME_DURATION_MS = 20;
 
 export type G722PacketizerOptions = PacketizerBaseOptions & {
-  /** Frame duration in ms (default 20 → 160 RTP clock units @ 8 kHz). */
+  /**
+   * Frame duration in ms (default 20 → 160 octets @ 8000 octets/s,
+   * and +160 on the RTP timestamp).
+   */
   frameDurationInMs?: number;
 };
 
@@ -40,8 +51,8 @@ export class G722RtpPayload implements DePacketizerBase {
 }
 
 export class G722Packetizer extends PacketizerBase {
+  /** Nominal octets per packetization frame (8000 octets/s × duration). */
   private readonly frameBytes: number;
-  private readonly timestampIncrement: number;
 
   constructor(options: G722PacketizerOptions = {}) {
     super({
@@ -49,12 +60,10 @@ export class G722Packetizer extends PacketizerBase {
       payloadType: options.payloadType ?? G722_PAYLOAD_TYPE,
     });
     const frameMs = options.frameDurationInMs ?? DEFAULT_FRAME_DURATION_MS;
-    // G.722 produces 1 byte per sample at 16 kHz → 320 bytes for 20 ms.
-    // RTP timestamp still advances at 8 kHz (RFC 3551 §4.5.2).
-    this.frameBytes = Math.max(1, Math.floor((16000 * frameMs) / 1000));
-    this.timestampIncrement = Math.max(
+    // RFC 3551 §4.5.2: octet rate = 8000 Hz → 20 ms = 160 octets
+    this.frameBytes = Math.max(
       1,
-      Math.floor((G722_CLOCK_RATE * frameMs) / 1000),
+      Math.floor((G722_OCTET_RATE * frameMs) / 1000),
     );
   }
 
@@ -66,16 +75,13 @@ export class G722Packetizer extends PacketizerBase {
     const chunkSize = Math.min(this.maxPayloadSize, this.frameBytes);
     const packets: RtpPacket[] = [];
     let ts = rtpTimestamp >>> 0;
-    // Scale RTP timestamp advance by actual chunk size vs nominal frame
-    // (16 kHz samples / 8 kHz clock → typically 2 bytes per timestamp unit)
-    const bytesPerTsTick = this.frameBytes / this.timestampIncrement;
 
     for (let offset = 0; offset < data.length; offset += chunkSize) {
       const end = Math.min(data.length, offset + chunkSize);
       const chunk = data.subarray(offset, end);
       packets.push(this.buildPacket(chunk, ts, true));
-      const advance = Math.max(1, Math.round(chunk.length / bytesPerTsTick));
-      ts = (ts + advance) >>> 0;
+      // 1 octet = 1 RTP clock unit @ 8000 Hz (RFC 3551 §4.5.2)
+      ts = (ts + chunk.length) >>> 0;
     }
     return packets;
   }
