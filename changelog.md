@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.24.3
+
+### 📦 Packaging / versions
+
+- **Published dependency cleanup** (`packages/webrtc`): Drop unused monorepo package names from `werift`'s `dependencies` (`werift-common`, `werift-dtls`, `werift-ice`, `werift-rtp`, `werift-sctp`).
+  - The publish layout already compiles sibling packages into `lib/` via relative `src/imports/*` paths, so those names were not required for runtime installs of `werift`.
+  - Consumer-facing protocol behavior and public API are unchanged.
+- **`deploy:alpha`**: After `npm publish --tag alpha`, also run `import-test` (same post-publish check as `deploy`).
+- **`werift`** (`packages/webrtc`): `0.24.2` → **`0.24.3`**
+- Lower-level packages keep the same published versions as v0.24.2 (`werift-common` 0.0.3, `werift-ice` 0.2.2, `werift-rtp` 0.8.9, `werift-sctp` 0.0.11, `werift-dtls` 0.5.8, `werift-ice-server` 0.0.1).
+
+### 🧪 Testing & tooling
+
+- E2E workspace pin updated to exercise a current alpha (`werift` `^0.24.3-alpha.0`).
+
+### ⚠️ Notes
+
+- Patch release: packaging/metadata only; no intentional WebRTC/ICE/DTLS/SCTP/RTP wire-format or public API behavior changes.
+
 ## v0.24.2
 
 ### 🐛 Bug Fixes
