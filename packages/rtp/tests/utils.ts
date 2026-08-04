@@ -1,4 +1,5 @@
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 
 import { BufferSource, Input, MP4 } from "mediabunny";
 
@@ -10,6 +11,32 @@ export function load(name: string) {
   const base = __dirname;
   const data = readFileSync(`${base}/data/` + name);
   return data;
+}
+
+/**
+ * Decode committed RTP payload vectors from tools/generateVectors:
+ * repeated [u16be length][payload] records.
+ */
+export function loadPayloadVector(name: string): Buffer[] {
+  const path = join(__dirname, "data", name);
+  if (!existsSync(path)) {
+    return [];
+  }
+  const buf = readFileSync(path);
+  const out: Buffer[] = [];
+  let offset = 0;
+  while (offset + 2 <= buf.length) {
+    const len = buf.readUInt16BE(offset);
+    offset += 2;
+    if (offset + len > buf.length) {
+      throw new Error(
+        `vector ${name}: truncated payload at offset ${offset}, len ${len}`,
+      );
+    }
+    out.push(buf.subarray(offset, offset + len));
+    offset += len;
+  }
+  return out;
 }
 
 export function createMockTransportPair(): [Transport, Transport] {

@@ -1,3 +1,6 @@
+import { readFileSync } from "fs";
+import { join } from "path";
+
 import {
   G722Packetizer,
   G722RtpPayload,
@@ -5,6 +8,7 @@ import {
   G722_PAYLOAD_TYPE,
   dePacketizeRtpPackets,
 } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 // RFC 3551 §4.5.2 — G.722 RTP clock is 8000 Hz (not 16000)
 // RFC 3551 Table 4 — static PT 9
@@ -79,5 +83,20 @@ describe("packages/rtp/tests/codec/g722.test.ts", () => {
       );
       expect(packets[i].header.sequenceNumber).toBe(3 + i);
     }
+  });
+
+  it("loads committed vector_g722.bin and round-trips expected body", () => {
+    // Arrange
+    const payloads = loadPayloadVector("vector_g722.bin");
+    expect(payloads.length).toBeGreaterThan(0);
+    const expectedPath = join(__dirname, "../data/vector_g722_expected.bin");
+    const expected = readFileSync(expectedPath);
+    // Act: 各ペイロードを deSerialize して連結
+    const restored = Buffer.concat(
+      payloads.map((p) => G722RtpPayload.deSerialize(p).payload),
+    );
+    // Assert
+    expect(restored).toEqual(expected);
+    expect(restored.length).toBe(320); // 20ms @ 16 kHz
   });
 });

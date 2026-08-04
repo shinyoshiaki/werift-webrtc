@@ -109,10 +109,10 @@ that codec without overwriting committed files.
 
 # RFC authority notes
 
-Where the implementation task brief disagreed with the RFCs, **`docs/rfc/` text is authoritative**:
+Where earlier task notes disagreed with the RFCs, **`docs/rfc/` text is authoritative** (ticket text has been aligned):
 
-- **H.265** (RFC 7798): AP Type=**48**, FU Type=**49** (not 0/1). FU **F** bit equals the fragmented NAL’s F bit (not forced to 1).
-- **AAC-hbr** (RFC 3640 §3.2.1.1 / §3.3.6): AU-size is the size **in octets** (not size−1); max 8191.
+- **H.265** (RFC 7798): AP Type=**48**, FU Type=**49**. AP PayloadHdr: **F = OR** of aggregated NALs, **LayerId/TID = minimum**. FU **F** equals the fragmented NAL’s F bit.
+- **AAC-hbr** (RFC 3640 §3.2.1.1 / §3.3.6): AU-size is the size **in octets** (not size−1); max 8191. CTS/DTS are optional via `AacHbrDepacketizerOptions`.
 
 # reference
 

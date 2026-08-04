@@ -544,17 +544,37 @@ function containsParameterSets(nalus: Buffer[]): boolean {
 }
 
 /** Build AP payload without DONL (RFC 7798 Figure 7). */
+/**
+ * Build AP payload without DONL (RFC 7798 §4.4.2 / Figure 7).
+ * PayloadHdr (RFC 7798 p.25):
+ *   F = OR of F of all aggregated NAL units (0 only if every F is 0)
+ *   Type = 48
+ *   LayerId = lowest LayerId among aggregated NAL units
+ *   TID = lowest TID among aggregated NAL units
+ */
 function buildAggregationPacket(nalus: Buffer[]): Buffer {
   if (nalus.length < 2) {
     throw new Error("H.265 AP requires at least two NAL units");
   }
-  // PayloadHdr Type=48; F/LayerId/TID from first NAL (common practice)
-  const first = parseH265PayloadHeader(nalus[0]);
+  const headers = nalus.map((n) => {
+    if (n.length < 2) {
+      throw new Error("H.265 AP: NAL unit shorter than 2-byte header");
+    }
+    return parseH265PayloadHeader(n);
+  });
+  let f = 0;
+  let layerId = headers[0].layerId;
+  let tid = headers[0].tid;
+  for (const h of headers) {
+    f |= h.f;
+    if (h.layerId < layerId) layerId = h.layerId;
+    if (h.tid < tid) tid = h.tid;
+  }
   const hdr = writeH265PayloadHeader({
-    f: first.f,
+    f,
     type: H265_PAYLOAD_TYPE_AP,
-    layerId: first.layerId,
-    tid: first.tid,
+    layerId,
+    tid,
   });
   const parts: Buffer[] = [hdr];
   for (const n of nalus) {

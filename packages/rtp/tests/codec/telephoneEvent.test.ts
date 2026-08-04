@@ -7,6 +7,7 @@ import {
   TelephoneEventPacketizer,
   TelephoneEventRtpPayload,
 } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 // RFC 4733 §2.3 Figure 1 — event | E R volume | duration
 // Marker on first packet of event (§2.5.1.1), not last
@@ -91,5 +92,20 @@ describe("packages/rtp/tests/codec/telephoneEvent.test.ts", () => {
     expect(evt.event).toBeGreaterThanOrEqual(0);
     expect(evt.event).toBeLessThanOrEqual(255);
     expect(evt.volume).toBeLessThanOrEqual(63);
+  });
+
+  it("loads committed vector_telephone_event.bin (start + end)", () => {
+    // Arrange
+    const payloads = loadPayloadVector("vector_telephone_event.bin");
+    // Assert: 開始/終了の 2 ペイロード
+    expect(payloads.length).toBe(2);
+    const start = TelephoneEventRtpPayload.deSerialize(payloads[0]);
+    const end = TelephoneEventRtpPayload.deSerialize(payloads[1]);
+    expect(start.event).toBe(5);
+    expect(start.end).toBe(false);
+    expect(start.duration).toBe(160);
+    expect(end.event).toBe(5);
+    expect(end.end).toBe(true);
+    expect(end.duration).toBe(800);
   });
 });

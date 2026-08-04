@@ -5,8 +5,11 @@
  *   npx tsx tools/generateVectors/generate.ts
  *
  * Requires gst-launch-1.0 and codec plugins (see README.md).
- * Output: packages/rtp/tests/data/vector_*.bin (raw RTP payloads concatenated
- * with 2-byte length prefixes for multi-packet files).
+ * If GStreamer is missing or yields no packets, falls back to
+ * writeSyntheticVectors() (RFC wire-format packetizer payloads).
+ *
+ * Output: packages/rtp/tests/data/vector_*.bin
+ * Format: [u16be length][payload] repeated.
  */
 
 import { spawn, type ChildProcess } from "child_process";
@@ -15,6 +18,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { RtpPacket } from "../../src";
+import { writeSyntheticVectors } from "./writeSyntheticVectors";
 
 const OUT_DIR = join(__dirname, "../../tests/data");
 const HOST = "127.0.0.1";
@@ -24,7 +28,6 @@ const MAX_PACKETS = 8;
 type CodecJob = {
   name: string;
   outFile: string;
-  /** gst-launch-1.0 element chain without udpsink (port filled in). */
   pipeline: (port: number) => string[];
 };
 
@@ -44,7 +47,7 @@ const jobs: CodecJob[] = [
       "!",
       "rtppcmupay",
       "!",
-      `udpsink`,
+      "udpsink",
       `host=${HOST}`,
       `port=${port}`,
     ],
@@ -64,7 +67,7 @@ const jobs: CodecJob[] = [
       "!",
       "rtppcmapay",
       "!",
-      `udpsink`,
+      "udpsink",
       `host=${HOST}`,
       `port=${port}`,
     ],
@@ -84,7 +87,7 @@ const jobs: CodecJob[] = [
       "!",
       "rtpg722pay",
       "!",
-      `udpsink`,
+      "udpsink",
       `host=${HOST}`,
       `port=${port}`,
     ],
@@ -104,7 +107,7 @@ const jobs: CodecJob[] = [
       "!",
       "rtpmp4gpay",
       "!",
-      `udpsink`,
+      "udpsink",
       `host=${HOST}`,
       `port=${port}`,
     ],
@@ -124,14 +127,13 @@ const jobs: CodecJob[] = [
       "rtph265pay",
       "config-interval=1",
       "!",
-      `udpsink`,
+      "udpsink",
       `host=${HOST}`,
       `port=${port}`,
     ],
   },
 ];
 
-/** Multi-payload file: [u16be length][payload]... */
 function encodePayloadBag(payloads: Buffer[]): Buffer {
   const parts: Buffer[] = [];
   for (const p of payloads) {
@@ -154,7 +156,8 @@ function freePort(): Promise<number> {
   });
 }
 
-async function collectCodec(job: CodecJob): Promise<void> {
+/** @returns true if vectors were written */
+async function collectCodec(job: CodecJob): Promise<boolean> {
   const port = await freePort();
   const payloads: Buffer[] = [];
 
@@ -183,7 +186,7 @@ async function collectCodec(job: CodecJob): Promise<void> {
   } catch (e) {
     udp.close();
     console.warn(`[${job.name}] failed to spawn gst-launch-1.0:`, e);
-    return;
+    return false;
   }
 
   let stderr = "";
@@ -191,19 +194,17 @@ async function collectCodec(job: CodecJob): Promise<void> {
   child.stderr?.on("data", (d) => {
     stderr += d.toString();
   });
-  // spawn() does not throw for missing binaries; "error" fires instead (ENOENT)
   child.on("error", (err) => {
     spawnError = err;
     console.warn(
       `[${job.name}] gst-launch-1.0 process error: ${err.message}. ` +
-        `Install GStreamer and codec plugins, or keep committed synthetic vectors.`,
+        `Install GStreamer and codec plugins, or use synthetic vector fallback.`,
     );
   });
 
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => resolve(), COLLECT_MS);
     child!.on("exit", () => {
-      // wait a bit more for late UDP
       setTimeout(() => {
         clearTimeout(timer);
         resolve();
@@ -224,14 +225,14 @@ async function collectCodec(job: CodecJob): Promise<void> {
 
   if (spawnError) {
     console.warn(`[${job.name}] skipped (spawn error: ${spawnError.message})`);
-    return;
+    return false;
   }
 
   if (payloads.length === 0) {
     console.warn(
       `[${job.name}] no RTP payloads received (plugin missing or pipeline failed). stderr:\n${stderr.slice(0, 400)}`,
     );
-    return;
+    return false;
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
@@ -240,12 +241,22 @@ async function collectCodec(job: CodecJob): Promise<void> {
   console.log(
     `[${job.name}] wrote ${payloads.length} payloads → ${job.outFile} (${payloads.reduce((n, p) => n + p.length, 0)} data bytes)`,
   );
+  return true;
 }
 
 async function main() {
   console.log("Generating RTP test vectors with GStreamer…");
+  let wrote = 0;
   for (const job of jobs) {
-    await collectCodec(job);
+    if (await collectCodec(job)) wrote++;
+  }
+  if (wrote === 0) {
+    console.warn(
+      "No GStreamer vectors written. Falling back to RFC wire-format " +
+        "packetizer synthetic vectors (non-fill PRNG bodies). " +
+        "See tests/data/VECTOR_SOURCE.md",
+    );
+    writeSyntheticVectors();
   }
   console.log("Done. Commit tests/data/vector_*.bin if refreshed.");
 }

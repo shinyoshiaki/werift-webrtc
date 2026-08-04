@@ -18,8 +18,14 @@ import {
 // IRAP keyframe types 16–21
 
 /** Build a minimal 2-byte NAL header + body. */
-function makeNal(type: number, body: Buffer, layerId = 0, tid = 1): Buffer {
-  const hdr = writeH265PayloadHeader({ f: 0, type, layerId, tid });
+function makeNal(
+  type: number,
+  body: Buffer,
+  layerId = 0,
+  tid = 1,
+  f = 0,
+): Buffer {
+  const hdr = writeH265PayloadHeader({ f, type, layerId, tid });
   return Buffer.concat([hdr, body]);
 }
 
@@ -322,6 +328,23 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
     const hdr = parseH265PayloadHeader(packets[0].payload);
     expect(hdr.type).toBe(H265_PAYLOAD_TYPE_FU);
     expect(hdr.f).toBe(1);
+  });
+
+  it("AP PayloadHdr uses F=OR, LayerId=min, TID=min (RFC 7798 §4.4.2)", () => {
+    // Arrange: NAL0 F=0 LayerId=2 TID=3; NAL1 F=1 LayerId=1 TID=1
+    const n0 = makeNal(H265_NAL_TYPE.VPS, Buffer.from([0x01]), 2, 3, 0);
+    const n1 = makeNal(H265_NAL_TYPE.SPS, Buffer.from([0x02]), 1, 1, 1);
+    const sample = annexB(n0, n1);
+    const packetizer = new H265Packetizer({ sequenceNumber: 0 });
+    // Act
+    const packets = packetizer.packetize(sample, 0);
+    // Assert: 先頭は AP、ヘッダは集約規則
+    expect(packets.length).toBe(1);
+    const hdr = parseH265PayloadHeader(packets[0].payload);
+    expect(hdr.type).toBe(H265_PAYLOAD_TYPE_AP);
+    expect(hdr.f).toBe(1); // OR
+    expect(hdr.layerId).toBe(1); // min
+    expect(hdr.tid).toBe(1); // min
   });
 
   it("AP isKeyframe true when aggregated NAL is IRAP", () => {

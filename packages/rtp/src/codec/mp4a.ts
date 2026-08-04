@@ -1,12 +1,18 @@
 // RFC 3640 — RTP Payload Format for Transport of MPEG-4 Elementary Streams
 // AAC high bit-rate mode (mode=AAC-hbr), §3.3.6:
-//   AU-header = AU-size (13 bit, size in octets — NOT size-1; ticket text was
-//   incorrect on this point; RFC 3640 §3.2.1.1 / §3.3.6 is authoritative:
-//   "AU-size: Indicates the size in octets", max 8191 = 2^13-1) + AU-Index (3 bit)
-//   AU-headers-length is in bits and a multiple of 16 when headers are present.
+//   AU-header = AU-size (13 bit) + AU-Index/delta (3 bit) = 16 bits per AU
+//
+// AU-size (RFC 3640 §3.2.1.1 — authoritative over any conflicting task notes):
+//   "Indicates the size in octets of the associated Access Unit"
+//   NOT (octets − 1). Max AU size in aac-hbr is 8191 octets (2^13 − 1).
+//
+// CTS/DTS: not used by default aac-hbr SDP (sizeLength=13, indexLength=3).
+// Optional CTS/DTS fields can be parsed when AacHbrDepacketizerOptions are set
+// (generic / extended AU-header layouts). Presence is also reported when the
+// AU-headers-length cannot be explained by pure 16-bit hbr headers alone.
+//
 // Fragmentation: first fragment carries AU Header Section (AU-size = full AU);
-// subsequent fragments are raw AU data only (common non-interleaved practice;
-// see also ticket constraint matching §3.2.3.1 marker-on-last rules).
+// subsequent fragments are raw AU data only (§3.2.3.1 marker-on-last).
 // Registry name: MPEG4-GENERIC (SDP encoding name).
 
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
@@ -26,24 +32,35 @@ export const AAC_HBR_AU_HEADER_BITS =
 /** Fragment accumulator prefix: 4-byte expected AU size (BE) + data. */
 const FRAG_SIZE_PREFIX = 4;
 
+/**
+ * Options for extended AU-header parsing beyond default aac-hbr (size+index).
+ * Default aac-hbr does not include CTS/DTS; pass these when SDP signals them
+ * (e.g. generic mode with CTSDeltaLength / DTSDeltaLength).
+ */
 export type AacHbrDepacketizerOptions = {
   /**
-   * When true, after each AU-header the parser expects CTS-flag (1) and
-   * optionally CTS-delta / DTS-flag / DTS-delta if flags are set.
-   * Default false (minimal AAC-hbr: size + index only).
+   * When true, each AU-header after size+index includes CTS-flag (1 bit) and
+   * optionally CTS-delta / DTS-flag / DTS-delta when flags are set (RFC 3640 §3.2.1.1).
    */
   ctsDtsPresent?: boolean;
+  /** Bit length of CTS-delta when CTS-flag=1 (default 14). */
   ctsDeltaLength?: number;
+  /** Bit length of DTS-delta when DTS-flag=1 (default 14). */
   dtsDeltaLength?: number;
 };
 
 export type AuHeader = {
-  /** Access Unit size in octets (RFC 3640 AU-size). */
+  /**
+   * Access Unit size in octets (RFC 3640 AU-size).
+   * This is the byte count itself, not (bytes − 1).
+   */
   size: number;
   /** AU-Index (first) or AU-Index-delta (subsequent). */
   index: number;
+  /** True when CTS-flag was present and set (extended parse only). */
   hasCts?: boolean;
   ctsDelta?: number;
+  /** True when DTS-flag was present and set (extended parse only). */
   hasDts?: boolean;
   dtsDelta?: number;
 };
@@ -57,8 +74,22 @@ export class AacHbrRtpPayload implements DePacketizerBase {
   fragment?: Buffer;
   auHeaders: AuHeader[] = [];
   isContinuationFragment = false;
+  /**
+   * True when AU-headers-length is not explained by pure aac-hbr 16-bit headers
+   * alone (optional CTS/DTS or other fields may be present). See RFC 3640 §3.2.1.
+   */
+  optionalAuHeaderFieldsDetected = false;
 
-  static deSerialize(buf: Buffer, fragment?: Buffer): AacHbrRtpPayload {
+  /**
+   * @param buf RTP payload
+   * @param fragment prior fragment accumulator (length-prefixed internal form)
+   * @param options extended AU-header layout (CTS/DTS); default = aac-hbr only
+   */
+  static deSerialize(
+    buf: Buffer,
+    fragment?: Buffer,
+    options: AacHbrDepacketizerOptions = {},
+  ): AacHbrRtpPayload {
     const result = new AacHbrRtpPayload();
 
     // Continuation fragment: raw AU data only
@@ -73,7 +104,6 @@ export class AacHbrRtpPayload implements DePacketizerBase {
       }
       const acc = Buffer.concat([prev, buf]);
       if (acc.length > expected) {
-        // Strict: refuse silent truncation of surplus bytes
         throw new Error(
           `AAC continuation fragment exceeds AU-size: got ${acc.length}, expected ${expected}`,
         );
@@ -114,11 +144,14 @@ export class AacHbrRtpPayload implements DePacketizerBase {
       );
     }
 
-    const headers = parseAuHeaders(
-      buf.subarray(2, headerSectionEnd),
+    const headerBytes = buf.subarray(2, headerSectionEnd);
+    const { headers, optionalFieldsDetected } = parseAuHeaders(
+      headerBytes,
       auHeadersLengthBits,
+      options,
     );
     result.auHeaders = headers;
+    result.optionalAuHeaderFieldsDetected = optionalFieldsDetected;
 
     const dataSection = buf.subarray(headerSectionEnd);
     let totalSize = 0;
@@ -177,29 +210,92 @@ function packFragment(expectedSize: number, data: Buffer): Buffer {
   return Buffer.concat([prefix, data]);
 }
 
-function parseAuHeaders(headerBytes: Buffer, lengthBits: number): AuHeader[] {
+function parseAuHeaders(
+  headerBytes: Buffer,
+  lengthBits: number,
+  options: AacHbrDepacketizerOptions,
+): { headers: AuHeader[]; optionalFieldsDetected: boolean } {
   const headers: AuHeader[] = [];
   let bitPos = 0;
   let isFirst = true;
+  let optionalFieldsDetected = false;
 
-  while (bitPos + AAC_HBR_AU_HEADER_BITS <= lengthBits) {
-    const size = readBits(headerBytes, bitPos, AAC_HBR_SIZE_LENGTH);
-    bitPos += AAC_HBR_SIZE_LENGTH;
-    const index = readBits(
-      headerBytes,
-      bitPos,
-      isFirst ? AAC_HBR_INDEX_LENGTH : AAC_HBR_INDEX_DELTA_LENGTH,
-    );
-    bitPos += isFirst ? AAC_HBR_INDEX_LENGTH : AAC_HBR_INDEX_DELTA_LENGTH;
+  if (options.ctsDtsPresent) {
+    // Extended AU-header: size + index + CTS-flag [+ CTS-delta] + DTS-flag [+ DTS-delta]
+    while (bitPos + AAC_HBR_AU_HEADER_BITS + 2 <= lengthBits) {
+      const size = readBits(headerBytes, bitPos, AAC_HBR_SIZE_LENGTH);
+      bitPos += AAC_HBR_SIZE_LENGTH;
+      const indexLen = isFirst
+        ? AAC_HBR_INDEX_LENGTH
+        : AAC_HBR_INDEX_DELTA_LENGTH;
+      const index = readBits(headerBytes, bitPos, indexLen);
+      bitPos += indexLen;
 
-    headers.push({ size, index });
-    isFirst = false;
+      const header: AuHeader = { size, index };
+
+      const ctsFlag = readBits(headerBytes, bitPos, 1);
+      bitPos += 1;
+      header.hasCts = ctsFlag === 1;
+      if (ctsFlag === 1) {
+        const ctsLen = options.ctsDeltaLength ?? 14;
+        if (bitPos + ctsLen > lengthBits) {
+          throw new Error("AAC AU-header CTS-delta exceeds AU-headers-length");
+        }
+        header.ctsDelta = readBits(headerBytes, bitPos, ctsLen);
+        bitPos += ctsLen;
+      }
+
+      if (bitPos >= lengthBits) {
+        throw new Error("AAC AU-header missing DTS-flag after CTS fields");
+      }
+      const dtsFlag = readBits(headerBytes, bitPos, 1);
+      bitPos += 1;
+      header.hasDts = dtsFlag === 1;
+      if (dtsFlag === 1) {
+        const dtsLen = options.dtsDeltaLength ?? 14;
+        if (bitPos + dtsLen > lengthBits) {
+          throw new Error("AAC AU-header DTS-delta exceeds AU-headers-length");
+        }
+        header.dtsDelta = readBits(headerBytes, bitPos, dtsLen);
+        bitPos += dtsLen;
+      }
+
+      headers.push(header);
+      isFirst = false;
+      optionalFieldsDetected = true;
+    }
+  } else {
+    // Default aac-hbr: fixed 16-bit AU-headers (RFC 3640 §3.3.6)
+    while (bitPos + AAC_HBR_AU_HEADER_BITS <= lengthBits) {
+      const size = readBits(headerBytes, bitPos, AAC_HBR_SIZE_LENGTH);
+      bitPos += AAC_HBR_SIZE_LENGTH;
+      const index = readBits(
+        headerBytes,
+        bitPos,
+        isFirst ? AAC_HBR_INDEX_LENGTH : AAC_HBR_INDEX_DELTA_LENGTH,
+      );
+      bitPos += isFirst ? AAC_HBR_INDEX_LENGTH : AAC_HBR_INDEX_DELTA_LENGTH;
+      headers.push({ size, index });
+      isFirst = false;
+    }
+    // Remaining non-padding bits imply optional fields not consumed by hbr layout
+    // (padding is at most 7 zero bits at end of AU Header Section — §3.2.1)
+    const remaining = lengthBits - bitPos;
+    if (remaining > 7) {
+      optionalFieldsDetected = true;
+    } else if (remaining > 0) {
+      // Verify padding bits are zero when present
+      const pad = readBits(headerBytes, bitPos, remaining);
+      if (pad !== 0) {
+        optionalFieldsDetected = true;
+      }
+    }
   }
 
   if (headers.length === 0) {
     throw new Error("AAC AU Header Section contained no AU-headers");
   }
-  return headers;
+  return { headers, optionalFieldsDetected };
 }
 
 /** Read `length` bits from `buf` starting at bit offset `bitPos` (MSB first). */
@@ -240,19 +336,13 @@ export type AacHbrPacketizerOptions = PacketizerBaseOptions;
 
 /**
  * AAC-hbr packetizer (RFC 3640 §3.3.6).
- * - One or more complete AUs with AU Header Section
- * - MTU-exceeding single AU is fragmented: first packet has AU headers
- *   (AU-size = full AU size); subsequent packets are raw fragment data
+ * AU-size fields store the Access Unit size in octets (not size−1).
  */
 export class AacHbrPacketizer extends PacketizerBase {
   constructor(options: AacHbrPacketizerOptions = {}) {
     super(options);
   }
 
-  /**
-   * Packetize one Access Unit (AAC frame).
-   * For multiple AUs in one packet, use {@link packetizeAccessUnits}.
-   */
   packetize(data: Buffer, rtpTimestamp: number): RtpPacket[] {
     return this.packetizeAccessUnits([data], rtpTimestamp);
   }
@@ -292,8 +382,6 @@ export class AacHbrPacketizer extends PacketizerBase {
       return [this.buildPacket(buildAuPayload([au]), rtpTimestamp, true)];
     }
 
-    // Fragmentation: first packet has AU Header Section, rest are raw
-    // RFC 3640 §3.2.3.1 — marker on last fragment only
     const packets: RtpPacket[] = [];
     let offset = 0;
 
@@ -323,8 +411,8 @@ export class AacHbrPacketizer extends PacketizerBase {
 
 /**
  * Build RTP payload with AU Header Section for one or more AUs.
- * If `dataOverride` is set (fragmentation), that buffer is used as the data
- * section while AU-size fields still describe the full AU sizes.
+ * AU-size = full AU length in octets (RFC 3640 §3.2.1.1).
+ * If `dataOverride` is set (fragmentation), that buffer is the data section.
  */
 function buildAuPayload(fullAus: Buffer[], dataOverride?: Buffer): Buffer {
   const headerBits = fullAus.length * AAC_HBR_AU_HEADER_BITS;
@@ -338,6 +426,7 @@ function buildAuPayload(fullAus: Buffer[], dataOverride?: Buffer): Buffer {
         `AAC AU size ${au.length} exceeds AAC-hbr maximum 8191 octets (RFC 3640 §3.3.6)`,
       );
     }
+    // AU-size = size in octets (not size-1)
     writeBits(headers, bitPos, AAC_HBR_SIZE_LENGTH, au.length);
     bitPos += AAC_HBR_SIZE_LENGTH;
     writeBits(

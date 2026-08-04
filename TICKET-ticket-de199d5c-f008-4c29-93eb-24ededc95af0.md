@@ -28,7 +28,7 @@
 | 5 | `codec/telephoneEvent.ts` | `TelephoneEventRtpPayload` | `TelephoneEventPacketizer` | RFC 4733 |
 
 #### H.265 / HEVC (RFC 7798)
-- 2 バイトのペイロードヘッダ: F(1bit) / Type(6bit) / LayerId(6bit) / TID(3bit)。Type 0 = AP、1 = FU、2–63 = 単一 NAL (H.264 と違い単一 NAL も Type 値 2 以上)。
+- 2 バイトのペイロードヘッダ: F(1bit) / Type(6bit) / LayerId(6bit) / TID(3bit)。RFC 7798: Type **48** = AP、**49** = FU、その他 = 単一 NAL（旧メモの Type 0/1 は誤りで RFC を正とする）。AP の PayloadHdr は F=全 NAL の OR、LayerId/TID=最小値。
 - **AP (Aggregation Packet)**: ペイロードヘッダ + (非インタリーブモードのため DONL は省略し、`sprop-max-don-diff` が 0 以外の場合は DONL(2バイト) を読み飛ばせるようにする) + [2バイト NAL サイズ + NAL] の繰り返し。キーフレーム時に VPS/SPS/PPS を AP に集約して送る機能を packetizer に持たせる。
 - **FU (Fragmentation Unit)**: ペイロードヘッダ (Type=1) + FU ヘッダ (S / E / FuType(6bit)) + NAL ペイロード。S=1 の先頭パケットで元 NAL ヘッダ (LayerId/TID) を復元し、E=1 で組み立て完了 (`fragment` から `payload` へ、H.264 の FU-A と同様のフロー)。F ビットは FU では 1 に設定 (RFC 7798)。
 - 入力形式: **Annex-B (start code) と長さ前置 (AVCC 形式)** の両対応。Annex-B 分割は `packages/rtp/src/extra/container/mp4/h264.ts:44` の `H264AnnexBParser` を参考にした H.265 用パーサを `codec/h265.ts` 内に実装。
@@ -49,7 +49,7 @@
 
 #### AAC-hbr (RFC 3640)
 - **AU Header Section**: 先頭に 16bit の `AU-headers-length` (bit 単位、16 の倍数) があり、続いて各 AU の AU-Header が並ぶ。
-- AU-Header (hbr モード): AU-size 13bit (**バイト単位のサイズ − 1**。低レートモードの bit 単位と混同しない) + AU-Index / AU-Index-delta 3bit + オプションで AU-CTS-delta / AU-DTS-delta 各 14bit。CTS/DTS オプションは最小実装では省略し、パース時に存在検出できる構造にする。
+- AU-Header (hbr モード): AU-size 13bit (**バイト単位のサイズそのもの** — RFC 3640 §3.2.1.1 "size in octets"。旧メモの「−1」は誤りで RFC を正とする) + AU-Index / AU-Index-delta 3bit + オプションで AU-CTS-delta / AU-DTS-delta 各 14bit。CTS/DTS はデフォルト aac-hbr では省略し、`AacHbrDepacketizerOptions.ctsDtsPresent` でパース、または AU-headers-length から存在検出できる構造にする。
 - **MTU より大きい AU はフラグメンテーション**: 先頭フラグメントのみ AU Header Section を持ち、後続フラグメントは生データのみ (RFC 3640 §3.2.6)。
 - 複数 AU を 1 パケットに連結可能 (AU-header を各 AU に付与)。
 - レジストリ名: `MPEG4-GENERIC` (SDP の encoding name に合わせる。H.264 の `MPEG4/ISO/AVC` と同様の命名思想)。
@@ -202,8 +202,8 @@ RTP パッケージ初の Packetizer となるため、`webrtc` の `BasePacketi
 
 ### 4.3 RFC の落とし穴
 - **G.722 の RTP クロックは 8000Hz** (16kHz ではない)。
-- **AAC-hbr の AU-size はバイト単位−1** (低レートモードの bit 単位と区別)。
-- H.265 の単一 NAL は Type 2–63 (Type 0=AP, 1=FU は H.264 と意味が違う)。
+- **AAC-hbr の AU-size はバイト単位のサイズそのもの** (RFC 3640 §3.2.1.1。旧メモの「−1」は不採用)。
+- H.265 の AP=Type 48、FU=Type 49 (RFC 7798。旧メモの 0/1 は不採用)。
 - AP の DONL は非インタリーブ (DON 無し) を前提にしつつ、DONL 付き入力の耐性だけ持たせる。
 - DTMF の marker は「イベント開始」で 1。
 - **仕様の正しさは `docs/rfc/` の RFC 原文を根拠に検証する**: ビットレイアウト・静的 PT/クロック・marker 規則は、実装前に必ず該当セクション (RFC 7798 §4.4 系、RFC 3640 §3.3.6、RFC 4733 §2 など) で確認する。セクション番号は実装・テストのコメントに残し、レビューで突き合わせる。

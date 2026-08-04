@@ -1,11 +1,16 @@
+import { readFileSync } from "fs";
+import { join } from "path";
+
 import {
   AacHbrPacketizer,
   AacHbrRtpPayload,
   dePacketizeRtpPackets,
 } from "../../src";
+import { loadPayloadVector } from "../utils";
 
-// RFC 3640 §3.3.6 AAC-hbr: AU-size 13 bit (octets), AU-Index 3 bit
+// RFC 3640 §3.3.6 AAC-hbr: AU-size 13 bit = size in octets (NOT size−1)
 // §3.2.1 AU-headers-length in bits, multiple of 16
+// Requirement note: ticket text said "bytes−1"; RFC 3640 §3.2.1.1 is authoritative.
 
 describe("packages/rtp/tests/codec/aac.test.ts", () => {
   it("deSerialize single complete AU (synthetic header)", () => {
@@ -219,5 +224,74 @@ describe("packages/rtp/tests/codec/aac.test.ts", () => {
     expect(packets[0].payload.readUInt16BE(0)).toBe(16);
     // 復元
     expect(dePacketizeRtpPackets("MPEG4-GENERIC", packets).data).toEqual(au);
+  });
+
+  it("loads committed vector_aac.bin payloads", () => {
+    // Arrange: コミット済みベクタ（packetizer / GStreamer 生成）
+    const payloads = loadPayloadVector("vector_aac.bin");
+    expect(payloads.length).toBeGreaterThan(0);
+    // Act: 先頭は AU ヘッダ付き、フラグメントを連結して復元
+    let fragment: Buffer | undefined;
+    const frames: Buffer[] = [];
+    for (const p of payloads) {
+      const res = AacHbrRtpPayload.deSerialize(p, fragment);
+      fragment = res.fragment;
+      if (res.payload && !res.fragment) {
+        frames.push(res.payload);
+        fragment = undefined;
+      }
+    }
+    // Assert: 少なくとも 1 フレーム復元、ヘッダ長は 16 の倍数
+    expect(frames.length).toBeGreaterThan(0);
+    expect(payloads[0].readUInt16BE(0) % 16).toBe(0);
+  });
+
+  it("parses optional CTS/DTS when ctsDtsPresent option is set", () => {
+    // Arrange: size=3, index=0, CTS-flag=1, CTS-delta=5 (14bit), DTS-flag=0
+    // bits: 0000000000011 | 000 | 1 | 00000000000101 | 0  = 13+3+1+14+1 = 32 bits
+    const headerBits = 32;
+    const headers = Buffer.alloc(4);
+    // Manual bit pack via known layout:
+    // size=3 → top 13 bits, index=0 → next 3, cts=1, ctsDelta=5, dts=0
+    // value across 32 bits:
+    let bits = 0;
+    bits = (bits << 13) | 3;
+    bits = (bits << 3) | 0;
+    bits = (bits << 1) | 1;
+    bits = (bits << 14) | 5;
+    bits = (bits << 1) | 0;
+    headers.writeUInt32BE(bits >>> 0, 0);
+    const auData = Buffer.from([0xaa, 0xbb, 0xcc]);
+    const payload = Buffer.concat([
+      Buffer.from([(headerBits >> 8) & 0xff, headerBits & 0xff]),
+      headers,
+      auData,
+    ]);
+    // Act
+    const res = AacHbrRtpPayload.deSerialize(payload, undefined, {
+      ctsDtsPresent: true,
+      ctsDeltaLength: 14,
+      dtsDeltaLength: 14,
+    });
+    // Assert: CTS 検出・パース
+    expect(res.auHeaders[0].size).toBe(3);
+    expect(res.auHeaders[0].hasCts).toBe(true);
+    expect(res.auHeaders[0].ctsDelta).toBe(5);
+    expect(res.auHeaders[0].hasDts).toBe(false);
+    expect(res.payload).toEqual(auData);
+    expect(res.optionalAuHeaderFieldsDetected).toBe(true);
+  });
+
+  it("documents AU-size as octets (RFC 3640), not size-minus-one", () => {
+    // Arrange / Act: size field N means N data bytes
+    for (const n of [1, 7, 100, 8191]) {
+      const data = Buffer.alloc(Math.min(n, 32), 0x5a);
+      if (n > 32) continue; // keep test buffer small; 8191 checked by packetizer max
+      const packetizer = new AacHbrPacketizer();
+      const [pkt] = packetizer.packetize(data, 0);
+      const res = AacHbrRtpPayload.deSerialize(pkt.payload);
+      // Assert: ヘッダ上の AU-size は data.length と一致（−1 ではない）
+      expect(res.auHeaders[0].size).toBe(data.length);
+    }
   });
 });
