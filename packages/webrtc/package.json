@@ -60,12 +60,7 @@
     "debug": "4.4.0",
     "mediabunny": "^1.45.2",
     "multicast-dns": "^7.2.5",
-    "tweetnacl": "^1.0.3",
-    "werift-common": "*",
-    "werift-dtls": "*",
-    "werift-ice": "*",
-    "werift-rtp": "*",
-    "werift-sctp": "*"
+    "tweetnacl": "^1.0.3"
   },
   "engines": {
     "node": ">=16"
