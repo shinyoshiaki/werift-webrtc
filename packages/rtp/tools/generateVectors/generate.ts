@@ -187,8 +187,17 @@ async function collectCodec(job: CodecJob): Promise<void> {
   }
 
   let stderr = "";
+  let spawnError: Error | undefined;
   child.stderr?.on("data", (d) => {
     stderr += d.toString();
+  });
+  // spawn() does not throw for missing binaries; "error" fires instead (ENOENT)
+  child.on("error", (err) => {
+    spawnError = err;
+    console.warn(
+      `[${job.name}] gst-launch-1.0 process error: ${err.message}. ` +
+        `Install GStreamer and codec plugins, or keep committed synthetic vectors.`,
+    );
   });
 
   await new Promise<void>((resolve) => {
@@ -200,6 +209,10 @@ async function collectCodec(job: CodecJob): Promise<void> {
         resolve();
       }, 200);
     });
+    child!.on("error", () => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
 
   try {
@@ -209,9 +222,14 @@ async function collectCodec(job: CodecJob): Promise<void> {
   }
   udp.close();
 
+  if (spawnError) {
+    console.warn(`[${job.name}] skipped (spawn error: ${spawnError.message})`);
+    return;
+  }
+
   if (payloads.length === 0) {
     console.warn(
-      `[${job.name}] no RTP payloads received (plugin missing?). stderr:\n${stderr.slice(0, 400)}`,
+      `[${job.name}] no RTP payloads received (plugin missing or pipeline failed). stderr:\n${stderr.slice(0, 400)}`,
     );
     return;
   }

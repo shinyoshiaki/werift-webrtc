@@ -296,4 +296,157 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
       fragment = res.fragment;
     }
   });
+
+  // --- wire-format boundary cases (RFC 7798 §4.4) ---
+
+  it("PayloadHdr Type 48 is AP and Type 49 is FU (RFC 7798, not 0/1)", () => {
+    // Assert: 定数が RFC 原文どおり
+    expect(H265_PAYLOAD_TYPE_AP).toBe(48);
+    expect(H265_PAYLOAD_TYPE_FU).toBe(49);
+  });
+
+  it("FU PayloadHdr F bit is taken from NAL F (RFC 7798 §4.4.3)", () => {
+    // Arrange: F=1 on original NAL → FU PayloadHdr F must be 1
+    const body = Buffer.alloc(20, 0x55);
+    const nal = makeNal(1, body);
+    // Force F=1 on NAL header
+    nal[0] = nal[0] | 0x80;
+    const packetizer = new H265Packetizer({
+      sequenceNumber: 0,
+      maxPayloadSize: 12,
+    });
+    // Act
+    const packets = packetizer.packetize(annexB(nal), 0);
+    // Assert: FU の F は 1
+    expect(packets.length).toBeGreaterThan(1);
+    const hdr = parseH265PayloadHeader(packets[0].payload);
+    expect(hdr.type).toBe(H265_PAYLOAD_TYPE_FU);
+    expect(hdr.f).toBe(1);
+  });
+
+  it("AP isKeyframe true when aggregated NAL is IRAP", () => {
+    // Arrange: VPS + IDR in one AP
+    const vps = makeNal(H265_NAL_TYPE.VPS, Buffer.from([0x01]));
+    const idr = makeNal(H265_NAL_TYPE.IDR_W_RADL, Buffer.from([0x02]));
+    const hdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_AP,
+      layerId: 0,
+      tid: 1,
+    });
+    const s1 = Buffer.alloc(2);
+    s1.writeUInt16BE(vps.length, 0);
+    const s2 = Buffer.alloc(2);
+    s2.writeUInt16BE(idr.length, 0);
+    const ap = Buffer.concat([hdr, s1, vps, s2, idr]);
+    // Act
+    const res = H265RtpPayload.deSerialize(ap);
+    // Assert: AP 内 IRAP を走査
+    expect(res.isKeyframe).toBe(true);
+  });
+
+  it("AP isKeyframe false when only parameter sets", () => {
+    // Arrange
+    const vps = makeNal(H265_NAL_TYPE.VPS, Buffer.from([0x01]));
+    const sps = makeNal(H265_NAL_TYPE.SPS, Buffer.from([0x02]));
+    const hdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_AP,
+      layerId: 0,
+      tid: 1,
+    });
+    const s1 = Buffer.alloc(2);
+    s1.writeUInt16BE(vps.length, 0);
+    const s2 = Buffer.alloc(2);
+    s2.writeUInt16BE(sps.length, 0);
+    const ap = Buffer.concat([hdr, s1, vps, s2, sps]);
+    // Act
+    const res = H265RtpPayload.deSerialize(ap);
+    // Assert
+    expect(res.isKeyframe).toBe(false);
+  });
+
+  it("rejects AP with NALU size of 0 or 1", () => {
+    // Arrange
+    const hdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_AP,
+      layerId: 0,
+      tid: 1,
+    });
+    const size = Buffer.from([0x00, 0x01]); // 1 byte — too small for NAL header
+    const ap = Buffer.concat([hdr, size, Buffer.from([0x00])]);
+    // Act / Assert
+    expect(() => H265RtpPayload.deSerialize(ap)).toThrow(/too small/);
+  });
+
+  it("rejects empty AP payload (header only)", () => {
+    // Arrange
+    const hdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_AP,
+      layerId: 0,
+      tid: 1,
+    });
+    // Act / Assert
+    expect(() => H265RtpPayload.deSerialize(hdr)).toThrow(
+      /no aggregation units/,
+    );
+  });
+
+  it("rejects FU with empty FU payload", () => {
+    // Arrange: PayloadHdr + FU header only
+    const fuHdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_FU,
+      layerId: 0,
+      tid: 1,
+    });
+    const emptyFu = Buffer.concat([fuHdr, Buffer.from([0x80 | 1])]);
+    // Act / Assert
+    expect(() => H265RtpPayload.deSerialize(emptyFu)).toThrow(/empty FU/);
+  });
+
+  it("FU intermediate without E leaves fragment and no payload", () => {
+    // Arrange
+    const fuHdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_FU,
+      layerId: 0,
+      tid: 1,
+    });
+    const fu = Buffer.concat([
+      fuHdr,
+      Buffer.from([0x80 | 1]), // S=1 E=0
+      Buffer.from([0xaa, 0xbb]),
+    ]);
+    // Act
+    const res = H265RtpPayload.deSerialize(fu);
+    // Assert: 境界 — 不完全 FU は payload 未確定
+    expect(res.fragment).toBeDefined();
+    expect(res.payload).toBeUndefined();
+  });
+
+  it("MTU split FU: shared timestamp, marker only on last", () => {
+    // Arrange
+    const nal = makeNal(1, Buffer.alloc(400, 0xcd));
+    const packetizer = new H265Packetizer({
+      sequenceNumber: 5,
+      maxPayloadSize: 90,
+    });
+    // Act
+    const packets = packetizer.packetize(annexB(nal), 4242);
+    // Assert
+    expect(packets.length).toBeGreaterThan(2);
+    expect(packets.every((p) => p.header.timestamp === 4242)).toBe(true);
+    expect(packets.slice(0, -1).every((p) => !p.header.marker)).toBe(true);
+    expect(packets.at(-1)!.header.marker).toBe(true);
+    expect(packets[0].header.sequenceNumber).toBe(5);
+    expect(packets[1].header.sequenceNumber).toBe(6);
+    // Type=49 on all FU packets
+    for (const p of packets) {
+      expect(parseH265PayloadHeader(p.payload).type).toBe(H265_PAYLOAD_TYPE_FU);
+    }
+    expect(dePacketizeRtpPackets("H265", packets).data).toEqual(annexB(nal));
+  });
 });

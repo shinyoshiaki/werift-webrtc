@@ -134,4 +134,90 @@ describe("packages/rtp/tests/codec/aac.test.ts", () => {
       100 + packets.length - 1,
     );
   });
+
+  // --- wire-format boundary cases (RFC 3640 §3.2.1 / §3.3.6) ---
+
+  it("AU-size is size in octets (not size-1) — RFC 3640 authoritative", () => {
+    // Arrange: size field = 5 means 5 data octets (ticket "size-1" was incorrect)
+    const auData = Buffer.from([1, 2, 3, 4, 5]);
+    // size=5 → (5 << 3) | 0 = 0x0028
+    const payload = Buffer.concat([
+      Buffer.from([0x00, 0x10]),
+      Buffer.from([0x00, 0x28]),
+      auData,
+    ]);
+    // Act
+    const res = AacHbrRtpPayload.deSerialize(payload);
+    // Assert
+    expect(res.auHeaders[0].size).toBe(5);
+    expect(res.payload).toEqual(auData);
+  });
+
+  it("rejects AU-headers section that claims more bytes than available", () => {
+    // Arrange: AU-headers-length=32 bits (4 bytes) but only 1 header byte follows
+    const bad = Buffer.from([0x00, 0x20, 0xff]);
+    // Act / Assert
+    expect(() => AacHbrRtpPayload.deSerialize(bad)).toThrow(
+      /AU Header Section exceeds buffer/,
+    );
+  });
+
+  it("rejects surplus data after complete multi-AU payload", () => {
+    // Arrange: two AUs size=1 each, but 3 data bytes
+    const headers = Buffer.alloc(4);
+    headers.writeUInt16BE(1 << 3, 0);
+    headers.writeUInt16BE(1 << 3, 2);
+    const payload = Buffer.concat([
+      Buffer.from([0x00, 0x20]),
+      headers,
+      Buffer.from([0xaa, 0xbb, 0xcc]),
+    ]);
+    // Act / Assert
+    expect(() => AacHbrRtpPayload.deSerialize(payload)).toThrow(/surplus/);
+  });
+
+  it("rejects continuation that exceeds declared AU-size", () => {
+    // Arrange: first fragment claims size=10, delivers 6 bytes; second delivers 8 → overflow
+    const first = Buffer.concat([
+      Buffer.from([0x00, 0x10]),
+      Buffer.from([0x00, 0x50]), // size=10 (10<<3=80=0x50)
+      Buffer.alloc(6, 0x11),
+    ]);
+    const part1 = AacHbrRtpPayload.deSerialize(first);
+    expect(part1.fragment).toBeDefined();
+    // Act / Assert: 余剰バイトを切り捨てず例外
+    expect(() =>
+      AacHbrRtpPayload.deSerialize(Buffer.alloc(8, 0x22), part1.fragment),
+    ).toThrow(/exceeds AU-size/);
+  });
+
+  it("rejects empty buffer and short AU header length field", () => {
+    // Act / Assert
+    expect(() => AacHbrRtpPayload.deSerialize(Buffer.alloc(0))).toThrow(
+      /too short/,
+    );
+    expect(() => AacHbrRtpPayload.deSerialize(Buffer.from([0x00]))).toThrow(
+      /too short/,
+    );
+  });
+
+  it("MTU split: marker only on last fragment, shared timestamp", () => {
+    // Arrange: AU を MTU 未満に分割
+    const au = Buffer.alloc(240, 0x9e);
+    const packetizer = new AacHbrPacketizer({
+      sequenceNumber: 0,
+      maxPayloadSize: 64,
+    });
+    // Act
+    const packets = packetizer.packetize(au, 777);
+    // Assert: タイムスタンプ不変、marker は最終のみ
+    expect(packets.length).toBeGreaterThan(2);
+    expect(packets.every((p) => p.header.timestamp === 777)).toBe(true);
+    expect(packets.slice(0, -1).every((p) => !p.header.marker)).toBe(true);
+    expect(packets.at(-1)!.header.marker).toBe(true);
+    // 先頭のみ AU ヘッダ
+    expect(packets[0].payload.readUInt16BE(0)).toBe(16);
+    // 復元
+    expect(dePacketizeRtpPackets("MPEG4-GENERIC", packets).data).toEqual(au);
+  });
 });

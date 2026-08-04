@@ -1,6 +1,8 @@
 // RFC 3640 — RTP Payload Format for Transport of MPEG-4 Elementary Streams
 // AAC high bit-rate mode (mode=AAC-hbr), §3.3.6:
-//   AU-header = AU-size (13 bit, size in octets) + AU-Index/delta (3 bit)
+//   AU-header = AU-size (13 bit, size in octets — NOT size-1; ticket text was
+//   incorrect on this point; RFC 3640 §3.2.1.1 / §3.3.6 is authoritative:
+//   "AU-size: Indicates the size in octets", max 8191 = 2^13-1) + AU-Index (3 bit)
 //   AU-headers-length is in bits and a multiple of 16 when headers are present.
 // Fragmentation: first fragment carries AU Header Section (AU-size = full AU);
 // subsequent fragments are raw AU data only (common non-interleaved practice;
@@ -64,9 +66,20 @@ export class AacHbrRtpPayload implements DePacketizerBase {
       result.isContinuationFragment = true;
       const expected = fragment.readUInt32BE(0);
       const prev = fragment.subarray(FRAG_SIZE_PREFIX);
+      if (prev.length > expected) {
+        throw new Error(
+          `AAC continuation: accumulated fragment already exceeds AU-size ${expected}`,
+        );
+      }
       const acc = Buffer.concat([prev, buf]);
-      if (acc.length >= expected) {
-        result.payload = acc.subarray(0, expected);
+      if (acc.length > expected) {
+        // Strict: refuse silent truncation of surplus bytes
+        throw new Error(
+          `AAC continuation fragment exceeds AU-size: got ${acc.length}, expected ${expected}`,
+        );
+      }
+      if (acc.length === expected) {
+        result.payload = acc;
         result.fragment = undefined;
       } else {
         result.fragment = packFragment(expected, acc);
@@ -126,6 +139,11 @@ export class AacHbrRtpPayload implements DePacketizerBase {
     if (totalSize > dataSection.length) {
       throw new Error(
         `AAC AU sizes exceed data section: headers sum ${totalSize}, data ${dataSection.length}`,
+      );
+    }
+    if (totalSize < dataSection.length) {
+      throw new Error(
+        `AAC data section has surplus bytes: headers sum ${totalSize}, data ${dataSection.length}`,
       );
     }
 

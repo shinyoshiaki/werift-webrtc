@@ -56,4 +56,28 @@ describe("packages/rtp/tests/codec/g722.test.ts", () => {
     expect(packets[0].header.timestamp).toBe(0);
     expect(packets[1].header.timestamp).toBe(160);
   });
+
+  it("MTU split keeps marker true and advances timestamp per chunk", () => {
+    // Arrange
+    const data = Buffer.alloc(500, 0x11);
+    const packetizer = new G722Packetizer({
+      sequenceNumber: 3,
+      maxPayloadSize: 120,
+      frameDurationInMs: 1000,
+    });
+    // Act
+    const packets = packetizer.packetize(data, 8000);
+    // Assert
+    expect(packets.length).toBeGreaterThan(2);
+    expect(packets.every((p) => p.header.marker)).toBe(true);
+    expect(packets[0].header.sequenceNumber).toBe(3);
+    expect(packets[0].header.timestamp).toBe(8000);
+    // タイムスタンプは単調増加
+    for (let i = 1; i < packets.length; i++) {
+      expect(packets[i].header.timestamp).toBeGreaterThan(
+        packets[i - 1].header.timestamp,
+      );
+      expect(packets[i].header.sequenceNumber).toBe(3 + i);
+    }
+  });
 });

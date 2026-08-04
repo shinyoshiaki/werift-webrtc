@@ -2,15 +2,18 @@
 //
 // PayloadHdr (2 octets, same layout as HEVC NAL unit header) §4.4:
 //   F(1) | Type(6) | LayerId(6) | TID(3)
-// Packet types (Type field):
+// Packet types (Type field) — RFC 7798 is authoritative (ticket "Type 0=AP, 1=FU"
+// was incorrect):
 //   48 = Aggregation Packet (AP)  §4.4.2
 //   49 = Fragmentation Unit (FU)  §4.4.3
 //   other (0–47, 50–63) = Single NAL unit packet §4.4.1
+// F bit on FU: MUST equal F of the fragmented NAL unit (RFC 7798 §4.4.3),
+// not forced to 1.
 //
 // DONL is omitted for non-interleaved mode (sprop-max-don-diff = 0).
 // Depacketizer can skip DONL when `hasDonl` is set.
 // Output frames are Annex-B (00 00 00 01 prefixed), matching H264RtpPayload.
-// isKeyframe: IRAP NAL types 16–21 (BLA_W_LP … CRA_NUT).
+// isKeyframe: IRAP NAL types 16–21 (BLA_W_LP … CRA_NUT), including IRAP inside AP.
 
 import { getBit } from "../../../common/src";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
@@ -101,6 +104,8 @@ export class H265RtpPayload implements DePacketizerBase {
   e = 0;
   /** FU FuType (original NAL type). */
   fuType = 0;
+  /** True when an AP contained at least one IRAP NAL (types 16–21). */
+  private apContainsIrap = false;
   payload!: Buffer;
   fragment?: Buffer;
 
@@ -148,15 +153,26 @@ export class H265RtpPayload implements DePacketizerBase {
         }
         const naluSize = buf.readUInt16BE(offset);
         offset += 2;
+        if (naluSize < 2) {
+          throw new Error(
+            `H.265 AP: NALU size ${naluSize} too small for header`,
+          );
+        }
         if (offset + naluSize > buf.length) {
           throw new Error(
             `H.265 AP: NALU size ${naluSize} at offset ${offset} exceeds buffer ${buf.length}`,
           );
         }
         const nalu = buf.subarray(offset, offset + naluSize);
+        if (isIrapType(nalTypeOf(nalu))) {
+          h265.apContainsIrap = true;
+        }
         parts.push(packageAnnexB(nalu));
         offset += naluSize;
         first = false;
+      }
+      if (parts.length === 0) {
+        throw new Error("H.265 AP: no aggregation units in payload");
       }
       h265.payload = Buffer.concat(parts);
       return h265;
@@ -232,9 +248,8 @@ export class H265RtpPayload implements DePacketizerBase {
       return isIrapType(this.fuType);
     }
     if (this.type === H265_PAYLOAD_TYPE_AP) {
-      // Keyframe flag for AP is determined from contained NALs when depacketized;
-      // payload already Annex-B concatenated — scan NAL types if needed.
-      return false;
+      // Scan aggregation units at deSerialize time for IRAP (types 16–21)
+      return this.apContainsIrap;
     }
     return isIrapType(this.type);
   }

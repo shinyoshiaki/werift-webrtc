@@ -36,5 +36,12 @@ vectors in `telephoneEvent.test.ts` and the existing `rtp_dtmf.bin` fixture.
 ## Notes
 
 - Pipelines are short (`num-buffers` limited) so generation finishes quickly.
-- If a plugin is missing, that codec is skipped with a warning; other codecs continue.
+- If `gst-launch-1.0` is missing, spawn fails with an `error` event (ENOENT); the
+  script logs a warning and **skips** that codec without writing a partial file.
+  Other codecs continue. The same skip applies when the pipeline produces no RTP
+  (missing plugin / encoder error on stderr).
+- Committed `tests/data/vector_*.bin` may be GStreamer-captured or packetizer-
+  synthesized when GStreamer is unavailable; tests accept either as long as
+  payloads depacketize. Prefer re-running this script on a machine with full
+  plugins when refreshing production wire vectors.
 - Re-run and commit updated binaries when intentionally refreshing vectors.

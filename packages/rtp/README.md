@@ -104,6 +104,15 @@ see `./tests/**/*.test.ts`
 
 Committed payloads under `tests/data/vector_*.bin` (and synthetic cases in tests).
 Regenerate with GStreamer via `tools/generateVectors/` when available.
+If `gst-launch-1.0` is missing, the generator logs a spawn `error` and skips
+that codec without overwriting committed files.
+
+# RFC authority notes
+
+Where the implementation task brief disagreed with the RFCs, **`docs/rfc/` text is authoritative**:
+
+- **H.265** (RFC 7798): AP Type=**48**, FU Type=**49** (not 0/1). FU **F** bit equals the fragmented NAL’s F bit (not forced to 1).
+- **AAC-hbr** (RFC 3640 §3.2.1.1 / §3.3.6): AU-size is the size **in octets** (not size−1); max 8191.
 
 # reference
 

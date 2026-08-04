@@ -117,6 +117,27 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     expect(packets.every((p) => p.payload.length <= 100)).toBe(true);
   });
 
+  it("MTU split advances timestamp and sets marker on each audio chunk", () => {
+    // Arrange: maxPayloadSize がフレームより小さい場合の境界
+    const data = Buffer.alloc(250, 0x42);
+    const packetizer = new PcmuPacketizer({
+      sequenceNumber: 10,
+      maxPayloadSize: 100,
+      frameDurationInMs: 1000,
+    });
+    // Act
+    const packets = packetizer.packetize(data, 5000);
+    // Assert: 各チャンクは完結フレーム扱い (marker=true)、TS はサンプル数分進む
+    expect(packets.length).toBe(3);
+    expect(packets.every((p) => p.header.marker)).toBe(true);
+    expect(packets[0].header.timestamp).toBe(5000);
+    expect(packets[1].header.timestamp).toBe(5100);
+    expect(packets[2].header.timestamp).toBe(5200);
+    expect(packets[0].header.sequenceNumber).toBe(10);
+    expect(packets[2].header.sequenceNumber).toBe(12);
+    expect(Buffer.concat(packets.map((p) => p.payload))).toEqual(data);
+  });
+
   it("loads committed PCMU vector payloads", () => {
     // Arrange: tools/generateVectors 成果物（合成 or GStreamer）
     const payloads = loadPayloadVector("vector_pcmu.bin");
