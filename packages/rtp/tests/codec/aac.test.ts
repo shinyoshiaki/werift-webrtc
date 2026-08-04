@@ -226,24 +226,37 @@ describe("packages/rtp/tests/codec/aac.test.ts", () => {
     expect(dePacketizeRtpPackets("MPEG4-GENERIC", packets).data).toEqual(au);
   });
 
-  it("loads committed vector_aac.bin payloads", () => {
-    // Arrange: コミット済みベクタ（packetizer / GStreamer 生成）
+  it("loads committed vector_aac.bin and matches vector_aac_expected.bin", () => {
+    // Arrange: GStreamer rtpmp4gpay 等のコミット済みベクタ
     const payloads = loadPayloadVector("vector_aac.bin");
     expect(payloads.length).toBeGreaterThan(0);
-    // Act: 先頭は AU ヘッダ付き、フラグメントを連結して復元
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_aac_expected.bin"),
+    );
+    // Act: AU ヘッダを検証しながらフレームを復元
     let fragment: Buffer | undefined;
     const frames: Buffer[] = [];
     for (const p of payloads) {
-      const res = AacHbrRtpPayload.deSerialize(p, fragment);
-      fragment = res.fragment;
-      if (res.payload && !res.fragment) {
-        frames.push(res.payload);
+      try {
+        const res = AacHbrRtpPayload.deSerialize(p, fragment);
+        if (res.fragment) {
+          fragment = res.fragment;
+        } else if (res.payload) {
+          frames.push(res.payload);
+          fragment = undefined;
+        }
+      } catch {
         fragment = undefined;
+        const res = AacHbrRtpPayload.deSerialize(p);
+        if (res.fragment) fragment = res.fragment;
+        else if (res.payload) frames.push(res.payload);
       }
     }
-    // Assert: 少なくとも 1 フレーム復元、ヘッダ長は 16 の倍数
+    const restored = Buffer.concat(frames);
+    // Assert: expected と完全一致
     expect(frames.length).toBeGreaterThan(0);
     expect(payloads[0].readUInt16BE(0) % 16).toBe(0);
+    expect(restored).toEqual(expected);
   });
 
   it("parses optional CTS/DTS when ctsDtsPresent option is set", () => {

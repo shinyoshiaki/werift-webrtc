@@ -16,7 +16,20 @@ committed binaries (and synthetic vectors in `*.test.ts`).
 ```bash
 cd packages/rtp
 npx tsx tools/generateVectors/generate.ts
-# or: node --import tsx tools/generateVectors/generate.ts
+# After capture, expected sidecars are rebuilt automatically.
+# Manual rebuild: npx tsx tools/generateVectors/buildExpectedFromVectors.ts
+```
+
+### Docker (when host has no GStreamer)
+
+```bash
+docker run --rm --network host \
+  -v "$(pwd)/../..":/workspace -w /workspace/packages/rtp \
+  node:20-bookworm bash -c \
+  "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+   gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+   gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \
+   npx tsx tools/generateVectors/generate.ts"
 ```
 
 Each codec opens a UDP socket, launches a short `gst-launch-1.0` pipeline, and

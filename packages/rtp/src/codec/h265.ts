@@ -201,9 +201,9 @@ export class H265RtpPayload implements DePacketizerBase {
         throw new Error("H.265 FU: empty FU payload (RFC 7798 forbids empty)");
       }
 
-      let acc = fragment ?? Buffer.alloc(0);
-
       // On start: reconstruct NAL header (F, LayerId, TID from PayloadHdr; Type from FuType)
+      // Non-start FU without prior fragment is malformed (RFC 7798 §4.4.3 order).
+      let acc: Buffer;
       if (h265.s) {
         const nalHeader = writeH265PayloadHeader({
           f: h265.f,
@@ -213,7 +213,12 @@ export class H265RtpPayload implements DePacketizerBase {
         });
         acc = Buffer.concat([nalHeader, fuPayload]);
       } else {
-        acc = Buffer.concat([acc, fuPayload]);
+        if (!fragment || fragment.length === 0) {
+          throw new Error(
+            "H.265 FU: received non-start fragment (S=0) without prior FU start (S=1)",
+          );
+        }
+        acc = Buffer.concat([fragment, fuPayload]);
       }
 
       if (h265.e) {

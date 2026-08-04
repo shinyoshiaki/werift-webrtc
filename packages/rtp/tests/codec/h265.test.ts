@@ -281,8 +281,8 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
     ).toBe(false);
   });
 
-  it("loads committed H.265 vector payloads", () => {
-    // Arrange: tools/generateVectors 成果物
+  it("loads committed H.265 vector and matches vector_h265_expected.bin", () => {
+    // Arrange: GStreamer rtph265pay 成果物
     const path = join(__dirname, "../data/vector_h265.bin");
     expect(existsSync(path)).toBe(true);
     const buf = readFileSync(path);
@@ -294,13 +294,47 @@ describe("packages/rtp/tests/codec/h265.test.ts", () => {
       payloads.push(buf.subarray(offset, offset + len));
       offset += len;
     }
-    // Assert: 各ペイロードが deSerialize 可能（不完全 FU は fragment で終了し得る）
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_h265_expected.bin"),
+    );
+    // Act: 単一 NAL / AP / FU を順に復元
     expect(payloads.length).toBeGreaterThan(0);
     let fragment: Buffer | undefined;
+    const parts: Buffer[] = [];
     for (const p of payloads) {
       const res = H265RtpPayload.deSerialize(p, fragment);
       fragment = res.fragment;
+      if (res.payload) {
+        parts.push(res.payload);
+        if (!res.fragment) fragment = undefined;
+      }
     }
+    const restored = Buffer.concat(parts);
+    // Assert: expected と完全一致、Annex-B 開始コードを含む
+    expect(restored).toEqual(expected);
+    expect(restored.length).toBeGreaterThan(0);
+    expect(restored.subarray(0, 4)).toEqual(
+      Buffer.from([0x00, 0x00, 0x00, 0x01]),
+    );
+  });
+
+  it("rejects non-start FU (S=0) without prior fragment", () => {
+    // Arrange: FU Type=49, S=0 E=1 without prior S=1
+    const fuHdr = writeH265PayloadHeader({
+      f: 0,
+      type: H265_PAYLOAD_TYPE_FU,
+      layerId: 0,
+      tid: 1,
+    });
+    const mid = Buffer.concat([
+      fuHdr,
+      Buffer.from([0x40 | 1]), // S=0 E=1 FuType=1
+      Buffer.from([0xaa, 0xbb]),
+    ]);
+    // Act / Assert: 不完全な NAL を作らず例外
+    expect(() => H265RtpPayload.deSerialize(mid)).toThrow(
+      /without prior FU start/,
+    );
   });
 
   // --- wire-format boundary cases (RFC 7798 §4.4) ---

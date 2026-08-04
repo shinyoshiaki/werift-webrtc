@@ -87,7 +87,7 @@ describe("packages/rtp/tests/codec/g722.test.ts", () => {
   });
 
   it("loads committed vector_g722.bin and round-trips expected body", () => {
-    // Arrange
+    // Arrange: GStreamer (or synthetic) payloads + expected sidecar
     const payloads = loadPayloadVector("vector_g722.bin");
     expect(payloads.length).toBeGreaterThan(0);
     const expectedPath = join(__dirname, "../data/vector_g722_expected.bin");
@@ -96,8 +96,9 @@ describe("packages/rtp/tests/codec/g722.test.ts", () => {
     const restored = Buffer.concat(
       payloads.map((p) => G722RtpPayload.deSerialize(p).payload),
     );
-    // Assert: 20ms @ 8000 octets/s = 160
+    // Assert: オクテット連結が expected と一致（GST 時は複数 160B フレーム）
     expect(restored).toEqual(expected);
-    expect(restored.length).toBe(160);
+    expect(restored.length).toBe(expected.length);
+    expect(restored.length % 160).toBe(0); // 20ms 境界
   });
 });

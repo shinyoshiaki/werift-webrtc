@@ -148,25 +148,33 @@ describe("packages/rtp/tests/codec/g711.test.ts", () => {
     expect(Buffer.concat(packets.map((p) => p.payload))).toEqual(data);
   });
 
-  it("loads committed PCMU vector payloads", () => {
-    // Arrange: tools/generateVectors 成果物（合成 or GStreamer）
+  it("loads committed PCMU vector and matches expected body", () => {
+    // Arrange: GStreamer rtppcmupay 成果物
     const payloads = loadPayloadVector("vector_pcmu.bin");
-    // Assert: コミット済みベクタが読める
     expect(payloads.length).toBeGreaterThan(0);
-    // Act: 各ペイロードを deSerialize
-    for (const p of payloads) {
-      const res = PcmuRtpPayload.deSerialize(p);
-      expect(res.payload.length).toBe(p.length);
-    }
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_pcmu_expected.bin"),
+    );
+    // Act
+    const restored = Buffer.concat(
+      payloads.map((p) => PcmuRtpPayload.deSerialize(p).payload),
+    );
+    // Assert
+    expect(restored).toEqual(expected);
   });
 
-  it("loads committed PCMA vector payloads", () => {
+  it("loads committed PCMA vector and matches expected body", () => {
     // Arrange
     const payloads = loadPayloadVector("vector_pcma.bin");
-    // Assert
     expect(payloads.length).toBeGreaterThan(0);
-    expect(PcmaRtpPayload.deSerialize(payloads[0]).payload).toEqual(
-      payloads[0],
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_pcma_expected.bin"),
     );
+    // Act
+    const restored = Buffer.concat(
+      payloads.map((p) => PcmaRtpPayload.deSerialize(p).payload),
+    );
+    // Assert
+    expect(restored).toEqual(expected);
   });
 });

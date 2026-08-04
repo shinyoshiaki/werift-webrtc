@@ -18,6 +18,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { RtpPacket } from "../../src";
+import { buildExpectedFromVectors } from "./buildExpectedFromVectors";
 import { writeSyntheticVectors } from "./writeSyntheticVectors";
 
 const OUT_DIR = join(__dirname, "../../tests/data");
@@ -279,12 +280,29 @@ async function main() {
     );
     writeSyntheticVectors();
   } else {
-    // Partial GST success: still ensure DTMF synthetic + any missing expected files
-    // are present via synthetic writer for codecs that did not capture.
     writeFileSync(
       join(OUT_DIR, "VECTOR_SOURCE.md"),
-      `# RTP test vector source\n\nMixed GStreamer capture (${wrote} codecs) and/or synthetic fallback.\nRegenerate fully with: npx tsx tools/generateVectors/generate.ts\n`,
+      `# RTP test vector source
+
+**GStreamer-generated** (${wrote} codecs via gst-launch-1.0).
+
+Regenerate (Docker example if host has no GStreamer):
+
+\`\`\`bash
+docker run --rm --network host -v "$(pwd)/../..":/workspace -w /workspace/packages/rtp \\
+  node:20-bookworm bash -c \\
+  "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \\
+   gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \\
+   gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \\
+   npx tsx tools/generateVectors/generate.ts"
+\`\`\`
+
+Expected sidecars are rebuilt automatically after capture.
+telephone-event remains synthetic (no standard GST payloader).
+`,
     );
+    // Depacketize / concat payloads → *_expected.bin for test equality
+    buildExpectedFromVectors();
   }
   console.log("Done. Commit tests/data/vector_*.bin if refreshed.");
 }

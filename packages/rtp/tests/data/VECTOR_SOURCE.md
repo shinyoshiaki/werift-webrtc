@@ -1,19 +1,24 @@
 # RTP test vector source
 
-When GStreamer (`gst-launch-1.0`) is available, prefer:
+**GStreamer-generated** via Docker (`gst-launch-1.0` + plugins-good/ugly/libav).
 
+Regenerate:
 ```bash
-npx tsx tools/generateVectors/generate.ts
+docker run --rm --network host -v $(pwd)/../..:/workspace -w /workspace/packages/rtp \
+  node:20-bookworm bash -c \
+  "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+   gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+   gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-plugins-bad && \
+   npx tsx tools/generateVectors/generate.ts"
 ```
 
-Otherwise this file is written by `writeSyntheticVectors.ts`: RFC-accurate
-wire payloads from package packetizers with non-repeating PRNG media bodies
-(not constant fill bytes). Format: `[u16be length][payload]` records.
+Then rebuild expected sidecars: `npx tsx tools/generateVectors/buildExpectedFromVectors.ts`
 
-| File | Contents |
-|------|----------|
-| vector_pcmu.bin / vector_pcma.bin | G.711 20ms frames |
-| vector_g722.bin + vector_g722_expected.bin | G.722 + original body |
-| vector_aac.bin + vector_aac_expected.bin | AAC-hbr fragments + complete |
-| vector_h265.bin | H.265 AP/FU (mixed F/LayerId/TID) |
-| vector_telephone_event.bin | RFC 4733 start + end events |
+| File | Source |
+|------|--------|
+| vector_pcmu.bin / vector_pcma.bin | GStreamer mulaw/alaw + rtppay |
+| vector_g722.bin | GStreamer avenc_g722 + rtpg722pay |
+| vector_aac.bin | GStreamer avenc_aac + rtpmp4gpay |
+| vector_h265.bin | GStreamer x265enc + rtph265pay |
+| vector_telephone_event.bin | Synthetic RFC 4733 (no GST payloader) |
+| vector_*_expected.bin | Depacketized / concatenated media for tests |
