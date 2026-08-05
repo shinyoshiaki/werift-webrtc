@@ -8,10 +8,10 @@
 // Z/Y mark fragment continuation; N marks start of a new coded video sequence
 // (keyframe, first packet only). N=1 and Z=1 together are forbidden.
 
-import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import { BitWriter, BitWriter2, debug, getBit } from "../imports/common";
-import { leb128encode } from "./leb128";
+import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import { PacketizerBase, type PacketizerBaseOptions } from "./base";
+import { leb128encode } from "./leb128";
 
 const log = debug("werift-rtp : packages/rtp/src/codec/av1.ts");
 

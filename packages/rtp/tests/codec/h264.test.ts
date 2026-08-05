@@ -241,8 +241,6 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     );
     // 1-byte Single NAL is accepted (type 1–23) as full NAL packaging
     const single = H264RtpPayload.deSerialize(Buffer.from([0x61]));
-    expect(single.payload).toEqual(
-      Buffer.from([0x00, 0x00, 0x00, 0x01, 0x61]),
-    );
+    expect(single.payload).toEqual(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x61]));
   });
 });

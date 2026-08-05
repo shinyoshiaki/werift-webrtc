@@ -13,10 +13,15 @@ telephone-event is the RFC 4733 exception: marker on the first event packet).
 
 ## Extended by
 
+- [`Av1Packetizer`](Av1Packetizer.md)
 - [`G722Packetizer`](G722Packetizer.md)
+- [`H264Packetizer`](H264Packetizer.md)
 - [`H265Packetizer`](H265Packetizer.md)
 - [`AacHbrPacketizer`](AacHbrPacketizer.md)
+- [`OpusPacketizer`](OpusPacketizer.md)
 - [`TelephoneEventPacketizer`](TelephoneEventPacketizer.md)
+- [`Vp8Packetizer`](Vp8Packetizer.md)
+- [`Vp9Packetizer`](Vp9Packetizer.md)
 
 ## Implements
 

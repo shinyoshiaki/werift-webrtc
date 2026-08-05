@@ -82,11 +82,11 @@
 
 ### isDetectedFinalPacketInSequence()
 
-> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+> `static` **isDetectedFinalPacketInSequence**(`_header`): `boolean`
 
 #### Parameters
 
-##### header
+##### \_header
 
 [`RtpHeader`](RtpHeader.md)
 

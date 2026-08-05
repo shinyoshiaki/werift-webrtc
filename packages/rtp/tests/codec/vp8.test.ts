@@ -1,8 +1,4 @@
-import {
-  Vp8Packetizer,
-  Vp8RtpPayload,
-  dePacketizeRtpPackets,
-} from "../../src";
+import { Vp8Packetizer, Vp8RtpPayload, dePacketizeRtpPackets } from "../../src";
 
 // RFC 7741 §4.2 descriptor (X=0 minimal), §4.3 payload header P bit (keyframe)
 

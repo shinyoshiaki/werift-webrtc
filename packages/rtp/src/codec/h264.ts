@@ -114,9 +114,7 @@ export class H264RtpPayload implements DePacketizerBase {
         const naluSize = buf.readUInt16BE(stapOffset);
         stapOffset += stap_aNALULengthSize;
         if (stapOffset + naluSize > buf.length) {
-          throw new Error(
-            `H.264 STAP-A: NALU size ${naluSize} exceeds buffer`,
-          );
+          throw new Error(`H.264 STAP-A: NALU size ${naluSize} exceeds buffer`);
         }
         result = Buffer.concat([
           result,
@@ -394,9 +392,10 @@ export class H264Packetizer extends PacketizerBase {
       return [];
     }
 
-    const hasIdr = nalUnits.some((n) => h264NalType(n) === NalUnitType.idrSlice);
-    const isKey =
-      options.isKeyframe ?? this.defaultIsKeyframe ?? hasIdr;
+    const hasIdr = nalUnits.some(
+      (n) => h264NalType(n) === NalUnitType.idrSlice,
+    );
+    const isKey = options.isKeyframe ?? this.defaultIsKeyframe ?? hasIdr;
 
     // Prepend only parameter-set types absent from the sample (SPS ≠ PPS).
     if (isKey && this.parameterSets.length > 0) {

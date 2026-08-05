@@ -77,10 +77,7 @@ describe("codec/av1 packetizer", () => {
 
   it("splitAv1Obus handles no-size-field single OBU", () => {
     // Arrange: header 0x30 (type FRAME, no size) + payload
-    const sample = Buffer.concat([
-      Buffer.from([0x30]),
-      Buffer.alloc(10, 0x55),
-    ]);
+    const sample = Buffer.concat([Buffer.from([0x30]), Buffer.alloc(10, 0x55)]);
     // Act
     const obus = splitAv1Obus(sample);
     // Assert
@@ -132,10 +129,7 @@ describe("codec/av1 packetizer", () => {
 
   it("delta frame does not set N bit", () => {
     // Arrange
-    const frame = Buffer.concat([
-      Buffer.from([0x30]),
-      Buffer.alloc(50, 0x11),
-    ]);
+    const frame = Buffer.concat([Buffer.from([0x30]), Buffer.alloc(50, 0x11)]);
     // Act
     const packets = new Av1Packetizer({ sequenceNumber: 1 }).packetize(
       frame,
@@ -235,4 +229,3 @@ describe("codec/av1 packetizer", () => {
     expect(depacketized.data.equals(frame)).toBe(true);
   });
 });
-

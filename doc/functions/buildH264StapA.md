@@ -1,8 +1,8 @@
-[**werift-rtp**](../README.md)
+[**werift**](../README.md)
 
 ***
 
-[werift-rtp](../globals.md) / buildH264StapA
+[werift](../globals.md) / buildH264StapA
 
 # Function: buildH264StapA()
 

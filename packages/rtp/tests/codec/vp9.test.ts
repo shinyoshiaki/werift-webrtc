@@ -1,8 +1,4 @@
-import {
-  Vp9Packetizer,
-  Vp9RtpPayload,
-  dePacketizeRtpPackets,
-} from "../../src";
+import { Vp9Packetizer, Vp9RtpPayload, dePacketizeRtpPackets } from "../../src";
 
 const kMaxOneBytePictureId = 0x7f; // 7 bits
 const kMaxTwoBytePictureId = 0x7fff; // 15 bits
