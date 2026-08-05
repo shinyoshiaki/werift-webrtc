@@ -66,6 +66,12 @@ export class H264RtpPayload implements DePacketizerBase {
   static deSerialize(buf: Buffer, fragment?: Buffer) {
     const h264 = new H264RtpPayload();
 
+    if (buf.length < 1) {
+      throw new Error(
+        "H.264 RTP payload too short: expected at least 1 byte (NAL/FU indicator)",
+      );
+    }
+
     let offset = 0;
 
     const naluHeader = buf[offset];
@@ -74,33 +80,49 @@ export class H264RtpPayload implements DePacketizerBase {
     h264.nalUnitType = getBit(naluHeader, 3, 5);
     offset++;
 
+    // デフォルトでは packetization-mode=0
+    // packetization-mode=0だとSingle NAL Unit Packetしか来ない
+    // https://datatracker.ietf.org/doc/html/rfc6184#section-6.2
+
+    // Single NAL Unit Packet — full payload is the NAL (no second header byte)
+    if (0 < h264.nalUnitType && h264.nalUnitType < NalUnitType.stap_a) {
+      h264.payload = this.packaging(buf);
+      return h264;
+    }
+
+    // STAP-A / FU-A need at least indicator + one more octet
+    if (buf.length < 2) {
+      throw new Error(
+        `H.264 RTP payload too short for type ${h264.nalUnitType}: expected at least 2 bytes, got ${buf.length}`,
+      );
+    }
+
     h264.s = getBit(buf[offset], 0);
     h264.e = getBit(buf[offset], 1);
     h264.r = getBit(buf[offset], 2);
     h264.nalUnitPayloadType = getBit(buf[offset], 3, 5);
     offset++;
 
-    // デフォルトでは packetization-mode=0
-    // packetization-mode=0だとSingle NAL Unit Packetしか来ない
-    // https://datatracker.ietf.org/doc/html/rfc6184#section-6.2
-
-    // Single NAL Unit Packet
-    if (0 < h264.nalUnitType && h264.nalUnitType < NalUnitType.stap_a) {
-      h264.payload = this.packaging(buf);
-    }
     // Single-time aggregation packet
-    else if (h264.nalUnitType === NalUnitType.stap_a) {
-      let offset = stap_aHeaderSize;
+    if (h264.nalUnitType === NalUnitType.stap_a) {
+      let stapOffset = stap_aHeaderSize;
       let result: Buffer = Buffer.alloc(0);
-      while (offset < buf.length) {
-        const naluSize = buf.readUInt16BE(offset);
-        offset += stap_aNALULengthSize;
-
+      while (stapOffset < buf.length) {
+        if (stapOffset + stap_aNALULengthSize > buf.length) {
+          throw new Error("H.264 STAP-A: NALU size field exceeds buffer");
+        }
+        const naluSize = buf.readUInt16BE(stapOffset);
+        stapOffset += stap_aNALULengthSize;
+        if (stapOffset + naluSize > buf.length) {
+          throw new Error(
+            `H.264 STAP-A: NALU size ${naluSize} exceeds buffer`,
+          );
+        }
         result = Buffer.concat([
           result,
-          this.packaging(buf.subarray(offset, offset + naluSize)),
+          this.packaging(buf.subarray(stapOffset, stapOffset + naluSize)),
         ]);
-        offset += naluSize;
+        stapOffset += naluSize;
       }
       h264.payload = result;
     }
@@ -283,6 +305,9 @@ export function selectMissingH264ParameterSets(
  *   STAP-A header (F/NRI/Type=24) + repeated [16-bit NALU size][NAL]
  * F = OR of F of aggregated NALs; NRI = max of NRI of aggregated NALs.
  */
+/** Minimum NAL size: 1-byte header + at least 1 payload octet (packetizer contract). */
+export const H264_MIN_NAL_LENGTH = 2;
+
 export function buildH264StapA(nalus: Buffer[]): Buffer {
   if (nalus.length < 2) {
     throw new Error("H.264 STAP-A requires at least two NAL units");
@@ -290,8 +315,10 @@ export function buildH264StapA(nalus: Buffer[]): Buffer {
   let f = 0;
   let nri = 0;
   for (const n of nalus) {
-    if (n.length < 1) {
-      throw new Error("H.264 STAP-A: empty NAL unit");
+    if (n.length < H264_MIN_NAL_LENGTH) {
+      throw new Error(
+        `H.264 STAP-A: NAL unit too short (need ≥${H264_MIN_NAL_LENGTH} bytes, got ${n.length})`,
+      );
     }
     if (n.length > 0xffff) {
       throw new Error("H.264 NAL unit too large for STAP-A size field");
@@ -418,8 +445,11 @@ export class H264Packetizer extends PacketizerBase {
       const nal = nalUnits[index];
       const marker = index === nalUnits.length - 1;
 
-      if (nal.length === 0) {
-        throw new Error("H.264 empty NAL unit");
+      // Reject empty / 1-byte (header-only) NALs: depacketizer and FU need ≥2 octets
+      if (nal.length < H264_MIN_NAL_LENGTH) {
+        throw new Error(
+          `H.264 NAL unit too short: expected at least ${H264_MIN_NAL_LENGTH} bytes (NAL header + data), got ${nal.length}`,
+        );
       }
 
       if (nal.length <= this.maxPayloadSize) {
@@ -429,9 +459,6 @@ export class H264Packetizer extends PacketizerBase {
       }
 
       // FU-A (RFC 6184 §5.8)
-      if (nal.length < 2) {
-        throw new Error("H.264 NAL too short to fragment");
-      }
       const nalHeader = nal[0];
       const fragmentPayload = nal.subarray(1);
       const fragmentSize = this.maxPayloadSize - 2; // FU indicator + FU header

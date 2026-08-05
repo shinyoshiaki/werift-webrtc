@@ -213,4 +213,36 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     // Act
     expect(new H264Packetizer().packetize(Buffer.alloc(0), 0)).toEqual([]);
   });
+
+  it("packetizer rejects 1-byte NAL with a clear Error (not TypeError)", () => {
+    // Arrange: Annex-B のヘッダのみ NAL（1 バイト）は不正として拒否
+    const oneByteNal = Buffer.from([0x61]); // type=1, NRI=3, no RBSP
+    const sample = annexB(oneByteNal);
+    const packetizer = new H264Packetizer({ sequenceNumber: 1 });
+    // Act / Assert: 予測可能な Error（TypeError ではない）
+    expect(() => packetizer.packetize(sample, 0)).toThrow(/too short/);
+    try {
+      packetizer.packetize(sample, 0);
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error);
+      expect(e).not.toBeInstanceOf(TypeError);
+    }
+  });
+
+  it("deSerialize rejects empty and short STAP-A/FU without TypeError", () => {
+    // Act / Assert: 空ペイロード
+    expect(() => H264RtpPayload.deSerialize(Buffer.alloc(0))).toThrow(
+      /too short/,
+    );
+    // STAP-A indicator only (type 24) without size field
+    expect(() => H264RtpPayload.deSerialize(Buffer.from([24]))).toThrow(
+      /too short/,
+    );
+    // 1-byte Single NAL is accepted (type 1–23) as full NAL packaging
+    const single = H264RtpPayload.deSerialize(Buffer.from([0x61]));
+    expect(single.payload).toEqual(
+      Buffer.from([0x00, 0x00, 0x00, 0x01, 0x61]),
+    );
+  });
 });

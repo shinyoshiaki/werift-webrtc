@@ -180,7 +180,15 @@ export class AV1RtpPayload {
         frames.push(data);
       }
     }
+    // Re-serialize OBUs. Non-last OBUs always carry a size field so the
+    // bitstream is self-delimiting; the last OBU keeps its original
+    // obu_has_size_field (size present or remainder-of-buffer).
+    // Size-field LEB128 is re-encoded canonically from the payload body
+    // (AV1Obu.deSerialize strips LEB128 into payload-only).
     const obus = frames.map((f) => AV1Obu.deSerialize(f));
+    if (obus.length === 0) {
+      return Buffer.alloc(0);
+    }
     const lastObu = obus.pop()!;
     return Buffer.concat([
       ...obus.map((o) => {
@@ -198,9 +206,20 @@ export class AV1Obu {
   obu_extension_flag!: number;
   obu_has_size_field!: number;
   obu_reserved_1bit!: number;
+  /** Present when obu_extension_flag=1 (TID/SID byte). */
+  extension_header?: number;
+  /** OBU payload body only (LEB128 size field is not part of payload). */
   payload!: Buffer;
 
+  /**
+   * Parse one OBU element.
+   * When `obu_has_size_field` is set, consumes LEB128 size and takes exactly
+   * that many payload octets (AV1 bitstream / AV1 RTP OBU element).
+   */
   static deSerialize(buf: Buffer) {
+    if (buf.length < 1) {
+      throw new Error("AV1 OBU too short: expected at least 1 header byte");
+    }
     const obu = new AV1Obu();
     let offset = 0;
     obu.obu_forbidden_bit = getBit(buf[offset], 0);
@@ -211,7 +230,31 @@ export class AV1Obu {
     obu.obu_reserved_1bit = getBit(buf[offset], 7);
     offset++;
 
-    obu.payload = buf.subarray(offset);
+    if (obu.obu_extension_flag) {
+      if (offset >= buf.length) {
+        throw new Error(
+          "AV1 OBU: extension flag set but extension byte missing",
+        );
+      }
+      obu.extension_header = buf[offset];
+      offset++;
+    }
+
+    if (obu.obu_has_size_field) {
+      const [obuSize, leb128Length] = leb128decode(buf.subarray(offset));
+      offset += leb128Length;
+      const end = offset + obuSize;
+      if (end > buf.length) {
+        throw new Error(
+          `AV1 OBU size field ${obuSize} exceeds remaining buffer ${buf.length - offset}`,
+        );
+      }
+      // Payload is body only; size is re-encoded on serialize
+      obu.payload = buf.subarray(offset, end);
+    } else {
+      // No size field: remainder is the payload (typical last OBU)
+      obu.payload = buf.subarray(offset);
+    }
 
     return obu;
   }
@@ -223,11 +266,15 @@ export class AV1Obu {
       .set(this.obu_extension_flag)
       .set(this.obu_has_size_field)
       .set(this.obu_reserved_1bit).buffer;
+    const ext =
+      this.obu_extension_flag && this.extension_header !== undefined
+        ? Buffer.from([this.extension_header & 0xff])
+        : Buffer.alloc(0);
     let obuSize: Buffer = Buffer.alloc(0);
     if (this.obu_has_size_field) {
       obuSize = leb128encode(this.payload.length);
     }
-    return Buffer.concat([header, obuSize, this.payload]);
+    return Buffer.concat([header, ext, obuSize, this.payload]);
   }
 }
 
