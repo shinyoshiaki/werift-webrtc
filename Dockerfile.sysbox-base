@@ -22,9 +22,48 @@ RUN apt-get update \
   && dbus-uuidgen --ensure=/etc/machine-id
 RUN npm install -g @anthropic-ai/claude-code @github/copilot @openai/codex opencode-ai
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends clang llvm lld build-essential pkg-config libssl-dev cmake make libavcodec-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 xfonts-cyrillic xfonts-scalable xvfb
+  && apt-get install -y --no-install-recommends clang llvm lld build-essential pkg-config libssl-dev cmake make ninja-build curl ca-certificates libavcodec-dev libavfilter-dev libopus-dev libvpx-dev libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 xfonts-cyrillic xfonts-scalable xvfb
 # sak-additional-run-commands
 RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm --version
+# Pinned BoringSSL + DTLS 1.3 UDP client/server for WARP / RFC 9147 interop.
+# Source: packages/dtls/tools/boringssl-dtls13 (install.sh pin + smoke test).
+COPY packages/dtls/tools/boringssl-dtls13 /usr/src/werift-boringssl-dtls13
+RUN set -eux; \
+  bash /usr/src/werift-boringssl-dtls13/install.sh; \
+  test -x /usr/local/bin/bssl; \
+  test -x /usr/local/bin/boringssl-dtls13; \
+  /usr/local/bin/bssl version || true; \
+  test -f /usr/local/share/werift-boringssl-pin.txt; \
+  cat /usr/local/share/werift-boringssl-pin.txt; \
+  rm -rf /usr/src/werift-boringssl-dtls13
+ENV WERIFT_BORINGSSL_BSSL=/usr/local/bin/bssl
+ENV PATH="/usr/local/bin:${PATH}"
+# Go + pinned pion/stun SPED attribute smoke tool (IANA 0xC070 / 0xC071).
+# Source: packages/ice/tools/pion-sped (install.sh pin + smoke test).
+COPY packages/ice/tools/pion-sped /usr/src/werift-pion-sped
+RUN set -eux; \
+  bash /usr/src/werift-pion-sped/install.sh; \
+  test -x /usr/local/bin/pion-sped; \
+  /usr/local/bin/pion-sped check; \
+  test -f /usr/local/share/werift-pion-sped-pin.txt; \
+  cat /usr/local/share/werift-pion-sped-pin.txt; \
+  rm -rf /usr/src/werift-pion-sped
+ENV WERIFT_PION_SPED=/usr/local/bin/pion-sped
+ENV GOROOT=/usr/local/go
+ENV PATH="/usr/local/go/bin:/usr/local/bin:${PATH}"
+# Pinned pion SPED ICE+DTLS agent for required both-role / non-SPED fallback interop.
+# Source: packages/ice/tools/pion-sped-agent (install.sh; binary not committed).
+# Depends on boringssl-dtls13 already on PATH (layer above).
+COPY packages/ice/tools/pion-sped-agent /usr/src/werift-pion-sped-agent
+RUN set -eux; \
+  bash /usr/src/werift-pion-sped-agent/install.sh; \
+  test -x /usr/local/bin/pion-sped-agent; \
+  test -f /usr/local/share/werift-pion-sped-agent-pin.txt; \
+  cat /usr/local/share/werift-pion-sped-agent-pin.txt; \
+  # Agent invokes boringssl-dtls13 for DTLS 1.3 (already installed).
+  command -v boringssl-dtls13; \
+  rm -rf /usr/src/werift-pion-sped-agent /tmp/werift-pion-sped-agent-build
+ENV WERIFT_PION_SPED_AGENT=/usr/local/bin/pion-sped-agent
 # sak-additional-run-commands-end
 RUN apt-get clean \
   && rm -rf /var/lib/apt/lists/*
