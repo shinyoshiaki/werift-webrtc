@@ -65,7 +65,8 @@ const packets = pcmu.packetize(pcmUlawBytes, rtpTimestamp);
 const h265 = new H265Packetizer({ maxPayloadSize: 1200 });
 const videoPackets = h265.packetize(annexBOrLengthPrefixedSample, ts);
 
-// H.264 keyframe: SPS/PPS via STAP-A when they fit; else Single NAL
+// H.264 keyframe: only missing SPS/PPS types are prepended (checked separately);
+// STAP-A when ≥2 sets fit, else Single NAL
 const h264 = new H264Packetizer({
   parameterSets: [spsNal, ppsNal],
 });
@@ -132,7 +133,7 @@ that codec without overwriting committed files.
 Where earlier task notes disagreed with the RFCs, **`docs/rfc/` text is authoritative** (ticket text has been aligned):
 
 - **H.265** (RFC 7798): AP Type=**48**, FU Type=**49**. AP PayloadHdr: **F = OR** of aggregated NALs, **LayerId/TID = minimum**. FU **F** equals the fragmented NAL’s F bit.
-- **H.264** (RFC 6184): packetization-mode=**1**; keyframe SPS/PPS prefer **STAP-A** (Type 24) when ≥2 sets fit MTU, else individual Single NAL; large NAL → **FU-A** (Type 28).
+- **H.264** (RFC 6184): packetization-mode=**1**; keyframe SPS/PPS are checked **independently** (sample with SPS-only still gets PPS); prefer **STAP-A** (Type 24) when ≥2 leading sets fit MTU, else Single NAL; large NAL → **FU-A** (Type 28).
 - **VP9** (RFC 9628): payload descriptor `I|P|L|F|B|E|V|Z`; package packetizer uses the legal minimal subset (no Picture ID / SS).
 - **Opus** (RFC 7587): no codec header; **do not** MTU-split one Opus packet (TOC would break).
 - **G.722** (RFC 3551 §4.5.2): RTP clock **and** octet rate are **8000**/s (20 ms = **160** octets, not 320).

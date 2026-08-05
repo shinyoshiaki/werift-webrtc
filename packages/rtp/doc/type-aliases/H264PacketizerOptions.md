@@ -28,5 +28,6 @@ Length field size for AVCC input (default 4). Ignored for Annex-B.
 > `optional` **parameterSets**: `Buffer`[]
 
 Parameter sets (SPS/PPS as raw NAL units without start codes).
-On IDR / keyframe, prepended when not already present in the sample.
-Prefer STAP-A when ≥2 sets fit; else individual Single NAL.
+On IDR / keyframe, only types missing from the sample are prepended
+(SPS and PPS checked independently — partial sample SPS-only gets PPS only).
+Prefer STAP-A when ≥2 leading sets fit; else individual Single NAL.

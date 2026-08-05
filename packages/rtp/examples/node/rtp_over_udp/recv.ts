@@ -3,7 +3,8 @@
  *
  * Usage:
  *   npx tsx examples/node/rtp_over_udp/recv.ts [port] [codec]
- * codec: pcmu | pcma | g722 | aac | h265 | vp8 | opus | h264  (default pcmu)
+ * codec: pcmu | pcma | g722 | aac | h265 | vp8 | vp9 | av1 | opus | h264
+ *   (default pcmu)
  *
  * Listens on 127.0.0.1, depacketizes, and prints frame size / keyframe.
  * When RUN_SELF_TEST=1, binds an ephemeral port, spawns an in-process
@@ -14,6 +15,7 @@ import { createSocket } from "dgram";
 
 import {
   AacHbrPacketizer,
+  Av1Packetizer,
   G722Packetizer,
   H264Packetizer,
   H265Packetizer,
@@ -22,6 +24,7 @@ import {
   PcmuPacketizer,
   RtpPacket,
   Vp8Packetizer,
+  Vp9Packetizer,
   dePacketizeRtpPackets,
   type DepacketizerCodec,
   writeH265PayloadHeader,
@@ -37,6 +40,8 @@ const codecMap: Record<string, DepacketizerCodec> = {
   aac: "MPEG4-GENERIC",
   h265: "H265",
   vp8: "VP8",
+  vp9: "VP9",
+  av1: "AV1",
   opus: "OPUS",
   h264: "MPEG4/ISO/AVC",
 };
@@ -114,6 +119,25 @@ async function selfTest() {
         sequenceNumber: 1,
         maxPayloadSize: 120,
       }).packetize(expected, 0);
+      break;
+    }
+    case "vp9": {
+      expected = Buffer.alloc(400, 0x7b);
+      packets = new Vp9Packetizer({
+        sequenceNumber: 1,
+        maxPayloadSize: 120,
+      }).packetize(expected, 0, { frameType: "key" });
+      break;
+    }
+    case "av1": {
+      expected = Buffer.concat([
+        Buffer.from([0x30]),
+        Buffer.alloc(400, 0x55),
+      ]);
+      packets = new Av1Packetizer({
+        sequenceNumber: 1,
+        maxPayloadSize: 120,
+      }).packetize(expected, 0, { frameType: "key" });
       break;
     }
     case "opus": {

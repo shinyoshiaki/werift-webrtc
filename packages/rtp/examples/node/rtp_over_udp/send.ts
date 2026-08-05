@@ -3,7 +3,8 @@
  *
  * Usage:
  *   npx tsx examples/node/rtp_over_udp/send.ts [host] [port] [codec]
- * codec: pcmu | pcma | g722 | aac | h265 | vp8 | opus | h264  (default pcmu)
+ * codec: pcmu | pcma | g722 | aac | h265 | vp8 | vp9 | av1 | opus | h264
+ *   (default pcmu)
  *
  * Pair with recv.ts on the same host/port for a round-trip check.
  */
@@ -12,6 +13,7 @@ import { createSocket } from "dgram";
 
 import {
   AacHbrPacketizer,
+  Av1Packetizer,
   G722Packetizer,
   H264Packetizer,
   H265Packetizer,
@@ -19,6 +21,7 @@ import {
   PcmaPacketizer,
   PcmuPacketizer,
   Vp8Packetizer,
+  Vp9Packetizer,
   writeH265PayloadHeader,
 } from "../../../src";
 
@@ -92,6 +95,35 @@ function buildFrames(codecName: string): { packets: import("../../../src").RtpPa
         maxPayloadSize: 120,
       });
       return { packets: p.packetize(frame, 0), label: "VP8 keyframe" };
+    }
+    case "vp9": {
+      // RFC 9628: raw VP9 frame, key (P=0)
+      const frame = Buffer.alloc(400, 0x7b);
+      const p = new Vp9Packetizer({
+        sequenceNumber: 1,
+        ssrc: 0x11223344,
+        maxPayloadSize: 120,
+      });
+      return {
+        packets: p.packetize(frame, 0, { frameType: "key" }),
+        label: "VP9 keyframe",
+      };
+    }
+    case "av1": {
+      // AV1 RTP: single OBU without size field (header 0x30 = FRAME)
+      const frame = Buffer.concat([
+        Buffer.from([0x30]),
+        Buffer.alloc(400, 0x55),
+      ]);
+      const p = new Av1Packetizer({
+        sequenceNumber: 1,
+        ssrc: 0x11223344,
+        maxPayloadSize: 120,
+      });
+      return {
+        packets: p.packetize(frame, 0, { frameType: "key" }),
+        label: "AV1 keyframe",
+      };
     }
     case "opus": {
       const data = Buffer.from([0xfc, 0xaa, 0xbb, 0xcc, 0xdd]);

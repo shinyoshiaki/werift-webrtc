@@ -4,6 +4,7 @@ import {
   NalUnitType,
   buildH264StapA,
   dePacketizeRtpPackets,
+  selectMissingH264ParameterSets,
   splitH264NalUnits,
 } from "../../src";
 
@@ -145,6 +146,47 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     const frame = dePacketizeRtpPackets("MPEG4/ISO/AVC", packets);
     // Assert: 二重付与なし
     expect(stripAnnexB(frame.data)).toEqual([sps, pps, idr]);
+  });
+
+  it("prepends only missing PPS when sample already has SPS (partial keyframe)", () => {
+    // Arrange: サンプルは SPS+IDR、parameterSets に SPS+PPS
+    // 不具合回帰: 「SPS or PPS のいずれかがあれば全スキップ」だと PPS が欠落する
+    const sps = makeNal(NalUnitType.sps, Buffer.from([0x11]));
+    const pps = makeNal(NalUnitType.pps, Buffer.from([0x22]));
+    const idr = makeNal(NalUnitType.idrSlice, Buffer.from([0x33]));
+    const sample = annexB(sps, idr);
+    const packetizer = new H264Packetizer({
+      sequenceNumber: 1,
+      parameterSets: [sps, pps],
+    });
+    // Act
+    const packets = packetizer.packetize(sample, 0);
+    const frame = dePacketizeRtpPackets("MPEG4/ISO/AVC", packets);
+    // Assert: 欠落していた PPS のみ前置（SPS は二重付与しない）
+    expect(stripAnnexB(frame.data)).toEqual([pps, sps, idr]);
+    expect(selectMissingH264ParameterSets([sps, pps], [sps, idr])).toEqual([
+      pps,
+    ]);
+  });
+
+  it("prepends only missing SPS when sample already has PPS (partial keyframe)", () => {
+    // Arrange: サンプルは PPS+IDR、parameterSets に SPS+PPS
+    const sps = makeNal(NalUnitType.sps, Buffer.from([0x11]));
+    const pps = makeNal(NalUnitType.pps, Buffer.from([0x22]));
+    const idr = makeNal(NalUnitType.idrSlice, Buffer.from([0x33]));
+    const sample = annexB(pps, idr);
+    const packetizer = new H264Packetizer({
+      sequenceNumber: 1,
+      parameterSets: [sps, pps],
+    });
+    // Act
+    const packets = packetizer.packetize(sample, 0);
+    const frame = dePacketizeRtpPackets("MPEG4/ISO/AVC", packets);
+    // Assert: 欠落していた SPS のみ前置
+    expect(stripAnnexB(frame.data)).toEqual([sps, pps, idr]);
+    expect(selectMissingH264ParameterSets([sps, pps], [pps, idr])).toEqual([
+      sps,
+    ]);
   });
 
   it("buildH264StapA sets F OR and max NRI (RFC 6184 §5.7.1)", () => {

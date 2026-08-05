@@ -8,6 +8,7 @@
 // Depacketizer output is Annex-B (00 00 00 01 prefixed) for each NAL.
 
 import { BitStream, getBit } from "../../../common/src";
+import { H264AnnexBParser } from "../extra/container/mp4/h264";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import type { DePacketizerBase } from "./base";
 import { PacketizerBase, type PacketizerBaseOptions } from "./base";
@@ -171,72 +172,8 @@ const stap_aNALULengthSize = 2;
 
 // ---------------------------------------------------------------------------
 // Annex-B / length-prefixed (AVCC) NAL splitting
+// Uses shared H264AnnexBParser (extra/container/mp4) — no duplicate splitter.
 // ---------------------------------------------------------------------------
-
-/** Local Annex-B parser (same algorithm as H265AnnexBParser / extra H264AnnexBParser). */
-export class H264AnnexBNaluSplitter {
-  private data: Buffer;
-  private currentStartcodeOffset = 0;
-  private eof = false;
-
-  constructor(data: Buffer) {
-    this.data = data;
-    this.currentStartcodeOffset = this.findNextStartCodeOffset(0);
-  }
-
-  private findNextStartCodeOffset(start: number): number {
-    const data = this.data;
-    let i = start;
-    for (;;) {
-      if (i + 3 >= data.length) {
-        this.eof = true;
-        return data.length;
-      }
-      const u32 =
-        (data[i] << 24) |
-        (data[i + 1] << 16) |
-        (data[i + 2] << 8) |
-        data[i + 3];
-      const u24 = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
-      if (u32 === 0x00000001 || u24 === 0x000001) {
-        return i;
-      }
-      i++;
-    }
-  }
-
-  /** Returns next NAL unit without start code, or null at EOF. */
-  readNextNalu(): Buffer | null {
-    if (this.eof) {
-      return null;
-    }
-    const startcodeOffset = this.currentStartcodeOffset;
-    let offset = startcodeOffset;
-    const u32 =
-      (this.data[offset] << 24) |
-      (this.data[offset + 1] << 16) |
-      (this.data[offset + 2] << 8) |
-      this.data[offset + 3];
-    offset += u32 === 0x00000001 ? 4 : 3;
-
-    const next = this.findNextStartCodeOffset(offset);
-    this.currentStartcodeOffset = next;
-    if (offset >= next) {
-      return this.eof ? null : this.readNextNalu();
-    }
-    return this.data.subarray(offset, next);
-  }
-
-  readAll(): Buffer[] {
-    const nalus: Buffer[] = [];
-    let n = this.readNextNalu();
-    while (n) {
-      nalus.push(n);
-      n = this.readNextNalu();
-    }
-    return nalus;
-  }
-}
 
 function looksLikeAnnexB(sample: Buffer): boolean {
   if (sample.length < 3) {
@@ -262,7 +199,7 @@ function readUintLength(buf: Buffer, offset: number, size: number): number {
 
 /**
  * Split H.264 sample into NAL units (no start codes).
- * Accepts Annex-B or length-prefixed (AVCC) with `naluLengthSize`.
+ * Accepts Annex-B (via shared `H264AnnexBParser`) or length-prefixed (AVCC).
  */
 export function splitH264NalUnits(
   sample: Buffer,
@@ -281,7 +218,14 @@ export function splitH264NalUnits(
     return [];
   }
   if (looksLikeAnnexB(sample)) {
-    return new H264AnnexBNaluSplitter(sample).readAll();
+    const parser = new H264AnnexBParser(sample);
+    const nalus: Buffer[] = [];
+    let payload = parser.readNextNaluPayload();
+    while (payload) {
+      nalus.push(Buffer.from(payload.data));
+      payload = parser.readNextNaluPayload();
+    }
+    return nalus;
   }
 
   const nalus: Buffer[] = [];
@@ -315,10 +259,22 @@ function isH264ParameterSet(type: number): boolean {
   return type === NalUnitType.sps || type === NalUnitType.pps;
 }
 
-function containsH264ParameterSets(nalus: Buffer[]): boolean {
-  return nalus.some((n) => {
-    const t = h264NalType(n);
-    return t === NalUnitType.sps || t === NalUnitType.pps;
+/**
+ * From configured `parameterSets`, return only those whose type is not already
+ * present in the sample (SPS and PPS checked independently).
+ * E.g. sample with SPS-only → only missing PPS are returned.
+ */
+export function selectMissingH264ParameterSets(
+  parameterSets: Buffer[],
+  nalUnits: Buffer[],
+): Buffer[] {
+  const hasSps = nalUnits.some((n) => h264NalType(n) === NalUnitType.sps);
+  const hasPps = nalUnits.some((n) => h264NalType(n) === NalUnitType.pps);
+  return parameterSets.filter((ps) => {
+    const t = h264NalType(ps);
+    if (t === NalUnitType.sps) return !hasSps;
+    if (t === NalUnitType.pps) return !hasPps;
+    return false;
   });
 }
 
@@ -363,8 +319,9 @@ export type H264PacketizerOptions = PacketizerBaseOptions & {
   naluLengthSize?: number;
   /**
    * Parameter sets (SPS/PPS as raw NAL units without start codes).
-   * On IDR / keyframe, prepended when not already present in the sample.
-   * Prefer STAP-A when ≥2 sets fit; else individual Single NAL.
+   * On IDR / keyframe, only types missing from the sample are prepended
+   * (SPS and PPS checked independently — partial sample SPS-only gets PPS only).
+   * Prefer STAP-A when ≥2 leading sets fit; else individual Single NAL.
    */
   parameterSets?: Buffer[];
   /**
@@ -414,12 +371,15 @@ export class H264Packetizer extends PacketizerBase {
     const isKey =
       options.isKeyframe ?? this.defaultIsKeyframe ?? hasIdr;
 
-    if (
-      isKey &&
-      this.parameterSets.length > 0 &&
-      !containsH264ParameterSets(nalUnits)
-    ) {
-      nalUnits = [...this.parameterSets, ...nalUnits];
+    // Prepend only parameter-set types absent from the sample (SPS ≠ PPS).
+    if (isKey && this.parameterSets.length > 0) {
+      const missing = selectMissingH264ParameterSets(
+        this.parameterSets,
+        nalUnits,
+      );
+      if (missing.length > 0) {
+        nalUnits = [...missing, ...nalUnits];
+      }
     }
 
     const packets: RtpPacket[] = [];
