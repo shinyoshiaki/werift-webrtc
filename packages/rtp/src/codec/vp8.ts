@@ -1,8 +1,19 @@
-import { getBit, paddingByte } from "../../../common/src";
-import type { RtpHeader } from "../rtp/rtp";
-import type { DePacketizerBase } from "./base";
+// RFC 7741 — RTP Payload Format for VP8 Video
+// docs/rfc/rfc7741.txt
+//
+// Payload Descriptor (required 1 octet, RFC 7741 §4.2):
+//   X|R|N|S|R|PID
+// Minimal packetizer: X=0 (no extensions), single partition PID=0.
+//   First chunk of a frame: S=1 → descriptor 0x10
+//   Continuation chunks:    S=0 → descriptor 0x00
+// Marker: last RTP packet of the frame (RFC 7741 §4.1).
+// VP8 Payload Header P bit (keyframe when P=0) is left untouched in the
+// bitstream; only present when S=1 && PID=0 (RFC 7741 §4.3).
 
-// RFC 7741 - RTP Payload Format for VP8 Video
+import { getBit, paddingByte } from "../../../common/src";
+import type { RtpHeader, RtpPacket } from "../rtp/rtp";
+import type { DePacketizerBase } from "./base";
+import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 
 //        0 1 2 3 4 5 6 7                      0 1 2 3 4 5 6 7
 //       +-+-+-+-+-+-+-+-+                   +-+-+-+-+-+-+-+-+
@@ -137,5 +148,49 @@ export class Vp8RtpPayload implements DePacketizerBase {
       return size;
     }
     return 0;
+  }
+}
+
+export type Vp8PacketizerOptions = PacketizerBaseOptions;
+
+/**
+ * Packetize one VP8 frame (single partition PID=0) into RTP packets.
+ * Descriptor is the minimal 1-byte form from RFC 7741 §4.2 (X=0).
+ */
+export class Vp8Packetizer extends PacketizerBase {
+  constructor(options: Vp8PacketizerOptions = {}) {
+    super(options);
+  }
+
+  packetize(data: Buffer, rtpTimestamp: number): RtpPacket[] {
+    if (data.length === 0) {
+      return [];
+    }
+    // Descriptor length = 1 (X=0); chunk size = maxPayloadSize − 1
+    const chunkSize = this.maxPayloadSize - 1;
+    if (chunkSize <= 0) {
+      throw new Error(
+        `Vp8Packetizer: maxPayloadSize ${this.maxPayloadSize} too small for VP8 descriptor`,
+      );
+    }
+
+    const packets: RtpPacket[] = [];
+    for (let offset = 0; offset < data.length; offset += chunkSize) {
+      const chunk = data.subarray(
+        offset,
+        Math.min(data.length, offset + chunkSize),
+      );
+      // S=1 on partition start (frame start for PID=0), else S=0 (RFC 7741 §4.2)
+      const descriptor = Buffer.from([offset === 0 ? 0x10 : 0x00]);
+      const isLast = offset + chunk.length >= data.length;
+      packets.push(
+        this.buildPacket(
+          Buffer.concat([descriptor, chunk]),
+          rtpTimestamp,
+          isLast,
+        ),
+      );
+    }
+    return packets;
   }
 }

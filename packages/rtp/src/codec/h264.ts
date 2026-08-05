@@ -1,9 +1,16 @@
-// RFC 6184 - RTP Payload Format for H.264 Video
-// pion/rtp
+// RFC 6184 — RTP Payload Format for H.264 Video
+// docs/rfc/rfc6184.txt
+//
+// Packetizer targets packetization-mode=1 (Non-Interleaved):
+//   Single NAL (§5.6), STAP-A Type=24 (§5.7.1), FU-A Type=28 (§5.8).
+// Keyframe SPS/PPS: STAP-A preferred when ≥2 parameter sets fit MTU;
+// fallback is individual Single NAL (same policy as H265Packetizer AP).
+// Depacketizer output is Annex-B (00 00 00 01 prefixed) for each NAL.
 
 import { BitStream, getBit } from "../../../common/src";
-import type { RtpHeader } from "../rtp/rtp";
+import type { RtpHeader, RtpPacket } from "../rtp/rtp";
 import type { DePacketizerBase } from "./base";
+import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 
 // FU indicator octet
 // +---------------+
@@ -147,6 +154,8 @@ export class H264RtpPayload implements DePacketizerBase {
 
 export const NalUnitType = {
   idrSlice: 5,
+  sps: 7,
+  pps: 8,
   stap_a: 24,
   stap_b: 25,
   mtap16: 26,
@@ -159,3 +168,345 @@ const annex_bNALUStartCode = Buffer.from([0x00, 0x00, 0x00, 0x01]);
 
 const stap_aHeaderSize = 1;
 const stap_aNALULengthSize = 2;
+
+// ---------------------------------------------------------------------------
+// Annex-B / length-prefixed (AVCC) NAL splitting
+// ---------------------------------------------------------------------------
+
+/** Local Annex-B parser (same algorithm as H265AnnexBParser / extra H264AnnexBParser). */
+export class H264AnnexBNaluSplitter {
+  private data: Buffer;
+  private currentStartcodeOffset = 0;
+  private eof = false;
+
+  constructor(data: Buffer) {
+    this.data = data;
+    this.currentStartcodeOffset = this.findNextStartCodeOffset(0);
+  }
+
+  private findNextStartCodeOffset(start: number): number {
+    const data = this.data;
+    let i = start;
+    for (;;) {
+      if (i + 3 >= data.length) {
+        this.eof = true;
+        return data.length;
+      }
+      const u32 =
+        (data[i] << 24) |
+        (data[i + 1] << 16) |
+        (data[i + 2] << 8) |
+        data[i + 3];
+      const u24 = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+      if (u32 === 0x00000001 || u24 === 0x000001) {
+        return i;
+      }
+      i++;
+    }
+  }
+
+  /** Returns next NAL unit without start code, or null at EOF. */
+  readNextNalu(): Buffer | null {
+    if (this.eof) {
+      return null;
+    }
+    const startcodeOffset = this.currentStartcodeOffset;
+    let offset = startcodeOffset;
+    const u32 =
+      (this.data[offset] << 24) |
+      (this.data[offset + 1] << 16) |
+      (this.data[offset + 2] << 8) |
+      this.data[offset + 3];
+    offset += u32 === 0x00000001 ? 4 : 3;
+
+    const next = this.findNextStartCodeOffset(offset);
+    this.currentStartcodeOffset = next;
+    if (offset >= next) {
+      return this.eof ? null : this.readNextNalu();
+    }
+    return this.data.subarray(offset, next);
+  }
+
+  readAll(): Buffer[] {
+    const nalus: Buffer[] = [];
+    let n = this.readNextNalu();
+    while (n) {
+      nalus.push(n);
+      n = this.readNextNalu();
+    }
+    return nalus;
+  }
+}
+
+function looksLikeAnnexB(sample: Buffer): boolean {
+  if (sample.length < 3) {
+    return false;
+  }
+  return (
+    (sample[0] === 0 &&
+      sample[1] === 0 &&
+      sample[2] === 0 &&
+      sample[3] === 1) ||
+    (sample[0] === 0 && sample[1] === 0 && sample[2] === 1)
+  );
+}
+
+function readUintLength(buf: Buffer, offset: number, size: number): number {
+  if (size === 1) return buf[offset];
+  if (size === 2) return buf.readUInt16BE(offset);
+  if (size === 3) {
+    return (buf[offset] << 16) | (buf[offset + 1] << 8) | buf[offset + 2];
+  }
+  return buf.readUInt32BE(offset);
+}
+
+/**
+ * Split H.264 sample into NAL units (no start codes).
+ * Accepts Annex-B or length-prefixed (AVCC) with `naluLengthSize`.
+ */
+export function splitH264NalUnits(
+  sample: Buffer,
+  naluLengthSize = 4,
+): Buffer[] {
+  if (
+    naluLengthSize < 1 ||
+    naluLengthSize > 4 ||
+    !Number.isInteger(naluLengthSize)
+  ) {
+    throw new Error(
+      `H.264 naluLengthSize must be an integer 1–4, got ${naluLengthSize}`,
+    );
+  }
+  if (sample.length === 0) {
+    return [];
+  }
+  if (looksLikeAnnexB(sample)) {
+    return new H264AnnexBNaluSplitter(sample).readAll();
+  }
+
+  const nalus: Buffer[] = [];
+  let offset = 0;
+  while (offset < sample.length) {
+    if (offset + naluLengthSize > sample.length) {
+      throw new Error("H.264 length-prefixed sample truncated (length field)");
+    }
+    const length = readUintLength(sample, offset, naluLengthSize);
+    offset += naluLengthSize;
+    if (length === 0) {
+      throw new Error("H.264 length-prefixed sample: NAL length 0 is invalid");
+    }
+    if (offset + length > sample.length) {
+      throw new Error(
+        `H.264 length-prefixed sample: NAL length ${length} exceeds buffer`,
+      );
+    }
+    nalus.push(sample.subarray(offset, offset + length));
+    offset += length;
+  }
+  return nalus;
+}
+
+function h264NalType(nal: Buffer): number {
+  if (nal.length < 1) return 0;
+  return nal[0] & 0x1f;
+}
+
+function isH264ParameterSet(type: number): boolean {
+  return type === NalUnitType.sps || type === NalUnitType.pps;
+}
+
+function containsH264ParameterSets(nalus: Buffer[]): boolean {
+  return nalus.some((n) => {
+    const t = h264NalType(n);
+    return t === NalUnitType.sps || t === NalUnitType.pps;
+  });
+}
+
+/**
+ * Build STAP-A payload (RFC 6184 §5.7.1 / Figure 7):
+ *   STAP-A header (F/NRI/Type=24) + repeated [16-bit NALU size][NAL]
+ * F = OR of F of aggregated NALs; NRI = max of NRI of aggregated NALs.
+ */
+export function buildH264StapA(nalus: Buffer[]): Buffer {
+  if (nalus.length < 2) {
+    throw new Error("H.264 STAP-A requires at least two NAL units");
+  }
+  let f = 0;
+  let nri = 0;
+  for (const n of nalus) {
+    if (n.length < 1) {
+      throw new Error("H.264 STAP-A: empty NAL unit");
+    }
+    if (n.length > 0xffff) {
+      throw new Error("H.264 NAL unit too large for STAP-A size field");
+    }
+    f |= (n[0] >> 7) & 1;
+    const nriN = (n[0] >> 5) & 0x03;
+    if (nriN > nri) nri = nriN;
+  }
+  const header = Buffer.from([(f << 7) | (nri << 5) | NalUnitType.stap_a]);
+  const parts: Buffer[] = [header];
+  for (const n of nalus) {
+    const size = Buffer.alloc(2);
+    size.writeUInt16BE(n.length, 0);
+    parts.push(size, n);
+  }
+  return Buffer.concat(parts);
+}
+
+// ---------------------------------------------------------------------------
+// Packetizer (packetization-mode=1)
+// ---------------------------------------------------------------------------
+
+export type H264PacketizerOptions = PacketizerBaseOptions & {
+  /** Length field size for AVCC input (default 4). Ignored for Annex-B. */
+  naluLengthSize?: number;
+  /**
+   * Parameter sets (SPS/PPS as raw NAL units without start codes).
+   * On IDR / keyframe, prepended when not already present in the sample.
+   * Prefer STAP-A when ≥2 sets fit; else individual Single NAL.
+   */
+  parameterSets?: Buffer[];
+  /**
+   * Force keyframe path for parameter-set prepending even without IDR NAL.
+   * Default: auto-detect IDR (type 5).
+   */
+  isKeyframe?: boolean;
+};
+
+export type H264PacketizeOptions = {
+  isKeyframe?: boolean;
+};
+
+/**
+ * Packetize H.264 access units (Annex-B or length-prefixed) for mode=1.
+ * Single NAL / STAP-A (SPS+PPS) / FU-A fragmentation (RFC 6184).
+ */
+export class H264Packetizer extends PacketizerBase {
+  private readonly naluLengthSize: number;
+  private readonly parameterSets: Buffer[];
+  private readonly defaultIsKeyframe: boolean | undefined;
+
+  constructor(options: H264PacketizerOptions = {}) {
+    super(options);
+    const nls = options.naluLengthSize ?? 4;
+    if (nls < 1 || nls > 4 || !Number.isInteger(nls)) {
+      throw new Error(
+        `H264Packetizer: naluLengthSize must be an integer 1–4, got ${nls}`,
+      );
+    }
+    this.naluLengthSize = nls;
+    this.parameterSets = options.parameterSets ?? [];
+    this.defaultIsKeyframe = options.isKeyframe;
+  }
+
+  packetize(
+    data: Buffer,
+    rtpTimestamp: number,
+    options: H264PacketizeOptions = {},
+  ): RtpPacket[] {
+    let nalUnits = splitH264NalUnits(data, this.naluLengthSize);
+    if (nalUnits.length === 0) {
+      return [];
+    }
+
+    const hasIdr = nalUnits.some((n) => h264NalType(n) === NalUnitType.idrSlice);
+    const isKey =
+      options.isKeyframe ?? this.defaultIsKeyframe ?? hasIdr;
+
+    if (
+      isKey &&
+      this.parameterSets.length > 0 &&
+      !containsH264ParameterSets(nalUnits)
+    ) {
+      nalUnits = [...this.parameterSets, ...nalUnits];
+    }
+
+    const packets: RtpPacket[] = [];
+
+    // Try STAP-A for leading parameter sets (SPS/PPS), same policy as H265 AP
+    let index = 0;
+    if (nalUnits.length >= 2 && isH264ParameterSet(h264NalType(nalUnits[0]))) {
+      const aggregated: Buffer[] = [];
+      let stapSize = 1; // STAP-A header
+      while (
+        index < nalUnits.length &&
+        isH264ParameterSet(h264NalType(nalUnits[index]))
+      ) {
+        const n = nalUnits[index];
+        const need = 2 + n.length;
+        if (stapSize + need > this.maxPayloadSize) {
+          break;
+        }
+        aggregated.push(n);
+        stapSize += need;
+        index++;
+      }
+      // STAP-A requires at least two NAL units (RFC 6184 §5.7.1)
+      if (aggregated.length >= 2) {
+        const isLast = index >= nalUnits.length;
+        packets.push(
+          this.buildPacket(buildH264StapA(aggregated), rtpTimestamp, isLast),
+        );
+      } else {
+        // Cannot STAP-A (one set only, or too large) → fall back to Single NAL
+        index = 0;
+      }
+    }
+
+    for (; index < nalUnits.length; index++) {
+      const nal = nalUnits[index];
+      const marker = index === nalUnits.length - 1;
+
+      if (nal.length === 0) {
+        throw new Error("H.264 empty NAL unit");
+      }
+
+      if (nal.length <= this.maxPayloadSize) {
+        // Single NAL Unit Packet (RFC 6184 §5.6)
+        packets.push(this.buildPacket(nal, rtpTimestamp, marker));
+        continue;
+      }
+
+      // FU-A (RFC 6184 §5.8)
+      if (nal.length < 2) {
+        throw new Error("H.264 NAL too short to fragment");
+      }
+      const nalHeader = nal[0];
+      const fragmentPayload = nal.subarray(1);
+      const fragmentSize = this.maxPayloadSize - 2; // FU indicator + FU header
+      if (fragmentSize <= 0) {
+        throw new Error("invalid H.264 RTP maxPayloadSize for FU-A");
+      }
+
+      const fuIndicator = (nalHeader & 0xe0) | NalUnitType.fu_a;
+      const nalType = nalHeader & 0x1f;
+
+      for (
+        let offset = 0;
+        offset < fragmentPayload.length;
+        offset += fragmentSize
+      ) {
+        const chunk = fragmentPayload.subarray(
+          offset,
+          Math.min(fragmentPayload.length, offset + fragmentSize),
+        );
+        const isStart = offset === 0;
+        const isEnd = offset + chunk.length >= fragmentPayload.length;
+        // S|E|R|Type
+        const fuHeader = Buffer.from([
+          (isStart ? 0x80 : 0x00) | (isEnd ? 0x40 : 0x00) | nalType,
+        ]);
+        packets.push(
+          this.buildPacket(
+            Buffer.concat([Buffer.from([fuIndicator]), fuHeader, chunk]),
+            rtpTimestamp,
+            marker && isEnd,
+          ),
+        );
+      }
+    }
+
+    return packets;
+  }
+}

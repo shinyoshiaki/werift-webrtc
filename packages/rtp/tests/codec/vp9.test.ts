@@ -1,14 +1,13 @@
-import { Vp9RtpPayload } from "../../src";
+import {
+  Vp9Packetizer,
+  Vp9RtpPayload,
+  dePacketizeRtpPackets,
+} from "../../src";
 
 const kMaxOneBytePictureId = 0x7f; // 7 bits
 const kMaxTwoBytePictureId = 0x7fff; // 15 bits
-const kSsrc1 = 12345;
-const kSsrc2 = 23456;
-const kPictureId = 123;
-const kTl0PicIdx = 20;
-const kTemporalIdx = 1;
-const kInitialPictureId1 = 222;
-const kInitialTl0PicIdx1 = 99;
+
+// RFC 9628 — VP9 RTP payload descriptor I|P|L|F|B|E|V|Z
 
 describe("packages/rtp/tests/codec/vp9.test.ts", () => {
   test("ParseBasicHeader", () => {
@@ -131,5 +130,54 @@ describe("packages/rtp/tests/codec/vp9.test.ts", () => {
     expect(p.width).toEqual([640, 1280]);
     expect(p.height).toEqual([360, 720]);
     expect(p.payload.length).toBe(0);
+  });
+
+  // --- Packetizer (RFC 9628 minimal descriptor) ---
+
+  it("packetizes keyframe with P=0, B/E and marker (RFC 9628)", () => {
+    // Arrange: MTU より大きいキーフレーム
+    const frame = Buffer.alloc(1_500, 0x7b);
+    const packetizer = new Vp9Packetizer({ sequenceNumber: 1 });
+    // Act: key 指定で P=0
+    const packets = packetizer.packetize(frame, 90_000, { frameType: "key" });
+    const first = Vp9RtpPayload.deSerialize(packets[0].payload);
+    const last = Vp9RtpPayload.deSerialize(packets.at(-1)!.payload);
+    // Assert: B on first, E+marker on last, P=0 key
+    expect(packets.length).toBeGreaterThan(1);
+    expect(first.bBit).toBe(1);
+    expect(first.pBit).toBe(0);
+    expect(first.isKeyframe).toBe(true);
+    expect(last.eBit).toBe(1);
+    expect(packets.at(-1)!.header.marker).toBe(true);
+  });
+
+  it("packetizes delta with P=1 and round-trips", () => {
+    // Arrange
+    const frame = Buffer.alloc(1_500, 0x7b);
+    const packetizer = new Vp9Packetizer({ sequenceNumber: 5 });
+    // Act
+    const packets = packetizer.packetize(frame, 90_000, {
+      frameType: "delta",
+    });
+    const depacketized = dePacketizeRtpPackets("VP9", packets);
+    const first = Vp9RtpPayload.deSerialize(packets[0].payload);
+    // Assert: 往復一致、P=1 で non-key
+    expect(packets.length).toBeGreaterThan(1);
+    expect(first.pBit).toBe(1);
+    expect(depacketized.isKeyframe).toBe(false);
+    expect(depacketized.data.equals(frame)).toBe(true);
+  });
+
+  it("round-trips keyframe via dePacketizeRtpPackets", () => {
+    // Arrange（webrtc userMedia.packetizer.test と同等）
+    const frame = Buffer.alloc(1_500, 0x7b);
+    const packetizer = new Vp9Packetizer({ sequenceNumber: 1 });
+    // Act
+    const packets = packetizer.packetize(frame, 90_000, { isKeyframe: true });
+    const depacketized = dePacketizeRtpPackets("VP9", packets);
+    // Assert
+    expect(packets.length).toBeGreaterThan(1);
+    expect(depacketized.isKeyframe).toBe(true);
+    expect(depacketized.data.equals(frame)).toBe(true);
   });
 });

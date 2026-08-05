@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npx tsx examples/node/rtp_over_udp/recv.ts [port] [codec]
- * codec: pcmu | pcma | g722 | aac | h265  (default pcmu)
+ * codec: pcmu | pcma | g722 | aac | h265 | vp8 | opus | h264  (default pcmu)
  *
  * Listens on 127.0.0.1, depacketizes, and prints frame size / keyframe.
  * When RUN_SELF_TEST=1, binds an ephemeral port, spawns an in-process
@@ -15,10 +15,13 @@ import { createSocket } from "dgram";
 import {
   AacHbrPacketizer,
   G722Packetizer,
+  H264Packetizer,
   H265Packetizer,
+  OpusPacketizer,
   PcmaPacketizer,
   PcmuPacketizer,
   RtpPacket,
+  Vp8Packetizer,
   dePacketizeRtpPackets,
   type DepacketizerCodec,
   writeH265PayloadHeader,
@@ -33,6 +36,9 @@ const codecMap: Record<string, DepacketizerCodec> = {
   g722: "G722",
   aac: "MPEG4-GENERIC",
   h265: "H265",
+  vp8: "VP8",
+  opus: "OPUS",
+  h264: "MPEG4/ISO/AVC",
 };
 
 function registryCodec(name: string): DepacketizerCodec {
@@ -41,9 +47,13 @@ function registryCodec(name: string): DepacketizerCodec {
   return c;
 }
 
-function makeNal(type: number, body: Buffer): Buffer {
+function makeH265Nal(type: number, body: Buffer): Buffer {
   const hdr = writeH265PayloadHeader({ f: 0, type, layerId: 0, tid: 1 });
   return Buffer.concat([hdr, body]);
+}
+
+function makeH264Nal(type: number, body: Buffer): Buffer {
+  return Buffer.concat([Buffer.from([0x60 | (type & 0x1f)]), body]);
 }
 
 function annexB(...nalus: Buffer[]): Buffer {
@@ -84,15 +94,44 @@ async function selfTest() {
       break;
     }
     case "h265": {
-      const vps = makeNal(32, Buffer.from([1, 2]));
-      const sps = makeNal(33, Buffer.from([3, 4]));
-      const pps = makeNal(34, Buffer.from([5]));
-      const slice = makeNal(19, Buffer.alloc(300, 0xab));
+      const vps = makeH265Nal(32, Buffer.from([1, 2]));
+      const sps = makeH265Nal(33, Buffer.from([3, 4]));
+      const pps = makeH265Nal(34, Buffer.from([5]));
+      const slice = makeH265Nal(19, Buffer.alloc(300, 0xab));
       expected = annexB(vps, sps, pps, slice);
       packets = new H265Packetizer({
         sequenceNumber: 1,
         maxPayloadSize: 120,
       }).packetize(expected, 0);
+      break;
+    }
+    case "vp8": {
+      expected = Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x00]),
+        Buffer.alloc(400, 0x7b),
+      ]);
+      packets = new Vp8Packetizer({
+        sequenceNumber: 1,
+        maxPayloadSize: 120,
+      }).packetize(expected, 0);
+      break;
+    }
+    case "opus": {
+      expected = Buffer.from([0xfc, 0xaa, 0xbb, 0xcc, 0xdd]);
+      packets = new OpusPacketizer({ sequenceNumber: 1 }).packetize(expected, 0);
+      break;
+    }
+    case "h264": {
+      const sps = makeH264Nal(7, Buffer.from([1, 2]));
+      const pps = makeH264Nal(8, Buffer.from([3]));
+      const idr = makeH264Nal(5, Buffer.alloc(200, 0xab));
+      // Depacketizer returns Annex-B of parameter sets + IDR after STAP-A prepend
+      expected = annexB(sps, pps, idr);
+      packets = new H264Packetizer({
+        sequenceNumber: 1,
+        parameterSets: [sps, pps],
+        maxPayloadSize: 80,
+      }).packetize(annexB(idr), 0);
       break;
     }
     default:
@@ -152,7 +191,13 @@ async function listen(port: number) {
     console.log(
       `recv seq=${rtp.header.sequenceNumber} pt=${rtp.header.payloadType} mark=${rtp.header.marker} len=${rtp.payload.length}`,
     );
-    if (rtp.header.marker || codec === "pcmu" || codec === "pcma" || codec === "g722") {
+    if (
+      rtp.header.marker ||
+      codec === "pcmu" ||
+      codec === "pcma" ||
+      codec === "g722" ||
+      codec === "opus"
+    ) {
       try {
         const frame = dePacketizeRtpPackets(reg, buffer.splice(0));
         console.log(

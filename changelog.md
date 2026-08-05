@@ -4,6 +4,14 @@
 
 ### 🚀 Features & Improvements
 
+- **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).
+  - **VP8** (RFC 7741): `Vp8Packetizer` — minimal descriptor (`S`/`PID`), MTU fragmentation, final marker.
+  - **VP9** (RFC 9628): `Vp9Packetizer` — `B`/`E`/`P` minimal descriptor; key/delta via options.
+  - **AV1** (AV1 RTP): `Av1Packetizer` + `splitAv1Obus` / `createAv1AggregationHeader` — W=1, Z/Y/N, final marker.
+  - **Opus** (RFC 7587): `OpusPacketizer` — raw one-packet RTP; rejects `maxPayloadSize` overrun (no TOC-blind split).
+  - **H.264** (RFC 6184 mode=1): `H264Packetizer` — Single NAL / **STAP-A** (SPS+PPS preferred on keyframe) / FU-A; Annex-B and length-prefixed input.
+  - Specs: `docs/rfc/rfc7741.txt`, `rfc6184.txt`, `rfc7587.txt`, `rfc9628.txt`, `av1-rtp-spec.html`.
+  - Example codecs: `vp8` / `opus` / `h264` in `packages/rtp/examples/node/rtp_over_udp/`.
 - **werift-rtp codec coverage** (`packages/rtp`): Add package-local packetizers and expanded depacketizers for non-WebRTC / SIP / RTSP reuse.
   - **H.265 / HEVC** (RFC 7798): `H265RtpPayload` + `H265Packetizer` — single NAL, AP (Type 48), FU (Type 49), Annex-B and length-prefixed input, IRAP keyframe detection, optional parameter-set AP on keyframes.
   - **G.711**: `PcmuRtpPayload` / `PcmaRtpPayload` + packetizers; static PT 0 / 8, clock 8000 Hz (RFC 3551).
