@@ -1,9 +1,13 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+
 import {
   OPUS_CLOCK_RATE,
   OpusPacketizer,
   OpusRtpPayload,
   dePacketizeRtpPackets,
 } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 // RFC 7587 — Opus RTP: raw payload, no codec header; one packet = one Opus packet
 
@@ -58,5 +62,23 @@ describe("packages/rtp/tests/codec/opus.test.ts", () => {
     const packets = new OpusPacketizer().packetize(Buffer.alloc(0), 0);
     // Assert
     expect(packets).toEqual([]);
+  });
+
+  it("loads committed Opus vector (GStreamer rtpopuspay) and matches expected", () => {
+    // Arrange
+    const path = join(__dirname, "../data/vector_opus.bin");
+    expect(existsSync(path)).toBe(true);
+    const payloads = loadPayloadVector("vector_opus.bin");
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_opus_expected.bin"),
+    );
+    // Act: 生ペイロード連結 = Opus パケット列
+    expect(payloads.length).toBeGreaterThan(0);
+    const restored = Buffer.concat(
+      payloads.map((p) => OpusRtpPayload.deSerialize(p).payload),
+    );
+    // Assert
+    expect(restored).toEqual(expected);
+    expect(restored.length).toBeGreaterThan(0);
   });
 });

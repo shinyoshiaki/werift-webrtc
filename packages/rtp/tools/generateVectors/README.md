@@ -42,9 +42,17 @@ writes the first few RTP **payloads** (not full packets) to:
 | `tests/data/vector_g722.bin` | G.722 |
 | `tests/data/vector_aac.bin` | MPEG4-GENERIC (AAC-hbr) |
 | `tests/data/vector_h265.bin` | H.265 (may need `x265enc`) |
+| `tests/data/vector_h264.bin` | H.264 (`x264enc` + `rtph264pay`) |
+| `tests/data/vector_vp8.bin` | VP8 (`vp8enc` + `rtpvp8pay`) |
+| `tests/data/vector_vp9.bin` | VP9 (`vp9enc` + `rtpvp9pay`) |
+| `tests/data/vector_opus.bin` | Opus (`opusenc` + `rtpopuspay`) |
+| `tests/data/vector_av1.bin` | AV1 (synthetic; most distros lack `rtpav1pay`) |
 
 DTMF / telephone-event has no standard GStreamer payloader; use the synthetic
 vectors in `telephoneEvent.test.ts` and the existing `rtp_dtmf.bin` fixture.
+
+Generation always writes a **synthetic baseline** first (package packetizers),
+then overwrites with GStreamer captures when plugins succeed.
 
 ## Notes
 

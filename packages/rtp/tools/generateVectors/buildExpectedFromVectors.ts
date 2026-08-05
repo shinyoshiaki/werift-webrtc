@@ -12,10 +12,11 @@ import { join } from "path";
 
 import {
   AacHbrRtpPayload,
-  G722RtpPayload,
+  AV1RtpPayload,
+  H264RtpPayload,
   H265RtpPayload,
-  PcmaRtpPayload,
-  PcmuRtpPayload,
+  Vp8RtpPayload,
+  Vp9RtpPayload,
 } from "../../src";
 
 const DATA = join(__dirname, "../../tests/data");
@@ -102,12 +103,92 @@ function writeH265Expected() {
   );
 }
 
+function writeH264Expected() {
+  const payloads = loadPayloadVector("vector_h264.bin");
+  if (!payloads.length) return;
+  const parts: Buffer[] = [];
+  let fragment: Buffer | undefined;
+  for (const p of payloads) {
+    try {
+      const r = H264RtpPayload.deSerialize(p, fragment);
+      fragment = r.fragment;
+      if (r.payload) {
+        parts.push(r.payload);
+        if (!r.fragment) fragment = undefined;
+      }
+    } catch (e) {
+      console.warn("[expected] H264 skip:", (e as Error).message);
+      fragment = undefined;
+    }
+  }
+  const body = Buffer.concat(parts);
+  writeFileSync(join(DATA, "vector_h264_expected.bin"), body);
+  console.log(
+    `[expected] vector_h264_expected.bin (${body.length} bytes, ${parts.length} NAL groups)`,
+  );
+}
+
+/** VP8 / VP9: strip payload descriptor, concat media (multi-frame OK for smoke). */
+function writeBasicVideoExpected(
+  vectorName: string,
+  expectedName: string,
+  deSerialize: (buf: Buffer) => { payload: Buffer },
+) {
+  const payloads = loadPayloadVector(vectorName);
+  if (!payloads.length) return;
+  const parts: Buffer[] = [];
+  for (const p of payloads) {
+    try {
+      parts.push(deSerialize(p).payload);
+    } catch (e) {
+      console.warn(
+        `[expected] ${vectorName} skip:`,
+        (e as Error).message,
+      );
+    }
+  }
+  const body = Buffer.concat(parts);
+  writeFileSync(join(DATA, expectedName), body);
+  console.log(
+    `[expected] ${expectedName} (${body.length} bytes, ${parts.length} payloads)`,
+  );
+}
+
+function writeAv1Expected() {
+  const payloads = loadPayloadVector("vector_av1.bin");
+  if (!payloads.length) return;
+  try {
+    // Treat the whole vector as one access unit (synthetic / short GST capture)
+    const chunks = payloads.map((p) => AV1RtpPayload.deSerialize(p));
+    const body = AV1RtpPayload.getFrame(chunks);
+    writeFileSync(join(DATA, "vector_av1_expected.bin"), body);
+    console.log(
+      `[expected] vector_av1_expected.bin (${body.length} bytes from ${payloads.length} RTP payloads)`,
+    );
+  } catch (e) {
+    console.warn("[expected] AV1 skip:", (e as Error).message);
+  }
+}
+
 export function buildExpectedFromVectors(): void {
   writeRawExpected("vector_pcmu.bin", "vector_pcmu_expected.bin");
   writeRawExpected("vector_pcma.bin", "vector_pcma_expected.bin");
   writeRawExpected("vector_g722.bin", "vector_g722_expected.bin");
+  writeRawExpected("vector_opus.bin", "vector_opus_expected.bin");
   writeAacExpected();
   writeH265Expected();
+  writeH264Expected();
+  writeBasicVideoExpected(
+    "vector_vp8.bin",
+    "vector_vp8_expected.bin",
+    (b) => Vp8RtpPayload.deSerialize(b),
+  );
+  writeBasicVideoExpected(
+    "vector_vp9.bin",
+    "vector_vp9_expected.bin",
+    (b) => Vp9RtpPayload.deSerialize(b),
+  );
+  writeAv1Expected();
 }
 
 if (require.main === module || process.argv[1]?.includes("buildExpected")) {

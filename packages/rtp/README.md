@@ -123,10 +123,12 @@ see `./tests/**/*.test.ts`
 
 # test vectors
 
-Committed payloads under `tests/data/vector_*.bin` (and synthetic cases in tests).
-Regenerate with GStreamer via `tools/generateVectors/` when available.
-If `gst-launch-1.0` is missing, the generator logs a spawn `error` and skips
-that codec without overwriting committed files.
+Committed payloads under `tests/data/vector_*.bin` (and synthetic cases in tests),
+including GStreamer-derived **VP8 / VP9 / H.264 / Opus** (and synthetic **AV1**
+when `rtpav1pay` is unavailable).
+Regenerate with GStreamer via `tools/generateVectors/` when available:
+`npx tsx tools/generateVectors/generate.ts` (synthetic baseline first, GST
+overwrites per codec).
 
 # RFC authority notes
 

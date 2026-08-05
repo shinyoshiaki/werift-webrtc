@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+
 import {
   H264Packetizer,
   H264RtpPayload,
@@ -7,6 +10,7 @@ import {
   selectMissingH264ParameterSets,
   splitH264NalUnits,
 } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 // RFC 6184 — Single NAL §5.6, STAP-A §5.7.1, FU-A §5.8
 // from pion-rtp (singlePayload) + packetizer round-trips
@@ -242,5 +246,34 @@ describe("packages/rtp/tests/codec/h264.test.ts", () => {
     // 1-byte Single NAL is accepted (type 1–23) as full NAL packaging
     const single = H264RtpPayload.deSerialize(Buffer.from([0x61]));
     expect(single.payload).toEqual(Buffer.from([0x00, 0x00, 0x00, 0x01, 0x61]));
+  });
+
+  it("loads committed H.264 vector (GStreamer rtph264pay) and matches expected", () => {
+    // Arrange
+    const path = join(__dirname, "../data/vector_h264.bin");
+    expect(existsSync(path)).toBe(true);
+    const payloads = loadPayloadVector("vector_h264.bin");
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_h264_expected.bin"),
+    );
+    // Act: Single / STAP-A / FU-A を順に復元
+    expect(payloads.length).toBeGreaterThan(0);
+    let fragment: Buffer | undefined;
+    const parts: Buffer[] = [];
+    for (const p of payloads) {
+      const res = H264RtpPayload.deSerialize(p, fragment);
+      fragment = res.fragment;
+      if (res.payload) {
+        parts.push(res.payload);
+        if (!res.fragment) fragment = undefined;
+      }
+    }
+    const restored = Buffer.concat(parts);
+    // Assert
+    expect(restored).toEqual(expected);
+    expect(restored.length).toBeGreaterThan(0);
+    expect(restored.subarray(0, 4)).toEqual(
+      Buffer.from([0x00, 0x00, 0x00, 0x01]),
+    );
   });
 });

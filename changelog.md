@@ -11,7 +11,8 @@
   - **Opus** (RFC 7587): `OpusPacketizer` — raw one-packet RTP; rejects `maxPayloadSize` overrun (no TOC-blind split).
   - **H.264** (RFC 6184 mode=1): `H264Packetizer` — Single NAL / **STAP-A** (SPS+PPS preferred on keyframe) / FU-A; Annex-B and length-prefixed input.
   - Specs: `docs/rfc/rfc7741.txt`, `rfc6184.txt`, `rfc7587.txt`, `rfc9628.txt`, `av1-rtp-spec.html`.
-  - Example codecs: `vp8` / `opus` / `h264` in `packages/rtp/examples/node/rtp_over_udp/`.
+  - Example codecs: `vp8` / `vp9` / `av1` / `opus` / `h264` in `packages/rtp/examples/node/rtp_over_udp/`.
+  - **GStreamer test vectors**: `vector_vp8` / `vp9` / `h264` / `opus` (real encoders + rtppay) and synthetic `vector_av1`; generator baseline + GST overwrite; tests load committed binaries.
 - **werift-rtp codec coverage** (`packages/rtp`): Add package-local packetizers and expanded depacketizers for non-WebRTC / SIP / RTSP reuse.
   - **H.265 / HEVC** (RFC 7798): `H265RtpPayload` + `H265Packetizer` — single NAL, AP (Type 48), FU (Type 49), Annex-B and length-prefixed input, IRAP keyframe detection, optional parameter-set AP on keyframes.
   - **G.711**: `PcmuRtpPayload` / `PcmaRtpPayload` + packetizers; static PT 0 / 8, clock 8000 Hz (RFC 3551).

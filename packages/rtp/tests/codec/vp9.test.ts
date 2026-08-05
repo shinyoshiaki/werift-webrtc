@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+
 import { Vp9Packetizer, Vp9RtpPayload, dePacketizeRtpPackets } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 const kMaxOneBytePictureId = 0x7f; // 7 bits
 const kMaxTwoBytePictureId = 0x7fff; // 15 bits
@@ -175,5 +179,23 @@ describe("packages/rtp/tests/codec/vp9.test.ts", () => {
     expect(packets.length).toBeGreaterThan(1);
     expect(depacketized.isKeyframe).toBe(true);
     expect(depacketized.data.equals(frame)).toBe(true);
+  });
+
+  it("loads committed VP9 vector (GStreamer rtpvp9pay) and matches expected", () => {
+    // Arrange
+    const path = join(__dirname, "../data/vector_vp9.bin");
+    expect(existsSync(path)).toBe(true);
+    const payloads = loadPayloadVector("vector_vp9.bin");
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_vp9_expected.bin"),
+    );
+    // Act
+    expect(payloads.length).toBeGreaterThan(0);
+    const restored = Buffer.concat(
+      payloads.map((p) => Vp9RtpPayload.deSerialize(p).payload),
+    );
+    // Assert
+    expect(restored).toEqual(expected);
+    expect(restored.length).toBeGreaterThan(0);
   });
 });

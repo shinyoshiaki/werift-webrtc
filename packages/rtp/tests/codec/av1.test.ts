@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+
 import {
   AV1Obu,
   AV1RtpPayload,
@@ -8,6 +11,7 @@ import {
   splitAv1Obus,
 } from "../../src";
 import { leb128encode } from "../../src/codec/leb128";
+import { loadPayloadVector } from "../utils";
 
 describe("codec/av1 leb128", () => {
   test.each([
@@ -227,5 +231,22 @@ describe("codec/av1 packetizer", () => {
     expect(packets.length).toBeGreaterThan(1);
     expect(depacketized.isKeyframe).toBe(true);
     expect(depacketized.data.equals(frame)).toBe(true);
+  });
+
+  it("loads committed AV1 vector and getFrame matches expected", () => {
+    // Arrange: synthetic size-field OBU（GST に rtpav1pay が無い環境向け）
+    const path = join(__dirname, "../data/vector_av1.bin");
+    expect(existsSync(path)).toBe(true);
+    const payloads = loadPayloadVector("vector_av1.bin");
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_av1_expected.bin"),
+    );
+    // Act
+    expect(payloads.length).toBeGreaterThan(0);
+    const chunks = payloads.map((p) => AV1RtpPayload.deSerialize(p));
+    const frame = AV1RtpPayload.getFrame(chunks);
+    // Assert
+    expect(frame).toEqual(expected);
+    expect(frame.length).toBeGreaterThan(0);
   });
 });

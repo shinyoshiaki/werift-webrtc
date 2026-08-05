@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+
 import { Vp8Packetizer, Vp8RtpPayload, dePacketizeRtpPackets } from "../../src";
+import { loadPayloadVector } from "../utils";
 
 // RFC 7741 §4.2 descriptor (X=0 minimal), §4.3 payload header P bit (keyframe)
 
@@ -86,5 +90,26 @@ describe("packages/rtp/tests/codec/vp8.test.ts", () => {
     const packets = new Vp8Packetizer().packetize(Buffer.alloc(0), 0);
     // Assert
     expect(packets).toEqual([]);
+  });
+
+  it("loads committed VP8 vector (GStreamer rtpvp8pay) and matches expected", () => {
+    // Arrange: tools/generateVectors 成果物
+    const path = join(__dirname, "../data/vector_vp8.bin");
+    expect(existsSync(path)).toBe(true);
+    const payloads = loadPayloadVector("vector_vp8.bin");
+    const expected = readFileSync(
+      join(__dirname, "../data/vector_vp8_expected.bin"),
+    );
+    // Act: descriptor 除去して連結
+    expect(payloads.length).toBeGreaterThan(0);
+    const restored = Buffer.concat(
+      payloads.map((p) => Vp8RtpPayload.deSerialize(p).payload),
+    );
+    // Assert: expected と一致、descriptor が剥がれている
+    expect(restored).toEqual(expected);
+    expect(restored.length).toBeGreaterThan(0);
+    // 先頭パケットは S=1 のパーティション開始
+    const first = Vp8RtpPayload.deSerialize(payloads[0]);
+    expect(first.sBit).toBe(1);
   });
 });
