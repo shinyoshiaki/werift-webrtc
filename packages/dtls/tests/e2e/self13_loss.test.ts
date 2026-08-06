@@ -142,17 +142,21 @@ test(
 );
 
 test(
-  "e2e/self13 recovers when every other client datagram is dropped",
+  "e2e/self13 recovers when early handshake datagrams are dropped",
   async () => {
-    // Arrange: クライアント送信の偶数回目を落とす（再送で復旧）
+    // Arrange: handshake 中の最初の数 datagram のみ drop（再送で復旧）。
+    // 偶数回常時 drop は再送も同じカウンタで落ち続けるため使わない。
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
     const orig = clientTransport.send.bind(clientTransport);
-    let n = 0;
+    let dropped = 0;
+    const maxDrops = 2;
     clientTransport.send = async (buf: Buffer, addr?: any) => {
-      n++;
-      if (n % 2 === 0) return; // drop
+      if (dropped < maxDrops) {
+        dropped++;
+        return;
+      }
       await orig(buf, addr);
     };
     const opts = {
@@ -167,7 +171,7 @@ test(
     // Act / Assert
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error("intermittent loss timeout")),
+        () => reject(new Error("handshake loss timeout")),
         25_000,
       );
       client.onConnect.subscribe(() => {
@@ -175,6 +179,7 @@ test(
       });
       server.onData.subscribe((d) => {
         expect(d.toString()).toBe("lossy");
+        expect(dropped).toBe(maxDrops);
         clearTimeout(timer);
         client.close();
         server.close();
