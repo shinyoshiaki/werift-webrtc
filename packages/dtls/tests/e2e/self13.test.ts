@@ -427,6 +427,61 @@ test(
   "e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client",
   async () => {
     // Arrange: server lists both versions; client is 1.3-only
+    // addressValidation 未指定 → 既定 dtls-cookie 経路（reinject で peer 保持が必須）
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+      // addressValidation intentionally omitted (default cookie path)
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      // client also uses default; cookie only enforced server-side
+    });
+
+    // Act / Assert: dual server が 1.3 に昇格し、default cookie 経路で接続
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("dual server upgrade (default cookie) timeout")),
+        15_000,
+      );
+      client.onConnect.subscribe(() => {
+        expect(client.isDtls13).toBe(true);
+        expect(server.isDtls13).toBe(true);
+        void client.send(Buffer.from("dual-up"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("dual-up");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
+test(
+  "e2e/self13 dual [1.3,1.2] server × [1.3] client with addressValidation none still works",
+  async () => {
+    // Arrange: 明示 none（後方互換 / 高速経路）
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -445,19 +500,18 @@ test(
       addressValidation: "none",
     });
 
-    // Act / Assert: dual server が 1.3 に昇格して接続
+    // Act / Assert
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error("dual server upgrade timeout")),
+        () => reject(new Error("dual none upgrade timeout")),
         15_000,
       );
       client.onConnect.subscribe(() => {
-        expect(client.isDtls13).toBe(true);
         expect(server.isDtls13).toBe(true);
-        void client.send(Buffer.from("dual-up"));
+        void client.send(Buffer.from("dual-none"));
       });
       server.onData.subscribe((d) => {
-        expect(d.toString()).toBe("dual-up");
+        expect(d.toString()).toBe("dual-none");
         clearTimeout(timer);
         client.close();
         server.close();

@@ -31,10 +31,54 @@ describe("security bounds: cookie binding", () => {
     ).toBe(false);
   });
 
+  test("mint-time peer binding must match verify-time peer (dual reinject regression)", () => {
+    // Arrange: dual upgrade used to mint with peerKey "unknown" then verify with real peer
+    const secret = randomBytes(16);
+    const ch1 = randomBytes(100);
+    const mintPeer = "unknown";
+    const realPeer = "127.0.0.1:54321";
+    const cookie = mintCookie(secret, cookieBinding(mintPeer, ch1));
+
+    // Act / Assert: mint と verify で peer が食い違うと失敗（バグ再現）
+    expect(
+      verifyCookie(secret, cookie, cookieBinding(realPeer, ch1)),
+    ).toBe(false);
+    // 同一 peer を保持すれば成功
+    expect(
+      verifyCookie(secret, cookie, cookieBinding(mintPeer, ch1)),
+    ).toBe(true);
+
+    // 正しい経路: 発行時も検証時も real peer
+    const good = mintCookie(secret, cookieBinding(realPeer, ch1));
+    expect(verifyCookie(secret, good, cookieBinding(realPeer, ch1))).toBe(true);
+  });
+
+  test("cookie binding includes peerKey bytes and ClientHello hash", () => {
+    // Arrange
+    const peer = "192.0.2.1:8443";
+    const ch = Buffer.from("client-hello-body");
+    // Act
+    const binding = cookieBinding(peer, ch);
+    // Assert: peer || 0x00 || SHA-256(ch)
+    const peerBytes = Buffer.from(peer, "utf8");
+    const chHash = createHash("sha256").update(ch).digest();
+    expect(binding.subarray(0, peerBytes.length).equals(peerBytes)).toBe(true);
+    expect(binding[peerBytes.length]).toBe(0);
+    expect(
+      binding.subarray(peerBytes.length + 1).equals(chHash),
+    ).toBe(true);
+    // 異なる peer は異なる binding
+    expect(
+      cookieBinding("198.51.100.1:1", ch).equals(binding),
+    ).toBe(false);
+  });
+
   test("peerKeyFromAddr formats tuples", () => {
     // Arrange / Act / Assert
     expect(peerKeyFromAddr(["1.2.3.4", 443])).toBe("1.2.3.4:443");
     expect(peerKeyFromAddr({ address: "a", port: 1 })).toBe("a:1");
+    expect(peerKeyFromAddr(undefined)).toBe("unknown");
+    expect(peerKeyFromAddr("already:key")).toBe("already:key");
   });
 });
 
@@ -134,5 +178,4 @@ describe("security bounds: fragment reassembly", () => {
   });
 });
 
-// silence unused
-void createHash;
+

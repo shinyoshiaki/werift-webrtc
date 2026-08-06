@@ -3,6 +3,7 @@ import type {
   CarrierEvents,
   DtlsHandshakeCarrier,
   DtlsHandshakeDatagram,
+  InjectPeerAddr,
   RetransmissionMode,
 } from "./types";
 
@@ -16,20 +17,23 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   private mtu: number;
   private rttMs = 100;
   private mode: RetransmissionMode = "internal";
-  private injectHandler?: (bytes: Buffer) => void;
+  private injectHandler?: (bytes: Buffer, peer?: InjectPeerAddr) => void;
   private closed = false;
   private timers = new Set<ReturnType<typeof setTimeout>>();
   readonly events: CarrierEvents = {};
 
   constructor(
     private readonly transport: Transport,
-    options?: { mtu?: number; onInject?: (bytes: Buffer) => void },
+    options?: {
+      mtu?: number;
+      onInject?: (bytes: Buffer, peer?: InjectPeerAddr) => void;
+    },
   ) {
     this.mtu = options?.mtu ?? DEFAULT_MTU;
     this.injectHandler = options?.onInject;
   }
 
-  setInjectHandler(handler: (bytes: Buffer) => void) {
+  setInjectHandler(handler: (bytes: Buffer, peer?: InjectPeerAddr) => void) {
     this.injectHandler = handler;
   }
 
@@ -41,9 +45,9 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     await this.transport.send(bytes);
   }
 
-  inject(bytes: Buffer): void {
+  inject(bytes: Buffer, peer?: InjectPeerAddr): void {
     if (this.closed) return;
-    this.injectHandler?.(Buffer.from(bytes));
+    this.injectHandler?.(Buffer.from(bytes), peer);
   }
 
   getMtu(): number {

@@ -13,10 +13,19 @@ export interface DtlsHandshakeDatagram {
 
 export type RetransmissionMode = "internal" | "external";
 
+/** Peer address for inject / cookie binding (ip:port). */
+export type InjectPeerAddr =
+  | [string, number]
+  | { address?: string; port?: number }
+  | string;
+
 export interface DtlsHandshakeCarrier {
   send(packet: DtlsHandshakeDatagram): Promise<void>;
-  /** Inject a received datagram into the DTLS engine (used by SPED). */
-  inject(bytes: Buffer): void;
+  /**
+   * Inject a received datagram into the DTLS engine (used by SPED / dual-engine reinject).
+   * Optional peer preserves source address for cookie address-validation binding.
+   */
+  inject(bytes: Buffer, peer?: InjectPeerAddr): void;
   getMtu(): number;
   updateRtt(rttMs: number): void;
   setRetransmissionMode(mode: RetransmissionMode): void;

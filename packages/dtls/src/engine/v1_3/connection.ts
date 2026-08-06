@@ -227,9 +227,30 @@ export class Dtls13Connection {
     this.carrier = new DirectHandshakeCarrier(options.transport, {
       mtu: options.mtu,
     });
-    this.carrier.setInjectHandler((bytes) => this.handleDatagram(bytes));
+    // Inject may carry peer from dual-engine reinject; fall back to transport.rinfo
+    this.carrier.setInjectHandler((bytes, peer) =>
+      this.handleDatagram(bytes, peer),
+    );
     options.transport.onData = (data, addr) =>
       this.handleDatagram(data, addr as [string, number] | undefined);
+  }
+
+  /**
+   * Last UDP peer from transport (UdpTransport.rinfo), used when inject/onData
+   * omits the address so cookie binding still sees a stable peerKey.
+   */
+  private peerFromTransport():
+    | [string, number]
+    | { address?: string; port?: number }
+    | undefined {
+    const t = this.options.transport as {
+      rinfo?: { address?: string; port?: number };
+    };
+    const r = t.rinfo;
+    if (r?.address != null && r?.port != null) {
+      return [r.address, r.port];
+    }
+    return r;
   }
 
   get negotiatedVersion(): DtlsVersion {
@@ -334,12 +355,16 @@ export class Dtls13Connection {
 
   private handleDatagram = (
     data: Buffer,
-    addr?: [string, number] | { address?: string; port?: number },
+    addr?:
+      | [string, number]
+      | { address?: string; port?: number }
+      | string,
   ): void => {
     if (this.closed) return;
     // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
     const buf = Buffer.from(data);
-    const peer = peerKeyFromAddr(addr);
+    // Prefer explicit peer; else last UDP rinfo so dual reinject keeps cookie binding
+    const peer = peerKeyFromAddr(addr ?? this.peerFromTransport());
     this.rxChain = this.rxChain
       .then(() => this.handleDatagramAsync(buf, peer))
       .catch((e) => {

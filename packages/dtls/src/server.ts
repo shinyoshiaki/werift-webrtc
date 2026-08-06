@@ -20,6 +20,20 @@ import {
 
 const log = debug("werift-dtls : packages/dtls/src/server.ts : log");
 
+/**
+ * Capture ClientHello source from UdpTransport.rinfo (set on last datagram)
+ * so dual-engine reinject preserves peer for cookie address validation.
+ */
+function peerAddrFromTransport(
+  transport: { rinfo?: { address?: string; port?: number } },
+): [string, number] | { address?: string; port?: number } | undefined {
+  const r = transport.rinfo;
+  if (r?.address != null && r?.port != null) {
+    return [r.address, r.port];
+  }
+  return r;
+}
+
 export class DtlsServer extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.SERVER);
@@ -120,6 +134,13 @@ export class DtlsServer extends DtlsSocket {
                   if (sv.versions.includes(DTLS_1_3_VERSION)) {
                     // Peer wants 1.3: switch engines and re-inject this ClientHello
                     // as a full epoch-0 plaintext record (no retransmit wait).
+                    // Preserve ClientHello source address so dtls-cookie binding
+                    // uses the same peerKey at mint and verify (not "unknown").
+                    const peerAddr = peerAddrFromTransport(
+                      this.options.transport as {
+                        rinfo?: { address?: string; port?: number };
+                      },
+                    );
                     this.startEngine13();
                     const eng = this.engine13 as Dtls13Connection | undefined;
                     if (eng) {
@@ -130,10 +151,11 @@ export class DtlsServer extends DtlsSocket {
                         0,
                         fragBytes,
                       );
-                      eng.handshakeCarrier.inject(pkt);
+                      eng.handshakeCarrier.inject(pkt, peerAddr);
                     }
                     log(
                       "upgraded server to DTLS 1.3 engine, reinjected ClientHello",
+                      { peer: peerAddr },
                     );
                     return;
                   }
