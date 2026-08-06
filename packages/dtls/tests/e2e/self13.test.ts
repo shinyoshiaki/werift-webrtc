@@ -12,20 +12,29 @@ const dtls13Options = {
   cert: certPem,
   key: keyPem,
   protocolVersions: [DtlsVersion.V1_3] as const,
+  // Basic path tests use none; cookie path covered in dedicated tests
+  addressValidation: "none" as const,
 };
 
-async function pair() {
+async function pair(extra?: {
+  certificateRequest?: boolean;
+  addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+}) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
 
+  const opts = {
+    ...dtls13Options,
+    ...extra,
+  };
   const server = new DtlsServer({
     transport: serverTransport,
-    ...dtls13Options,
+    ...opts,
   });
   const client = new DtlsClient({
     transport: clientTransport,
-    ...dtls13Options,
+    ...opts,
   });
   return { server, client, serverTransport, clientTransport };
 }
@@ -192,17 +201,26 @@ test(
 );
 
 test(
-  "e2e/self13 1.3-only client vs 1.2-only server fails with protocol version error",
+  "e2e/self13 1.3-only client vs 1.2-only server fails with ProtocolVersionError",
   async () => {
     // Arrange
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
 
+    const { HashAlgorithm, SignatureAlgorithm } = await import(
+      "../../src/cipher/const"
+    );
+    const sig = {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    };
+
     const server = new DtlsServer({
       transport: serverTransport,
       cert: certPem,
       key: keyPem,
+      signatureHash: sig,
       protocolVersions: [DtlsVersion.V1_2],
     });
     const client = new DtlsClient({
@@ -210,36 +228,36 @@ test(
       cert: certPem,
       key: keyPem,
       protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
     });
 
-    // Act / Assert
+    // Act / Assert: HelloVerifyRequest → ProtocolVersionError（timeout ではない）
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error("expected version error, got timeout")),
+        () => reject(new Error("expected ProtocolVersionError, got timeout")),
         8_000,
       );
 
       const onErr = (e: Error) => {
-        // 1.2 server may surface cipher/version mismatch; accept ProtocolVersionError or explicit version message
-        if (
-          e instanceof ProtocolVersionError ||
-          /protocol version|cipher|1\.3/i.test(e.message)
-        ) {
-          clearTimeout(timer);
-          client.close();
-          server.close();
-          resolve();
-          return;
-        }
-        // その他の即時エラーも mismatch として許容（timeout でなければよい）
         clearTimeout(timer);
         client.close();
         server.close();
-        resolve();
+        if (
+          e instanceof ProtocolVersionError ||
+          e.name === "ProtocolVersionError" ||
+          /protocol version|HelloVerifyRequest|DTLS 1\.2-only/i.test(e.message)
+        ) {
+          resolve();
+          return;
+        }
+        reject(
+          new Error(
+            `expected ProtocolVersionError, got ${e.name}: ${e.message}`,
+          ),
+        );
       };
 
       client.onError.subscribe(onErr);
-      server.onError.subscribe(onErr);
       client.onConnect.subscribe(() => {
         clearTimeout(timer);
         reject(new Error("should not connect 1.3-only to 1.2-only"));
@@ -253,6 +271,232 @@ test(
     });
   },
   12_000,
+);
+
+test(
+  "e2e/self13 1.2-only client vs 1.3-only server fails with protocol version error",
+  async () => {
+    // Arrange
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+
+    const { HashAlgorithm, SignatureAlgorithm } = await import(
+      "../../src/cipher/const"
+    );
+    const sig = {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    };
+
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      signatureHash: sig,
+      protocolVersions: [DtlsVersion.V1_2],
+    });
+
+    // Act / Assert: server が protocol_version alert / ProtocolVersionError
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("expected version error, got timeout")),
+        8_000,
+      );
+      const done = (e: Error) => {
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        if (
+          e instanceof ProtocolVersionError ||
+          e.name === "ProtocolVersionError" ||
+          /protocol version|cipher suite|1\.3/i.test(e.message)
+        ) {
+          resolve();
+          return;
+        }
+        // 1.2 client may fail with flight timeout after server rejects — still not silent success
+        if (/timeout|retransmit|over retransmit/i.test(e.message)) {
+          // Prefer explicit version path; still fail the soft timeout case
+          reject(
+            new Error(`got timeout-like error, want protocol version: ${e.message}`),
+          );
+          return;
+        }
+        reject(new Error(`unexpected error: ${e.message}`));
+      };
+      server.onError.subscribe(done);
+      client.onError.subscribe(done);
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        reject(new Error("should not connect 1.2-only to 1.3-only"));
+      });
+      try {
+        await client.connect();
+      } catch (e) {
+        done(e as Error);
+      }
+    });
+  },
+  12_000,
+);
+
+test(
+  "e2e/self13 mutual auth with CertificateRequest",
+  async () => {
+    // Arrange
+    const { server, client } = await pair({ certificateRequest: true });
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("mutual auth timeout")),
+        15_000,
+      );
+      client.onConnect.subscribe(() => {
+        void client.send(Buffer.from("mutual"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("mutual");
+        // Assert: 相互証明書
+        expect(server.remoteCertificate?.length).toBeGreaterThan(0);
+        expect(client.remoteCertificate?.length).toBeGreaterThan(0);
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      // Act
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
+test(
+  "e2e/self13 dtls-cookie address validation completes handshake",
+  async () => {
+    // Arrange: default cookie path
+    const { server, client } = await pair({
+      addressValidation: "dtls-cookie",
+    });
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("cookie handshake timeout")),
+        15_000,
+      );
+      client.onConnect.subscribe(() => {
+        void client.send(Buffer.from("cookie-ok"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("cookie-ok");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      // Act
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
+test(
+  "e2e/self13 [1.3,1.2] client falls back to 1.2-only server",
+  async () => {
+    // Arrange
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const { HashAlgorithm, SignatureAlgorithm } = await import(
+      "../../src/cipher/const"
+    );
+    const sig = {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    };
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      signatureHash: sig,
+      protocolVersions: [DtlsVersion.V1_2],
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      signatureHash: sig,
+      protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    });
+
+    // Act / Assert: fallback 後に 1.2 で接続
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("fallback timeout")),
+        15_000,
+      );
+      client.onConnect.subscribe(() => {
+        expect(client.isDtls13).toBe(false);
+        void client.send(Buffer.from("fallback"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("fallback");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        // ProtocolVersionError は 1.3 試行失敗 → fallback 経路で処理
+        if (
+          e instanceof ProtocolVersionError ||
+          e.name === "ProtocolVersionError" ||
+          /HelloVerifyRequest|DTLS 1\.2-only|protocol version/i.test(e.message)
+        ) {
+          return;
+        }
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        // サーバ側の version reject は dual 交渉の想定内
+        if (
+          e instanceof ProtocolVersionError ||
+          e.name === "ProtocolVersionError" ||
+          /DTLS 1\.3 cipher|protocol version/i.test(e.message)
+        ) {
+          return;
+        }
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
 );
 
 test(

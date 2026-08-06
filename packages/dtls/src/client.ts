@@ -51,6 +51,7 @@ export class DtlsClient extends DtlsSocket {
         key: this.options.key,
         srtpProfiles: this.options.srtpProfiles,
         certificateRequest: this.options.certificateRequest,
+        addressValidation: this.options.addressValidation,
       },
       SessionType.CLIENT,
     );
@@ -58,38 +59,52 @@ export class DtlsClient extends DtlsSocket {
 
     if (!strict13) {
       // Dual mode: on protocol version error / HelloVerifyRequest, rebuild as DTLS 1.2.
+      // Suppress forwarding the version error used for fallback to parent onError.
+      let fallingBack = false;
       engine.onError.subscribe((e) => {
         if (
-          e instanceof ProtocolVersionError ||
-          (e instanceof Error &&
-            (/protocol version/i.test(e.message) ||
-              /HelloVerifyRequest/i.test(e.message) ||
-              /DTLS 1\.2-only/i.test(e.message)))
+          !this.dualFallbackTo12 &&
+          supportsVersion(this.protocolVersions, DtlsVersion.V1_2) &&
+          (e instanceof ProtocolVersionError ||
+            (e instanceof Error &&
+              (/protocol version/i.test(e.message) ||
+                /HelloVerifyRequest/i.test(e.message) ||
+                /DTLS 1\.2-only/i.test(e.message) ||
+                /protocol_version/i.test(e.message))))
         ) {
-          if (
-            !this.dualFallbackTo12 &&
-            supportsVersion(this.protocolVersions, DtlsVersion.V1_2)
-          ) {
-            log("falling back to DTLS 1.2 after version mismatch", e.message);
-            this.dualFallbackTo12 = true;
-            this.engine13 = undefined;
-            this.connected = false;
-            // Restore 1.2 receive path and renegotiate state
-            this.transport.socket.onData = this.udpOnMessage;
-            this.dtls = new (this.dtls.constructor as any)(
-              this.options,
-              this.sessionType,
-            );
-            this.connect12().catch((err) => this.onError.execute(err));
-            return;
-          }
+          log("falling back to DTLS 1.2 after version mismatch", e.message);
+          fallingBack = true;
+          this.dualFallbackTo12 = true;
+          this.engine13 = undefined;
+          this.connected = false;
+          // Restore 1.2 receive path and fresh 1.2 context
+          this.transport.socket.onData = this.udpOnMessage;
+          this.dtls = new (this.dtls.constructor as any)(
+            this.options,
+            this.sessionType,
+          );
+          this.cipher = new (this.cipher.constructor as any)(
+            this.sessionType,
+            this.options.cert,
+            this.options.key,
+            this.options.signatureHash,
+          );
+          this.srtp = new (this.srtp.constructor as any)();
+          this.setupExtensionsFor12Fallback();
+          this.connect12().catch((err) => this.onError.execute(err));
+          return;
         }
-        // strict dual exhausted — surface error
-        if (!this.dualFallbackTo12) {
-          // bridgeEngine13 already forwards onError; avoid double if we handled fallback
+        if (!fallingBack) {
+          // bridgeEngine13 already forwards; no-op
         }
       });
     }
+  }
+
+  /** Re-init extensions after dual fallback tears down the 1.3 engine. */
+  private setupExtensionsFor12Fallback() {
+    this.extensions = [];
+    this.setupExtensions();
   }
 
   async connect() {

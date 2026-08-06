@@ -47,3 +47,36 @@ jobs:
           CI: true
         run: |
           npm run ci
+
+  dtls13-boringssl:
+    name: DTLS 1.3 BoringSSL interop (P0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 18.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+      - name: Install deps
+        run: npm i
+      - name: Build BoringSSL DTLS echo harness
+        env:
+          WERIFT_BORINGSSL_INCLUDE: /usr/local/include
+          WERIFT_BORINGSSL_LIB: /usr/local/lib
+        run: |
+          # Prefer preinstalled BoringSSL; otherwise build pin (may be slow)
+          if [ ! -f /usr/local/lib/libssl.a ]; then
+            echo "BoringSSL libs missing; install pin per packages/dtls/tests/e2e/boringssl/README.md"
+            exit 1
+          fi
+          cd packages/dtls/tests/e2e/boringssl
+          ./build-bssl-echo.sh
+          test -x ./dtls13_echo
+      - name: Run BoringSSL interop (fail if harness missing)
+        env:
+          CI: true
+          WERIFT_REQUIRE_BORINGSSL: "1"
+        run: |
+          cd packages/dtls
+          npm run type
+          npx vitest run ./tests/e2e/boringssl ./tests/e2e/self13.test.ts

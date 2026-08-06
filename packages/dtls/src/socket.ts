@@ -147,7 +147,7 @@ export class DtlsSocket {
     }
   };
 
-  private setupExtensions() {
+  protected setupExtensions() {
     log(this.dtls.sessionId, "support srtpProfiles", this.options.srtpProfiles);
     if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
       const useSrtp = UseSRTP.create(
@@ -310,6 +310,18 @@ export class DtlsSocket {
     engine.onData.subscribe((data) => this.onData.execute(data));
     engine.onError.subscribe((e) => this.onError.execute(e));
     engine.onClose.subscribe(() => this.onClose.execute());
+  }
+
+  /**
+   * Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
+   */
+  protected async sendPlaintextAlert(description: number): Promise<void> {
+    const alert = Buffer.from([2, description]); // fatal
+    const pkt = createPlaintext(this.dtls)(
+      [{ type: ContentType.alert, fragment: alert }],
+      ++this.dtls.recordSequenceNumber,
+    )[0];
+    await this.transport.send(pkt.serialize());
   }
 }
 

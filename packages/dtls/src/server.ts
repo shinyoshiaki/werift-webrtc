@@ -9,6 +9,7 @@ import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
 import { Dtls13Connection } from "./engine/v1_3/connection";
+import { AlertDesc } from "./record/const";
 import {
   DTLS_1_3_VERSION,
   DtlsVersion,
@@ -45,6 +46,7 @@ export class DtlsServer extends DtlsSocket {
         key: this.options.key,
         srtpProfiles: this.options.srtpProfiles,
         certificateRequest: this.options.certificateRequest,
+        addressValidation: this.options.addressValidation,
       },
       SessionType.SERVER,
     );
@@ -140,11 +142,13 @@ export class DtlsServer extends DtlsSocket {
               return;
             }
 
-            // 1.3-only peer? If we are 1.2-only and CH only has 1.3 ciphers, error.
+            // 1.3-only peer? If we are 1.2-only and CH only has 1.3 ciphers,
+            // send protocol_version alert so the client fails without timeout.
             if (
               !supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
               clientHello.cipherSuites.every((c) => c === 0x1301)
             ) {
+              await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
               this.onError.execute(
                 new ProtocolVersionError(
                   "DTLS 1.2-only server: peer offered only DTLS 1.3 cipher suites",

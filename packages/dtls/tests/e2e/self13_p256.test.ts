@@ -23,6 +23,7 @@ test(
         cert: certPem,
         key: keyPem,
         groups,
+        addressValidation: "none",
       },
       SessionType.SERVER,
     );
@@ -32,6 +33,7 @@ test(
         cert: certPem,
         key: keyPem,
         groups,
+        addressValidation: "none",
       },
       SessionType.CLIENT,
     );

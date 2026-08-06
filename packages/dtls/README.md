@@ -72,9 +72,16 @@ await client.connect();
 | `[V1_3]` | DTLS 1.3 only (`TLS_AES_128_GCM_SHA256`, X25519/P-256) |
 | `[V1_3, V1_2]` | Prefer 1.3; fall back to 1.2 if peer is 1.2-only |
 
-Mismatch **1.3-only × 1.2-only** fails with a protocol-version error (not a silent timeout).
+| `addressValidation` | Behavior (DTLS 1.3 server) |
+| --- | --- |
+| `"dtls-cookie"` (default) | HRR + TLS cookie before amplifying server flight; 3× anti-amplification |
+| `"ice-authenticated"` / `"none"` | Skip cookie (path already trusted / tests) |
 
-BoringSSL DTLS 1.3 interop: see `tests/e2e/boringssl/README.md` (`WERIFT_BORINGSSL_BSSL`).
+Mismatch **1.3-only × 1.2-only** fails with `ProtocolVersionError` / `protocol_version` alert (not a silent timeout).
+
+`certificateRequest: true` enables TLS 1.3 mutual authentication (CertificateRequest + client Certificate / CertificateVerify).
+
+BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` builds `dtls13_echo` and fails if the harness is missing (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
 
 # reference
 

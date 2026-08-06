@@ -23,7 +23,9 @@ function resolveEchoPath(): string | undefined {
 const echoPath = resolveEchoPath();
 const bsslPath = resolveBsslPath();
 const hasHarness = !!echoPath;
-const describeBssl = hasHarness ? describe : describe.skip;
+/** CI must fail when harness is missing (ticket / Epic 1 P0). Local may skip. */
+const requireHarness = process.env.CI === "true" || process.env.WERIFT_REQUIRE_BORINGSSL === "1";
+const describeBssl = hasHarness ? describe : requireHarness ? describe : describe.skip;
 
 function spawnEcho(args: string[]): ChildProcessWithoutNullStreams {
   return spawn(echoPath!, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -38,6 +40,23 @@ function writeCerts() {
   writeFileSync(keyPath, keyPem);
   return { dir, certPath, keyPath };
 }
+
+describe("e2e/boringssl harness gate", () => {
+  test("CI requires dtls13_echo harness (P0 interop)", () => {
+    // Arrange / Act / Assert
+    if (requireHarness) {
+      expect(
+        hasHarness,
+        "CI must build packages/dtls/tests/e2e/boringssl/dtls13_echo (see README)",
+      ).toBe(true);
+    } else if (!hasHarness) {
+      console.info(
+        "[boringssl] skipped locally: run build-bssl-echo.sh or set WERIFT_REQUIRE_BORINGSSL=1",
+      );
+    }
+    expect(BORINGSSL_PIN_REVISION.length).toBeGreaterThan(8);
+  });
+});
 
 describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
   test("documents pinned revision and harness", () => {
@@ -70,6 +89,8 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         cert: certPem,
         key: keyPem,
         protocolVersions: [DtlsVersion.V1_3],
+        // Peer is local loopback process; skip cookie HRR for interop focus
+        addressValidation: "none",
       });
 
       try {
@@ -134,6 +155,8 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         cert: certPem,
         key: keyPem,
         protocolVersions: [DtlsVersion.V1_3],
+        // External bssl client; address validation cookie optional for harness
+        addressValidation: "none",
       });
 
       let gotData = "";
@@ -200,7 +223,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
   );
 });
 
-if (!hasHarness) {
+if (!hasHarness && !requireHarness) {
   test("boringssl harness skipped (build tests/e2e/boringssl/dtls13_echo)", () => {
     // Arrange / Act / Assert
     console.info(

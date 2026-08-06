@@ -34,10 +34,16 @@ import { Finished } from "../../handshake/message/finished";
 import { Certificate13 } from "../../handshake/message/tls13/certificate";
 import { CertificateVerify13 } from "../../handshake/message/tls13/certificateVerify";
 import { EncryptedExtensions } from "../../handshake/message/tls13/encryptedExtensions";
+import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
 import { KeyUpdate } from "../../handshake/message/tls13/keyUpdate";
 import { DtlsAck } from "../../handshake/message/tls13/ack";
 import { DtlsRandom } from "../../handshake/random";
 import { Alert } from "../../handshake/message/alert";
+import {
+  CookieExtension,
+  mintCookie,
+  verifyCookie,
+} from "../../handshake/extensions/cookie";
 import type { Transport } from "../../imports/common";
 import { Event, debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
@@ -52,16 +58,22 @@ import {
 } from "../../record/v1_3/record";
 import type { Extension } from "../../typings/domain";
 import {
-  DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
   DtlsVersion,
   ProtocolVersionError,
   WireVersion,
-  normalizeProtocolVersions,
 } from "../../version";
 import { HandshakeTranscript } from "./transcript";
 
+/** Anti-amplification: server may send at most 3× received before address validated. */
+const ANTI_AMPLIFICATION_FACTOR = 3;
+
 const log = debug("werift-dtls : packages/dtls/src/engine/v1_3/connection.ts");
+
+export type AddressValidationMode =
+  | "dtls-cookie"
+  | "ice-authenticated"
+  | "none";
 
 export interface Dtls13Options {
   transport: Transport;
@@ -72,6 +84,12 @@ export interface Dtls13Options {
   /** Preferred named groups order */
   groups?: NamedCurveAlgorithms[];
   mtu?: number;
+  /**
+   * Address validation policy.
+   * - dtls-cookie (default): HRR + cookie before amplifying server flight
+   * - ice-authenticated / none: skip cookie (peer path already authenticated)
+   */
+  addressValidation?: AddressValidationMode;
 }
 
 type Role = "client" | "server";
@@ -127,6 +145,9 @@ export class Dtls13Connection {
   private localFinishedSent = false;
   private flightId = 0;
   private pendingFlight: DtlsHandshakeDatagram[] = [];
+  /** Record numbers of the current retransmittable flight (for ACK matching). */
+  private pendingFlightRecords: { epoch: number; sequenceNumber: number }[] =
+    [];
   private cancelRetransmit: (() => void) | undefined;
   private retransmitCount = 0;
   private readonly maxRetransmit = 10;
@@ -144,7 +165,16 @@ export class Dtls13Connection {
   private receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] =
     [];
   private cookieSecret = randomBytes(16);
-  private addressValidationCookie?: Buffer;
+  private tlsCookie = Buffer.alloc(0);
+  private addressValidated = false;
+  private bytesReceived = 0;
+  private bytesSent = 0;
+  private readonly addressValidation: AddressValidationMode;
+  private certificateRequestContext = Buffer.alloc(0);
+  private expectClientCertificate = false;
+  private clientCertificateReceived = false;
+  private clientCertificateVerified = false;
+  private peerRequestedClientCert = false;
 
   constructor(
     private readonly options: Dtls13Options,
@@ -160,6 +190,11 @@ export class Dtls13Connection {
     ];
     this.localKeyPair = generateKeyPair(this.groups[0]);
     this.selectedGroup = this.groups[0];
+    this.addressValidation = options.addressValidation ?? "dtls-cookie";
+    // ICE-authenticated / none: address already trusted for amplification purposes
+    this.addressValidated =
+      this.addressValidation === "none" ||
+      this.addressValidation === "ice-authenticated";
     this.epochs.set(0, createEpochProtection(0));
     this.carrier = new DirectHandshakeCarrier(options.transport, {
       mtu: options.mtu,
@@ -199,11 +234,20 @@ export class Dtls13Connection {
       WireVersion.DTLS_1_2, // legacy_version
       this.clientRandom,
       this.sessionId,
-      this.cookie,
+      Buffer.alloc(0), // legacy_cookie must be empty in DTLS 1.3
       [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
       [0],
       extensions,
     );
+    // After HRR, second ClientHello reuses message_seq of first (RFC 9147)
+    if (!this.awaitingHrr && this.firstClientHelloBody) {
+      // retransmit path — keep messageSeq
+    } else if (this.awaitingHrr) {
+      // second CH after HRR: same message_seq as first CH (=0)
+      this.messageSeq = 0;
+    } else {
+      this.messageSeq = 0;
+    }
     ch.messageSeq = this.messageSeq;
 
     const body = ch.serialize();
@@ -235,15 +279,7 @@ export class Dtls13Connection {
     curves.data = this.groups as any;
     exts.push(curves.extension);
 
-    const shares = this.groups.map((g) => {
-      const kp =
-        g === this.selectedGroup
-          ? this.localKeyPair
-          : generateKeyPair(g);
-      if (g === this.selectedGroup) this.localKeyPair = kp;
-      return { group: g, keyExchange: kp.publicKey };
-    });
-    // Only send key share for selected group to keep simple (others optional)
+    // Only send key share for selected group
     exts.push(
       KeyShare.forClient([
         {
@@ -254,6 +290,10 @@ export class Dtls13Connection {
     );
 
     exts.push(SignatureAlgorithms.create().extension);
+
+    if (this.tlsCookie.length > 0) {
+      exts.push(new CookieExtension(this.tlsCookie).extension);
+    }
 
     if (this.options.srtpProfiles?.length) {
       exts.push(
@@ -274,6 +314,7 @@ export class Dtls13Connection {
 
   private async handleDatagramAsync(data: Buffer): Promise<void> {
     try {
+      this.bytesReceived += data.length;
       let offset = 0;
       while (offset < data.length) {
         const rec = parseNextRecord(data.subarray(offset), (low) =>
@@ -383,13 +424,25 @@ export class Dtls13Connection {
     try {
       const ack = DtlsAck.deSerialize(content);
       log("received ACK", ack.recordNumbers.length);
-      // Stop retransmission of pending flight when any ACK arrives for our flight
-      if (ack.recordNumbers.length >= 0) {
-        this.cancelRetransmit?.();
-        this.cancelRetransmit = undefined;
-        this.pendingFlight = [];
-        this.retransmitCount = 0;
+      if (this.pendingFlightRecords.length === 0) {
+        return;
       }
+      // Only stop retransmission when ACK covers at least one record of our pending flight
+      const matches = ack.recordNumbers.some((rn) =>
+        this.pendingFlightRecords.some(
+          (p) =>
+            p.epoch === rn.epoch && p.sequenceNumber === rn.sequenceNumber,
+        ),
+      );
+      if (!matches) {
+        log("ACK ignored: no pending flight records matched");
+        return;
+      }
+      this.cancelRetransmit?.();
+      this.cancelRetransmit = undefined;
+      this.pendingFlight = [];
+      this.pendingFlightRecords = [];
+      this.retransmitCount = 0;
     } catch (e) {
       log("bad ACK", e);
     }
@@ -473,6 +526,11 @@ export class Dtls13Connection {
           this.transcript.add(HandshakeType.encrypted_extensions_8, body);
         }
         break;
+      case HandshakeType.certificate_request_13:
+        if (this.role === "client") {
+          await this.onCertificateRequest(body);
+        }
+        break;
       case HandshakeType.certificate_11:
         await this.onCertificate(body);
         break;
@@ -508,9 +566,25 @@ export class Dtls13Connection {
       return;
     }
 
-    // Cookie / address validation (anti-amplification simplified)
-    // For Epic 1 cookie path: if cookie empty and addressValidation not none, could send HRR with cookie.
-    // We accept empty cookie for direct self-tests (dtls-cookie optional when same-path).
+    // Address validation via TLS cookie (HRR)
+    if (this.addressValidation === "dtls-cookie" && !this.addressValidated) {
+      const cookieExt = ch.extensions.find(
+        (e) => e.type === CookieExtension.type,
+      );
+      if (!cookieExt) {
+        // First CH without cookie → HRR with cookie
+        this.firstClientHelloBody = body;
+        this.sessionId = Buffer.from(ch.sessionId);
+        await this.sendHelloRetryRequest(undefined, true, body);
+        return;
+      }
+      const cookie = CookieExtension.fromData(cookieExt.data).cookie;
+      if (!verifyCookie(this.cookieSecret, cookie)) {
+        throw new Error("invalid DTLS cookie");
+      }
+      this.addressValidated = true;
+      this.tlsCookie = Buffer.from(cookie);
+    }
 
     const keyShareExt = ch.extensions.find((e) => e.type === KeyShare.type);
     if (!keyShareExt) {
@@ -521,8 +595,10 @@ export class Dtls13Connection {
       this.groups.includes(s.group as NamedCurveAlgorithms),
     );
     if (!clientShare) {
-      // Send HRR for first preferred group
-      await this.sendHelloRetryRequest(this.groups[0], messageSeq);
+      // Send HRR for first preferred group (may also carry cookie if not validated)
+      this.firstClientHelloBody = body;
+      this.sessionId = Buffer.from(ch.sessionId);
+      await this.sendHelloRetryRequest(this.groups[0], !this.addressValidated, body);
       return;
     }
 
@@ -548,15 +624,27 @@ export class Dtls13Connection {
       }
     }
 
-    this.transcript = new HandshakeTranscript();
-    this.transcript.add(HandshakeType.client_hello_1, body);
+    // Transcript after HRR: message_hash(CH1) + HRR already set; else fresh CH
+    if (this.awaitingHrr && this.firstClientHelloBody) {
+      // second CH after HRR — transcript already has message_hash + HRR
+      this.transcript.add(HandshakeType.client_hello_1, body);
+      this.awaitingHrr = false;
+    } else {
+      this.transcript = new HandshakeTranscript();
+      this.transcript.add(HandshakeType.client_hello_1, body);
+    }
 
     await this.sendServerFlight();
   }
 
+  /**
+   * HelloRetryRequest. Optionally includes cookie for address validation
+   * and/or selected_group for key_share.
+   */
   private async sendHelloRetryRequest(
-    group: number,
-    clientMessageSeq: number,
+    group: number | undefined,
+    withCookie: boolean,
+    clientHelloBody: Buffer,
   ): Promise<void> {
     const hrrRandom = {
       gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
@@ -564,8 +652,15 @@ export class Dtls13Connection {
     };
     const extensions: Extension[] = [
       SupportedVersions.forServer(DTLS_1_3_VERSION).serverExtension,
-      KeyShare.forHelloRetryRequest(group).serverExtension,
     ];
+    if (group !== undefined) {
+      extensions.push(KeyShare.forHelloRetryRequest(group).serverExtension);
+    }
+    if (withCookie) {
+      const cookie = mintCookie(this.cookieSecret);
+      this.tlsCookie = Buffer.from(cookie);
+      extensions.push(new CookieExtension(cookie).extension);
+    }
     const hrr = new ServerHello(
       WireVersion.DTLS_1_2,
       hrrRandom,
@@ -574,20 +669,17 @@ export class Dtls13Connection {
       0,
       extensions,
     );
-    this.messageSeq = clientMessageSeq + 1;
+    // Server first message uses message_seq 0
+    this.messageSeq = 0;
     hrr.messageSeq = this.messageSeq;
 
-    // Transcript: message_hash(CH1) + HRR; first CH body already known after we get it
-    // Caller must have first CH in transcript temporarily
-    const chBodies = this.transcript.bytes; // may be empty; onClientHello path with no share
-    // We only call HRR before adding CH in current code when no share — add CH first externally
-    // For HRR after CH without compatible share: CH was not added yet
-    // Fix: onClientHello should add CH before HRR
-    this.awaitingHrr = true;
-
+    // Transcript: message_hash(CH1) + HRR
+    this.transcript = new HandshakeTranscript();
+    this.transcript.replaceWithMessageHash(clientHelloBody);
     const body = hrr.serialize();
-    // If CH already in transcript, replace with message_hash then add HRR
-    // We'll store first CH in firstClientHelloBody when we have it
+    this.transcript.add(HandshakeType.server_hello_2, body);
+    this.awaitingHrr = true;
+    this.firstClientHelloBody = clientHelloBody;
 
     const frag = hrr.toFragment();
     frag.message_seq = this.messageSeq;
@@ -664,12 +756,32 @@ export class Dtls13Connection {
     const eeBody = ee.serialize();
     this.transcript.add(HandshakeType.encrypted_extensions_8, eeBody);
 
+    const encFragsList: FragmentedHandshake[] = [];
+
+    // Optional CertificateRequest for mutual auth
+    if (this.options.certificateRequest) {
+      this.certificateRequestContext = Buffer.from(randomBytes(8));
+      this.expectClientCertificate = true;
+      const cr = CertificateRequest13.create(this.certificateRequestContext);
+      this.messageSeq += 1;
+      cr.messageSeq = this.messageSeq;
+      this.transcript.add(HandshakeType.certificate_request_13, cr.serialize());
+      const crf = cr.toFragment();
+      crf.message_seq = cr.messageSeq;
+      encFragsList.push(crf);
+    }
+
     // Certificate
     const cert = new Certificate13(Buffer.alloc(0), [this.certDer]);
     this.messageSeq += 1;
     cert.messageSeq = this.messageSeq;
     const certBody = cert.serialize();
     this.transcript.add(HandshakeType.certificate_11, certBody);
+    {
+      const f = cert.toFragment();
+      f.message_seq = cert.messageSeq;
+      encFragsList.push(f);
+    }
 
     // CertificateVerify
     const { algorithm, signature } = signCertificateVerify(
@@ -682,6 +794,11 @@ export class Dtls13Connection {
     cv.messageSeq = this.messageSeq;
     const cvBody = cv.serialize();
     this.transcript.add(HandshakeType.certificate_verify_15, cvBody);
+    {
+      const f = cv.toFragment();
+      f.message_seq = cv.messageSeq;
+      encFragsList.push(f);
+    }
 
     // Finished
     const verifyData = this.keySchedule.verifyData(
@@ -693,6 +810,18 @@ export class Dtls13Connection {
     fin.messageSeq = this.messageSeq;
     const finBody = fin.serialize();
     this.transcript.add(HandshakeType.finished_20, finBody);
+    {
+      const f = fin.toFragment();
+      f.message_seq = fin.messageSeq;
+      encFragsList.push(f);
+    }
+
+    // EncryptedExtensions fragment first
+    {
+      const f = ee.toFragment();
+      f.message_seq = ee.messageSeq!;
+      encFragsList.unshift(f);
+    }
 
     // Derive application secrets after server Finished is in transcript
     const appSecrets = this.keySchedule.deriveApplicationSecrets(
@@ -714,13 +843,7 @@ export class Dtls13Connection {
     shFrag.message_seq = sh.messageSeq!;
     await this.sendHandshakeFlight([shFrag], 0, false);
 
-    const encMsgs = [ee, cert, cv, fin];
-    const encFrags = encMsgs.map((m) => {
-      const f = m.toFragment();
-      f.message_seq = m.messageSeq!;
-      return f;
-    });
-    await this.sendHandshakeFlight(encFrags, 2, true);
+    await this.sendHandshakeFlight(encFragsList, 2, true);
     this.localFinishedSent = true;
     this.serverFlightComplete = true;
     // Server can send early app data on epoch 3 after its Finished (WARP); optional
@@ -763,7 +886,15 @@ export class Dtls13Connection {
       const ksExt = sh.extensions.find((e) => e.type === KeyShare.type);
       const group = ksExt
         ? KeyShare.fromServerData(ksExt.data).selectedGroup
-        : this.groups[0];
+        : undefined;
+      const cookieExt = sh.extensions.find(
+        (e) => e.type === CookieExtension.type,
+      );
+      if (cookieExt) {
+        this.tlsCookie = Buffer.from(
+          CookieExtension.fromData(cookieExt.data).cookie,
+        );
+      }
       // Transcript: replace first CH with message_hash, add HRR
       if (this.firstClientHelloBody) {
         this.transcript = new HandshakeTranscript();
@@ -771,7 +902,6 @@ export class Dtls13Connection {
       }
       this.transcript.add(HandshakeType.server_hello_2, body);
       this.awaitingHrr = true;
-      this.messageSeq += 1;
       await this.sendClientHello(group);
       return;
     }
@@ -814,8 +944,28 @@ export class Dtls13Connection {
     this.clientExpectsServerFlight = true;
   }
 
+  private async onCertificateRequest(body: Buffer): Promise<void> {
+    const cr = CertificateRequest13.deSerialize(body);
+    this.certificateRequestContext = Buffer.from(
+      cr.certificateRequestContext,
+    );
+    this.peerRequestedClientCert = true;
+    this.transcript.add(HandshakeType.certificate_request_13, body);
+  }
+
   private async onCertificate(body: Buffer): Promise<void> {
     const cert = Certificate13.deSerialize(body);
+    // Empty certificate list is allowed for optional client auth decline;
+    // we require a cert when we requested one.
+    if (this.role === "server" && this.expectClientCertificate) {
+      if (!cert.certificates.length) {
+        throw new Error("client Certificate required but empty list received");
+      }
+      this.remoteCert = cert.certificates[0];
+      this.clientCertificateReceived = true;
+      this.transcript.add(HandshakeType.certificate_11, body);
+      return;
+    }
     if (!cert.certificates.length) {
       throw new Error("empty certificate list");
     }
@@ -826,7 +976,7 @@ export class Dtls13Connection {
   private async onCertificateVerify(body: Buffer): Promise<void> {
     if (!this.remoteCert) throw new Error("CertificateVerify without Certificate");
     const cv = CertificateVerify13.deSerialize(body);
-    // Peer is server if we are client
+    // Client only verifies server CertificateVerify; server verifies client CV for mutual auth
     const peerIsServer = this.role === "client";
     const ok = verifyCertificateVerify(
       this.remoteCert,
@@ -839,6 +989,9 @@ export class Dtls13Connection {
       throw new Error("CertificateVerify signature verification failed");
     }
     this.transcript.add(HandshakeType.certificate_verify_15, body);
+    if (this.role === "server" && this.expectClientCertificate) {
+      this.clientCertificateVerified = true;
+    }
   }
 
   private async onFinished(body: Buffer, epoch: number): Promise<void> {
@@ -868,7 +1021,40 @@ export class Dtls13Connection {
       ep3.readKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
       this.epochs.set(3, ep3);
 
-      // Send client Finished (+ optional empty ACK)
+      // Optional client Certificate + CertificateVerify for mutual auth
+      const clientMsgs: FragmentedHandshake[] = [];
+      if (this.peerRequestedClientCert) {
+        const cCert = new Certificate13(this.certificateRequestContext, [
+          this.certDer,
+        ]);
+        this.messageSeq += 1;
+        cCert.messageSeq = this.messageSeq;
+        this.transcript.add(
+          HandshakeType.certificate_11,
+          cCert.serialize(),
+        );
+        const cFrag = cCert.toFragment();
+        cFrag.message_seq = cCert.messageSeq;
+        clientMsgs.push(cFrag);
+
+        const { algorithm, signature } = signCertificateVerify(
+          this.keyPem,
+          false,
+          this.transcript.bytes,
+        );
+        const cCv = new CertificateVerify13(algorithm, signature);
+        this.messageSeq += 1;
+        cCv.messageSeq = this.messageSeq;
+        this.transcript.add(
+          HandshakeType.certificate_verify_15,
+          cCv.serialize(),
+        );
+        const cvFrag = cCv.toFragment();
+        cvFrag.message_seq = cCv.messageSeq;
+        clientMsgs.push(cvFrag);
+      }
+
+      // Send client Finished
       const clientVd = this.keySchedule.verifyData(
         this.clientHsTraffic!,
         this.transcript.bytes,
@@ -881,7 +1067,8 @@ export class Dtls13Connection {
 
       const frag = clientFin.toFragment();
       frag.message_seq = clientFin.messageSeq;
-      await this.sendHandshakeFlight([frag], 2, false);
+      clientMsgs.push(frag);
+      await this.sendHandshakeFlight(clientMsgs, 2, false);
 
       // Send ACK for server flight
       await this.sendAck();
@@ -896,7 +1083,14 @@ export class Dtls13Connection {
       this.onConnect.execute();
       log("client connected");
     } else {
-      // Server receives client Finished
+      // Server receives client Finished — require mutual auth if requested
+      if (this.expectClientCertificate) {
+        if (!this.clientCertificateReceived || !this.clientCertificateVerified) {
+          throw new Error(
+            "client Finished before Certificate/CertificateVerify (mutual auth)",
+          );
+        }
+      }
       const expected = this.keySchedule.verifyData(
         this.clientHsTraffic!,
         this.transcript.bytes,
@@ -1037,6 +1231,7 @@ export class Dtls13Connection {
         : mtu - 5 - 12 - 16; // unified header ~5 + tag
 
     const packets: Buffer[] = [];
+    const recordNumbers: { epoch: number; sequenceNumber: number }[] = [];
     for (const f of fragments) {
       const chunks =
         f.fragment.length > maxFrag ? f.chunk(maxFrag) : [f];
@@ -1044,6 +1239,7 @@ export class Dtls13Connection {
         const hsBytes = chunk.serialize();
         if (epoch === 0) {
           const seq = this.recordSeqEpoch0++;
+          recordNumbers.push({ epoch: 0, sequenceNumber: seq });
           packets.push(
             serializePlaintextRecord(
               ContentType.handshake,
@@ -1057,6 +1253,8 @@ export class Dtls13Connection {
           if (!ep?.writeKeys) {
             throw new Error(`no write keys for epoch ${epoch}`);
           }
+          const seq = ep.writeSequence;
+          recordNumbers.push({ epoch, sequenceNumber: seq });
           packets.push(
             encryptRecord(hsBytes, ContentType.handshake, ep),
           );
@@ -1079,6 +1277,33 @@ export class Dtls13Connection {
     }
     if (current.length) datagrams.push(current);
 
+    // Anti-amplification: cap outbound before address validation (server)
+    if (
+      this.role === "server" &&
+      !this.addressValidated &&
+      this.addressValidation === "dtls-cookie"
+    ) {
+      const budget =
+        ANTI_AMPLIFICATION_FACTOR * this.bytesReceived - this.bytesSent;
+      let allowed = Math.max(0, budget);
+      const limited: Buffer[] = [];
+      for (const d of datagrams) {
+        if (d.length > allowed) break;
+        limited.push(d);
+        allowed -= d.length;
+      }
+      if (limited.length === 0 && datagrams.length > 0) {
+        // Still send HRR-sized first datagram if possible (cookie exchange must proceed)
+        if (datagrams[0].length <= mtu) {
+          limited.push(datagrams[0]);
+        } else {
+          throw new Error("anti-amplification: cannot send flight");
+        }
+      }
+      datagrams.length = 0;
+      datagrams.push(...limited);
+    }
+
     const flightPackets = datagrams.map((bytes, i) =>
       createHandshakeDatagram(bytes, flightId, i, retransmittable),
     );
@@ -1086,11 +1311,13 @@ export class Dtls13Connection {
 
     if (retransmittable) {
       this.pendingFlight = flightPackets;
+      this.pendingFlightRecords = recordNumbers;
       this.retransmitCount = 0;
       this.scheduleRetransmit();
     }
 
     for (const pkt of flightPackets) {
+      this.bytesSent += pkt.bytes.length;
       await this.carrier.send(pkt);
     }
   }
