@@ -5,10 +5,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
 import { certPem, keyPem } from "../../fixture";
-import { BORINGSSL_PIN_REVISION, resolveBsslPath } from "./helpers";
+import {
+  BORINGSSL_PIN_REVISION,
+  readBuiltRevision,
+  resolveBsslPath,
+} from "./helpers";
 
 /**
- * Native harness path (preferred). Built via ./build-bssl-echo.sh against pinned BoringSSL.
+ * Native harness path (preferred). Built via ./build-bssl-echo.sh / fetch-and-build-boringssl.sh.
  * Override: WERIFT_BORINGSSL_DTLS_ECHO
  */
 function resolveEchoPath(): string | undefined {
@@ -24,8 +28,13 @@ const echoPath = resolveEchoPath();
 const bsslPath = resolveBsslPath();
 const hasHarness = !!echoPath;
 /** CI must fail when harness is missing (ticket / Epic 1 P0). Local may skip. */
-const requireHarness = process.env.CI === "true" || process.env.WERIFT_REQUIRE_BORINGSSL === "1";
-const describeBssl = hasHarness ? describe : requireHarness ? describe : describe.skip;
+const requireHarness =
+  process.env.CI === "true" || process.env.WERIFT_REQUIRE_BORINGSSL === "1";
+const describeBssl = hasHarness
+  ? describe
+  : requireHarness
+    ? describe
+    : describe.skip;
 
 function spawnEcho(args: string[]): ChildProcessWithoutNullStreams {
   return spawn(echoPath!, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -47,14 +56,28 @@ describe("e2e/boringssl harness gate", () => {
     if (requireHarness) {
       expect(
         hasHarness,
-        "CI must build packages/dtls/tests/e2e/boringssl/dtls13_echo (see README)",
+        "CI must build packages/dtls/tests/e2e/boringssl/dtls13_echo via fetch-and-build-boringssl.sh",
       ).toBe(true);
     } else if (!hasHarness) {
       console.info(
-        "[boringssl] skipped locally: run build-bssl-echo.sh or set WERIFT_REQUIRE_BORINGSSL=1",
+        "[boringssl] skipped locally: run fetch-and-build-boringssl.sh or set WERIFT_REQUIRE_BORINGSSL=1",
       );
     }
     expect(BORINGSSL_PIN_REVISION.length).toBeGreaterThan(8);
+  });
+
+  test("built revision matches pin when .built-revision present", () => {
+    // Arrange
+    const built = readBuiltRevision();
+    // Act / Assert: pin ビルド後は revision 一致を強制
+    if (built) {
+      expect(built.startsWith(BORINGSSL_PIN_REVISION.slice(0, 12))).toBe(true);
+    } else if (requireHarness) {
+      // CI で pin スクリプト経由なら .built-revision が必須
+      if (process.env.WERIFT_BORINGSSL_ENFORCE_PIN === "1") {
+        expect(built, "run fetch-and-build-boringssl.sh to record pin").toBeTruthy();
+      }
+    }
   });
 });
 
@@ -66,7 +89,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
   });
 
   test(
-    "werift client connects to BoringSSL DTLS 1.3 server",
+    "werift client connects to BoringSSL DTLS 1.3 server with bidirectional data",
     async () => {
       // Arrange
       const { certPath, keyPath } = writeCerts();
@@ -78,7 +101,6 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         stderr += d.toString();
       });
 
-      // サーバ起動待ち
       await new Promise((r) => setTimeout(r, 200));
 
       const transport = await UdpTransport.init("udp4");
@@ -89,18 +111,15 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         cert: certPem,
         key: keyPem,
         protocolVersions: [DtlsVersion.V1_3],
-        // Peer is local loopback process; skip cookie HRR for interop focus
         addressValidation: "none",
       });
 
       try {
-        // Act
+        // Act: handshake
         await new Promise<void>(async (resolve, reject) => {
           const timer = setTimeout(() => {
             reject(
-              new Error(
-                `BoringSSL server interop timeout\nstderr=${stderr}`,
-              ),
+              new Error(`BoringSSL server interop timeout\nstderr=${stderr}`),
             );
           }, 15_000);
           client.onConnect.subscribe(() => {
@@ -109,9 +128,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
           });
           client.onError.subscribe((e) => {
             clearTimeout(timer);
-            reject(
-              new Error(`${e.message}\nstderr=${stderr}`),
-            );
+            reject(new Error(`${e.message}\nstderr=${stderr}`));
           });
           try {
             await client.connect();
@@ -121,7 +138,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
           }
         });
 
-        // Assert: 双方向データ
+        // Assert: 双方向データ（echo）
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(
             () => reject(new Error("data exchange timeout")),
@@ -143,7 +160,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
   );
 
   test(
-    "BoringSSL DTLS 1.3 client connects to werift server",
+    "BoringSSL client → werift server: must receive client data and echo response",
     async () => {
       // Arrange
       const { certPath, keyPath } = writeCerts();
@@ -155,14 +172,18 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         cert: certPem,
         key: keyPem,
         protocolVersions: [DtlsVersion.V1_3],
-        // External bssl client; address validation cookie optional for harness
         addressValidation: "none",
       });
 
       let gotData = "";
+      let dataResolve: (() => void) | undefined;
+      const dataPromise = new Promise<void>((resolve) => {
+        dataResolve = resolve;
+      });
       server.onData.subscribe((d) => {
         gotData = d.toString();
-        void server.send(d);
+        void server.send(d); // echo
+        dataResolve?.();
       });
 
       const clientProc = spawnEcho([
@@ -173,17 +194,21 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         keyPath,
       ]);
       let stderr = "";
+      let stdout = "";
       clientProc.stderr.on("data", (d) => {
         stderr += d.toString();
       });
+      clientProc.stdout.on("data", (d) => {
+        stdout += d.toString();
+      });
 
       try {
-        // Act
+        // Act: wait for handshake
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(() => {
             reject(
               new Error(
-                `BoringSSL client interop timeout\nstderr=${stderr}`,
+                `BoringSSL client interop timeout\nstderr=${stderr}\nstdout=${stdout}`,
               ),
             );
           }, 15_000);
@@ -199,27 +224,56 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
             if (code !== 0 && code !== null) {
               clearTimeout(timer);
               reject(
-                new Error(
-                  `bssl client exit ${code}\nstderr=${stderr}`,
-                ),
+                new Error(`bssl client exit ${code}\nstderr=${stderr}`),
               );
             }
           });
         });
 
-        // Assert
+        // Assert: サーバが client 送信データを必ず受信
+        await Promise.race([
+          dataPromise,
+          new Promise<void>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `server did not receive client app data\nstderr=${stderr}`,
+                  ),
+                ),
+              5_000,
+            ),
+          ),
+        ]);
+        expect(gotData).toContain("hello-from-bssl");
+
+        // Assert: client が echo を受信（stdout に出力）
+        await new Promise<void>((resolve, reject) => {
+          const deadline = Date.now() + 5_000;
+          const tick = () => {
+            if (stdout.includes("hello-from-bssl")) {
+              resolve();
+              return;
+            }
+            if (Date.now() > deadline) {
+              reject(
+                new Error(
+                  `client did not print echo response\nstdout=${stdout}\nstderr=${stderr}`,
+                ),
+              );
+              return;
+            }
+            setTimeout(tick, 50);
+          };
+          tick();
+        });
         expect(server.connected).toBe(true);
-        // client may have already sent data
-        await new Promise((r) => setTimeout(r, 500));
-        if (gotData) {
-          expect(gotData).toContain("hello-from-bssl");
-        }
       } finally {
         clientProc.kill("SIGTERM");
         server.close();
       }
     },
-    25_000,
+    30_000,
   );
 });
 
@@ -227,9 +281,8 @@ if (!hasHarness && !requireHarness) {
   test("boringssl harness skipped (build tests/e2e/boringssl/dtls13_echo)", () => {
     // Arrange / Act / Assert
     console.info(
-      "[boringssl] skipped: run tests/e2e/boringssl/build-bssl-echo.sh " +
-        "(requires BoringSSL headers+libs; pin in README.md). " +
-        `bssl tool present=${!!bsslPath}`,
+      "[boringssl] skipped: run fetch-and-build-boringssl.sh " +
+        `(pin ${BORINGSSL_PIN_REVISION}). bssl tool present=${!!bsslPath}`,
     );
     expect(hasHarness).toBe(false);
   });

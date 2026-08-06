@@ -161,6 +161,9 @@ export class Dtls13Connection {
     string,
     { parts: FragmentedHandshake[]; total: number }
   >();
+  /** Out-of-order complete handshake messages (by message_seq). */
+  private handshakeInbox = new Map<number, FragmentedHandshake>();
+  private nextReceiveSeq = 0;
   /** Records received in current flight awaiting ACK */
   private receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] =
     [];
@@ -175,6 +178,10 @@ export class Dtls13Connection {
   private clientCertificateReceived = false;
   private clientCertificateVerified = false;
   private peerRequestedClientCert = false;
+  /** App data received before handshake marked connected (epoch 3 early data). */
+  private earlyAppData: Buffer[] = [];
+  /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
+  private rxChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly options: Dtls13Options,
@@ -239,15 +246,13 @@ export class Dtls13Connection {
       [0],
       extensions,
     );
-    // After HRR, second ClientHello reuses message_seq of first (RFC 9147)
-    if (!this.awaitingHrr && this.firstClientHelloBody) {
-      // retransmit path — keep messageSeq
-    } else if (this.awaitingHrr) {
-      // second CH after HRR: same message_seq as first CH (=0)
-      this.messageSeq = 0;
-    } else {
+    // message_seq: first CH = 0; after HRR second CH increments (new message)
+    if (this.awaitingHrr) {
+      this.messageSeq = 1;
+    } else if (!this.firstClientHelloBody) {
       this.messageSeq = 0;
     }
+    // else retransmit: keep messageSeq
     ch.messageSeq = this.messageSeq;
 
     const body = ch.serialize();
@@ -307,35 +312,42 @@ export class Dtls13Connection {
 
   private handleDatagram = (data: Buffer): void => {
     if (this.closed) return;
-    // Process records one-by-one so ServerHello can install epoch-2 keys
-    // before coalesced ciphertext in the same UDP datagram (BoringSSL).
-    void this.handleDatagramAsync(data);
+    // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
+    const buf = Buffer.from(data);
+    this.rxChain = this.rxChain
+      .then(() => this.handleDatagramAsync(buf))
+      .catch((e) => {
+        log("handleDatagram chain error", e);
+        const err = e instanceof Error ? e : new Error(String(e));
+        // fail() is idempotent w.r.t. closed
+        try {
+          this.fail(err);
+        } catch {
+          this.onError.execute(err);
+        }
+      });
   };
 
   private async handleDatagramAsync(data: Buffer): Promise<void> {
-    try {
-      this.bytesReceived += data.length;
-      let offset = 0;
-      while (offset < data.length) {
-        const rec = parseNextRecord(data.subarray(offset), (low) =>
-          this.resolveEpochByLowBits(low),
-        );
-        if (!rec) break;
-        offset += rec.consumed;
-        if (rec.kind === "plaintext") {
-          await this.onPlaintextRecordAsync(rec);
-        } else {
-          this.receivedRecordNumbers.push({
-            epoch: rec.epoch,
-            sequenceNumber: rec.sequenceNumber,
-          });
-          await this.onCiphertextRecordAsync(rec);
-        }
+    if (this.closed) return;
+    this.bytesReceived += data.length;
+    let offset = 0;
+    while (offset < data.length) {
+      if (this.closed) return;
+      const rec = parseNextRecord(data.subarray(offset), (low) =>
+        this.resolveEpochByLowBits(low),
+      );
+      if (!rec) break;
+      offset += rec.consumed;
+      if (rec.kind === "plaintext") {
+        await this.onPlaintextRecordAsync(rec);
+      } else {
+        this.receivedRecordNumbers.push({
+          epoch: rec.epoch,
+          sequenceNumber: rec.sequenceNumber,
+        });
+        await this.onCiphertextRecordAsync(rec);
       }
-    } catch (e) {
-      log("handleDatagram error", e);
-      const err = e instanceof Error ? e : new Error(String(e));
-      this.onError.execute(err);
     }
   }
 
@@ -383,6 +395,11 @@ export class Dtls13Connection {
         await this.processHandshakeBytes(rec.content, rec.epoch);
         break;
       case ContentType.applicationData:
+        if (!this.connected) {
+          // May arrive before peer Finished is processed (UDP reorder)
+          this.earlyAppData.push(rec.content);
+          break;
+        }
         this.onData.execute(rec.content);
         break;
       case ContentType.ack:
@@ -459,9 +476,38 @@ export class Dtls13Connection {
       offset += 12 + hs.fragment_length;
       const complete = this.reassemble(hs);
       if (complete) {
-        // Await so ServerHello installs keys before next coalesced record
-        await this.dispatchHandshake(complete, epoch);
+        // Queue by message_seq for reorder safety (RFC 9147 §5.2)
+        await this.enqueueHandshake(complete, epoch);
       }
+    }
+  }
+
+  private async enqueueHandshake(
+    hs: FragmentedHandshake,
+    epoch: number,
+  ): Promise<void> {
+    const seq = hs.message_seq;
+    if (seq < this.nextReceiveSeq) {
+      // duplicate / retransmission of already-processed message
+      return;
+    }
+    if (seq > this.nextReceiveSeq) {
+      this.handshakeInbox.set(seq, hs);
+      // Bound inbox size
+      if (this.handshakeInbox.size > 32) {
+        throw new Error("handshake inbox overflow (too many out-of-order messages)");
+      }
+      return;
+    }
+    // seq === nextReceiveSeq
+    await this.dispatchHandshake(hs, epoch);
+    this.nextReceiveSeq += 1;
+    // Drain consecutive queued messages
+    while (this.handshakeInbox.has(this.nextReceiveSeq)) {
+      const next = this.handshakeInbox.get(this.nextReceiveSeq)!;
+      this.handshakeInbox.delete(this.nextReceiveSeq);
+      await this.dispatchHandshake(next, epoch);
+      this.nextReceiveSeq += 1;
     }
   }
 
@@ -607,8 +653,11 @@ export class Dtls13Connection {
     this.localKeyPair = generateKeyPair(this.selectedGroup);
     this.clientRandom = DtlsRandom.from(ch.random as any);
     this.sessionId = Buffer.from(ch.sessionId);
-    // Server maintains its own message_seq starting at 0 for ServerHello
-    this.messageSeq = -1;
+    // Server message_seq: first ServerHello is 0; after HRR (already 0) continue at 1
+    if (!this.awaitingHrr) {
+      this.messageSeq = -1; // sendServerFlight does +=1 → ServerHello seq 0
+    }
+    // if post-HRR, messageSeq remains 0 from HRR; sendServerFlight +=1 → SH seq 1
 
     // use_srtp
     const srtpExt = ch.extensions.find((e) => e.type === UseSRTP.type);
@@ -625,6 +674,7 @@ export class Dtls13Connection {
     }
 
     // Transcript after HRR: message_hash(CH1) + HRR already set; else fresh CH
+    // Do NOT touch nextReceiveSeq here — enqueueHandshake owns it (avoids double-increment).
     if (this.awaitingHrr && this.firstClientHelloBody) {
       // second CH after HRR — transcript already has message_hash + HRR
       this.transcript.add(HandshakeType.client_hello_1, body);
@@ -832,10 +882,11 @@ export class Dtls13Connection {
     this.serverAppTraffic = appSecrets.serverApplicationTrafficSecret;
     this.exporterMasterSecret = appSecrets.exporterMasterSecret;
 
-    // Epoch 3 write keys for server (application); read still handshake until client Finished
+    // Epoch 3: install both directions after server Finished so reordered
+    // epoch-3 records (ACK / early app data) can decrypt; app delivery gated on connected.
     const ep3 = createEpochProtection(3);
     ep3.writeKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
-    // read keys for app installed after client Finished
+    ep3.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic!);
     this.epochs.set(3, ep3);
 
     // Send ServerHello in epoch 0, then encrypted messages in epoch 2
@@ -921,6 +972,13 @@ export class Dtls13Connection {
     if (this.messageSeq < 0) this.messageSeq = 0;
 
     this.transcript.add(HandshakeType.server_hello_2, body);
+
+    // Stop ClientHello retransmission; we are past flight 1
+    this.cancelRetransmit?.();
+    this.cancelRetransmit = undefined;
+    this.pendingFlight = [];
+    this.pendingFlightRecords = [];
+    this.retransmitCount = 0;
 
     const shared = prfPreMasterSecret(
       serverShare.keyExchange,
@@ -1076,11 +1134,7 @@ export class Dtls13Connection {
       this.writeEpoch = 3;
       this.readEpoch = 3;
       this.localFinishedSent = true;
-      this.connected = true;
-      this.cancelRetransmit?.();
-      this.carrier.events.onHandshakeComplete?.();
-      this.carrier.cancelAllTimers();
-      this.onConnect.execute();
+      this.markConnected();
       log("client connected");
     } else {
       // Server receives client Finished — require mutual auth if requested
@@ -1101,21 +1155,35 @@ export class Dtls13Connection {
       this.transcript.add(HandshakeType.finished_20, body);
       this.peerFinishedReceived = true;
 
-      // Install app read keys
+      // Ensure app read keys present (also installed after server Finished)
       const ep3 = this.epochs.get(3)!;
-      ep3.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic!);
+      if (!ep3.readKeys) {
+        ep3.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic!);
+      }
       this.readEpoch = 3;
       this.writeEpoch = 3;
 
       await this.sendAck();
 
-      this.connected = true;
-      this.cancelRetransmit?.();
-      this.carrier.events.onHandshakeComplete?.();
-      this.carrier.cancelAllTimers();
-      this.onConnect.execute();
+      this.markConnected();
       log("server connected");
     }
+  }
+
+  private markConnected() {
+    this.connected = true;
+    this.cancelRetransmit?.();
+    this.cancelRetransmit = undefined;
+    this.pendingFlight = [];
+    this.pendingFlightRecords = [];
+    this.carrier.events.onHandshakeComplete?.();
+    this.carrier.cancelAllTimers();
+    this.onConnect.execute();
+    // Flush app data that arrived early due to reorder
+    for (const buf of this.earlyAppData) {
+      this.onData.execute(buf);
+    }
+    this.earlyAppData = [];
   }
 
   private onKeyUpdate(body: Buffer) {
@@ -1194,25 +1262,22 @@ export class Dtls13Connection {
   }
 
   private async sendAck(): Promise<void> {
-    if (this.receivedRecordNumbers.length === 0) {
-      // empty ACK is allowed
-      const ack = new DtlsAck([]);
-      const ep = this.epochs.get(this.writeEpoch) ?? this.epochs.get(2);
-      if (!ep?.writeKeys) return;
-      const record = encryptRecord(ack.serialize(), ContentType.ack, ep);
-      await this.carrier.send(
-        createHandshakeDatagram(record, this.flightId, 0, false),
-      );
-      return;
-    }
-    const ack = new DtlsAck([...this.receivedRecordNumbers]);
-    this.receivedRecordNumbers = [];
+    // Prefer application epoch after it has write keys; else handshake epoch 2
     const ep =
-      this.epochs.get(this.writeEpoch) ??
-      this.epochs.get(2) ??
-      this.epochs.get(3);
+      (this.epochs.get(3)?.writeKeys && this.epochs.get(3)) ||
+      this.epochs.get(this.writeEpoch) ||
+      this.epochs.get(2);
     if (!ep?.writeKeys) return;
+
+    const numbers =
+      this.receivedRecordNumbers.length > 0
+        ? [...this.receivedRecordNumbers]
+        : [];
+    this.receivedRecordNumbers = [];
+    const ack = new DtlsAck(numbers);
     const record = encryptRecord(ack.serialize(), ContentType.ack, ep);
+    // Always send via transport (application path); not part of retransmit flight
+    this.bytesSent += record.length;
     await this.options.transport.send(record);
   }
 
@@ -1411,18 +1476,56 @@ export class Dtls13Connection {
   }
 
   close() {
+    if (this.closed) return;
     this.closed = true;
     this.cancelRetransmit?.();
+    this.cancelRetransmit = undefined;
+    this.pendingFlight = [];
+    this.pendingFlightRecords = [];
+    this.retransmitCount = 0;
+    this.carrier.cancelAllTimers();
     this.carrier.close();
     void this.options.transport.close().catch(() => {});
     this.onClose.execute();
   }
 
+  /** True after close() or fail() has torn down the association. */
+  isClosed(): boolean {
+    return this.closed;
+  }
+
+  /** Test helper: pending retransmittable flight length. */
+  getPendingFlightSize(): number {
+    return this.pendingFlight.length;
+  }
+
   private fail(err: Error) {
     if (this.closed) return;
     log("fail", err.message);
+    // Always stop timers / pending retransmits and refuse further 1.3 RX
     this.cancelRetransmit?.();
+    this.cancelRetransmit = undefined;
+    this.pendingFlight = [];
+    this.pendingFlightRecords = [];
+    this.retransmitCount = 0;
     this.carrier.cancelAllTimers();
+    this.closed = true;
     this.onError.execute(err);
+
+    // Protocol-version soft fail: keep UDP socket open so dual-stack fallback
+    // ([1.3,1.2]) can rebind onData and continue as DTLS 1.2 on the same Transport.
+    const softVersion =
+      err instanceof ProtocolVersionError ||
+      /protocol version|HelloVerifyRequest|DTLS 1\.2-only|protocol_version/i.test(
+        err.message,
+      );
+    if (softVersion) {
+      return;
+    }
+
+    // Hard fail: tear down carrier + transport
+    this.carrier.close();
+    void this.options.transport.close().catch(() => {});
+    this.onClose.execute();
   }
 }

@@ -6,6 +6,7 @@ import type { Address, Transport } from "./imports/common";
 
 import {
   NamedCurveAlgorithmList,
+  type NamedCurveAlgorithms,
   type SignatureHash,
   signatures,
 } from "./cipher/const";
@@ -345,6 +346,13 @@ export interface Options {
    * WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
    */
   addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+  /**
+   * DTLS 1.3 named groups preference order (key_share).
+   * Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.
+   */
+  namedGroups?: readonly NamedCurveAlgorithms[];
+  /** DTLS 1.3 carrier MTU hint for handshake fragmentation (bytes). */
+  mtu?: number;
 }
 
 export { DtlsVersion };

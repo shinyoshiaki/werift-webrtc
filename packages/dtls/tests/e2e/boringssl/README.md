@@ -24,25 +24,31 @@ export WERIFT_BORINGSSL_DTLS_ECHO=/path/to/dtls13_echo
 export WERIFT_BORINGSSL_BSSL=/path/to/bssl                   # optional
 ```
 
-## Build BoringSSL (CMake + Ninja)
-
-```bash
-git clone https://boringssl.googlesource.com/boringssl
-cd boringssl
-git checkout 0bcc1e8473a1264b4de88e05a651763dc9a71b09
-mkdir -p build && cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local ..
-ninja
-# install headers + static libs, or point WERIFT_BORINGSSL_* at this tree
-```
-
-## Build the DTLS echo harness
+## Reproducible pin build (recommended / CI)
 
 From `packages/dtls/tests/e2e/boringssl`:
 
 ```bash
+# Clones packages/dtls/third_party/boringssl @ BORINGSSL_REVISION,
+# builds libssl/libcrypto, builds dtls13_echo, writes .built-revision
+./fetch-and-build-boringssl.sh
+```
+
+This is the path used by GitHub Actions job `dtls13-boringssl`. It does **not**
+depend on preinstalled `/usr/local` libraries.
+
+## Manual BoringSSL build (optional)
+
+```bash
+git clone https://boringssl.googlesource.com/boringssl
+cd boringssl
+git checkout "$(cat packages/dtls/tests/e2e/boringssl/BORINGSSL_REVISION)"
+mkdir -p build && cd build
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
+ninja
+export WERIFT_BORINGSSL_INCLUDE=.../boringssl/include
+export WERIFT_BORINGSSL_LIB=.../boringssl/build  # dir with libssl.a + libcrypto.a
 ./build-bssl-echo.sh
-# produces ./dtls13_echo
 ```
 
 ## Run interop tests
@@ -53,14 +59,14 @@ From `packages/dtls`:
 # Local without harness: tests skip with a clear reason
 npm test -- ./tests/e2e/boringssl
 
-# With harness built
-./tests/e2e/boringssl/build-bssl-echo.sh
+# With harness built from pin
+./tests/e2e/boringssl/fetch-and-build-boringssl.sh
 npm test -- ./tests/e2e/boringssl
 ```
 
-**CI policy:** required CI jobs must build `dtls13_echo` (or set
-`WERIFT_BORINGSSL_DTLS_ECHO`) and fail if missing. Local developer runs skip
-when the harness binary is absent.
+**CI policy:** job `dtls13-boringssl` always runs `fetch-and-build-boringssl.sh`
+and fails if pin mismatch or harness missing (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
+Local developer runs may skip when the harness binary is absent.
 
 ## Scenarios
 

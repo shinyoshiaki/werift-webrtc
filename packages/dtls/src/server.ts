@@ -47,6 +47,10 @@ export class DtlsServer extends DtlsSocket {
         srtpProfiles: this.options.srtpProfiles,
         certificateRequest: this.options.certificateRequest,
         addressValidation: this.options.addressValidation,
+        groups: this.options.namedGroups
+          ? [...this.options.namedGroups]
+          : undefined,
+        mtu: this.options.mtu,
       },
       SessionType.SERVER,
     );

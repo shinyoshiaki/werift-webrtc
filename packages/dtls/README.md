@@ -81,7 +81,9 @@ Mismatch **1.3-only × 1.2-only** fails with `ProtocolVersionError` / `protocol_
 
 `certificateRequest: true` enables TLS 1.3 mutual authentication (CertificateRequest + client Certificate / CertificateVerify).
 
-BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` builds `dtls13_echo` and fails if the harness is missing (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
+`namedGroups` selects DTLS 1.3 key_share preference (e.g. `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only). `mtu` controls handshake fragmentation.
+
+BoringSSL DTLS 1.3 interop (P0): see `tests/e2e/boringssl/README.md`. CI job `dtls13-boringssl` runs `fetch-and-build-boringssl.sh` against the pinned revision in `BORINGSSL_REVISION` and fails on pin/harness mismatch (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
 
 # reference
 

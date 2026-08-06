@@ -2,9 +2,27 @@ import { existsSync } from "fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { join } from "path";
 
-/** Pinned BoringSSL revision (document in README). */
-export const BORINGSSL_PIN_REVISION =
-  "0bcc1e8473a1264b4de88e05a651763dc9a71b09";
+import { readFileSync } from "fs";
+
+/** Pinned BoringSSL revision (BORINGSSL_REVISION file is source of truth). */
+export const BORINGSSL_PIN_REVISION = (() => {
+  try {
+    const p = join(__dirname, "BORINGSSL_REVISION");
+    if (existsSync(p)) {
+      return readFileSync(p, "utf8").trim();
+    }
+  } catch {
+    /* fall through */
+  }
+  return "0bcc1e8473a1264b4de88e05a651763dc9a71b09";
+})();
+
+/** Path written by fetch-and-build-boringssl.sh after a successful pin build. */
+export function readBuiltRevision(): string | undefined {
+  const p = join(__dirname, ".built-revision");
+  if (!existsSync(p)) return undefined;
+  return readFileSync(p, "utf8").trim();
+}
 
 export function resolveBsslPath(): string | undefined {
   if (process.env.WERIFT_BORINGSSL_BSSL) {

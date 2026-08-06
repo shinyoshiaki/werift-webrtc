@@ -59,24 +59,29 @@ jobs:
           node-version: 18.x
       - name: Install deps
         run: npm i
-      - name: Build BoringSSL DTLS echo harness
-        env:
-          WERIFT_BORINGSSL_INCLUDE: /usr/local/include
-          WERIFT_BORINGSSL_LIB: /usr/local/lib
+      - name: Fetch pinned BoringSSL + build dtls13_echo
         run: |
-          # Prefer preinstalled BoringSSL; otherwise build pin (may be slow)
-          if [ ! -f /usr/local/lib/libssl.a ]; then
-            echo "BoringSSL libs missing; install pin per packages/dtls/tests/e2e/boringssl/README.md"
-            exit 1
-          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build g++ git pkg-config
           cd packages/dtls/tests/e2e/boringssl
-          ./build-bssl-echo.sh
+          chmod +x ./fetch-and-build-boringssl.sh ./build-bssl-echo.sh
+          # Always build from BORINGSSL_REVISION pin (reproducible; no preinstalled lib dependency)
+          ./fetch-and-build-boringssl.sh
           test -x ./dtls13_echo
-      - name: Run BoringSSL interop (fail if harness missing)
+          test -f ./.built-revision
+          PIN=$(tr -d '[:space:]' < ./BORINGSSL_REVISION)
+          BUILT=$(tr -d '[:space:]' < ./.built-revision)
+          echo "pin=${PIN} built=${BUILT}"
+          case "${BUILT}" in
+            ${PIN}*) echo "revision pin verified" ;;
+            *) echo "revision mismatch"; exit 1 ;;
+          esac
+      - name: Run BoringSSL interop + DTLS 1.3 self matrix (fail if harness missing)
         env:
           CI: true
           WERIFT_REQUIRE_BORINGSSL: "1"
+          WERIFT_BORINGSSL_ENFORCE_PIN: "1"
         run: |
           cd packages/dtls
           npm run type
-          npx vitest run ./tests/e2e/boringssl ./tests/e2e/self13.test.ts
+          npx vitest run ./tests/e2e/boringssl ./tests/e2e/self13.test.ts ./tests/e2e/self13_matrix.test.ts ./tests/e2e/self13_loss.test.ts
