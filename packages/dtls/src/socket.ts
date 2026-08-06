@@ -314,6 +314,11 @@ export class DtlsSocket {
     this.engine13 = engine;
     engine.onConnect.subscribe(() => {
       this.connected = true;
+      // Bridge negotiated use_srtp into public DtlsSocket.srtp (DTLS 1.2 path parity)
+      const profile = engine.srtpProfile;
+      if (profile !== undefined) {
+        this.srtp.srtpProfile = profile;
+      }
       this.onConnect.execute();
     });
     engine.onData.subscribe((data) => this.onData.execute(data));

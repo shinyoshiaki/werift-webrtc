@@ -95,8 +95,13 @@ export type AddressValidationMode =
 
 export interface Dtls13Options {
   transport: Transport;
-  cert: string;
-  key: string;
+  /**
+   * Server certificate (required for servers).
+   * Client: optional for server-auth-only; required when peer sends CertificateRequest.
+   */
+  cert?: string;
+  /** Matching private key for `cert`. */
+  key?: string;
   srtpProfiles?: SrtpProfile[];
   certificateRequest?: boolean;
   /** Preferred named groups order */
@@ -133,6 +138,7 @@ export class Dtls13Connection {
   private readonly keySchedule = defaultKeySchedule;
   private readonly certDer: Buffer;
   private readonly keyPem: string;
+  private readonly hasLocalIdentity: boolean;
 
   private messageSeq = 0;
   private recordSeqEpoch0 = 0;
@@ -218,9 +224,25 @@ export class Dtls13Connection {
     sessionType: SessionTypes,
   ) {
     this.role = sessionType === SessionType.CLIENT ? "client" : "server";
-    const parsed = parseCertAndKey(options.cert, options.key);
-    this.certDer = parsed.certDer;
-    this.keyPem = parsed.keyPem;
+    if (this.role === "server") {
+      if (!options.cert || !options.key) {
+        throw new Error("DTLS 1.3 server requires cert and key options");
+      }
+      const parsed = parseCertAndKey(options.cert, options.key);
+      this.certDer = parsed.certDer;
+      this.keyPem = parsed.keyPem;
+      this.hasLocalIdentity = true;
+    } else if (options.cert && options.key) {
+      const parsed = parseCertAndKey(options.cert, options.key);
+      this.certDer = parsed.certDer;
+      this.keyPem = parsed.keyPem;
+      this.hasLocalIdentity = true;
+    } else {
+      // Server-auth-only client: no local certificate until CertificateRequest
+      this.certDer = Buffer.alloc(0);
+      this.keyPem = "";
+      this.hasLocalIdentity = false;
+    }
     this.groups = options.groups ?? [
       NamedCurveAlgorithm.x25519_29,
       NamedCurveAlgorithm.secp256r1_23,
@@ -274,43 +296,48 @@ export class Dtls13Connection {
     keys.snKey.fill(0);
   }
 
-  /** Drop expired / excess KeyUpdate epochs; never drop active read/write. */
+  /**
+   * Drop expired / excess epochs. Active read/write are never dropped.
+   * Handshake epochs 0/2 and initial app epoch 3 are retained until connected
+   * (or still active); after that they follow TTL like KeyUpdate epochs.
+   */
   private pruneStaleEpochs(): void {
     const now = Date.now();
-    const active = new Set([this.readEpoch, this.writeEpoch, 0, 2, 3]);
+    const active = new Set([this.readEpoch, this.writeEpoch]);
+    if (!this.connected) {
+      active.add(0);
+      active.add(2);
+      active.add(3);
+    }
     for (const [e, installedAt] of [...this.epochInstalledAt.entries()]) {
       if (active.has(e)) continue;
       if (now - installedAt <= EPOCH_KEY_TTL_MS) continue;
-      const ep = this.epochs.get(e);
-      if (ep) {
-        this.zeroizeTrafficKeys(ep.readKeys);
-        this.zeroizeTrafficKeys(ep.writeKeys);
-        ep.readKeys = undefined;
-        ep.writeKeys = undefined;
-      }
-      this.epochs.delete(e);
-      this.epochInstalledAt.delete(e);
+      this.dropEpoch(e);
     }
-    // Cap number of retained app epochs (>3), oldest first
-    const appEpochs = [...this.epochs.keys()]
-      .filter((e) => e > 3 && e !== this.readEpoch && e !== this.writeEpoch)
+    // Cap retained non-active app/handshake epochs (includes stale epoch 3)
+    const idle = [...this.epochs.keys()]
+      .filter((e) => !active.has(e))
       .sort(
         (a, b) =>
           (this.epochInstalledAt.get(a) ?? 0) -
           (this.epochInstalledAt.get(b) ?? 0),
       );
-    while (appEpochs.length > MAX_RETAINED_APP_EPOCHS) {
-      const e = appEpochs.shift()!;
-      const ep = this.epochs.get(e);
-      if (ep) {
-        this.zeroizeTrafficKeys(ep.readKeys);
-        this.zeroizeTrafficKeys(ep.writeKeys);
-        ep.readKeys = undefined;
-        ep.writeKeys = undefined;
-      }
-      this.epochs.delete(e);
-      this.epochInstalledAt.delete(e);
+    while (idle.length > MAX_RETAINED_APP_EPOCHS) {
+      const e = idle.shift()!;
+      this.dropEpoch(e);
     }
+  }
+
+  private dropEpoch(e: number): void {
+    const ep = this.epochs.get(e);
+    if (ep) {
+      this.zeroizeTrafficKeys(ep.readKeys);
+      this.zeroizeTrafficKeys(ep.writeKeys);
+      ep.readKeys = undefined;
+      ep.writeKeys = undefined;
+    }
+    this.epochs.delete(e);
+    this.epochInstalledAt.delete(e);
   }
 
   /**
@@ -337,6 +364,11 @@ export class Dtls13Connection {
 
   get remoteCertificate(): Buffer | undefined {
     return this.remoteCert;
+  }
+
+  /** Negotiated SRTP profile from use_srtp (EncryptedExtensions / ClientHello). */
+  get srtpProfile(): SrtpProfile | undefined {
+    return this.negotiatedSrtpProfile as SrtpProfile | undefined;
   }
 
   /** Public carrier for tests / SPED integration. */
@@ -468,15 +500,27 @@ export class Dtls13Connection {
       let rec;
       try {
         rec = parseNextRecord(data.subarray(offset), (low) =>
-          this.resolveEpochByLowBits(low),
+          this.resolveEpochCandidates(low),
         );
       } catch (e) {
-        // Silent discard of replays / too-old records (RFC 9147 anti-replay)
+        // Replay of already-processed record: re-ACK so peer can clear pending flight
         if (
           e instanceof DtlsReplayError ||
           (e as Error)?.name === "DtlsReplayError"
         ) {
-          log("drop replay/too-old record", (e as Error).message);
+          const re = e as DtlsReplayError;
+          log("drop replay/too-old record", re.message);
+          if (re.consumed > 0) {
+            offset += re.consumed;
+            this.receivedRecordNumbers.push({
+              epoch: re.epoch,
+              sequenceNumber: re.sequenceNumber,
+            });
+            void this.sendAck().catch((err) =>
+              log("re-ACK after replay failed", err),
+            );
+            continue;
+          }
           return;
         }
         throw e;
@@ -495,22 +539,20 @@ export class Dtls13Connection {
     }
   }
 
-  private resolveEpochByLowBits(low: number): EpochProtection | undefined {
-    // Epoch is only 2 bits on the wire; prefer newest epoch with read keys.
-    let best: EpochProtection | undefined;
+  /**
+   * All epochs matching 2-bit wire epoch that have usable keys.
+   * decryptRecord trials AEAD newest-first so epoch 3 vs 7 collisions work.
+   */
+  private resolveEpochCandidates(low: number): EpochProtection[] {
+    const withRead: EpochProtection[] = [];
+    const withWriteOnly: EpochProtection[] = [];
     for (const ep of this.epochs.values()) {
-      if ((ep.epoch & 0x03) !== low || !ep.readKeys) continue;
-      if (!best || ep.epoch > best.epoch) best = ep;
+      if ((ep.epoch & 0x03) !== low) continue;
+      if (ep.readKeys) withRead.push(ep);
+      else if (ep.writeKeys) withWriteOnly.push(ep);
     }
-    // Also allow current write epoch when receiving ACK of our flight (same low bits)
-    if (!best) {
-      for (const ep of this.epochs.values()) {
-        if ((ep.epoch & 0x03) === low && (ep.readKeys || ep.writeKeys)) {
-          if (!best || ep.epoch > best.epoch) best = ep;
-        }
-      }
-    }
-    return best;
+    // Prefer read-key epochs; include write-only as last resort (e.g. ACK demux)
+    return [...withRead, ...withWriteOnly].sort((a, b) => b.epoch - a.epoch);
   }
 
   private async onPlaintextRecordAsync(rec: {
@@ -642,7 +684,8 @@ export class Dtls13Connection {
   ): Promise<void> {
     const seq = hs.message_seq;
     if (seq < this.nextReceiveSeq) {
-      // duplicate / retransmission of already-processed message
+      // Duplicate handshake message (flight retransmit) — re-ACK so sender advances
+      void this.sendAck().catch((e) => log("re-ACK on dup handshake failed", e));
       return;
     }
     if (seq > this.nextReceiveSeq) {
@@ -806,7 +849,7 @@ export class Dtls13Connection {
         break;
       case HandshakeType.encrypted_extensions_8:
         if (this.role === "client") {
-          this.transcript.add(HandshakeType.encrypted_extensions_8, body);
+          await this.onEncryptedExtensions(body);
         }
         break;
       case HandshakeType.certificate_request_13:
@@ -846,17 +889,33 @@ export class Dtls13Connection {
       return;
     }
 
-    // Address validation via TLS cookie (HRR), bound to peer + first ClientHello
+    // Key share: needed both for combined cookie HRR and for accepting CH
+    const keyShareExt = ch.extensions.find((e) => e.type === KeyShare.type);
+    if (!keyShareExt) {
+      throw new Error("ClientHello missing key_share");
+    }
+    const ks = KeyShare.fromClientData(keyShareExt.data);
+    const clientShare = ks.clientShares?.find((s) =>
+      this.groups.includes(s.group as NamedCurveAlgorithms),
+    );
+    const needGroupHrr = !clientShare;
+
+    // Address validation via TLS cookie (HRR), bound to peer + first ClientHello.
+    // When cookie and group selection both needed, emit a *single* combined HRR
+    // so the client never sees a second HRR with message_seq=0 (duplicate drop).
     if (this.addressValidation === "dtls-cookie" && !this.addressValidated) {
       const cookieExt = ch.extensions.find(
         (e) => e.type === CookieExtension.type,
       );
       if (!cookieExt) {
-        // First CH without cookie → HRR with cookie
         this.firstClientHelloBody = body;
         this.cookieClientHelloHash = hashSha256(body);
         this.sessionId = Buffer.from(ch.sessionId);
-        await this.sendHelloRetryRequest(undefined, true, body);
+        await this.sendHelloRetryRequest(
+          needGroupHrr ? this.groups[0] : undefined,
+          true,
+          body,
+        );
         return;
       }
       const cookie = CookieExtension.fromData(cookieExt.data).cookie;
@@ -872,23 +931,10 @@ export class Dtls13Connection {
       this.tlsCookie = Buffer.from(cookie);
     }
 
-    const keyShareExt = ch.extensions.find((e) => e.type === KeyShare.type);
-    if (!keyShareExt) {
-      throw new Error("ClientHello missing key_share");
-    }
-    const ks = KeyShare.fromClientData(keyShareExt.data);
-    const clientShare = ks.clientShares?.find((s) =>
-      this.groups.includes(s.group as NamedCurveAlgorithms),
-    );
-    if (!clientShare) {
-      // Send HRR for first preferred group (may also carry cookie if not validated)
-      this.firstClientHelloBody = body;
+    if (needGroupHrr) {
+      this.firstClientHelloBody = this.firstClientHelloBody ?? body;
       this.sessionId = Buffer.from(ch.sessionId);
-      await this.sendHelloRetryRequest(
-        this.groups[0],
-        !this.addressValidated,
-        body,
-      );
+      await this.sendHelloRetryRequest(this.groups[0], false, body);
       return;
     }
 
@@ -933,7 +979,8 @@ export class Dtls13Connection {
 
   /**
    * HelloRetryRequest. Optionally includes cookie for address validation
-   * and/or selected_group for key_share.
+   * and/or selected_group for key_share. Combined cookie+group HRR avoids a
+   * second message_seq=0 HRR that clients would treat as a duplicate.
    */
   private async sendHelloRetryRequest(
     group: number | undefined,
@@ -965,13 +1012,18 @@ export class Dtls13Connection {
       0,
       extensions,
     );
-    // Server first message uses message_seq 0
-    this.messageSeq = 0;
+    // First HRR: message_seq 0. Subsequent HRR (rare): increment, never reset.
+    if (this.awaitingHrr) {
+      this.messageSeq += 1;
+      // Transcript already has message_hash(CH1)+HRR1; append this CH then HRR2
+      this.transcript.add(HandshakeType.client_hello_1, clientHelloBody);
+    } else {
+      this.messageSeq = 0;
+      this.transcript = new HandshakeTranscript();
+      this.transcript.replaceWithMessageHash(clientHelloBody);
+    }
     hrr.messageSeq = this.messageSeq;
 
-    // Transcript: message_hash(CH1) + HRR
-    this.transcript = new HandshakeTranscript();
-    this.transcript.replaceWithMessageHash(clientHelloBody);
     const body = hrr.serialize();
     this.transcript.add(HandshakeType.server_hello_2, body);
     this.awaitingHrr = true;
@@ -1247,6 +1299,24 @@ export class Dtls13Connection {
     this.clientExpectsServerFlight = true;
   }
 
+  private async onEncryptedExtensions(body: Buffer): Promise<void> {
+    const ee = EncryptedExtensions.deSerialize(body);
+    // Negotiate use_srtp from EncryptedExtensions (TLS 1.3 placement)
+    const srtpExt = ee.extensions.find((e) => e.type === UseSRTP.type);
+    if (srtpExt && this.options.srtpProfiles?.length) {
+      try {
+        const use = UseSRTP.fromData(srtpExt.data);
+        const match = use.profiles.find((p) =>
+          this.options.srtpProfiles!.includes(p as SrtpProfile),
+        );
+        if (match !== undefined) this.negotiatedSrtpProfile = match;
+      } catch {
+        /* ignore malformed */
+      }
+    }
+    this.transcript.add(HandshakeType.encrypted_extensions_8, body);
+  }
+
   private async onCertificateRequest(body: Buffer): Promise<void> {
     const cr = CertificateRequest13.deSerialize(body);
     this.certificateRequestContext = Buffer.from(cr.certificateRequestContext);
@@ -1326,6 +1396,11 @@ export class Dtls13Connection {
       // Optional client Certificate + CertificateVerify for mutual auth
       const clientMsgs: FragmentedHandshake[] = [];
       if (this.peerRequestedClientCert) {
+        if (!this.hasLocalIdentity || !this.certDer.length || !this.keyPem) {
+          throw new Error(
+            "server requested client certificate but client cert/key not configured",
+          );
+        }
         const cCert = new Certificate13(this.certificateRequestContext, [
           this.certDer,
         ]);

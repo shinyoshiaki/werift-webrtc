@@ -69,6 +69,38 @@ describe("record/v1_3/header", () => {
     expect(() => decryptRecord(wire, () => readEp)).toThrow(/replay/);
   });
 
+  test("trial decrypt tries multiple epochs sharing low 2 bits", () => {
+    // Arrange: epoch 3 and 7 both match low bits 3; only epoch 3 has the right key
+    const writeEp = createEpochProtection(3);
+    writeEp.writeKeys = {
+      key: Buffer.alloc(16, 1),
+      iv: Buffer.alloc(12, 2),
+      snKey: Buffer.alloc(16, 3),
+    };
+    const correct = createEpochProtection(3);
+    correct.readKeys = {
+      key: Buffer.alloc(16, 1),
+      iv: Buffer.alloc(12, 2),
+      snKey: Buffer.alloc(16, 3),
+    };
+    const wrongNewer = createEpochProtection(7);
+    wrongNewer.readKeys = {
+      key: Buffer.alloc(16, 9),
+      iv: Buffer.alloc(12, 8),
+      snKey: Buffer.alloc(16, 7),
+    };
+    const payload = Buffer.from("epoch-trial");
+    const wire = encryptRecord(payload, ContentType.handshake, writeEp);
+
+    // Act: resolver returns newest-first [7, 3]; 7 fails AEAD, 3 succeeds
+    const dec = decryptRecord(wire, () => [wrongNewer, correct]);
+
+    // Assert
+    expect(dec).not.toBeNull();
+    expect(dec!.epoch).toBe(3);
+    expect(dec!.content.equals(payload)).toBe(true);
+  });
+
   test("reconstructSequence advances window", () => {
     // Arrange / Act / Assert
     expect(reconstructSequence(5, 2, 0)).toBe(5);

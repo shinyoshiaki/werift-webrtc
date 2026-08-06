@@ -395,6 +395,163 @@ test("e2e/self13 dtls-cookie address validation completes handshake", async () =
   });
 }, 20_000);
 
+test(
+  "e2e/self13 cookie + key_share group mismatch completes via combined HRR",
+  async () => {
+    // Arrange: server X25519 only, client P-256 only → single HRR with cookie+group
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+      namedGroups: [NamedCurveAlgorithm.x25519_29],
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+      namedGroups: [NamedCurveAlgorithm.secp256r1_23],
+    });
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("cookie+group HRR timeout")),
+        20_000,
+      );
+      client.onConnect.subscribe(() => {
+        void client.send(Buffer.from("hrr-combo"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("hrr-combo");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  25_000,
+);
+
+test(
+  "e2e/self13 client without cert/key completes server-auth-only handshake",
+  async () => {
+    // Arrange: クライアント cert/key なし
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("no-client-cert timeout")),
+        15_000,
+      );
+      client.onConnect.subscribe(() => {
+        void client.send(Buffer.from("anon-client"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("anon-client");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
+test(
+  "e2e/self13 use_srtp bridges to DtlsSocket.srtp.srtpProfile both sides",
+  async () => {
+    // Arrange
+    const { ProtectionProfileAeadAes128Gcm } = await import(
+      "../../../rtp/src/srtp/const"
+    );
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const profiles = [ProtectionProfileAeadAes128Gcm];
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+      srtpProfiles: profiles,
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+      srtpProfiles: profiles,
+    });
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("srtp profile bridge timeout")),
+        15_000,
+      );
+      const check = () => {
+        if (!client.connected || !server.connected) return;
+        expect(client.srtp.srtpProfile).toBe(ProtectionProfileAeadAes128Gcm);
+        expect(server.srtp.srtpProfile).toBe(ProtectionProfileAeadAes128Gcm);
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      };
+      client.onConnect.subscribe(check);
+      server.onConnect.subscribe(check);
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
 test("e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client", async () => {
   // Arrange: server lists both versions; client is 1.3-only
   // addressValidation 未指定 → 既定 dtls-cookie 経路（reinject で peer 保持が必須）

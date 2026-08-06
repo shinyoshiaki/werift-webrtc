@@ -50,9 +50,7 @@ export class DtlsClient extends DtlsSocket {
   }
 
   private startEngine13(strict13: boolean) {
-    if (!this.options.cert || !this.options.key) {
-      throw new Error("DTLS 1.3 requires cert and key options");
-    }
+    // Server-auth-only clients may omit cert/key; mutual auth requires both.
     const engine = new Dtls13Connection(
       {
         transport: this.options.transport,

@@ -25,7 +25,12 @@ export const DTLS13_LEGACY_VERSION = { major: 254, minor: 253 }; // 0xfefd
 /** Thrown when a ciphertext is discarded by anti-replay (not a fatal connection error). */
 export class DtlsReplayError extends Error {
   readonly code = "replay";
-  constructor(message: string) {
+  constructor(
+    message: string,
+    public readonly epoch = 0,
+    public readonly sequenceNumber = 0,
+    public readonly consumed = 0,
+  ) {
     super(message);
     this.name = "DtlsReplayError";
   }
@@ -86,12 +91,30 @@ export function encryptRecord(
 }
 
 /**
+ * Resolve epoch(s) for 2-bit wire epoch. May return one or many candidates
+ * for trial decryption when KeyUpdate wraps the low bits.
+ */
+export type EpochResolver =
+  | ((epochLowBits: number) => EpochProtection | undefined)
+  | ((epochLowBits: number) => EpochProtection[]);
+
+function epochCandidates(
+  resolveEpoch: EpochResolver,
+  epochLowBits: number,
+): EpochProtection[] {
+  const r = resolveEpoch(epochLowBits);
+  if (!r) return [];
+  return Array.isArray(r) ? r : [r];
+}
+
+/**
  * Decrypt one DTLS 1.3 ciphertext record from buffer start.
  * Unmasks the encrypted sequence number (RFC 9147 §4.2.3) before AEAD.
+ * Tries every epoch candidate matching the 2-bit epoch field (KeyUpdate wrap).
  */
 export function decryptRecord(
   data: Buffer,
-  resolveEpoch: (epochLowBits: number) => EpochProtection | undefined,
+  resolveEpoch: EpochResolver,
 ): {
   content: Buffer;
   contentType: number;
@@ -124,52 +147,74 @@ export function decryptRecord(
   const total = headerLen + length;
   if (data.length < total) return null;
 
-  const epochState = resolveEpoch(epochLowBits);
-  if (!epochState?.readKeys?.snKey) {
+  const candidates = epochCandidates(resolveEpoch, epochLowBits).filter(
+    (ep) => ep.readKeys?.snKey && ep.readKeys?.key && ep.readKeys?.iv,
+  );
+  if (candidates.length === 0) {
     throw new Error(`no read keys for epoch low bits ${epochLowBits}`);
   }
 
   const ciphertext = data.subarray(headerLen, total);
-  // Unmask sequence number using first 16 ciphertext bytes
-  const mask = recordNumberMask(epochState.readKeys.snKey, ciphertext);
   const headerMasked = data.subarray(0, headerLen);
-  const headerPlain = applyRecordNumberMask(headerMasked, mask);
-  const wireSeq = seq16
-    ? headerPlain.readUInt16BE(1)
-    : headerPlain.readUInt8(1);
+  let lastAeadError: Error | undefined;
 
-  const seq = reconstructSequence(
-    wireSeq,
-    seq16 ? 2 : 1,
-    epochState.highestReadSeq,
-  );
+  // Newest first, but try all on AEAD failure (epoch 3 vs 7 collision)
+  const ordered = [...candidates].sort((a, b) => b.epoch - a.epoch);
+  for (const epochState of ordered) {
+    try {
+      const mask = recordNumberMask(epochState.readKeys!.snKey, ciphertext);
+      const headerPlain = applyRecordNumberMask(headerMasked, mask);
+      const wireSeq = seq16
+        ? headerPlain.readUInt16BE(1)
+        : headerPlain.readUInt8(1);
 
-  if (!epochState.readReplay.mayReceive(seq)) {
-    throw new DtlsReplayError(`replay or too-old record seq=${seq}`);
+      const seq = reconstructSequence(
+        wireSeq,
+        seq16 ? 2 : 1,
+        epochState.highestReadSeq,
+      );
+
+      // AEAD first so wrong-key candidates fail cleanly before replay bookkeeping
+      const nonce = buildNonce(epochState.readKeys!.iv, epochState.epoch, seq);
+      const inner = decryptAes128Gcm(
+        epochState.readKeys!.key,
+        nonce,
+        ciphertext,
+        headerPlain,
+      );
+      const { content, contentType } = parseInnerPlaintext(inner);
+
+      if (!epochState.readReplay.mayReceive(seq)) {
+        throw new DtlsReplayError(
+          `replay or too-old record seq=${seq}`,
+          epochState.epoch,
+          seq,
+          total,
+        );
+      }
+
+      epochState.readReplay.markAsReceived(seq);
+      if (seq > epochState.highestReadSeq) {
+        epochState.highestReadSeq = seq;
+      }
+
+      return {
+        content,
+        contentType,
+        epoch: epochState.epoch,
+        sequenceNumber: seq,
+        consumed: total,
+      };
+    } catch (e) {
+      if (e instanceof DtlsReplayError || (e as Error)?.name === "DtlsReplayError") {
+        throw e;
+      }
+      lastAeadError = e instanceof Error ? e : new Error(String(e));
+      // try next epoch candidate
+    }
   }
 
-  // AAD is the header with the cleartext sequence number
-  const nonce = buildNonce(epochState.readKeys.iv, epochState.epoch, seq);
-  const inner = decryptAes128Gcm(
-    epochState.readKeys.key,
-    nonce,
-    ciphertext,
-    headerPlain,
-  );
-  const { content, contentType } = parseInnerPlaintext(inner);
-
-  epochState.readReplay.markAsReceived(seq);
-  if (seq > epochState.highestReadSeq) {
-    epochState.highestReadSeq = seq;
-  }
-
-  return {
-    content,
-    contentType,
-    epoch: epochState.epoch,
-    sequenceNumber: seq,
-    consumed: total,
-  };
+  throw lastAeadError ?? new Error(`decrypt failed for epoch low bits ${epochLowBits}`);
 }
 
 /**
@@ -241,7 +286,7 @@ export type ParsedCiphertextRecord = {
  */
 export function parseNextRecord(
   data: Buffer,
-  resolveEpoch: (epochLowBits: number) => EpochProtection | undefined,
+  resolveEpoch: EpochResolver,
 ): ParsedPlaintextRecord | ParsedCiphertextRecord | null {
   if (data.length < 1) return null;
   const first = data[0];
@@ -287,7 +332,7 @@ export function parseNextRecord(
  */
 export function parseDatagramRecords(
   data: Buffer,
-  resolveEpoch: (epochLowBits: number) => EpochProtection | undefined,
+  resolveEpoch: EpochResolver,
   onRecord?: (
     rec: ParsedPlaintextRecord | ParsedCiphertextRecord,
   ) => void | Promise<void>,
