@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, appendFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
@@ -10,6 +10,19 @@ import {
   readBuiltRevision,
   resolveBsslPath,
 } from "./helpers";
+
+/** Persist flight/alert diagnostics for failed interop runs (CI artifacts). */
+const INTEROP_LOG_DIR = join(tmpdir(), `werift-bssl-logs-${process.pid}`);
+function interopLog(name: string, body: string) {
+  try {
+    mkdirSync(INTEROP_LOG_DIR, { recursive: true });
+    const path = join(INTEROP_LOG_DIR, `${name}.log`);
+    appendFileSync(path, body + "\n");
+    console.info(`[boringssl] log written: ${path}`);
+  } catch (e) {
+    console.error("[boringssl] failed to write log", e);
+  }
+}
 
 /**
  * Native harness path (preferred). Built via ./build-bssl-echo.sh / fetch-and-build-boringssl.sh.
@@ -40,7 +53,12 @@ const describeBssl = hasHarness
     : describe.skip;
 
 function spawnEcho(args: string[]): ChildProcessWithoutNullStreams {
-  return spawn(echoPath!, args, { stdio: ["pipe", "pipe", "pipe"] });
+  if (!echoPath) {
+    throw new Error(
+      "dtls13_echo missing; run fetch-and-build-boringssl.sh or set WERIFT_BORINGSSL_DTLS_ECHO",
+    );
+  }
+  return spawn(echoPath, args, { stdio: ["pipe", "pipe", "pipe"] });
 }
 
 function writeCerts() {
@@ -122,9 +140,9 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         // Act: handshake
         await new Promise<void>(async (resolve, reject) => {
           const timer = setTimeout(() => {
-            reject(
-              new Error(`BoringSSL server interop timeout\nstderr=${stderr}`),
-            );
+            const msg = `BoringSSL server interop timeout\nstderr=${stderr}`;
+            interopLog("werift-client-bssl-server-timeout", msg);
+            reject(new Error(msg));
           }, 15_000);
           client.onConnect.subscribe(() => {
             clearTimeout(timer);
@@ -132,22 +150,29 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
           });
           client.onError.subscribe((e) => {
             clearTimeout(timer);
-            reject(new Error(`${e.message}\nstderr=${stderr}`));
+            const msg = `${e.message}\nstderr=${stderr}`;
+            interopLog("werift-client-bssl-server-error", msg);
+            reject(new Error(msg));
           });
           try {
             await client.connect();
           } catch (e) {
             clearTimeout(timer);
+            interopLog(
+              "werift-client-bssl-server-connect",
+              String(e) + "\n" + stderr,
+            );
             reject(e);
           }
         });
 
         // Assert: 双方向データ（echo）
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error("data exchange timeout")),
-            5_000,
-          );
+          const timer = setTimeout(() => {
+            const msg = `data exchange timeout\nstderr=${stderr}`;
+            interopLog("werift-client-bssl-server-data", msg);
+            reject(new Error(msg));
+          }, 5_000);
           client.onData.subscribe((data) => {
             expect(data.toString()).toBe("hello-bssl");
             clearTimeout(timer);
@@ -155,6 +180,10 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
           });
           void client.send(Buffer.from("hello-bssl"));
         });
+        interopLog(
+          "werift-client-bssl-server-ok",
+          `handshake+bidirectional data ok\nstderr=${stderr}`,
+        );
       } finally {
         client.close();
         serverProc.kill("SIGTERM");
@@ -210,11 +239,9 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         // Act: wait for handshake
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(() => {
-            reject(
-              new Error(
-                `BoringSSL client interop timeout\nstderr=${stderr}\nstdout=${stdout}`,
-              ),
-            );
+            const msg = `BoringSSL client interop timeout\nstderr=${stderr}\nstdout=${stdout}`;
+            interopLog("bssl-client-werift-server-timeout", msg);
+            reject(new Error(msg));
           }, 15_000);
           server.onConnect.subscribe(() => {
             clearTimeout(timer);
@@ -222,14 +249,16 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
           });
           server.onError.subscribe((e) => {
             clearTimeout(timer);
-            reject(new Error(`${e.message}\nstderr=${stderr}`));
+            const msg = `${e.message}\nstderr=${stderr}\nstdout=${stdout}`;
+            interopLog("bssl-client-werift-server-error", msg);
+            reject(new Error(msg));
           });
           clientProc.on("exit", (code) => {
             if (code !== 0 && code !== null) {
               clearTimeout(timer);
-              reject(
-                new Error(`bssl client exit ${code}\nstderr=${stderr}`),
-              );
+              const msg = `bssl client exit ${code}\nstderr=${stderr}\nstdout=${stdout}`;
+              interopLog("bssl-client-werift-server-exit", msg);
+              reject(new Error(msg));
             }
           });
         });
@@ -238,15 +267,11 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         await Promise.race([
           dataPromise,
           new Promise<void>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `server did not receive client app data\nstderr=${stderr}`,
-                  ),
-                ),
-              5_000,
-            ),
+            setTimeout(() => {
+              const msg = `server did not receive client app data\nstderr=${stderr}\nstdout=${stdout}`;
+              interopLog("bssl-client-werift-server-no-data", msg);
+              reject(new Error(msg));
+            }, 5_000),
           ),
         ]);
         expect(gotData).toContain("hello-from-bssl");
@@ -260,11 +285,9 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
               return;
             }
             if (Date.now() > deadline) {
-              reject(
-                new Error(
-                  `client did not print echo response\nstdout=${stdout}\nstderr=${stderr}`,
-                ),
-              );
+              const msg = `client did not print echo response\nstdout=${stdout}\nstderr=${stderr}`;
+              interopLog("bssl-client-werift-server-no-echo", msg);
+              reject(new Error(msg));
               return;
             }
             setTimeout(tick, 50);
@@ -272,6 +295,10 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
           tick();
         });
         expect(server.connected).toBe(true);
+        interopLog(
+          "bssl-client-werift-server-ok",
+          `handshake+bidirectional data ok gotData=${gotData}\nstdout=${stdout}\nstderr=${stderr}`,
+        );
       } finally {
         clientProc.kill("SIGTERM");
         server.close();

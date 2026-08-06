@@ -22,6 +22,15 @@ import { AntiReplayWindow } from "../antiReplayWindow";
 
 export const DTLS13_LEGACY_VERSION = { major: 254, minor: 253 }; // 0xfefd
 
+/** Thrown when a ciphertext is discarded by anti-replay (not a fatal connection error). */
+export class DtlsReplayError extends Error {
+  readonly code = "replay";
+  constructor(message: string) {
+    super(message);
+    this.name = "DtlsReplayError";
+  }
+}
+
 export interface EpochProtection {
   epoch: number;
   readKeys?: TrafficKeys;
@@ -138,7 +147,7 @@ export function decryptRecord(
   );
 
   if (!epochState.readReplay.mayReceive(seq)) {
-    throw new Error(`replay or too-old record seq=${seq}`);
+    throw new DtlsReplayError(`replay or too-old record seq=${seq}`);
   }
 
   // AAD is the header with the cleartext sequence number

@@ -54,6 +54,7 @@ import { FragmentedHandshake } from "../../record/message/fragment";
 import { AlertDesc, ContentType } from "../../record/const";
 import {
   createEpochProtection,
+  DtlsReplayError,
   encryptRecord,
   parseNextRecord,
   serializePlaintextRecord,
@@ -366,9 +367,19 @@ export class Dtls13Connection {
     let offset = 0;
     while (offset < data.length) {
       if (this.closed) return;
-      const rec = parseNextRecord(data.subarray(offset), (low) =>
-        this.resolveEpochByLowBits(low),
-      );
+      let rec;
+      try {
+        rec = parseNextRecord(data.subarray(offset), (low) =>
+          this.resolveEpochByLowBits(low),
+        );
+      } catch (e) {
+        // Silent discard of replays / too-old records (RFC 9147 anti-replay)
+        if (e instanceof DtlsReplayError || (e as Error)?.name === "DtlsReplayError") {
+          log("drop replay/too-old record", (e as Error).message);
+          return;
+        }
+        throw e;
+      }
       if (!rec) break;
       offset += rec.consumed;
       if (rec.kind === "plaintext") {

@@ -140,3 +140,197 @@ test(
     ]);
   },
 );
+
+test(
+  "e2e/self13 recovers when every other client datagram is dropped",
+  async () => {
+    // Arrange: クライアント送信の偶数回目を落とす（再送で復旧）
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const orig = clientTransport.send.bind(clientTransport);
+    let n = 0;
+    clientTransport.send = async (buf: Buffer, addr?: any) => {
+      n++;
+      if (n % 2 === 0) return; // drop
+      await orig(buf, addr);
+    };
+    const opts = {
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3] as const,
+      addressValidation: "none" as const,
+    };
+    const server = new DtlsServer({ transport: serverTransport, ...opts });
+    const client = new DtlsClient({ transport: clientTransport, ...opts });
+
+    // Act / Assert
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("intermittent loss timeout")),
+        25_000,
+      );
+      client.onConnect.subscribe(() => {
+        void client.send(Buffer.from("lossy"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("lossy");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  30_000,
+);
+
+test(
+  "e2e/self13 tolerates duplicate application data records",
+  async () => {
+    // Arrange: 接続後の app data を二重送出しても 1 回だけ処理（replay）
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const opts = {
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3] as const,
+      addressValidation: "none" as const,
+    };
+    const server = new DtlsServer({ transport: serverTransport, ...opts });
+    const client = new DtlsClient({ transport: clientTransport, ...opts });
+
+    const origSend = clientTransport.send.bind(clientTransport);
+    let connected = false;
+    let dupOnce = false;
+    clientTransport.send = async (buf: Buffer, addr?: any) => {
+      await origSend(buf, addr);
+      // After handshake, duplicate the next app-data datagram once
+      if (connected && !dupOnce && (buf[0] & 0xe0) === 0x20) {
+        dupOnce = true;
+        await origSend(buf, addr);
+      }
+    };
+
+    // Act / Assert
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("dup appdata timeout")),
+        15_000,
+      );
+      let count = 0;
+      server.onData.subscribe((d) => {
+        count++;
+        expect(d.toString()).toBe("dup-app");
+        // replay は drop されるので 1 回のみ
+        if (count === 1) {
+          setTimeout(() => {
+            expect(count).toBe(1);
+            clearTimeout(timer);
+            client.close();
+            server.close();
+            resolve();
+          }, 200);
+        }
+      });
+      client.onConnect.subscribe(() => {
+        connected = true;
+        void client.send(Buffer.from("dup-app"));
+      });
+      client.onError.subscribe((e) => {
+        // replay may surface as error on some paths — ignore if already resolved
+        if (/replay/i.test(e.message)) return;
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        if (/replay/i.test(e.message)) return;
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
+test(
+  "e2e/self13 reorders client application data after handshake",
+  async () => {
+    // Arrange: 2 つの app data を逆順で配信
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const opts = {
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3] as const,
+      addressValidation: "none" as const,
+    };
+    const server = new DtlsServer({ transport: serverTransport, ...opts });
+    const client = new DtlsClient({ transport: clientTransport, ...opts });
+
+    const orig = clientTransport.send.bind(clientTransport);
+    let phase: "hs" | "hold" | "flush" = "hs";
+    const held: Buffer[] = [];
+    clientTransport.send = async (buf: Buffer, addr?: any) => {
+      if (phase === "hold" && (buf[0] & 0xe0) === 0x20) {
+        held.push(Buffer.from(buf));
+        if (held.length >= 2) {
+          phase = "flush";
+          // reverse order
+          await orig(held[1], addr);
+          await orig(held[0], addr);
+          held.length = 0;
+        }
+        return;
+      }
+      await orig(buf, addr);
+    };
+
+    // Act / Assert
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("app reorder timeout")),
+        15_000,
+      );
+      const got: string[] = [];
+      server.onData.subscribe((d) => {
+        got.push(d.toString());
+        if (got.length === 2) {
+          // both messages arrive (order may be reversed)
+          expect(got.sort()).toEqual(["a", "b"]);
+          clearTimeout(timer);
+          client.close();
+          server.close();
+          resolve();
+        }
+      });
+      client.onConnect.subscribe(async () => {
+        phase = "hold";
+        await client.send(Buffer.from("a"));
+        await client.send(Buffer.from("b"));
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
+);

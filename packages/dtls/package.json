@@ -25,6 +25,7 @@
     "format": "biome check --write src tests",
     "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
     "test": "vitest run ./tests",
+    "test:boringssl": "WERIFT_REQUIRE_BORINGSSL=1 vitest run ./tests/e2e/boringssl",
     "type": "tsc --noEmit -p .",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"
