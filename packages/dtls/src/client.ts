@@ -7,17 +7,100 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
+import { Dtls13Connection } from "./engine/v1_3/connection";
+import {
+  DtlsVersion,
+  ProtocolVersionError,
+  normalizeProtocolVersions,
+  supportsVersion,
+} from "./version";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
+  private dualFallbackTo12 = false;
+
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
-    log(this.dtls.sessionId, "start client");
+
+    const versions = this.protocolVersions;
+    const only13 =
+      versions.length === 1 && versions[0] === DtlsVersion.V1_3;
+    const prefer13 =
+      versions[0] === DtlsVersion.V1_3 &&
+      supportsVersion(versions, DtlsVersion.V1_2);
+
+    // Pure 1.3 or 1.3-preferred dual: start on 1.3 engine.
+    // Dual falls back to 1.2 if peer cannot do 1.3 (protocol_version / clear 1.2 path).
+    if (only13 || prefer13) {
+      this.startEngine13(only13);
+    }
+
+    log(this.dtls.sessionId, "start client", { versions, only13, prefer13 });
+  }
+
+  private startEngine13(strict13: boolean) {
+    if (!this.options.cert || !this.options.key) {
+      throw new Error("DTLS 1.3 requires cert and key options");
+    }
+    const engine = new Dtls13Connection(
+      {
+        transport: this.options.transport,
+        cert: this.options.cert,
+        key: this.options.key,
+        srtpProfiles: this.options.srtpProfiles,
+        certificateRequest: this.options.certificateRequest,
+      },
+      SessionType.CLIENT,
+    );
+    this.bridgeEngine13(engine);
+
+    if (!strict13) {
+      // Dual mode: on protocol version error / HelloVerifyRequest, rebuild as DTLS 1.2.
+      engine.onError.subscribe((e) => {
+        if (
+          e instanceof ProtocolVersionError ||
+          (e instanceof Error &&
+            (/protocol version/i.test(e.message) ||
+              /HelloVerifyRequest/i.test(e.message) ||
+              /DTLS 1\.2-only/i.test(e.message)))
+        ) {
+          if (
+            !this.dualFallbackTo12 &&
+            supportsVersion(this.protocolVersions, DtlsVersion.V1_2)
+          ) {
+            log("falling back to DTLS 1.2 after version mismatch", e.message);
+            this.dualFallbackTo12 = true;
+            this.engine13 = undefined;
+            this.connected = false;
+            // Restore 1.2 receive path and renegotiate state
+            this.transport.socket.onData = this.udpOnMessage;
+            this.dtls = new (this.dtls.constructor as any)(
+              this.options,
+              this.sessionType,
+            );
+            this.connect12().catch((err) => this.onError.execute(err));
+            return;
+          }
+        }
+        // strict dual exhausted — surface error
+        if (!this.dualFallbackTo12) {
+          // bridgeEngine13 already forwards onError; avoid double if we handled fallback
+        }
+      });
+    }
   }
 
   async connect() {
+    if (this.engine13) {
+      await this.engine13.connect();
+      return;
+    }
+    await this.connect12();
+  }
+
+  private async connect12() {
     await new Flight1(this.transport, this.dtls, this.cipher).exec(
       this.extensions,
     );
@@ -25,6 +108,8 @@ export class DtlsClient extends DtlsSocket {
 
   private flight5?: Flight5;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
+    if (this.engine13) return;
+
     log(
       this.dtls.sessionId,
       "handleHandshakes",
@@ -46,6 +131,18 @@ export class DtlsClient extends DtlsSocket {
         case HandshakeType.server_hello_2:
           {
             if (this.connected) return;
+            // If we offered only 1.3, ServerHello without 1.3 is a version error
+            const only13 =
+              this.protocolVersions.length === 1 &&
+              this.protocolVersions[0] === DtlsVersion.V1_3;
+            if (only13) {
+              this.onError.execute(
+                new ProtocolVersionError(
+                  "DTLS 1.3-only client received non-1.3 ServerHello",
+                ),
+              );
+              return;
+            }
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,

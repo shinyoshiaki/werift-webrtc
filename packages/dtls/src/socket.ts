@@ -26,6 +26,8 @@ import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
+import { DtlsVersion, normalizeProtocolVersions } from "./version";
+import type { Dtls13Connection } from "./engine/v1_3/connection";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -46,10 +48,18 @@ export class DtlsSocket {
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
+  /** When set, DTLS 1.3 engine owns the transport and crypto state. */
+  protected engine13?: Dtls13Connection;
+  /** Negotiated / configured protocol versions (priority order). */
+  readonly protocolVersions: DtlsVersion[];
+
   constructor(
     public options: Options,
     public sessionType: SessionTypes,
   ) {
+    this.protocolVersions = normalizeProtocolVersions(
+      this.options.protocolVersions,
+    );
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.cipher = new CipherContext(
       this.sessionType,
@@ -62,7 +72,20 @@ export class DtlsSocket {
     this.transport.socket.onData = this.udpOnMessage;
   }
 
+  /** True when this socket is operating on the DTLS 1.3 engine. */
+  get isDtls13(): boolean {
+    return !!this.engine13;
+  }
+
   renegotiation() {
+    if (this.engine13) {
+      // DTLS 1.3 renegotiation is not defined; reject.
+      const error = new Error(
+        "renegotiation is not supported after DTLS 1.3 handshake",
+      );
+      this.onError.execute(error);
+      return;
+    }
     log("renegotiation", this.sessionType);
     this.connected = false;
     this.cipher = new CipherContext(
@@ -77,7 +100,7 @@ export class DtlsSocket {
     this.bufferFragmentedHandshakes = [];
   }
 
-  private udpOnMessage = (data: Buffer) => {
+  protected udpOnMessage = (data: Buffer) => {
     const packets = parsePacket(data);
 
     for (const packet of packets) {
@@ -194,6 +217,10 @@ export class DtlsSocket {
 
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
+    if (this.engine13) {
+      await this.engine13.send(buf);
+      return;
+    }
     const pkt = createPlaintext(this.dtls)(
       [{ type: ContentType.applicationData, fragment: buf }],
       ++this.dtls.recordSequenceNumber,
@@ -202,10 +229,17 @@ export class DtlsSocket {
   };
 
   close() {
+    if (this.engine13) {
+      this.engine13.close();
+      return;
+    }
     this.transport.socket.close();
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {
+    if (this.engine13) {
+      return this.engine13.extractSessionKeys(keyLength, saltLength);
+    }
     const keyingMaterial = this.exportKeyingMaterial(
       "EXTRACTOR-dtls_srtp",
       keyLength * 2 + saltLength * 2,
@@ -239,6 +273,9 @@ export class DtlsSocket {
   }
 
   exportKeyingMaterial(label: string, length: number) {
+    if (this.engine13) {
+      return this.engine13.exportKeyingMaterial(label, length);
+    }
     return exportKeyingMaterial(
       label,
       length,
@@ -250,7 +287,29 @@ export class DtlsSocket {
   }
 
   get remoteCertificate() {
+    if (this.engine13) {
+      return this.engine13.remoteCertificate;
+    }
     return this.cipher.remoteCertificate;
+  }
+
+  /** Request KeyUpdate on DTLS 1.3 connections. */
+  async keyUpdate(requestUpdate = false): Promise<void> {
+    if (!this.engine13) {
+      throw new Error("KeyUpdate is only available for DTLS 1.3");
+    }
+    await this.engine13.keyUpdate(requestUpdate);
+  }
+
+  protected bridgeEngine13(engine: Dtls13Connection) {
+    this.engine13 = engine;
+    engine.onConnect.subscribe(() => {
+      this.connected = true;
+      this.onConnect.execute();
+    });
+    engine.onData.subscribe((data) => this.onData.execute(data));
+    engine.onError.subscribe((e) => this.onError.execute(e));
+    engine.onClose.subscribe(() => this.onClose.execute());
   }
 }
 
@@ -262,4 +321,18 @@ export interface Options {
   signatureHash?: SignatureHash;
   certificateRequest?: boolean;
   extendedMasterSecret?: boolean;
+  /**
+   * Protocol versions in preference order.
+   * Default: `[DtlsVersion.V1_2]` (backward compatible).
+   * DTLS 1.3 requires explicit opt-in.
+   */
+  protocolVersions?: readonly DtlsVersion[];
+  /**
+   * Address validation policy for the server.
+   * Default for generic DTLS: `"dtls-cookie"`.
+   * WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
+   */
+  addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
 }
+
+export { DtlsVersion };

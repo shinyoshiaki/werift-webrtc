@@ -1,6 +1,8 @@
-DTLS v1.2 server/client Implementation for TypeScript
+DTLS 1.2 / 1.3 server/client implementation for TypeScript (Node.js).
 
-# Example
+**Default protocol is DTLS 1.2** for backward compatibility. DTLS 1.3 is an explicit opt-in via `protocolVersions`.
+
+# Example (DTLS 1.2 default)
 
 ```typescript
 import { DtlsServer, DtlsClient, createUdpTransport } from "werift-dtls";
@@ -25,29 +27,64 @@ const client = new DtlsClient({
   }),
 });
 
-server.onData = (data) => {
+server.onData.subscribe((data) => {
   console.log(data.toString());
-};
+});
 
-client.onConnect = () => {
+client.onConnect.subscribe(() => {
   client.send(Buffer.from("ping"));
-};
-client.onData = (data) => {
+});
+client.onData.subscribe((data) => {
   console.log(data.toString());
-};
+});
 
 client.connect();
 ```
 
+# DTLS 1.3 (opt-in)
+
+```typescript
+import {
+  DtlsServer,
+  DtlsClient,
+  DtlsVersion,
+  createUdpTransport,
+} from "werift-dtls";
+
+const common = {
+  cert: certPem,
+  key: keyPem,
+  // Preference order. Default when omitted: [DtlsVersion.V1_2]
+  protocolVersions: [DtlsVersion.V1_3],
+  // Optional: [DtlsVersion.V1_3, DtlsVersion.V1_2] for fallback
+};
+
+const server = new DtlsServer({ transport: serverTransport, ...common });
+const client = new DtlsClient({ transport: clientTransport, ...common });
+
+client.onConnect.subscribe(() => client.send(Buffer.from("hello-1.3")));
+await client.connect();
+```
+
+| `protocolVersions` | Behavior |
+| --- | --- |
+| omitted / `[V1_2]` | DTLS 1.2 only (default, WebRTC-safe) |
+| `[V1_3]` | DTLS 1.3 only (`TLS_AES_128_GCM_SHA256`, X25519/P-256) |
+| `[V1_3, V1_2]` | Prefer 1.3; fall back to 1.2 if peer is 1.2-only |
+
+Mismatch **1.3-only × 1.2-only** fails with a protocol-version error (not a silent timeout).
+
+BoringSSL DTLS 1.3 interop: see `tests/e2e/boringssl/README.md` (`WERIFT_BORINGSSL_BSSL`).
+
 # reference
 
-- RFC5246
-- RFC6347
+- RFC5246 / RFC6347 (DTLS 1.2)
+- RFC8446 / RFC9147 (TLS 1.3 / DTLS 1.3)
 - pion/dtls https://github.com/pion/dtls
 - nodertc/dtls https://github.com/nodertc/dtls
 - node-dtls https://github.com/Rantanen/node-dtls
 - node-dtls-client https://github.com/AlCalzone/node-dtls-client
-- OpenSSL
+- OpenSSL (DTLS 1.2 E2E) / BoringSSL (DTLS 1.3 interop)
 
 # create key & cert
 

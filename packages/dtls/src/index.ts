@@ -3,7 +3,16 @@ export * from "./context/srtp";
 export * from "./cipher/const";
 export { DtlsClient } from "./client";
 export { DtlsServer } from "./server";
-export { DtlsSocket } from "./socket";
+export { DtlsSocket, DtlsVersion } from "./socket";
+export type { Options } from "./socket";
+export { ProtocolVersionError } from "./version";
+export type {
+  DtlsHandshakeCarrier,
+  DtlsHandshakeDatagram,
+  RetransmissionMode,
+} from "./carrier/types";
+export { DirectHandshakeCarrier } from "./carrier/direct";
+
 
 /* Client                                          Server
    ------                                          ------

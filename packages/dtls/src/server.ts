@@ -4,9 +4,17 @@ import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { HandshakeType } from "./handshake/const";
 import { ClientHello } from "./handshake/message/client/hello";
+import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
+import { Dtls13Connection } from "./engine/v1_3/connection";
+import {
+  DTLS_1_3_VERSION,
+  DtlsVersion,
+  ProtocolVersionError,
+  supportsVersion,
+} from "./version";
 
 const log = debug("werift-dtls : packages/dtls/src/server.ts : log");
 
@@ -14,11 +22,67 @@ export class DtlsServer extends DtlsSocket {
   constructor(options: Options) {
     super(options, SessionType.SERVER);
     this.onHandleHandshakes = this.handleHandshakes;
-    log(this.dtls.sessionId, "start server");
+
+    const versions = this.protocolVersions;
+    const only13 =
+      versions.length === 1 && versions[0] === DtlsVersion.V1_3;
+    // Pure DTLS 1.3 server: engine owns the transport from the start.
+    if (only13) {
+      this.startEngine13();
+    }
+
+    log(this.dtls.sessionId, "start server", { versions, only13 });
+  }
+
+  private startEngine13() {
+    if (!this.options.cert || !this.options.key) {
+      throw new Error("DTLS 1.3 requires cert and key options");
+    }
+    const engine = new Dtls13Connection(
+      {
+        transport: this.options.transport,
+        cert: this.options.cert,
+        key: this.options.key,
+        srtpProfiles: this.options.srtpProfiles,
+        certificateRequest: this.options.certificateRequest,
+      },
+      SessionType.SERVER,
+    );
+    this.bridgeEngine13(engine);
+  }
+
+  /**
+   * Dual-mode: on ClientHello, switch to 1.3 engine when peer offers DTLS 1.3
+   * and this server lists 1.3; otherwise stay on 1.2.
+   */
+  private tryUpgradeTo13(clientHello: ClientHello): boolean {
+    if (this.engine13) return true;
+    if (!supportsVersion(this.protocolVersions, DtlsVersion.V1_3)) {
+      return false;
+    }
+    const ext = clientHello.extensions.find(
+      (e) => e.type === SupportedVersions.type,
+    );
+    if (!ext) return false;
+    try {
+      const sv = SupportedVersions.fromData(ext.data, false);
+      if (!sv.versions.includes(DTLS_1_3_VERSION)) return false;
+    } catch {
+      return false;
+    }
+
+    // Rebuild as 1.3 server and re-inject the original datagram is hard;
+    // instead create engine and let the next ClientHello (retransmit) complete.
+    // For dual servers that prefer 1.3, start engine13 on first matching CH by
+    // constructing engine and processing via a synthetic path.
+    this.startEngine13();
+    return !!this.engine13;
   }
 
   private flight6?: Flight6;
   private handleHandshakes = async (assembled: FragmentedHandshake[]) => {
+    if (this.engine13) return;
+
     log(
       this.dtls.sessionId,
       "handleHandshakes",
@@ -34,6 +98,60 @@ export class DtlsServer extends DtlsSocket {
               this.renegotiation();
             }
             const clientHello = ClientHello.deSerialize(handshake.fragment);
+
+            // Dual [1.3, 1.2]: upgrade when peer offers 1.3
+            if (
+              supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
+              supportsVersion(this.protocolVersions, DtlsVersion.V1_2)
+            ) {
+              const ext = clientHello.extensions.find(
+                (e) => e.type === SupportedVersions.type,
+              );
+              if (ext) {
+                try {
+                  const sv = SupportedVersions.fromData(ext.data, false);
+                  if (sv.versions.includes(DTLS_1_3_VERSION)) {
+                    // Peer wants 1.3: switch engines. Re-process requires re-inject.
+                    // Create 1.3 server engine; client will retransmit ClientHello.
+                    this.startEngine13();
+                    // Manually feed the handshake by re-sending is not available;
+                    // Dtls13 server waits for CH on wire — force client retransmit
+                    // by not responding; retransmission will hit engine13.
+                    log("upgraded server to DTLS 1.3 engine, await retransmit");
+                    return;
+                  }
+                } catch {
+                  /* fall through to 1.2 */
+                }
+              }
+            }
+
+            // 1.3-only is handled by engine13; if we are here with only 1.3 config
+            // without engine, reject 1.2-looking hellos without 1.3 version.
+            if (
+              this.protocolVersions.length === 1 &&
+              this.protocolVersions[0] === DtlsVersion.V1_3
+            ) {
+              this.onError.execute(
+                new ProtocolVersionError(
+                  "DTLS 1.3-only server rejected ClientHello without DTLS 1.3",
+                ),
+              );
+              return;
+            }
+
+            // 1.3-only peer? If we are 1.2-only and CH only has 1.3 ciphers, error.
+            if (
+              !supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
+              clientHello.cipherSuites.every((c) => c === 0x1301)
+            ) {
+              this.onError.execute(
+                new ProtocolVersionError(
+                  "DTLS 1.2-only server: peer offered only DTLS 1.3 cipher suites",
+                ),
+              );
+              return;
+            }
 
             if (clientHello.cookie.length === 0) {
               log(this.dtls.sessionId, "send flight2");
