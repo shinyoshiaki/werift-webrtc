@@ -8,6 +8,7 @@
 
 - [CandidatePairState](enumerations/CandidatePairState.md)
 - [classes](enumerations/classes.md)
+- [DtlsVersion](enumerations/DtlsVersion.md)
 - [methods](enumerations/methods.md)
 - [PacketChunk](enumerations/PacketChunk.md)
 - [PacketStatus](enumerations/PacketStatus.md)
@@ -25,6 +26,7 @@
 - [CipherContext](classes/CipherContext.md)
 - [Connection](classes/Connection.md)
 - [DePacketizerBase](classes/DePacketizerBase.md)
+- [DirectHandshakeCarrier](classes/DirectHandshakeCarrier.md)
 - [DtlsClient](classes/DtlsClient.md)
 - [DtlsServer](classes/DtlsServer.md)
 - [DtlsSocket](classes/DtlsSocket.md)
@@ -43,6 +45,7 @@
 - [PacketResult](classes/PacketResult.md)
 - [PictureLossIndication](classes/PictureLossIndication.md)
 - [PromiseQueue](classes/PromiseQueue.md)
+- [ProtocolVersionError](classes/ProtocolVersionError.md)
 - [ReceiverEstimatedMaxBitrate](classes/ReceiverEstimatedMaxBitrate.md)
 - [RecvDelta](classes/RecvDelta.md)
 - [Red](classes/Red.md)
@@ -117,11 +120,14 @@
 
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)
+- [DtlsHandshakeCarrier](interfaces/DtlsHandshakeCarrier.md)
+- [DtlsHandshakeDatagram](interfaces/DtlsHandshakeDatagram.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
 - [Extensions](interfaces/Extensions.md)
 - [IceConnection](interfaces/IceConnection.md)
 - [IceOptions](interfaces/IceOptions.md)
 - [MessageEvent](interfaces/MessageEvent.md)
+- [Options](interfaces/Options.md)
 - [PeerConfig](interfaces/PeerConfig.md)
 - [Protocol](interfaces/Protocol.md)
 - [RTCAudioPlayoutStats](interfaces/RTCAudioPlayoutStats.md)
@@ -184,6 +190,7 @@
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [NamedCurveAlgorithms](type-aliases/NamedCurveAlgorithms.md)
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
+- [RetransmissionMode](type-aliases/RetransmissionMode.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)
 - [RTCDataChannelState](type-aliases/RTCDataChannelState.md)
 - [RTCDtlsRole](type-aliases/RTCDtlsRole.md)
@@ -266,6 +273,7 @@
 - [supportedCodecs](variables/supportedCodecs.md)
 - [supportedVideoCodecs](variables/supportedVideoCodecs.md)
 - [timer](variables/timer.md)
+- [TLS13\_CIPHER\_SUITES](variables/TLS13_CIPHER_SUITES.md)
 
 ## Functions
 

@@ -1,15 +1,15 @@
 import {
+  X509Certificate,
   createPrivateKey,
   createPublicKey,
   createSign,
   createVerify,
-  X509Certificate,
 } from "crypto";
 import { Certificate as FidmCertificate, PrivateKey } from "@fidm/x509";
 
+import { buildCertificateVerifyContent } from "../../handshake/message/tls13/certificateVerify";
 import { SignatureScheme } from "../const";
 import { hashSha256 } from "./hkdf";
-import { buildCertificateVerifyContent } from "../../handshake/message/tls13/certificateVerify";
 
 /**
  * Sign TLS 1.3 CertificateVerify content with the local private key.
@@ -21,7 +21,10 @@ export function signCertificateVerify(
   transcript: Buffer,
   preferredScheme?: number,
 ): { algorithm: number; signature: Buffer } {
-  const content = buildCertificateVerifyContent(isServer, hashSha256(transcript));
+  const content = buildCertificateVerifyContent(
+    isServer,
+    hashSha256(transcript),
+  );
   const key = createPrivateKey(keyPem);
   const type = key.asymmetricKeyType;
 
@@ -68,7 +71,10 @@ export function verifyCertificateVerify(
   isServer: boolean,
   transcript: Buffer,
 ): boolean {
-  const content = buildCertificateVerifyContent(isServer, hashSha256(transcript));
+  const content = buildCertificateVerifyContent(
+    isServer,
+    hashSha256(transcript),
+  );
   const x509 = new X509Certificate(certDer);
   const key = x509.publicKey;
 
@@ -100,7 +106,9 @@ export function verifyCertificateVerify(
     return verifier.verify(key, signature);
   }
 
-  throw new Error(`unsupported CertificateVerify algorithm 0x${algorithm.toString(16)}`);
+  throw new Error(
+    `unsupported CertificateVerify algorithm 0x${algorithm.toString(16)}`,
+  );
 }
 
 export function parseCertAndKey(

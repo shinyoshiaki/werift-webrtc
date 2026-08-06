@@ -22,7 +22,8 @@ export class CertificateVerify13 implements Handshake {
     if (buf.length < 4) throw new Error("CertificateVerify13: truncated");
     const algorithm = buf.readUInt16BE(0);
     const sigLen = buf.readUInt16BE(2);
-    if (buf.length < 4 + sigLen) throw new Error("CertificateVerify13: sig truncated");
+    if (buf.length < 4 + sigLen)
+      throw new Error("CertificateVerify13: sig truncated");
     return new CertificateVerify13(
       algorithm,
       Buffer.from(buf.subarray(4, 4 + sigLen)),

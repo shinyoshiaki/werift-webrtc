@@ -41,7 +41,9 @@ export function hkdfExpandLabel(
   context.copy(hkdfLabel, 4 + fullLabel.length);
 
   // HKDF-Expand(Secret, HkdfLabel, Length) via Node crypto
-  return Buffer.from(hkdfSync("sha256", secret, Buffer.alloc(0), hkdfLabel, length));
+  return Buffer.from(
+    hkdfSync("sha256", secret, Buffer.alloc(0), hkdfLabel, length),
+  );
 }
 
 /**

@@ -1,14 +1,19 @@
-import { describe, expect, test } from "vitest";
 import { createHash, randomBytes } from "crypto";
+import { describe, expect, test } from "vitest";
+import {
+  createHandshakeDatagram,
+  DirectHandshakeCarrier,
+} from "../../../src/carrier/direct";
+import { HandshakeType } from "../../../src/handshake/const";
 import {
   cookieBinding,
   mintCookie,
   peerKeyFromAddr,
   verifyCookie,
 } from "../../../src/handshake/extensions/cookie";
+import { remainingAfterAck } from "../../../src/handshake/message/tls13/ack";
 import { Certificate13 } from "../../../src/handshake/message/tls13/certificate";
 import { FragmentedHandshake } from "../../../src/record/message/fragment";
-import { HandshakeType } from "../../../src/handshake/const";
 
 describe("security bounds: cookie binding", () => {
   test("cookie verifies only for matching peer + ClientHello", () => {
@@ -22,9 +27,9 @@ describe("security bounds: cookie binding", () => {
     // Act / Assert
     expect(verifyCookie(secret, cookie, binding)).toBe(true);
     // 別 peer では失敗
-    expect(
-      verifyCookie(secret, cookie, cookieBinding("10.0.0.1:9", ch)),
-    ).toBe(false);
+    expect(verifyCookie(secret, cookie, cookieBinding("10.0.0.1:9", ch))).toBe(
+      false,
+    );
     // 別 ClientHello では失敗
     expect(
       verifyCookie(secret, cookie, cookieBinding(peer, randomBytes(80))),
@@ -40,13 +45,13 @@ describe("security bounds: cookie binding", () => {
     const cookie = mintCookie(secret, cookieBinding(mintPeer, ch1));
 
     // Act / Assert: mint と verify で peer が食い違うと失敗（バグ再現）
-    expect(
-      verifyCookie(secret, cookie, cookieBinding(realPeer, ch1)),
-    ).toBe(false);
+    expect(verifyCookie(secret, cookie, cookieBinding(realPeer, ch1))).toBe(
+      false,
+    );
     // 同一 peer を保持すれば成功
-    expect(
-      verifyCookie(secret, cookie, cookieBinding(mintPeer, ch1)),
-    ).toBe(true);
+    expect(verifyCookie(secret, cookie, cookieBinding(mintPeer, ch1))).toBe(
+      true,
+    );
 
     // 正しい経路: 発行時も検証時も real peer
     const good = mintCookie(secret, cookieBinding(realPeer, ch1));
@@ -64,13 +69,9 @@ describe("security bounds: cookie binding", () => {
     const chHash = createHash("sha256").update(ch).digest();
     expect(binding.subarray(0, peerBytes.length).equals(peerBytes)).toBe(true);
     expect(binding[peerBytes.length]).toBe(0);
-    expect(
-      binding.subarray(peerBytes.length + 1).equals(chHash),
-    ).toBe(true);
+    expect(binding.subarray(peerBytes.length + 1).equals(chHash)).toBe(true);
     // 異なる peer は異なる binding
-    expect(
-      cookieBinding("198.51.100.1:1", ch).equals(binding),
-    ).toBe(false);
+    expect(cookieBinding("198.51.100.1:1", ch).equals(binding)).toBe(false);
   });
 
   test("peerKeyFromAddr formats tuples", () => {
@@ -94,7 +95,9 @@ describe("security bounds: Certificate13", () => {
     buf.writeUInt16BE(100, 10); // extLen overruns
 
     // Act / Assert
-    expect(() => Certificate13.deSerialize(buf)).toThrow(/extensions exceed|truncated/);
+    expect(() => Certificate13.deSerialize(buf)).toThrow(
+      /extensions exceed|truncated/,
+    );
   });
 
   test("roundtrip valid certificate list", () => {
@@ -106,6 +109,105 @@ describe("security bounds: Certificate13", () => {
     const parsed = Certificate13.deSerialize(wire);
     // Assert
     expect(parsed.certificates[0].equals(cert)).toBe(true);
+  });
+});
+
+describe("security bounds: partial ACK", () => {
+  test("remainingAfterAck drops only matched records", () => {
+    // Arrange
+    const pending = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+      { epoch: 2, sequenceNumber: 2 },
+    ];
+    // Act: 1 件だけ ACK
+    const mid = remainingAfterAck(pending, [
+      { epoch: 2, sequenceNumber: 1 },
+    ]);
+    // Assert: 未 ACK は再送対象として残る
+    expect(mid).toEqual([
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 2 },
+    ]);
+    // 全 ACK で空
+    expect(
+      remainingAfterAck(mid, [
+        { epoch: 2, sequenceNumber: 0 },
+        { epoch: 2, sequenceNumber: 2 },
+      ]),
+    ).toEqual([]);
+    // 無関係 ACK は no-op
+    expect(
+      remainingAfterAck(pending, [{ epoch: 3, sequenceNumber: 9 }]),
+    ).toEqual(pending);
+  });
+});
+
+describe("security bounds: carrier flight immutability", () => {
+  test("onFlightCreated packets are independent copies from retransmit cache", () => {
+    // Arrange
+    const src = Buffer.from([1, 2, 3, 4, 5]);
+    const notify = createHandshakeDatagram(src, 1, 0, true);
+    const cache = createHandshakeDatagram(src, 1, 0, true);
+    // Act: callback 側 Buffer を破壊
+    notify.bytes[0] = 0xff;
+    // Assert: cache は不変、元バッファも独立
+    expect(cache.bytes[0]).toBe(1);
+    expect(src[0]).toBe(1);
+    expect(notify.bytes).not.toBe(cache.bytes);
+  });
+
+  test("external → internal retransmission mode resumes schedule hook", async () => {
+    // Arrange
+    let modeEvents: string[] = [];
+    const fakeTransport = {
+      type: "udp",
+      address: { address: "127.0.0.1", port: 0, family: "IPv4" },
+      closed: false,
+      onData: () => {},
+      send: async () => {},
+      close: async () => {},
+    };
+    const carrier = new DirectHandshakeCarrier(fakeTransport as any);
+    carrier.events.onRetransmissionModeChange = (m) => {
+      modeEvents.push(m);
+    };
+    // Act
+    let fired = 0;
+    carrier.setRetransmissionMode("external");
+    const cancel = carrier.schedule(10, () => {
+      fired++;
+    });
+    // external 中は timer が動かない
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fired).toBe(0);
+    cancel();
+    carrier.setRetransmissionMode("internal");
+    // Assert
+    expect(modeEvents).toEqual(["external", "internal"]);
+    await new Promise<void>((resolve) => {
+      carrier.schedule(15, () => {
+        fired++;
+        resolve();
+      });
+    });
+    expect(fired).toBe(1);
+    carrier.close();
+  });
+});
+
+describe("security bounds: large Certificate13", () => {
+  test("roundtrips multi-kilobyte certificate list", () => {
+    // Arrange: 大きな DER 風 blob（実証明書断片化は e2e small-MTU で検証）
+    const large = randomBytes(8 * 1024);
+    const msg = new Certificate13(Buffer.alloc(0), [large, randomBytes(512)]);
+    // Act
+    const wire = msg.serialize();
+    const parsed = Certificate13.deSerialize(wire);
+    // Assert
+    expect(parsed.certificates[0].equals(large)).toBe(true);
+    expect(parsed.certificates[1].length).toBe(512);
+    expect(wire.length).toBeGreaterThan(8 * 1024);
   });
 });
 
@@ -177,5 +279,3 @@ describe("security bounds: fragment reassembly", () => {
     expect(full.fragment.equals(Buffer.from([1, 2, 3, 4]))).toBe(true);
   });
 });
-
-

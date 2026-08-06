@@ -1,12 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  DTLS13_LABEL_PREFIX,
-  hashSha256,
-  hkdfExpandLabelManual,
-  hmacSha256,
-} from "../../../src/cipher/tls13/hkdf";
-import { Dtls13KeySchedule } from "../../../src/cipher/tls13/keySchedule";
-import {
   applyRecordNumberMask,
   buildInnerPlaintext,
   buildNonce,
@@ -17,15 +10,22 @@ import {
   sequenceToUInt64,
 } from "../../../src/cipher/tls13/aead";
 import {
+  DTLS13_LABEL_PREFIX,
+  hashSha256,
+  hkdfExpandLabelManual,
+  hmacSha256,
+} from "../../../src/cipher/tls13/hkdf";
+import { Dtls13KeySchedule } from "../../../src/cipher/tls13/keySchedule";
+import { DtlsAck } from "../../../src/handshake/message/tls13/ack";
+import { KeyUpdate } from "../../../src/handshake/message/tls13/keyUpdate";
+import { ContentType } from "../../../src/record/const";
+import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
+import {
   createEpochProtection,
   decryptRecord,
   encryptRecord,
   reconstructSequence,
 } from "../../../src/record/v1_3/record";
-import { ContentType } from "../../../src/record/const";
-import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
-import { DtlsAck } from "../../../src/handshake/message/tls13/ack";
-import { KeyUpdate } from "../../../src/handshake/message/tls13/keyUpdate";
 
 /**
  * Deterministic vectors for DTLS 1.3 record / ACK / replay / KeyUpdate / exporter.
@@ -42,7 +42,9 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     const sn = hkdfExpandLabelManual(secret0, "sn", Buffer.alloc(0), 16);
     // Assert: lengths and mutual inequality (label separation)
     expect(key.toString("hex")).toBe(
-      hkdfExpandLabelManual(secret0, "key", Buffer.alloc(0), 16).toString("hex"),
+      hkdfExpandLabelManual(secret0, "key", Buffer.alloc(0), 16).toString(
+        "hex",
+      ),
     );
     expect(key.length).toBe(16);
     expect(iv.length).toBe(12);
@@ -81,7 +83,12 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     expect(out.equals(Buffer.alloc(60))).toBe(false);
     expect(
       ks
-        .exportKeyingMaterial(expMaster, "EXTRACTOR-dtls_srtp", Buffer.alloc(0), 60)
+        .exportKeyingMaterial(
+          expMaster,
+          "EXTRACTOR-dtls_srtp",
+          Buffer.alloc(0),
+          60,
+        )
         .equals(out),
     ).toBe(true);
   });

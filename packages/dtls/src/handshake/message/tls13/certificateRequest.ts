@@ -39,7 +39,8 @@ export class CertificateRequest13 implements Handshake {
     const extLen = buf.readUInt16BE(offset);
     offset += 2;
     const end = offset + extLen;
-    if (buf.length < end) throw new Error("CertificateRequest13: ext truncated");
+    if (buf.length < end)
+      throw new Error("CertificateRequest13: ext truncated");
     const extensions: Extension[] = [];
     while (offset < end) {
       if (end - offset < 4) throw new Error("CertificateRequest13: bad ext");

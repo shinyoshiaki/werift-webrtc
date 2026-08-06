@@ -1,4 +1,5 @@
 import { SessionType } from "./cipher/suites/abstract";
+import { Dtls13Connection } from "./engine/v1_3/connection";
 import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
@@ -7,7 +8,6 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
-import { Dtls13Connection } from "./engine/v1_3/connection";
 import {
   DtlsVersion,
   ProtocolVersionError,
@@ -25,8 +25,7 @@ export class DtlsClient extends DtlsSocket {
     this.onHandleHandshakes = this.handleHandshakes;
 
     const versions = this.protocolVersions;
-    const only13 =
-      versions.length === 1 && versions[0] === DtlsVersion.V1_3;
+    const only13 = versions.length === 1 && versions[0] === DtlsVersion.V1_3;
     const prefer13 =
       versions[0] === DtlsVersion.V1_3 &&
       supportsVersion(versions, DtlsVersion.V1_2);
@@ -38,6 +37,16 @@ export class DtlsClient extends DtlsSocket {
     }
 
     log(this.dtls.sessionId, "start client", { versions, only13, prefer13 });
+  }
+
+  private isVersionFallbackError(e: Error): boolean {
+    return (
+      e instanceof ProtocolVersionError ||
+      /protocol version/i.test(e.message) ||
+      /HelloVerifyRequest/i.test(e.message) ||
+      /DTLS 1\.2-only/i.test(e.message) ||
+      /protocol_version/i.test(e.message)
+    );
   }
 
   private startEngine13(strict13: boolean) {
@@ -59,48 +68,43 @@ export class DtlsClient extends DtlsSocket {
       },
       SessionType.CLIENT,
     );
-    this.bridgeEngine13(engine);
 
-    if (!strict13) {
-      // Dual mode: on protocol version error / HelloVerifyRequest, rebuild as DTLS 1.2.
-      // Suppress forwarding the version error used for fallback to parent onError.
-      let fallingBack = false;
+    const dualCanFallback =
+      !strict13 && supportsVersion(this.protocolVersions, DtlsVersion.V1_2);
+
+    // Transparent dual fallback: do not surface ProtocolVersionError on public onError
+    this.bridgeEngine13(engine, {
+      filterError: (e) =>
+        dualCanFallback &&
+        !this.dualFallbackTo12 &&
+        this.isVersionFallbackError(e),
+    });
+
+    if (dualCanFallback) {
       engine.onError.subscribe((e) => {
-        if (
-          !this.dualFallbackTo12 &&
-          supportsVersion(this.protocolVersions, DtlsVersion.V1_2) &&
-          (e instanceof ProtocolVersionError ||
-            (e instanceof Error &&
-              (/protocol version/i.test(e.message) ||
-                /HelloVerifyRequest/i.test(e.message) ||
-                /DTLS 1\.2-only/i.test(e.message) ||
-                /protocol_version/i.test(e.message))))
-        ) {
-          log("falling back to DTLS 1.2 after version mismatch", e.message);
-          fallingBack = true;
-          this.dualFallbackTo12 = true;
-          this.engine13 = undefined;
-          this.connected = false;
-          // Restore 1.2 receive path and fresh 1.2 context
-          this.transport.socket.onData = this.udpOnMessage;
-          this.dtls = new (this.dtls.constructor as any)(
-            this.options,
-            this.sessionType,
-          );
-          this.cipher = new (this.cipher.constructor as any)(
-            this.sessionType,
-            this.options.cert,
-            this.options.key,
-            this.options.signatureHash,
-          );
-          this.srtp = new (this.srtp.constructor as any)();
-          this.setupExtensionsFor12Fallback();
-          this.connect12().catch((err) => this.onError.execute(err));
-          return;
-        }
-        if (!fallingBack) {
-          // bridgeEngine13 already forwards; no-op
-        }
+        if (this.dualFallbackTo12) return;
+        if (!this.isVersionFallbackError(e)) return;
+        log("falling back to DTLS 1.2 after version mismatch", e.message);
+        this.dualFallbackTo12 = true;
+        this.engine13 = undefined;
+        this.connected = false;
+        // Engine soft-fail already cancelled timers; close carrier only (keep UDP)
+        engine.releaseForVersionFallback();
+        // Restore 1.2 receive path and fresh 1.2 context
+        this.transport.socket.onData = this.udpOnMessage;
+        this.dtls = new (this.dtls.constructor as any)(
+          this.options,
+          this.sessionType,
+        );
+        this.cipher = new (this.cipher.constructor as any)(
+          this.sessionType,
+          this.options.cert,
+          this.options.key,
+          this.options.signatureHash,
+        );
+        this.srtp = new (this.srtp.constructor as any)();
+        this.setupExtensionsFor12Fallback();
+        this.connect12().catch((err) => this.onError.execute(err));
       });
     }
   }

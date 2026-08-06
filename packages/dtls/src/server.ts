@@ -1,16 +1,16 @@
 import { SessionType } from "./cipher/suites/abstract";
+import { Dtls13Connection } from "./engine/v1_3/connection";
 import { flight2 } from "./flight/server/flight2";
 import { Flight4 } from "./flight/server/flight4";
 import { Flight6 } from "./flight/server/flight6";
 import { HandshakeType } from "./handshake/const";
-import { ClientHello } from "./handshake/message/client/hello";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
+import { ClientHello } from "./handshake/message/client/hello";
 import { debug } from "./imports/common";
-import type { FragmentedHandshake } from "./record/message/fragment";
-import { DtlsSocket, type Options } from "./socket";
-import { Dtls13Connection } from "./engine/v1_3/connection";
 import { AlertDesc, ContentType } from "./record/const";
+import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
+import { DtlsSocket, type Options } from "./socket";
 import {
   DTLS_1_3_VERSION,
   DtlsVersion,
@@ -24,9 +24,9 @@ const log = debug("werift-dtls : packages/dtls/src/server.ts : log");
  * Capture ClientHello source from UdpTransport.rinfo (set on last datagram)
  * so dual-engine reinject preserves peer for cookie address validation.
  */
-function peerAddrFromTransport(
-  transport: { rinfo?: { address?: string; port?: number } },
-): [string, number] | { address?: string; port?: number } | undefined {
+function peerAddrFromTransport(transport: {
+  rinfo?: { address?: string; port?: number };
+}): [string, number] | { address?: string; port?: number } | undefined {
   const r = transport.rinfo;
   if (r?.address != null && r?.port != null) {
     return [r.address, r.port];
@@ -40,8 +40,7 @@ export class DtlsServer extends DtlsSocket {
     this.onHandleHandshakes = this.handleHandshakes;
 
     const versions = this.protocolVersions;
-    const only13 =
-      versions.length === 1 && versions[0] === DtlsVersion.V1_3;
+    const only13 = versions.length === 1 && versions[0] === DtlsVersion.V1_3;
     // Pure DTLS 1.3 server: engine owns the transport from the start.
     if (only13) {
       this.startEngine13();

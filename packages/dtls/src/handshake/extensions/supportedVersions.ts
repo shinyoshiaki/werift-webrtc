@@ -25,10 +25,12 @@ export class SupportedVersions {
 
   static fromData(data: Buffer, isServerHello: boolean): SupportedVersions {
     if (isServerHello) {
-      if (data.length < 2) throw new Error("supported_versions: truncated server");
+      if (data.length < 2)
+        throw new Error("supported_versions: truncated server");
       return SupportedVersions.forServer(data.readUInt16BE(0));
     }
-    if (data.length < 1) throw new Error("supported_versions: truncated client");
+    if (data.length < 1)
+      throw new Error("supported_versions: truncated client");
     const len = data.readUInt8(0);
     if (data.length < 1 + len || len % 2 !== 0) {
       throw new Error("supported_versions: invalid client list");

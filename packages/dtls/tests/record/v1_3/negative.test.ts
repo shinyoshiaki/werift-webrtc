@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { parseUnifiedHeader } from "../../../src/record/v1_3/header";
-import { parseDatagramRecords } from "../../../src/record/v1_3/record";
 import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
+import { parseDatagramRecords } from "../../../src/record/v1_3/record";
 
 describe("record/v1_3 negative", () => {
   test("truncated unified header throws", () => {
@@ -36,7 +36,14 @@ describe("record/v1_3 negative", () => {
 
   test("CID bit set is rejected on parse", () => {
     // Arrange: C=1
-    const data = Buffer.from([0x30, 0x00, 0x01, 0x00, 0x10, ...Buffer.alloc(16)]);
+    const data = Buffer.from([
+      0x30,
+      0x00,
+      0x01,
+      0x00,
+      0x10,
+      ...Buffer.alloc(16),
+    ]);
 
     // Act / Assert
     expect(() => parseDatagramRecords(data, () => undefined)).toThrow(

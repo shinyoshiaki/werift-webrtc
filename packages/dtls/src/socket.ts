@@ -16,6 +16,7 @@ import { CipherContext } from "./context/cipher";
 import { DtlsContext } from "./context/dtls";
 import { SrtpContext } from "./context/srtp";
 import { TransportContext } from "./context/transport";
+import type { Dtls13Connection } from "./engine/v1_3/connection";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecret";
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
@@ -28,7 +29,6 @@ import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
 import { DtlsVersion, normalizeProtocolVersions } from "./version";
-import type { Dtls13Connection } from "./engine/v1_3/connection";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -302,14 +302,25 @@ export class DtlsSocket {
     await this.engine13.keyUpdate(requestUpdate);
   }
 
-  protected bridgeEngine13(engine: Dtls13Connection) {
+  /**
+   * Wire DTLS 1.3 engine events onto this socket.
+   * @param filterError return true to swallow the error (e.g. dual-stack version
+   *   mismatch handled by transparent fallback without public onError).
+   */
+  protected bridgeEngine13(
+    engine: Dtls13Connection,
+    options?: { filterError?: (e: Error) => boolean },
+  ) {
     this.engine13 = engine;
     engine.onConnect.subscribe(() => {
       this.connected = true;
       this.onConnect.execute();
     });
     engine.onData.subscribe((data) => this.onData.execute(data));
-    engine.onError.subscribe((e) => this.onError.execute(e));
+    engine.onError.subscribe((e) => {
+      if (options?.filterError?.(e)) return;
+      this.onError.execute(e);
+    });
     engine.onClose.subscribe(() => this.onClose.execute());
   }
 

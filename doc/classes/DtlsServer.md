@@ -20,7 +20,7 @@
 
 ##### options
 
-`Options`
+[`Options`](../interfaces/Options.md)
 
 #### Returns
 
@@ -59,6 +59,18 @@
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`dtls`](DtlsSocket.md#dtls)
+
+***
+
+### engine13?
+
+> `protected` `optional` **engine13**: `Dtls13Connection`
+
+When set, DTLS 1.3 engine owns the transport and crypto state.
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`engine13`](DtlsSocket.md#engine13)
 
 ***
 
@@ -134,11 +146,23 @@
 
 ### options
 
-> **options**: `Options`
+> **options**: [`Options`](../interfaces/Options.md)
 
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`options`](DtlsSocket.md#options-1)
+
+***
+
+### protocolVersions
+
+> `readonly` **protocolVersions**: [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+
+Negotiated / configured protocol versions (priority order).
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`protocolVersions`](DtlsSocket.md#protocolversions)
 
 ***
 
@@ -172,6 +196,24 @@
 
 ## Accessors
 
+### isDtls13
+
+#### Get Signature
+
+> **get** **isDtls13**(): `boolean`
+
+True when this socket is operating on the DTLS 1.3 engine.
+
+##### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`isDtls13`](DtlsSocket.md#isdtls13)
+
+***
+
 ### remoteCertificate
 
 #### Get Signature
@@ -187,6 +229,26 @@
 [`DtlsSocket`](DtlsSocket.md).[`remoteCertificate`](DtlsSocket.md#remotecertificate)
 
 ## Methods
+
+### bridgeEngine13()
+
+> `protected` **bridgeEngine13**(`engine`): `void`
+
+#### Parameters
+
+##### engine
+
+`Dtls13Connection`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`bridgeEngine13`](DtlsSocket.md#bridgeengine13)
+
+***
 
 ### close()
 
@@ -204,7 +266,7 @@
 
 ### exportKeyingMaterial()
 
-> **exportKeyingMaterial**(`label`, `length`): `Buffer`\<`ArrayBuffer`\>
+> **exportKeyingMaterial**(`label`, `length`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
@@ -218,7 +280,7 @@
 
 #### Returns
 
-`Buffer`\<`ArrayBuffer`\>
+`Buffer`\<`ArrayBufferLike`\>
 
 #### Inherited from
 
@@ -286,6 +348,28 @@
 
 ***
 
+### keyUpdate()
+
+> **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>
+
+Request KeyUpdate on DTLS 1.3 connections.
+
+#### Parameters
+
+##### requestUpdate
+
+`boolean` = `false`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`keyUpdate`](DtlsSocket.md#keyupdate)
+
+***
+
 ### renegotiation()
 
 > **renegotiation**(): `void`
@@ -302,7 +386,7 @@
 
 ### send()
 
-> **send**(`buf`): `Promise`\<`void`\>
+> **send**(`buf`, `addr`?): `Promise`\<`void`\>
 
 send application data
 
@@ -312,6 +396,10 @@ send application data
 
 `Buffer`
 
+##### addr?
+
+readonly \[`string`, `number`\]
+
 #### Returns
 
 `Promise`\<`void`\>
@@ -319,6 +407,62 @@ send application data
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`send`](DtlsSocket.md#send)
+
+***
+
+### sendPlaintextAlert()
+
+> `protected` **sendPlaintextAlert**(`description`): `Promise`\<`void`\>
+
+Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
+
+#### Parameters
+
+##### description
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`sendPlaintextAlert`](DtlsSocket.md#sendplaintextalert)
+
+***
+
+### setupExtensions()
+
+> `protected` **setupExtensions**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`setupExtensions`](DtlsSocket.md#setupextensions)
+
+***
+
+### udpOnMessage()
+
+> `protected` **udpOnMessage**(`data`): `void`
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`udpOnMessage`](DtlsSocket.md#udponmessage)
 
 ***
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { ContentType } from "../../../src/record/const";
 import {
   isCidPresent,
   isUnifiedHeader,
@@ -11,7 +12,6 @@ import {
   encryptRecord,
   reconstructSequence,
 } from "../../../src/record/v1_3/record";
-import { ContentType } from "../../../src/record/const";
 
 describe("record/v1_3/header", () => {
   test("serialize and parse unified header with length", () => {
@@ -19,7 +19,9 @@ describe("record/v1_3/header", () => {
     const header = serializeUnifiedHeader(2, 0x1234, 50);
 
     // Act
-    const parsed = parseUnifiedHeader(Buffer.concat([header, Buffer.alloc(50)]));
+    const parsed = parseUnifiedHeader(
+      Buffer.concat([header, Buffer.alloc(50)]),
+    );
 
     // Assert
     expect(isUnifiedHeader(header[0])).toBe(true);

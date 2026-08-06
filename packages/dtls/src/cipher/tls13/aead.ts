@@ -16,10 +16,7 @@ export function recordNumberMask(snKey: Buffer, ciphertext: Buffer): Buffer {
 }
 
 /** XOR sequence number bytes in unified header with mask (S bit determines length). */
-export function applyRecordNumberMask(
-  header: Buffer,
-  mask: Buffer,
-): Buffer {
+export function applyRecordNumberMask(header: Buffer, mask: Buffer): Buffer {
   const out = Buffer.from(header);
   const first = out[0];
   const seq16 = (first & 0x08) !== 0;

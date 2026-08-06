@@ -1,12 +1,5 @@
+import { randomBytes } from "crypto";
 import { describe, expect, test } from "vitest";
-import {
-  DTLS13_LABEL_PREFIX,
-  emptyHashSha256,
-  hashSha256,
-  hkdfExpandLabelManual,
-  hmacSha256,
-} from "../../../src/cipher/tls13/hkdf";
-import { Dtls13KeySchedule } from "../../../src/cipher/tls13/keySchedule";
 import {
   applyRecordNumberMask,
   buildInnerPlaintext,
@@ -18,26 +11,35 @@ import {
   sequenceToUInt64,
 } from "../../../src/cipher/tls13/aead";
 import {
-  createEpochProtection,
-  decryptRecord,
-  encryptRecord,
-} from "../../../src/record/v1_3/record";
-import { ContentType } from "../../../src/record/const";
-import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
-import { DtlsAck } from "../../../src/handshake/message/tls13/ack";
+  DTLS13_LABEL_PREFIX,
+  emptyHashSha256,
+  hashSha256,
+  hkdfExpandLabelManual,
+  hmacSha256,
+} from "../../../src/cipher/tls13/hkdf";
+import { Dtls13KeySchedule } from "../../../src/cipher/tls13/keySchedule";
 import {
   cookieBinding,
   mintCookie,
   verifyCookie,
 } from "../../../src/handshake/extensions/cookie";
-import { randomBytes } from "crypto";
+import { DtlsAck } from "../../../src/handshake/message/tls13/ack";
+import { ContentType } from "../../../src/record/const";
+import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
+import {
+  createEpochProtection,
+  decryptRecord,
+  encryptRecord,
+} from "../../../src/record/v1_3/record";
 
 describe("tls13 deterministic vectors", () => {
   test("Finished verify_data is HMAC(finished_key, Hash(transcript))", () => {
     // Arrange
     const ks = new Dtls13KeySchedule(DTLS13_LABEL_PREFIX);
     const secret = Buffer.alloc(32, 0x42);
-    const transcript = Buffer.from("clienthello-serverhello-finished-transcript");
+    const transcript = Buffer.from(
+      "clienthello-serverhello-finished-transcript",
+    );
 
     // Act
     const vd = ks.verifyData(secret, transcript);
@@ -55,8 +57,18 @@ describe("tls13 deterministic vectors", () => {
     const exp = Buffer.alloc(32, 0x11);
 
     // Act
-    const a = ks.exportKeyingMaterial(exp, "EXTRACTOR-dtls_srtp", Buffer.alloc(0), 60);
-    const b = ks.exportKeyingMaterial(exp, "EXTRACTOR-dtls_srtp", Buffer.alloc(0), 60);
+    const a = ks.exportKeyingMaterial(
+      exp,
+      "EXTRACTOR-dtls_srtp",
+      Buffer.alloc(0),
+      60,
+    );
+    const b = ks.exportKeyingMaterial(
+      exp,
+      "EXTRACTOR-dtls_srtp",
+      Buffer.alloc(0),
+      60,
+    );
 
     // Assert
     expect(a.length).toBe(60);
@@ -77,7 +89,11 @@ describe("tls13 deterministic vectors", () => {
     readEp.readKeys = { ...keys };
 
     // Act
-    const wire = encryptRecord(Buffer.from("payload"), ContentType.handshake, writeEp);
+    const wire = encryptRecord(
+      Buffer.from("payload"),
+      ContentType.handshake,
+      writeEp,
+    );
     const dec = decryptRecord(wire, () => readEp);
 
     // Assert
@@ -106,7 +122,7 @@ describe("tls13 deterministic vectors", () => {
   test("KeyUpdate traffic secret chain is deterministic", () => {
     // Arrange
     const ks = new Dtls13KeySchedule();
-    let s = Buffer.alloc(32, 3);
+    const s = Buffer.alloc(32, 3);
 
     // Act
     const s1 = ks.updateTrafficSecret(s);
@@ -142,7 +158,11 @@ describe("tls13 deterministic vectors", () => {
     expect(verifyCookie(secret, cookie, binding)).toBe(true);
     expect(verifyCookie(secret, Buffer.alloc(32), binding)).toBe(false);
     expect(
-      verifyCookie(secret, cookie, cookieBinding("9.9.9.9:9", Buffer.from("ch"))),
+      verifyCookie(
+        secret,
+        cookie,
+        cookieBinding("9.9.9.9:9", Buffer.from("ch")),
+      ),
     ).toBe(false);
   });
 

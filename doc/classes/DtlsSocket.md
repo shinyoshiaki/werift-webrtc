@@ -21,7 +21,7 @@
 
 ##### options
 
-`Options`
+[`Options`](../interfaces/Options.md)
 
 ##### sessionType
 
@@ -48,6 +48,14 @@
 ### dtls
 
 > **dtls**: `DtlsContext`
+
+***
+
+### engine13?
+
+> `protected` `optional` **engine13**: `Dtls13Connection`
+
+When set, DTLS 1.3 engine owns the transport and crypto state.
 
 ***
 
@@ -99,7 +107,15 @@
 
 ### options
 
-> **options**: `Options`
+> **options**: [`Options`](../interfaces/Options.md)
+
+***
+
+### protocolVersions
+
+> `readonly` **protocolVersions**: [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+
+Negotiated / configured protocol versions (priority order).
 
 ***
 
@@ -121,6 +137,20 @@
 
 ## Accessors
 
+### isDtls13
+
+#### Get Signature
+
+> **get** **isDtls13**(): `boolean`
+
+True when this socket is operating on the DTLS 1.3 engine.
+
+##### Returns
+
+`boolean`
+
+***
+
 ### remoteCertificate
 
 #### Get Signature
@@ -132,6 +162,22 @@
 `undefined` \| `Buffer`\<`ArrayBufferLike`\>
 
 ## Methods
+
+### bridgeEngine13()
+
+> `protected` **bridgeEngine13**(`engine`): `void`
+
+#### Parameters
+
+##### engine
+
+`Dtls13Connection`
+
+#### Returns
+
+`void`
+
+***
 
 ### close()
 
@@ -145,7 +191,7 @@
 
 ### exportKeyingMaterial()
 
-> **exportKeyingMaterial**(`label`, `length`): `Buffer`\<`ArrayBuffer`\>
+> **exportKeyingMaterial**(`label`, `length`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
@@ -159,7 +205,7 @@
 
 #### Returns
 
-`Buffer`\<`ArrayBuffer`\>
+`Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -215,6 +261,24 @@
 
 ***
 
+### keyUpdate()
+
+> **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>
+
+Request KeyUpdate on DTLS 1.3 connections.
+
+#### Parameters
+
+##### requestUpdate
+
+`boolean` = `false`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### renegotiation()
 
 > **renegotiation**(): `void`
@@ -227,7 +291,7 @@
 
 ### send()
 
-> **send**(`buf`): `Promise`\<`void`\>
+> **send**(`buf`, `addr`?): `Promise`\<`void`\>
 
 send application data
 
@@ -237,9 +301,57 @@ send application data
 
 `Buffer`
 
+##### addr?
+
+readonly \[`string`, `number`\]
+
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### sendPlaintextAlert()
+
+> `protected` **sendPlaintextAlert**(`description`): `Promise`\<`void`\>
+
+Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
+
+#### Parameters
+
+##### description
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### setupExtensions()
+
+> `protected` **setupExtensions**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### udpOnMessage()
+
+> `protected` **udpOnMessage**(`data`): `void`
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`void`
 
 ***
 

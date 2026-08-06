@@ -1,4 +1,5 @@
 import {
+  type AES_128_GCM_TAG_LENGTH,
   applyRecordNumberMask,
   buildInnerPlaintext,
   buildNonce,
@@ -6,19 +7,18 @@ import {
   encryptAes128Gcm,
   parseInnerPlaintext,
   recordNumberMask,
-  type AES_128_GCM_TAG_LENGTH,
 } from "../../cipher/tls13/aead";
+import type { TrafficKeys } from "../../cipher/tls13/keySchedule";
+import { AntiReplayWindow } from "../antiReplayWindow";
 import { ContentType } from "../const";
 import { DtlsPlaintext } from "../message/plaintext";
 import {
+  UNIFIED_HEADER_S_BIT,
   isCidPresent,
   isUnifiedHeader,
   parseUnifiedHeader,
   serializeUnifiedHeader,
-  UNIFIED_HEADER_S_BIT,
 } from "./header";
-import type { TrafficKeys } from "../../cipher/tls13/keySchedule";
-import { AntiReplayWindow } from "../antiReplayWindow";
 
 export const DTLS13_LEGACY_VERSION = { major: 254, minor: 253 }; // 0xfefd
 
@@ -72,11 +72,7 @@ export function encryptRecord(
     seq,
     ciphertextLength,
   );
-  const nonce = buildNonce(
-    epochState.writeKeys.iv,
-    epochState.epoch,
-    seq,
-  );
+  const nonce = buildNonce(epochState.writeKeys.iv, epochState.epoch, seq);
   const encrypted = encryptAes128Gcm(
     epochState.writeKeys.key,
     nonce,
@@ -120,7 +116,9 @@ export function decryptRecord(
   const headerLen = 1 + seqLen + (lengthPresent ? 2 : 0);
   if (data.length < headerLen) return null;
   if (!lengthPresent) {
-    throw new Error("DTLS 1.3 records without length are not supported for receive");
+    throw new Error(
+      "DTLS 1.3 records without length are not supported for receive",
+    );
   }
   const length = data.readUInt16BE(1 + seqLen);
   const total = headerLen + length;

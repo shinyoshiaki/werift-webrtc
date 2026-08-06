@@ -67,7 +67,15 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   }
 
   setRetransmissionMode(mode: RetransmissionMode): void {
+    const prev = this.mode;
     this.mode = mode;
+    // external: stop local timers; connection may resume when returning to internal
+    if (mode === "external") {
+      this.cancelAllTimers();
+    }
+    if (prev !== mode) {
+      this.events.onRetransmissionModeChange?.(mode);
+    }
   }
 
   getRetransmissionMode(): RetransmissionMode {
@@ -108,15 +116,23 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   }
 }
 
-/** Create an immutable handshake datagram (defensive copy of bytes). */
+/**
+ * Create an immutable handshake datagram with an owned copy of bytes.
+ * Callers must not share the same Buffer instance between cache and callbacks;
+ * use a separate createHandshakeDatagram() call for each consumer.
+ * Note: Object.freeze does not freeze Buffer contents — only the wrapper.
+ */
 export function createHandshakeDatagram(
   bytes: Buffer,
   flightId: number,
   packetIndex: number,
   retransmittable = true,
 ): DtlsHandshakeDatagram {
+  // Own copy so mutations of the source buffer cannot affect the datagram
+  const owned = Buffer.alloc(bytes.length);
+  bytes.copy(owned);
   return Object.freeze({
-    bytes: Buffer.from(bytes),
+    bytes: owned,
     flightId,
     packetIndex,
     retransmittable,

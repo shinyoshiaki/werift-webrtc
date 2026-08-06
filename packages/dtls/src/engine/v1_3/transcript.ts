@@ -1,5 +1,5 @@
-import { HandshakeType } from "../../handshake/const";
 import { hashSha256 } from "../../cipher/tls13/hkdf";
+import { HandshakeType } from "../../handshake/const";
 
 /**
  * Transcript of complete handshake messages only (no record headers,

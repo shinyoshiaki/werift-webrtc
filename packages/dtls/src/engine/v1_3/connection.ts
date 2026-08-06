@@ -1,6 +1,11 @@
 import { randomBytes } from "crypto";
 
 import {
+  DirectHandshakeCarrier,
+  createHandshakeDatagram,
+} from "../../carrier/direct";
+import type { DtlsHandshakeDatagram } from "../../carrier/types";
+import {
   CipherSuite,
   NamedCurveAlgorithm,
   type NamedCurveAlgorithms,
@@ -8,17 +13,21 @@ import {
 import { generateKeyPair } from "../../cipher/namedCurve";
 import { prfPreMasterSecret } from "../../cipher/prf";
 import { SessionType, type SessionTypes } from "../../cipher/suites/abstract";
+import { hashSha256 } from "../../cipher/tls13/hkdf";
 import { defaultKeySchedule } from "../../cipher/tls13/keySchedule";
 import {
   parseCertAndKey,
   signCertificateVerify,
   verifyCertificateVerify,
 } from "../../cipher/tls13/signature";
+import { HandshakeType } from "../../handshake/const";
 import {
-  createHandshakeDatagram,
-  DirectHandshakeCarrier,
-} from "../../carrier/direct";
-import type { DtlsHandshakeDatagram } from "../../carrier/types";
+  CookieExtension,
+  cookieBinding,
+  mintCookie,
+  peerKeyFromAddr,
+  verifyCookie,
+} from "../../handshake/extensions/cookie";
 import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../handshake/extensions/keyShare";
 import {
@@ -27,38 +36,32 @@ import {
 } from "../../handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../../handshake/extensions/supportedVersions";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
-import { HandshakeType } from "../../handshake/const";
+import { Alert } from "../../handshake/message/alert";
 import { ClientHello } from "../../handshake/message/client/hello";
-import { ServerHello } from "../../handshake/message/server/hello";
 import { Finished } from "../../handshake/message/finished";
+import { ServerHello } from "../../handshake/message/server/hello";
+import {
+  DtlsAck,
+  remainingAfterAck,
+} from "../../handshake/message/tls13/ack";
 import { Certificate13 } from "../../handshake/message/tls13/certificate";
+import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
 import { CertificateVerify13 } from "../../handshake/message/tls13/certificateVerify";
 import { EncryptedExtensions } from "../../handshake/message/tls13/encryptedExtensions";
-import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
 import { KeyUpdate } from "../../handshake/message/tls13/keyUpdate";
-import { DtlsAck } from "../../handshake/message/tls13/ack";
 import { DtlsRandom } from "../../handshake/random";
-import { Alert } from "../../handshake/message/alert";
-import {
-  CookieExtension,
-  cookieBinding,
-  mintCookie,
-  peerKeyFromAddr,
-  verifyCookie,
-} from "../../handshake/extensions/cookie";
-import { hashSha256 } from "../../cipher/tls13/hkdf";
 import type { Transport } from "../../imports/common";
 import { Event, debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
-import { FragmentedHandshake } from "../../record/message/fragment";
 import { AlertDesc, ContentType } from "../../record/const";
+import { FragmentedHandshake } from "../../record/message/fragment";
 import {
-  createEpochProtection,
   DtlsReplayError,
+  type EpochProtection,
+  createEpochProtection,
   encryptRecord,
   parseNextRecord,
   serializePlaintextRecord,
-  type EpochProtection,
 } from "../../record/v1_3/record";
 import type { Extension } from "../../typings/domain";
 import {
@@ -78,6 +81,10 @@ const MAX_FRAGMENT_BUFFER_MESSAGES = 8;
 const MAX_FRAGMENT_BUFFER_BYTES = 128 * 1024;
 const MAX_FRAGMENTS_PER_MESSAGE = 64;
 const FRAGMENT_TTL_MS = 30_000;
+
+/** Post-handshake / KeyUpdate epoch retention (time + count). */
+const MAX_RETAINED_APP_EPOCHS = 4;
+const EPOCH_KEY_TTL_MS = 60_000;
 
 const log = debug("werift-dtls : packages/dtls/src/engine/v1_3/connection.ts");
 
@@ -140,6 +147,8 @@ export class Dtls13Connection {
 
   /** Epoch protections: 0 plaintext, 2 handshake, 3 app, 4+ KeyUpdate */
   private epochs = new Map<number, EpochProtection>();
+  /** When each epoch's keys were installed (for TTL prune). */
+  private epochInstalledAt = new Map<number, number>();
   private readEpoch = 0;
   private writeEpoch = 0;
 
@@ -223,7 +232,7 @@ export class Dtls13Connection {
     this.addressValidated =
       this.addressValidation === "none" ||
       this.addressValidation === "ice-authenticated";
-    this.epochs.set(0, createEpochProtection(0));
+    this.installEpoch(0, createEpochProtection(0));
     this.carrier = new DirectHandshakeCarrier(options.transport, {
       mtu: options.mtu,
     });
@@ -233,6 +242,75 @@ export class Dtls13Connection {
     );
     options.transport.onData = (data, addr) =>
       this.handleDatagram(data, addr as [string, number] | undefined);
+    // external → internal: resume retransmission timer for pending flight
+    this.carrier.events.onRetransmissionModeChange = (mode) => {
+      if (mode === "external") {
+        this.cancelRetransmit?.();
+        this.cancelRetransmit = undefined;
+      } else if (
+        mode === "internal" &&
+        this.pendingFlight.length > 0 &&
+        !this.closed
+      ) {
+        this.scheduleRetransmit();
+      }
+    };
+  }
+
+  private installEpoch(epoch: number, ep: EpochProtection): void {
+    this.epochs.set(epoch, ep);
+    this.epochInstalledAt.set(epoch, Date.now());
+    this.pruneStaleEpochs();
+  }
+
+  private zeroizeTrafficKeys(keys?: {
+    key: Buffer;
+    iv: Buffer;
+    snKey: Buffer;
+  }): void {
+    if (!keys) return;
+    keys.key.fill(0);
+    keys.iv.fill(0);
+    keys.snKey.fill(0);
+  }
+
+  /** Drop expired / excess KeyUpdate epochs; never drop active read/write. */
+  private pruneStaleEpochs(): void {
+    const now = Date.now();
+    const active = new Set([this.readEpoch, this.writeEpoch, 0, 2, 3]);
+    for (const [e, installedAt] of [...this.epochInstalledAt.entries()]) {
+      if (active.has(e)) continue;
+      if (now - installedAt <= EPOCH_KEY_TTL_MS) continue;
+      const ep = this.epochs.get(e);
+      if (ep) {
+        this.zeroizeTrafficKeys(ep.readKeys);
+        this.zeroizeTrafficKeys(ep.writeKeys);
+        ep.readKeys = undefined;
+        ep.writeKeys = undefined;
+      }
+      this.epochs.delete(e);
+      this.epochInstalledAt.delete(e);
+    }
+    // Cap number of retained app epochs (>3), oldest first
+    const appEpochs = [...this.epochs.keys()]
+      .filter((e) => e > 3 && e !== this.readEpoch && e !== this.writeEpoch)
+      .sort(
+        (a, b) =>
+          (this.epochInstalledAt.get(a) ?? 0) -
+          (this.epochInstalledAt.get(b) ?? 0),
+      );
+    while (appEpochs.length > MAX_RETAINED_APP_EPOCHS) {
+      const e = appEpochs.shift()!;
+      const ep = this.epochs.get(e);
+      if (ep) {
+        this.zeroizeTrafficKeys(ep.readKeys);
+        this.zeroizeTrafficKeys(ep.writeKeys);
+        ep.readKeys = undefined;
+        ep.writeKeys = undefined;
+      }
+      this.epochs.delete(e);
+      this.epochInstalledAt.delete(e);
+    }
   }
 
   /**
@@ -319,9 +397,7 @@ export class Dtls13Connection {
   private buildClientHelloExtensions(): Extension[] {
     const exts: Extension[] = [];
 
-    exts.push(
-      SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
-    );
+    exts.push(SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension);
 
     const curves = EllipticCurves.createEmpty();
     curves.data = this.groups as any;
@@ -355,10 +431,7 @@ export class Dtls13Connection {
 
   private handleDatagram = (
     data: Buffer,
-    addr?:
-      | [string, number]
-      | { address?: string; port?: number }
-      | string,
+    addr?: [string, number] | { address?: string; port?: number } | string,
   ): void => {
     if (this.closed) return;
     // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
@@ -399,7 +472,10 @@ export class Dtls13Connection {
         );
       } catch (e) {
         // Silent discard of replays / too-old records (RFC 9147 anti-replay)
-        if (e instanceof DtlsReplayError || (e as Error)?.name === "DtlsReplayError") {
+        if (
+          e instanceof DtlsReplayError ||
+          (e as Error)?.name === "DtlsReplayError"
+        ) {
           log("drop replay/too-old record", (e as Error).message);
           return;
         }
@@ -512,17 +588,27 @@ export class Dtls13Connection {
       if (this.pendingFlightRecords.length === 0) {
         return;
       }
-      // Only stop retransmission when ACK covers at least one record of our pending flight
-      const matches = ack.recordNumbers.some((rn) =>
-        this.pendingFlightRecords.some(
-          (p) =>
-            p.epoch === rn.epoch && p.sequenceNumber === rn.sequenceNumber,
-        ),
+      // Partial ACK: drop only acknowledged records; keep retransmitting the rest
+      const before = this.pendingFlightRecords.length;
+      this.pendingFlightRecords = remainingAfterAck(
+        this.pendingFlightRecords,
+        ack.recordNumbers,
       );
-      if (!matches) {
+      if (this.pendingFlightRecords.length === before) {
         log("ACK ignored: no pending flight records matched");
         return;
       }
+      if (this.pendingFlightRecords.length > 0) {
+        log(
+          "partial ACK: still pending",
+          this.pendingFlightRecords.length,
+          "of",
+          before,
+        );
+        // Keep pendingFlight datagrams and retransmission timer running
+        return;
+      }
+      // Fully ACK'd
       this.cancelRetransmit?.();
       this.cancelRetransmit = undefined;
       this.pendingFlight = [];
@@ -563,7 +649,9 @@ export class Dtls13Connection {
       this.handshakeInbox.set(seq, hs);
       // Bound inbox size
       if (this.handshakeInbox.size > 32) {
-        throw new Error("handshake inbox overflow (too many out-of-order messages)");
+        throw new Error(
+          "handshake inbox overflow (too many out-of-order messages)",
+        );
       }
       return;
     }
@@ -743,10 +831,7 @@ export class Dtls13Connection {
     }
   }
 
-  private async onClientHello(
-    body: Buffer,
-    messageSeq: number,
-  ): Promise<void> {
+  private async onClientHello(body: Buffer, messageSeq: number): Promise<void> {
     const ch = ClientHello.deSerialize(body);
     const versionsExt = ch.extensions.find(
       (e) => e.type === SupportedVersions.type,
@@ -799,7 +884,11 @@ export class Dtls13Connection {
       // Send HRR for first preferred group (may also carry cookie if not validated)
       this.firstClientHelloBody = body;
       this.sessionId = Buffer.from(ch.sessionId);
-      await this.sendHelloRetryRequest(this.groups[0], !this.addressValidated, body);
+      await this.sendHelloRetryRequest(
+        this.groups[0],
+        !this.addressValidated,
+        body,
+      );
       return;
     }
 
@@ -943,7 +1032,7 @@ export class Dtls13Connection {
     const ep2 = createEpochProtection(2);
     ep2.writeKeys = this.keySchedule.trafficKeys(this.serverHsTraffic);
     ep2.readKeys = this.keySchedule.trafficKeys(this.clientHsTraffic);
-    this.epochs.set(2, ep2);
+    this.installEpoch(2, ep2);
     this.writeEpoch = 2;
     this.readEpoch = 2;
 
@@ -1044,7 +1133,7 @@ export class Dtls13Connection {
     const ep3 = createEpochProtection(3);
     ep3.writeKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
     ep3.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic!);
-    this.epochs.set(3, ep3);
+    this.installEpoch(3, ep3);
 
     // Send ServerHello in epoch 0, then encrypted messages in epoch 2
     const shFrag = sh.toFragment();
@@ -1058,10 +1147,7 @@ export class Dtls13Connection {
     this.writeEpoch = 3;
   }
 
-  private async onServerHello(
-    body: Buffer,
-    messageSeq: number,
-  ): Promise<void> {
+  private async onServerHello(body: Buffer, messageSeq: number): Promise<void> {
     const sh = ServerHello.deSerialize(body);
     this.messageSeq = messageSeq;
 
@@ -1115,7 +1201,9 @@ export class Dtls13Connection {
     }
 
     if (sh.cipherSuite !== CipherSuite.TLS_AES_128_GCM_SHA256_0x1301) {
-      throw new Error(`unsupported cipher suite 0x${sh.cipherSuite.toString(16)}`);
+      throw new Error(
+        `unsupported cipher suite 0x${sh.cipherSuite.toString(16)}`,
+      );
     }
 
     const ksExt = sh.extensions.find((e) => e.type === KeyShare.type);
@@ -1153,7 +1241,7 @@ export class Dtls13Connection {
     const ep2 = createEpochProtection(2);
     ep2.writeKeys = this.keySchedule.trafficKeys(this.clientHsTraffic);
     ep2.readKeys = this.keySchedule.trafficKeys(this.serverHsTraffic);
-    this.epochs.set(2, ep2);
+    this.installEpoch(2, ep2);
     this.readEpoch = 2;
     this.writeEpoch = 2;
     this.clientExpectsServerFlight = true;
@@ -1161,9 +1249,7 @@ export class Dtls13Connection {
 
   private async onCertificateRequest(body: Buffer): Promise<void> {
     const cr = CertificateRequest13.deSerialize(body);
-    this.certificateRequestContext = Buffer.from(
-      cr.certificateRequestContext,
-    );
+    this.certificateRequestContext = Buffer.from(cr.certificateRequestContext);
     this.peerRequestedClientCert = true;
     this.transcript.add(HandshakeType.certificate_request_13, body);
   }
@@ -1189,7 +1275,8 @@ export class Dtls13Connection {
   }
 
   private async onCertificateVerify(body: Buffer): Promise<void> {
-    if (!this.remoteCert) throw new Error("CertificateVerify without Certificate");
+    if (!this.remoteCert)
+      throw new Error("CertificateVerify without Certificate");
     const cv = CertificateVerify13.deSerialize(body);
     // Client only verifies server CertificateVerify; server verifies client CV for mutual auth
     const peerIsServer = this.role === "client";
@@ -1234,7 +1321,7 @@ export class Dtls13Connection {
       const ep3 = createEpochProtection(3);
       ep3.writeKeys = this.keySchedule.trafficKeys(this.clientAppTraffic);
       ep3.readKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
-      this.epochs.set(3, ep3);
+      this.installEpoch(3, ep3);
 
       // Optional client Certificate + CertificateVerify for mutual auth
       const clientMsgs: FragmentedHandshake[] = [];
@@ -1244,10 +1331,7 @@ export class Dtls13Connection {
         ]);
         this.messageSeq += 1;
         cCert.messageSeq = this.messageSeq;
-        this.transcript.add(
-          HandshakeType.certificate_11,
-          cCert.serialize(),
-        );
+        this.transcript.add(HandshakeType.certificate_11, cCert.serialize());
         const cFrag = cCert.toFragment();
         cFrag.message_seq = cCert.messageSeq;
         clientMsgs.push(cFrag);
@@ -1283,7 +1367,8 @@ export class Dtls13Connection {
       const frag = clientFin.toFragment();
       frag.message_seq = clientFin.messageSeq;
       clientMsgs.push(frag);
-      await this.sendHandshakeFlight(clientMsgs, 2, false);
+      // Final flight is retransmittable until server ACK (RFC 9147)
+      await this.sendHandshakeFlight(clientMsgs, 2, true);
 
       // Send ACK for server flight
       await this.sendAck();
@@ -1291,12 +1376,16 @@ export class Dtls13Connection {
       this.writeEpoch = 3;
       this.readEpoch = 3;
       this.localFinishedSent = true;
-      this.markConnected();
+      // Keep pending final-flight retransmit until ACK clears it
+      this.markConnected({ keepPendingFlight: true });
       log("client connected");
     } else {
       // Server receives client Finished — require mutual auth if requested
       if (this.expectClientCertificate) {
-        if (!this.clientCertificateReceived || !this.clientCertificateVerified) {
+        if (
+          !this.clientCertificateReceived ||
+          !this.clientCertificateVerified
+        ) {
           throw new Error(
             "client Finished before Certificate/CertificateVerify (mutual auth)",
           );
@@ -1327,14 +1416,16 @@ export class Dtls13Connection {
     }
   }
 
-  private markConnected() {
+  private markConnected(opts?: { keepPendingFlight?: boolean }) {
     this.connected = true;
-    this.cancelRetransmit?.();
-    this.cancelRetransmit = undefined;
-    this.pendingFlight = [];
-    this.pendingFlightRecords = [];
+    if (!opts?.keepPendingFlight) {
+      this.cancelRetransmit?.();
+      this.cancelRetransmit = undefined;
+      this.pendingFlight = [];
+      this.pendingFlightRecords = [];
+      this.carrier.cancelAllTimers();
+    }
     this.carrier.events.onHandshakeComplete?.();
-    this.carrier.cancelAllTimers();
     this.onConnect.execute();
     // Flush app data that arrived early due to reorder
     for (const buf of this.earlyAppData) {
@@ -1345,7 +1436,9 @@ export class Dtls13Connection {
 
   private onKeyUpdate(body: Buffer) {
     const ku = KeyUpdate.deSerialize(body);
-    // Peer sent KeyUpdate with its old write keys; after processing, update our read keys.
+    // Peer sent KeyUpdate under their old write keys (= our current read epoch).
+    // Keep the previous epoch's readKeys installed for late retransmits; do NOT
+    // overwrite writeEpoch.readKeys (that would clobber independent key state).
     if (this.role === "client") {
       this.serverAppTraffic = this.keySchedule.updateTrafficSecret(
         this.serverAppTraffic!,
@@ -1353,15 +1446,7 @@ export class Dtls13Connection {
       const nextEpoch = this.nextAppEpoch(this.readEpoch);
       const ep = createEpochProtection(nextEpoch);
       ep.readKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
-      // Retain current write keys on the read epoch entry for demux convenience
-      const prevWrite = this.epochs.get(this.writeEpoch);
-      if (prevWrite?.writeKeys) {
-        // write stays on writeEpoch; only advance read
-      }
-      this.epochs.set(nextEpoch, ep);
-      // Keep write keys available under writeEpoch; copy read onto write epoch too
-      const writeEp = this.epochs.get(this.writeEpoch);
-      if (writeEp) writeEp.readKeys = ep.readKeys;
+      this.installEpoch(nextEpoch, ep);
       this.readEpoch = nextEpoch;
     } else {
       this.clientAppTraffic = this.keySchedule.updateTrafficSecret(
@@ -1370,11 +1455,12 @@ export class Dtls13Connection {
       const nextEpoch = this.nextAppEpoch(this.readEpoch);
       const ep = createEpochProtection(nextEpoch);
       ep.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic);
-      this.epochs.set(nextEpoch, ep);
-      const writeEp = this.epochs.get(this.writeEpoch);
-      if (writeEp) writeEp.readKeys = ep.readKeys;
+      this.installEpoch(nextEpoch, ep);
       this.readEpoch = nextEpoch;
     }
+    this.pruneStaleEpochs();
+    // ACK KeyUpdate so peer can stop retransmission (RFC 9147 post-HS)
+    void this.sendAck().catch((e) => this.fail(e));
     if (ku.requestUpdate) {
       this.keyUpdate(false).catch((e) => this.fail(e));
     }
@@ -1390,13 +1476,14 @@ export class Dtls13Connection {
   async keyUpdate(requestUpdate = false): Promise<void> {
     if (!this.connected) throw new Error("not connected");
     // RFC 8446: send KeyUpdate with current keys, then update sending keys.
+    // KeyUpdate flight is retransmittable until peer ACK (or next successful RX).
     const sendEpoch = this.writeEpoch;
     const ku = new KeyUpdate(requestUpdate);
     this.messageSeq += 1;
     ku.messageSeq = this.messageSeq;
     const frag = ku.toFragment();
     frag.message_seq = ku.messageSeq;
-    await this.sendHandshakeFlight([frag], sendEpoch, false);
+    await this.sendHandshakeFlight([frag], sendEpoch, true);
 
     if (this.role === "client") {
       this.clientAppTraffic = this.keySchedule.updateTrafficSecret(
@@ -1412,10 +1499,19 @@ export class Dtls13Connection {
     const traffic =
       this.role === "client" ? this.clientAppTraffic! : this.serverAppTraffic!;
     ep.writeKeys = this.keySchedule.trafficKeys(traffic);
+    // New write epoch keeps current read keys for demux; old write epoch retains
+    // prior writeKeys until TTL prune (KeyUpdate ciphertext is already cached).
     const prevRead = this.epochs.get(this.readEpoch);
-    ep.readKeys = prevRead?.readKeys;
-    this.epochs.set(nextEpoch, ep);
+    if (prevRead?.readKeys) {
+      ep.readKeys = {
+        key: Buffer.from(prevRead.readKeys.key),
+        iv: Buffer.from(prevRead.readKeys.iv),
+        snKey: Buffer.from(prevRead.readKeys.snKey),
+      };
+    }
+    this.installEpoch(nextEpoch, ep);
     this.writeEpoch = nextEpoch;
+    this.pruneStaleEpochs();
   }
 
   private async sendAck(): Promise<void> {
@@ -1447,28 +1543,19 @@ export class Dtls13Connection {
     const flightId = this.flightId;
     const mtu = this.carrier.getMtu();
     // handshake overhead: 13 header + 12 hs header + AEAD tag for encrypted
-    const maxFrag =
-      epoch === 0
-        ? mtu - 13 - 12
-        : mtu - 5 - 12 - 16; // unified header ~5 + tag
+    const maxFrag = epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 16; // unified header ~5 + tag
 
     const packets: Buffer[] = [];
     const recordNumbers: { epoch: number; sequenceNumber: number }[] = [];
     for (const f of fragments) {
-      const chunks =
-        f.fragment.length > maxFrag ? f.chunk(maxFrag) : [f];
+      const chunks = f.fragment.length > maxFrag ? f.chunk(maxFrag) : [f];
       for (const chunk of chunks) {
         const hsBytes = chunk.serialize();
         if (epoch === 0) {
           const seq = this.recordSeqEpoch0++;
           recordNumbers.push({ epoch: 0, sequenceNumber: seq });
           packets.push(
-            serializePlaintextRecord(
-              ContentType.handshake,
-              0,
-              seq,
-              hsBytes,
-            ),
+            serializePlaintextRecord(ContentType.handshake, 0, seq, hsBytes),
           );
         } else {
           const ep = this.epochs.get(epoch);
@@ -1477,9 +1564,7 @@ export class Dtls13Connection {
           }
           const seq = ep.writeSequence;
           recordNumbers.push({ epoch, sequenceNumber: seq });
-          packets.push(
-            encryptRecord(hsBytes, ContentType.handshake, ep),
-          );
+          packets.push(encryptRecord(hsBytes, ContentType.handshake, ep));
         }
       }
     }
@@ -1492,15 +1577,14 @@ export class Dtls13Connection {
         datagrams.push(current);
         current = Buffer.from(p);
       } else {
-        current = current.length
-          ? Buffer.concat([current, p])
-          : Buffer.from(p);
+        current = current.length ? Buffer.concat([current, p]) : Buffer.from(p);
       }
     }
     if (current.length) datagrams.push(current);
 
     // Anti-amplification: before address validation, send ≤ 3× received (strict).
     // No exception for "first datagram" — CH receipt must provide budget for HRR.
+    // Retransmits also consume budget via consumeSendBudget().
     if (
       this.role === "server" &&
       !this.addressValidated &&
@@ -1524,52 +1608,92 @@ export class Dtls13Connection {
       datagrams.push(...limited);
     }
 
-    const flightPackets = datagrams.map((bytes, i) =>
+    // Separate copies for callback vs retransmit cache (Buffer contents are mutable)
+    const notifyPackets = datagrams.map((bytes, i) =>
       createHandshakeDatagram(bytes, flightId, i, retransmittable),
     );
-    this.carrier.events.onFlightCreated?.(flightId, flightPackets);
+    const cachePackets = datagrams.map((bytes, i) =>
+      createHandshakeDatagram(bytes, flightId, i, retransmittable),
+    );
+    this.carrier.events.onFlightCreated?.(flightId, notifyPackets);
 
     if (retransmittable) {
-      this.pendingFlight = flightPackets;
+      this.pendingFlight = cachePackets;
       this.pendingFlightRecords = recordNumbers;
       this.retransmitCount = 0;
       this.scheduleRetransmit();
     }
 
-    for (const pkt of flightPackets) {
-      this.bytesSent += pkt.bytes.length;
+    for (const pkt of cachePackets) {
+      if (!this.consumeSendBudget(pkt.bytes.length)) {
+        throw new Error(
+          `anti-amplification: budget exhausted on send (received=${this.bytesReceived} sent=${this.bytesSent} need=${pkt.bytes.length})`,
+        );
+      }
       await this.carrier.send(pkt);
     }
   }
 
+  /**
+   * Account outbound bytes and enforce 3× anti-amplification before address
+   * validation (including retransmissions of HRR / incomplete flights).
+   */
+  private consumeSendBudget(len: number): boolean {
+    if (
+      this.role === "server" &&
+      !this.addressValidated &&
+      this.addressValidation === "dtls-cookie"
+    ) {
+      const budget =
+        ANTI_AMPLIFICATION_FACTOR * this.bytesReceived - this.bytesSent;
+      if (len > budget) return false;
+    }
+    this.bytesSent += len;
+    return true;
+  }
+
   private scheduleRetransmit() {
     this.cancelRetransmit?.();
-    if (this.pendingFlight.length === 0 || this.connected) return;
+    // Allow post-handshake retransmit (final flight / KeyUpdate) when connected
+    if (this.pendingFlight.length === 0 || this.closed) return;
     const rto = Math.min(1000 * (1 + this.retransmitCount / 2), 5000);
     this.cancelRetransmit = this.carrier.schedule(rto, () => {
-      this.retransmitCount++;
-      if (this.retransmitCount > this.maxRetransmit) {
-        this.fail(new Error("DTLS 1.3 handshake retransmission exhausted"));
+      void this.doRetransmit();
+    });
+  }
+
+  private async doRetransmit(): Promise<void> {
+    if (this.closed || this.pendingFlight.length === 0) return;
+    this.retransmitCount++;
+    if (this.retransmitCount > this.maxRetransmit) {
+      this.fail(new Error("DTLS 1.3 handshake retransmission exhausted"));
+      return;
+    }
+    log("retransmit flight", this.flightId, this.retransmitCount);
+    for (const p of this.pendingFlight) {
+      if (!this.consumeSendBudget(p.bytes.length)) {
+        log(
+          "retransmit blocked by anti-amplification",
+          this.bytesReceived,
+          this.bytesSent,
+        );
+        break;
+      }
+      try {
+        await this.carrier.send(p);
+      } catch (e) {
+        this.fail(e instanceof Error ? e : new Error(String(e)));
         return;
       }
-      log("retransmit flight", this.flightId, this.retransmitCount);
-      Promise.all(this.pendingFlight.map((p) => this.carrier.send(p))).catch(
-        (e) => this.fail(e),
-      );
-      this.scheduleRetransmit();
-    });
+    }
+    this.scheduleRetransmit();
   }
 
   private async sendProtocolVersionAlert(): Promise<void> {
     // alert level fatal(2), description protocol_version(70)
     const alert = Buffer.from([2, AlertDesc.ProtocolVersion]);
     const seq = this.recordSeqEpoch0++;
-    const record = serializePlaintextRecord(
-      ContentType.alert,
-      0,
-      seq,
-      alert,
-    );
+    const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
     await this.options.transport.send(record);
     this.fail(
       new ProtocolVersionError(
@@ -1611,9 +1735,7 @@ export class Dtls13Connection {
       keyLength * 2,
       keyLength * 2 + saltLength,
     );
-    const serverSalt = keyingMaterial.subarray(
-      keyLength * 2 + saltLength,
-    );
+    const serverSalt = keyingMaterial.subarray(keyLength * 2 + saltLength);
     if (this.role === "client") {
       return {
         localKey: clientKey,
@@ -1652,6 +1774,26 @@ export class Dtls13Connection {
   /** Test helper: pending retransmittable flight length. */
   getPendingFlightSize(): number {
     return this.pendingFlight.length;
+  }
+
+  /** Test helper: pending flight record numbers still awaiting full ACK. */
+  getPendingFlightRecordCount(): number {
+    return this.pendingFlightRecords.length;
+  }
+
+  /**
+   * Dual-stack fallback: stop 1.3 carrier timers/handlers without closing UDP
+   * transport or emitting onClose (soft version fail already set closed).
+   */
+  releaseForVersionFallback(): void {
+    this.cancelRetransmit?.();
+    this.cancelRetransmit = undefined;
+    this.pendingFlight = [];
+    this.pendingFlightRecords = [];
+    this.retransmitCount = 0;
+    this.carrier.cancelAllTimers();
+    this.carrier.close();
+    this.closed = true;
   }
 
   private fail(err: Error) {

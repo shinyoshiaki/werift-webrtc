@@ -1,5 +1,5 @@
+import { type ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { existsSync } from "fs";
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { join } from "path";
 
 import { readFileSync } from "fs";

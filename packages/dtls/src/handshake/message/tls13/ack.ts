@@ -27,6 +27,23 @@ export interface AckRecordNumber {
   sequenceNumber: number;
 }
 
+function recordKey(rn: AckRecordNumber): string {
+  return `${rn.epoch}:${rn.sequenceNumber}`;
+}
+
+/**
+ * Remove fully ACK'd records from a pending flight record list (RFC 9147).
+ * Partial ACK leaves unacked records so retransmission continues.
+ */
+export function remainingAfterAck(
+  pending: AckRecordNumber[],
+  acked: AckRecordNumber[],
+): AckRecordNumber[] {
+  if (acked.length === 0) return pending.slice();
+  const done = new Set(acked.map(recordKey));
+  return pending.filter((p) => !done.has(recordKey(p)));
+}
+
 export class DtlsAck {
   constructor(public recordNumbers: AckRecordNumber[]) {}
 

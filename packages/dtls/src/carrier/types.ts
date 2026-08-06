@@ -33,6 +33,11 @@ export interface DtlsHandshakeCarrier {
 
 export interface CarrierEvents {
   onHandshakeDatagram?: (packet: DtlsHandshakeDatagram) => void;
-  onFlightCreated?: (flightId: number, packets: DtlsHandshakeDatagram[]) => void;
+  onFlightCreated?: (
+    flightId: number,
+    packets: DtlsHandshakeDatagram[],
+  ) => void;
   onHandshakeComplete?: () => void;
+  /** Fired when retransmission mode changes (e.g. external → internal resumes timers). */
+  onRetransmissionModeChange?: (mode: RetransmissionMode) => void;
 }

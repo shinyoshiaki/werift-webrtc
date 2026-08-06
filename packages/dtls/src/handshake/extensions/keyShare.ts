@@ -42,11 +42,13 @@ export class KeyShare {
     if (data.length < end) throw new Error("key_share client: length mismatch");
     const shares: KeyShareEntry[] = [];
     while (offset < end) {
-      if (end - offset < 4) throw new Error("key_share client: entry truncated");
+      if (end - offset < 4)
+        throw new Error("key_share client: entry truncated");
       const group = data.readUInt16BE(offset);
       const keLen = data.readUInt16BE(offset + 2);
       offset += 4;
-      if (end - offset < keLen) throw new Error("key_share client: ke truncated");
+      if (end - offset < keLen)
+        throw new Error("key_share client: ke truncated");
       const keyExchange = Buffer.from(data.subarray(offset, offset + keLen));
       offset += keLen;
       shares.push({ group, keyExchange });
@@ -62,7 +64,8 @@ export class KeyShare {
     if (data.length < 4) throw new Error("key_share server: truncated");
     const group = data.readUInt16BE(0);
     const keLen = data.readUInt16BE(2);
-    if (data.length < 4 + keLen) throw new Error("key_share server: ke truncated");
+    if (data.length < 4 + keLen)
+      throw new Error("key_share server: ke truncated");
     const keyExchange = Buffer.from(data.subarray(4, 4 + keLen));
     return KeyShare.forServer({ group, keyExchange });
   }

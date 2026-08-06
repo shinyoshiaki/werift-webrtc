@@ -1,5 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildInnerPlaintext,
+  buildNonce,
+  decryptAes128Gcm,
+  encryptAes128Gcm,
+  parseInnerPlaintext,
+  sequenceToUInt64,
+} from "../../../src/cipher/tls13/aead";
+import {
   DTLS13_LABEL_PREFIX,
   emptyHashSha256,
   hashSha256,
@@ -8,14 +16,6 @@ import {
   hmacSha256,
 } from "../../../src/cipher/tls13/hkdf";
 import { Dtls13KeySchedule } from "../../../src/cipher/tls13/keySchedule";
-import {
-  buildInnerPlaintext,
-  buildNonce,
-  decryptAes128Gcm,
-  encryptAes128Gcm,
-  parseInnerPlaintext,
-  sequenceToUInt64,
-} from "../../../src/cipher/tls13/aead";
 
 describe("cipher/tls13/hkdf", () => {
   test("HKDF-Extract empty IKM uses Hash.length zeros", () => {
