@@ -424,6 +424,60 @@ test(
 );
 
 test(
+  "e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client",
+  async () => {
+    // Arrange: server lists both versions; client is 1.3-only
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+      addressValidation: "none",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+
+    // Act / Assert: dual server が 1.3 に昇格して接続
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("dual server upgrade timeout")),
+        15_000,
+      );
+      client.onConnect.subscribe(() => {
+        expect(client.isDtls13).toBe(true);
+        expect(server.isDtls13).toBe(true);
+        void client.send(Buffer.from("dual-up"));
+      });
+      server.onData.subscribe((d) => {
+        expect(d.toString()).toBe("dual-up");
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      await client.connect();
+    });
+  },
+  20_000,
+);
+
+test(
   "e2e/self13 [1.3,1.2] client falls back to 1.2-only server",
   async () => {
     // Arrange

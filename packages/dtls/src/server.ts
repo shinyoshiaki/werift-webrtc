@@ -9,7 +9,8 @@ import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
 import { Dtls13Connection } from "./engine/v1_3/connection";
-import { AlertDesc } from "./record/const";
+import { AlertDesc, ContentType } from "./record/const";
+import { serializePlaintextRecord } from "./record/v1_3/record";
 import {
   DTLS_1_3_VERSION,
   DtlsVersion,
@@ -117,13 +118,23 @@ export class DtlsServer extends DtlsSocket {
                 try {
                   const sv = SupportedVersions.fromData(ext.data, false);
                   if (sv.versions.includes(DTLS_1_3_VERSION)) {
-                    // Peer wants 1.3: switch engines. Re-process requires re-inject.
-                    // Create 1.3 server engine; client will retransmit ClientHello.
+                    // Peer wants 1.3: switch engines and re-inject this ClientHello
+                    // as a full epoch-0 plaintext record (no retransmit wait).
                     this.startEngine13();
-                    // Manually feed the handshake by re-sending is not available;
-                    // Dtls13 server waits for CH on wire — force client retransmit
-                    // by not responding; retransmission will hit engine13.
-                    log("upgraded server to DTLS 1.3 engine, await retransmit");
+                    const eng = this.engine13 as Dtls13Connection | undefined;
+                    if (eng) {
+                      const fragBytes = handshake.serialize();
+                      const pkt = serializePlaintextRecord(
+                        ContentType.handshake,
+                        0,
+                        0,
+                        fragBytes,
+                      );
+                      eng.handshakeCarrier.inject(pkt);
+                    }
+                    log(
+                      "upgraded server to DTLS 1.3 engine, reinjected ClientHello",
+                    );
                     return;
                   }
                 } catch {

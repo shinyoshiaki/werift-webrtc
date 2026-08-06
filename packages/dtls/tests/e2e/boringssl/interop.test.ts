@@ -27,9 +27,12 @@ function resolveEchoPath(): string | undefined {
 const echoPath = resolveEchoPath();
 const bsslPath = resolveBsslPath();
 const hasHarness = !!echoPath;
-/** CI must fail when harness is missing (ticket / Epic 1 P0). Local may skip. */
-const requireHarness =
-  process.env.CI === "true" || process.env.WERIFT_REQUIRE_BORINGSSL === "1";
+/**
+ * Require harness only when explicitly opted in (dedicated CI job sets this).
+ * Do NOT key off CI=true — the main `build` job runs npm test without the
+ * BoringSSL pin build; only `dtls13-boringssl` must enforce interop.
+ */
+const requireHarness = process.env.WERIFT_REQUIRE_BORINGSSL === "1";
 const describeBssl = hasHarness
   ? describe
   : requireHarness
@@ -60,7 +63,8 @@ describe("e2e/boringssl harness gate", () => {
       ).toBe(true);
     } else if (!hasHarness) {
       console.info(
-        "[boringssl] skipped locally: run fetch-and-build-boringssl.sh or set WERIFT_REQUIRE_BORINGSSL=1",
+        "[boringssl] skipped: run fetch-and-build-boringssl.sh; " +
+          "set WERIFT_REQUIRE_BORINGSSL=1 only in the dedicated CI job",
       );
     }
     expect(BORINGSSL_PIN_REVISION.length).toBeGreaterThan(8);

@@ -204,15 +204,8 @@ export class Dtls13KeySchedule {
     context: Buffer,
     length: number,
   ): Buffer {
-    const secret = hkdfExpandLabelManual(
-      exporterMasterSecret,
-      label,
-      emptyHashSha256(), // Derive-Secret(..., label, "")
-      HASH_LEN,
-      this.labelPrefix,
-    );
-    // Actually Derive-Secret(Secret, Label, Messages) with Messages="" uses Hash("")
-    // Then HKDF-Expand-Label(derived, "exporter", Hash(context_value), Length)
+    // Derive-Secret(exporter_master_secret, label, "") then
+    // HKDF-Expand-Label(..., "exporter", Hash(context), Length)
     const derived = deriveSecret(
       exporterMasterSecret,
       label,

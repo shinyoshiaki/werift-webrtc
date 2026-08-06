@@ -65,8 +65,9 @@ npm test -- ./tests/e2e/boringssl
 ```
 
 **CI policy:** job `dtls13-boringssl` always runs `fetch-and-build-boringssl.sh`
-and fails if pin mismatch or harness missing (`CI=true` / `WERIFT_REQUIRE_BORINGSSL=1`).
-Local developer runs may skip when the harness binary is absent.
+and fails if pin mismatch or harness missing (`WERIFT_REQUIRE_BORINGSSL=1`).
+The main `build` job does **not** require the harness (`CI=true` alone does not
+fail). Local developer runs skip when the harness binary is absent.
 
 ## Scenarios
 
