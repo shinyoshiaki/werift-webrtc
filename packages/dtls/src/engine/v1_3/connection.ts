@@ -41,9 +41,12 @@ import { DtlsRandom } from "../../handshake/random";
 import { Alert } from "../../handshake/message/alert";
 import {
   CookieExtension,
+  cookieBinding,
   mintCookie,
+  peerKeyFromAddr,
   verifyCookie,
 } from "../../handshake/extensions/cookie";
+import { hashSha256 } from "../../cipher/tls13/hkdf";
 import type { Transport } from "../../imports/common";
 import { Event, debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
@@ -67,6 +70,13 @@ import { HandshakeTranscript } from "./transcript";
 
 /** Anti-amplification: server may send at most 3× received before address validated. */
 const ANTI_AMPLIFICATION_FACTOR = 3;
+
+/** Fragment reassembly limits (RFC 9147: bound memory against abuse). */
+const MAX_HS_MESSAGE_BYTES = 64 * 1024;
+const MAX_FRAGMENT_BUFFER_MESSAGES = 8;
+const MAX_FRAGMENT_BUFFER_BYTES = 128 * 1024;
+const MAX_FRAGMENTS_PER_MESSAGE = 64;
+const FRAGMENT_TTL_MS = 30_000;
 
 const log = debug("werift-dtls : packages/dtls/src/engine/v1_3/connection.ts");
 
@@ -159,8 +169,14 @@ export class Dtls13Connection {
   private readonly groups: NamedCurveAlgorithms[];
   private fragmentBuffer = new Map<
     string,
-    { parts: FragmentedHandshake[]; total: number }
+    {
+      parts: FragmentedHandshake[];
+      total: number;
+      createdAt: number;
+      coveredBytes: number;
+    }
   >();
+  private fragmentBufferBytes = 0;
   /** Out-of-order complete handshake messages (by message_seq). */
   private handshakeInbox = new Map<number, FragmentedHandshake>();
   private nextReceiveSeq = 0;
@@ -172,6 +188,10 @@ export class Dtls13Connection {
   private addressValidated = false;
   private bytesReceived = 0;
   private bytesSent = 0;
+  /** Last peer key (ip:port) for cookie binding / address validation. */
+  private peerKey = "unknown";
+  /** Hash of first ClientHello used when minting the cookie. */
+  private cookieClientHelloHash?: Buffer;
   private readonly addressValidation: AddressValidationMode;
   private certificateRequestContext = Buffer.alloc(0);
   private expectClientCertificate = false;
@@ -207,7 +227,8 @@ export class Dtls13Connection {
       mtu: options.mtu,
     });
     this.carrier.setInjectHandler((bytes) => this.handleDatagram(bytes));
-    options.transport.onData = (data) => this.handleDatagram(data);
+    options.transport.onData = (data, addr) =>
+      this.handleDatagram(data, addr as [string, number] | undefined);
   }
 
   get negotiatedVersion(): DtlsVersion {
@@ -310,12 +331,16 @@ export class Dtls13Connection {
     return exts;
   }
 
-  private handleDatagram = (data: Buffer): void => {
+  private handleDatagram = (
+    data: Buffer,
+    addr?: [string, number] | { address?: string; port?: number },
+  ): void => {
     if (this.closed) return;
     // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
     const buf = Buffer.from(data);
+    const peer = peerKeyFromAddr(addr);
     this.rxChain = this.rxChain
-      .then(() => this.handleDatagramAsync(buf))
+      .then(() => this.handleDatagramAsync(buf, peer))
       .catch((e) => {
         log("handleDatagram chain error", e);
         const err = e instanceof Error ? e : new Error(String(e));
@@ -328,9 +353,16 @@ export class Dtls13Connection {
       });
   };
 
-  private async handleDatagramAsync(data: Buffer): Promise<void> {
+  private async handleDatagramAsync(
+    data: Buffer,
+    peerKey?: string,
+  ): Promise<void> {
     if (this.closed) return;
+    if (peerKey && peerKey !== "unknown") {
+      this.peerKey = peerKey;
+    }
     this.bytesReceived += data.length;
+    this.evictExpiredFragments();
     let offset = 0;
     while (offset < data.length) {
       if (this.closed) return;
@@ -511,25 +543,106 @@ export class Dtls13Connection {
     }
   }
 
+  private evictExpiredFragments(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.fragmentBuffer) {
+      if (now - entry.createdAt > FRAGMENT_TTL_MS) {
+        this.fragmentBufferBytes -= entry.coveredBytes;
+        this.fragmentBuffer.delete(key);
+      }
+    }
+    if (this.fragmentBufferBytes < 0) this.fragmentBufferBytes = 0;
+  }
+
   private reassemble(hs: FragmentedHandshake): FragmentedHandshake | null {
+    // Strict range checks on every fragment
+    if (hs.length < 0 || hs.length > MAX_HS_MESSAGE_BYTES) {
+      throw new Error(
+        `handshake message length ${hs.length} exceeds limit ${MAX_HS_MESSAGE_BYTES}`,
+      );
+    }
+    if (hs.fragment_length !== hs.fragment.length) {
+      throw new Error("fragment_length does not match buffer size");
+    }
+    if (
+      hs.fragment_offset < 0 ||
+      hs.fragment_length < 0 ||
+      hs.fragment_offset + hs.fragment_length > hs.length
+    ) {
+      throw new Error(
+        `invalid fragment range offset=${hs.fragment_offset} length=${hs.fragment_length} total=${hs.length}`,
+      );
+    }
+
     if (hs.fragment_length === hs.length && hs.fragment_offset === 0) {
       return hs;
     }
+
+    this.evictExpiredFragments();
+
     const key = `${hs.msg_type}:${hs.message_seq}:${hs.length}`;
     let entry = this.fragmentBuffer.get(key);
     if (!entry) {
-      entry = { parts: [], total: hs.length };
+      if (this.fragmentBuffer.size >= MAX_FRAGMENT_BUFFER_MESSAGES) {
+        throw new Error("fragment buffer: too many incomplete messages");
+      }
+      if (this.fragmentBufferBytes + hs.length > MAX_FRAGMENT_BUFFER_BYTES) {
+        throw new Error("fragment buffer: total bytes exceeded");
+      }
+      entry = {
+        parts: [],
+        total: hs.length,
+        createdAt: Date.now(),
+        coveredBytes: 0,
+      };
       this.fragmentBuffer.set(key, entry);
+      this.fragmentBufferBytes += hs.length;
     }
-    entry.parts.push(hs);
-    const covered = new Set<number>();
-    for (const p of entry.parts) {
-      for (let i = 0; i < p.fragment_length; i++) {
-        covered.add(p.fragment_offset + i);
+
+    if (entry.parts.length >= MAX_FRAGMENTS_PER_MESSAGE) {
+      throw new Error("fragment buffer: too many fragments for one message");
+    }
+
+    // Reject conflicting overlaps; allow exact retransmission of same bytes
+    for (const prev of entry.parts) {
+      const a0 = prev.fragment_offset;
+      const a1 = prev.fragment_offset + prev.fragment_length;
+      const b0 = hs.fragment_offset;
+      const b1 = hs.fragment_offset + hs.fragment_length;
+      const overlapStart = Math.max(a0, b0);
+      const overlapEnd = Math.min(a1, b1);
+      if (overlapStart < overlapEnd) {
+        for (let i = overlapStart; i < overlapEnd; i++) {
+          const prevByte = prev.fragment[i - a0];
+          const newByte = hs.fragment[i - b0];
+          if (prevByte !== newByte) {
+            throw new Error("overlapping fragment with conflicting data");
+          }
+        }
       }
     }
-    if (covered.size < hs.length) return null;
+
+    entry.parts.push(hs);
+
+    // Coverage check
+    const covered = new Uint8Array(hs.length);
+    for (const p of entry.parts) {
+      for (let i = 0; i < p.fragment_length; i++) {
+        covered[p.fragment_offset + i] = 1;
+      }
+    }
+    let complete = true;
+    for (let i = 0; i < hs.length; i++) {
+      if (!covered[i]) {
+        complete = false;
+        break;
+      }
+    }
+    if (!complete) return null;
+
     this.fragmentBuffer.delete(key);
+    this.fragmentBufferBytes -= entry.coveredBytes || entry.total;
+    if (this.fragmentBufferBytes < 0) this.fragmentBufferBytes = 0;
     return FragmentedHandshake.assemble(entry.parts);
   }
 
@@ -612,7 +725,7 @@ export class Dtls13Connection {
       return;
     }
 
-    // Address validation via TLS cookie (HRR)
+    // Address validation via TLS cookie (HRR), bound to peer + first ClientHello
     if (this.addressValidation === "dtls-cookie" && !this.addressValidated) {
       const cookieExt = ch.extensions.find(
         (e) => e.type === CookieExtension.type,
@@ -620,13 +733,19 @@ export class Dtls13Connection {
       if (!cookieExt) {
         // First CH without cookie → HRR with cookie
         this.firstClientHelloBody = body;
+        this.cookieClientHelloHash = hashSha256(body);
         this.sessionId = Buffer.from(ch.sessionId);
         await this.sendHelloRetryRequest(undefined, true, body);
         return;
       }
       const cookie = CookieExtension.fromData(cookieExt.data).cookie;
-      if (!verifyCookie(this.cookieSecret, cookie)) {
-        throw new Error("invalid DTLS cookie");
+      // Binding must use the first ClientHello (mint-time), not the second
+      const chForBind = this.firstClientHelloBody ?? body;
+      const binding = cookieBinding(this.peerKey, chForBind);
+      if (!verifyCookie(this.cookieSecret, cookie, binding)) {
+        throw new Error(
+          "invalid DTLS cookie (peer address or ClientHello binding mismatch)",
+        );
       }
       this.addressValidated = true;
       this.tlsCookie = Buffer.from(cookie);
@@ -707,8 +826,10 @@ export class Dtls13Connection {
       extensions.push(KeyShare.forHelloRetryRequest(group).serverExtension);
     }
     if (withCookie) {
-      const cookie = mintCookie(this.cookieSecret);
+      const binding = cookieBinding(this.peerKey, clientHelloBody);
+      const cookie = mintCookie(this.cookieSecret, binding);
       this.tlsCookie = Buffer.from(cookie);
+      this.cookieClientHelloHash = hashSha256(clientHelloBody);
       extensions.push(new CookieExtension(cookie).extension);
     }
     const hrr = new ServerHello(
@@ -1342,7 +1463,8 @@ export class Dtls13Connection {
     }
     if (current.length) datagrams.push(current);
 
-    // Anti-amplification: cap outbound before address validation (server)
+    // Anti-amplification: before address validation, send ≤ 3× received (strict).
+    // No exception for "first datagram" — CH receipt must provide budget for HRR.
     if (
       this.role === "server" &&
       !this.addressValidated &&
@@ -1358,12 +1480,9 @@ export class Dtls13Connection {
         allowed -= d.length;
       }
       if (limited.length === 0 && datagrams.length > 0) {
-        // Still send HRR-sized first datagram if possible (cookie exchange must proceed)
-        if (datagrams[0].length <= mtu) {
-          limited.push(datagrams[0]);
-        } else {
-          throw new Error("anti-amplification: cannot send flight");
-        }
+        throw new Error(
+          `anti-amplification: budget exhausted (received=${this.bytesReceived} sent=${this.bytesSent} need=${datagrams[0].length})`,
+        );
       }
       datagrams.length = 0;
       datagrams.push(...limited);

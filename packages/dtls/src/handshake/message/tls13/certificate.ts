@@ -31,19 +31,33 @@ export class Certificate13 implements Handshake {
     offset += 3;
     const end = offset + listLen;
     if (buf.length < end) throw new Error("Certificate13: list truncated");
+    // Reject trailing junk after the certificate list
+    if (buf.length !== end) {
+      throw new Error("Certificate13: trailing data after certificate_list");
+    }
     const certificates: Buffer[] = [];
     while (offset < end) {
       if (end - offset < 3) throw new Error("Certificate13: cert truncated");
       const certLen = buf.readUIntBE(offset, 3);
       offset += 3;
+      if (certLen < 1) throw new Error("Certificate13: empty cert_data");
       if (end - offset < certLen + 2) {
         throw new Error("Certificate13: cert data truncated");
       }
       const cert = Buffer.from(buf.subarray(offset, offset + certLen));
       offset += certLen;
       const extLen = buf.readUInt16BE(offset);
-      offset += 2 + extLen;
+      offset += 2;
+      // extensions must fit entirely within certificate_list
+      if (offset + extLen > end) {
+        throw new Error("Certificate13: extensions exceed certificate_list");
+      }
+      // skip extension bytes (we do not parse them yet)
+      offset += extLen;
       certificates.push(cert);
+    }
+    if (offset !== end) {
+      throw new Error("Certificate13: certificate_list length mismatch");
     }
     return new Certificate13(context, certificates);
   }

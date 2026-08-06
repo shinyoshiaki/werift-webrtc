@@ -108,12 +108,47 @@ export class FragmentedHandshake {
       throw new Error("cannot reassemble handshake from empty array");
     }
 
+    const total = messages[0].length;
+    if (total < 0 || total > 0x1000000) {
+      throw new Error("invalid handshake message length");
+    }
+
     // sort by fragment start
     messages = messages.sort((a, b) => a.fragment_offset - b.fragment_offset);
-    // combine into a single buffer
-    const combined = Buffer.alloc(messages[0].length);
+    // combine into a single buffer with strict range checks
+    const combined = Buffer.alloc(total);
+    const covered = new Uint8Array(total);
     for (const msg of messages) {
-      msg.fragment.copy(combined, msg.fragment_offset);
+      if (msg.length !== total) {
+        throw new Error("fragment total length mismatch");
+      }
+      if (msg.fragment_length !== msg.fragment.length) {
+        throw new Error("fragment_length does not match buffer");
+      }
+      if (
+        msg.fragment_offset < 0 ||
+        msg.fragment_length < 0 ||
+        msg.fragment_offset + msg.fragment_length > total
+      ) {
+        throw new Error("fragment range exceeds message length");
+      }
+      for (let i = 0; i < msg.fragment_length; i++) {
+        const idx = msg.fragment_offset + i;
+        if (covered[idx]) {
+          // exact-byte duplicates are OK only if same value
+          if (combined[idx] !== msg.fragment[i]) {
+            throw new Error("overlapping fragment conflict");
+          }
+        } else {
+          covered[idx] = 1;
+          combined[idx] = msg.fragment[i];
+        }
+      }
+    }
+    for (let i = 0; i < total; i++) {
+      if (!covered[i]) {
+        throw new Error("incomplete reassembly");
+      }
     }
 
     // and return the complete message

@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Extension } from "../../typings/domain";
 
 /** TLS 1.3 cookie extension type = 44 (RFC 8446) */
@@ -29,22 +29,61 @@ export class CookieExtension {
 }
 
 /**
- * Stateless address-validation cookie (HMAC over secret + salt).
- * Not bound to IP for unit tests; production can include peer address bytes.
+ * Build binding material for a DTLS cookie:
+ * peer identity (ip:port) || SHA-256(ClientHello body used at mint time).
  */
-export function mintCookie(secret: Buffer, salt?: Buffer): Buffer {
-  const s = salt ?? randomBytes(16);
-  const mac = createHmac("sha256", secret).update(s).digest().subarray(0, 16);
-  return Buffer.concat([s, mac]);
+export function cookieBinding(
+  peerKey: string,
+  clientHelloBody: Buffer,
+): Buffer {
+  const peer = Buffer.from(peerKey, "utf8");
+  const chHash = createHash("sha256").update(clientHelloBody).digest();
+  return Buffer.concat([peer, Buffer.from([0]), chHash]);
 }
 
-export function verifyCookie(secret: Buffer, cookie: Buffer): boolean {
-  if (cookie.length < 32) return false;
+/**
+ * Stateless address-validation cookie bound to peer + ClientHello hash.
+ * Layout: salt(16) || HMAC-SHA256(secret, salt || binding)[0..16)
+ */
+export function mintCookie(secret: Buffer, binding: Buffer): Buffer {
+  const salt = randomBytes(16);
+  const mac = createHmac("sha256", secret)
+    .update(salt)
+    .update(binding)
+    .digest()
+    .subarray(0, 16);
+  return Buffer.concat([salt, mac]);
+}
+
+export function verifyCookie(
+  secret: Buffer,
+  cookie: Buffer,
+  binding: Buffer,
+): boolean {
+  if (cookie.length !== 32) return false;
   const salt = cookie.subarray(0, 16);
   const mac = cookie.subarray(16, 32);
   const expected = createHmac("sha256", secret)
     .update(salt)
+    .update(binding)
     .digest()
     .subarray(0, 16);
-  return mac.equals(expected);
+  try {
+    return timingSafeEqual(mac, expected);
+  } catch {
+    return false;
+  }
+}
+
+/** Format peer key from address tuple. */
+export function peerKeyFromAddr(
+  addr?: { address?: string; port?: number } | [string, number] | string,
+): string {
+  if (!addr) return "unknown";
+  if (typeof addr === "string") return addr;
+  if (Array.isArray(addr)) return `${addr[0]}:${addr[1]}`;
+  if (addr.address != null && addr.port != null) {
+    return `${addr.address}:${addr.port}`;
+  }
+  return "unknown";
 }

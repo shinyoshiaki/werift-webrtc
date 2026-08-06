@@ -26,6 +26,7 @@ import { ContentType } from "../../../src/record/const";
 import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
 import { DtlsAck } from "../../../src/handshake/message/tls13/ack";
 import {
+  cookieBinding,
   mintCookie,
   verifyCookie,
 } from "../../../src/handshake/extensions/cookie";
@@ -130,15 +131,19 @@ describe("tls13 deterministic vectors", () => {
     });
   });
 
-  test("cookie mint/verify", () => {
+  test("cookie mint/verify with binding", () => {
     // Arrange
     const secret = randomBytes(16);
+    const binding = cookieBinding("127.0.0.1:1", Buffer.from("ch"));
 
     // Act
-    const cookie = mintCookie(secret);
+    const cookie = mintCookie(secret, binding);
     // Assert
-    expect(verifyCookie(secret, cookie)).toBe(true);
-    expect(verifyCookie(secret, Buffer.alloc(32))).toBe(false);
+    expect(verifyCookie(secret, cookie, binding)).toBe(true);
+    expect(verifyCookie(secret, Buffer.alloc(32), binding)).toBe(false);
+    expect(
+      verifyCookie(secret, cookie, cookieBinding("9.9.9.9:9", Buffer.from("ch"))),
+    ).toBe(false);
   });
 
   test("nonce uses 64-bit sequence without epoch", () => {
