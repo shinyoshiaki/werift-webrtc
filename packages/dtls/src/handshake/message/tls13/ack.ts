@@ -32,27 +32,31 @@ function recordKey(rn: AckRecordNumber): string {
 }
 
 /**
- * Remove fully ACK'd records from a pending flight record list (RFC 9147).
- * - Empty ACK (no record_numbers): clear entire pending flight (RFC 9147 §7:
- *   empty ACK acknowledges the most recent flight without enumerating records).
- * - Partial ACK: leave unacked records so retransmission continues.
+ * Remove fully ACK'd records from a pending flight record list (RFC 9147 §7).
+ *
+ * Empty ACK (no record_numbers) acknowledges **nothing** — it is used to
+ * prompt retransmission of unacknowledged records, not to clear the flight.
+ * Callers should retransmit on empty ACK rather than treating it as full ACK.
  */
 export function remainingAfterAck(
   pending: AckRecordNumber[],
   acked: AckRecordNumber[],
 ): AckRecordNumber[] {
-  if (acked.length === 0) return [];
+  if (acked.length === 0) return pending.slice();
   const done = new Set(acked.map(recordKey));
   return pending.filter((p) => !done.has(recordKey(p)));
 }
 
-/** True if every record in `records` is listed in `acked`. */
+/**
+ * True if every record in `records` is listed in `acked`.
+ * Empty ACK acknowledges nothing (returns false for non-empty records).
+ */
 export function recordsFullyAcked(
   records: AckRecordNumber[],
   acked: AckRecordNumber[],
 ): boolean {
   if (records.length === 0) return true;
-  if (acked.length === 0) return true; // empty ACK covers whole flight
+  if (acked.length === 0) return false;
   const done = new Set(acked.map(recordKey));
   return records.every((r) => done.has(recordKey(r)));
 }

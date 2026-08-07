@@ -118,18 +118,18 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       if (!rec) break;
       offset += rec.consumed;
       try {
+        // ACK only after successful accept of handshake content (not before
+        // processing — discarded/failed records must not be acknowledged).
         if (rec.kind === "plaintext") {
-          // Epoch-0 handshake records may be ACKed after processing
-          if (rec.contentType === ContentType.handshake) {
+          const accepted = await this.onPlaintextRecordAsync(rec);
+          if (accepted && rec.contentType === ContentType.handshake) {
             this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
           }
-          await this.onPlaintextRecordAsync(rec);
         } else {
-          // RFC 9147 §7.1: ACK only handshake content type records
-          if (rec.contentType === ContentType.handshake) {
+          const accepted = await this.onCiphertextRecordAsync(rec);
+          if (accepted && rec.contentType === ContentType.handshake) {
             this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
           }
-          await this.onCiphertextRecordAsync(rec);
         }
       } catch (e) {
         // Protocol version soft-fail must surface for dual-stack fallback
@@ -175,52 +175,60 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     return [...withRead, ...withWriteOnly].sort((a, b) => b.epoch - a.epoch);
   }
 
+  /**
+   * @returns true if handshake content was accepted (reassembled and/or queued)
+   * so the containing DTLS record may be listed in a subsequent ACK.
+   */
   protected async onPlaintextRecordAsync(rec: {
     contentType: number;
     epoch: number;
     sequenceNumber: number;
     fragment: Buffer;
-  }) {
+  }): Promise<boolean> {
     // Only epoch 0 plaintext is valid for DTLS 1.3 handshake bootstrap
     if (rec.epoch !== 0) {
       log("drop plaintext with non-zero epoch", rec.epoch);
-      return;
+      return false;
     }
     if (rec.contentType === ContentType.alert) {
       this.handleAlert(rec.fragment);
-      return;
+      return false;
     }
     if (rec.contentType === ContentType.handshake) {
-      await this.processHandshakeBytes(rec.fragment, 0);
+      return this.processHandshakeBytes(rec.fragment, 0);
     }
+    return false;
   }
 
+  /**
+   * @returns true if handshake content was accepted for ACK purposes.
+   */
   protected async onCiphertextRecordAsync(rec: {
     contentType: number;
     epoch: number;
     sequenceNumber: number;
     content: Buffer;
-  }) {
+  }): Promise<boolean> {
     switch (rec.contentType) {
       case ContentType.handshake:
-        await this.processHandshakeBytes(rec.content, rec.epoch);
-        break;
+        return this.processHandshakeBytes(rec.content, rec.epoch);
       case ContentType.applicationData:
         if (!this.connected) {
           // May arrive before peer Finished is processed (UDP reorder)
           this.earlyAppData.push(rec.content);
-          break;
+          return false;
         }
         this.onData.execute(rec.content);
-        break;
+        return false;
       case ContentType.ack:
         this.handleAck(rec.content);
-        break;
+        return false;
       case ContentType.alert:
         this.handleAlert(rec.content);
-        break;
+        return false;
       default:
         log("unknown content type", rec.contentType);
+        return false;
     }
   }
 
@@ -255,8 +263,15 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       if (this.pendingFlightRecords.length === 0 && !this.pendingServerHello) {
         return;
       }
+      // RFC 9147 §7: empty ACK acknowledges nothing — retransmit unacked flight
+      if (ack.recordNumbers.length === 0) {
+        log("empty ACK: retransmit pending flight (does not clear)");
+        if (this.pendingFlight.length > 0 || this.pendingServerHello) {
+          void this.doRetransmit();
+        }
+        return;
+      }
       const before = this.pendingFlightRecords.length;
-      // Empty ACK clears whole flight; partial removes matched records only
       this.pendingFlightRecords = remainingAfterAck(
         this.pendingFlightRecords,
         ack.recordNumbers,
@@ -268,7 +283,6 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         for (let i = 0; i < this.pendingFlight.length; i++) {
           const group = this.pendingFlightRecordGroups[i] ?? [];
           if (!recordsFullyAcked(group, ack.recordNumbers)) {
-            // Keep only still-unacked records in the group for further ACKs
             keptGroups.push(remainingAfterAck(group, ack.recordNumbers));
             keptFlight.push(this.pendingFlight[i]);
           }
@@ -276,10 +290,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         this.pendingFlight = keptFlight;
         this.pendingFlightRecordGroups = keptGroups;
       }
-      if (
-        this.pendingFlightRecords.length === before &&
-        ack.recordNumbers.length > 0
-      ) {
+      if (this.pendingFlightRecords.length === before) {
         log("ACK ignored: no pending flight records matched");
         return;
       }
@@ -301,11 +312,15 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     }
   }
 
+  /**
+   * @returns true if at least one handshake fragment was accepted (for ACK).
+   */
   protected async processHandshakeBytes(
     raw: Buffer,
     epoch: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let offset = 0;
+    let accepted = false;
     while (offset < raw.length) {
       const remaining = raw.length - offset;
       if (remaining === 0) break;
@@ -337,11 +352,13 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         continue;
       }
       const complete = this.reassemble(hs);
+      accepted = true;
       if (complete) {
         // Queue by message_seq for reorder safety (RFC 9147 §5.2)
         await this.enqueueHandshake(complete, epoch);
       }
     }
+    return accepted;
   }
 
   /**
@@ -418,7 +435,9 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     const now = Date.now();
     for (const [key, entry] of this.fragmentBuffer) {
       if (now - entry.createdAt > FRAGMENT_TTL_MS) {
-        this.fragmentBufferBytes -= entry.coveredBytes;
+        // Accounting charges `total` when the entry is created (see reassemble).
+        // coveredBytes tracks filled range for diagnostics; free with total.
+        this.fragmentBufferBytes -= entry.total;
         this.fragmentBuffer.delete(key);
       }
     }
@@ -495,24 +514,24 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
 
     entry.parts.push(hs);
 
-    // Coverage check
-    const covered = new Uint8Array(hs.length);
+    // Coverage check + keep coveredBytes in sync for diagnostics / accounting
+    const covered = new Uint8Array(entry.total);
+    let coveredCount = 0;
     for (const p of entry.parts) {
       for (let i = 0; i < p.fragment_length; i++) {
-        covered[p.fragment_offset + i] = 1;
+        const idx = p.fragment_offset + i;
+        if (!covered[idx]) {
+          covered[idx] = 1;
+          coveredCount++;
+        }
       }
     }
-    let complete = true;
-    for (let i = 0; i < hs.length; i++) {
-      if (!covered[i]) {
-        complete = false;
-        break;
-      }
-    }
-    if (!complete) return null;
+    entry.coveredBytes = coveredCount;
+    if (coveredCount < entry.total) return null;
 
     this.fragmentBuffer.delete(key);
-    this.fragmentBufferBytes -= entry.coveredBytes || entry.total;
+    // Free the reservation charged at entry creation (full message length)
+    this.fragmentBufferBytes -= entry.total;
     if (this.fragmentBufferBytes < 0) this.fragmentBufferBytes = 0;
     return FragmentedHandshake.assemble(entry.parts);
   }

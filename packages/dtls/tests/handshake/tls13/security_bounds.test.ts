@@ -140,7 +140,7 @@ describe("security bounds: partial ACK", () => {
     ).toEqual(pending);
   });
 
-  test("empty ACK clears entire pending flight", () => {
+  test("empty ACK acknowledges nothing (does not clear pending)", () => {
     // Arrange
     const pending = [
       { epoch: 2, sequenceNumber: 0 },
@@ -148,8 +148,9 @@ describe("security bounds: partial ACK", () => {
     ];
     // Act: empty record_numbers
     const left = remainingAfterAck(pending, []);
-    // Assert: RFC 9147 empty ACK は flight 全体を確認
-    expect(left).toEqual([]);
+    // Assert: RFC 9147 empty ACK は再送促進用で何も acknowledge しない
+    expect(left).toEqual(pending);
+    expect(left.length).toBe(2);
   });
 });
 

@@ -1,22 +1,20 @@
 const width = 64; // bits / entries, must be multiple of INT_SIZE
-const INT_SIZE = 32; // in JS, bitwise operators use 32bit ints
+const INT_SIZE = 32; // in JS, bitwise operators use 32-bit ints
 
 /**
- * Provides protection against replay attacks by remembering received packets in a sliding window
+ * Provides protection against replay attacks by remembering received packets in a sliding window.
+ *
+ * Layout (bit 0 = oldest / lowerBound, bit 63 = ceiling):
+ *   window[0] = bits 0..31, window[1] = bits 32..63
  */
 export class AntiReplayWindow {
-  // window bitmap looks as follows:
-  //  v- upper end                    lower end --v
-  // [111011 ... window_n]...[11111101 ... window_0]
   private window: number[] = [];
-  private ceiling = 0; // upper end of the window bitmap / highest received seq_num
+  private ceiling = 0; // highest received seq_num (upper end of the window)
 
   constructor() {
     this.reset();
   }
-  /**
-   * Initializes the anti replay window to its default state
-   */
+
   public reset(): void {
     this.window = [];
     for (let i = 0; i < width / INT_SIZE; i++) {
@@ -26,74 +24,85 @@ export class AntiReplayWindow {
   }
 
   /**
-   * Checks if the packet with the given sequence number may be received or has to be discarded
-   * @param seq_num - The sequence number of the packet to be checked
+   * Checks if the packet with the given sequence number may be received.
    */
   public mayReceive(seq_num: number): boolean {
-    // Accept any sequence above the ceiling (including large jumps). markAsReceived
-    // slides the window forward so a lost-packet gap never permanently freezes RX.
+    // Accept any sequence above the ceiling (including large jumps).
     if (seq_num > this.ceiling) {
       return true;
     } else if (seq_num >= this.ceiling - width + 1 && seq_num <= this.ceiling) {
-      // packet falls within the window, check if it was received already.
-      // if so, don't accept
       return !this.hasReceived(seq_num);
-    } /* seq_num <= this.ceiling - width */ else {
-      // too old, don't accept
+    } else {
+      // too old
       return false;
     }
   }
 
   /**
-   * Checks if the packet with the given sequence number is marked as received
-   * @param seq_num - The sequence number of the packet to be checked
+   * Checks if the packet with the given sequence number is marked as received.
    */
   public hasReceived(seq_num: number): boolean {
-    // check if the packet was received already
     const lowerBound = this.ceiling - width + 1;
-    // find out where the bit is located
+    if (seq_num < lowerBound || seq_num > this.ceiling) {
+      return false;
+    }
     const bitIndex = seq_num - lowerBound;
     const windowIndex = Math.floor(bitIndex / INT_SIZE);
     const windowBit = bitIndex % INT_SIZE;
     const flag = 1 << windowBit;
-    // check if it is set;
     return (this.window[windowIndex] & flag) === flag;
   }
 
   /**
-   * Marks the packet with the given sequence number as received
-   * @param seq_num - The sequence number of the packet
+   * Marks the packet with the given sequence number as received.
+   * Advances the sliding window when seq_num exceeds the current ceiling.
+   *
+   * JS note: `n >>> 32` is a no-op (shift count masked to 5 bits). Whole-word
+   * shifts must not use a shift amount of 32.
    */
   public markAsReceived(seq_num: number): void {
     if (seq_num > this.ceiling) {
-      // shift the window
-      let amount = seq_num - this.ceiling;
-      // first shift whole blocks
-      while (amount > INT_SIZE) {
-        for (let i = 1; i < this.window.length; i++) {
-          this.window[i - 1] = this.window[i];
-        }
-        this.window[this.window.length - 1] = 0;
-        amount -= INT_SIZE;
-      }
-      // now shift bitwise (to the right)
-      let overflow = 0;
-      for (let i = 0; i < this.window.length; i++) {
-        overflow = this.window[i] << (INT_SIZE - amount); // BBBBBBAA => AA000000
-        this.window[i] = this.window[i] >>> amount; // BBBBBBAA ==> 00BBBBBB
-        if (i > 0) this.window[i - 1] |= overflow;
-      }
-      // and remember the new ceiling
+      const amount = seq_num - this.ceiling;
+      this.shiftWindow(amount);
       this.ceiling = seq_num;
     }
     const lowerBound = this.ceiling - width + 1;
-
-    // find out where the bit is located
+    if (seq_num < lowerBound) {
+      // Seq fell out of the window after a huge jump — nothing to mark
+      return;
+    }
     const bitIndex = seq_num - lowerBound;
     const windowIndex = Math.floor(bitIndex / INT_SIZE);
     const windowBit = bitIndex % INT_SIZE;
     const flag = 1 << windowBit;
-    // and set it
     this.window[windowIndex] |= flag;
+  }
+
+  /**
+   * Shift bitmap toward older indices by `amount` bits (discard old, free high end).
+   * window[0] is the older half; window[1] is the newer half near ceiling.
+   */
+  private shiftWindow(amount: number): void {
+    if (amount <= 0) return;
+    if (amount >= width) {
+      this.window[0] = 0;
+      this.window[1] = 0;
+      return;
+    }
+    // Whole 32-bit words first (never use >>> 32 — it's a no-op in JS)
+    while (amount >= INT_SIZE) {
+      this.window[0] = this.window[1] >>> 0;
+      this.window[1] = 0;
+      amount -= INT_SIZE;
+    }
+    if (amount === 0) return;
+    // 0 < amount < 32: right-shift the 64-bit value (low=window[0], high=window[1])
+    const new0 =
+      ((this.window[0] >>> amount) |
+        (this.window[1] << (INT_SIZE - amount))) >>>
+      0;
+    const new1 = (this.window[1] >>> amount) >>> 0;
+    this.window[0] = new0;
+    this.window[1] = new1;
   }
 }

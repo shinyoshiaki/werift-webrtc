@@ -933,20 +933,15 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const nextTrafficSecret =
       this.keySchedule.updateTrafficSecret(currentTraffic);
     const nextEpoch = this.nextAppEpoch(this.writeEpoch);
-    // Merge if peer already advanced read into the same epoch number
+    // Install write keys only on the pending epoch. Do NOT copy old read keys
+    // onto this write epoch — that mixes key directions across epochs and can
+    // decrypt peer records under the wrong epoch during KeyUpdate races.
+    // Read keys stay on readEpoch (or are installed by onKeyUpdate when the
+    // peer advances their write).
     const ep = this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
     ep.writeKeys = this.keySchedule.trafficKeys(nextTrafficSecret);
-    // New epoch entry ready; writeEpoch stays on sendEpoch until ACK
-    if (!ep.readKeys) {
-      const prevRead = this.epochs.get(this.readEpoch);
-      if (prevRead?.readKeys) {
-        ep.readKeys = {
-          key: Buffer.from(prevRead.readKeys.key),
-          iv: Buffer.from(prevRead.readKeys.iv),
-          snKey: Buffer.from(prevRead.readKeys.snKey),
-        };
-      }
-    }
+    // Preserve any readKeys already installed by a concurrent peer KeyUpdate
+    // for the same epoch number; never invent them from the previous epoch.
     this.installEpoch(nextEpoch, ep);
     this.pendingKeyUpdateWrite = {
       nextWriteEpoch: nextEpoch,
