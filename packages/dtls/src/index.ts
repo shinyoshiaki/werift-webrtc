@@ -103,6 +103,15 @@ export { DirectHandshakeCarrier } from "./carrier/direct";
  *     before the sender uses the new application write keys.
  *
  *            Figure 3. Message Flights for Full Handshake (DTLS 1.3)
+ *
+ * Implementation map (packages/dtls/src/engine/v1_3/):
+ *   Flight 1/3 ClientHello     → handshake-flights.ts (sendClientHello / onClientHello)
+ *   Flight 2   HelloRetryRequest* → handshake-flights.ts (sendHelloRetryRequest)
+ *   Flight 4   ServerHello+{…} → handshake-flights.ts (sendServerFlight / onServerHello…)
+ *   Flight 5   client {Finished} → handshake-flights.ts (onFinished client path)
+ *   Post-HS    KeyUpdate / ACK → handshake-flights.ts + flight-tx.ts + record-rx.ts
+ *   Wire I/O   records/flights → record-rx.ts (in) / flight-tx.ts (out)
+ *   See also engine/v1_3/README.md
  */
 
 // enum HandshakeType {
