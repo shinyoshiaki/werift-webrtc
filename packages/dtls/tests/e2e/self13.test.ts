@@ -80,6 +80,133 @@ test("e2e/self13 full handshake bidirectional data", async () => {
   });
 }, 20_000);
 
+test(
+  "e2e/self13 bad server Finished verify_data fails client promptly",
+  async () => {
+    // Arrange: server Finished の *検証* だけ壊す（生成側は正しい wire）
+    // 呼び出し順: (1) server が Finished 生成 (2) client が server Finished 検証
+    const { server, client } = await pair();
+    const eng = (client as any).engine13;
+    expect(eng).toBeTruthy();
+    // 共有 defaultKeySchedule を使うため、検証 2 回目のみ壊す
+    const ks = eng.keySchedule;
+    const orig = ks.verifyData.bind(ks);
+    let calls = 0;
+    ks.verifyData = (base: Buffer, transcript: Buffer) => {
+      calls++;
+      const real = orig(base, transcript);
+      // Act: client 側の server Finished 検証時のみ不一致
+      if (calls === 2) return Buffer.alloc(real.length, 0xaa);
+      return real;
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("bad Finished should fail promptly, timed out")),
+        5_000,
+      );
+      const cleanup = () => {
+        ks.verifyData = orig;
+        try {
+          client.close();
+        } catch {
+          /* */
+        }
+        try {
+          server.close();
+        } catch {
+          /* */
+        }
+      };
+      let clientErrored = false;
+      let clientClosed = false;
+      const maybeDone = () => {
+        if (clientErrored && clientClosed) {
+          clearTimeout(timer);
+          cleanup();
+          resolve();
+        }
+      };
+      client.onError.subscribe((e: Error) => {
+        // Assert: 認証済み失敗が即 onError（再送タイムアウト待ちではない）
+        expect(e.message).toMatch(/verify_data|Finished/i);
+        clientErrored = true;
+        maybeDone();
+      });
+      client.onClose.subscribe(() => {
+        clientClosed = true;
+        maybeDone();
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        cleanup();
+        reject(new Error("should not connect with bad Finished"));
+      });
+      void client.connect().catch(() => {
+        /* fail path may reject */
+      });
+    });
+  },
+  10_000,
+);
+
+test(
+  "e2e/self13 bad CertificateVerify fails server promptly (mutual auth)",
+  async () => {
+    // Arrange: mutual auth + server 側 CV 検証を失敗させる
+    const { server, client } = await pair({ certificateRequest: true });
+    const eng = (server as any).engine13;
+    expect(eng).toBeTruthy();
+    // Act: 認証済み CV 処理を失敗させる
+    eng.onCertificateVerify = async () => {
+      throw new Error("CertificateVerify signature verification failed");
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(new Error("bad CertificateVerify should fail promptly, timed out")),
+        5_000,
+      );
+      let serverErrored = false;
+      let serverClosed = false;
+      const done = () => {
+        if (serverErrored && serverClosed) {
+          clearTimeout(timer);
+          try {
+            client.close();
+          } catch {
+            /* */
+          }
+          try {
+            server.close();
+          } catch {
+            /* */
+          }
+          resolve();
+        }
+      };
+      server.onError.subscribe((e: Error) => {
+        // Assert: 認証済み失敗が即 onError（再送タイムアウト待ちではない）
+        expect(e.message).toMatch(/CertificateVerify|signature/i);
+        serverErrored = true;
+        done();
+      });
+      server.onClose.subscribe(() => {
+        serverClosed = true;
+        done();
+      });
+      client.onConnect.subscribe(() => {
+        // client が先に connect しても server は CV 失敗で落ちる
+      });
+      void client.connect().catch(() => {
+        /* expected path may error on client after fatal alert */
+      });
+    });
+  },
+  10_000,
+);
+
 test("e2e/self13 KeyUpdate then bidirectional data", async () => {
   // Arrange
   const { server, client } = await pair();

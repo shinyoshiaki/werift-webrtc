@@ -501,11 +501,13 @@ export class Dtls13Connection {
     this.rxChain = this.rxChain
       .then(() => this.handleDatagramAsync(buf, peer))
       .catch((e) => {
-        // Unauthenticated / forged UDP must not tear down the association (DoS).
-        // Only ProtocolVersionError and explicit fatal paths call fail().
+        // ProtocolVersionError / authenticated handshake failures already call fail()
+        // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
+        // discarded inside handleDatagramAsync and should not reach here often.
         if (
           e instanceof ProtocolVersionError ||
-          (e instanceof Error && e.name === "ProtocolVersionError")
+          (e instanceof Error && e.name === "ProtocolVersionError") ||
+          (e instanceof Error && (e as any).dtlsAuthenticated === true)
         ) {
           try {
             this.fail(e instanceof Error ? e : new Error(String(e)));
@@ -581,19 +583,85 @@ export class Dtls13Connection {
           await this.onCiphertextRecordAsync(rec);
         }
       } catch (e) {
-        // Protocol version soft-fail must surface; other handshake errors drop
+        // Protocol version soft-fail must surface for dual-stack fallback
         if (
           e instanceof ProtocolVersionError ||
           (e instanceof Error && e.name === "ProtocolVersionError")
         ) {
           throw e;
         }
+        // AEAD already succeeded for ciphertext → authenticated content.
+        // Crypto/transcript failures must fatal-alert and fail() immediately
+        // (not wait for peer retransmit timeout).
+        if (rec.kind === "ciphertext") {
+          await this.failAuthenticatedHandshake(
+            e instanceof Error ? e : new Error(String(e)),
+          );
+          return;
+        }
+        // Plaintext epoch-0 is unauthenticated bootstrap: silent discard
         log(
-          "drop handshake/process error",
+          "drop unauthenticated plaintext process error",
           e instanceof Error ? e.message : String(e),
         );
         return;
       }
+    }
+  }
+
+  /**
+   * After AEAD-validated (or otherwise authenticated) handshake processing fails:
+   * send a fatal alert and tear down. Marks error so outer handlers do not
+   * treat it as forged-UDP discard.
+   */
+  private async failAuthenticatedHandshake(err: Error): Promise<void> {
+    (err as Error & { dtlsAuthenticated?: boolean }).dtlsAuthenticated = true;
+    const desc = this.alertDescForHandshakeError(err);
+    await this.sendFatalAlert(desc);
+    this.fail(err);
+  }
+
+  private alertDescForHandshakeError(err: Error): number {
+    const m = err.message;
+    if (/verify_data|Finished|DecryptError|MAC/i.test(m)) {
+      return AlertDesc.DecryptError;
+    }
+    if (
+      /CertificateVerify|signature|certificate_request_context|BadCertificate|certificate/i.test(
+        m,
+      )
+    ) {
+      return AlertDesc.DecryptError;
+    }
+    if (/illegal|not negotiated|unsupported|unexpected/i.test(m)) {
+      return AlertDesc.IllegalParameter;
+    }
+    return AlertDesc.HandshakeFailure;
+  }
+
+  /** Best-effort fatal alert on current write epoch (or epoch-0 plaintext). */
+  private async sendFatalAlert(description: number): Promise<void> {
+    const alert = Buffer.from([2, description]); // fatal
+    try {
+      if (this.writeEpoch >= 2) {
+        const ep = this.epochs.get(this.writeEpoch);
+        if (ep?.writeKeys) {
+          const record = encryptRecord(alert, ContentType.alert, ep);
+          this.bytesSent += record.length;
+          await this.options.transport.send(record);
+          return;
+        }
+      }
+      const seq = this.recordSeqEpoch0++;
+      const record = serializePlaintextRecord(
+        ContentType.alert,
+        0,
+        seq,
+        alert,
+      );
+      await this.options.transport.send(record);
+    } catch (e) {
+      log("sendFatalAlert failed", e);
     }
   }
 
