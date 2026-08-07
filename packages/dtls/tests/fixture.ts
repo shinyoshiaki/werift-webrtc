@@ -1,6 +1,6 @@
 import { UdpTransport } from "../../common/src";
-import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
 
 export const certPem = `-----BEGIN CERTIFICATE-----
 MIIDETCCAfkCFEtWAs2R7xuwFvkze6b7C0mNodXKMA0GCSqGSIb3DQEBCwUAMEUx

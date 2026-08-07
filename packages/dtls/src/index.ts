@@ -13,49 +13,97 @@ export type {
 } from "./carrier/types";
 export { DirectHandshakeCarrier } from "./carrier/direct";
 
-/* Client                                          Server
-   ------                                          ------
-
-   ClientHello             -------->                           Flight 1
-
-						   <-------    HelloVerifyRequest      Flight 2
-
-   ClientHello             -------->                           Flight 3
-
-											  ServerHello    \
-											 Certificate*     \
-									   ServerKeyExchange*      Flight 4
-									  CertificateRequest*     /
-						   <--------      ServerHelloDone    /
-
-   Certificate*                                              \
-   ClientKeyExchange                                          \
-   CertificateVerify*                                          Flight 5
-   [ChangeCipherSpec]                                         /
-   Finished                -------->                         /
-
-									   [ChangeCipherSpec]    \ Flight 6
-						   <--------             Finished    /
-
-			   Figure 1. Message Flights for Full Handshake
-
-=======================================================================
-
-   Client                                           Server
-   ------                                           ------
-
-   ClientHello             -------->                          Flight 1
-
-											  ServerHello    \
-									   [ChangeCipherSpec]     Flight 2
-							<--------             Finished    /
-
-   [ChangeCipherSpec]                                         \Flight 3
-   Finished                 -------->                         /
-
-		 Figure 2. Message Flights for Session-Resuming Handshake
-						   (No Cookie Exchange)
-*/
+/*
+ * DTLS 1.2 full handshake (RFC 6347) — default when protocolVersions is unset
+ * -------------------------------------------------------------------------
+ * Client                                          Server
+ * ------                                          ------
+ *
+ * ClientHello             -------->                           Flight 1
+ *
+ *                         <-------    HelloVerifyRequest      Flight 2
+ *
+ * ClientHello             -------->                           Flight 3
+ *
+ *                                           ServerHello    \
+ *                                          Certificate*     \
+ *                                    ServerKeyExchange*      Flight 4
+ *                                   CertificateRequest*     /
+ *                         <--------      ServerHelloDone    /
+ *
+ * Certificate*                                              \
+ * ClientKeyExchange                                          \
+ * CertificateVerify*                                          Flight 5
+ * [ChangeCipherSpec]                                         /
+ * Finished                -------->                         /
+ *
+ *                                    [ChangeCipherSpec]    \ Flight 6
+ *                         <--------             Finished    /
+ *
+ *            Figure 1. Message Flights for Full Handshake (DTLS 1.2)
+ *
+ * =======================================================================
+ *
+ * Client                                           Server
+ * ------                                           ------
+ *
+ * ClientHello             -------->                          Flight 1
+ *
+ *                                           ServerHello    \
+ *                                    [ChangeCipherSpec]     Flight 2
+ *                         <--------             Finished    /
+ *
+ * [ChangeCipherSpec]                                         \Flight 3
+ * Finished                 -------->                         /
+ *
+ *      Figure 2. Session-Resuming Handshake (DTLS 1.2, no cookie)
+ *
+ * =======================================================================
+ *
+ * DTLS 1.3 full handshake (RFC 9147) — opt-in via protocolVersions: [V1_3]
+ * -------------------------------------------------------------------------
+ * Client                                           Server
+ * ------                                           ------
+ *
+ * ClientHello + key_share     -------->                    Flight 1
+ *   supported_versions
+ *   (optional: early_data)
+ *
+ *   [optional address validation / group select — single HRR]
+ *                             <--------   HelloRetryRequest  Flight 2
+ *                                           (cookie* and/or
+ *                                            selected_group*)
+ *
+ * ClientHello + cookie*       -------->                    Flight 3
+ *   key_share (updated)
+ *
+ *                             <--------   ServerHello        \
+ *                                           + key_share       \
+ *                                         {EncryptedExtensions}\ Flight 4
+ *                                         {CertificateRequest*}\
+ *                                         {Certificate}        /
+ *                                         {CertificateVerify} /
+ *                                         {Finished}         /
+ *
+ *   [optional: ACK for server flight]
+ *
+ * {Certificate*}              -------->                    Flight 5
+ * {CertificateVerify*}
+ * {Finished}
+ *
+ *                             <--------   [ACK]              (post-HS)
+ *
+ *            [Application Data <-------> Application Data]
+ *
+ *   { }  = encrypted with handshake traffic keys (epoch 2)
+ *   *    = optional (cookie, mutual auth, HRR)
+ *
+ *   Post-handshake (after connected):
+ *     either side may send {KeyUpdate}; peer replies with ACK
+ *     before the sender uses the new application write keys.
+ *
+ *            Figure 3. Message Flights for Full Handshake (DTLS 1.3)
+ */
 
 // enum HandshakeType {
 //   hello_request = 0,

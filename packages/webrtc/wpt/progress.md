@@ -1,11 +1,12 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-08-06T16:33:41.453Z |
+| Generated at | 2026-08-07T04:45:03.711Z |
 
 ## Target success rates
 
 | File | Variant | PASS | FAIL | TIMEOUT | TOTAL | Excluded | Effective PASS/TOTAL | Success rate | Status |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| webrtc/RTCPeerConnection-transceivers.https.html | (default) | 0 | 0 | 1 | 1 | 0 | 0/1 | 0.0% | active |
 | webrtc/simulcast/negotiation-encodings.https.html | (default) | 1 | 19 | 0 | 20 | 0 | 1/20 | 5.0% | active |
 | webrtc/RTCPeerConnection-mandatory-getStats.https.html | (default) | 4 | 69 | 0 | 73 | 0 | 4/73 | 5.5% | active |
 | webrtc/RTCRtpParameters-codec.html | (default) | 2 | 20 | 0 | 22 | 0 | 2/22 | 9.1% | active |
@@ -84,7 +85,6 @@
 | webrtc/RTCPeerConnection-setRemoteDescription-simulcast.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/RTCPeerConnection-setRemoteDescription.html | (default) | 7 | 0 | 0 | 7 | 0 | 7/7 | 100.0% | done |
 | webrtc/RTCPeerConnection-SLD-SRD-timing.https.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
-| webrtc/RTCPeerConnection-transceivers.https.html | (default) | 44 | 0 | 0 | 44 | 0 | 44/44 | 100.0% | done |
 | webrtc/RTCRtpTransceiver-direction.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/simulcast/rid-manipulation.html | (default) | 1 | 0 | 0 | 1 | 0 | 1/1 | 100.0% | done |
 | webrtc/toJSON.html | (default) | 2 | 0 | 0 | 2 | 0 | 2/2 | 100.0% | done |

@@ -41,10 +41,10 @@ import { ClientHello } from "../../handshake/message/client/hello";
 import { Finished } from "../../handshake/message/finished";
 import { ServerHello } from "../../handshake/message/server/hello";
 import {
+  type AckRecordNumber,
   DtlsAck,
   recordsFullyAcked,
   remainingAfterAck,
-  type AckRecordNumber,
 } from "../../handshake/message/tls13/ack";
 import { Certificate13 } from "../../handshake/message/tls13/certificate";
 import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
@@ -560,10 +560,7 @@ export class Dtls13Connection {
         }
         // Decode / AEAD / missing-key errors from unauthenticated UDP: silent drop
         // (RFC 9147: invalid records are discarded without alert when not authenticated)
-        log(
-          "drop invalid record",
-          e instanceof Error ? e.message : String(e),
-        );
+        log("drop invalid record", e instanceof Error ? e.message : String(e));
         return;
       }
       if (!rec) break;
@@ -653,12 +650,7 @@ export class Dtls13Connection {
         }
       }
       const seq = this.recordSeqEpoch0++;
-      const record = serializePlaintextRecord(
-        ContentType.alert,
-        0,
-        seq,
-        alert,
-      );
+      const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
       await this.options.transport.send(record);
     } catch (e) {
       log("sendFatalAlert failed", e);
