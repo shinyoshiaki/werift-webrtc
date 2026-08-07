@@ -33,6 +33,16 @@ describe("cipher/prf", () => {
     expect(expected).toEqual(sec);
   });
 
+  test("prfPreMasterSecret rejects X25519 all-zero public key", () => {
+    // Arrange
+    const priv = Buffer.alloc(32, 1);
+    const pub = Buffer.alloc(32, 0);
+    // Act / Assert: low-order point を拒否
+    expect(() =>
+      prfPreMasterSecret(pub, priv, NamedCurveAlgorithm.x25519_29),
+    ).toThrow(/all-zero|low-order/);
+  });
+
   test("prfPreMasterSecret-p256", () => {
     const pub = Buffer.from([
       4, 28, 229, 193, 94, 12, 144, 126, 3, 148, 196, 26, 29, 138, 70, 66, 8,

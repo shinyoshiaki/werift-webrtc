@@ -30,11 +30,9 @@ export class AntiReplayWindow {
    * @param seq_num - The sequence number of the packet to be checked
    */
   public mayReceive(seq_num: number): boolean {
-    if (seq_num > this.ceiling + width) {
-      // we skipped a lot of packets... I don't think we should accept
-      return false;
-    } else if (seq_num > this.ceiling) {
-      // always accept new packets
+    // Accept any sequence above the ceiling (including large jumps). markAsReceived
+    // slides the window forward so a lost-packet gap never permanently freezes RX.
+    if (seq_num > this.ceiling) {
       return true;
     } else if (seq_num >= this.ceiling - width + 1 && seq_num <= this.ceiling) {
       // packet falls within the window, check if it was received already.

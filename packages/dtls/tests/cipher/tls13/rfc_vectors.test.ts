@@ -37,11 +37,9 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   const ks = new Dtls13KeySchedule(DTLS13_LABEL_PREFIX);
 
   // Pinned: HKDF-Expand-Label(0x11*32, "dtls13"+label, "", L) via SHA-256
-  const PINNED_KEY =
-    "ed42c07a4495d8c4c75abc4f889c6155";
+  const PINNED_KEY = "ed42c07a4495d8c4c75abc4f889c6155";
   const PINNED_IV = "679ac79b84b6d022c340ac85";
-  const PINNED_SN =
-    "e80e148f1e9bf1bc872e8dedf462da34";
+  const PINNED_SN = "e80e148f1e9bf1bc872e8dedf462da34";
   const PINNED_FINISHED_KEY =
     "c97c563e52fc4820e073e0f25ede2e9e02d694cd7ab27c68cfac25c238fa8116";
   const PINNED_VERIFY_DATA =
@@ -77,9 +75,9 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     expect(finKey.toString("hex")).toBe(PINNED_FINISHED_KEY);
     expect(vd.toString("hex")).toBe(PINNED_VERIFY_DATA);
     // Structure: HMAC(finished_key, Hash(transcript))
-    expect(
-      hmacSha256(finKey, hashSha256(transcript)).toString("hex"),
-    ).toBe(PINNED_VERIFY_DATA);
+    expect(hmacSha256(finKey, hashSha256(transcript)).toString("hex")).toBe(
+      PINNED_VERIFY_DATA,
+    );
   });
 
   test("EXTRACTOR-dtls_srtp exporter matches pinned 60-byte vector", () => {

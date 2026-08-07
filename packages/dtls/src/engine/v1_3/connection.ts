@@ -42,7 +42,9 @@ import { Finished } from "../../handshake/message/finished";
 import { ServerHello } from "../../handshake/message/server/hello";
 import {
   DtlsAck,
+  recordsFullyAcked,
   remainingAfterAck,
+  type AckRecordNumber,
 } from "../../handshake/message/tls13/ack";
 import { Certificate13 } from "../../handshake/message/tls13/certificate";
 import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
@@ -175,8 +177,17 @@ export class Dtls13Connection {
   private flightId = 0;
   private pendingFlight: DtlsHandshakeDatagram[] = [];
   /** Record numbers of the current retransmittable flight (for ACK matching). */
-  private pendingFlightRecords: { epoch: number; sequenceNumber: number }[] =
-    [];
+  private pendingFlightRecords: AckRecordNumber[] = [];
+  /**
+   * Per-datagram record map for selective retransmit after partial ACK.
+   * Index aligns with pendingFlight.
+   */
+  private pendingFlightRecordGroups: AckRecordNumber[][] = [];
+  /**
+   * ServerHello (epoch 0) retransmitted with the encrypted server flight until
+   * the flight is fully ACK'd (SH loss otherwise leaves client without keys).
+   */
+  private pendingServerHello?: DtlsHandshakeDatagram;
   private cancelRetransmit: (() => void) | undefined;
   private retransmitCount = 0;
   private readonly maxRetransmit = 10;
@@ -490,14 +501,20 @@ export class Dtls13Connection {
     this.rxChain = this.rxChain
       .then(() => this.handleDatagramAsync(buf, peer))
       .catch((e) => {
-        log("handleDatagram chain error", e);
-        const err = e instanceof Error ? e : new Error(String(e));
-        // fail() is idempotent w.r.t. closed
-        try {
-          this.fail(err);
-        } catch {
-          this.onError.execute(err);
+        // Unauthenticated / forged UDP must not tear down the association (DoS).
+        // Only ProtocolVersionError and explicit fatal paths call fail().
+        if (
+          e instanceof ProtocolVersionError ||
+          (e instanceof Error && e.name === "ProtocolVersionError")
+        ) {
+          try {
+            this.fail(e instanceof Error ? e : new Error(String(e)));
+          } catch {
+            this.onError.execute(e instanceof Error ? e : new Error(String(e)));
+          }
+          return;
         }
+        log("handleDatagram chain: silent discard", e);
       });
   };
 
@@ -539,29 +556,43 @@ export class Dtls13Connection {
           }
           return;
         }
-        if (
-          e instanceof DtlsDecodeError ||
-          (e as Error)?.name === "DtlsDecodeError"
-        ) {
-          // Actionable failure for truncated/malformed framing
-          throw e;
-        }
-        throw e;
+        // Decode / AEAD / missing-key errors from unauthenticated UDP: silent drop
+        // (RFC 9147: invalid records are discarded without alert when not authenticated)
+        log(
+          "drop invalid record",
+          e instanceof Error ? e.message : String(e),
+        );
+        return;
       }
       if (!rec) break;
       offset += rec.consumed;
-      if (rec.kind === "plaintext") {
-        // Epoch-0 handshake records may be ACKed after processing
-        if (rec.contentType === ContentType.handshake) {
-          this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+      try {
+        if (rec.kind === "plaintext") {
+          // Epoch-0 handshake records may be ACKed after processing
+          if (rec.contentType === ContentType.handshake) {
+            this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+          }
+          await this.onPlaintextRecordAsync(rec);
+        } else {
+          // RFC 9147 §7.1: ACK only handshake content type records
+          if (rec.contentType === ContentType.handshake) {
+            this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+          }
+          await this.onCiphertextRecordAsync(rec);
         }
-        await this.onPlaintextRecordAsync(rec);
-      } else {
-        // RFC 9147 §7.1: ACK only handshake content type records
-        if (rec.contentType === ContentType.handshake) {
-          this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+      } catch (e) {
+        // Protocol version soft-fail must surface; other handshake errors drop
+        if (
+          e instanceof ProtocolVersionError ||
+          (e instanceof Error && e.name === "ProtocolVersionError")
+        ) {
+          throw e;
         }
-        await this.onCiphertextRecordAsync(rec);
+        log(
+          "drop handshake/process error",
+          e instanceof Error ? e.message : String(e),
+        );
+        return;
       }
     }
   }
@@ -604,6 +635,11 @@ export class Dtls13Connection {
     sequenceNumber: number;
     fragment: Buffer;
   }) {
+    // Only epoch 0 plaintext is valid for DTLS 1.3 handshake bootstrap
+    if (rec.epoch !== 0) {
+      log("drop plaintext with non-zero epoch", rec.epoch);
+      return;
+    }
     if (rec.contentType === ContentType.alert) {
       this.handleAlert(rec.fragment);
       return;
@@ -670,16 +706,34 @@ export class Dtls13Connection {
     try {
       const ack = DtlsAck.deSerialize(content);
       log("received ACK", ack.recordNumbers.length);
-      if (this.pendingFlightRecords.length === 0) {
+      if (this.pendingFlightRecords.length === 0 && !this.pendingServerHello) {
         return;
       }
-      // Partial ACK: drop only acknowledged records; keep retransmitting the rest
       const before = this.pendingFlightRecords.length;
+      // Empty ACK clears whole flight; partial removes matched records only
       this.pendingFlightRecords = remainingAfterAck(
         this.pendingFlightRecords,
         ack.recordNumbers,
       );
-      if (this.pendingFlightRecords.length === before) {
+      // Selective retransmit: drop datagrams whose records are fully ACK'd
+      if (this.pendingFlight.length === this.pendingFlightRecordGroups.length) {
+        const keptFlight: DtlsHandshakeDatagram[] = [];
+        const keptGroups: AckRecordNumber[][] = [];
+        for (let i = 0; i < this.pendingFlight.length; i++) {
+          const group = this.pendingFlightRecordGroups[i] ?? [];
+          if (!recordsFullyAcked(group, ack.recordNumbers)) {
+            // Keep only still-unacked records in the group for further ACKs
+            keptGroups.push(remainingAfterAck(group, ack.recordNumbers));
+            keptFlight.push(this.pendingFlight[i]);
+          }
+        }
+        this.pendingFlight = keptFlight;
+        this.pendingFlightRecordGroups = keptGroups;
+      }
+      if (
+        this.pendingFlightRecords.length === before &&
+        ack.recordNumbers.length > 0
+      ) {
         log("ACK ignored: no pending flight records matched");
         return;
       }
@@ -690,20 +744,25 @@ export class Dtls13Connection {
           "of",
           before,
         );
-        // Keep pendingFlight datagrams and retransmission timer running
         return;
       }
       // Fully ACK'd
-      this.cancelRetransmit?.();
-      this.cancelRetransmit = undefined;
-      this.pendingFlight = [];
-      this.pendingFlightRecords = [];
-      this.retransmitCount = 0;
+      this.clearPendingFlight();
       // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
       this.applyPendingKeyUpdateWrite();
     } catch (e) {
       log("bad ACK", e);
     }
+  }
+
+  private clearPendingFlight() {
+    this.cancelRetransmit?.();
+    this.cancelRetransmit = undefined;
+    this.pendingFlight = [];
+    this.pendingFlightRecords = [];
+    this.pendingFlightRecordGroups = [];
+    this.pendingServerHello = undefined;
+    this.retransmitCount = 0;
   }
 
   private applyPendingKeyUpdateWrite() {
@@ -741,19 +800,62 @@ export class Dtls13Connection {
           `handshake fragment truncated: need ${total}, have ${remaining}`,
         );
       }
-      const hs = FragmentedHandshake.deSerialize(raw.subarray(offset, offset + total));
+      const hs = FragmentedHandshake.deSerialize(
+        raw.subarray(offset, offset + total),
+      );
       if (hs.fragment_length !== hs.fragment.length) {
         throw new DtlsDecodeError(
           `handshake fragment_length mismatch: header ${hs.fragment_length}, body ${hs.fragment.length}`,
         );
       }
       offset += total;
+      // Epoch / role allowlist for handshake message types (DoS / state abuse)
+      if (!this.isAllowedHandshake(hs.msg_type, epoch)) {
+        log("drop disallowed handshake", hs.msg_type, "epoch", epoch);
+        continue;
+      }
       const complete = this.reassemble(hs);
       if (complete) {
         // Queue by message_seq for reorder safety (RFC 9147 §5.2)
         await this.enqueueHandshake(complete, epoch);
       }
     }
+  }
+
+  /**
+   * Restrict which handshake types may be processed on a given epoch / role.
+   * Forged or out-of-state messages are dropped without killing the connection.
+   */
+  private isAllowedHandshake(msgType: number, epoch: number): boolean {
+    // Epoch 0 plaintext: only ClientHello / ServerHello (HRR) / HelloVerifyRequest
+    if (epoch === 0) {
+      if (this.role === "server") {
+        return msgType === HandshakeType.client_hello_1;
+      }
+      return (
+        msgType === HandshakeType.server_hello_2 ||
+        msgType === HandshakeType.hello_verify_request_3
+      );
+    }
+    // Handshake epoch 2: HS messages only (no KeyUpdate)
+    if (epoch === 2) {
+      return (
+        msgType === HandshakeType.encrypted_extensions_8 ||
+        msgType === HandshakeType.certificate_request_13 ||
+        msgType === HandshakeType.certificate_11 ||
+        msgType === HandshakeType.certificate_verify_15 ||
+        msgType === HandshakeType.finished_20
+      );
+    }
+    // Application epochs: KeyUpdate (+ rare post-HS Certificate)
+    if (epoch >= 3) {
+      return (
+        msgType === HandshakeType.key_update_24 ||
+        msgType === HandshakeType.certificate_11 ||
+        msgType === HandshakeType.certificate_verify_15
+      );
+    }
+    return false;
   }
 
   private async enqueueHandshake(
@@ -763,7 +865,9 @@ export class Dtls13Connection {
     const seq = hs.message_seq;
     if (seq < this.nextReceiveSeq) {
       // Duplicate handshake message (flight retransmit) — re-ACK so sender advances
-      void this.sendAck().catch((e) => log("re-ACK on dup handshake failed", e));
+      void this.sendAck().catch((e) =>
+        log("re-ACK on dup handshake failed", e),
+      );
       return;
     }
     if (seq > this.nextReceiveSeq) {
@@ -1258,10 +1362,26 @@ export class Dtls13Connection {
     ep3.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic!);
     this.installEpoch(3, ep3);
 
-    // Send ServerHello in epoch 0, then encrypted messages in epoch 2
+    // Send ServerHello in epoch 0, then encrypted messages in epoch 2.
+    // Keep SH for retransmit alongside the encrypted flight until ACK.
     const shFrag = sh.toFragment();
     shFrag.message_seq = sh.messageSeq!;
-    await this.sendHandshakeFlight([shFrag], 0, false);
+    const shBytes = serializePlaintextRecord(
+      ContentType.handshake,
+      0,
+      this.recordSeqEpoch0++,
+      shFrag.serialize(),
+    );
+    this.pendingServerHello = createHandshakeDatagram(
+      shBytes,
+      this.flightId + 1,
+      0,
+      true,
+    );
+    if (!this.consumeSendBudget(shBytes.length)) {
+      throw new Error("anti-amplification: budget exhausted for ServerHello");
+    }
+    await this.carrier.send(this.pendingServerHello);
 
     await this.sendHandshakeFlight(encFragsList, 2, true);
     this.localFinishedSent = true;
@@ -1342,11 +1462,7 @@ export class Dtls13Connection {
     this.transcript.add(HandshakeType.server_hello_2, body);
 
     // Stop ClientHello retransmission; we are past flight 1
-    this.cancelRetransmit?.();
-    this.cancelRetransmit = undefined;
-    this.pendingFlight = [];
-    this.pendingFlightRecords = [];
-    this.retransmitCount = 0;
+    this.clearPendingFlight();
 
     const shared = prfPreMasterSecret(
       serverShare.keyExchange,
@@ -1390,8 +1506,31 @@ export class Dtls13Connection {
 
   private async onCertificateRequest(body: Buffer): Promise<void> {
     const cr = CertificateRequest13.deSerialize(body);
+    // certificate_request_context must be echoed in client Certificate (RFC 8446 §4.3.2)
     this.certificateRequestContext = Buffer.from(cr.certificateRequestContext);
     this.peerRequestedClientCert = true;
+    // signature_algorithms in CertificateRequest constrains CertificateVerify
+    const sigExt = cr.extensions.find(
+      (e) => e.type === SignatureAlgorithms.type,
+    );
+    if (sigExt) {
+      try {
+        const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
+        if (!schemes.length) {
+          throw new Error("CertificateRequest signature_algorithms empty");
+        }
+        // Intersection with local defaults must be non-empty for mutual auth
+        const ok = schemes.some((s) => DEFAULT_SIGNATURE_SCHEMES.includes(s));
+        if (!ok) {
+          throw new Error(
+            "no overlapping signature_algorithms with CertificateRequest",
+          );
+        }
+      } catch (e) {
+        if (e instanceof Error && /overlapping|empty/.test(e.message)) throw e;
+        throw new Error("CertificateRequest invalid signature_algorithms");
+      }
+    }
     this.transcript.add(HandshakeType.certificate_request_13, body);
   }
 
@@ -1403,6 +1542,12 @@ export class Dtls13Connection {
       if (!cert.certificates.length) {
         throw new Error("client Certificate required but empty list received");
       }
+      // RFC 8446: client Certificate.context MUST equal CertificateRequest.context
+      if (
+        !cert.certificateRequestContext.equals(this.certificateRequestContext)
+      ) {
+        throw new Error("client certificate_request_context mismatch");
+      }
       this.remoteCert = cert.certificates[0];
       this.clientCertificateReceived = true;
       this.transcript.add(HandshakeType.certificate_11, body);
@@ -1411,6 +1556,7 @@ export class Dtls13Connection {
     if (!cert.certificates.length) {
       throw new Error("empty certificate list");
     }
+    // Server Certificate uses empty context
     this.remoteCert = cert.certificates[0];
     this.transcript.add(HandshakeType.certificate_11, body);
   }
@@ -1421,6 +1567,12 @@ export class Dtls13Connection {
     const cv = CertificateVerify13.deSerialize(body);
     // Client only verifies server CertificateVerify; server verifies client CV for mutual auth
     const peerIsServer = this.role === "client";
+    // Reject algorithms outside the TLS 1.3 schemes we advertise / accept
+    if (!DEFAULT_SIGNATURE_SCHEMES.includes(cv.algorithm)) {
+      throw new Error(
+        `CertificateVerify algorithm 0x${cv.algorithm.toString(16)} not negotiated`,
+      );
+    }
     const ok = verifyCertificateVerify(
       this.remoteCert,
       cv.algorithm,
@@ -1565,10 +1717,7 @@ export class Dtls13Connection {
   private markConnected(opts?: { keepPendingFlight?: boolean }) {
     this.connected = true;
     if (!opts?.keepPendingFlight) {
-      this.cancelRetransmit?.();
-      this.cancelRetransmit = undefined;
-      this.pendingFlight = [];
-      this.pendingFlightRecords = [];
+      this.clearPendingFlight();
       this.carrier.cancelAllTimers();
     }
     this.carrier.events.onHandshakeComplete?.();
@@ -1592,8 +1741,7 @@ export class Dtls13Connection {
         this.serverAppTraffic!,
       );
       const nextEpoch = this.nextAppEpoch(this.readEpoch);
-      const ep =
-        this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
+      const ep = this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
       ep.readKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
       this.installEpoch(nextEpoch, ep);
       this.readEpoch = nextEpoch;
@@ -1602,8 +1750,7 @@ export class Dtls13Connection {
         this.clientAppTraffic!,
       );
       const nextEpoch = this.nextAppEpoch(this.readEpoch);
-      const ep =
-        this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
+      const ep = this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
       ep.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic);
       this.installEpoch(nextEpoch, ep);
       this.readEpoch = nextEpoch;
@@ -1707,14 +1854,14 @@ export class Dtls13Connection {
     const maxFrag = epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 16; // unified header ~5 + tag
 
     const packets: Buffer[] = [];
-    const recordNumbers: { epoch: number; sequenceNumber: number }[] = [];
+    const packetRecords: AckRecordNumber[] = [];
     for (const f of fragments) {
       const chunks = f.fragment.length > maxFrag ? f.chunk(maxFrag) : [f];
       for (const chunk of chunks) {
         const hsBytes = chunk.serialize();
         if (epoch === 0) {
           const seq = this.recordSeqEpoch0++;
-          recordNumbers.push({ epoch: 0, sequenceNumber: seq });
+          packetRecords.push({ epoch: 0, sequenceNumber: seq });
           packets.push(
             serializePlaintextRecord(ContentType.handshake, 0, seq, hsBytes),
           );
@@ -1724,24 +1871,34 @@ export class Dtls13Connection {
             throw new Error(`no write keys for epoch ${epoch}`);
           }
           const seq = ep.writeSequence;
-          recordNumbers.push({ epoch, sequenceNumber: seq });
+          packetRecords.push({ epoch, sequenceNumber: seq });
           packets.push(encryptRecord(hsBytes, ContentType.handshake, ep));
         }
       }
     }
 
-    // Coalesce into datagrams under MTU
+    // Coalesce into datagrams under MTU, tracking which records land in each
     const datagrams: Buffer[] = [];
+    const datagramRecordGroups: AckRecordNumber[][] = [];
     let current: Buffer = Buffer.alloc(0);
-    for (const p of packets) {
+    let currentRecs: AckRecordNumber[] = [];
+    for (let i = 0; i < packets.length; i++) {
+      const p = packets[i];
+      const rn = packetRecords[i];
       if (current.length + p.length > mtu && current.length > 0) {
         datagrams.push(current);
+        datagramRecordGroups.push(currentRecs);
         current = Buffer.from(p);
+        currentRecs = [rn];
       } else {
         current = current.length ? Buffer.concat([current, p]) : Buffer.from(p);
+        currentRecs.push(rn);
       }
     }
-    if (current.length) datagrams.push(current);
+    if (current.length) {
+      datagrams.push(current);
+      datagramRecordGroups.push(currentRecs);
+    }
 
     // Anti-amplification: before address validation, send ≤ 3× received (strict).
     // No exception for "first datagram" — CH receipt must provide budget for HRR.
@@ -1755,9 +1912,12 @@ export class Dtls13Connection {
         ANTI_AMPLIFICATION_FACTOR * this.bytesReceived - this.bytesSent;
       let allowed = Math.max(0, budget);
       const limited: Buffer[] = [];
-      for (const d of datagrams) {
+      const limitedGroups: AckRecordNumber[][] = [];
+      for (let i = 0; i < datagrams.length; i++) {
+        const d = datagrams[i];
         if (d.length > allowed) break;
         limited.push(d);
+        limitedGroups.push(datagramRecordGroups[i]);
         allowed -= d.length;
       }
       if (limited.length === 0 && datagrams.length > 0) {
@@ -1767,6 +1927,8 @@ export class Dtls13Connection {
       }
       datagrams.length = 0;
       datagrams.push(...limited);
+      datagramRecordGroups.length = 0;
+      datagramRecordGroups.push(...limitedGroups);
     }
 
     // Separate copies for callback vs retransmit cache (Buffer contents are mutable)
@@ -1780,7 +1942,16 @@ export class Dtls13Connection {
 
     if (retransmittable) {
       this.pendingFlight = cachePackets;
-      this.pendingFlightRecords = recordNumbers;
+      this.pendingFlightRecordGroups = datagramRecordGroups.map((g) =>
+        g.map((r) => ({ ...r })),
+      );
+      this.pendingFlightRecords = packetRecords.filter((r) =>
+        datagramRecordGroups.some((g) =>
+          g.some(
+            (x) => x.epoch === r.epoch && x.sequenceNumber === r.sequenceNumber,
+          ),
+        ),
+      );
       this.retransmitCount = 0;
       this.scheduleRetransmit();
     }
@@ -1816,7 +1987,12 @@ export class Dtls13Connection {
   private scheduleRetransmit() {
     this.cancelRetransmit?.();
     // Allow post-handshake retransmit (final flight / KeyUpdate) when connected
-    if (this.pendingFlight.length === 0 || this.closed) return;
+    if (
+      this.closed ||
+      (this.pendingFlight.length === 0 && !this.pendingServerHello)
+    ) {
+      return;
+    }
     const rto = Math.min(1000 * (1 + this.retransmitCount / 2), 5000);
     this.cancelRetransmit = this.carrier.schedule(rto, () => {
       void this.doRetransmit();
@@ -1824,14 +2000,23 @@ export class Dtls13Connection {
   }
 
   private async doRetransmit(): Promise<void> {
-    if (this.closed || this.pendingFlight.length === 0) return;
+    if (
+      this.closed ||
+      (this.pendingFlight.length === 0 && !this.pendingServerHello)
+    ) {
+      return;
+    }
     this.retransmitCount++;
     if (this.retransmitCount > this.maxRetransmit) {
       this.fail(new Error("DTLS 1.3 handshake retransmission exhausted"));
       return;
     }
     log("retransmit flight", this.flightId, this.retransmitCount);
-    for (const p of this.pendingFlight) {
+    // ServerHello is retransmitted with the encrypted flight until fully ACK'd
+    const toSend = this.pendingServerHello
+      ? [this.pendingServerHello, ...this.pendingFlight]
+      : this.pendingFlight;
+    for (const p of toSend) {
       if (!this.consumeSendBudget(p.bytes.length)) {
         log(
           "retransmit blocked by anti-amplification",
@@ -1916,11 +2101,7 @@ export class Dtls13Connection {
   close() {
     if (this.closed) return;
     this.closed = true;
-    this.cancelRetransmit?.();
-    this.cancelRetransmit = undefined;
-    this.pendingFlight = [];
-    this.pendingFlightRecords = [];
-    this.retransmitCount = 0;
+    this.clearPendingFlight();
     this.carrier.cancelAllTimers();
     this.carrier.close();
     void this.options.transport.close().catch(() => {});
@@ -1947,11 +2128,7 @@ export class Dtls13Connection {
    * transport or emitting onClose (soft version fail already set closed).
    */
   releaseForVersionFallback(): void {
-    this.cancelRetransmit?.();
-    this.cancelRetransmit = undefined;
-    this.pendingFlight = [];
-    this.pendingFlightRecords = [];
-    this.retransmitCount = 0;
+    this.clearPendingFlight();
     this.carrier.cancelAllTimers();
     this.carrier.close();
     this.closed = true;
@@ -1961,11 +2138,7 @@ export class Dtls13Connection {
     if (this.closed) return;
     log("fail", err.message);
     // Always stop timers / pending retransmits and refuse further 1.3 RX
-    this.cancelRetransmit?.();
-    this.cancelRetransmit = undefined;
-    this.pendingFlight = [];
-    this.pendingFlightRecords = [];
-    this.retransmitCount = 0;
+    this.clearPendingFlight();
     this.carrier.cancelAllTimers();
     this.closed = true;
     this.onError.execute(err);

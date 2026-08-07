@@ -27,9 +27,10 @@ describe("AntiReplayWindow =>", () => {
     expect(wnd.mayReceive(64)).toBe(true);
     expect(wnd.hasReceived(127)).toBe(false);
     expect(wnd.mayReceive(127)).toBe(true);
-    // above ceiling+width we should discard the packets
+    // large jumps above ceiling+width are accepted (window slides on mark)
     expect(wnd.hasReceived(128)).toBe(false);
-    expect(wnd.mayReceive(128)).toBe(false);
+    expect(wnd.mayReceive(128)).toBe(true);
+    expect(wnd.mayReceive(1000)).toBe(true);
 
     // receive a packet
     expect(wnd.hasReceived(5)).toBe(false);

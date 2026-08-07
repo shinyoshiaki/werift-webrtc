@@ -232,13 +232,21 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ### bridgeEngine13()
 
-> `protected` **bridgeEngine13**(`engine`): `void`
+> `protected` **bridgeEngine13**(`engine`, `options`?): `void`
+
+Wire DTLS 1.3 engine events onto this socket.
 
 #### Parameters
 
 ##### engine
 
 `Dtls13Connection`
+
+##### options?
+
+###### filterError?
+
+(`e`) => `boolean`
 
 #### Returns
 

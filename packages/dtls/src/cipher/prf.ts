@@ -13,8 +13,17 @@ export function prfPreMasterSecret(
   switch (curve) {
     case NamedCurveAlgorithm.secp256r1_23:
       return p256PreMasterSecret({ publicKey, privateKey });
-    case NamedCurveAlgorithm.x25519_29:
-      return Buffer.from(nacl.scalarMult(privateKey, publicKey));
+    case NamedCurveAlgorithm.x25519_29: {
+      // Reject low-order / all-zero contributions (RFC 7748 / TLS 1.3 §7.4.2)
+      if (publicKey.length === 32 && publicKey.every((b) => b === 0)) {
+        throw new Error("X25519 peer public key is all-zero (low-order point)");
+      }
+      const shared = Buffer.from(nacl.scalarMult(privateKey, publicKey));
+      if (shared.every((b) => b === 0)) {
+        throw new Error("X25519 shared secret is all-zero (low-order point)");
+      }
+      return shared;
+    }
     default:
       throw new Error();
   }

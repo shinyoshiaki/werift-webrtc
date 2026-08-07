@@ -33,15 +33,28 @@ function recordKey(rn: AckRecordNumber): string {
 
 /**
  * Remove fully ACK'd records from a pending flight record list (RFC 9147).
- * Partial ACK leaves unacked records so retransmission continues.
+ * - Empty ACK (no record_numbers): clear entire pending flight (RFC 9147 §7:
+ *   empty ACK acknowledges the most recent flight without enumerating records).
+ * - Partial ACK: leave unacked records so retransmission continues.
  */
 export function remainingAfterAck(
   pending: AckRecordNumber[],
   acked: AckRecordNumber[],
 ): AckRecordNumber[] {
-  if (acked.length === 0) return pending.slice();
+  if (acked.length === 0) return [];
   const done = new Set(acked.map(recordKey));
   return pending.filter((p) => !done.has(recordKey(p)));
+}
+
+/** True if every record in `records` is listed in `acked`. */
+export function recordsFullyAcked(
+  records: AckRecordNumber[],
+  acked: AckRecordNumber[],
+): boolean {
+  if (records.length === 0) return true;
+  if (acked.length === 0) return true; // empty ACK covers whole flight
+  const done = new Set(acked.map(recordKey));
+  return records.every((r) => done.has(recordKey(r)));
 }
 
 export class DtlsAck {

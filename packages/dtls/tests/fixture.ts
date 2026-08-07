@@ -1,3 +1,7 @@
+import { UdpTransport } from "../../common/src";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
+import type { SrtpProfile } from "../../rtp/src/srtp/const";
+
 export const certPem = `-----BEGIN CERTIFICATE-----
 MIIDETCCAfkCFEtWAs2R7xuwFvkze6b7C0mNodXKMA0GCSqGSIb3DQEBCwUAMEUx
 CzAJBgNVBAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRl
@@ -48,3 +52,30 @@ v5/QTK1BlvJ52UxGn2C+SQVK7ZLO5U+lnrLJ8DmW4z7/hmK+VK7g27GxIbqVn75v
 MRWZMFdB3hM1ZJ3myUyE8qw=
 -----END PRIVATE KEY-----
 `;
+
+/** Shared Arrange options for DTLS 1.3 self E2E pairs. */
+export type Dtls13PairExtra = {
+  certificateRequest?: boolean;
+  addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+  srtpProfiles?: SrtpProfile[];
+};
+
+/**
+ * Arrange: UDP-linked DtlsServer / DtlsClient for 1.3 self tests.
+ * Prefer this over duplicating transport setup across e2e files.
+ */
+export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3] as const,
+    addressValidation: "none" as const,
+    ...extra,
+  };
+  const server = new DtlsServer({ transport: serverTransport, ...base });
+  const client = new DtlsClient({ transport: clientTransport, ...base });
+  return { server, client, serverTransport, clientTransport };
+}

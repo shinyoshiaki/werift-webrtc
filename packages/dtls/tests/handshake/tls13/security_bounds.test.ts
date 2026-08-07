@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "crypto";
 import { describe, expect, test } from "vitest";
 import {
-  createHandshakeDatagram,
   DirectHandshakeCarrier,
+  createHandshakeDatagram,
 } from "../../../src/carrier/direct";
 import { HandshakeType } from "../../../src/handshake/const";
 import {
@@ -121,9 +121,7 @@ describe("security bounds: partial ACK", () => {
       { epoch: 2, sequenceNumber: 2 },
     ];
     // Act: 1 件だけ ACK
-    const mid = remainingAfterAck(pending, [
-      { epoch: 2, sequenceNumber: 1 },
-    ]);
+    const mid = remainingAfterAck(pending, [{ epoch: 2, sequenceNumber: 1 }]);
     // Assert: 未 ACK は再送対象として残る
     expect(mid).toEqual([
       { epoch: 2, sequenceNumber: 0 },
@@ -141,6 +139,18 @@ describe("security bounds: partial ACK", () => {
       remainingAfterAck(pending, [{ epoch: 3, sequenceNumber: 9 }]),
     ).toEqual(pending);
   });
+
+  test("empty ACK clears entire pending flight", () => {
+    // Arrange
+    const pending = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+    ];
+    // Act: empty record_numbers
+    const left = remainingAfterAck(pending, []);
+    // Assert: RFC 9147 empty ACK は flight 全体を確認
+    expect(left).toEqual([]);
+  });
 });
 
 describe("security bounds: carrier flight immutability", () => {
@@ -157,9 +167,38 @@ describe("security bounds: carrier flight immutability", () => {
     expect(notify.bytes).not.toBe(cache.bytes);
   });
 
+  test("carrier.send callback cannot corrupt retransmit cache bytes", async () => {
+    // Arrange
+    const sent: Buffer[] = [];
+    const fakeTransport = {
+      type: "udp",
+      address: { address: "127.0.0.1", port: 0, family: "IPv4" },
+      closed: false,
+      onData: () => {},
+      send: async (b: Buffer) => {
+        sent.push(Buffer.from(b));
+      },
+      close: async () => {},
+    };
+    const carrier = new DirectHandshakeCarrier(fakeTransport as any);
+    const cache = createHandshakeDatagram(Buffer.from([9, 8, 7]), 2, 0, true);
+    carrier.events.onHandshakeDatagram = (pkt) => {
+      // Act: callback が bytes を破壊
+      pkt.bytes[0] = 0;
+    };
+    // Act
+    await carrier.send(cache);
+    await carrier.send(cache);
+    // Assert: 2 回目の wire も元キャッシュ内容
+    expect(cache.bytes[0]).toBe(9);
+    expect(sent[0][0]).toBe(9);
+    expect(sent[1][0]).toBe(9);
+    carrier.close();
+  });
+
   test("external → internal retransmission mode resumes schedule hook", async () => {
     // Arrange
-    let modeEvents: string[] = [];
+    const modeEvents: string[] = [];
     const fakeTransport = {
       type: "udp",
       address: { address: "127.0.0.1", port: 0, family: "IPv4" },

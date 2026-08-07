@@ -39,10 +39,23 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
 
   async send(packet: DtlsHandshakeDatagram): Promise<void> {
     if (this.closed) return;
-    // Defensive: never mutate caller's buffer after send
-    const bytes = Buffer.from(packet.bytes);
-    this.events.onHandshakeDatagram?.(packet);
-    await this.transport.send(bytes);
+    // Defensive: never share retransmit-cache Buffer with callbacks or the wire path.
+    // Mutating callback bytes must not corrupt pendingFlight retransmits.
+    const wireBytes = Buffer.alloc(packet.bytes.length);
+    packet.bytes.copy(wireBytes);
+    if (this.events.onHandshakeDatagram) {
+      const callbackCopy = Buffer.alloc(packet.bytes.length);
+      packet.bytes.copy(callbackCopy);
+      this.events.onHandshakeDatagram(
+        Object.freeze({
+          bytes: callbackCopy,
+          flightId: packet.flightId,
+          packetIndex: packet.packetIndex,
+          retransmittable: packet.retransmittable,
+        }),
+      );
+    }
+    await this.transport.send(wireBytes);
   }
 
   inject(bytes: Buffer, peer?: InjectPeerAddr): void {

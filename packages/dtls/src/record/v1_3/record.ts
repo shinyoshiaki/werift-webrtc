@@ -228,7 +228,10 @@ export function decryptRecord(
         consumed: total,
       };
     } catch (e) {
-      if (e instanceof DtlsReplayError || (e as Error)?.name === "DtlsReplayError") {
+      if (
+        e instanceof DtlsReplayError ||
+        (e as Error)?.name === "DtlsReplayError"
+      ) {
         throw e;
       }
       lastAeadError = e instanceof Error ? e : new Error(String(e));
@@ -236,7 +239,10 @@ export function decryptRecord(
     }
   }
 
-  throw lastAeadError ?? new Error(`decrypt failed for epoch low bits ${epochLowBits}`);
+  throw (
+    lastAeadError ??
+    new Error(`decrypt failed for epoch low bits ${epochLowBits}`)
+  );
 }
 
 /**
