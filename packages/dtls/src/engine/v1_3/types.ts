@@ -4,8 +4,8 @@
  */
 import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { Transport } from "../../imports/common";
-import type { SrtpProfile } from "../../imports/rtp";
 import { debug } from "../../imports/common";
+import type { SrtpProfile } from "../../imports/rtp";
 
 /** Anti-amplification: server may send at most 3× received before address validated. */
 export const ANTI_AMPLIFICATION_FACTOR = 3;

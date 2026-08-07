@@ -115,5 +115,4 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     this.carrier.close();
     this.closed = true;
   }
-
 }

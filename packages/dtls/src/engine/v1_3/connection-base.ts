@@ -1,8 +1,6 @@
 import { randomBytes } from "crypto";
 
-import {
-  DirectHandshakeCarrier,
-} from "../../carrier/direct";
+import { DirectHandshakeCarrier } from "../../carrier/direct";
 import type { DtlsHandshakeDatagram } from "../../carrier/types";
 import {
   NamedCurveAlgorithm,
@@ -13,25 +11,22 @@ import { SessionType, type SessionTypes } from "../../cipher/suites/abstract";
 import { defaultKeySchedule } from "../../cipher/tls13/keySchedule";
 import { parseCertAndKey } from "../../cipher/tls13/signature";
 import type { AckRecordNumber } from "../../handshake/message/tls13/ack";
-import type { FragmentedHandshake } from "../../record/message/fragment";
 import { DtlsRandom } from "../../handshake/random";
 import { Event } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
+import type { FragmentedHandshake } from "../../record/message/fragment";
 import {
   type EpochProtection,
   createEpochProtection,
 } from "../../record/v1_3/record";
-import {
-  DtlsVersion,
-  ProtocolVersionError,
-} from "../../version";
+import { DtlsVersion, ProtocolVersionError } from "../../version";
 import { HandshakeTranscript } from "./transcript";
 import {
   type AddressValidationMode,
   type Dtls13Options,
-  type Role,
   EPOCH_KEY_TTL_MS,
   MAX_RETAINED_APP_EPOCHS,
+  type Role,
   log,
 } from "./types";
 
@@ -104,6 +99,12 @@ export abstract class Dtls13ConnectionBase {
   protected serverFlightComplete = false;
   protected clientExpectsServerFlight = false;
   protected negotiatedSrtpProfile?: number;
+  /**
+   * Named Groups (RFC 8446 §4.2.7 Supported Groups; DTLS 1.3 inherits via RFC 9147).
+   * Each value identifies a finite-field or elliptic-curve group used for (EC)DHE
+   * key exchange. Preference order drives ClientHello key_share offers and the
+   * server's HRR selected_group when the client's share is unacceptable.
+   */
   protected readonly groups: NamedCurveAlgorithms[];
   protected fragmentBuffer = new Map<
     string,
@@ -151,7 +152,6 @@ export abstract class Dtls13ConnectionBase {
   protected earlyAppData: Buffer[] = [];
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   protected rxChain: Promise<void> = Promise.resolve();
-
 
   constructor(
     protected readonly options: Dtls13Options,
@@ -216,7 +216,6 @@ export abstract class Dtls13ConnectionBase {
       }
     };
   }
-
 
   protected installEpoch(epoch: number, ep: EpochProtection): void {
     this.epochs.set(epoch, ep);
@@ -381,5 +380,4 @@ export abstract class Dtls13ConnectionBase {
   get handshakeCarrier(): DirectHandshakeCarrier {
     return this.carrier;
   }
-
 }

@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { createHandshakeDatagram } from "../../carrier/direct";
 import {
   CipherSuite,
   NamedCurveAlgorithm,
@@ -37,21 +38,20 @@ import { KeyUpdate } from "../../handshake/message/tls13/keyUpdate";
 import { DtlsRandom } from "../../handshake/random";
 import type { SrtpProfile } from "../../imports/rtp";
 import { ContentType } from "../../record/const";
-import { FragmentedHandshake } from "../../record/message/fragment";
+import type { FragmentedHandshake } from "../../record/message/fragment";
 import {
   createEpochProtection,
   encryptRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
-import { createHandshakeDatagram } from "../../carrier/direct";
 import type { Extension } from "../../typings/domain";
 import {
   DTLS_1_3_VERSION,
   ProtocolVersionError,
   WireVersion,
 } from "../../version";
-import { HandshakeTranscript } from "./transcript";
 import { Dtls13RecordRx } from "./record-rx";
+import { HandshakeTranscript } from "./transcript";
 import { HRR_RANDOM, log } from "./types";
 
 /**
@@ -119,7 +119,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         log("ignored handshake type", hs.msg_type);
     }
   }
-
 
   // --- Flight 1 / 3: ClientHello (index.ts Figure 3) ---
   protected async sendClientHello(hrrGroup?: number): Promise<void> {
@@ -200,7 +199,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     return exts;
   }
 
-
   // --- Flight 2: HelloRetryRequest (optional cookie / group) ---
   protected async sendHelloRetryRequest(
     group: number | undefined,
@@ -254,9 +252,11 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     await this.sendHandshakeFlight([frag], 0, true);
   }
 
-
   // --- Flight 1→4 server: process ClientHello ---
-  protected async onClientHello(body: Buffer, messageSeq: number): Promise<void> {
+  protected async onClientHello(
+    body: Buffer,
+    messageSeq: number,
+  ): Promise<void> {
     const ch = ClientHello.deSerialize(body);
     const versionsExt = ch.extensions.find(
       (e) => e.type === SupportedVersions.type,
@@ -540,9 +540,11 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     this.writeEpoch = 3;
   }
 
-
   // --- Flight 4 receive (client): ServerHello → ... ---
-  protected async onServerHello(body: Buffer, messageSeq: number): Promise<void> {
+  protected async onServerHello(
+    body: Buffer,
+    messageSeq: number,
+  ): Promise<void> {
     const sh = ServerHello.deSerialize(body);
     this.messageSeq = messageSeq;
 
@@ -741,7 +743,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
   }
 
-
   // --- Flight 4/5 Finished ---
   protected async onFinished(body: Buffer, epoch: number): Promise<void> {
     const fin = Finished.deSerialize(body);
@@ -868,7 +869,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
   }
 
-
   // --- Post-handshake: KeyUpdate + ACK gating ---
   protected onKeyUpdate(body: Buffer) {
     const ku = KeyUpdate.deSerialize(body);
@@ -910,7 +910,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     if (n === 1) n = 2;
     return n;
   }
-
 
   /** RFC 9147 post-handshake KeyUpdate (public). */
 
@@ -955,5 +954,4 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     };
     // writeEpoch intentionally unchanged — app data still uses old keys
   }
-
 }

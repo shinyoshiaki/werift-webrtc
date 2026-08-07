@@ -1,10 +1,8 @@
-import {
-  createHandshakeDatagram,
-} from "../../carrier/direct";
+import { createHandshakeDatagram } from "../../carrier/direct";
 import type { AckRecordNumber } from "../../handshake/message/tls13/ack";
 import { DtlsAck } from "../../handshake/message/tls13/ack";
 import { AlertDesc, ContentType } from "../../record/const";
-import { FragmentedHandshake } from "../../record/message/fragment";
+import type { FragmentedHandshake } from "../../record/message/fragment";
 import {
   encryptRecord,
   serializePlaintextRecord,
