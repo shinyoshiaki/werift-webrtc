@@ -12,16 +12,15 @@ describe("record/v1_3 negative", () => {
     expect(() => parseUnifiedHeader(buf)).toThrow(/truncated/);
   });
 
-  test("oversized length does not parse past buffer", () => {
+  test("oversized length throws DtlsDecodeError (strict truncation)", () => {
     // Arrange: length claims 1000 but body is short
     const header = serializeUnifiedHeader(2, 1, 1000);
     const data = Buffer.concat([header, Buffer.alloc(10)]);
 
-    // Act
-    const records = parseDatagramRecords(data, () => undefined);
-
-    // Assert: 不完全レコードは消費せず空
-    expect(records.length).toBe(0);
+    // Act / Assert: 不完全レコードは actionable な decode error
+    expect(() => parseDatagramRecords(data, () => undefined)).toThrow(
+      /truncated|DtlsDecodeError/,
+    );
   });
 
   test("invalid first byte is rejected", () => {

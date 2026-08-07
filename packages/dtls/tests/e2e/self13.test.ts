@@ -119,10 +119,9 @@ test("e2e/self13 KeyUpdate then bidirectional data", async () => {
           expect(data.toString()).toBe("before_ack");
           gotBefore = true;
           phase = "post";
-          // Act: KeyUpdate
+          // Act: KeyUpdate（ACK 前は旧鍵のまま送信してよい RFC 9147 §8）
           await client.keyUpdate(false);
-          // 相手の受信 epoch 更新のため少し待つ
-          await new Promise((r) => setTimeout(r, 100));
+          // 即時 app data（新 epoch 待ちの sleep なし）— 旧 write 鍵で送出
           await client.send(Buffer.from("after"));
         } else {
           expect(data.toString()).toBe("after_ack");
@@ -149,6 +148,102 @@ test("e2e/self13 KeyUpdate then bidirectional data", async () => {
     await client.connect();
   });
 }, 20_000);
+
+test("e2e/self13 server-initiated KeyUpdate then bidirectional data", async () => {
+  // Arrange: サーバ主導 KeyUpdate
+  const { server, client } = await pair();
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("server keyupdate timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(async () => {
+      try {
+        await client.send(Buffer.from("s-pre"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    let gotPre = false;
+    server.onData.subscribe(async (data) => {
+      try {
+        if (!gotPre) {
+          expect(data.toString()).toBe("s-pre");
+          gotPre = true;
+          // Act: server KeyUpdate
+          await server.keyUpdate(false);
+          await server.send(Buffer.from("s-post"));
+        }
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    client.onData.subscribe((data) => {
+      expect(data.toString()).toBe("s-post");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 20_000);
+
+test("e2e/self13 repeated mutual KeyUpdate (client then server)", async () => {
+  // Arrange: 両側 connected 後に順次 KeyUpdate（ACK 完了を待つ）
+  const { server, client } = await pair();
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("mutual keyupdate timeout")),
+      20_000,
+    );
+    const waitBoth = async () => {
+      while (!client.connected || !server.connected) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+    client.onConnect.subscribe(async () => {
+      try {
+        await waitBoth();
+        await client.keyUpdate(false);
+        // ACK で write epoch が進むまで待つ
+        await new Promise((r) => setTimeout(r, 400));
+        await server.keyUpdate(false);
+        await new Promise((r) => setTimeout(r, 400));
+        await client.send(Buffer.from("multi-ku"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      expect(d.toString()).toBe("multi-ku");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 25_000);
 
 test("e2e/self13 exporter EXTRACTOR-dtls_srtp matches both sides", async () => {
   // Arrange

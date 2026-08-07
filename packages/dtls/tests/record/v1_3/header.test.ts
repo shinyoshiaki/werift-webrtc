@@ -7,9 +7,11 @@ import {
   serializeUnifiedHeader,
 } from "../../../src/record/v1_3/header";
 import {
+  DtlsDecodeError,
   createEpochProtection,
   decryptRecord,
   encryptRecord,
+  parseNextRecord,
   reconstructSequence,
 } from "../../../src/record/v1_3/record";
 
@@ -105,5 +107,21 @@ describe("record/v1_3/header", () => {
     // Arrange / Act / Assert
     expect(reconstructSequence(5, 2, 0)).toBe(5);
     expect(reconstructSequence(1, 2, 0xfffe)).toBe(0x10001);
+  });
+
+  test("parseNextRecord throws DtlsDecodeError on truncated plaintext", () => {
+    // Arrange: content-type handshake but only 5 bytes
+    const partial = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x00]);
+    // Act / Assert
+    expect(() => parseNextRecord(partial, () => undefined)).toThrow(
+      DtlsDecodeError,
+    );
+  });
+
+  test("decryptRecord throws DtlsDecodeError on truncated ciphertext", () => {
+    // Arrange: unified header claiming length beyond buffer
+    const buf = Buffer.from([0x26, 0x00, 0x00, 0xff]); // incomplete
+    // Act / Assert
+    expect(() => decryptRecord(buf, () => undefined)).toThrow(DtlsDecodeError);
   });
 });

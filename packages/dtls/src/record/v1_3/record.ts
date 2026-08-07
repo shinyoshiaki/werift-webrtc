@@ -30,9 +30,20 @@ export class DtlsReplayError extends Error {
     public readonly epoch = 0,
     public readonly sequenceNumber = 0,
     public readonly consumed = 0,
+    /** Content type after successful AEAD (for handshake-only re-ACK). */
+    public readonly contentType = 0,
   ) {
     super(message);
     this.name = "DtlsReplayError";
+  }
+}
+
+/** Truncated or malformed DTLS record / handshake framing. */
+export class DtlsDecodeError extends Error {
+  readonly code = "decode";
+  constructor(message: string) {
+    super(message);
+    this.name = "DtlsDecodeError";
   }
 }
 
@@ -122,7 +133,9 @@ export function decryptRecord(
   sequenceNumber: number;
   consumed: number;
 } | null {
-  if (data.length < 1) return null;
+  if (data.length < 1) {
+    throw new DtlsDecodeError("ciphertext record: empty buffer");
+  }
   if (!isUnifiedHeader(data[0])) {
     throw new Error("expected DTLS 1.3 unified ciphertext header");
   }
@@ -137,7 +150,11 @@ export function decryptRecord(
   const epochLowBits = first & 0x03;
   const seqLen = seq16 ? 2 : 1;
   const headerLen = 1 + seqLen + (lengthPresent ? 2 : 0);
-  if (data.length < headerLen) return null;
+  if (data.length < headerLen) {
+    throw new DtlsDecodeError(
+      `ciphertext record truncated: need header ${headerLen}, have ${data.length}`,
+    );
+  }
   if (!lengthPresent) {
     throw new Error(
       "DTLS 1.3 records without length are not supported for receive",
@@ -145,7 +162,11 @@ export function decryptRecord(
   }
   const length = data.readUInt16BE(1 + seqLen);
   const total = headerLen + length;
-  if (data.length < total) return null;
+  if (data.length < total) {
+    throw new DtlsDecodeError(
+      `ciphertext record truncated: need ${total}, have ${data.length}`,
+    );
+  }
 
   const candidates = epochCandidates(resolveEpoch, epochLowBits).filter(
     (ep) => ep.readKeys?.snKey && ep.readKeys?.key && ep.readKeys?.iv,
@@ -190,6 +211,7 @@ export function decryptRecord(
           epochState.epoch,
           seq,
           total,
+          contentType,
         );
       }
 
@@ -292,7 +314,9 @@ export function parseNextRecord(
   const first = data[0];
   if (isUnifiedHeader(first)) {
     const dec = decryptRecord(data, resolveEpoch);
-    if (!dec) return null;
+    if (!dec) {
+      throw new DtlsDecodeError("ciphertext decrypt returned empty");
+    }
     return {
       kind: "ciphertext",
       contentType: dec.contentType,
@@ -303,12 +327,20 @@ export function parseNextRecord(
     };
   }
   if (first >= 20 && first <= 63) {
-    if (data.length < 13) return null;
+    if (data.length < 13) {
+      throw new DtlsDecodeError(
+        `plaintext record truncated: need 13-byte header, have ${data.length}`,
+      );
+    }
     const contentType = data.readUInt8(0);
     const epoch = data.readUInt16BE(3);
     const sequenceNumber = data.readUIntBE(5, 6);
     const contentLen = data.readUInt16BE(11);
-    if (data.length < 13 + contentLen) return null;
+    if (data.length < 13 + contentLen) {
+      throw new DtlsDecodeError(
+        `plaintext record truncated: need ${13 + contentLen}, have ${data.length}`,
+      );
+    }
     const fragment = Buffer.from(data.subarray(13, 13 + contentLen));
     return {
       kind: "plaintext",
@@ -319,7 +351,9 @@ export function parseNextRecord(
       consumed: 13 + contentLen,
     };
   }
-  throw new Error(`invalid DTLS record first byte 0x${first.toString(16)}`);
+  throw new DtlsDecodeError(
+    `invalid DTLS record first byte 0x${first.toString(16)}`,
+  );
 }
 
 /**

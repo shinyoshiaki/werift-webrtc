@@ -28,32 +28,43 @@ import {
 } from "../../../src/record/v1_3/record";
 
 /**
- * Deterministic vectors for DTLS 1.3 record / ACK / replay / KeyUpdate / exporter.
- * Fixed seeds so regressions are byte-stable across runs (self-consistency + RFC structure).
+ * Fixed-output vectors for DTLS 1.3 HKDF / Finished / exporter / AEAD.
+ * Expected hex digests are pinned constants (not re-derived in the assertion)
+ * so a broken HKDF/label/transcript implementation fails the suite.
  */
 describe("tls13 RFC-structure deterministic vectors", () => {
   const secret0 = Buffer.alloc(32, 0x11);
   const ks = new Dtls13KeySchedule(DTLS13_LABEL_PREFIX);
 
-  test("HKDF-Expand-Label dtls13 key/iv/sn are distinct fixed digests", () => {
+  // Pinned: HKDF-Expand-Label(0x11*32, "dtls13"+label, "", L) via SHA-256
+  const PINNED_KEY =
+    "ed42c07a4495d8c4c75abc4f889c6155";
+  const PINNED_IV = "679ac79b84b6d022c340ac85";
+  const PINNED_SN =
+    "e80e148f1e9bf1bc872e8dedf462da34";
+  const PINNED_FINISHED_KEY =
+    "c97c563e52fc4820e073e0f25ede2e9e02d694cd7ab27c68cfac25c238fa8116";
+  const PINNED_VERIFY_DATA =
+    "2bae073e4402209626259ab2a1587696e38d1ec5d41f0c5a768bbfde3a06d378";
+  const PINNED_EXPORTER_60 =
+    "a71afff3209b533c918c555b239a85b618655b646a78067f841472ec31ebb0702f7ccb539f69a389255363951361409a662b6a197758d647fcbbf675";
+  // traffic_secret_N+1 = HKDF-Expand-Label(secret0, "dtls13traffic upd", "", 32)
+  const PINNED_TRAFFIC_UPD =
+    "6a4f97e87a35a583d1af794e1e4947eb8df3a10c131856f33b2609231d2ce0ea";
+
+  test("HKDF-Expand-Label dtls13 key/iv/sn match pinned digests", () => {
     // Arrange / Act
     const key = hkdfExpandLabelManual(secret0, "key", Buffer.alloc(0), 16);
     const iv = hkdfExpandLabelManual(secret0, "iv", Buffer.alloc(0), 12);
     const sn = hkdfExpandLabelManual(secret0, "sn", Buffer.alloc(0), 16);
-    // Assert: lengths and mutual inequality (label separation)
-    expect(key.toString("hex")).toBe(
-      hkdfExpandLabelManual(secret0, "key", Buffer.alloc(0), 16).toString(
-        "hex",
-      ),
-    );
-    expect(key.length).toBe(16);
-    expect(iv.length).toBe(12);
-    expect(sn.length).toBe(16);
+    // Assert: fixed vectors (not re-running the SUT for expected)
+    expect(key.toString("hex")).toBe(PINNED_KEY);
+    expect(iv.toString("hex")).toBe(PINNED_IV);
+    expect(sn.toString("hex")).toBe(PINNED_SN);
     expect(key.equals(sn)).toBe(false);
-    expect(key.subarray(0, 12).equals(iv)).toBe(false);
   });
 
-  test("Finished verify_data matches TLS 1.3 construction with dtls13 finished key", () => {
+  test("Finished verify_data matches pinned TLS 1.3 / dtls13 construction", () => {
     // Arrange
     const transcript = Buffer.from(
       "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
@@ -62,13 +73,16 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     // Act
     const vd = ks.verifyData(secret0, transcript);
     const finKey = ks.finishedKey(secret0);
-    const expected = hmacSha256(finKey, hashSha256(transcript));
-    // Assert
-    expect(vd.equals(expected)).toBe(true);
-    expect(vd.toString("hex")).toBe(expected.toString("hex"));
+    // Assert: pinned finished key + verify_data (transcript hash path)
+    expect(finKey.toString("hex")).toBe(PINNED_FINISHED_KEY);
+    expect(vd.toString("hex")).toBe(PINNED_VERIFY_DATA);
+    // Structure: HMAC(finished_key, Hash(transcript))
+    expect(
+      hmacSha256(finKey, hashSha256(transcript)).toString("hex"),
+    ).toBe(PINNED_VERIFY_DATA);
   });
 
-  test("EXTRACTOR-dtls_srtp exporter is stable and non-zero", () => {
+  test("EXTRACTOR-dtls_srtp exporter matches pinned 60-byte vector", () => {
     // Arrange
     const expMaster = Buffer.alloc(32, 0x22);
     // Act
@@ -80,17 +94,15 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     );
     // Assert
     expect(out.length).toBe(60);
-    expect(out.equals(Buffer.alloc(60))).toBe(false);
-    expect(
-      ks
-        .exportKeyingMaterial(
-          expMaster,
-          "EXTRACTOR-dtls_srtp",
-          Buffer.alloc(0),
-          60,
-        )
-        .equals(out),
-    ).toBe(true);
+    expect(out.toString("hex")).toBe(PINNED_EXPORTER_60);
+  });
+
+  test("KeyUpdate traffic upd secret matches pinned digest", () => {
+    // Arrange / Act
+    const next = ks.updateTrafficSecret(secret0);
+    // Assert
+    expect(next.toString("hex")).toBe(PINNED_TRAFFIC_UPD);
+    expect(next.equals(secret0)).toBe(false);
   });
 
   test("AEAD encrypt/decrypt with known key/iv/seq (record protection)", () => {
@@ -107,9 +119,14 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     const pt = decryptAes128Gcm(key, nonce, ct, header);
     const inner = parseInnerPlaintext(pt);
     // Assert
+    expect(nonce.toString("hex")).toBe("444444444444444444444443");
     expect(inner.contentType).toBe(23);
     expect(inner.content.toString()).toBe("app-payload");
     expect(ct.length).toBe(plaintext.length + 16);
+    // Round-trip stability: same inputs → same ciphertext
+    expect(
+      encryptAes128Gcm(key, nonce, plaintext, header).toString("hex"),
+    ).toBe(ct.toString("hex"));
   });
 
   test("record number encryption mask is involution", () => {

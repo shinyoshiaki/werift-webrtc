@@ -38,32 +38,8 @@ RUN set -eux; \
   rm -rf /usr/src/werift-boringssl-dtls13
 ENV WERIFT_BORINGSSL_BSSL=/usr/local/bin/bssl
 ENV PATH="/usr/local/bin:${PATH}"
-# Go + pinned pion/stun SPED attribute smoke tool (IANA 0xC070 / 0xC071).
-# Source: packages/ice/tools/pion-sped (install.sh pin + smoke test).
-COPY packages/ice/tools/pion-sped /usr/src/werift-pion-sped
-RUN set -eux; \
-  bash /usr/src/werift-pion-sped/install.sh; \
-  test -x /usr/local/bin/pion-sped; \
-  /usr/local/bin/pion-sped check; \
-  test -f /usr/local/share/werift-pion-sped-pin.txt; \
-  cat /usr/local/share/werift-pion-sped-pin.txt; \
-  rm -rf /usr/src/werift-pion-sped
-ENV WERIFT_PION_SPED=/usr/local/bin/pion-sped
-ENV GOROOT=/usr/local/go
-ENV PATH="/usr/local/go/bin:/usr/local/bin:${PATH}"
-# Pinned pion SPED ICE+DTLS agent for required both-role / non-SPED fallback interop.
-# Source: packages/ice/tools/pion-sped-agent (install.sh; binary not committed).
-# Depends on boringssl-dtls13 already on PATH (layer above).
-COPY packages/ice/tools/pion-sped-agent /usr/src/werift-pion-sped-agent
-RUN set -eux; \
-  bash /usr/src/werift-pion-sped-agent/install.sh; \
-  test -x /usr/local/bin/pion-sped-agent; \
-  test -f /usr/local/share/werift-pion-sped-agent-pin.txt; \
-  cat /usr/local/share/werift-pion-sped-agent-pin.txt; \
-  # Agent invokes boringssl-dtls13 for DTLS 1.3 (already installed).
-  command -v boringssl-dtls13; \
-  rm -rf /usr/src/werift-pion-sped-agent /tmp/werift-pion-sped-agent-build
-ENV WERIFT_PION_SPED_AGENT=/usr/local/bin/pion-sped-agent
+# ICE/SPED pion tools (Epic 2+): install via packages/ice/tools when available.
+# (Removed from Epic 1 base image to avoid unrelated stubs.)
 # sak-additional-run-commands-end
 RUN apt-get clean \
   && rm -rf /var/lib/apt/lists/*

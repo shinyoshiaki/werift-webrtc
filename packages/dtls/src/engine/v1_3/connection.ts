@@ -56,6 +56,7 @@ import type { SrtpProfile } from "../../imports/rtp";
 import { AlertDesc, ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import {
+  DtlsDecodeError,
   DtlsReplayError,
   type EpochProtection,
   createEpochProtection,
@@ -85,6 +86,8 @@ const FRAGMENT_TTL_MS = 30_000;
 /** Post-handshake / KeyUpdate epoch retention (time + count). */
 const MAX_RETAINED_APP_EPOCHS = 4;
 const EPOCH_KEY_TTL_MS = 60_000;
+/** RFC 9147 ACK record_numbers list upper bound (bytes ≈ 16 * N). */
+const MAX_ACK_RECORD_NUMBERS = 32;
 
 const log = debug("werift-dtls : packages/dtls/src/engine/v1_3/connection.ts");
 
@@ -196,9 +199,20 @@ export class Dtls13Connection {
   /** Out-of-order complete handshake messages (by message_seq). */
   private handshakeInbox = new Map<number, FragmentedHandshake>();
   private nextReceiveSeq = 0;
-  /** Records received in current flight awaiting ACK */
+  /**
+   * Handshake records successfully received/buffered awaiting ACK
+   * (RFC 9147 §7.1: never include non-handshake content types).
+   */
   private receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] =
     [];
+  /**
+   * After sending KeyUpdate, hold next write epoch until peer ACK (RFC 9147 §8).
+   * Application data continues on the old writeEpoch until this is applied.
+   */
+  private pendingKeyUpdateWrite?: {
+    nextWriteEpoch: number;
+    nextTrafficSecret: Buffer;
+  };
   private cookieSecret = randomBytes(16);
   private tlsCookie = Buffer.alloc(0);
   private addressValidated = false;
@@ -304,6 +318,9 @@ export class Dtls13Connection {
   private pruneStaleEpochs(): void {
     const now = Date.now();
     const active = new Set([this.readEpoch, this.writeEpoch]);
+    if (this.pendingKeyUpdateWrite) {
+      active.add(this.pendingKeyUpdateWrite.nextWriteEpoch);
+    }
     if (!this.connected) {
       active.add(0);
       active.add(2);
@@ -503,7 +520,7 @@ export class Dtls13Connection {
           this.resolveEpochCandidates(low),
         );
       } catch (e) {
-        // Replay of already-processed record: re-ACK so peer can clear pending flight
+        // Replay of already-processed handshake record: re-ACK so peer advances
         if (
           e instanceof DtlsReplayError ||
           (e as Error)?.name === "DtlsReplayError"
@@ -512,30 +529,56 @@ export class Dtls13Connection {
           log("drop replay/too-old record", re.message);
           if (re.consumed > 0) {
             offset += re.consumed;
-            this.receivedRecordNumbers.push({
-              epoch: re.epoch,
-              sequenceNumber: re.sequenceNumber,
-            });
-            void this.sendAck().catch((err) =>
-              log("re-ACK after replay failed", err),
-            );
+            if (re.contentType === ContentType.handshake) {
+              this.noteHandshakeRecordForAck(re.epoch, re.sequenceNumber);
+              void this.sendAck().catch((err) =>
+                log("re-ACK after replay failed", err),
+              );
+            }
             continue;
           }
           return;
+        }
+        if (
+          e instanceof DtlsDecodeError ||
+          (e as Error)?.name === "DtlsDecodeError"
+        ) {
+          // Actionable failure for truncated/malformed framing
+          throw e;
         }
         throw e;
       }
       if (!rec) break;
       offset += rec.consumed;
       if (rec.kind === "plaintext") {
+        // Epoch-0 handshake records may be ACKed after processing
+        if (rec.contentType === ContentType.handshake) {
+          this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+        }
         await this.onPlaintextRecordAsync(rec);
       } else {
-        this.receivedRecordNumbers.push({
-          epoch: rec.epoch,
-          sequenceNumber: rec.sequenceNumber,
-        });
+        // RFC 9147 §7.1: ACK only handshake content type records
+        if (rec.contentType === ContentType.handshake) {
+          this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+        }
         await this.onCiphertextRecordAsync(rec);
       }
+    }
+  }
+
+  /** Queue a handshake record number for the next ACK (dedupe + cap). */
+  private noteHandshakeRecordForAck(epoch: number, sequenceNumber: number) {
+    const exists = this.receivedRecordNumbers.some(
+      (r) => r.epoch === epoch && r.sequenceNumber === sequenceNumber,
+    );
+    if (!exists) {
+      this.receivedRecordNumbers.push({ epoch, sequenceNumber });
+    }
+    // Bound memory: keep the most recent N
+    if (this.receivedRecordNumbers.length > MAX_ACK_RECORD_NUMBERS) {
+      this.receivedRecordNumbers = this.receivedRecordNumbers.slice(
+        -MAX_ACK_RECORD_NUMBERS,
+      );
     }
   }
 
@@ -656,9 +699,25 @@ export class Dtls13Connection {
       this.pendingFlight = [];
       this.pendingFlightRecords = [];
       this.retransmitCount = 0;
+      // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
+      this.applyPendingKeyUpdateWrite();
     } catch (e) {
       log("bad ACK", e);
     }
+  }
+
+  private applyPendingKeyUpdateWrite() {
+    if (!this.pendingKeyUpdateWrite) return;
+    const { nextWriteEpoch, nextTrafficSecret } = this.pendingKeyUpdateWrite;
+    if (this.role === "client") {
+      this.clientAppTraffic = nextTrafficSecret;
+    } else {
+      this.serverAppTraffic = nextTrafficSecret;
+    }
+    this.writeEpoch = nextWriteEpoch;
+    this.pendingKeyUpdateWrite = undefined;
+    this.pruneStaleEpochs();
+    log("KeyUpdate write epoch advanced after ACK", nextWriteEpoch);
   }
 
   private async processHandshakeBytes(
@@ -667,9 +726,28 @@ export class Dtls13Connection {
   ): Promise<void> {
     let offset = 0;
     while (offset < raw.length) {
-      if (raw.length - offset < 12) break;
-      const hs = FragmentedHandshake.deSerialize(raw.subarray(offset));
-      offset += 12 + hs.fragment_length;
+      const remaining = raw.length - offset;
+      if (remaining === 0) break;
+      if (remaining < 12) {
+        throw new DtlsDecodeError(
+          `handshake header truncated: need 12 bytes, have ${remaining}`,
+        );
+      }
+      // fragment_length is at offset+9 (3 bytes) within 12-byte header
+      const fragmentLength = raw.readUIntBE(offset + 9, 3);
+      const total = 12 + fragmentLength;
+      if (remaining < total) {
+        throw new DtlsDecodeError(
+          `handshake fragment truncated: need ${total}, have ${remaining}`,
+        );
+      }
+      const hs = FragmentedHandshake.deSerialize(raw.subarray(offset, offset + total));
+      if (hs.fragment_length !== hs.fragment.length) {
+        throw new DtlsDecodeError(
+          `handshake fragment_length mismatch: header ${hs.fragment_length}, body ${hs.fragment.length}`,
+        );
+      }
+      offset += total;
       const complete = this.reassemble(hs);
       if (complete) {
         // Queue by message_seq for reorder safety (RFC 9147 §5.2)
@@ -1044,14 +1122,7 @@ export class Dtls13Connection {
         keyExchange: this.localKeyPair.publicKey,
       }).serverExtension,
     ];
-    if (
-      this.negotiatedSrtpProfile !== undefined &&
-      this.options.srtpProfiles?.length
-    ) {
-      shExtensions.push(
-        // use_srtp is in EncryptedExtensions for TLS 1.3, not ServerHello
-      );
-    }
+    // use_srtp is carried in EncryptedExtensions (TLS 1.3), not ServerHello
 
     const sh = new ServerHello(
       WireVersion.DTLS_1_2,
@@ -1164,7 +1235,7 @@ export class Dtls13Connection {
       encFragsList.push(f);
     }
 
-    // EncryptedExtensions fragment first
+    // EncryptedExtensions first in the encrypted flight (use_srtp lives here, not SH)
     {
       const f = ee.toFragment();
       f.message_seq = ee.messageSeq!;
@@ -1514,12 +1585,15 @@ export class Dtls13Connection {
     // Peer sent KeyUpdate under their old write keys (= our current read epoch).
     // Keep the previous epoch's readKeys installed for late retransmits; do NOT
     // overwrite writeEpoch.readKeys (that would clobber independent key state).
+    // If next read epoch collides with a pending local KeyUpdate write epoch,
+    // merge into the existing entry so writeKeys are not wiped.
     if (this.role === "client") {
       this.serverAppTraffic = this.keySchedule.updateTrafficSecret(
         this.serverAppTraffic!,
       );
       const nextEpoch = this.nextAppEpoch(this.readEpoch);
-      const ep = createEpochProtection(nextEpoch);
+      const ep =
+        this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
       ep.readKeys = this.keySchedule.trafficKeys(this.serverAppTraffic);
       this.installEpoch(nextEpoch, ep);
       this.readEpoch = nextEpoch;
@@ -1528,7 +1602,8 @@ export class Dtls13Connection {
         this.clientAppTraffic!,
       );
       const nextEpoch = this.nextAppEpoch(this.readEpoch);
-      const ep = createEpochProtection(nextEpoch);
+      const ep =
+        this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
       ep.readKeys = this.keySchedule.trafficKeys(this.clientAppTraffic);
       this.installEpoch(nextEpoch, ep);
       this.readEpoch = nextEpoch;
@@ -1550,8 +1625,11 @@ export class Dtls13Connection {
 
   async keyUpdate(requestUpdate = false): Promise<void> {
     if (!this.connected) throw new Error("not connected");
-    // RFC 8446: send KeyUpdate with current keys, then update sending keys.
-    // KeyUpdate flight is retransmittable until peer ACK (or next successful RX).
+    if (this.pendingKeyUpdateWrite) {
+      throw new Error("KeyUpdate already in progress; wait for peer ACK");
+    }
+    // RFC 9147 §8: send KeyUpdate under *current* write keys; do not send with
+    // the new keys until this KeyUpdate flight is ACK'd.
     const sendEpoch = this.writeEpoch;
     const ku = new KeyUpdate(requestUpdate);
     this.messageSeq += 1;
@@ -1560,47 +1638,55 @@ export class Dtls13Connection {
     frag.message_seq = ku.messageSeq;
     await this.sendHandshakeFlight([frag], sendEpoch, true);
 
-    if (this.role === "client") {
-      this.clientAppTraffic = this.keySchedule.updateTrafficSecret(
-        this.clientAppTraffic!,
-      );
-    } else {
-      this.serverAppTraffic = this.keySchedule.updateTrafficSecret(
-        this.serverAppTraffic!,
-      );
-    }
-    const nextEpoch = this.nextAppEpoch(this.writeEpoch);
-    const ep = createEpochProtection(nextEpoch);
-    const traffic =
+    const currentTraffic =
       this.role === "client" ? this.clientAppTraffic! : this.serverAppTraffic!;
-    ep.writeKeys = this.keySchedule.trafficKeys(traffic);
-    // New write epoch keeps current read keys for demux; old write epoch retains
-    // prior writeKeys until TTL prune (KeyUpdate ciphertext is already cached).
-    const prevRead = this.epochs.get(this.readEpoch);
-    if (prevRead?.readKeys) {
-      ep.readKeys = {
-        key: Buffer.from(prevRead.readKeys.key),
-        iv: Buffer.from(prevRead.readKeys.iv),
-        snKey: Buffer.from(prevRead.readKeys.snKey),
-      };
+    const nextTrafficSecret =
+      this.keySchedule.updateTrafficSecret(currentTraffic);
+    const nextEpoch = this.nextAppEpoch(this.writeEpoch);
+    // Merge if peer already advanced read into the same epoch number
+    const ep = this.epochs.get(nextEpoch) ?? createEpochProtection(nextEpoch);
+    ep.writeKeys = this.keySchedule.trafficKeys(nextTrafficSecret);
+    // New epoch entry ready; writeEpoch stays on sendEpoch until ACK
+    if (!ep.readKeys) {
+      const prevRead = this.epochs.get(this.readEpoch);
+      if (prevRead?.readKeys) {
+        ep.readKeys = {
+          key: Buffer.from(prevRead.readKeys.key),
+          iv: Buffer.from(prevRead.readKeys.iv),
+          snKey: Buffer.from(prevRead.readKeys.snKey),
+        };
+      }
     }
     this.installEpoch(nextEpoch, ep);
-    this.writeEpoch = nextEpoch;
-    this.pruneStaleEpochs();
+    this.pendingKeyUpdateWrite = {
+      nextWriteEpoch: nextEpoch,
+      nextTrafficSecret,
+    };
+    // writeEpoch intentionally unchanged — app data still uses old keys
   }
 
   private async sendAck(): Promise<void> {
-    // Prefer application epoch after it has write keys; else handshake epoch 2
+    // Use the current sending epoch (highest write keys we are allowed to use).
+    // Never prefer a stale epoch 3 after KeyUpdate advanced writeEpoch.
     const ep =
-      (this.epochs.get(3)?.writeKeys && this.epochs.get(3)) ||
       this.epochs.get(this.writeEpoch) ||
-      this.epochs.get(2);
+      this.epochs.get(2) ||
+      this.epochs.get(3);
     if (!ep?.writeKeys) return;
 
-    const numbers =
-      this.receivedRecordNumbers.length > 0
-        ? [...this.receivedRecordNumbers]
-        : [];
+    if (this.receivedRecordNumbers.length === 0) {
+      // Empty ACK is allowed but useless; skip to reduce bandwidth
+      return;
+    }
+    // Sort by epoch then sequence (RFC 9147 record_numbers order is free, but
+    // stable sorted lists aid interop / debugging and meet size bounds cleanly).
+    const numbers = [...this.receivedRecordNumbers]
+      .sort((a, b) =>
+        a.epoch !== b.epoch
+          ? a.epoch - b.epoch
+          : a.sequenceNumber - b.sequenceNumber,
+      )
+      .slice(0, MAX_ACK_RECORD_NUMBERS);
     this.receivedRecordNumbers = [];
     const ack = new DtlsAck(numbers);
     const record = encryptRecord(ack.serialize(), ContentType.ack, ep);
