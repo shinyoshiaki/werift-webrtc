@@ -73,14 +73,7 @@ function chromeCanRecv(codec: CodecName): boolean {
 async function pollDepacketizeSuccess(
   label: string,
   timeoutMs = 40_000,
-): Promise<{
-  ok: boolean;
-  frameCount: number;
-  keyframeCount: number;
-  totalBytes: number;
-  rtpPackets: number;
-  usedPackagesRtp: boolean;
-}> {
+): Promise<Record<string, any>> {
   const started = performance.now();
   let last: any = {
     ok: false,
@@ -100,6 +93,41 @@ async function pollDepacketizeSuccess(
   throw new Error(
     `depacketize poll timeout: frames=${last.frameCount} keyframes=${last.keyframeCount} rtp=${last.rtpPackets}`,
   );
+}
+
+/** Wait until packetize side has sent enough frames (and ideally multi-packet). */
+async function pollPacketizeReady(
+  label: string,
+  {
+    minFrames = 2,
+    requireMultiPacket = false,
+    timeoutMs = 20_000,
+  }: {
+    minFrames?: number;
+    requireMultiPacket?: boolean;
+    timeoutMs?: number;
+  } = {},
+): Promise<Record<string, any>> {
+  const started = performance.now();
+  let last: any = { framesSent: 0, multiPacketFrames: 0 };
+  while (performance.now() - started < timeoutMs) {
+    last = await peer.request(label, { type: "status" });
+    const framesOk = (last.framesSent ?? 0) >= minFrames;
+    const multiOk =
+      !requireMultiPacket || (last.multiPacketFrames ?? 0) >= 1;
+    if (framesOk && multiOk) {
+      return last;
+    }
+    await sleep(200);
+  }
+  return last;
+}
+
+function assertNegotiatedMime(
+  actual: string | undefined,
+  codec: CodecName,
+) {
+  expect(actual?.toLowerCase()).toContain(codecMime(codec));
 }
 
 describe("mediachannel_codec_rtp", () => {
@@ -135,7 +163,6 @@ describe("mediachannel_codec_rtp", () => {
             };
 
             // Arrange: getUserMedia / fake device で Chrome エンコード
-            // oneway と同様 addTrack を使う
             const constraints =
               kind === "video"
                 ? { video: true, audio: false }
@@ -143,8 +170,7 @@ describe("mediachannel_codec_rtp", () => {
             const stream = await navigator.mediaDevices.getUserMedia(
               constraints,
             );
-            const mediaTrack = stream.getTracks()[0];
-            pc.addTrack(mediaTrack);
+            pc.addTrack(stream.getTracks()[0]);
             for (const t of pc.getTransceivers()) {
               preferCodec(t, codecMime(codec), kind);
             }
@@ -161,12 +187,23 @@ describe("mediachannel_codec_rtp", () => {
               payload: pc.localDescription,
             });
 
-            // Assert: Node 側で packages/rtp depacketize が非空フレームを得る
+            // Assert: Node 側 packages/rtp depacketize + 明示メトリクス
             const result = await pollDepacketizeSuccess(label);
             expect(result.ok).toBe(true);
             expect(result.usedPackagesRtp).toBe(true);
             expect(result.frameCount).toBeGreaterThanOrEqual(1);
             expect(result.totalBytes).toBeGreaterThan(0);
+            expect(result.rtpPackets).toBeGreaterThanOrEqual(1);
+            // negotiated codec / PT
+            assertNegotiatedMime(
+              result.negotiatedMime ?? result.expectedMime,
+              codec,
+            );
+            expect(typeof result.payloadType).toBe("number");
+            // timestamp 進行（複数フレーム時）
+            if (result.frameCount >= 2) {
+              expect(result.timestampAdvanced).toBe(true);
+            }
             if (kind === "video") {
               // 映像はキーフレームを少なくとも 1 回
               expect(result.keyframeCount).toBeGreaterThanOrEqual(1);
@@ -225,13 +262,37 @@ describe("mediachannel_codec_rtp", () => {
 
             const track = await received;
 
+            // 送信側メトリクスが揃うまで待つ（video は multi-packet も要求）
+            const status = await pollPacketizeReady(label, {
+              minFrames: 2,
+              requireMultiPacket: kind === "video",
+              timeoutMs: 15_000,
+            });
+            expect(status.usedPackagesRtp).toBe(true);
+            expect(status.framesSent).toBeGreaterThanOrEqual(1);
+            expect(status.packetsSent).toBeGreaterThanOrEqual(1);
+            assertNegotiatedMime(
+              status.negotiatedMime ?? status.expectedMime,
+              codec,
+            );
+            if (status.payloadType !== undefined) {
+              expect(typeof status.payloadType).toBe("number");
+            }
+            if (status.framesSent >= 2) {
+              expect(status.timestampAdvanced).toBe(true);
+            }
+            // video は maxPayloadSize を下げているので通常 multi-packet になる
+            if (kind === "video") {
+              expect(status.multiPacketFrames).toBeGreaterThanOrEqual(1);
+            }
+
             // Assert: Chrome が RTP を受信しデコード経路に載る
             if (codec === "h264") {
               // H.264 は黒画面でも合格可 — 画素変化は必須にしない
               const inbound = await waitInboundRtp(pc, 3, 40_000);
               expect(inbound.packetsReceived).toBeGreaterThanOrEqual(3);
             } else if (kind === "video") {
-              await waitVideoPlay(track);
+              await waitVideoPlay(track, 30_000);
               const inbound = await getInboundRtpTotals(pc);
               expect(inbound.packetsReceived).toBeGreaterThan(0);
             } else {
@@ -244,22 +305,12 @@ describe("mediachannel_codec_rtp", () => {
               }
             }
 
-            // Node 側が packages/rtp Packetizer を使ったことを確認
-            const status = (await peer.request(label, { type: "status" })) as {
-              usedPackagesRtp: boolean;
-              framesSent: number;
-            };
-            expect(status.usedPackagesRtp).toBe(true);
-
-            const done = (await peer.request(label, { type: "done" })) as {
-              usedPackagesRtp?: boolean;
-              framesSent?: number;
-              packetsSent?: number;
-            };
+            const done = (await peer.request(label, {
+              type: "done",
+            })) as Record<string, any>;
             expect(done.usedPackagesRtp).toBe(true);
-            if (typeof done.framesSent === "number") {
-              expect(done.framesSent).toBeGreaterThanOrEqual(1);
-            }
+            expect(done.framesSent).toBeGreaterThanOrEqual(1);
+            expect(done.packetsSent).toBeGreaterThanOrEqual(1);
           } finally {
             pc.close();
           }
@@ -274,9 +325,13 @@ describe("mediachannel_codec_rtp", () => {
     for (const codec of ["vp8"] as CodecName[]) {
       it(
         `repacketize_${codec}`,
-        async () => {
-          if (!chromeCanSend(codec)) {
-            console.warn(`skip repacketize_${codec}: Chrome cannot encode`);
+        async (ctx) => {
+          // VP8 C は必須。非対応環境では skip を明示（暗黙 pass しない）
+          if (!chromeCanSend(codec) || !chromeCanRecv(codec)) {
+            console.warn(
+              `skip repacketize_${codec}: Chrome cannot send/recv VP8`,
+            );
+            ctx.skip();
             return;
           }
           await ensurePeer();
@@ -317,16 +372,25 @@ describe("mediachannel_codec_rtp", () => {
               payload: pc.localDescription,
             });
 
-            // Assert Node depacketize 成功
+            // Assert Node depacketize + repacketize メトリクス
             const result = await pollDepacketizeSuccess(label);
             expect(result.ok).toBe(true);
             expect(result.usedPackagesRtp).toBe(true);
             expect(result.frameCount).toBeGreaterThanOrEqual(1);
             expect(result.keyframeCount).toBeGreaterThanOrEqual(1);
+            assertNegotiatedMime(
+              result.negotiatedMime ?? result.expectedMime,
+              codec,
+            );
+            expect(typeof result.payloadType).toBe("number");
+            expect(result.framesRepacketized).toBeGreaterThanOrEqual(1);
+            expect(result.packetsSent).toBeGreaterThanOrEqual(1);
+            // 小さな maxPayloadSize で再 packetize するので multi-packet を期待
+            expect(result.multiPacketFrames).toBeGreaterThanOrEqual(1);
 
             // Assert Chrome が再 packetize された映像を再生
             const remoteTrack = await received;
-            await waitVideoPlay(remoteTrack);
+            await waitVideoPlay(remoteTrack, 30_000);
 
             await peer.request(label, { type: "done" });
           } finally {

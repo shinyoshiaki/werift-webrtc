@@ -14,6 +14,7 @@ import { MediaStreamTrack, RTCPeerConnection } from "../../";
 import {
   type CodecRtpName,
   type DepacketizeStats,
+  type PacketizeStreamStats,
   attachDepacketizer,
   codecKind,
   codecMimeHint,
@@ -24,6 +25,17 @@ import {
 } from "../../codecRtpUtils";
 import { DtlsKeysContext } from "../../fixture";
 
+type LivePacketizeMetrics = {
+  framesSent: number;
+  packetsSent: number;
+  multiPacketFrames: number;
+  firstRtpTimestamp?: number;
+  lastRtpTimestamp?: number;
+  payloadType?: number;
+  negotiatedMime?: string;
+  clockRate?: number;
+};
+
 type HandlerState = {
   pc?: RTCPeerConnection;
   stoppers: Array<() => void>;
@@ -31,12 +43,19 @@ type HandlerState = {
   streamPromise?: Promise<unknown>;
   result?: Record<string, unknown>;
   stats?: DepacketizeStats & { rtpPackets?: number };
-  depacketizeDone?: boolean;
+  livePacketize?: LivePacketizeMetrics;
+  /** repacketize: frames re-sent after depacketize */
+  repacketizeMetrics?: {
+    framesRepacketized: number;
+    multiPacketFrames: number;
+    packetsSent: number;
+    firstRtpTimestamp?: number;
+    lastRtpTimestamp?: number;
+  };
 };
 
 function peerCodecs(codec: CodecRtpName) {
   const params = useCodecParameters(codec);
-  // Keep both kinds present so PeerConfig stays well-formed
   if (codecKind(codec) === "audio") {
     return { audio: [params], video: [] as never[] };
   }
@@ -48,7 +67,6 @@ async function createPc(codec: CodecRtpName) {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     dtls: { keys: await DtlsKeysContext.get() },
     codecs: peerCodecs(codec),
-    // Match other mediachannel handlers for interop stability
     bundlePolicy: "max-bundle",
   });
 }
@@ -71,20 +89,69 @@ function buildDepacketizeResult(
   codec: CodecRtpName,
   stats: DepacketizeStats & { rtpPackets?: number },
   pc?: RTCPeerConnection,
+  trackMime?: string,
 ) {
+  const expectedMime = useCodecParameters(codec).mimeType;
+  const negotiatedMime =
+    trackMime ??
+    ((sdpMentionsCodec(pc?.remoteDescription?.sdp, codec) ||
+      sdpMentionsCodec(pc?.localDescription?.sdp, codec)) &&
+      expectedMime) ??
+    undefined;
+
   return {
     ok: isDepacketizeSuccess(stats, codec),
     scenario: "depacketize" as const,
     codec,
-    negotiatedMime:
-      (sdpMentionsCodec(pc?.remoteDescription?.sdp, codec) ||
-        sdpMentionsCodec(pc?.localDescription?.sdp, codec)) &&
-      useCodecParameters(codec).mimeType,
+    negotiatedMime,
+    expectedMime,
+    payloadType: stats.payloadType,
     frameCount: stats.frameCount,
     keyframeCount: stats.keyframeCount,
     totalBytes: stats.totalBytes,
     rtpPackets: stats.rtpPackets ?? 0,
+    firstRtpTimestamp: stats.firstRtpTimestamp,
+    lastRtpTimestamp: stats.lastRtpTimestamp,
+    timestampAdvanced: !!stats.timestampAdvanced,
     usedPackagesRtp: true as const,
+  };
+}
+
+function livePacketizeStatus(
+  codec: CodecRtpName,
+  live?: LivePacketizeMetrics,
+  final?: PacketizeStreamStats & Record<string, unknown>,
+) {
+  const framesSent = final?.framesSent ?? live?.framesSent ?? 0;
+  const packetsSent = final?.packetsSent ?? live?.packetsSent ?? 0;
+  const multiPacketFrames =
+    final?.multiPacketFrames ?? live?.multiPacketFrames ?? 0;
+  const firstRtpTimestamp =
+    final?.firstRtpTimestamp ?? live?.firstRtpTimestamp;
+  const lastRtpTimestamp = final?.lastRtpTimestamp ?? live?.lastRtpTimestamp;
+  const timestampAdvanced =
+    final?.timestampAdvanced ??
+    (firstRtpTimestamp !== undefined &&
+      lastRtpTimestamp !== undefined &&
+      lastRtpTimestamp !== firstRtpTimestamp);
+  const expectedMime = useCodecParameters(codec).mimeType;
+
+  return {
+    ok: framesSent >= 1 && packetsSent >= 1,
+    scenario: "packetize" as const,
+    codec,
+    usedPackagesRtp: true as const,
+    packetizer: `packages/rtp:${codec}`,
+    expectedMime,
+    negotiatedMime: final?.negotiatedMime ?? live?.negotiatedMime,
+    payloadType: final?.payloadType ?? live?.payloadType,
+    framesSent,
+    packetsSent,
+    multiPacketFrames,
+    firstRtpTimestamp,
+    lastRtpTimestamp,
+    timestampAdvanced,
+    clockRate: final?.clockRate ?? live?.clockRate,
   };
 }
 
@@ -96,12 +163,10 @@ class DepacketizeHandler {
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init": {
-        this.state = { stoppers: [], depacketizeDone: false };
+        this.state = { stoppers: [] };
         const pc = await createPc(this.codec);
         this.state.pc = pc;
         const kind = codecKind(this.codec);
-
-        // recvonly offer — Chrome answers with media (same pattern as oneway)
         const transceiver = pc.addTransceiver(kind, { direction: "recvonly" });
 
         transceiver.onTrack.subscribe((track) => {
@@ -121,14 +186,11 @@ class DepacketizeHandler {
             sendPli: true,
             pliIntervalMs: 1000,
           });
-          this.state.stats = { ...stats, rtpPackets: 0 };
-          // Keep stats object identity in sync by patching shared ref
           const shared = stats as DepacketizeStats & { rtpPackets?: number };
           shared.rtpPackets = 0;
           this.state.stats = shared;
           this.state.stoppers.push(stop);
 
-          // Mirror PLI on first RTP for faster keyframe
           track.onReceiveRtp.once(() => {
             try {
               const ssrc = track.ssrc;
@@ -156,7 +218,6 @@ class DepacketizeHandler {
         break;
       }
       case "status": {
-        // Short poll — avoid protoo ~22s request timeout on long awaits
         const stats = this.state.stats;
         if (stats && isDepacketizeSuccess(stats, this.codec)) {
           const result = buildDepacketizeResult(
@@ -165,15 +226,20 @@ class DepacketizeHandler {
             this.state.pc,
           );
           this.state.result = result;
-          this.state.depacketizeDone = true;
           accept(result);
         } else {
           accept({
             ok: false,
+            codec: this.codec,
+            expectedMime: useCodecParameters(this.codec).mimeType,
             frameCount: stats?.frameCount ?? 0,
             keyframeCount: stats?.keyframeCount ?? 0,
             rtpPackets: stats?.rtpPackets ?? 0,
             totalBytes: stats?.totalBytes ?? 0,
+            payloadType: stats?.payloadType,
+            firstRtpTimestamp: stats?.firstRtpTimestamp,
+            lastRtpTimestamp: stats?.lastRtpTimestamp,
+            timestampAdvanced: !!stats?.timestampAdvanced,
             usedPackagesRtp: true,
           });
         }
@@ -207,7 +273,14 @@ class PacketizeHandler {
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init": {
-        this.state = { stoppers: [] };
+        this.state = {
+          stoppers: [],
+          livePacketize: {
+            framesSent: 0,
+            packetsSent: 0,
+            multiPacketFrames: 0,
+          },
+        };
         const pc = await createPc(this.codec);
         this.state.pc = pc;
         const kind = codecKind(this.codec);
@@ -233,18 +306,21 @@ class PacketizeHandler {
         break;
       }
       case "status": {
-        accept({
-          framesSent: this.state.result?.framesSent ?? 0,
-          packetsSent: this.state.result?.packetsSent ?? 0,
-          multiPacketFrames: this.state.result?.multiPacketFrames ?? 0,
-          usedPackagesRtp: true,
-          codec: this.codec,
-        });
+        accept(
+          livePacketizeStatus(
+            this.codec,
+            this.state.livePacketize,
+            this.state.result as PacketizeStreamStats | undefined,
+          ),
+        );
         break;
       }
       case "done": {
         await this.cleanup();
-        accept(this.state.result ?? { usedPackagesRtp: true });
+        accept(
+          this.state.result ??
+            livePacketizeStatus(this.codec, this.state.livePacketize),
+        );
         break;
       }
     }
@@ -257,22 +333,37 @@ class PacketizeHandler {
       this.state.abort = abort;
       this.state.stoppers.push(() => abort.abort());
 
-      let multiPacketFrames = 0;
+      if (this.state.livePacketize) {
+        this.state.livePacketize.negotiatedMime = track.codec?.mimeType;
+        this.state.livePacketize.payloadType = track.codec?.payloadType;
+        this.state.livePacketize.clockRate = track.codec?.clockRate;
+      }
+
       this.state.streamPromise = streamPacketizedFixture({
         codec: this.codec,
         track,
         signal: abort.signal,
         loop: true,
-        onFrameSent: ({ packetCount }) => {
-          if (packetCount > 1) multiPacketFrames++;
+        onFrameSent: ({ packetCount, rtpTimestamp }) => {
+          const live = this.state.livePacketize;
+          if (!live) return;
+          live.framesSent++;
+          live.packetsSent += packetCount;
+          if (packetCount > 1) live.multiPacketFrames++;
+          if (live.firstRtpTimestamp === undefined) {
+            live.firstRtpTimestamp = rtpTimestamp;
+          }
+          live.lastRtpTimestamp = rtpTimestamp;
+          live.payloadType = track.codec?.payloadType ?? live.payloadType;
+          live.negotiatedMime = track.codec?.mimeType ?? live.negotiatedMime;
         },
       }).then((stats) => {
         this.state.result = {
           ...stats,
-          multiPacketFrames,
           usedPackagesRtp: true,
           codec: this.codec,
           packetizer: `packages/rtp:${this.codec}`,
+          expectedMime: useCodecParameters(this.codec).mimeType,
         };
       });
       await this.state.streamPromise;
@@ -310,7 +401,14 @@ class RepacketizeHandler {
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init": {
-        this.state = { stoppers: [], depacketizeDone: false };
+        this.state = {
+          stoppers: [],
+          repacketizeMetrics: {
+            framesRepacketized: 0,
+            multiPacketFrames: 0,
+            packetsSent: 0,
+          },
+        };
         const pc = await createPc(this.codec);
         this.state.pc = pc;
         const kind = codecKind(this.codec);
@@ -347,6 +445,16 @@ class RepacketizeHandler {
                     frameType: frame.isKeyframe ? "key" : "delta",
                   },
                 );
+                const m = this.state.repacketizeMetrics;
+                if (m) {
+                  m.framesRepacketized++;
+                  m.packetsSent += packets.length;
+                  if (packets.length > 1) m.multiPacketFrames++;
+                  if (m.firstRtpTimestamp === undefined) {
+                    m.firstRtpTimestamp = frame.timestamp >>> 0;
+                  }
+                  m.lastRtpTimestamp = frame.timestamp >>> 0;
+                }
                 for (const rtp of packets) {
                   sendTrack.writeRtp(rtp);
                 }
@@ -389,15 +497,25 @@ class RepacketizeHandler {
       }
       case "status": {
         const stats = this.state.stats;
+        const rep = this.state.repacketizeMetrics;
         if (stats && isDepacketizeSuccess(stats, this.codec)) {
           const result = {
             ok: true,
             scenario: "repacketize" as const,
             codec: this.codec,
+            expectedMime: useCodecParameters(this.codec).mimeType,
+            negotiatedMime: useCodecParameters(this.codec).mimeType,
+            payloadType: stats.payloadType,
             frameCount: stats.frameCount,
             keyframeCount: stats.keyframeCount,
             totalBytes: stats.totalBytes,
             rtpPackets: stats.rtpPackets ?? 0,
+            firstRtpTimestamp: stats.firstRtpTimestamp,
+            lastRtpTimestamp: stats.lastRtpTimestamp,
+            timestampAdvanced: !!stats.timestampAdvanced,
+            framesRepacketized: rep?.framesRepacketized ?? 0,
+            multiPacketFrames: rep?.multiPacketFrames ?? 0,
+            packetsSent: rep?.packetsSent ?? 0,
             usedPackagesRtp: true as const,
           };
           this.state.result = result;
@@ -405,10 +523,15 @@ class RepacketizeHandler {
         } else {
           accept({
             ok: false,
+            codec: this.codec,
+            expectedMime: useCodecParameters(this.codec).mimeType,
             frameCount: stats?.frameCount ?? 0,
             keyframeCount: stats?.keyframeCount ?? 0,
             rtpPackets: stats?.rtpPackets ?? 0,
             totalBytes: stats?.totalBytes ?? 0,
+            payloadType: stats?.payloadType,
+            framesRepacketized: rep?.framesRepacketized ?? 0,
+            multiPacketFrames: rep?.multiPacketFrames ?? 0,
             usedPackagesRtp: true,
           });
         }

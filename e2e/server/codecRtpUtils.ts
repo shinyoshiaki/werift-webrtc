@@ -286,6 +286,18 @@ export function toRtpTimestamp(
  * Stream demuxed samples through packages/rtp Packetizer onto a local track.
  * Loops until aborted so Chrome has time to decode.
  */
+export type PacketizeStreamStats = {
+  framesSent: number;
+  packetsSent: number;
+  multiPacketFrames: number;
+  firstRtpTimestamp?: number;
+  lastRtpTimestamp?: number;
+  timestampAdvanced: boolean;
+  payloadType?: number;
+  negotiatedMime?: string;
+  clockRate: number;
+};
+
 export async function streamPacketizedFixture(options: {
   codec: CodecRtpName;
   track: MediaStreamTrack;
@@ -297,7 +309,7 @@ export async function streamPacketizedFixture(options: {
     packetCount: number;
     rtpTimestamp: number;
   }) => void;
-}): Promise<{ framesSent: number; packetsSent: number }> {
+}): Promise<PacketizeStreamStats> {
   const { codec, track, signal } = options;
   const loop = options.loop ?? true;
   const demuxed = await demuxCodecFixture(codec);
@@ -309,6 +321,10 @@ export async function streamPacketizedFixture(options: {
 
   let framesSent = 0;
   let packetsSent = 0;
+  let multiPacketFrames = 0;
+  let firstRtpTimestamp: number | undefined;
+  let lastRtpTimestamp: number | undefined;
+  let payloadType: number | undefined;
   let loopIndex = 0;
 
   const sleep = (ms: number) =>
@@ -354,9 +370,17 @@ export async function streamPacketizedFixture(options: {
           isKeyframe: sample.isKeyframe,
           frameType: sample.isKeyframe ? "key" : "delta",
         });
+        if (packets.length > 1) {
+          multiPacketFrames++;
+        }
         for (const rtp of packets) {
+          payloadType = rtp.header.payloadType;
           track.writeRtp(rtp);
         }
+        if (firstRtpTimestamp === undefined) {
+          firstRtpTimestamp = rtpTimestamp;
+        }
+        lastRtpTimestamp = rtpTimestamp;
         framesSent++;
         packetsSent += packets.length;
         options.onFrameSent?.({
@@ -373,12 +397,38 @@ export async function streamPacketizedFixture(options: {
       (error instanceof DOMException && error.name === "AbortError") ||
       (error as { name?: string })?.name === "AbortError"
     ) {
-      return { framesSent, packetsSent };
+      return {
+        framesSent,
+        packetsSent,
+        multiPacketFrames,
+        firstRtpTimestamp,
+        lastRtpTimestamp,
+        timestampAdvanced:
+          firstRtpTimestamp !== undefined &&
+          lastRtpTimestamp !== undefined &&
+          lastRtpTimestamp !== firstRtpTimestamp,
+        payloadType: track.codec?.payloadType ?? payloadType,
+        negotiatedMime: track.codec?.mimeType,
+        clockRate,
+      };
     }
     throw error;
   }
 
-  return { framesSent, packetsSent };
+  return {
+    framesSent,
+    packetsSent,
+    multiPacketFrames,
+    firstRtpTimestamp,
+    lastRtpTimestamp,
+    timestampAdvanced:
+      firstRtpTimestamp !== undefined &&
+      lastRtpTimestamp !== undefined &&
+      lastRtpTimestamp !== firstRtpTimestamp,
+    payloadType: track.codec?.payloadType ?? payloadType,
+    negotiatedMime: track.codec?.mimeType,
+    clockRate,
+  };
 }
 
 export type DepacketizeStats = {
@@ -386,6 +436,13 @@ export type DepacketizeStats = {
   keyframeCount: number;
   totalBytes: number;
   negotiatedMime?: string;
+  /** Last observed RTP payload type */
+  payloadType?: number;
+  /** First / last RTP timestamp seen on depacketized frames */
+  firstRtpTimestamp?: number;
+  lastRtpTimestamp?: number;
+  /** True when lastRtpTimestamp advanced past firstRtpTimestamp (uint32 wrap-aware) */
+  timestampAdvanced?: boolean;
   usedPackagesRtp: true;
 };
 
@@ -439,6 +496,17 @@ export function attachDepacketizer(options: {
       typeof output.frame.timestamp === "number"
         ? output.frame.timestamp
         : 0;
+    if (stats.firstRtpTimestamp === undefined) {
+      stats.firstRtpTimestamp = rtpTimestamp;
+    }
+    stats.lastRtpTimestamp = rtpTimestamp;
+    if (
+      stats.firstRtpTimestamp !== undefined &&
+      stats.lastRtpTimestamp !== undefined &&
+      stats.lastRtpTimestamp !== stats.firstRtpTimestamp
+    ) {
+      stats.timestampAdvanced = true;
+    }
     options.onFrame?.({
       data: output.frame.data,
       isKeyframe: output.frame.isKeyframe,
@@ -449,6 +517,7 @@ export function attachDepacketizer(options: {
   let lastSsrc: number | undefined = track.ssrc;
   const subscription = track.onReceiveRtp.subscribe((rtp) => {
     lastSsrc = rtp.header.ssrc;
+    stats.payloadType = rtp.header.payloadType;
     try {
       depacketizer.input({ rtp });
     } catch (error) {

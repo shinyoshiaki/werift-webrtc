@@ -13,7 +13,14 @@ console.log({ browserName, version: browser.getBrowserVersion() });
 const transport = new WebSocketTransport(`ws://localhost:${e2ePort}`);
 export const peer = new Peer(transport);
 
-export async function waitVideoPlay(track: MediaStreamTrack) {
+/**
+ * Wait until the video frame pixels change (decoded motion / content).
+ * Throws if no change within timeoutMs so E2E does not hang forever.
+ */
+export async function waitVideoPlay(
+  track: MediaStreamTrack,
+  timeoutMs = 30_000,
+) {
   const video = document.createElement("video");
   const media = new MediaStream([track]);
   video.srcObject = media;
@@ -32,7 +39,14 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
     context.getImageData(0, 0, canvas.width, canvas.height).data,
   );
 
+  const started = performance.now();
   for (;;) {
+    if (performance.now() - started > timeoutMs) {
+      video.pause();
+      video.srcObject = null;
+      canvas.remove();
+      throw new Error(`waitVideoPlay timed out after ${timeoutMs}ms`);
+    }
     await new Promise((r) => setTimeout(r, 100));
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const data = await digestMessage(
@@ -44,6 +58,7 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
 
   video.pause();
   video.srcObject = null;
+  canvas.remove();
 }
 
 /**

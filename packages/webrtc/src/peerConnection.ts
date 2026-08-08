@@ -22,9 +22,13 @@ import {
   RtpRouter,
   TransceiverManager,
   type TransceiverOptions,
+  useAV1,
+  useAV1X,
+  useH264,
   useOPUS,
   usePCMU,
   useVP8,
+  useVP9,
 } from "./media";
 import {
   type RTCPeerConnectionStats,
@@ -1361,7 +1365,9 @@ function generateDefaultPeerConfig(): PeerConfig {
   return {
     codecs: {
       audio: [useOPUS(), usePCMU()],
-      video: [useVP8()],
+      // Include standard AV1 (and AV1X legacy) alongside common browser codecs.
+      // VP8 stays first for historical default negotiation stability.
+      video: [useVP8(), useAV1(), useAV1X(), useVP9(), useH264()],
     },
     headerExtensions: {
       audio: [],
