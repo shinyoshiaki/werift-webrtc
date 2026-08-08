@@ -34,12 +34,10 @@ Playwright’s open-source Chromium. Black frames remain acceptable for H.264 de
 Only set `__E2E_ALLOW_H264_SKIP__=1` in the browser context for intentional local OSS-Chromium
 runs; default is **fail** if H.264 is missing so CI does not greenwash P0.
 
-**Scenario A (depacketize) note:** Headless Chrome often does not emit H.264 RTP toward
-werift even when H.264 is in `getCapabilities`. The server waits briefly for Chrome RTP;
-if none arrives after H.264 negotiation, it runs `packages/rtp` Packetizer → Depacketizer
-on the committed `h264.mp4` fixture (the same bitstream family Chrome decodes in scenario B)
-so depacketize is still exercised under an H.264-negotiated PC. Scenario B always uses live
-Chrome receive of packetized fixture RTP.
+**Scenario A (depacketize)** requires live Chrome RTP (`source: "chrome"`). There is **no**
+fixture fallback that can greenwash P0. Use Google Chrome (see above) so H.264 encode is
+available; the browser is offerer / Node answers. Scenario B always uses live Chrome receive
+of packetized fixture RTP.
 
 ## Regenerating (developers)
 

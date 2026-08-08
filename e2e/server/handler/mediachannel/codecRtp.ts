@@ -23,16 +23,12 @@ import {
   codecKind,
   codecMimeHint,
   createRtpPacketizer,
-  demuxCodecFixture,
   streamPacketizedFixture,
   useCodecParameters,
   useH264CodecList,
   waitForTrackCodec,
-  clockRateFor,
-  depacketizerCodecName,
 } from "../../codecRtpUtils";
 import { DtlsKeysContext } from "../../fixture";
-import { DepacketizeCallback } from "../../../../packages/webrtc/src/nonstandard";
 
 type LivePacketizeMetrics = {
   framesSent: number;
@@ -186,22 +182,18 @@ function livePacketizeStatus(
 }
 
 /**
- * Scenario A: Chrome → Node depacketize (Node offerer / Chrome answerer).
- * H.264 software encode is unreliable in headless Chrome → if no RTP arrives
- * after negotiation, fall back to packages/rtp Packetizer→Depacketizer of the
- * H.264 fixture (same payload Chrome decodes in scenario B) so depacketizer is
- * still exercised under an H.264-negotiated PeerConnection.
+ * Scenario A: Chrome → Node depacketize.
+ * Chrome is the offerer (sendonly); Node answers recvonly — better for H.264 encode interop.
+ * Success requires RTP that arrived on the receive track (source: "chrome"); no fixture fallback.
  */
 class DepacketizeHandler {
   private state: HandlerState = { stoppers: [] };
-  private h264FallbackStarted = false;
   constructor(private readonly codec: CodecRtpName) {}
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
       case "init": {
         this.state = { stoppers: [] };
-        this.h264FallbackStarted = false;
         const pc = await createPc(this.codec);
         this.state.pc = pc;
         const kind = codecKind(this.codec);
@@ -239,7 +231,14 @@ class DepacketizeHandler {
           });
         });
 
-        await pc.setLocalDescription(await pc.createOffer());
+        // Chrome will create the offer; Node only prepares the PC here
+        accept({});
+        break;
+      }
+      case "offer": {
+        const pc = this.state.pc!;
+        await pc.setRemoteDescription(payload);
+        await pc.setLocalDescription(await pc.createAnswer());
         accept(pc.localDescription);
         break;
       }
@@ -250,29 +249,22 @@ class DepacketizeHandler {
         accept({});
         break;
       }
-      case "answer": {
-        await this.state.pc?.setRemoteDescription(payload);
-        // H.264: schedule encode fallback if Chrome never sends RTP
-        if (this.codec === "h264") {
-          void this.maybeRunH264DepacketizeFallback();
-        }
-        accept({});
-        break;
-      }
       case "status": {
         const stats = this.state.stats;
-        if (stats && isDepacketizeSuccess(stats, this.codec)) {
-          const result = buildDepacketizeResult(
-            this.codec,
-            stats,
-            this.state.pc,
-          );
+        // Require Chrome-originated RTP on the wire (no fixture fallback)
+        const chromeRtpOk = (stats?.rtpPackets ?? 0) >= 1;
+        if (stats && isDepacketizeSuccess(stats, this.codec) && chromeRtpOk) {
+          const result = {
+            ...buildDepacketizeResult(this.codec, stats, this.state.pc),
+            source: "chrome" as const,
+          };
           this.state.result = result;
           accept(result);
         } else {
           accept({
             ok: false,
             codec: this.codec,
+            source: chromeRtpOk ? "chrome" : "none",
             expectedMime: useCodecParameters(this.codec).mimeType,
             frameCount: stats?.frameCount ?? 0,
             keyframeCount: stats?.keyframeCount ?? 0,
@@ -295,92 +287,6 @@ class DepacketizeHandler {
         accept(this.state.result ?? { ok: false });
         break;
       }
-    }
-  }
-
-  /**
-   * After a short wait, if Chrome has not produced H.264 RTP, depacketize the
-   * committed H.264 fixture through packages/rtp Packetizer → DepacketizeCallback.
-   * SDP negotiation still uses H.264 with Chrome (scenario B proves decode).
-   */
-  private async maybeRunH264DepacketizeFallback() {
-    if (this.h264FallbackStarted) return;
-    await new Promise((r) => setTimeout(r, 3000));
-    if (this.h264FallbackStarted) return;
-    if ((this.state.stats?.rtpPackets ?? 0) > 0) return;
-    if ((this.state.stats?.frameCount ?? 0) > 0) return;
-    this.h264FallbackStarted = true;
-
-    try {
-      const demuxed = await demuxCodecFixture("h264");
-      const clockRate = clockRateFor("h264");
-      const packetizer = createRtpPacketizer("h264", {
-        maxPayloadSize: 400,
-        parameterSets: demuxed.parameterSets,
-        naluLengthSize: demuxed.naluLengthSize,
-      });
-      const depacketizer = new DepacketizeCallback(
-        depacketizerCodecName("h264"),
-        { isFinalPacketInSequence: (h) => h.marker },
-      );
-      const stats: DepacketizeStats & { rtpPackets?: number } = {
-        frameCount: 0,
-        keyframeCount: 0,
-        totalBytes: 0,
-        clockRate,
-        timestampsMonotonic: true,
-        rtpTimestampDeltas: [],
-        rtpPackets: 0,
-        usedPackagesRtp: true,
-      };
-      depacketizer.pipe((output) => {
-        if (!output.frame || output.frame.data.length === 0) return;
-        stats.frameCount++;
-        stats.totalBytes += output.frame.data.length;
-        if (output.frame.isKeyframe) stats.keyframeCount++;
-        const ts =
-          typeof output.frame.timestamp === "number"
-            ? output.frame.timestamp
-            : 0;
-        if (stats.firstRtpTimestamp === undefined) {
-          stats.firstRtpTimestamp = ts;
-        } else if (
-          stats.lastRtpTimestamp !== undefined &&
-          stats.rtpTimestampDeltas
-        ) {
-          const d = (ts - stats.lastRtpTimestamp) >>> 0;
-          if (d === 0) stats.timestampsMonotonic = false;
-          if (stats.rtpTimestampDeltas.length < 32) {
-            stats.rtpTimestampDeltas.push(d);
-          }
-        }
-        stats.lastRtpTimestamp = ts;
-        stats.timestampAdvanced =
-          stats.firstRtpTimestamp !== undefined &&
-          stats.lastRtpTimestamp !== undefined &&
-          stats.lastRtpTimestamp !== stats.firstRtpTimestamp;
-      });
-
-      for (let i = 0; i < demuxed.samples.length; i++) {
-        const sample = demuxed.samples[i];
-        const rtpTs = Math.round(sample.timestampSec * clockRate) >>> 0;
-        const packets = packetizer.packetize(sample.data, rtpTs, {
-          isKeyframe: sample.isKeyframe,
-          frameType: sample.isKeyframe ? "key" : "delta",
-        });
-        for (const rtp of packets) {
-          stats.rtpPackets = (stats.rtpPackets ?? 0) + 1;
-          stats.payloadType = rtp.header.payloadType;
-          depacketizer.input({ rtp });
-        }
-      }
-      depacketizer.destroy();
-      // Only apply fallback stats if Chrome still produced nothing
-      if ((this.state.stats?.frameCount ?? 0) === 0) {
-        this.state.stats = stats;
-      }
-    } catch (error) {
-      console.warn("[codecRtp] H.264 depacketize fallback failed", error);
     }
   }
 

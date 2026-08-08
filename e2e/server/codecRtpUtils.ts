@@ -629,8 +629,9 @@ export function attachDepacketizer(options: {
         return;
       }
       try {
+        // Only the transceiver that owns this receive track (avoid wrong PLI on repacketize)
         for (const t of pc.getTransceivers()) {
-          if (t.receiver.track === track || t.receiver) {
+          if (t.receiver?.track === track) {
             void t.receiver.sendRtcpPLI(ssrc);
             break;
           }

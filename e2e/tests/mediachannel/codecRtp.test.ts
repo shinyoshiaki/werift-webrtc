@@ -262,29 +262,29 @@ describe("mediachannel_codec_rtp", () => {
               });
               mediaTrack = stream.getTracks()[0];
             }
-            pc.addTrack(mediaTrack);
-            for (const t of pc.getTransceivers()) {
-              preferCodec(t, codecMime(codec), kind);
-            }
+            // Chrome offerer: sendonly track（H.264 含め encode ネゴを安定させる）
+            const transceiver = pc.addTransceiver(mediaTrack, {
+              direction: "sendonly",
+            });
+            preferCodec(transceiver, codecMime(codec), kind);
             // store for cleanup
             (pc as any).__codecRtpCanvasTimer = canvasAnimTimer;
 
-            // Act: Node offer → Chrome answer（映像コーデックは Node 側で固定）
-            const offer = await peer.request(label, { type: "init" });
+            // Act: Chrome offer → Node answer
+            await peer.request(label, { type: "init" });
             serverReady = true;
-            await pc.setRemoteDescription(offer);
-            for (const t of pc.getTransceivers()) {
-              preferCodec(t, codecMime(codec), kind);
-            }
-            await pc.setLocalDescription(await pc.createAnswer());
-            await peer.request(label, {
-              type: "answer",
+            await pc.setLocalDescription(await pc.createOffer());
+            preferCodec(transceiver, codecMime(codec), kind);
+            const answer = await peer.request(label, {
+              type: "offer",
               payload: pc.localDescription,
             });
+            await pc.setRemoteDescription(answer);
 
-            // Assert: Node 側 packages/rtp depacketize + 明示メトリクス
-            const result = await pollDepacketizeSuccess(label);
+            // Assert: Node 側 packages/rtp depacketize + Chrome 由来 RTP 必須
+            const result = await pollDepacketizeSuccess(label, 45_000);
             expect(result.ok).toBe(true);
+            expect(result.source).toBe("chrome");
             expect(result.usedPackagesRtp).toBe(true);
             expect(result.frameCount).toBeGreaterThanOrEqual(1);
             expect(result.totalBytes).toBeGreaterThan(0);

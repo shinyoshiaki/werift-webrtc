@@ -100,21 +100,12 @@ describe("packages/webrtc/tests/media/codecHelpers.test.ts", () => {
     expect(lower.indexOf("video/av1")).toBeLessThan(lower.indexOf("video/av1x"));
   });
 
-  it("defaultPeerConfig advertises AV1 (and common video codecs)", () => {
+  it("defaultPeerConfig keeps VP8 video default; audio OPUS/PCMU", () => {
     // Arrange: codecs は PeerConfig 上 optional なので安全に読む
     const video = defaultPeerConfig.codecs.video ?? [];
     const audio = defaultPeerConfig.codecs.audio ?? [];
-    const mimes = video.map((c) => c.mimeType.toLowerCase());
-    // Assert: もはや VP8 のみではなく AV1 を含む（AV1X は legacy として後段）
-    expect(video.length).toBeGreaterThan(0);
-    expect(mimes).toContain("video/av1");
-    expect(mimes).toContain("video/av1x");
-    expect(mimes).toContain("video/vp8");
-    expect(mimes).toContain("video/vp9");
-    expect(mimes).toContain("video/h264");
-    expect(mimes.length).toBeGreaterThan(1);
-    expect(mimes.indexOf("video/av1")).toBeLessThan(mimes.indexOf("video/av1x"));
-    // 既定 audio は維持
+    // Assert: 既定 video は VP8 のみ（E2E は明示 codecs で AV1/H264 を指定）
+    expect(video.map((c) => c.mimeType.toLowerCase())).toEqual(["video/vp8"]);
     expect(audio.map((c) => c.mimeType.toLowerCase())).toEqual(
       expect.arrayContaining(["audio/opus", "audio/pcmu"]),
     );
