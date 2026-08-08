@@ -18,6 +18,7 @@ credential.env
 __screenshots__
 .env
 packages/webrtc/wpt/progress.state.json
+packages/webrtc/wpt/progress.md
 packages/dtls/tests/e2e/boringssl/dtls13_echo
 packages/dtls/tests/e2e/boringssl/*.o
 packages/dtls/tests/e2e/boringssl/.built-revision
