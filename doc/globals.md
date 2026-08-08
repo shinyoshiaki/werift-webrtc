@@ -443,6 +443,7 @@
 - [url2Address](functions/url2Address.md)
 - [useAbsSendTime](functions/useAbsSendTime.md)
 - [useAudioLevelIndication](functions/useAudioLevelIndication.md)
+- [useAV1](functions/useAV1.md)
 - [useAV1X](functions/useAV1X.md)
 - [useDependencyDescriptor](functions/useDependencyDescriptor.md)
 - [useFIR](functions/useFIR.md)

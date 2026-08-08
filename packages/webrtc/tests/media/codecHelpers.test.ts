@@ -1,4 +1,5 @@
 import {
+  supportedCodecs,
   useAV1,
   useAV1X,
   useG722,
@@ -7,7 +8,6 @@ import {
   usePCMU,
   useVP8,
   useVP9,
-  supportedCodecs,
 } from "../../src/media/codec";
 import {
   defaultPeerConfig,
@@ -97,7 +97,9 @@ describe("packages/webrtc/tests/media/codecHelpers.test.ts", () => {
     // Assert
     expect(lower).toContain("video/av1");
     expect(lower).toContain("video/av1x");
-    expect(lower.indexOf("video/av1")).toBeLessThan(lower.indexOf("video/av1x"));
+    expect(lower.indexOf("video/av1")).toBeLessThan(
+      lower.indexOf("video/av1x"),
+    );
   });
 
   it("defaultPeerConfig keeps VP8 video default; audio OPUS/PCMU", () => {

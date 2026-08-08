@@ -3,7 +3,8 @@
  *
  * A depacketize — Chrome → packages/rtp depacketize
  * B packetize   — fixture → packages/rtp Packetizer → Chrome
- * C repacketize — Chrome → depacketize → re-packetize → Chrome (VP8 required)
+ * C repacketize — Chrome → depacketize → re-packetize → Chrome
+ *                 (VP8 / H.264 / Opus / VP9 / AV1)
  *
  * Packetizer path must use packages/rtp only (not GStreamer pay / webrtc userMedia packetizer).
  */
@@ -407,25 +408,30 @@ describe("mediachannel_codec_rtp", () => {
     }
   });
 
-  // ---------- Scenario C: re-packetize (VP8 required) ----------
+  // ---------- Scenario C: re-packetize (all supported codecs) ----------
   describe("scenario C repacketize (Chrome → de/packetize → Chrome)", () => {
-    for (const codec of ["vp8"] as CodecName[]) {
+    // VP8 必須; H.264 / Opus / VP9 / AV1 も可能な限り実施
+    for (const codec of [
+      "vp8",
+      "h264",
+      "opus",
+      "vp9",
+      "av1",
+    ] as CodecName[]) {
       it(
         `repacketize_${codec}`,
         async (ctx) => {
-          // VP8 C は必須。非対応環境では skip を明示（暗黙 pass しない）
-          if (!chromeCanSend(codec) || !chromeCanRecv(codec)) {
-            console.warn(
-              `skip repacketize_${codec}: Chrome cannot send/recv VP8`,
-            );
-            ctx.skip();
-            return;
-          }
+          // P0 H.264 は capability 欠如時 fail; その他は skip 可
+          requireCodecOrSkip(ctx, codec, "send");
+          requireCodecOrSkip(ctx, codec, "recv");
+
           await ensurePeer();
           const label = method("repacketize", codec);
+          const kind = kindOf(codec);
 
           const pc = new RTCPeerConnection(ICE);
           let serverReady = false;
+          let canvasAnimTimer: ReturnType<typeof setInterval> | undefined;
           try {
             pc.onicecandidate = ({ candidate }) => {
               peer
@@ -437,36 +443,85 @@ describe("mediachannel_codec_rtp", () => {
               pc.ontrack = (ev) => resolve(ev.track);
             });
 
-            // Arrange: 送受両方向
-            const stream = await navigator.mediaDevices.getUserMedia({
-              video: true,
-              audio: false,
-            });
-            pc.addTrack(stream.getTracks()[0]);
-            pc.addTransceiver("video", { direction: "recvonly" });
-            for (const t of pc.getTransceivers()) {
-              preferCodec(t, codecMime(codec), "video");
+            // Arrange: Node offerer の m0=recv / m1=send に合わせて
+            // Chrome は m0=send capture, m1=recv repacketized
+            let mediaTrack: MediaStreamTrack;
+            if (kind === "audio") {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: false,
+                audio: true,
+              });
+              mediaTrack = stream.getTracks()[0];
+            } else if (codec === "h264") {
+              // H.264 encode は canvas の方が headless で安定しやすい
+              const canvas = document.createElement("canvas");
+              canvas.width = 320;
+              canvas.height = 240;
+              const c2d = canvas.getContext("2d")!;
+              let frame = 0;
+              const draw = () => {
+                frame++;
+                c2d.fillStyle = `rgb(${(frame * 5) % 255},60,${(frame * 11) % 255})`;
+                c2d.fillRect(0, 0, canvas.width, canvas.height);
+                c2d.fillStyle = "#fff";
+                c2d.font = "20px sans-serif";
+                c2d.fillText(`C-H264 ${frame}`, 16, 120);
+              };
+              draw();
+              canvasAnimTimer = setInterval(draw, 33);
+              mediaTrack = canvas.captureStream(30).getVideoTracks()[0];
+            } else {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+              mediaTrack = stream.getTracks()[0];
             }
 
-            // Act
-            const offer = await peer.request(label, { type: "init" });
-            serverReady = true;
-            await pc.setRemoteDescription(offer);
+            // Arrange m-lines: m0 send capture, m1 recv repacketized
+            pc.addTrack(mediaTrack);
+            pc.addTransceiver(kind, { direction: "recvonly" });
             for (const t of pc.getTransceivers()) {
-              preferCodec(t, codecMime(codec), "video");
+              preferCodec(t, codecMime(codec), kind);
             }
-            await pc.setLocalDescription(await pc.createAnswer());
-            await peer.request(label, {
-              type: "answer",
-              payload: pc.localDescription,
-            });
+
+            // Act:
+            // - H.264: Chrome offerer（encode 経路、シナリオ A と同じ）
+            // - 他: Node offerer（双方向 m-line が安定）
+            const init = await peer.request(label, { type: "init" });
+            serverReady = true;
+            if (init && (init as any).chromeIsOfferer) {
+              await pc.setLocalDescription(await pc.createOffer());
+              for (const t of pc.getTransceivers()) {
+                preferCodec(t, codecMime(codec), kind);
+              }
+              const answer = await peer.request(label, {
+                type: "offer",
+                payload: pc.localDescription,
+              });
+              await pc.setRemoteDescription(answer);
+            } else {
+              await pc.setRemoteDescription(init);
+              for (const t of pc.getTransceivers()) {
+                preferCodec(t, codecMime(codec), kind);
+              }
+              await pc.setLocalDescription(await pc.createAnswer());
+              await peer.request(label, {
+                type: "answer",
+                payload: pc.localDescription,
+              });
+            }
 
             // Assert Node depacketize + repacketize メトリクス
-            const result = await pollDepacketizeSuccess(label);
+            const result = await pollDepacketizeSuccess(label, 40_000);
             expect(result.ok).toBe(true);
+            expect(result.source).toBe("chrome");
             expect(result.usedPackagesRtp).toBe(true);
             expect(result.frameCount).toBeGreaterThanOrEqual(1);
-            expect(result.keyframeCount).toBeGreaterThanOrEqual(1);
+            expect(result.rtpPackets).toBeGreaterThanOrEqual(1);
+            if (kind === "video") {
+              expect(result.keyframeCount).toBeGreaterThanOrEqual(1);
+            }
             assertNegotiatedMime(
               result.negotiatedMime ?? result.expectedMime,
               codec,
@@ -475,20 +530,37 @@ describe("mediachannel_codec_rtp", () => {
             assertClockAndTimestamps(result, codec);
             expect(result.framesRepacketized).toBeGreaterThanOrEqual(1);
             expect(result.packetsSent).toBeGreaterThanOrEqual(1);
-            // 小さな maxPayloadSize で再 packetize するので multi-packet を期待
-            expect(result.multiPacketFrames).toBeGreaterThanOrEqual(1);
+            // video は小さな maxPayloadSize で multi-packet を期待
+            // Opus は 1 RTP = 1 packet のため multi-packet は不要
+            if (kind === "video") {
+              expect(result.multiPacketFrames).toBeGreaterThanOrEqual(1);
+            }
 
-            // Assert Chrome が再 packetize された映像を再生
+            // Assert Chrome が再 packetize されたメディアを受信
             const remoteTrack = await received;
-            await waitVideoPlay(remoteTrack, 30_000);
+            if (codec === "h264") {
+              // H.264 は黒画面可 — 画素変化は必須にしない
+              const inbound = await waitInboundRtp(pc, 3, 30_000);
+              expect(inbound.packetsReceived).toBeGreaterThanOrEqual(3);
+            } else if (kind === "video") {
+              await waitVideoPlay(remoteTrack, 25_000);
+            } else {
+              try {
+                await waitAudioPlay(remoteTrack, 12_000);
+              } catch {
+                const inbound = await waitInboundRtp(pc, 5, 15_000);
+                expect(inbound.packetsReceived).toBeGreaterThanOrEqual(5);
+              }
+            }
           } finally {
+            if (canvasAnimTimer) clearInterval(canvasAnimTimer);
             if (serverReady) {
               await requestServerDone(label);
             }
             pc.close();
           }
         },
-        60_000,
+        90_000,
       );
     }
   });
