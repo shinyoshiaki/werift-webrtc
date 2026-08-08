@@ -1001,12 +1001,8 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       // Final flight is retransmittable until server ACK (RFC 9147)
       await this.sendHandshakeFlight(clientMsgs, 2, true);
 
-      // Defer server-flight ACK until after the enclosing record is noted in
-      // receivedRecordNumbers (noteHandshakeRecordForAck runs after process returns).
-      // Also includes EE/Cert/CV/Finished from the same server flight already noted.
-      queueMicrotask(() => {
-        void this.sendAck().catch((e) => log("deferred server-flight ACK", e));
-      });
+      // RX layer will sendAck() after noting this Finished record number
+      this.ackAfterCurrentRecord = true;
 
       this.writeEpoch = 3;
       this.readEpoch = 3;
@@ -1044,10 +1040,8 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.readEpoch = 3;
       this.writeEpoch = 3;
 
-      // Defer ACK until client Finished record is noted for ACK bookkeeping
-      queueMicrotask(() => {
-        void this.sendAck().catch((e) => log("deferred client-flight ACK", e));
-      });
+      // RX layer will sendAck() after noting this Finished record number
+      this.ackAfterCurrentRecord = true;
 
       this.markConnected();
       log("server connected");

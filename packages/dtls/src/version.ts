@@ -48,14 +48,16 @@ export function normalizeProtocolVersions(
     }
   }
   // Epic 1 supported dual pattern is [V1_3, V1_2] only.
-  // Intentional [V1_2, V1_3] (prefer 1.2 while 1.3-capable) is not supported:
-  // it requires full TLS 1.3 downgrade-sentinel server semantics for 1.2 selection.
+  // Preferring 1.2 while advertising 1.3 requires full downgrade-sentinel server
+  // semantics — fail-fast rather than silently rewriting preference order.
   if (
     out.includes(DtlsVersion.V1_2) &&
     out.includes(DtlsVersion.V1_3) &&
     out[0] !== DtlsVersion.V1_3
   ) {
-    return [DtlsVersion.V1_3, DtlsVersion.V1_2];
+    throw new Error(
+      "protocolVersions [V1_2, V1_3] is not supported; use [V1_3, V1_2]",
+    );
   }
   return out;
 }

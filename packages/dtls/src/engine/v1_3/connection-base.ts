@@ -158,11 +158,21 @@ export abstract class Dtls13ConnectionBase {
   protected handshakeInbox = new Map<number, FragmentedHandshake>();
   protected nextReceiveSeq = 0;
   /**
-   * Handshake records successfully received/buffered awaiting ACK emission
-   * (RFC 9147 §7.1: never include non-handshake content types).
+   * Handshake records of the *current remote inbound flight* awaiting ACK
+   * (RFC 9147 §7: ACK lists only the current outstanding remote flight).
    */
   protected receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] =
     [];
+  /**
+   * After we send a local flight, the next successfully accepted peer handshake
+   * record starts a new remote flight — clear the previous ACK list then.
+   */
+  protected clearRemoteAckOnNextInbound = false;
+  /**
+   * Set by handlers (e.g. onFinished) so the RX layer sends ACK only after
+   * the current record has been noted for ACK bookkeeping.
+   */
+  protected ackAfterCurrentRecord = false;
   /**
    * Handshake records that were successfully accepted (processed or buffered).
    * Replay path re-ACKs only records present here — anti-replay alone does not
@@ -415,10 +425,7 @@ export abstract class Dtls13ConnectionBase {
     this.retransmitCount = 0;
   }
 
-  /**
-   * Drop pending ACK record numbers at flight boundaries so later ACKs do not
-   * re-list records from a previous flight (RFC 9147 §7 bookkeeping).
-   */
+  /** Drop pending remote-flight ACK record numbers. */
   protected clearAckAccumulator() {
     this.receivedRecordNumbers = [];
   }

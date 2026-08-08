@@ -22,11 +22,11 @@ describe("selectVersion (association layer)", () => {
     expect(v).toBe(DtlsVersion.V1_3);
   });
 
-  test("normalizeProtocolVersions coerces [1.2,1.3] → [1.3,1.2]", () => {
-    // Arrange / Act / Assert: Epic 1 does not support 1.2-first dual
-    expect(
+  test("normalizeProtocolVersions rejects [1.2,1.3] (fail-fast)", () => {
+    // Arrange / Act / Assert: Epic 1 does not support 1.2-first dual; no silent rewrite
+    expect(() =>
       normalizeProtocolVersions([DtlsVersion.V1_2, DtlsVersion.V1_3]),
-    ).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
+    ).toThrow(/not supported.*\[V1_3, V1_2\]/);
   });
 
   test("1.3-only local with dual peer → 1.3", () => {

@@ -120,9 +120,10 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     this.carrier.events.onFlightCreated?.(flightId, notifyPackets);
 
     if (retransmittable) {
-      // NOTE: do NOT clearAckAccumulator here — that tracks *remote inbound*
-      // records we still need to ACK (e.g. server flight before client final).
-      // Clear only after sendAck() emits those numbers.
+      // New local outbound flight: next accepted peer HS record starts a new
+      // remote flight → clear old remote ACK list at that point (RFC 9147 §7).
+      // Do NOT clear receivedRecordNumbers here (local send ≠ remote ACK state).
+      this.clearRemoteAckOnNextInbound = true;
       this.pendingFlight = cachePackets;
       this.pendingFlightRecordGroups = datagramRecordGroups.map((g) =>
         g.map((r) => ({ ...r })),
@@ -406,8 +407,14 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
   /**
    * Queue a successfully accepted handshake record for the next ACK
    * (dedupe + cap). Also marks it as accepted for replay re-ACK.
+   * If this is the first record of a new remote flight (after we sent a local
+   * flight), clear the previous flight's ACK list first (RFC 9147 §7).
    */
   protected noteHandshakeRecordForAck(epoch: number, sequenceNumber: number) {
+    if (this.clearRemoteAckOnNextInbound) {
+      this.receivedRecordNumbers = [];
+      this.clearRemoteAckOnNextInbound = false;
+    }
     this.markHandshakeRecordAccepted(epoch, sequenceNumber);
     const exists = this.receivedRecordNumbers.some(
       (r) => r.epoch === epoch && r.sequenceNumber === sequenceNumber,

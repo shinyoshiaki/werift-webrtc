@@ -121,17 +121,29 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       if (!rec) break;
       offset += rec.consumed;
       try {
-        // ACK only after successful accept of handshake content (not before
-        // processing — discarded/failed records must not be acknowledged).
+        // Order is critical (RFC 9147 §7):
+        //   1) process/accept handshake content
+        //   2) note record for current remote flight ACK list
+        //   3) if handler requested ACK after this record, sendAck()
+        // queueMicrotask cannot be used for (3): microtasks run before this
+        // continuation, so Finished would be missing from the ACK.
         if (rec.kind === "plaintext") {
           const accepted = await this.onPlaintextRecordAsync(rec);
           if (accepted && rec.contentType === ContentType.handshake) {
             this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+            if (this.ackAfterCurrentRecord) {
+              this.ackAfterCurrentRecord = false;
+              await this.sendAck();
+            }
           }
         } else {
           const accepted = await this.onCiphertextRecordAsync(rec);
           if (accepted && rec.contentType === ContentType.handshake) {
             this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
+            if (this.ackAfterCurrentRecord) {
+              this.ackAfterCurrentRecord = false;
+              await this.sendAck();
+            }
           }
         }
       } catch (e) {

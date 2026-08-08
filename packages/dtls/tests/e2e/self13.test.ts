@@ -1017,58 +1017,25 @@ test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
   });
 }, 20_000);
 
-test("e2e/self13 [V1_2,V1_3] normalizes to 1.3-first preference", async () => {
-  // Arrange: Epic 1 does not support intentional 1.2-before-1.3 preference
-  const serverTransport = await UdpTransport.init("udp4");
-  const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = serverTransport.address;
-  const server = new DtlsServer({
-    transport: serverTransport,
-    cert: certPem,
-    key: keyPem,
-    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
-    addressValidation: "none",
-  });
-  const client = new DtlsClient({
-    transport: clientTransport,
-    cert: certPem,
-    key: keyPem,
-    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
-    addressValidation: "none",
-  });
-
-  // Assert: both sides coerce to [1.3, 1.2] and negotiate DTLS 1.3
-  expect(server.protocolVersions).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
-  expect(client.protocolVersions).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
-
-  await new Promise<void>(async (resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("normalized dual 1.3 timeout")),
-      15_000,
-    );
-    client.onConnect.subscribe(() => {
-      expect(client.isDtls13).toBe(true);
-      expect(server.isDtls13).toBe(true);
-      void client.send(Buffer.from("norm13"));
-    });
-    server.onData.subscribe((d) => {
-      expect(d.toString()).toBe("norm13");
-      clearTimeout(timer);
-      client.close();
-      server.close();
-      resolve();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    await client.connect();
-  });
-}, 20_000);
+test("e2e/self13 [V1_2,V1_3] is rejected (fail-fast, no silent rewrite)", () => {
+  // Arrange / Act / Assert: preference order is part of the API contract
+  expect(
+    () =>
+      new DtlsServer({
+        transport: { send: async () => {}, onData: () => {}, close: async () => {} } as any,
+        cert: certPem,
+        key: keyPem,
+        protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+      }),
+  ).toThrow(/not supported.*\[V1_3, V1_2\]/);
+  expect(
+    () =>
+      new DtlsClient({
+        transport: { send: async () => {}, onData: () => {}, close: async () => {} } as any,
+        protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+      }),
+  ).toThrow(/not supported.*\[V1_3, V1_2\]/);
+});
 
 test("e2e/self13 default options remain DTLS 1.2", async () => {
   // Arrange: protocolVersions 未指定 + 1.2 に必要な signatureHash
