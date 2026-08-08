@@ -1222,15 +1222,29 @@ export class RTCPeerConnection extends EventTarget {
     await this.secureManager.close();
     await this.sctpManager.close();
 
-    this.onDataChannel.allUnsubscribe();
-    this.iceGatheringStateChange.allUnsubscribe();
-    this.iceConnectionStateChange.allUnsubscribe();
-    this.signalingStateChange.allUnsubscribe();
-    this.onTransceiverAdded.allUnsubscribe();
-    this.onRemoteTransceiverAdded.allUnsubscribe();
-    this.onIceCandidate.allUnsubscribe();
+    // 公開 Event を完了させ、購読者・クロージャが PeerConnection を保持し続けないようにする
+    this.completePeerEvents();
 
     log("peerConnection closed");
+  }
+
+  private completePeerEvents() {
+    const events = [
+      this.onDataChannel,
+      this.iceGatheringStateChange,
+      this.iceConnectionStateChange,
+      this.signalingStateChange,
+      this.connectionStateChange,
+      this.onTransceiverAdded,
+      this.onRemoteTransceiverAdded,
+      this.onIceCandidate,
+      this.onNegotiationneeded,
+    ] as const;
+    for (const event of events) {
+      if (!event.ended) {
+        event.complete();
+      }
+    }
   }
 }
 
