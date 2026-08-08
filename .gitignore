@@ -22,4 +22,4 @@ __screenshots__
 packages/webrtc/wpt/progress.state.json
 
 .cache/
-
+artifacts/
