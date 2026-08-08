@@ -6,8 +6,10 @@
 
 # Class: DtlsVersionSelected
 
-Intentional dual-stack version selection result (not a handshake failure).
-Association layer switches engines; must not be treated as public onError.
+Dual-stack association signal: peer used DTLS 1.2 HelloVerifyRequest cookie path.
+Not a final version selection — association continues dual negotiation on the
+1.2 cookie path while still advertising supported_versions including 1.3.
+Must not be treated as public onError.
 
 ## Extends
 
@@ -17,7 +19,7 @@ Association layer switches engines; must not be treated as public onError.
 
 ### new DtlsVersionSelected()
 
-> **new DtlsVersionSelected**(`version`, `message`?): [`DtlsVersionSelected`](DtlsVersionSelected.md)
+> **new DtlsVersionSelected**(`version`, `message`?, `helloVerifyCookie`?): [`DtlsVersionSelected`](DtlsVersionSelected.md)
 
 #### Parameters
 
@@ -28,6 +30,12 @@ Association layer switches engines; must not be treated as public onError.
 ##### message?
 
 `string`
+
+##### helloVerifyCookie?
+
+`Buffer`\<`ArrayBufferLike`\>
+
+Cookie from HelloVerifyRequest to continue dual CH on 1.2 path.
 
 #### Returns
 
@@ -52,6 +60,14 @@ Association layer switches engines; must not be treated as public onError.
 ### code
 
 > `readonly` **code**: `"version_selected"` = `"version_selected"`
+
+***
+
+### helloVerifyCookie?
+
+> `readonly` `optional` **helloVerifyCookie**: `Buffer`\<`ArrayBufferLike`\>
+
+Cookie from HelloVerifyRequest to continue dual CH on 1.2 path.
 
 ***
 

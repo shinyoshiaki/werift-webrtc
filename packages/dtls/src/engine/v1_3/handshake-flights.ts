@@ -27,8 +27,8 @@ import { SupportedVersions } from "../../handshake/extensions/supportedVersions"
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { Finished } from "../../handshake/message/finished";
-import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { ServerHello } from "../../handshake/message/server/hello";
+import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { Certificate13 } from "../../handshake/message/tls13/certificate";
 import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
 import { CertificateVerify13 } from "../../handshake/message/tls13/certificateVerify";

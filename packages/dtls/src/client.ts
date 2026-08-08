@@ -5,8 +5,8 @@ import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
 import { HandshakeType } from "./handshake/const";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
-import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { ServerHello } from "./handshake/message/server/hello";
+import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
@@ -108,7 +108,9 @@ export class DtlsClient extends DtlsSocket {
         // Dual extensions: 1.2 suites + supported_versions [1.3,1.2]
         this.setupExtensionsForDualCookiePath();
         void this.continueDualAfterHvr(e.helloVerifyCookie).catch((err) =>
-          this.onError.execute(err instanceof Error ? err : new Error(String(err))),
+          this.onError.execute(
+            err instanceof Error ? err : new Error(String(err)),
+          ),
         );
       });
     }

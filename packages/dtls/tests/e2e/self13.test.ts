@@ -1038,14 +1038,8 @@ test("e2e/self13 [V1_2,V1_3] normalizes to 1.3-first preference", async () => {
   });
 
   // Assert: both sides coerce to [1.3, 1.2] and negotiate DTLS 1.3
-  expect(server.protocolVersions).toEqual([
-    DtlsVersion.V1_3,
-    DtlsVersion.V1_2,
-  ]);
-  expect(client.protocolVersions).toEqual([
-    DtlsVersion.V1_3,
-    DtlsVersion.V1_2,
-  ]);
+  expect(server.protocolVersions).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
+  expect(client.protocolVersions).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
 
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
