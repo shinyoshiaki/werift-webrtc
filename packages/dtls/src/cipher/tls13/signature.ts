@@ -13,13 +13,14 @@ import { hashSha256 } from "./hkdf";
 
 /**
  * Sign TLS 1.3 CertificateVerify content with the local private key.
- * Prefer rsa_pss_rsae_sha256 for RSA, ecdsa_secp256r1_sha256 for EC.
+ * RSA uses rsa_pss_rsae_sha256 only (RFC 8446 forbids rsa_pkcs1_* for CV).
+ * EC uses ecdsa_secp256r1_sha256.
  */
 export function signCertificateVerify(
   keyPem: string,
   isServer: boolean,
   transcript: Buffer,
-  preferredScheme?: number,
+  _preferredScheme?: number,
 ): { algorithm: number; signature: Buffer } {
   const content = buildCertificateVerifyContent(
     isServer,
@@ -29,23 +30,16 @@ export function signCertificateVerify(
   const type = key.asymmetricKeyType;
 
   if (type === "rsa") {
-    const algorithm =
-      preferredScheme === SignatureScheme.rsa_pkcs1_sha256
-        ? SignatureScheme.rsa_pkcs1_sha256
-        : SignatureScheme.rsa_pss_rsae_sha256;
-    if (algorithm === SignatureScheme.rsa_pss_rsae_sha256) {
-      const signer = createSign("sha256");
-      signer.update(content);
-      const signature = signer.sign({
-        key,
-        padding: 6, // RSA_PKCS1_PSS_PADDING
-        saltLength: 32,
-      });
-      return { algorithm, signature };
-    }
-    const signer = createSign("RSA-SHA256");
+    // TLS 1.3 CertificateVerify: RSA-PSS only (never PKCS#1 v1.5)
+    const algorithm = SignatureScheme.rsa_pss_rsae_sha256;
+    const signer = createSign("sha256");
     signer.update(content);
-    return { algorithm, signature: signer.sign(key) };
+    const signature = signer.sign({
+      key,
+      padding: 6, // RSA_PKCS1_PSS_PADDING
+      saltLength: 32,
+    });
+    return { algorithm, signature };
   }
 
   if (type === "ec") {
@@ -63,6 +57,7 @@ export function signCertificateVerify(
 
 /**
  * Verify TLS 1.3 CertificateVerify against peer certificate DER.
+ * Accepts only RSA-PSS and ECDSA schemes (not rsa_pkcs1_*).
  */
 export function verifyCertificateVerify(
   certDer: Buffer,
@@ -94,10 +89,14 @@ export function verifyCertificateVerify(
     );
   }
 
-  if (algorithm === SignatureScheme.rsa_pkcs1_sha256) {
-    const verifier = createVerify("RSA-SHA256");
-    verifier.update(content);
-    return verifier.verify(key, signature);
+  // RFC 8446 §4.4.3: rsa_pkcs1_* MUST NOT be used for CertificateVerify in TLS 1.3
+  if (
+    algorithm === SignatureScheme.rsa_pkcs1_sha256 ||
+    algorithm === 0x0401
+  ) {
+    throw new Error(
+      `CertificateVerify algorithm 0x${algorithm.toString(16)} (rsa_pkcs1) forbidden in TLS 1.3`,
+    );
   }
 
   if (algorithm === SignatureScheme.ecdsa_secp256r1_sha256) {

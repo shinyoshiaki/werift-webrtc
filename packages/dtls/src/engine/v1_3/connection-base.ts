@@ -25,6 +25,8 @@ import {
   type AddressValidationMode,
   type Dtls13Options,
   EPOCH_KEY_TTL_MS,
+  EPOCH_PRUNE_INTERVAL_MS,
+  MAX_ACCEPTED_HS_RECORDS,
   MAX_RETAINED_APP_EPOCHS,
   type Role,
   log,
@@ -87,11 +89,17 @@ export abstract class Dtls13ConnectionBase {
    */
   protected pendingFlightRecordGroups: AckRecordNumber[][] = [];
   /**
+   * Wire bytes for each pending handshake record (parallel to pendingFlightRecords).
+   * Enables selective retransmit of only un-ACK'd records after partial ACK.
+   */
+  protected pendingFlightRecordBytes: Buffer[] = [];
+  /**
    * ServerHello (epoch 0) retransmitted with the encrypted server flight until
    * the flight is fully ACK'd (SH loss otherwise leaves client without keys).
    */
   protected pendingServerHello?: DtlsHandshakeDatagram;
   protected cancelRetransmit: (() => void) | undefined;
+  protected cancelEpochPrune: (() => void) | undefined;
   protected retransmitCount = 0;
   protected readonly maxRetransmit = 10;
   protected closed = false;
@@ -120,11 +128,17 @@ export abstract class Dtls13ConnectionBase {
   protected handshakeInbox = new Map<number, FragmentedHandshake>();
   protected nextReceiveSeq = 0;
   /**
-   * Handshake records successfully received/buffered awaiting ACK
+   * Handshake records successfully received/buffered awaiting ACK emission
    * (RFC 9147 §7.1: never include non-handshake content types).
    */
   protected receivedRecordNumbers: { epoch: number; sequenceNumber: number }[] =
     [];
+  /**
+   * Handshake records that were successfully accepted (processed or buffered).
+   * Replay path re-ACKs only records present here — anti-replay alone does not
+   * imply the peer may treat the record as acknowledged.
+   */
+  protected acceptedHandshakeRecords = new Set<string>();
   /**
    * After sending KeyUpdate, hold next write epoch until peer ACK (RFC 9147 §8).
    * Application data continues on the old writeEpoch until this is applied.
@@ -215,12 +229,68 @@ export abstract class Dtls13ConnectionBase {
         self.scheduleRetransmit();
       }
     };
+    // Timer-driven epoch TTL prune so idle connections still drop old keys
+    this.scheduleEpochPrune();
+  }
+
+  /**
+   * Periodic prune so idle connections expire old epoch keys without new traffic.
+   * Uses a dedicated timer (not carrier.schedule) so handshake-complete
+   * cancelAllTimers() does not stop TTL expiry after connect.
+   */
+  protected scheduleEpochPrune(): void {
+    this.cancelEpochPrune?.();
+    if (this.closed) return;
+    const id = setInterval(() => {
+      if (this.closed) {
+        clearInterval(id);
+        return;
+      }
+      this.pruneStaleEpochs();
+    }, EPOCH_PRUNE_INTERVAL_MS);
+    // Unref so tests / process exit are not blocked by the idle prune timer
+    if (typeof (id as NodeJS.Timeout).unref === "function") {
+      (id as NodeJS.Timeout).unref();
+    }
+    this.cancelEpochPrune = () => {
+      clearInterval(id);
+      this.cancelEpochPrune = undefined;
+    };
   }
 
   protected installEpoch(epoch: number, ep: EpochProtection): void {
     this.epochs.set(epoch, ep);
     this.epochInstalledAt.set(epoch, Date.now());
     this.pruneStaleEpochs();
+  }
+
+  protected handshakeRecordKey(epoch: number, sequenceNumber: number): string {
+    return `${epoch}:${sequenceNumber}`;
+  }
+
+  /** Remember a successfully accepted handshake record for future re-ACK on replay. */
+  protected markHandshakeRecordAccepted(
+    epoch: number,
+    sequenceNumber: number,
+  ): void {
+    const key = this.handshakeRecordKey(epoch, sequenceNumber);
+    this.acceptedHandshakeRecords.add(key);
+    // Bound memory: drop oldest-ish by re-creating from recent received list
+    if (this.acceptedHandshakeRecords.size > MAX_ACCEPTED_HS_RECORDS) {
+      const keys = [...this.acceptedHandshakeRecords];
+      this.acceptedHandshakeRecords = new Set(
+        keys.slice(-MAX_ACCEPTED_HS_RECORDS),
+      );
+    }
+  }
+
+  protected wasHandshakeRecordAccepted(
+    epoch: number,
+    sequenceNumber: number,
+  ): boolean {
+    return this.acceptedHandshakeRecords.has(
+      this.handshakeRecordKey(epoch, sequenceNumber),
+    );
   }
 
   protected zeroizeTrafficKeys(keys?: {
@@ -305,6 +375,7 @@ export abstract class Dtls13ConnectionBase {
     this.pendingFlight = [];
     this.pendingFlightRecords = [];
     this.pendingFlightRecordGroups = [];
+    this.pendingFlightRecordBytes = [];
     this.pendingServerHello = undefined;
     this.retransmitCount = 0;
   }
@@ -343,6 +414,8 @@ export abstract class Dtls13ConnectionBase {
     log("fail", err.message);
     // Always stop timers / pending retransmits and refuse further 1.3 RX
     this.clearPendingFlight();
+    this.cancelEpochPrune?.();
+    this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();
     this.closed = true;
     this.onError.execute(err);

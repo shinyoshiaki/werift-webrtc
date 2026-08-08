@@ -4,6 +4,7 @@ import {
   DirectHandshakeCarrier,
   createHandshakeDatagram,
 } from "../../../src/carrier/direct";
+import { SignatureScheme } from "../../../src/cipher/const";
 import { HandshakeType } from "../../../src/handshake/const";
 import {
   cookieBinding,
@@ -11,9 +12,21 @@ import {
   peerKeyFromAddr,
   verifyCookie,
 } from "../../../src/handshake/extensions/cookie";
-import { remainingAfterAck } from "../../../src/handshake/message/tls13/ack";
+import {
+  DEFAULT_SIGNATURE_SCHEMES,
+  SignatureScheme13,
+} from "../../../src/handshake/extensions/signatureAlgorithms";
+import {
+  DtlsAck,
+  recordsFullyAcked,
+  remainingAfterAck,
+} from "../../../src/handshake/message/tls13/ack";
 import { Certificate13 } from "../../../src/handshake/message/tls13/certificate";
 import { FragmentedHandshake } from "../../../src/record/message/fragment";
+import {
+  EPOCH_KEY_TTL_MS,
+  EPOCH_PRUNE_INTERVAL_MS,
+} from "../../../src/engine/v1_3/types";
 
 describe("security bounds: cookie binding", () => {
   test("cookie verifies only for matching peer + ClientHello", () => {
@@ -151,6 +164,93 @@ describe("security bounds: partial ACK", () => {
     // Assert: RFC 9147 empty ACK は再送促進用で何も acknowledge しない
     expect(left).toEqual(pending);
     expect(left.length).toBe(2);
+  });
+
+  test("recordsFullyAcked is false for mixed partial groups", () => {
+    // Arrange: 同一 datagram に ACK 済みと未 ACK が混在
+    const group = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+    ];
+    // Act / Assert: 部分 ACK では group 全体は fully-acked ではない
+    expect(
+      recordsFullyAcked(group, [{ epoch: 2, sequenceNumber: 0 }]),
+    ).toBe(false);
+    expect(
+      recordsFullyAcked(group, [
+        { epoch: 2, sequenceNumber: 0 },
+        { epoch: 2, sequenceNumber: 1 },
+      ]),
+    ).toBe(true);
+  });
+
+  test("selective retransmit keeps only unacked record bytes", () => {
+    // Arrange: 3 records in one logical flight; middle is ACK'd
+    const records = [
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 1 },
+      { epoch: 2, sequenceNumber: 2 },
+    ];
+    const bytes = [
+      Buffer.from("rec0"),
+      Buffer.from("rec1"),
+      Buffer.from("rec2"),
+    ];
+    const acked = [{ epoch: 2, sequenceNumber: 1 }];
+    const done = new Set(acked.map((r) => `${r.epoch}:${r.sequenceNumber}`));
+    // Act: engine と同様に record+bytes を同時に間引き
+    const keptRecs: { epoch: number; sequenceNumber: number }[] = [];
+    const keptBytes: Buffer[] = [];
+    for (let i = 0; i < records.length; i++) {
+      if (!done.has(`${records[i].epoch}:${records[i].sequenceNumber}`)) {
+        keptRecs.push(records[i]);
+        keptBytes.push(bytes[i]);
+      }
+    }
+    // Assert: ACK 済み rec1 は再送集合に残らない
+    expect(keptRecs).toEqual([
+      { epoch: 2, sequenceNumber: 0 },
+      { epoch: 2, sequenceNumber: 2 },
+    ]);
+    expect(keptBytes.map((b) => b.toString())).toEqual(["rec0", "rec2"]);
+    expect(keptBytes.some((b) => b.toString() === "rec1")).toBe(false);
+  });
+
+  test("empty ACK wire codec roundtrips zero record_numbers", () => {
+    // Arrange / Act
+    const empty = new DtlsAck([]);
+    const wire = empty.serialize();
+    const parsed = DtlsAck.deSerialize(wire);
+    // Assert
+    expect(wire.readUInt16BE(0)).toBe(0);
+    expect(parsed.recordNumbers).toEqual([]);
+  });
+});
+
+describe("security bounds: TLS 1.3 signature schemes", () => {
+  test("DEFAULT_SIGNATURE_SCHEMES omits forbidden rsa_pkcs1_sha256", () => {
+    // Arrange / Act / Assert: CertificateVerify 用広告に PKCS#1 を含めない
+    expect(DEFAULT_SIGNATURE_SCHEMES).toContain(
+      SignatureScheme13.ecdsa_secp256r1_sha256,
+    );
+    expect(DEFAULT_SIGNATURE_SCHEMES).toContain(
+      SignatureScheme13.rsa_pss_rsae_sha256,
+    );
+    expect(DEFAULT_SIGNATURE_SCHEMES).not.toContain(
+      SignatureScheme13.rsa_pkcs1_sha256,
+    );
+    expect(DEFAULT_SIGNATURE_SCHEMES).not.toContain(
+      SignatureScheme.rsa_pkcs1_sha256,
+    );
+  });
+});
+
+describe("security bounds: epoch TTL constants", () => {
+  test("epoch prune interval is positive and less than TTL", () => {
+    // Arrange / Act / Assert: アイドル接続でも TTL 内に prune が走る
+    expect(EPOCH_KEY_TTL_MS).toBeGreaterThan(0);
+    expect(EPOCH_PRUNE_INTERVAL_MS).toBeGreaterThan(0);
+    expect(EPOCH_PRUNE_INTERVAL_MS).toBeLessThan(EPOCH_KEY_TTL_MS);
   });
 });
 

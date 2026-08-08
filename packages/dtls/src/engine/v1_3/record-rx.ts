@@ -1,11 +1,9 @@
-import type { DtlsHandshakeDatagram } from "../../carrier/types";
 import { HandshakeType } from "../../handshake/const";
 import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { Alert } from "../../handshake/message/alert";
 import {
   type AckRecordNumber,
   DtlsAck,
-  recordsFullyAcked,
   remainingAfterAck,
 } from "../../handshake/message/tls13/ack";
 import { AlertDesc, ContentType } from "../../record/const";
@@ -91,7 +89,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           this.resolveEpochCandidates(low),
         );
       } catch (e) {
-        // Replay of already-processed handshake record: re-ACK so peer advances
+        // Replay: re-ACK only if we previously successfully accepted this HS record
+        // (anti-replay alone must not imply the record is acknowledged).
         if (
           e instanceof DtlsReplayError ||
           (e as Error)?.name === "DtlsReplayError"
@@ -100,8 +99,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           log("drop replay/too-old record", re.message);
           if (re.consumed > 0) {
             offset += re.consumed;
-            if (re.contentType === ContentType.handshake) {
-              this.noteHandshakeRecordForAck(re.epoch, re.sequenceNumber);
+            if (
+              re.contentType === ContentType.handshake &&
+              this.noteReplayForAck(re.epoch, re.sequenceNumber)
+            ) {
               void this.sendAck().catch((err) =>
                 log("re-ACK after replay failed", err),
               );
@@ -194,6 +195,11 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       this.handleAlert(rec.fragment);
       return false;
     }
+    if (rec.contentType === ContentType.ack) {
+      // RFC 9147: ACK may appear on any epoch including epoch-0 plaintext
+      this.handleAck(rec.fragment);
+      return false;
+    }
     if (rec.contentType === ContentType.handshake) {
       return this.processHandshakeBytes(rec.fragment, 0);
     }
@@ -272,24 +278,34 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         return;
       }
       const before = this.pendingFlightRecords.length;
-      this.pendingFlightRecords = remainingAfterAck(
-        this.pendingFlightRecords,
-        ack.recordNumbers,
-      );
-      // Selective retransmit: drop datagrams whose records are fully ACK'd
-      if (this.pendingFlight.length === this.pendingFlightRecordGroups.length) {
-        const keptFlight: DtlsHandshakeDatagram[] = [];
-        const keptGroups: AckRecordNumber[][] = [];
-        for (let i = 0; i < this.pendingFlight.length; i++) {
-          const group = this.pendingFlightRecordGroups[i] ?? [];
-          if (!recordsFullyAcked(group, ack.recordNumbers)) {
-            keptGroups.push(remainingAfterAck(group, ack.recordNumbers));
-            keptFlight.push(this.pendingFlight[i]);
+      // Drop ACK'd records (and their wire bytes) so retransmit never resends them
+      if (
+        this.pendingFlightRecordBytes.length ===
+        this.pendingFlightRecords.length
+      ) {
+        const acked = new Set(
+          ack.recordNumbers.map((r) => `${r.epoch}:${r.sequenceNumber}`),
+        );
+        const keptRecs: AckRecordNumber[] = [];
+        const keptBytes: Buffer[] = [];
+        for (let i = 0; i < this.pendingFlightRecords.length; i++) {
+          const r = this.pendingFlightRecords[i];
+          if (!acked.has(`${r.epoch}:${r.sequenceNumber}`)) {
+            keptRecs.push(r);
+            keptBytes.push(this.pendingFlightRecordBytes[i]);
           }
         }
-        this.pendingFlight = keptFlight;
-        this.pendingFlightRecordGroups = keptGroups;
+        this.pendingFlightRecords = keptRecs;
+        this.pendingFlightRecordBytes = keptBytes;
+      } else {
+        this.pendingFlightRecords = remainingAfterAck(
+          this.pendingFlightRecords,
+          ack.recordNumbers,
+        );
+        this.pendingFlightRecordBytes = [];
       }
+      // Rebuild datagrams from remaining individual records only (selective TX)
+      this.rebuildPendingFlightFromRecords();
       if (this.pendingFlightRecords.length === before) {
         log("ACK ignored: no pending flight records matched");
         return;
@@ -301,6 +317,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           "of",
           before,
         );
+        // Nudge retransmit timer so unacked records go out promptly
+        this.scheduleRetransmit();
         return;
       }
       // Fully ACK'd

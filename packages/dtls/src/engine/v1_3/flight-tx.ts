@@ -124,13 +124,22 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       this.pendingFlightRecordGroups = datagramRecordGroups.map((g) =>
         g.map((r) => ({ ...r })),
       );
-      this.pendingFlightRecords = packetRecords.filter((r) =>
-        datagramRecordGroups.some((g) =>
-          g.some(
-            (x) => x.epoch === r.epoch && x.sequenceNumber === r.sequenceNumber,
-          ),
+      // Only records actually placed in sent datagrams (anti-amp may drop some)
+      const sentKeys = new Set(
+        datagramRecordGroups.flatMap((g) =>
+          g.map((r) => `${r.epoch}:${r.sequenceNumber}`),
         ),
       );
+      this.pendingFlightRecords = [];
+      this.pendingFlightRecordBytes = [];
+      for (let i = 0; i < packetRecords.length; i++) {
+        const r = packetRecords[i];
+        if (sentKeys.has(`${r.epoch}:${r.sequenceNumber}`)) {
+          this.pendingFlightRecords.push({ ...r });
+          // Independent copy so selective retransmit never mutates originals
+          this.pendingFlightRecordBytes.push(Buffer.from(packets[i]));
+        }
+      }
       this.retransmitCount = 0;
       this.scheduleRetransmit();
     }
@@ -143,6 +152,51 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       }
       await this.carrier.send(pkt);
     }
+  }
+
+  /**
+   * Rebuild pendingFlight datagrams from still-pending individual record bytes.
+   * After partial ACK, only un-ACK'd records are retransmitted (not whole mixed
+   * datagrams that still contain ACK'd records).
+   */
+  protected rebuildPendingFlightFromRecords(): void {
+    if (
+      this.pendingFlightRecords.length === 0 ||
+      this.pendingFlightRecordBytes.length !==
+        this.pendingFlightRecords.length
+    ) {
+      this.pendingFlight = [];
+      this.pendingFlightRecordGroups = [];
+      return;
+    }
+    const mtu = this.carrier.getMtu();
+    const datagrams: Buffer[] = [];
+    const groups: AckRecordNumber[][] = [];
+    let current = Buffer.alloc(0);
+    let currentRecs: AckRecordNumber[] = [];
+    for (let i = 0; i < this.pendingFlightRecordBytes.length; i++) {
+      const p = this.pendingFlightRecordBytes[i];
+      const rn = this.pendingFlightRecords[i];
+      if (current.length + p.length > mtu && current.length > 0) {
+        datagrams.push(current);
+        groups.push(currentRecs);
+        current = Buffer.from(p);
+        currentRecs = [{ ...rn }];
+      } else {
+        current = current.length
+          ? Buffer.concat([current, p])
+          : Buffer.from(p);
+        currentRecs.push({ ...rn });
+      }
+    }
+    if (current.length) {
+      datagrams.push(current);
+      groups.push(currentRecs);
+    }
+    this.pendingFlight = datagrams.map((bytes, i) =>
+      createHandshakeDatagram(bytes, this.flightId, i, true),
+    );
+    this.pendingFlightRecordGroups = groups;
   }
 
   /**
@@ -214,17 +268,14 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     this.scheduleRetransmit();
   }
 
-  protected async sendAck(): Promise<void> {
-    // Use the current sending epoch (highest write keys we are allowed to use).
-    // Never prefer a stale epoch 3 after KeyUpdate advanced writeEpoch.
-    const ep =
-      this.epochs.get(this.writeEpoch) ||
-      this.epochs.get(2) ||
-      this.epochs.get(3);
-    if (!ep?.writeKeys) return;
-
-    if (this.receivedRecordNumbers.length === 0) {
-      // Empty ACK is allowed but useless; skip to reduce bandwidth
+  /**
+   * Send an ACK listing successfully accepted handshake records (RFC 9147 §7).
+   * Empty record_numbers is allowed and prompts peer retransmission.
+   * Prefers encrypted epoch (writeEpoch / 2 / 3); falls back to epoch-0 plaintext.
+   */
+  protected async sendAck(opts?: { allowEmpty?: boolean }): Promise<void> {
+    const allowEmpty = opts?.allowEmpty === true;
+    if (this.receivedRecordNumbers.length === 0 && !allowEmpty) {
       return;
     }
     // Sort by epoch then sequence (RFC 9147 record_numbers order is free, but
@@ -238,10 +289,30 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       .slice(0, MAX_ACK_RECORD_NUMBERS);
     this.receivedRecordNumbers = [];
     const ack = new DtlsAck(numbers);
-    const record = encryptRecord(ack.serialize(), ContentType.ack, ep);
-    // Always send via transport (application path); not part of retransmit flight
+    const body = ack.serialize();
+
+    // Prefer encrypted ACK on current write epoch (handshake or app)
+    const ep =
+      this.epochs.get(this.writeEpoch) ||
+      this.epochs.get(2) ||
+      this.epochs.get(3);
+    if (ep?.writeKeys) {
+      const record = encryptRecord(body, ContentType.ack, ep);
+      this.bytesSent += record.length;
+      await this.options.transport.send(record);
+      return;
+    }
+
+    // Epoch 0 plaintext ACK (early handshake / no traffic keys yet)
+    const seq = this.recordSeqEpoch0++;
+    const record = serializePlaintextRecord(ContentType.ack, 0, seq, body);
     this.bytesSent += record.length;
     await this.options.transport.send(record);
+  }
+
+  /** Explicit empty ACK path (RFC 9147 §7: prompts peer retransmit). */
+  protected async sendEmptyAck(): Promise<void> {
+    await this.sendAck({ allowEmpty: true });
   }
 
   protected async sendFatalAlert(description: number): Promise<void> {
@@ -264,7 +335,6 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     }
   }
 
-  /** Queue a handshake record number for the next ACK (dedupe + cap). */
   protected alertDescForHandshakeError(err: Error): number {
     const m = err.message;
     if (/verify_data|Finished|DecryptError|MAC/i.test(m)) {
@@ -304,7 +374,12 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     );
   }
 
+  /**
+   * Queue a successfully accepted handshake record for the next ACK
+   * (dedupe + cap). Also marks it as accepted for replay re-ACK.
+   */
   protected noteHandshakeRecordForAck(epoch: number, sequenceNumber: number) {
+    this.markHandshakeRecordAccepted(epoch, sequenceNumber);
     const exists = this.receivedRecordNumbers.some(
       (r) => r.epoch === epoch && r.sequenceNumber === sequenceNumber,
     );
@@ -317,6 +392,28 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         -MAX_ACK_RECORD_NUMBERS,
       );
     }
+  }
+
+  /**
+   * Re-queue a previously accepted handshake record for ACK on replay.
+   * Does nothing if the record was never successfully accepted.
+   */
+  protected noteReplayForAck(epoch: number, sequenceNumber: number): boolean {
+    if (!this.wasHandshakeRecordAccepted(epoch, sequenceNumber)) {
+      return false;
+    }
+    const exists = this.receivedRecordNumbers.some(
+      (r) => r.epoch === epoch && r.sequenceNumber === sequenceNumber,
+    );
+    if (!exists) {
+      this.receivedRecordNumbers.push({ epoch, sequenceNumber });
+    }
+    if (this.receivedRecordNumbers.length > MAX_ACK_RECORD_NUMBERS) {
+      this.receivedRecordNumbers = this.receivedRecordNumbers.slice(
+        -MAX_ACK_RECORD_NUMBERS,
+      );
+    }
+    return true;
   }
 
   /**

@@ -20,8 +20,12 @@ export const FRAGMENT_TTL_MS = 30_000;
 /** Post-handshake / KeyUpdate epoch retention (time + count). */
 export const MAX_RETAINED_APP_EPOCHS = 4;
 export const EPOCH_KEY_TTL_MS = 60_000;
+/** How often to run idle epoch TTL prune (timer-driven, not only on epoch ops). */
+export const EPOCH_PRUNE_INTERVAL_MS = 5_000;
 /** RFC 9147 ACK record_numbers list upper bound (bytes ≈ 16 * N). */
 export const MAX_ACK_RECORD_NUMBERS = 32;
+/** Cap of successfully accepted handshake records tracked for replay re-ACK. */
+export const MAX_ACCEPTED_HS_RECORDS = 64;
 
 export const log = debug("werift-dtls : packages/dtls/src/engine/v1_3");
 

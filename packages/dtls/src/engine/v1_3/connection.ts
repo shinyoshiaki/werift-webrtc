@@ -84,6 +84,8 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     if (this.closed) return;
     this.closed = true;
     this.clearPendingFlight();
+    this.cancelEpochPrune?.();
+    this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();
     this.carrier.close();
     void this.options.transport.close().catch(() => {});
@@ -111,6 +113,8 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
    */
   releaseForVersionFallback(): void {
     this.clearPendingFlight();
+    this.cancelEpochPrune?.();
+    this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();
     this.carrier.close();
     this.closed = true;
