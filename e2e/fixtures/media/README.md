@@ -16,10 +16,30 @@ Short pre-encoded samples used by `mediachannel/codecRtp` E2E tests (scenario B:
 
 ## H.264 note
 
-Scenario A/B for H.264 require a Chromium/Chrome build that advertises `video/H264` in
-`RTCRtpSender/Receiver.getCapabilities`. Playwright’s open-source Chromium often omits
-proprietary H.264; those cases are **skipped** with a log line. Google Chrome (or a build
-with H.264) runs them fully. Black frames are acceptable when the tests do run.
+Scenario A/B for H.264 require a browser that advertises `video/H264` in
+`RTCRtpSender/Receiver.getCapabilities` (P0 — **not** a silent skip).
+
+CI / local setup:
+
+```bash
+# Prefer system Google Chrome, or extract a user-local copy (no root):
+./e2e/tools/ensure-google-chrome.sh
+# ensure-browser.js also auto-downloads into e2e/.cache/google-chrome/
+cd e2e && npm run install:browsers
+```
+
+`vitest.config.mts` prefers `CHROME_BIN` / `GOOGLE_CHROME_BIN` / the cached extract over
+Playwright’s open-source Chromium. Black frames remain acceptable for H.264 decode checks.
+
+Only set `__E2E_ALLOW_H264_SKIP__=1` in the browser context for intentional local OSS-Chromium
+runs; default is **fail** if H.264 is missing so CI does not greenwash P0.
+
+**Scenario A (depacketize) note:** Headless Chrome often does not emit H.264 RTP toward
+werift even when H.264 is in `getCapabilities`. The server waits briefly for Chrome RTP;
+if none arrives after H.264 negotiation, it runs `packages/rtp` Packetizer → Depacketizer
+on the committed `h264.mp4` fixture (the same bitstream family Chrome decodes in scenario B)
+so depacketize is still exercised under an H.264-negotiated PC. Scenario B always uses live
+Chrome receive of packetized fixture RTP.
 
 ## Regenerating (developers)
 

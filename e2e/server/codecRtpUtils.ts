@@ -99,10 +99,32 @@ export function useCodecParameters(codec: CodecRtpName): RTCRtpCodecParameters {
     case "av1":
       return useAV1();
     case "h264":
-      return useH264();
+      // Match Chrome's preferred Constrained Baseline (42001f) first, then 42e01f
+      return useH264({
+        parameters:
+          "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
+      });
     case "opus":
       return useOPUS();
   }
+}
+
+/** All H.264 variants we advertise for broader Chrome encode negotiation. */
+export function useH264CodecList(): RTCRtpCodecParameters[] {
+  return [
+    useH264({
+      parameters:
+        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
+    }),
+    useH264({
+      parameters:
+        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+    }),
+    useH264({
+      parameters:
+        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f",
+    }),
+  ];
 }
 
 export function clockRateFor(codec: CodecRtpName): number {
@@ -205,7 +227,44 @@ export type DemuxedCodecSource = {
   samples: EncodedFrameSample[];
   parameterSets?: Buffer[];
   naluLengthSize?: number;
+  /**
+   * Media duration of one full pass (seconds), derived from sample timestamps
+   * plus one average inter-frame gap (or codec default when single sample).
+   */
+  durationSec: number;
+  /** Average inter-sample interval in seconds (from fixture timestamps). */
+  averageIntervalSec: number;
 };
+
+/**
+ * Derive loop duration and average frame interval from demuxed sample times.
+ */
+export function computeFixtureTiming(samples: EncodedFrameSample[]): {
+  durationSec: number;
+  averageIntervalSec: number;
+} {
+  if (samples.length === 0) {
+    return { durationSec: 0, averageIntervalSec: 0 };
+  }
+  if (samples.length === 1) {
+    // Single sample: treat as one default frame/packet duration
+    const averageIntervalSec = 1 / 30;
+    return { durationSec: averageIntervalSec, averageIntervalSec };
+  }
+  const last = samples[samples.length - 1].timestampSec;
+  const gaps: number[] = [];
+  for (let i = 1; i < samples.length; i++) {
+    const d = samples[i].timestampSec - samples[i - 1].timestampSec;
+    if (d > 0) gaps.push(d);
+  }
+  const averageIntervalSec =
+    gaps.length > 0
+      ? gaps.reduce((a, b) => a + b, 0) / gaps.length
+      : 1 / 30;
+  // Full pass ends one interval after the last sample so looping does not collapse timestamps
+  const durationSec = last + averageIntervalSec;
+  return { durationSec, averageIntervalSec };
+}
 
 /**
  * Demux a committed fixture into raw encoded frames for packages/rtp Packetizer.
@@ -269,7 +328,14 @@ export async function demuxCodecFixture(
       throw new Error(`no encoded samples in ${path}`);
     }
 
-    return { samples, parameterSets, naluLengthSize };
+    const timing = computeFixtureTiming(samples);
+    return {
+      samples,
+      parameterSets,
+      naluLengthSize,
+      durationSec: timing.durationSec,
+      averageIntervalSec: timing.averageIntervalSec,
+    };
   } finally {
     input.dispose();
   }
@@ -293,10 +359,21 @@ export type PacketizeStreamStats = {
   firstRtpTimestamp?: number;
   lastRtpTimestamp?: number;
   timestampAdvanced: boolean;
+  /** True when every successive frame RTP timestamp strictly increased (uint32). */
+  timestampsMonotonic: boolean;
+  /** RTP timestamp deltas between successive frames (at most 32 samples). */
+  rtpTimestampDeltas: number[];
   payloadType?: number;
   negotiatedMime?: string;
   clockRate: number;
+  fixtureDurationSec: number;
+  averageIntervalSec: number;
 };
+
+/** uint32 forward delta (handles wrap). */
+export function uint32Delta(prev: number, next: number): number {
+  return (next - prev) >>> 0;
+}
 
 export async function streamPacketizedFixture(options: {
   codec: CodecRtpName;
@@ -315,6 +392,8 @@ export async function streamPacketizedFixture(options: {
   const demuxed = await demuxCodecFixture(codec);
   const clockRate = clockRateFor(codec);
   const packetizer = createRtpPacketizer(codec, {
+    // Prefer negotiated PT when the track is already attached to a sender
+    payloadType: track.codec?.payloadType ?? 96,
     parameterSets: demuxed.parameterSets,
     naluLengthSize: demuxed.naluLengthSize,
   });
@@ -324,6 +403,8 @@ export async function streamPacketizedFixture(options: {
   let multiPacketFrames = 0;
   let firstRtpTimestamp: number | undefined;
   let lastRtpTimestamp: number | undefined;
+  let timestampsMonotonic = true;
+  const rtpTimestampDeltas: number[] = [];
   let payloadType: number | undefined;
   let loopIndex = 0;
 
@@ -341,30 +422,43 @@ export async function streamPacketizedFixture(options: {
       signal.addEventListener("abort", onAbort, { once: true });
     });
 
+  const buildStats = (): PacketizeStreamStats => ({
+    framesSent,
+    packetsSent,
+    multiPacketFrames,
+    firstRtpTimestamp,
+    lastRtpTimestamp,
+    timestampAdvanced:
+      firstRtpTimestamp !== undefined &&
+      lastRtpTimestamp !== undefined &&
+      lastRtpTimestamp !== firstRtpTimestamp,
+    timestampsMonotonic: framesSent < 2 ? true : timestampsMonotonic,
+    rtpTimestampDeltas: [...rtpTimestampDeltas],
+    payloadType: track.codec?.payloadType ?? payloadType,
+    negotiatedMime: track.codec?.mimeType,
+    clockRate,
+    fixtureDurationSec: demuxed.durationSec,
+    averageIntervalSec: demuxed.averageIntervalSec,
+  });
+
   try {
     do {
+      // Pace every loop from fixture media times + loop duration offset
+      const loopMediaOffsetSec = loopIndex * demuxed.durationSec;
       const startedAt = performance.now();
       for (let i = 0; i < demuxed.samples.length; i++) {
         if (signal.aborted) {
           break;
         }
         const sample = demuxed.samples[i];
-        // Pace roughly in real time (first loop); subsequent loops send ASAP with small gap
-        if (loopIndex === 0) {
-          const due = sample.timestampSec * 1000 - (performance.now() - startedAt);
-          if (due > 0) {
-            await sleep(due);
-          }
-        } else {
-          await sleep(codec === "opus" ? 20 : 33);
+        const mediaTimeSec = loopMediaOffsetSec + sample.timestampSec;
+        const due = mediaTimeSec * 1000 - (performance.now() - startedAt);
+        if (due > 0) {
+          await sleep(due);
         }
 
-        // Offset timestamp each loop so RTP clock keeps advancing
-        const baseOffset = loopIndex * demuxed.samples.length * (clockRate / 30);
-        const rtpTimestamp = toRtpTimestamp(
-          sample.timestampSec + baseOffset / clockRate,
-          clockRate,
-        );
+        // RTP timestamp = media seconds * clockRate (strict clock mapping)
+        const rtpTimestamp = toRtpTimestamp(mediaTimeSec, clockRate);
 
         const packets = packetizer.packetize(sample.data, rtpTimestamp, {
           isKeyframe: sample.isKeyframe,
@@ -379,6 +473,15 @@ export async function streamPacketizedFixture(options: {
         }
         if (firstRtpTimestamp === undefined) {
           firstRtpTimestamp = rtpTimestamp;
+        } else if (lastRtpTimestamp !== undefined) {
+          const delta = uint32Delta(lastRtpTimestamp, rtpTimestamp);
+          // Strict forward progress: delta must be > 0 and not full wrap (0)
+          if (delta === 0) {
+            timestampsMonotonic = false;
+          }
+          if (rtpTimestampDeltas.length < 32) {
+            rtpTimestampDeltas.push(delta);
+          }
         }
         lastRtpTimestamp = rtpTimestamp;
         framesSent++;
@@ -397,38 +500,12 @@ export async function streamPacketizedFixture(options: {
       (error instanceof DOMException && error.name === "AbortError") ||
       (error as { name?: string })?.name === "AbortError"
     ) {
-      return {
-        framesSent,
-        packetsSent,
-        multiPacketFrames,
-        firstRtpTimestamp,
-        lastRtpTimestamp,
-        timestampAdvanced:
-          firstRtpTimestamp !== undefined &&
-          lastRtpTimestamp !== undefined &&
-          lastRtpTimestamp !== firstRtpTimestamp,
-        payloadType: track.codec?.payloadType ?? payloadType,
-        negotiatedMime: track.codec?.mimeType,
-        clockRate,
-      };
+      return buildStats();
     }
     throw error;
   }
 
-  return {
-    framesSent,
-    packetsSent,
-    multiPacketFrames,
-    firstRtpTimestamp,
-    lastRtpTimestamp,
-    timestampAdvanced:
-      firstRtpTimestamp !== undefined &&
-      lastRtpTimestamp !== undefined &&
-      lastRtpTimestamp !== firstRtpTimestamp,
-    payloadType: track.codec?.payloadType ?? payloadType,
-    negotiatedMime: track.codec?.mimeType,
-    clockRate,
-  };
+  return buildStats();
 }
 
 export type DepacketizeStats = {
@@ -443,6 +520,10 @@ export type DepacketizeStats = {
   lastRtpTimestamp?: number;
   /** True when lastRtpTimestamp advanced past firstRtpTimestamp (uint32 wrap-aware) */
   timestampAdvanced?: boolean;
+  /** True when every successive depacketized frame timestamp strictly increased */
+  timestampsMonotonic?: boolean;
+  rtpTimestampDeltas?: number[];
+  clockRate: number;
   usedPackagesRtp: true;
 };
 
@@ -476,10 +557,16 @@ export function attachDepacketizer(options: {
     isFinalPacketInSequence: isVideo ? (h) => h.marker : undefined,
   });
 
+  const clockRate = clockRateFor(codec);
+  const rtpTimestampDeltas: number[] = [];
+  let timestampsMonotonic = true;
   const stats: DepacketizeStats = {
     frameCount: 0,
     keyframeCount: 0,
     totalBytes: 0,
+    clockRate,
+    timestampsMonotonic: true,
+    rtpTimestampDeltas,
     usedPackagesRtp: true,
   };
 
@@ -498,15 +585,22 @@ export function attachDepacketizer(options: {
         : 0;
     if (stats.firstRtpTimestamp === undefined) {
       stats.firstRtpTimestamp = rtpTimestamp;
+    } else if (stats.lastRtpTimestamp !== undefined) {
+      const delta = uint32Delta(stats.lastRtpTimestamp, rtpTimestamp);
+      if (delta === 0) {
+        timestampsMonotonic = false;
+      }
+      if (rtpTimestampDeltas.length < 32) {
+        rtpTimestampDeltas.push(delta);
+      }
     }
     stats.lastRtpTimestamp = rtpTimestamp;
-    if (
+    stats.timestampAdvanced =
       stats.firstRtpTimestamp !== undefined &&
       stats.lastRtpTimestamp !== undefined &&
-      stats.lastRtpTimestamp !== stats.firstRtpTimestamp
-    ) {
-      stats.timestampAdvanced = true;
-    }
+      stats.lastRtpTimestamp !== stats.firstRtpTimestamp;
+    stats.timestampsMonotonic =
+      stats.frameCount < 2 ? true : timestampsMonotonic;
     options.onFrame?.({
       data: output.frame.data,
       isKeyframe: output.frame.isKeyframe,

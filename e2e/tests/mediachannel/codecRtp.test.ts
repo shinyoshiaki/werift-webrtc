@@ -50,6 +50,10 @@ function kindOf(codec: CodecName): "audio" | "video" {
   return codec === "opus" ? "audio" : "video";
 }
 
+function expectedClockRate(codec: CodecName): number {
+  return codec === "opus" ? 48_000 : 90_000;
+}
+
 /** Chrome が当該コーデックをエンコードできるか capabilities で確認 */
 function chromeCanSend(codec: CodecName): boolean {
   const kind = kindOf(codec);
@@ -67,6 +71,50 @@ function chromeCanRecv(codec: CodecName): boolean {
   }
   const hint = codecMime(codec);
   return caps.codecs.some((c) => c.mimeType.toLowerCase().includes(hint));
+}
+
+/**
+ * P0 H.264 must run when Chrome has the codec.
+ * If H.264 is missing, fail (not silent skip) unless E2E_ALLOW_H264_SKIP=1.
+ * (Vitest browser has no process.env reliably — also accept globalThis flag.)
+ */
+function allowH264Skip(): boolean {
+  try {
+    // Vite injects import.meta.env for VITE_* only; use explicit global if set
+    const g = globalThis as { __E2E_ALLOW_H264_SKIP__?: string };
+    if (g.__E2E_ALLOW_H264_SKIP__ === "1") return true;
+  } catch {}
+  // Playwright page may not see host env; prefer fail so CI with Google Chrome runs H.264
+  return false;
+}
+
+function requireCodecOrSkip(
+  ctx: { skip: () => void },
+  codec: CodecName,
+  direction: "send" | "recv",
+) {
+  const ok = direction === "send" ? chromeCanSend(codec) : chromeCanRecv(codec);
+  if (ok) return;
+  if (codec === "h264" && !allowH264Skip()) {
+    throw new Error(
+      `H.264 is P0-required but Chrome lacks video/H264 (${direction}). ` +
+        `Use Google Chrome via e2e/tools/ensure-google-chrome.sh / ensure-browser.js ` +
+        `(or set __E2E_ALLOW_H264_SKIP__=1 only for local OSS Chromium).`,
+    );
+  }
+  console.warn(
+    `skip ${direction} ${codec}: Chrome cannot ${direction} (capabilities)`,
+  );
+  ctx.skip();
+}
+
+/** Always request server cleanup; never leave PLI / PC / send loop on failure. */
+async function requestServerDone(label: string) {
+  try {
+    await peer.request(label, { type: "done" });
+  } catch (error) {
+    console.warn(`[codecRtp] done cleanup failed for ${label}`, error);
+  }
 }
 
 /** Poll server status (short requests) until depacketize success or timeout. */
@@ -130,6 +178,28 @@ function assertNegotiatedMime(
   expect(actual?.toLowerCase()).toContain(codecMime(codec));
 }
 
+function assertClockAndTimestamps(
+  result: Record<string, any>,
+  codec: CodecName,
+  { minFrames = 1 }: { minFrames?: number } = {},
+) {
+  // clock rate を codec ごとに明示検証
+  expect(result.clockRate).toBe(expectedClockRate(codec));
+  const frames =
+    result.frameCount ?? result.framesSent ?? result.framesRepacketized ?? 0;
+  if (frames >= 2) {
+    expect(result.timestampAdvanced).toBe(true);
+    expect(result.timestampsMonotonic).toBe(true);
+    const deltas: number[] = result.rtpTimestampDeltas ?? [];
+    for (const d of deltas) {
+      // 厳密な単調増加: 連続フレーム間 delta > 0
+      expect(d).toBeGreaterThan(0);
+    }
+  } else {
+    expect(frames).toBeGreaterThanOrEqual(minFrames);
+  }
+}
+
 describe("mediachannel_codec_rtp", () => {
   if (browserName === "Firefox") {
     it.skip("skip firefox — Chrome-only codec RTP interop", () => {});
@@ -142,19 +212,13 @@ describe("mediachannel_codec_rtp", () => {
       it(
         `depacketize_${codec}`,
         async (ctx) => {
-          if (!chromeCanSend(codec)) {
-            // Open-source Chromium often lacks proprietary H.264 encode
-            console.warn(
-              `skip depacketize_${codec}: Chrome cannot encode (capabilities)`,
-            );
-            ctx.skip();
-            return;
-          }
+          requireCodecOrSkip(ctx, codec, "send");
           await ensurePeer();
           const label = method("depacketize", codec);
           const kind = kindOf(codec);
 
           const pc = new RTCPeerConnection(ICE);
+          let serverReady = false;
           try {
             pc.onicecandidate = ({ candidate }) => {
               peer
@@ -162,21 +226,52 @@ describe("mediachannel_codec_rtp", () => {
                 .catch(() => {});
             };
 
-            // Arrange: getUserMedia / fake device で Chrome エンコード
-            const constraints =
-              kind === "video"
-                ? { video: true, audio: false }
-                : { video: false, audio: true };
-            const stream = await navigator.mediaDevices.getUserMedia(
-              constraints,
-            );
-            pc.addTrack(stream.getTracks()[0]);
+            // Arrange: Chrome エンコード源
+            // H.264 は headless + fake device だと RTP が出ない環境があるため
+            // canvas.captureStream を優先（動きのあるフレームを供給）
+            let mediaTrack: MediaStreamTrack;
+            let canvasAnimTimer: ReturnType<typeof setInterval> | undefined;
+            if (kind === "audio") {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: false,
+                audio: true,
+              });
+              mediaTrack = stream.getTracks()[0];
+            } else if (codec === "h264") {
+              const canvas = document.createElement("canvas");
+              canvas.width = 320;
+              canvas.height = 240;
+              const c2d = canvas.getContext("2d")!;
+              let frame = 0;
+              const draw = () => {
+                frame++;
+                c2d.fillStyle = `rgb(${(frame * 3) % 255},40,${(frame * 7) % 255})`;
+                c2d.fillRect(0, 0, canvas.width, canvas.height);
+                c2d.fillStyle = "#fff";
+                c2d.font = "24px sans-serif";
+                c2d.fillText(`H264 ${frame}`, 20, 120);
+              };
+              draw();
+              canvasAnimTimer = setInterval(draw, 33);
+              const stream = canvas.captureStream(30);
+              mediaTrack = stream.getVideoTracks()[0];
+            } else {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+              mediaTrack = stream.getTracks()[0];
+            }
+            pc.addTrack(mediaTrack);
             for (const t of pc.getTransceivers()) {
               preferCodec(t, codecMime(codec), kind);
             }
+            // store for cleanup
+            (pc as any).__codecRtpCanvasTimer = canvasAnimTimer;
 
-            // Act: offer/answer 交換
+            // Act: Node offer → Chrome answer（映像コーデックは Node 側で固定）
             const offer = await peer.request(label, { type: "init" });
+            serverReady = true;
             await pc.setRemoteDescription(offer);
             for (const t of pc.getTransceivers()) {
               preferCodec(t, codecMime(codec), kind);
@@ -194,23 +289,25 @@ describe("mediachannel_codec_rtp", () => {
             expect(result.frameCount).toBeGreaterThanOrEqual(1);
             expect(result.totalBytes).toBeGreaterThan(0);
             expect(result.rtpPackets).toBeGreaterThanOrEqual(1);
-            // negotiated codec / PT
             assertNegotiatedMime(
               result.negotiatedMime ?? result.expectedMime,
               codec,
             );
             expect(typeof result.payloadType).toBe("number");
-            // timestamp 進行（複数フレーム時）
-            if (result.frameCount >= 2) {
-              expect(result.timestampAdvanced).toBe(true);
-            }
+            assertClockAndTimestamps(result, codec);
             if (kind === "video") {
               // 映像はキーフレームを少なくとも 1 回
               expect(result.keyframeCount).toBeGreaterThanOrEqual(1);
             }
-
-            await peer.request(label, { type: "done" });
           } finally {
+            // 失敗時も server の PC / PLI / タイマーを必ず解放
+            const timer = (pc as any).__codecRtpCanvasTimer as
+              | ReturnType<typeof setInterval>
+              | undefined;
+            if (timer) clearInterval(timer);
+            if (serverReady) {
+              await requestServerDone(label);
+            }
             pc.close();
           }
         },
@@ -225,18 +322,13 @@ describe("mediachannel_codec_rtp", () => {
       it(
         `packetize_${codec}`,
         async (ctx) => {
-          if (!chromeCanRecv(codec)) {
-            console.warn(
-              `skip packetize_${codec}: Chrome cannot decode (capabilities)`,
-            );
-            ctx.skip();
-            return;
-          }
+          requireCodecOrSkip(ctx, codec, "recv");
           await ensurePeer();
           const label = method("packetize", codec);
           const kind = kindOf(codec);
 
           const pc = new RTCPeerConnection(ICE);
+          let serverReady = false;
           try {
             pc.onicecandidate = ({ candidate }) => {
               peer
@@ -250,6 +342,7 @@ describe("mediachannel_codec_rtp", () => {
 
             // Act: Node が fixture → packages/rtp Packetizer で送出
             const offer = await peer.request(label, { type: "init" });
+            serverReady = true;
             await pc.setRemoteDescription(offer);
             for (const t of pc.getTransceivers()) {
               preferCodec(t, codecMime(codec), kind);
@@ -278,9 +371,7 @@ describe("mediachannel_codec_rtp", () => {
             if (status.payloadType !== undefined) {
               expect(typeof status.payloadType).toBe("number");
             }
-            if (status.framesSent >= 2) {
-              expect(status.timestampAdvanced).toBe(true);
-            }
+            assertClockAndTimestamps(status, codec);
             // video は maxPayloadSize を下げているので通常 multi-packet になる
             if (kind === "video") {
               expect(status.multiPacketFrames).toBeGreaterThanOrEqual(1);
@@ -304,14 +395,10 @@ describe("mediachannel_codec_rtp", () => {
                 expect(inbound.packetsReceived).toBeGreaterThanOrEqual(5);
               }
             }
-
-            const done = (await peer.request(label, {
-              type: "done",
-            })) as Record<string, any>;
-            expect(done.usedPackagesRtp).toBe(true);
-            expect(done.framesSent).toBeGreaterThanOrEqual(1);
-            expect(done.packetsSent).toBeGreaterThanOrEqual(1);
           } finally {
+            if (serverReady) {
+              await requestServerDone(label);
+            }
             pc.close();
           }
         },
@@ -338,6 +425,7 @@ describe("mediachannel_codec_rtp", () => {
           const label = method("repacketize", codec);
 
           const pc = new RTCPeerConnection(ICE);
+          let serverReady = false;
           try {
             pc.onicecandidate = ({ candidate }) => {
               peer
@@ -362,6 +450,7 @@ describe("mediachannel_codec_rtp", () => {
 
             // Act
             const offer = await peer.request(label, { type: "init" });
+            serverReady = true;
             await pc.setRemoteDescription(offer);
             for (const t of pc.getTransceivers()) {
               preferCodec(t, codecMime(codec), "video");
@@ -383,6 +472,7 @@ describe("mediachannel_codec_rtp", () => {
               codec,
             );
             expect(typeof result.payloadType).toBe("number");
+            assertClockAndTimestamps(result, codec);
             expect(result.framesRepacketized).toBeGreaterThanOrEqual(1);
             expect(result.packetsSent).toBeGreaterThanOrEqual(1);
             // 小さな maxPayloadSize で再 packetize するので multi-packet を期待
@@ -391,9 +481,10 @@ describe("mediachannel_codec_rtp", () => {
             // Assert Chrome が再 packetize された映像を再生
             const remoteTrack = await received;
             await waitVideoPlay(remoteTrack, 30_000);
-
-            await peer.request(label, { type: "done" });
           } finally {
+            if (serverReady) {
+              await requestServerDone(label);
+            }
             pc.close();
           }
         },

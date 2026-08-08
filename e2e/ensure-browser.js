@@ -1,5 +1,5 @@
 const { spawnSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
+const { existsSync, chmodSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
 
 function resolveSystemChrome() {
@@ -7,9 +7,60 @@ function resolveSystemChrome() {
     process.env.CHROME_BIN,
     process.env.GOOGLE_CHROME_BIN,
     "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
   ].find((candidate) => candidate && existsSync(candidate));
+}
+
+function resolveCachedGoogleChrome() {
+  const cached = join(
+    __dirname,
+    ".cache/google-chrome/opt/google/chrome/google-chrome",
+  );
+  return existsSync(cached) ? cached : undefined;
+}
+
+/**
+ * Prefer Google Chrome (proprietary H.264) for P0 H.264 codec E2E.
+ * Downloads a user-local extract when system Chrome is missing (no root).
+ */
+function ensureGoogleChromeForH264() {
+  const existing = resolveSystemChrome() || resolveCachedGoogleChrome();
+  if (
+    existing &&
+    (existing.includes("google-chrome") || process.env.CHROME_BIN)
+  ) {
+    return existing;
+  }
+
+  // Skip auto-download when explicitly disabled
+  if (process.env.E2E_SKIP_GOOGLE_CHROME === "1") {
+    return existing;
+  }
+
+  const script = join(__dirname, "tools/ensure-google-chrome.sh");
+  try {
+    chmodSync(script, 0o755);
+  } catch {}
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.status === 0) {
+    const path = (result.stdout || "").trim().split("\n").pop();
+    if (path && existsSync(path)) {
+      process.env.CHROME_BIN = path;
+      process.env.GOOGLE_CHROME_BIN = path;
+      return path;
+    }
+  } else {
+    console.warn(
+      "[ensure-browser] Google Chrome install failed; H.264 E2E may be skipped/failed.\n",
+      result.stderr || result.stdout || result.error,
+    );
+  }
+  return existing;
 }
 
 function hasPlaywrightChromium() {
@@ -35,7 +86,12 @@ function hasPlaywrightChromium() {
   }
 }
 
-if (resolveSystemChrome() || hasPlaywrightChromium()) {
+const chrome = ensureGoogleChromeForH264();
+if (chrome) {
+  console.log(`[ensure-browser] using Chrome: ${chrome}`);
+}
+
+if (chrome || hasPlaywrightChromium()) {
   process.exit(0);
 }
 

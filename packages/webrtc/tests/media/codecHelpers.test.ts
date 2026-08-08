@@ -101,11 +101,12 @@ describe("packages/webrtc/tests/media/codecHelpers.test.ts", () => {
   });
 
   it("defaultPeerConfig advertises AV1 (and common video codecs)", () => {
-    // Arrange / Act
-    const mimes = defaultPeerConfig.codecs.video.map((c) =>
-      c.mimeType.toLowerCase(),
-    );
+    // Arrange: codecs は PeerConfig 上 optional なので安全に読む
+    const video = defaultPeerConfig.codecs.video ?? [];
+    const audio = defaultPeerConfig.codecs.audio ?? [];
+    const mimes = video.map((c) => c.mimeType.toLowerCase());
     // Assert: もはや VP8 のみではなく AV1 を含む（AV1X は legacy として後段）
+    expect(video.length).toBeGreaterThan(0);
     expect(mimes).toContain("video/av1");
     expect(mimes).toContain("video/av1x");
     expect(mimes).toContain("video/vp8");
@@ -114,8 +115,8 @@ describe("packages/webrtc/tests/media/codecHelpers.test.ts", () => {
     expect(mimes.length).toBeGreaterThan(1);
     expect(mimes.indexOf("video/av1")).toBeLessThan(mimes.indexOf("video/av1x"));
     // 既定 audio は維持
-    expect(
-      defaultPeerConfig.codecs.audio.map((c) => c.mimeType.toLowerCase()),
-    ).toEqual(expect.arrayContaining(["audio/opus", "audio/pcmu"]));
+    expect(audio.map((c) => c.mimeType.toLowerCase())).toEqual(
+      expect.arrayContaining(["audio/opus", "audio/pcmu"]),
+    );
   });
 });

@@ -122,6 +122,7 @@ export async function waitAudioPlay(
 
 /**
  * Prefer a single codec via setCodecPreferences when the browser supports it.
+ * For H.264, prefer packetization-mode=1 entries first (mode=0 is out of scope).
  */
 export function preferCodec(
   transceiver: RTCRtpTransceiver,
@@ -140,11 +141,19 @@ export function preferCodec(
     return;
   }
   const lower = mimeIncludes.toLowerCase();
-  const preferred = caps.codecs.filter((c) =>
+  let preferred = caps.codecs.filter((c) =>
     c.mimeType.toLowerCase().includes(lower),
   );
   if (preferred.length === 0) {
     return;
+  }
+  if (lower.includes("h264")) {
+    const mode1 = preferred.filter((c) =>
+      (c.sdpFmtpLine ?? "").includes("packetization-mode=1"),
+    );
+    if (mode1.length > 0) {
+      preferred = mode1;
+    }
   }
   const rest = caps.codecs.filter(
     (c) => !c.mimeType.toLowerCase().includes(lower),
