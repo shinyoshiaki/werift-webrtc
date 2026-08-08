@@ -314,6 +314,177 @@ test("e2e/self13 KeyUpdate then bidirectional data", async () => {
   });
 }, 20_000);
 
+test("e2e/self13 KeyUpdate ACKed without RTO retransmit (no loss)", async () => {
+  // Arrange: ロスなしで KeyUpdate が 1 回送信・即 ACK・writeEpoch 進むことを検証
+  // （再送依存の ACK 漏れを loss test では見逃しやすい）
+  const { server, client, clientTransport } = await pair();
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("keyupdate no-retransmit timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(async () => {
+      try {
+        const eng = (client as any).engine13;
+        // Settle final-flight ACK so HS retransmits do not pollute KU send counts
+        const settle = Date.now() + 2000;
+        while (eng.getPendingFlightSize() > 0 && Date.now() < settle) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        expect(eng.getPendingFlightSize()).toBe(0);
+
+        const writeBefore = eng.writeEpoch as number;
+        let clientSends = 0;
+        const origSend = clientTransport.send.bind(clientTransport);
+        clientTransport.send = async (buf: Buffer) => {
+          clientSends++;
+          return origSend(buf);
+        };
+
+        // Act: KeyUpdate (request_update=false)
+        await client.keyUpdate(false);
+
+        // Assert: write epoch が ACK で進む（再送 RTO の ~1s より十分短い）
+        const deadline = Date.now() + 800;
+        while (
+          (eng.writeEpoch === writeBefore || eng.pendingKeyUpdateWrite) &&
+          Date.now() < deadline
+        ) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        expect(eng.pendingKeyUpdateWrite).toBeUndefined();
+        expect(eng.writeEpoch).toBeGreaterThan(writeBefore);
+        expect(eng.getPendingFlightSize()).toBe(0);
+        // 再送なし（RTO 前に ACK 済み）
+        expect(eng.retransmitCount).toBe(0);
+        expect(clientSends).toBe(1);
+
+        // RTO を超えて待っても再送が増えない
+        await new Promise((r) => setTimeout(r, 1500));
+        expect(clientSends).toBe(1);
+        expect(eng.retransmitCount).toBe(0);
+
+        // 新 epoch で app data
+        await client.send(Buffer.from("ku-no-rto"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      expect(d.toString()).toBe("ku-no-rto");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 20_000);
+
+test("e2e/self13 KeyUpdate(request_update) gets explicit ACK then response KeyUpdate", async () => {
+  // Arrange: response KeyUpdate は peer KeyUpdate の implicit ACK ではない (RFC 9147 §8)
+  const { server, client, clientTransport, serverTransport } = await pair();
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("keyupdate request_update timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(async () => {
+      try {
+        const cEng = (client as any).engine13;
+        const sEng = (server as any).engine13;
+        const settle = Date.now() + 2000;
+        while (
+          (cEng.getPendingFlightSize() > 0 || sEng.getPendingFlightSize() > 0) &&
+          Date.now() < settle
+        ) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+
+        const cWriteBefore = cEng.writeEpoch as number;
+        const sWriteBefore = sEng.writeEpoch as number;
+
+        let clientSends = 0;
+        let serverSends = 0;
+        const cOrig = clientTransport.send.bind(clientTransport);
+        const sOrig = serverTransport.send.bind(serverTransport);
+        clientTransport.send = async (buf: Buffer) => {
+          clientSends++;
+          return cOrig(buf);
+        };
+        serverTransport.send = async (buf: Buffer) => {
+          serverSends++;
+          return sOrig(buf);
+        };
+
+        // Act: client KeyUpdate with request_update
+        await client.keyUpdate(true);
+
+        // Wait until both sides advanced write epochs (client KU ACK'd + server KU ACK'd)
+        const deadline = Date.now() + 2000;
+        while (
+          (cEng.writeEpoch === cWriteBefore ||
+            sEng.writeEpoch === sWriteBefore ||
+            cEng.pendingKeyUpdateWrite ||
+            sEng.pendingKeyUpdateWrite) &&
+          Date.now() < deadline
+        ) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        expect(cEng.pendingKeyUpdateWrite).toBeUndefined();
+        expect(sEng.pendingKeyUpdateWrite).toBeUndefined();
+        expect(cEng.writeEpoch).toBeGreaterThan(cWriteBefore);
+        expect(sEng.writeEpoch).toBeGreaterThan(sWriteBefore);
+        // Neither side needed RTO retransmit for their KeyUpdate flight
+        expect(cEng.retransmitCount).toBe(0);
+        expect(sEng.retransmitCount).toBe(0);
+
+        const cAfter = clientSends;
+        const sAfter = serverSends;
+        await new Promise((r) => setTimeout(r, 1200));
+        expect(clientSends).toBe(cAfter);
+        expect(serverSends).toBe(sAfter);
+        // client: KeyUpdate + ACK of server response KeyUpdate
+        expect(clientSends).toBeGreaterThanOrEqual(1);
+        expect(clientSends).toBeLessThanOrEqual(2);
+        // server: ACK(client KU) + response KeyUpdate
+        expect(serverSends).toBeGreaterThanOrEqual(2);
+        expect(serverSends).toBeLessThanOrEqual(3);
+
+        await client.send(Buffer.from("ku-req"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.onData.subscribe((d) => {
+      expect(d.toString()).toBe("ku-req");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 25_000);
+
 test("e2e/self13 server-initiated KeyUpdate then bidirectional data", async () => {
   // Arrange: サーバ主導 KeyUpdate
   const { server, client } = await pair();

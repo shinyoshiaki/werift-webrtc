@@ -39,6 +39,9 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     epoch: number,
   ): Promise<void>;
 
+  /** Implemented in HandshakeFlights — used after ACK'ing peer KeyUpdate(request). */
+  protected abstract keyUpdate(requestUpdate?: boolean): Promise<void>;
+
   protected handleDatagram = (
     data: Buffer,
     addr?: [string, number] | { address?: string; port?: number } | string,
@@ -130,20 +133,18 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         if (rec.kind === "plaintext") {
           const accepted = await this.onPlaintextRecordAsync(rec);
           if (accepted && rec.contentType === ContentType.handshake) {
-            this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
-            if (this.ackAfterCurrentRecord) {
-              this.ackAfterCurrentRecord = false;
-              await this.sendAck();
-            }
+            await this.finishHandshakeRecordAck(
+              rec.epoch,
+              rec.sequenceNumber,
+            );
           }
         } else {
           const accepted = await this.onCiphertextRecordAsync(rec);
           if (accepted && rec.contentType === ContentType.handshake) {
-            this.noteHandshakeRecordForAck(rec.epoch, rec.sequenceNumber);
-            if (this.ackAfterCurrentRecord) {
-              this.ackAfterCurrentRecord = false;
-              await this.sendAck();
-            }
+            await this.finishHandshakeRecordAck(
+              rec.epoch,
+              rec.sequenceNumber,
+            );
           }
         }
       } catch (e) {
@@ -190,6 +191,31 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     }
     // Prefer read-key epochs; include write-only as last resort (e.g. ACK demux)
     return [...withRead, ...withWriteOnly].sort((a, b) => b.epoch - a.epoch);
+  }
+
+  /**
+   * After a handshake record is accepted: note for ACK, then optionally ACK and
+   * post-ACK actions (KeyUpdate response). Order is fixed so Finished/KeyUpdate
+   * record numbers are present in the ACK (RFC 9147 §7 / §8).
+   */
+  protected async finishHandshakeRecordAck(
+    epoch: number,
+    sequenceNumber: number,
+  ): Promise<void> {
+    this.noteHandshakeRecordForAck(epoch, sequenceNumber);
+    if (this.ackAfterCurrentRecord) {
+      this.ackAfterCurrentRecord = false;
+      await this.sendAck();
+      // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate
+      if (this.keyUpdateResponseAfterAck) {
+        this.keyUpdateResponseAfterAck = false;
+        try {
+          await this.keyUpdate(false);
+        } catch (e) {
+          this.fail(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    }
   }
 
   /**

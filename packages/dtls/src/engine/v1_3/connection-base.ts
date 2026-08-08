@@ -169,10 +169,15 @@ export abstract class Dtls13ConnectionBase {
    */
   protected clearRemoteAckOnNextInbound = false;
   /**
-   * Set by handlers (e.g. onFinished) so the RX layer sends ACK only after
-   * the current record has been noted for ACK bookkeeping.
+   * Set by handlers (e.g. onFinished / onKeyUpdate) so the RX layer sends ACK
+   * only after the current record has been noted for ACK bookkeeping.
    */
   protected ackAfterCurrentRecord = false;
+  /**
+   * When peer KeyUpdate has request_update, send our KeyUpdate only after we
+   * have ACKed theirs (response KeyUpdate is not an implicit ACK — RFC 9147 §8).
+   */
+  protected keyUpdateResponseAfterAck = false;
   /**
    * Handshake records that were successfully accepted (processed or buffered).
    * Replay path re-ACKs only records present here — anti-replay alone does not

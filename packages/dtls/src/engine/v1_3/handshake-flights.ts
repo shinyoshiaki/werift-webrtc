@@ -1076,10 +1076,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.readEpoch = nextEpoch;
     }
     this.pruneStaleEpochs();
-    // ACK KeyUpdate so peer can stop retransmission (RFC 9147 post-HS)
-    void this.sendAck().catch((e) => this.fail(e));
+    // Same as Finished: RX layer notes this record, then sendAck() (RFC 9147 §8).
+    // Do NOT sendAck here — the current KeyUpdate is not in the ACK list yet.
+    this.ackAfterCurrentRecord = true;
+    // Response KeyUpdate must not stand in for ACK; send only after we ACK peer.
     if (ku.requestUpdate) {
-      this.keyUpdate(false).catch((e) => this.fail(e));
+      this.keyUpdateResponseAfterAck = true;
     }
   }
 
