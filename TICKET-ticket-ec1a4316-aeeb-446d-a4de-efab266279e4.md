@@ -29,6 +29,7 @@
 | `examples/mediachannel/codec/{vp8,vp9,h264,av1}.ts` | Chrome 送信を `*RtpPayload.deSerialize` し keyframe を log | **手動デモ**。E2E 自動化・packetize 再送なし |
 | `packages/webrtc/.../userMedia/packetizer.ts` | mediabunny `EncodedPacket` 向け独自 Packetizer | 親チケット方針どおり **SUT ではない**（参照実装）。本 E2E の送信側は `packages/rtp` の `*Packetizer` を使う |
 | `MediaRecorder` + `DepacketizeCallback` | 受信 RTP を `packages/rtp` depacketizer で WebM 化 | デモ用途。Chrome 固定コーデックの CI アサートではない |
+| `packages/webrtc/tests/data/nonstandard/userMedia-e2e/*.webm` | userMedia ファイル再生の単体系 | **webrtc 側 packetizer** 経由。本タスクでは demux のみ流用可 |
 
 結論: **「Chrome がデコードできる RTP を `packages/rtp` Packetizer が出せるか」** と **「Chrome が出した RTP を `packages/rtp` Depacketizer が正しくフレーム化できるか」** は、いずれも現行 CI では未カバー。
 
@@ -37,6 +38,15 @@
 - 親チケット実装が **ブラウザ相互運用可能なペイロード**であることを回帰防止できる。
 - 非 WebRTC 用途（RTP-over-UDP / SIP / メディアリレー）でも「Chrome が受けられる形」を保証する基準になる。
 - 将来 webrtc の `userMedia/packetizer` を rtp 実装へ差し替える際の受け入れテストにも流用できる。
+
+### 1.4 未確定事項の決着（本改訂で確定）
+
+| 論点 | 決定 |
+|---|---|
+| シナリオ B のフレーム供給 / GStreamer 実行時依存 | **採用: 事前生成した小さい WebM（等）をリポジトリにコミットし、それをソースにする**。CI 実行時に GStreamer は不要。生成は開発時ワンショット（スクリプト化推奨） |
+| AV1 の SDP 名（`AV1` vs `AV1X`） | **調査済み → 方針確定（§3.8）**。Chrome は `video/AV1`、werift は現状 `video/AV1X` のみ → **E2E でネゴできるよう SDP 側を対応**する |
+| VP9 Chrome 拡張 descriptor | **「割り切り」にしない**。既存パーサは I/L/F/V 等を既に持つ。E2E で不足が露呈したら **調査のうえ depacketizer を追加実装 + 単体テスト**する |
+| H.264 profile と黒画面 | **黒画面になってもよい**。H.264 の合否は de/packetize と RTP 配送の機能アサートが主。画素変化必須にしない |
 
 ---
 
@@ -49,29 +59,30 @@
 | 種別 | パス（案） |
 |---|---|
 | Server handler | `e2e/server/handler/mediachannel/codecRtp.ts`（または `codec/` 配下に codec 別） |
-| 共有 Arrange ユーティリティ | `e2e/server/codecRtpUtils.ts`（GStreamer 生フレーム供給、packetize ループ、PLI、depacketize 集約） |
+| 共有 Arrange ユーティリティ | `e2e/server/codecRtpUtils.ts`（WebM demux→packetize ループ、PLI、depacketize 集約） |
+| メディアフィクスチャ | `e2e/fixtures/media/`（または `packages/rtp/tests/data/e2e-media/`）に **短い WebM 等をコミット** |
+| フィクスチャ生成スクリプト | `e2e/tools/generateCodecFixtures.sh`（または `packages/rtp/tools/`）— **開発者マシン / ドキュメント用**。CI では実行しない |
 | Browser tests | `e2e/tests/mediachannel/codecRtp.test.ts`（または codec 別ファイル） |
 | 登録 | `e2e/server/main.ts` の `tests` map に handler を追加 |
-| 依存 | `e2e` は既に `werift` / `werift-rtp` と GStreamer spawn ヘルパ（`e2e/server/gstreamer.ts`）を持つ |
+| 依存 | `e2e` は既に `werift` / `werift-rtp` を持つ。**実行時 GStreamer 必須にしない** |
 
 パッケージ境界:
 
 - **SUT**: `packages/rtp` の `*Packetizer` / `*RtpPayload` / `dePacketizeRtpPackets` /（必要なら）`DepacketizeCallback`。
 - **運搬役**: `packages/webrtc` の `RTCPeerConnection` / `MediaStreamTrack.writeRtp` / transceiver / codec ネゴシエーション。
-- webrtc 側 `userMedia/packetizer.ts` の実装差し替えは **本タスク範囲外**（親チケットと同じ）。
+- **demux のみ** mediabunny 等を e2e 側で使ってよい（フレーム取得）。**packetize は必ず `packages/rtp`**。webrtc `userMedia/packetizer.ts` は SUT にしない。
+- webrtc 側 packetizer の実装差し替えは **本タスク範囲外**。
 
 ### 2.2 対象コーデックと優先度
 
-Chrome WebRTC で安定してネゴシエート・デコードできるものに絞る。
-
 | 優先度 | コーデック | MIME（werift 側） | Packetizer E2E | Depacketizer E2E | 備考 |
 |---|---|---|---|---|---|
-| **P0 必須** | VP8 | `video/VP8`（`useVP8()`） | ○ | ○ | 既存 RTX と同系統。最も安定 |
-| **P0 必須** | H.264 | `video/H264` + `packetization-mode=1`（`useH264()`） | ○ | ○ | profile-level-id は既存 `42e01f` を踏襲 |
-| **P0 必須** | Opus | `audio/opus`（`useOPUS()`） | ○ | ○ | 音声。再生判定は後述 |
-| **P1 推奨** | VP9 | `video/VP9`（`useVP9()`） | ○ | ○ | Chrome 対応。descriptor 最小サブセットが実機で通ること |
-| **P2 条件付き** | AV1 | `video/AV1X`（`useAV1X()`） | ○（可能な環境） | ○ | SDP 名 `AV1X` と Chrome 能力の差に注意。失敗時は skip 条件を明文化 |
-| **範囲外** | H.265 / PCMU / PCMA / G.722 / AAC / telephone-event | — | — | — | Chrome WebRTC では実質使えない or 対象外。単位テスト + `rtp_over_udp` で足りる |
+| **P0 必須** | VP8 | `video/VP8`（`useVP8()`） | ○ | ○ | 最も安定 |
+| **P0 必須** | H.264 | `video/H264` + `packetization-mode=1`（`useH264()`） | ○ | ○ | 黒画面可（§2.5） |
+| **P0 必須** | Opus | `audio/opus`（`useOPUS()`） | ○ | ○ | 音声判定は後述 |
+| **P1 推奨** | VP9 | `video/VP9`（`useVP9()`） | ○ | ○ | 拡張 descriptor は必要なら depacketizer 強化 |
+| **P1 推奨** | AV1 | **`video/AV1`（標準名）+ 互換で `AV1X`**（§3.8） | ○ | ○ | ネゴ対応後は必須扱いに近づける。HW 無しでも libaom 系なら A は可能なことが多い |
+| **範囲外** | H.265 / PCMU / PCMA / G.722 / AAC / telephone-event | — | — | — | 単位テスト + `rtp_over_udp` |
 
 ### 2.3 検証シナリオ（コア）
 
@@ -94,116 +105,167 @@ Chrome (getUserMedia / canvas / fake device)
 3. 映像: **キーフレームを少なくとも 1 回**検出（`isKeyframe === true`）。PLI を定期送信（既存 example と同様 1–3s 間隔）。
 4. 映像: marker 付き最終パケットでフレーム境界が閉じること（`DepacketizeCallback` の `isFinalPacketInSequence: (h) => h.marker`）。
 5. 不正・空ペイロードでテストプロセスが落ちないこと（ログのみ可）。
+6. VP9/VP8: Chrome が拡張 descriptor を付けていても **例外なく payload 境界が正しく取れ**、フレームが連結できること（不足時は depacketizer 修正）。
 
 参照実装の手本:
 
-- `examples/mediachannel/codec/vp8.ts` / `h264.ts` / `vp9.ts` / `av1.ts`（`onReceiveRtp` + `*RtpPayload.deSerialize` + PLI）。
-- `packages/webrtc/.../recorder/writer/webm.ts`（`DepacketizeCallback` 配線）。
+- `examples/mediachannel/codec/vp8.ts` / `h264.ts` / `vp9.ts` / `av1.ts`
+- `packages/webrtc/.../recorder/writer/webm.ts`（`DepacketizeCallback` 配線）
 
-#### シナリオ B — Packetizer（Node → Chrome）
+#### シナリオ B — Packetizer（Node → Chrome）【確定: 事前 WebM ソース】
 
 ```
-エンコード済みフレーム供給（下記 2.4）
+コミット済み短い WebM（等）を demux
+  → 1 フレーム（または 1 Opus packet）の Buffer
   → packages/rtp *Packetizer.packetize(frame, rtpTimestamp)
   → MediaStreamTrack.writeRtp(RtpPacket)
   → WebRTC → Chrome ontrack
-  → waitVideoPlay(track) または音声相当の再生確認
+  → 再生 / 受信アサート
 ```
 
 必須アサート:
 
-1. Chrome が **実際に再生できる**（黒画面固定で終わらない）。映像は既存 `e2e/tests/fixture.ts` の `waitVideoPlay`（canvas 画素ハッシュ変化）。
-2. 使用 Packetizer が **`packages/rtp` のクラス**であること（import 経路をテストコード上で固定。GStreamer `rtp*pay` を使わない）。
-3. 複数パケットにフラグメントされる十分なフレームサイズを少なくとも 1 コーデックで含む（例: 低 `maxPayloadSize` または大解像度）— marker / S・B/E / FU-A / Z·Y が実路で効くこと。
-4. タイムスタンプがクロックレートに沿って進むこと（VP8/H264/VP9/AV1: 90000、Opus: 48000）。
+1. 使用 Packetizer が **`packages/rtp` のクラス**であること（GStreamer `rtp*pay` 不使用。webrtc userMedia packetizer 不使用）。
+2. Chrome 側で **RTP を受信しデコード経路に載る**こと。  
+   - 映像（VP8/VP9/AV1）: 可能なら `waitVideoPlay`。失敗しても **stats の packets/bytesReceived 増加 + Node 側送信フレーム数**で足りる場合あり。  
+   - **H.264: 黒画面でも合格可**。必須は「packetize した RTP が Chrome に届き、selected codec が H264」および（可能なら）デコーダエラーで即死しない程度。画素ハッシュ変化は **任意**。  
+   - Opus: `waitAudioPlay` 相当または stats。
+3. 複数パケットにフラグメントされる十分なフレームを少なくとも 1 コーデックで含む（`maxPayloadSize` を下げる等）。
+4. タイムスタンプがクロックに沿って進む（video 90000 / Opus 48000）。
 
 #### シナリオ C — 再 packetize ループ（推奨・高価値）
 
 ```
 Chrome 送信 → packages/rtp depacketize → 生フレーム
   → 同一コーデックの packages/rtp Packetizer で再 RTP 化
-  → 別 transceiver / 別 PC で Chrome へ返送 → waitVideoPlay
+  → 別 transceiver / 別 PC で Chrome へ返送 → 再生 / 受信確認
 ```
 
-- **Depacketizer と Packetizer を 1 本の E2E で同時検証**できる。
-- Chrome が吐いた実ペイロード（拡張 descriptor 含む可能性）を depacketize し、**最小合法 descriptor で再送信しても Chrome がデコードできる**ことを示す。
-- H.264 は SPS/PPS がストリーム内または `parameterSets` で揃っていること。欠ける場合は PLI 後の IDR を待つ / 先頭キーフレームをバッファする。
+- Depacketizer と Packetizer を 1 本で同時検証。
+- Chrome 拡張 descriptor を depacketize し、**最小合法 descriptor で再送**しても Chrome が扱えること。
+- H.264 は SPS/PPS をキーフレームで確保（PLI / バッファ）。**黒画面でも機能アサート優先**。
 
-P0 では **VP8 でシナリオ C を必須**にし、H.264 / Opus は A+B、VP9 は A+B（可能なら C）が現実的。
+P0: **VP8 はシナリオ C 必須**。H.264 / Opus は A+B。VP9 / AV1 は A+B（可能なら C）。
 
-### 2.4 フレーム供給（Packetizer 側）
+### 2.4 フレーム供給（Packetizer 側）— **確定方針: 事前 WebM フィクスチャ**
 
-**禁止**: `rtpvp8pay` / `rtph264pay` / `rtpopuspay` 等の **GStreamer RTP payloader の出力をそのまま writeRtp** する経路を、本タスクの「Packetizer 検証」として数えること（それは既存 RTX/RED と同型で SUT が違う）。
+**禁止**:
 
-**許可する供給源**（優先順）:
+- CI / テスト実行時に `rtpvp8pay` 等の **GStreamer RTP payloader 出力をそのまま writeRtp** すること（Packetizer 検証として数えない）。
+- 実行時に `gst-launch` 必須とすること。
 
-1. **GStreamer でコーデックビットストリームのみ生成**し、Node が `*Packetizer` で RTP 化  
-   - 例（概念）:  
-     - VP8: `videotestsrc ! … ! vp8enc ! …` → フレーム境界付きバッファ  
-     - H.264: `x264enc` / `openh264enc` + `h264parse` → Annex-B AU  
-     - Opus: `audiotestsrc ! opusenc` → Opus packet  
-   - 既存 `spawnGstreamerPipeline` は `gst-launch-1.0` の pipeline 文字列向け。**appsink で pull する**場合は `e2e/server/codecRtpUtils.ts` に専用 spawn / UDP 中継 / ファイル落ちを用意する。  
-   - 簡易案: GST で raw RTP **ではなく** raw file / Unix pipe にフレームを書き、Node が読む。実装コストと CI 安定性で選択。
-2. **事前コミットした短いエンコード済みクリップ**（`e2e/fixtures/media/` 等）を読み、Packetizer に渡す。CI に GStreamer が無い場合のフォールバック。  
-   - 親チケットの `packages/rtp/tests/data/vector_*_expected.bin` は depacketize 後のメディアであり、Chrome 再生用の「正当なビットストリーム」として使える場合がある。ただし長さ・キーフレーム有無を確認すること。
-3. **シナリオ C**（Chrome 自身のエンコード結果を depacketize したフレーム）— 外部エンコーダ不要で最も CI 親和性が高い。
+**採用（確定）**:
 
-推奨: **P0 はシナリオ C を主軸**にし、シナリオ B の「外部エンコード + Packetizer」は VP8 を 1 本以上（GStreamer 利用可能時）追加する。GStreamer 不在時は `it.skip` または env フラグ（例: `E2E_GST_CODEC=1`）でオプトインし、CI の必須パスはシナリオ A + C にする。
+1. **開発時**に GStreamer（または同等）で **コーデックごとの小さい WebM / コンテナ**を生成し、リポジトリにコミットする。
+2. **E2E 実行時**はファイルを demux し、生フレームを `packages/rtp` Packetizer に渡す。
+
+#### 2.4.1 フィクスチャ仕様（案）
+
+| ファイル（例） | 内容 | 用途 |
+|---|---|---|
+| `e2e/fixtures/media/vp8.webm` | 短い VP8（+ 任意で無音）| B: VP8Packetizer |
+| `e2e/fixtures/media/vp9.webm` | 短い VP9 | B: Vp9Packetizer |
+| `e2e/fixtures/media/av1.webm` | 短い AV1 | B: Av1Packetizer |
+| `e2e/fixtures/media/h264.mp4` または annex-B 付き | 短い H.264（Constrained Baseline 推奨だが必須ではない） | B: H264Packetizer |
+| `e2e/fixtures/media/opus.webm` | 短い Opus | B: OpusPacketizer |
+
+制約:
+
+- **数秒以内・低解像度**（例: 320×240、2–5 秒）でリポジトリ肥大を避ける。
+- **キーフレームを先頭付近に含む**こと。
+- 生成コマンドを `e2e/tools/generateCodecFixtures.sh`（等）と短い README に残す。例（目安）:
+
+```bash
+# VP8 + Opus の短い WebM（開発マシンに GStreamer があるときのみ）
+gst-launch-1.0 -e videotestsrc num-buffers=60 ! video/x-raw,width=320,height=240,framerate=30/1 \
+  ! vp8enc deadline=1 ! webmmux name=mux ! filesink location=vp8.webm \
+  audiotestsrc num-buffers=50 ! audioconvert ! opusenc ! mux.
+```
+
+既存資産の流用:
+
+- `packages/webrtc/tests/data/nonstandard/userMedia-e2e/vp8-opus.webm` / `h264-opus.mp4` を **コピーまたはシンボリックで e2e フィクスチャにしてもよい**。足りない VP9/AV1/単独 Opus は新規生成。
+
+#### 2.4.2 実行時 demux → packetize
+
+推奨フロー（e2e server 側）:
+
+1. mediabunny（webrtc が既に依存）または同等で WebM/MP4 を開き、`EncodedPacketSink` で **encoded フレームの raw bytes** を取得。
+2. **`createPacketizer`（webrtc userMedia）は使わない**。
+3. `new Vp8Packetizer({ payloadType: negotiatedPt, ... }).packetize(Buffer.from(packet.data), rtpTs)` のように **rtp パッケージ API** を呼ぶ。
+4. H.264 は Annex-B / AVCC のどちらで demux されるかを確認し、`H264Packetizer` の入力契約に合わせる（必要なら `parameterSets` を decoder config から渡す）。
+5. VP9 / AV1 は key/delta を `EncodedPacket` の type から `isKeyframe` / `frameType` にマップ。
+
+シナリオ C はフィクスチャ不要（Chrome がソース）。
 
 ### 2.5 コーデック別の E2E チェックポイント
 
 #### VP8（RFC 7741）
 
-- Depacketizer: `S`/`PID` 付き Chrome ペイロードを `Vp8RtpPayload` / `dePacketizeRtpPackets("VP8", …)` で復元。キーフレームは payload header の **P bit**（既存 `isKeyframe`）。
-- Packetizer: フレーム先頭チャンク `descriptor=0x10`（S=1）、後続 `0x00`、最終 `marker=true`。
-- 再 packetize 後も Chrome が再生できること。
+- Depacketizer: Chrome の X/I 拡張付きでも `Vp8RtpPayload` が descriptor を剥がして payload 連結（既存実装は X/I/L/T/K をパース済み）。E2E で破綻したら修正。
+- Packetizer: 先頭 `0x10`、継続 `0x00`、最終 marker。
+- シナリオ C 必須。
 
 #### H.264（RFC 6184 mode=1）
 
-- Node PC の `codecs.video` は **H.264 のみ**（`useH264()` 相当、`packetization-mode=1`）。
-- Depacketizer 出力は Annex-B 連結。Single / STAP-A / FU-A いずれも `H264RtpPayload` 経路でフレーム化できること。
-- Packetizer 再送時: キーフレームに SPS/PPS が含まれること（サンプル内 or `parameterSets`）。STAP-A 優先実装が実機でも問題ないこと。
-- Chrome の profile 不一致で黒画面になる場合は `profile-level-id=42e01f` と level-asymmetry を維持し、必要なら送信側制約をドキュメント化。
+- Node は H.264 のみ negotiate（`useH264()`、`packetization-mode=1`、既存 `profile-level-id=42e01f` でよい）。
+- Depacketizer: Single / STAP-A / FU-A → Annex-B。キーフレーム検出。
+- Packetizer: フィクスチャ demux → `H264Packetizer`。SPS/PPS 付与は実装どおり。
+- **合否**: フレーム depacketize / packetize 成功と RTP 配送。**`waitVideoPlay` の画素変化・黒画面回避は必須にしない**（「黒画面になっても良い」）。
 
 #### Opus（RFC 7587）
 
-- 1 RTP = 1 Opus packet、`marker=true`。
-- Packetizer は `maxPayloadSize` 超過で throw する契約のまま。E2E では MTU 未満の実 Opus のみ。
-- 再生確認: `waitVideoPlay` は使えない。次のいずれか:
-  - `AudioContext` + `AnalyserNode` で一定時間エネルギー閾値超え（推奨）
-  - または Node 側 depacketize 件数 + Chrome `getStats` の `bytesReceived` / `packetsReceived` 増加（最低限）
-- 共有 Arrange に `waitAudioPlay(track)` を `e2e/tests/fixture.ts` へ追加するのが望ましい。
+- 1 RTP = 1 packet、marker=true。MTU 超過 throw 契約は E2E では踏まないサイズのフィクスチャ。
+- 再生: `waitAudioPlay`（Analyser）または stats。
 
-#### VP9（RFC 9628）
+#### VP9（RFC 9628）— depacketizer 方針【確定】
 
-- 最小 descriptor（I=L=F=V=Z=0、B/E/P）で再送しても再生できること。
-- key / delta の P ビットが depacketizer の解釈と矛盾しないこと。
+**現状調査結果（コード）**:
 
-#### AV1（条件付き）
+- `Vp9RtpPayload.parseRtpPayload` は RFC 9628 の主要フィールドを実装済み:
+  - 必須 octet: I|P|L|F|B|E|V|Z
+  - I → Picture ID（1/2 byte, M bit）
+  - L → layer indices + non-flex 時 TL0PICIDX
+  - F∧P → P_DIFF 連鎖
+  - V → Scalability structure（N_S/Y/G、幅高、N_G、pg）
+- `packages/rtp/tests/codec/vp9.test.ts` に PictureId / Layer / RefIdx / SS の合成テストあり。
 
-- werift は `video/AV1X`。Chrome が offer/answer で選べるか環境依存。
-- ネゴ失敗時は **fail ではなく skip**（理由をログ）。成功時のみ Z/Y/N と marker、キー時 N=1 を間接的に再生で確認。
+**本タスクでの扱い（割り切り禁止）**:
+
+1. シナリオ A で Chrome 実パケットを depacketize。失敗・壊れたフレーム長・例外があれば **根因を調査**。
+2. 不足フィールドや境界バグなら **`vp9.ts` を追加実装**し、**再現ベクタを単体テストに固定**してから E2E を緑にする。
+3. 「payload が取れれば拡張は無視でよい」という事前割り切りは **採用しない**（既に拡張を読む実装があるため、壊れているなら直す）。
+4. Packetizer 側は引き続き最小 descriptor でよい。再送後の再生は C で確認。
+
+VP8 も同様に X 拡張は既存。E2E で問題が出たら同方針で修正。
+
+#### AV1 — SDP 名と E2E【確定方針は §3.8】
+
+- ペイロード: Z/Y/W/N、キー時 N=1、`getFrame` 整合。
+- ネゴ: Chrome は `AV1`、werift は現状 `AV1X` → **§3.8 の対応を本タスクに含む**（ネゴ不能のまま skip で逃さないことを目標。どうしても環境が無い場合のみ skip）。
 
 ### 2.6 テストコード規約（リポジトリ AGENTS.md 準拠）
 
-- **Arrange / Act / Assert** の 3 相。
-- Arrange の peer 作成・codec 固定・PLI タイマー・GStreamer 起動は **`e2e/server/codecRtpUtils.ts`（および browser 側は `tests/fixture.ts`）に集約**し、codec テスト間で複製しない。
-- Act / Assert に **日本語コメント**を適切な粒度で付ける（操作意図と検証点）。
-- protoo の label / method 名は既存同様 `mediachannel_codec_rtp_vp8` のように一意にする。
-- handler は `done` で GStreamer / PC / UDP / timer を確実に破棄（`mediachannel_rtx` の `done` パターン）。
+- **Arrange / Act / Assert**。
+- Arrange（PC 作成・codec 固定・PLI・WebM 読み・demux）は **`e2e/server/codecRtpUtils.ts` と `e2e/tests/fixture.ts` に集約**。
+- Act / Assert に **日本語コメント**。
+- protoo method 名は `mediachannel_codec_rtp_vp8` 等で一意。
+- handler `done` で PC / timer / ファイルハンドル解放（GStreamer プロセスは実行時不要なら無し）。
 
-### 2.7 変更が不要なもの
+### 2.7 変更が必要になり得る rtp / webrtc 側
 
-- `packages/rtp` の Packetizer / Depacketizer **本体の仕様変更**は原則不要（バグ発見時のみ fix。本タスクの主成果は E2E）。
-- `depacketizerCodecs` レジストリ変更は不要。
-- `docs/rfc/` 追加は親チケット側。本タスクでは RFC 番号をテストコメントに参照する程度。
-- Firefox E2E（`vitest.firefox.config.mts`）は必須にしない（タイトルが Chrome 指定）。
+| 変更 | 条件 |
+|---|---|
+| `packages/rtp` VP9/VP8/AV1 depacketizer 修正 | Chrome 実パケットで破綻したとき（本タスク範囲内） |
+| `useAV1()` 追加または `useAV1X` の mime を `video/AV1` に寄せる / 両方 advertise | **AV1 E2E のために本タスクで実施（§3.8）** |
+| `findCodecByMimeType` の AV1↔AV1X エイリアス | 上記の代替または併用 |
+| webrtc userMedia packetizer 置換 | **範囲外** |
 
 ### 2.8 ドキュメント
 
-- ルートまたは `e2e` 近傍に短い説明を足す場合: 新規シナリオ名、実行コマンド、GStreamer オプトイン、対象コーデック表。
-- `packages/rtp/README.md` に「Chrome E2E: `npm run e2e`（mediachannel codec RTP）」程度の一行リンクがあれば十分。
-- 詳細な feature カタログを AGENTS.md にコピーしない（ルート AGENTS.md の Don't）。
+- フィクスチャ生成手順と「CI では生成不要」を短く記載。
+- `packages/rtp/README.md` に Chrome E2E への一行リンク。
+- H.264 黒画面許容をテストコメントに明記。
 
 ---
 
@@ -211,21 +273,14 @@ P0 では **VP8 でシナリオ C を必須**にし、H.264 / Opus は A+B、VP9
 
 ### 3.1 E2E ハーネスの構造
 
-- **Server**: `e2e/server/main.ts` が protoo `Room` 上で handler インスタンスを method 名でディスパッチ。
-- **Browser**: Vitest + Playwright Chromium（`e2e/vitest.config.mts`）。fake media device フラグ済み（`--use-fake-device-for-media-stream`）。
-- **実行**: ルート `npm run e2e` → `e2e` で `ci:silent`（server + `chrome:prod` 並列、`E2E_PORT` 動的割当）。
-- **映像再生判定**: `waitVideoPlay` が video→canvas の画素 SHA-1 変化を待つ。タイムアウトは vitest `testTimeout: 20_000`（必要なら codec テストだけ延長）。
+- **Server**: `e2e/server/main.ts` + protoo。
+- **Browser**: Vitest + Playwright Chromium（fake media device 済み）。
+- **実行**: ルート `npm run e2e` → `e2e` の `ci:silent`。
+- **映像判定**: `waitVideoPlay` は VP8/VP9/AV1 で優先利用。H.264 は任意。
 
 ### 3.2 既存「RTP 注入」パターン（流用）
 
-`e2e/server/handler/mediachannel/rtx.ts`:
-
-1. `randomPort()` + UDP bind  
-2. `MediaStreamTrack({ kind: "video" })` + `addTrack`  
-3. UDP 受信で `RtpPacket.deSerialize` → `track.writeRtp`  
-4. GStreamer 終了は `stopGstreamerProcess`  
-
-本タスクでは 3 の直前に **自前 Packetizer** を挟む（または GST を止め、タイマーでフレームを packetize）。
+`e2e/server/handler/mediachannel/rtx.ts` の `MediaStreamTrack` + `writeRtp` + `done` クリーンアップを踏襲。UDP/GStreamer pay 部分を **フィクスチャ demux + rtp Packetizer** に置き換える。
 
 ### 3.3 codec 固定ネゴシエーション
 
@@ -233,62 +288,91 @@ P0 では **VP8 でシナリオ C を必須**にし、H.264 / Opus は A+B、VP9
 new RTCPeerConnection({
   dtls: { keys: await DtlsKeysContext.get() },
   codecs: {
-    video: [useVP8() /* or useH264 / useVP9 / useAV1X */],
+    video: [useVP8() /* or useH264 / useVP9 / useAV1(+AV1X) */],
     audio: [useOPUS()],
   },
 });
 ```
 
-- Chrome 側も `RTCRtpTransceiver.setCodecPreferences` または capabilities 並び替えで **同一 codec を優先**すると flaky が減る（`red.test.ts` が capabilities を触る先例あり）。
-- Packetizer の `payloadType` は **ネゴ後の answer/offer で確定した PT** を使う（固定 96 決め打ちは避ける）。`PacketizerBase` options の `payloadType` を PC 確立後に設定、または `buildPacket` 相当で header を上書き。
+- Chrome 側も `setCodecPreferences` で同一 codec を優先（`red.test.ts` 先例）。
+- Packetizer の `payloadType` は **ネゴ確定後の PT** を使う。
 
 ### 3.4 Depacketize 集約
 
-推奨 API:
-
 ```ts
-import { DepacketizeCallback } from "werift-rtp/extra"; // または webrtc 経由 re-export
-// video:
 new DepacketizeCallback("VP8", {
   isFinalPacketInSequence: (h) => h.marker,
 });
 ```
 
-- `onReceiveRtp` ごとに `input({ rtp })`。
-- 出力 `frame` で `isKeyframe` / `data` を収集し、Promise を resolve。
-- 単体パケット検査だけなら `Vp8RtpPayload.deSerialize` でもよいが、**フレーム復元**まで見るなら `DepacketizeCallback` / `dePacketizeRtpPackets` が本命。
+フレーム復元まで見るなら `DepacketizeCallback` / `dePacketizeRtpPackets` が本命。
 
 ### 3.5 再 packetize 時の注意
 
 | 項目 | 方針 |
 |---|---|
-| シーケンス番号 | 受信 seq を再利用せず、**送信 Packetizer が独自に採番**（`PacketizerBase`） |
-| タイムスタンプ | 受信 RTP timestamp をそのまま再利用してよい（同じクロック） |
-| SSRC | 送信 track / sender の SSRC に合わせる（必要なら packet 生成後に header.ssrc を設定） |
-| VP8/VP9 拡張 | Chrome が PictureID 等を付けていても depacketize で落とし、最小 descriptor で再送 |
-| H.264 | Annex-B のまま `H264Packetizer` へ。parameter set 欠損時は key 待ち |
-| AV1 | `getFrame` 出力を `Av1Packetizer` へ。`isKeyframe` を options で渡す |
+| シーケンス番号 | 送信 Packetizer が独自採番 |
+| タイムスタンプ | 受信 timestamp 再利用可 |
+| SSRC | 送信 track に合わせる |
+| VP8/VP9 拡張 | depacketize で除去し最小 descriptor で再送 |
+| H.264 | Annex-B + 必要なら parameterSets |
+| AV1 | `getFrame` → `Av1Packetizer` + isKeyframe |
 
-### 3.6 音声 wait の実装方針
+### 3.6 音声 wait
 
-```ts
-// Arrange: AudioContext + MediaStreamSource + Analyser
-// Act: 一定間隔で getByteTimeDomainData / getByteFrequencyData
-// Assert: RMS または peak が閾値を超えたら成功
-```
+`AudioContext` + `AnalyserNode` でエネルギー閾値、または `getStats` の受信増分。
 
-ヘッドレス Chromium + fake device でも `audiotestsrc` 系の注入や、Chrome→再送ループなら無音にならない設定を選ぶ。
+### 3.7 フィクスチャ demux（実行時）
 
-### 3.7 依存関係
+- webrtc の `getUserMedia({ buffer })` は内部で **webrtc packetizer** を使うため、**そのまま SUT 経路にしてはならない**。
+- 同じ mediabunny の demux API だけを e2e ユーティリティから呼び、bytes を rtp Packetizer に渡す。
+- 参考: `packages/webrtc/src/nonstandard/userMedia.ts` の `EncodedPacketSink` 利用箇所（packetize 呼び出しを rtp 側に差し替えるイメージ）。
+
+### 3.8 AV1 SDP 名の差異 — 調査結果と対応方針【確定】
+
+#### 調査結果
+
+| 側 | encoding name / mimeType | 根拠 |
+|---|---|---|
+| **AV1 RTP 仕様** | SDP `a=rtpmap` の encoding name は **`AV1`** | [AV1 RTP payload format](https://aomediacodec.github.io/av1-rtp-spec/) § SDP mapping |
+| **Chrome / 現行ブラウザ** | capabilities / SDP は **`video/AV1`** | 2021 以降 AV1X→AV1 移行完了（[discuss-webrtc PSA: AV1X will be replaced with AV1](https://groups.google.com/g/discuss-webrtc/c/ACmDgZEAooc)）。MDN も WebRTC AV1 を Chrome 113+ 等で記載 |
+| **werift 現状** | `useAV1X()` → **`video/AV1X` のみ**（`packages/webrtc/src/media/codec.ts`）。`supportedCodecs` も AV1X | 歴史的な実験名のまま |
+| **ネゴ照合** | `findCodecByMimeType` は **完全一致**（`mimeType.toLowerCase()` 同士） | `packages/webrtc/src/peerConnection.ts` — `video/av1` ≠ `video/av1x` なので **マッチしない** |
+
+補足:
+
+- MediaRecorder 側は受信 codec 名 `av1x` を WebM の `"AV1"` にマップしている（`webm.ts`）が、**SDP ネゴとは別経路**。
+- userMedia のソース codec `av1` → 期待 mime `video/av1x` も AV1X 前提。
+
+#### 対応方針（本タスクに含む）
+
+優先順（上から推奨）:
+
+1. **`useAV1()` を追加**（`mimeType: "video/AV1"`）し、`supportedCodecs` / デフォルト video リストに **`useAV1()` を主、必要なら `useAV1X()` を後方互換で残す**。
+2. E2E の Node PC は **`codecs.video: [useAV1()]`**（または AV1 と AV1X の両方）で offer/answer。Chrome の `video/AV1` と一致させる。
+3. 既存の `AV1X` のみのリモートに備え、**`findCodecByMimeType`（または codec マッチ層）で `AV1` ↔ `AV1X` を同一コーデックとしてエイリアス**するかを実装時に判断:
+   - **最小**: E2E と新規コードは `video/AV1` のみ使い、エイリアス無し。
+   - **互換重視**: マッチ関数で name 正規化（`av1x` → `av1`）し、旧 peer ともつながる。
+4. rtp パッケージの de/packetizer レジストリ名 `"AV1"` はそのまま（ペイロード形式は SDP 名と独立）。
+5. ドキュメント / changelog: 「SDP は AV1 が正。AV1X は legacy alias」と短く記載。
+
+#### E2E での扱い
+
+- AV1 フィクスチャ WebM を用意しシナリオ B を実施。
+- シナリオ A は Chrome が AV1 エンコード可能な環境で実施（近年の Chromium はソフトエンコード可のことが多い）。
+- **ネゴ失敗が `AV1X` のみ advertise が原因ならバグ / 未対応として修正**（skip で逃げない）。
+- エンコーダ自体が完全に無い古い Chromium に限り skip 可（理由をログ）。通常 CI の Playwright Chromium では AV1 対応を前提にトライする。
+
+### 3.9 依存関係
 
 | 依存 | 用途 |
 |---|---|
-| Playwright Chromium / system Chrome | 既存 e2e |
-| GStreamer（任意） | シナリオ B の外部エンコード |
-| `werift` workspace パッケージ | PC / track（`e2e/server/index.ts` は workspace の `packages/webrtc` を re-export） |
-| `werift-rtp` | Packetizer / Depacketizer（workspace 解決を確認。必要なら e2e の import を相対パス `../../packages/rtp/src` に統一） |
-
-実装時は **e2e がビルド済み lib を見るか source を見るか**を既存 handler に合わせる（`e2e/server/index.ts` は webrtc source 直参照）。
+| Playwright Chromium | 既存 e2e |
+| コミット済み WebM/MP4 | シナリオ B のフレーム源 |
+| GStreamer | **フィクスチャ生成時のみ**（CI 実行時不要） |
+| mediabunny（e2e/webrtc 経由） | demux のみ |
+| `packages/rtp` | SUT packetize / depacketize |
+| `packages/webrtc` | PC / track /（AV1 SDP 修正） |
 
 ---
 
@@ -296,73 +380,77 @@ new DepacketizeCallback("VP8", {
 
 ### 4.1 何が「成功」か（偽陽性の排除）
 
-- **透過 loopback の再生成功だけでは不合格**。必ず `packages/rtp` の API を呼んだ証拠（depacketize フレーム数 / packetize 後の descriptor 検証）をアサートに含める。
-- GStreamer `rtp*pay` 経路を Packetizer 合格に使わない。
-- シナリオ A だけで「Chrome が送れた」ことと「depacketizer が壊れていない」ことは言えるが、**Packetizer の Chrome 互換は B または C が必須**。
+- **透過 loopback の再生成功だけでは不合格**。`packages/rtp` API を呼んだ証拠をアサートに含める。
+- GStreamer `rtp*pay` や webrtc userMedia packetizer を Packetizer 合格に使わない。
+- シナリオ A のみでは Packetizer 未検証 → **B または C が必須**。
 
 ### 4.2 環境・フレーク
 
-- fake media device は動きが単調 → `waitVideoPlay` が変化を検出できるよう、**再送側で videotestsrc や canvas 時計**など時間変化するソースを使う（シナリオ C なら Chrome の入力が fake でもエンコード変化はあるが、静的だと弱い）。
-- PLI 無しだと keyframe 待ちでタイムアウトしがち。受信開始直後から PLI。
-- `testTimeout` 20s は ICE + キーフレーム待ちで足りない場合あり。codec スイートは 30–60s を許容するか retry を活かす（既存 `retry: 1`）。
-- 並列 file 実行で UDP port / GStreamer が競合しないよう `randomPort` と process 管理を徹底。
-- CI に GStreamer が無い／不完全な場合の **必須パスとオプトインパス**を分ける。
+- 実行時 GStreamer 非依存になったため、**CI の GST 有無問題は解消**（フィクスチャ欠落だけが失敗理由）。
+- fake media は動きが単調 → シナリオ C では PLI と十分な待機。シナリオ B はフィクスチャに動きのある videotestsrc 由来を推奨。
+- `testTimeout` は codec スイートで 30–60s を許容してよい。
+- 並列実行時の PC リークに注意。
 
-### 4.3 コーデック相互運用の落とし穴
+### 4.3 コーデック相互運用
 
-- **H.264**: profile-level-id、packetization-mode、SPS/PPS 欠落、FU-A 境界。
-- **VP9**: 最小 descriptor のみ実装。Chrome 送信の拡張付きを depacketize できるか（既存 depacketizer の X/I 等サポート範囲を超える入力は「フレーム payload が取れれば可」と割り切る）。
-- **AV1**: `AV1` vs `AV1X` の SDP、ハードウェア有無。
-- **Opus**: RED と混在させない（本タスクは pure Opus）。dtx / fec は範囲外。
-- **クロック**: G.722 のような罠は対象外。Opus 48000 / video 90000 を timestamp 進行に使う。
+- **H.264**: 黒画面許容。profile チューニングは必須作業にしない。de/packetize と配送を見る。
+- **VP9**: 拡張 descriptor は既存実装あり。E2E 失敗時は **追加実装**（割り切り禁止）。
+- **VP8**: 同様に X 拡張は既存。問題時は修正。
+- **AV1**: SDP は `AV1` を正とする対応を本タスクに含む（§3.8）。
+- **Opus**: pure Opus。RED 混在なし。
 
 ### 4.4 パッケージ境界
 
-- `packages/rtp` に webrtc 依存を持ち込まない（E2E は e2e アプリが両方を束ねる）。
-- mediabunny / `EncodedPacket` を rtp Packetizer API に繋がない。
-- バグ修正が rtp 本体に及ぶ場合は、対応する **単体テストも追加**してから E2E を緑にする（根本原因修正。テスト無効化で逃げない）。
+- `packages/rtp` に webrtc 依存を持ち込まない。
+- mediabunny は e2e demux に限定。rtp Packetizer の引数は `Buffer`。
+- rtp 修正時は **単体テスト追加後に E2E**。
 
-### 4.5 セキュリティ・リソース
+### 4.5 リソース
 
-- GStreamer / PC のリークは e2e server の `cleanupGstreamerProcesses` と handler `done` で回収。
-- 無限バッファ（depacketize で marker が来ない）を防ぐため、テスト側に **上限時間とバッファ長**を設ける。
+- フィクスチャは小さく保つ。巨大 raw をコミットしない。
+- depacketize バッファに上限時間を設ける。
 
-### 4.6 範囲外（明示）
+### 4.6 範囲外
 
-- Firefox / Safari 相互運用。
+- Firefox / Safari。
 - H.265 / G.711 / G.722 / AAC / DTMF の Chrome E2E。
-- webrtc `userMedia/packetizer` の rtp 実装への置換。
-- 画質・遅延・ロス耐性の性能ベンチ（再生可否とフレーム復元が主）。
-- Simulcast / SVC 層の詳細（単一 layer で十分）。
+- webrtc userMedia packetizer の rtp への置換。
+- H.264 の黒画面解消・画質保証。
+- 性能ベンチ、Simulcast/SVC 詳細。
+- **CI 上での GStreamer インストール必須化**（生成は開発時のみ）。
 
 ---
 
 ## 5. 完了条件
 
-1. **`e2e` に Chrome 向け codec RTP シナリオが追加**され、`e2e/server/main.ts` に handler が登録されている。
-2. **P0（VP8 / H.264 / Opus）** について、少なくとも:
-   - **シナリオ A（Depacketizer）**: Chrome 送信を `packages/rtp` でフレーム化し、非空フレームと（映像は）キーフレームをアサート。
-   - **シナリオ B または C（Packetizer）**: `packages/rtp` の `*Packetizer` が生成した RTP を Chrome が再生（映像は `waitVideoPlay`、音声は `waitAudioPlay` 相当）。
-3. **VP8 はシナリオ C（depacketize → re-packetize → 再生）が必須**で通る。
-4. **P1 VP9** は A +（B または C）が通る。通らない環境依存がある場合は理由付きで issue/コメント化し、スキップ条件をテストに限定（P0 をスキップで逃さない）。
-5. **P2 AV1** は実装済みなら A を試み、ネゴ不可時は skip。無理に fail にしない方針がテストコメントで共有されている。
-6. Packetizer 検証経路で **GStreamer `rtp*pay` を SUT に使っていない**（使うならエンコードのみ）。
-7. Arrange 共通化・Act/Assert 日本語コメントが AGENTS.md のテスト規約に沿っている。
-8. handler 終了時に **PC / timer / GStreamer / socket が解放**され、連続実行でポート枯渇しない。
-9. 検証コマンド:
-   - 開発時: 対象テストに絞った vitest 実行（可能なら）。
-   - 完了時: **`cd e2e && npm run type`** およびルート **`npm run e2e`**（または `cd e2e && npm run ci:silent`）で **新規シナリオを含む E2E が成功**。
-   - rtp 本体をバグ修正した場合: **`cd packages/rtp && npm run type && npm test`** も成功。
-10. ドキュメントに実行方法と対象コーデックが短い形で残っている（e2e README または rtp README の一行以上）。
+1. **`e2e` に Chrome 向け codec RTP シナリオが追加**され、`main.ts` に handler 登録済み。
+2. **コーデック別の小さい WebM/MP4 フィクスチャがリポジトリにあり**、生成スクリプトまたは手順が文書化されている（CI はファイルを読むだけ）。
+3. **P0（VP8 / H.264 / Opus）**:
+   - **シナリオ A**: Chrome → `packages/rtp` depacketize で非空フレーム（映像は keyframe 1 回以上）。
+   - **シナリオ B**: フィクスチャ → `packages/rtp` Packetizer → Chrome 受信（H.264 は黒画面可、画素変化は任意）。
+4. **VP8 はシナリオ C 必須**で通る。
+5. **P1 VP9**: A + B（または C）。Chrome 拡張 descriptor で失敗した場合は depacketizer 修正 + 単体テストまで含め緑。
+6. **AV1**:
+   - SDP が Chrome とネゴ可能（**`video/AV1` 対応**、必要なら AV1X エイリアス）。
+   - A および B（フィクスチャ）を実施。ネゴ不能を AV1X 放置のまま skip しない。
+7. Packetizer 経路で **GStreamer payloader / webrtc userMedia packetizer を SUT に使っていない**。
+8. Arrange 共通化・Act/Assert 日本語コメントが規約どおり。
+9. handler 終了時にリソース解放。
+10. 検証:
+    - `cd e2e && npm run type`
+    - ルート `npm run e2e`（または `cd e2e && npm run ci:silent`）で新規シナリオ成功
+    - rtp / webrtc の SDP・depacketizer を直した場合: 該当パッケージの `npm run type && npm test`（webrtc は `test:small` 相当）も成功
+11. README にフィクスチャと E2E の短い記載。
 
 ### 受け入れの読み方
 
 | 結果 | 意味 |
 |---|---|
-| 単体テストのみ緑 | **本タスク未完了** |
-| 既存 sendrecv のみ緑 | **本タスク未完了**（rtp de/packetizer 未行使） |
-| A+C が P0 で緑 | **最低ライン達成** |
-| A+B+C と VP9 まで緑 | **完了として十分** |
+| 単体テストのみ緑 | **未完了** |
+| 既存 sendrecv のみ緑 | **未完了** |
+| フィクスチャ無しで実行時 GST 依存のまま | **方針違反（未完了）** |
+| AV1 が AV1X のまま Chrome とネゴできず skip のみ | **AV1 項目未完了** |
+| P0 の A+B、VP8 の C、VP9/AV1 対応済み | **完了** |
 
 ---
 
@@ -370,18 +458,21 @@ new DepacketizeCallback("VP8", {
 
 | 項目 | 親チケット（packetizer 実装） | 本チケット（Chrome E2E） |
 |---|---|---|
-| 成果物 | `packages/rtp/src/codec/*Packetizer` + 単体/ベクタ | `e2e` シナリオ + 必要なら rtp の互換バグ修正 |
-| 仕様調査 / `docs/rfc/` | 必須 | 参照のみ |
-| GStreamer | ベクタ生成 | 任意のフレーム供給（payloader は使わない） |
-| webrtc userMedia packetizer | 参照実装・置換しない | 同様に SUT にしない |
-| 新規コーデック H265 等 | 別親（coverage 拡張） | Chrome E2E 対象外 |
+| 成果物 | `packages/rtp` Packetizer + 単体/ベクタ | `e2e` シナリオ + フィクスチャ + 必要なら rtp/webrtc 互換修正 |
+| 仕様 / `docs/rfc/` | 必須 | 参照 + テストコメント |
+| GStreamer | ベクタ生成 | **フィクスチャ事前生成のみ**（実行時不要） |
+| AV1 SDP | 対象外だった | **本タスクで `AV1` 対応** |
+| webrtc userMedia packetizer | 参照・置換しない | 同様（demux のみ流用可） |
 
 ### 主な参照パス
 
 - `packages/rtp/src/codec/{vp8,vp9,av1,opus,h264}.ts` — SUT
 - `packages/rtp/src/extra/processor/depacketizerCallback.ts` — 受信集約
-- `e2e/server/handler/mediachannel/rtx.ts` — writeRtp + GStreamer 管理の型
-- `e2e/tests/fixture.ts` — `waitVideoPlay` / peer
-- `examples/mediachannel/codec/*.ts` — Chrome→deSerialize の手動プロトタイプ
-- `packages/webrtc/src/media/codec.ts` — `useVP8` / `useH264` / `useVP9` / `useAV1X` / `useOPUS`
-- `packages/rtp/examples/node/rtp_over_udp/` — Node 単体 packetizer 使用例（ブラウザなし）
+- `packages/rtp/tests/codec/vp9.test.ts` — VP9 拡張 descriptor 単体
+- `packages/webrtc/src/media/codec.ts` — `useVP8` / `useH264` / `useVP9` / `useAV1X`（→ `useAV1` 追加）
+- `packages/webrtc/src/peerConnection.ts` — `findCodecByMimeType`
+- `e2e/server/handler/mediachannel/rtx.ts` — writeRtp パターン
+- `e2e/tests/fixture.ts` — `waitVideoPlay`
+- `examples/mediachannel/codec/*.ts` — Chrome→deSerialize プロトタイプ
+- `packages/webrtc/tests/data/nonstandard/userMedia-e2e/` — 既存短いメディアの参考
+- `packages/rtp/examples/node/rtp_over_udp/` — Node 単体 packetizer 例
