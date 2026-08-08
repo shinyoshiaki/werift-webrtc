@@ -283,8 +283,9 @@ describe("nonstandard/userMedia file playback", () => {
     const startPromise = media.start();
 
     // 検証: codec 不一致を明示するエラーで start が失敗する。
+    // useH264() は Chrome 互換のため mimeType が video/H264（大文字）
     await expect(startPromise).rejects.toThrow(
-      "Input video codec video/vp8 does not match negotiated codec video/h264",
+      "Input video codec video/vp8 does not match negotiated codec video/H264",
     );
   });
 
