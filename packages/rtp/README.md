@@ -79,6 +79,17 @@ const opus = new OpusPacketizer({ payloadType: 111 });
 const opusPkts = opus.packetize(opusPacket, ts); // throws if > maxPayloadSize
 ```
 
+## Chrome E2E (interop)
+
+Packetizer / Depacketizer interop with Chromium is covered by the repo root E2E suite:
+
+- Tests: `e2e/tests/mediachannel/codecRtp.test.ts`
+- Handlers / demux utils: `e2e/server/handler/mediachannel/codecRtp.ts`, `e2e/server/codecRtpUtils.ts`
+- Pre-encoded fixtures (no GStreamer at CI runtime): `e2e/fixtures/media/`
+- Fixture generator (dev only): `e2e/tools/generateCodecFixtures.sh`
+
+Run from repo root: `npm run e2e` (or `cd e2e && npm run ci:silent`).
+
 ## telephone-event (DTMF)
 
 Not registered in `dePacketizeRtpPackets` (single-packet primitive; marker on

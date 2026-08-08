@@ -27,6 +27,22 @@ export const useVP9 = (props: Partial<RTCRtpCodecParameters> = {}) =>
     ...props,
   });
 
+/**
+ * Standard AV1 SDP name (`video/AV1`). Prefer this for Chrome and other
+ * modern browsers. See AV1 RTP payload format SDP mapping.
+ */
+export const useAV1 = (props: Partial<RTCRtpCodecParameters> = {}) =>
+  new RTCRtpCodecParameters({
+    mimeType: "video/AV1",
+    clockRate: 90000,
+    rtcpFeedback: [useNACK(), usePLI(), useREMB()],
+    ...props,
+  });
+
+/**
+ * Legacy experimental name (`video/AV1X`). Kept for backward compatibility
+ * with older peers; prefer {@link useAV1} for new code.
+ */
 export const useAV1X = (props: Partial<RTCRtpCodecParameters> = {}) =>
   new RTCRtpCodecParameters({
     mimeType: "video/AV1X",
@@ -73,6 +89,7 @@ export const useG722 = (props: Partial<RTCRtpCodecParameters> = {}) =>
   });
 
 export const supportedCodecs = [
+  useAV1(),
   useAV1X(),
   useVP9(),
   useVP8(),

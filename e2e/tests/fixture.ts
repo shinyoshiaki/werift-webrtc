@@ -46,6 +46,139 @@ export async function waitVideoPlay(track: MediaStreamTrack) {
   video.srcObject = null;
 }
 
+/**
+ * Wait until AnalyserNode sees non-trivial audio energy (or timeout).
+ * Used for Opus Packetizer E2E (scenario B).
+ */
+export async function waitAudioPlay(
+  track: MediaStreamTrack,
+  timeoutMs = 15_000,
+) {
+  // Remote WebRTC audio needs an element sink in some Chromium builds
+  const audio = document.createElement("audio");
+  audio.autoplay = true;
+  audio.srcObject = new MediaStream([track]);
+  document.body.appendChild(audio);
+  try {
+    await audio.play();
+  } catch {
+    // autoplay policies may reject; Analyser may still work via MediaStream
+  }
+
+  const ctx = new AudioContext();
+  try {
+    await ctx.resume();
+  } catch {}
+  const source = ctx.createMediaStreamSource(new MediaStream([track]));
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const timeData = new Uint8Array(analyser.fftSize);
+  const started = performance.now();
+
+  try {
+    for (;;) {
+      if (performance.now() - started > timeoutMs) {
+        throw new Error("waitAudioPlay timed out");
+      }
+      analyser.getByteFrequencyData(data);
+      analyser.getByteTimeDomainData(timeData);
+      let sum = 0;
+      let peak = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      for (let i = 0; i < timeData.length; i++) {
+        const d = Math.abs(timeData[i] - 128);
+        if (d > peak) peak = d;
+      }
+      if (sum / data.length > 2 || peak > 2) {
+        break;
+      }
+      await sleep(50);
+    }
+  } finally {
+    source.disconnect();
+    await ctx.close();
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
+  }
+}
+
+/**
+ * Prefer a single codec via setCodecPreferences when the browser supports it.
+ */
+export function preferCodec(
+  transceiver: RTCRtpTransceiver,
+  mimeIncludes: string,
+  kind?: "audio" | "video",
+) {
+  const resolvedKind =
+    kind ??
+    transceiver.receiver?.track?.kind ??
+    transceiver.sender?.track?.kind;
+  if (resolvedKind !== "audio" && resolvedKind !== "video") {
+    return;
+  }
+  const caps = RTCRtpSender.getCapabilities(resolvedKind);
+  if (!caps?.codecs?.length) {
+    return;
+  }
+  const lower = mimeIncludes.toLowerCase();
+  const preferred = caps.codecs.filter((c) =>
+    c.mimeType.toLowerCase().includes(lower),
+  );
+  if (preferred.length === 0) {
+    return;
+  }
+  const rest = caps.codecs.filter(
+    (c) => !c.mimeType.toLowerCase().includes(lower),
+  );
+  try {
+    (transceiver as any).setCodecPreferences([...preferred, ...rest]);
+  } catch {
+    // ignore if browser rejects
+  }
+}
+
+/** Inbound RTP stats: packets/bytes received (Chrome getStats). */
+export async function getInboundRtpTotals(pc: RTCPeerConnection) {
+  const report = await pc.getStats();
+  let packetsReceived = 0;
+  let bytesReceived = 0;
+  report.forEach((stat) => {
+    if (stat.type === "inbound-rtp") {
+      const s = stat as RTCInboundRtpStreamStats & {
+        packetsReceived?: number;
+        bytesReceived?: number;
+      };
+      packetsReceived += s.packetsReceived ?? 0;
+      bytesReceived += s.bytesReceived ?? 0;
+    }
+  });
+  return { packetsReceived, bytesReceived };
+}
+
+export async function waitInboundRtp(
+  pc: RTCPeerConnection,
+  minPackets = 5,
+  timeoutMs = 30_000,
+) {
+  const started = performance.now();
+  for (;;) {
+    const totals = await getInboundRtpTotals(pc);
+    if (totals.packetsReceived >= minPackets) {
+      return totals;
+    }
+    if (performance.now() - started > timeoutMs) {
+      throw new Error(
+        `waitInboundRtp timed out: packets=${totals.packetsReceived}`,
+      );
+    }
+    await sleep(100);
+  }
+}
+
 async function digestMessage(data: Uint8ClampedArray) {
   const hashBuffer = await crypto.subtle.digest("SHA-1", data); // hash the message
   const hashArray = Array.from(new Uint8Array(hashBuffer)); // convert buffer to byte array

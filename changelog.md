@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 🧪 Testing & tooling
+
+- **Chrome E2E for packages/rtp Packetizer / Depacketizer** (`e2e`):
+  - Scenario A (Chrome → `packages/rtp` depacketize), B (fixture demux → `packages/rtp` Packetizer → Chrome), C (repacketize loop; VP8 required).
+  - Codecs: VP8, H.264, Opus (P0), VP9, AV1 (P1). H.264 accepts black frames (delivery + de/packetize only).
+  - Committed fixtures under `e2e/fixtures/media/`; CI does not require GStreamer. Generator: `e2e/tools/generateCodecFixtures.sh`.
+  - **SDP `video/AV1`**: add `useAV1()`; keep `useAV1X()` as legacy. `findCodecByMimeType` treats AV1 ↔ AV1X as aliases.
+
 ### 🚀 Features & Improvements
 
 - **werift-rtp existing-codec packetizers** (`packages/rtp`): Add package-local packetizers for codecs that previously only had depacketizers (non-WebRTC / SIP / RTSP).
