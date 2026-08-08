@@ -85,6 +85,11 @@ export abstract class Dtls13ConnectionBase {
   /** Number of HelloRetryRequests processed (client) or sent (server). Max 1. */
   protected hrrCount = 0;
   /**
+   * Cipher suite selected by HRR (client). Final ServerHello must match.
+   * RFC 8446 §4.1.4.
+   */
+  protected hrrCipherSuite?: number;
+  /**
    * Groups offered in the first ClientHello key_share (client).
    * HRR selected_group must not already appear here (RFC 8446 §4.1.4).
    */
@@ -213,8 +218,12 @@ export abstract class Dtls13ConnectionBase {
   protected clientCertificateReceived = false;
   protected clientCertificateVerified = false;
   protected peerRequestedClientCert = false;
-  /** App data received before handshake marked connected (epoch 3 early data). */
+  /**
+   * Epoch-3 app data received before markConnected (UDP reorder window).
+   * Bounded — see MAX_EARLY_APP_DATA_* in types.ts.
+   */
   protected earlyAppData: Buffer[] = [];
+  protected earlyAppDataBytes = 0;
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   protected rxChain: Promise<void> = Promise.resolve();
 
@@ -468,6 +477,12 @@ export abstract class Dtls13ConnectionBase {
       this.onData.execute(buf);
     }
     this.earlyAppData = [];
+    this.earlyAppDataBytes = 0;
+  }
+
+  protected clearEarlyAppData() {
+    this.earlyAppData = [];
+    this.earlyAppDataBytes = 0;
   }
 
   protected fail(err: Error) {
@@ -475,6 +490,7 @@ export abstract class Dtls13ConnectionBase {
     log("fail", err.message);
     // Always stop timers / pending retransmits and refuse further 1.3 RX
     this.clearPendingFlight();
+    this.clearEarlyAppData();
     this.cancelEpochPrune?.();
     this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();

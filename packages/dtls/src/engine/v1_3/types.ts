@@ -28,6 +28,14 @@ export const MAX_ACK_RECORD_NUMBERS = 32;
 /** Cap of successfully accepted handshake records tracked for replay re-ACK. */
 export const MAX_ACCEPTED_HS_RECORDS = 64;
 
+/**
+ * Epoch-3 application data may arrive before markConnected (UDP reorder).
+ * Bound the early buffer to prevent pre-Finished memory DoS (RFC 9147 allows
+ * buffer or discard; we keep a small reorder window then drop).
+ */
+export const MAX_EARLY_APP_DATA_RECORDS = 8;
+export const MAX_EARLY_APP_DATA_BYTES = 32 * 1024;
+
 export const log = debug("werift-dtls : packages/dtls/src/engine/v1_3");
 
 export type AddressValidationMode =

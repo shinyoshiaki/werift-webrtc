@@ -21,6 +21,8 @@ import { Dtls13FlightTx } from "./flight-tx";
 import {
   FRAGMENT_TTL_MS,
   MAX_ACK_RECORD_NUMBERS,
+  MAX_EARLY_APP_DATA_BYTES,
+  MAX_EARLY_APP_DATA_RECORDS,
   MAX_FRAGMENTS_PER_MESSAGE,
   MAX_FRAGMENT_BUFFER_BYTES,
   MAX_FRAGMENT_BUFFER_MESSAGES,
@@ -263,8 +265,22 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         return this.processHandshakeBytes(rec.content, rec.epoch);
       case ContentType.applicationData:
         if (!this.connected) {
-          // May arrive before peer Finished is processed (UDP reorder)
+          // UDP reorder: epoch-3 app data before markConnected.
+          // Bound buffer to prevent pre-Finished memory DoS (RFC 9147: buffer or discard).
+          if (
+            this.earlyAppData.length >= MAX_EARLY_APP_DATA_RECORDS ||
+            this.earlyAppDataBytes + rec.content.length >
+              MAX_EARLY_APP_DATA_BYTES
+          ) {
+            log(
+              "drop early app data: buffer limit",
+              this.earlyAppData.length,
+              this.earlyAppDataBytes,
+            );
+            return false;
+          }
           this.earlyAppData.push(rec.content);
+          this.earlyAppDataBytes += rec.content.length;
           return false;
         }
         this.onData.execute(rec.content);
@@ -281,28 +297,56 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     }
   }
 
+  /**
+   * TLS 1.3 / RFC 8446 alert handling:
+   * - close_notify closes the association (level ignored)
+   * - any other alert description is fatal regardless of legacy level field
+   * - malformed / truncated alert → decode_error fatal
+   */
   protected handleAlert(fragment: Buffer) {
-    try {
-      const alert = Alert.deSerialize(fragment);
-      log("alert", alert.level, alert.description);
-      if (alert.description === AlertDesc.ProtocolVersion) {
-        this.fail(
-          new ProtocolVersionError(
-            "peer rejected protocol version (alert protocol_version)",
-          ),
-        );
-        return;
-      }
-      if (alert.level > 1) {
-        this.fail(
-          new Error(
-            `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
-          ),
-        );
-      }
-    } catch {
-      this.onClose.execute();
+    if (fragment.length < 2) {
+      this.fail(new Error("decode_error: truncated alert"));
+      return;
     }
+    let alert: Alert;
+    try {
+      alert = Alert.deSerialize(fragment);
+    } catch {
+      this.fail(new Error("decode_error: malformed alert"));
+      return;
+    }
+    log("alert", alert.level, alert.description);
+
+    if (alert.description === AlertDesc.CloseNotify) {
+      // Peer closed write; tear down association and stop timers
+      if (this.closed) return;
+      this.clearPendingFlight();
+      this.clearEarlyAppData();
+      this.cancelEpochPrune?.();
+      this.cancelEpochPrune = undefined;
+      this.carrier.cancelAllTimers();
+      this.closed = true;
+      this.carrier.close();
+      void this.options.transport.close().catch(() => {});
+      this.onClose.execute();
+      return;
+    }
+
+    if (alert.description === AlertDesc.ProtocolVersion) {
+      this.fail(
+        new ProtocolVersionError(
+          "peer rejected protocol version (alert protocol_version)",
+        ),
+      );
+      return;
+    }
+
+    // TLS 1.3: error alerts are fatal regardless of AlertLevel
+    this.fail(
+      new Error(
+        `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
+      ),
+    );
   }
 
   protected handleAck(content: Buffer) {

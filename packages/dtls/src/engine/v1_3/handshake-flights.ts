@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import { createHandshakeDatagram } from "../../carrier/direct";
 import {
   CipherSuite,
@@ -560,7 +559,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
     // Optional CertificateRequest for mutual auth
     if (this.options.certificateRequest) {
-      this.certificateRequestContext = Buffer.from(randomBytes(8));
+      // RFC 8446 §4.3.2: certificate_request_context MUST be zero-length in
+      // the main handshake (non-zero only for post-handshake authentication).
+      this.certificateRequestContext = Buffer.alloc(0);
       this.expectClientCertificate = true;
       // Advertise schemes we accept for client CertificateVerify
       this.certificateRequestSignatureSchemes = [
@@ -719,6 +720,14 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         throw new Error("second HelloRetryRequest not allowed");
       }
       this.hrrCount += 1;
+      // Cipher suite must be one we offered
+      if (sh.cipherSuite !== CipherSuite.TLS_AES_128_GCM_SHA256_0x1301) {
+        throw new Error(
+          `HRR cipher suite 0x${sh.cipherSuite.toString(16)} not offered`,
+        );
+      }
+      this.hrrCipherSuite = sh.cipherSuite;
+
       const ksExt = sh.extensions.find((e) => e.type === KeyShare.type);
       const group = ksExt
         ? KeyShare.fromServerData(ksExt.data).selectedGroup
@@ -743,6 +752,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
           CookieExtension.fromData(cookieExt.data).cookie,
         );
       }
+      // HRR must cause a change to the subsequent ClientHello (cookie and/or group)
+      if (!cookieExt && group === undefined) {
+        throw new Error(
+          "illegal_parameter: HelloRetryRequest does not change ClientHello",
+        );
+      }
       // Transcript: replace first CH with message_hash, add HRR
       if (this.firstClientHelloBody) {
         this.transcript = new HandshakeTranscript();
@@ -757,6 +772,15 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     if (sh.cipherSuite !== CipherSuite.TLS_AES_128_GCM_SHA256_0x1301) {
       throw new Error(
         `unsupported cipher suite 0x${sh.cipherSuite.toString(16)}`,
+      );
+    }
+    // After HRR, final ServerHello cipher suite must match HRR selection
+    if (
+      this.hrrCipherSuite !== undefined &&
+      sh.cipherSuite !== this.hrrCipherSuite
+    ) {
+      throw new Error(
+        `ServerHello cipher suite 0x${sh.cipherSuite.toString(16)} does not match HRR 0x${this.hrrCipherSuite.toString(16)}`,
       );
     }
 
@@ -805,18 +829,35 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
   protected async onEncryptedExtensions(body: Buffer): Promise<void> {
     const ee = EncryptedExtensions.deSerialize(body);
-    // Negotiate use_srtp from EncryptedExtensions (TLS 1.3 placement)
-    const srtpExt = ee.extensions.find((e) => e.type === UseSRTP.type);
-    if (srtpExt && this.options.srtpProfiles?.length) {
-      try {
-        const use = UseSRTP.fromData(srtpExt.data);
-        const match = use.profiles.find((p) =>
-          this.options.srtpProfiles!.includes(p as SrtpProfile),
+    // RFC 8446: reject handshake-only extensions that MUST NOT appear in EE
+    const forbiddenInEe = new Set([
+      SignatureAlgorithms.type, // 13
+      SupportedVersions.type, // 43
+      CookieExtension.type, // 44
+      KeyShare.type, // 51
+    ]);
+    for (const ext of ee.extensions) {
+      if (forbiddenInEe.has(ext.type)) {
+        throw new Error(
+          `illegal_parameter: extension 0x${ext.type.toString(16)} forbidden in EncryptedExtensions`,
         );
-        if (match !== undefined) this.negotiatedSrtpProfile = match;
-      } catch {
-        /* ignore malformed */
       }
+    }
+    // Negotiate use_srtp from EncryptedExtensions (TLS 1.3 placement).
+    // EE is AEAD-authenticated: malformed use_srtp is a fatal protocol error.
+    const srtpExt = ee.extensions.find((e) => e.type === UseSRTP.type);
+    if (srtpExt) {
+      if (!this.options.srtpProfiles?.length) {
+        // Unsolicited use_srtp response (client did not offer profiles)
+        throw new Error(
+          "illegal_parameter: unsolicited use_srtp in EncryptedExtensions",
+        );
+      }
+      const use = UseSRTP.fromData(srtpExt.data);
+      const match = use.profiles.find((p) =>
+        this.options.srtpProfiles!.includes(p as SrtpProfile),
+      );
+      if (match !== undefined) this.negotiatedSrtpProfile = match;
     }
     this.transcript.add(HandshakeType.encrypted_extensions_8, body);
   }
@@ -826,17 +867,23 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     // certificate_request_context must be echoed in client Certificate (RFC 8446 §4.3.2)
     this.certificateRequestContext = Buffer.from(cr.certificateRequestContext);
     this.peerRequestedClientCert = true;
-    // signature_algorithms in CertificateRequest constrains CertificateVerify
+    // signature_algorithms is MUST in CertificateRequest (RFC 8446 §4.3.2)
     const sigExt = cr.extensions.find(
       (e) => e.type === SignatureAlgorithms.type,
     );
-    if (sigExt) {
-      try {
-        const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
-        if (!schemes.length) {
-          throw new Error("CertificateRequest signature_algorithms empty");
-        }
-        // Keep peer order for CertificateVerify selection; require intersection
+    if (!sigExt) {
+      throw new Error(
+        "missing_extension: CertificateRequest requires signature_algorithms",
+      );
+    }
+    try {
+      const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
+      if (!schemes.length) {
+        throw new Error("CertificateRequest signature_algorithms empty");
+      }
+      // Keep peer order for CertificateVerify selection; require intersection
+      // only when we have a local cert to present.
+      if (this.hasLocalIdentity) {
         const ok = schemes.some((s) =>
           this.localOfferedSignatureSchemes.includes(s),
         );
@@ -845,32 +892,40 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
             "no overlapping signature_algorithms with CertificateRequest",
           );
         }
-        this.certificateRequestSignatureSchemes = schemes;
-        this.peerSignatureSchemes = schemes;
-      } catch (e) {
-        if (e instanceof Error && /overlapping|empty/.test(e.message)) throw e;
-        throw new Error("CertificateRequest invalid signature_algorithms");
       }
+      this.certificateRequestSignatureSchemes = schemes;
+      this.peerSignatureSchemes = schemes;
+    } catch (e) {
+      if (
+        e instanceof Error &&
+        /overlapping|empty|missing_extension/.test(e.message)
+      ) {
+        throw e;
+      }
+      throw new Error("CertificateRequest invalid signature_algorithms");
     }
     this.transcript.add(HandshakeType.certificate_request_13, body);
   }
 
   protected async onCertificate(body: Buffer): Promise<void> {
     const cert = Certificate13.deSerialize(body);
-    // Empty certificate list is allowed for optional client auth decline;
-    // we require a cert when we requested one.
+    // Empty certificate list = client decline (RFC 8446 §4.4.2). Server policy
+    // may still reject after Finished if a certificate was required.
     if (this.role === "server" && this.expectClientCertificate) {
-      if (!cert.certificates.length) {
-        throw new Error("client Certificate required but empty list received");
-      }
       // RFC 8446: client Certificate.context MUST equal CertificateRequest.context
       if (
         !cert.certificateRequestContext.equals(this.certificateRequestContext)
       ) {
         throw new Error("client certificate_request_context mismatch");
       }
-      this.remoteCert = cert.certificates[0];
       this.clientCertificateReceived = true;
+      if (!cert.certificates.length) {
+        // Decline: no CertificateVerify expected; leave verified=false
+        this.transcript.add(HandshakeType.certificate_11, body);
+        return;
+      }
+      this.remoteCert = cert.certificates[0];
+      // Verified becomes true only after successful CertificateVerify
       this.transcript.add(HandshakeType.certificate_11, body);
       return;
     }
@@ -943,45 +998,58 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.installEpoch(3, ep3);
 
       // Optional client Certificate + CertificateVerify for mutual auth
+      // RFC 8446: if no suitable cert, send empty Certificate and skip CV.
       const clientMsgs: FragmentedHandshake[] = [];
       if (this.peerRequestedClientCert) {
-        if (!this.hasLocalIdentity || !this.certDer.length || !this.keyPem) {
-          throw new Error(
-            "server requested client certificate but client cert/key not configured",
-          );
-        }
-        const cCert = new Certificate13(this.certificateRequestContext, [
-          this.certDer,
-        ]);
-        this.messageSeq += 1;
-        cCert.messageSeq = this.messageSeq;
-        this.transcript.add(HandshakeType.certificate_11, cCert.serialize());
-        const cFrag = cCert.toFragment();
-        cFrag.message_seq = cCert.messageSeq;
-        clientMsgs.push(cFrag);
+        if (this.hasLocalIdentity && this.certDer.length && this.keyPem) {
+          const cCert = new Certificate13(this.certificateRequestContext, [
+            this.certDer,
+          ]);
+          this.messageSeq += 1;
+          cCert.messageSeq = this.messageSeq;
+          this.transcript.add(HandshakeType.certificate_11, cCert.serialize());
+          const cFrag = cCert.toFragment();
+          cFrag.message_seq = cCert.messageSeq;
+          clientMsgs.push(cFrag);
 
-        const clientCvScheme = selectSignatureScheme(
-          this.keyPem,
-          this.certificateRequestSignatureSchemes.length
-            ? this.certificateRequestSignatureSchemes
-            : this.peerSignatureSchemes,
-        );
-        const { algorithm, signature } = signCertificateVerify(
-          this.keyPem,
-          false,
-          this.transcript.bytes,
-          clientCvScheme,
-        );
-        const cCv = new CertificateVerify13(algorithm, signature);
-        this.messageSeq += 1;
-        cCv.messageSeq = this.messageSeq;
-        this.transcript.add(
-          HandshakeType.certificate_verify_15,
-          cCv.serialize(),
-        );
-        const cvFrag = cCv.toFragment();
-        cvFrag.message_seq = cCv.messageSeq;
-        clientMsgs.push(cvFrag);
+          const clientCvScheme = selectSignatureScheme(
+            this.keyPem,
+            this.certificateRequestSignatureSchemes.length
+              ? this.certificateRequestSignatureSchemes
+              : this.peerSignatureSchemes,
+          );
+          const { algorithm, signature } = signCertificateVerify(
+            this.keyPem,
+            false,
+            this.transcript.bytes,
+            clientCvScheme,
+          );
+          const cCv = new CertificateVerify13(algorithm, signature);
+          this.messageSeq += 1;
+          cCv.messageSeq = this.messageSeq;
+          this.transcript.add(
+            HandshakeType.certificate_verify_15,
+            cCv.serialize(),
+          );
+          const cvFrag = cCv.toFragment();
+          cvFrag.message_seq = cCv.messageSeq;
+          clientMsgs.push(cvFrag);
+        } else {
+          // Empty Certificate decline (no CertificateVerify)
+          const emptyCert = new Certificate13(
+            this.certificateRequestContext,
+            [],
+          );
+          this.messageSeq += 1;
+          emptyCert.messageSeq = this.messageSeq;
+          this.transcript.add(
+            HandshakeType.certificate_11,
+            emptyCert.serialize(),
+          );
+          const eFrag = emptyCert.toFragment();
+          eFrag.message_seq = emptyCert.messageSeq;
+          clientMsgs.push(eFrag);
+        }
       }
 
       // Send client Finished
@@ -1011,15 +1079,22 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.markConnected({ keepPendingFlight: true });
       log("client connected");
     } else {
-      // Server receives client Finished — require mutual auth if requested
+      // Server receives client Finished — mutual auth policy
       if (this.expectClientCertificate) {
-        if (
-          !this.clientCertificateReceived ||
-          !this.clientCertificateVerified
-        ) {
+        if (!this.clientCertificateReceived) {
           throw new Error(
-            "client Finished before Certificate/CertificateVerify (mutual auth)",
+            "client Finished before Certificate (mutual auth)",
           );
+        }
+        if (!this.clientCertificateVerified) {
+          // Empty Certificate decline or failed CV → certificate_required
+          await this.sendFatalAlert(AlertDesc.CertificateRequired);
+          this.fail(
+            new Error(
+              "certificate_required: client did not present a valid certificate",
+            ),
+          );
+          return;
         }
       }
       const expected = this.keySchedule.verifyData(

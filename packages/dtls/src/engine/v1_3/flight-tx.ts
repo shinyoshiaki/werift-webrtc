@@ -29,8 +29,14 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     this.flightId += 1;
     const flightId = this.flightId;
     const mtu = this.carrier.getMtu();
-    // handshake overhead: 13 header + 12 hs header + AEAD tag for encrypted
-    const maxFrag = epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 16; // unified header ~5 + tag
+    // Epoch 0: 13-byte DTLSPlaintext header + 12-byte HS fragment header
+    // Encrypted: 5-byte unified header + 12-byte HS header + 1-byte inner
+    // content type (DTLSInnerPlaintext) + 16-byte GCM tag
+    const maxFrag =
+      epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 1 - 16;
+    if (maxFrag < 1) {
+      throw new Error(`MTU ${mtu} too small for handshake records`);
+    }
 
     const packets: Buffer[] = [];
     const packetRecords: AckRecordNumber[] = [];
@@ -149,6 +155,12 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     }
 
     for (const pkt of cachePackets) {
+      // Single-record datagrams must fit MTU (RFC 9147 / UDP path MTU)
+      if (pkt.bytes.length > mtu) {
+        throw new Error(
+          `handshake record ${pkt.bytes.length} exceeds MTU ${mtu}`,
+        );
+      }
       // carrier.send copies bytes; budget still enforced here
       if (!this.consumeSendBudget(pkt.bytes.length)) {
         throw new Error(

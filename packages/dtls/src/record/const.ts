@@ -35,4 +35,6 @@ export enum AlertDesc {
   /** RFC 8446 missing_extension */
   MissingExtension = 109,
   UnsupportedExtension = 110,
+  /** RFC 8446 certificate_required */
+  CertificateRequired = 116,
 }
