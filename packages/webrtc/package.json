@@ -43,6 +43,7 @@
     "format": "biome check --write src tests",
     "knip": "knip",
     "test": "vitest run ./tests",
+    "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i",

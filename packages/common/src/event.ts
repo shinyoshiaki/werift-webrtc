@@ -79,8 +79,9 @@ export class Event<T extends any[]> {
   };
 
   allUnsubscribe = () => {
+    // complete() 後の再呼び出しを許容し、close 経路での二重クリーンアップを安全にする
     if (this.ended) {
-      throw new Error("event completed");
+      return;
     }
 
     this.event = {
