@@ -1,9 +1,14 @@
 import { useNACK, usePLI, useREMB } from "./extension/rtcpFeedback";
 import { RTCRtpCodecParameters } from "./parameters";
 
+/**
+ * H.264 (RFC 6184). SDP encoding name must be **`H264`** (case-sensitive for
+ * Chrome-as-answerer software encode). Lowercase `h264` in a=rtpmap causes
+ * Chrome to negotiate H.264 but emit zero outbound RTP packets.
+ */
 export const useH264 = (props: Partial<RTCRtpCodecParameters> = {}) =>
   new RTCRtpCodecParameters({
-    mimeType: "video/h264",
+    mimeType: "video/H264",
     clockRate: 90000,
     rtcpFeedback: [useNACK(), usePLI(), useREMB()],
     parameters:
