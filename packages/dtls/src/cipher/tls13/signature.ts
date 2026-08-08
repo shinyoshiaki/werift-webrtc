@@ -90,10 +90,7 @@ export function verifyCertificateVerify(
   }
 
   // RFC 8446 §4.4.3: rsa_pkcs1_* MUST NOT be used for CertificateVerify in TLS 1.3
-  if (
-    algorithm === SignatureScheme.rsa_pkcs1_sha256 ||
-    algorithm === 0x0401
-  ) {
+  if (algorithm === SignatureScheme.rsa_pkcs1_sha256 || algorithm === 0x0401) {
     throw new Error(
       `CertificateVerify algorithm 0x${algorithm.toString(16)} (rsa_pkcs1) forbidden in TLS 1.3`,
     );

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
+import { UdpTransport } from "../../../../common/src";
+import { SessionType } from "../../../src/cipher/suites/abstract";
+import { Dtls13Connection } from "../../../src/engine/v1_3/connection";
+import { FRAGMENT_TTL_MS } from "../../../src/engine/v1_3/types";
 import { HandshakeType } from "../../../src/handshake/const";
 import { FragmentedHandshake } from "../../../src/record/message/fragment";
-import { UdpTransport } from "../../../../common/src";
-import { Dtls13Connection } from "../../../src/engine/v1_3/connection";
-import { SessionType } from "../../../src/cipher/suites/abstract";
 import { certPem, keyPem } from "../../fixture";
-import { FRAGMENT_TTL_MS } from "../../../src/engine/v1_3/types";
 
 /**
  * Fragment buffer accounting: on create we reserve `total` bytes;

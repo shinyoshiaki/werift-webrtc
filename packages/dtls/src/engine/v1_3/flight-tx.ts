@@ -162,8 +162,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
   protected rebuildPendingFlightFromRecords(): void {
     if (
       this.pendingFlightRecords.length === 0 ||
-      this.pendingFlightRecordBytes.length !==
-        this.pendingFlightRecords.length
+      this.pendingFlightRecordBytes.length !== this.pendingFlightRecords.length
     ) {
       this.pendingFlight = [];
       this.pendingFlightRecordGroups = [];
@@ -183,9 +182,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         current = Buffer.from(p);
         currentRecs = [{ ...rn }];
       } else {
-        current = current.length
-          ? Buffer.concat([current, p])
-          : Buffer.from(p);
+        current = current.length ? Buffer.concat([current, p]) : Buffer.from(p);
         currentRecs.push({ ...rn });
       }
     }

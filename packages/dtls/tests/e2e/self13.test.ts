@@ -201,53 +201,49 @@ test("e2e/self13 bad CertificateVerify fails server promptly (mutual auth)", asy
   });
 }, 10_000);
 
-test(
-  "e2e/self13 KeyUpdate pending write epoch does not copy old read keys",
-  async () => {
-    // Arrange
-    const { server, client } = await pair();
-    await new Promise<void>(async (resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("keyupdate epoch isolation timeout")),
-        15_000,
-      );
-      client.onConnect.subscribe(async () => {
-        try {
-          const eng = (client as any).engine13;
-          const beforeWrite = eng.writeEpoch as number;
-          const beforeRead = eng.readEpoch as number;
-          // Act: local KeyUpdate — write epoch advances only after ACK, but
-          // the pending epoch entry is installed immediately with writeKeys.
-          await client.keyUpdate(false);
-          const pending = eng.pendingKeyUpdateWrite;
-          // Assert: pending write epoch は writeKeys のみ（旧 read をコピーしない）
-          expect(pending).toBeTruthy();
-          const nextEp = eng.epochs.get(pending.nextWriteEpoch);
-          expect(nextEp?.writeKeys).toBeTruthy();
-          // 旧 readEpoch の readKeys が pending write epoch に混入していない
-          if (pending.nextWriteEpoch !== beforeRead) {
-            expect(nextEp?.readKeys).toBeUndefined();
-          }
-          // 旧 write epoch はそのまま
-          expect(eng.writeEpoch).toBe(beforeWrite);
-          clearTimeout(timer);
-          client.close();
-          server.close();
-          resolve();
-        } catch (e) {
-          clearTimeout(timer);
-          reject(e);
+test("e2e/self13 KeyUpdate pending write epoch does not copy old read keys", async () => {
+  // Arrange
+  const { server, client } = await pair();
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("keyupdate epoch isolation timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(async () => {
+      try {
+        const eng = (client as any).engine13;
+        const beforeWrite = eng.writeEpoch as number;
+        const beforeRead = eng.readEpoch as number;
+        // Act: local KeyUpdate — write epoch advances only after ACK, but
+        // the pending epoch entry is installed immediately with writeKeys.
+        await client.keyUpdate(false);
+        const pending = eng.pendingKeyUpdateWrite;
+        // Assert: pending write epoch は writeKeys のみ（旧 read をコピーしない）
+        expect(pending).toBeTruthy();
+        const nextEp = eng.epochs.get(pending.nextWriteEpoch);
+        expect(nextEp?.writeKeys).toBeTruthy();
+        // 旧 readEpoch の readKeys が pending write epoch に混入していない
+        if (pending.nextWriteEpoch !== beforeRead) {
+          expect(nextEp?.readKeys).toBeUndefined();
         }
-      });
-      client.onError.subscribe((e) => {
+        // 旧 write epoch はそのまま
+        expect(eng.writeEpoch).toBe(beforeWrite);
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      } catch (e) {
         clearTimeout(timer);
         reject(e);
-      });
-      await client.connect();
+      }
     });
-  },
-  20_000,
-);
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 20_000);
 
 test("e2e/self13 KeyUpdate then bidirectional data", async () => {
   // Arrange

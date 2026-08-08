@@ -102,7 +102,10 @@ export async function getTurnRelayConfig(): Promise<TurnRelayConfig> {
   return response.json() as Promise<TurnRelayConfig>;
 }
 
-export function waitForIceGatheringComplete(connection: RTCPeerConnection) {
+export function waitForIceGatheringComplete(
+  connection: RTCPeerConnection,
+  timeoutMs = 20_000,
+) {
   if (connection.iceGatheringState === "complete") {
     return Promise.resolve();
   }
@@ -114,7 +117,7 @@ export function waitForIceGatheringComplete(connection: RTCPeerConnection) {
         handleIceGatheringStateChange,
       );
       reject(new Error("ICE gathering did not complete in time"));
-    }, 20_000);
+    }, timeoutMs);
 
     const handleIceGatheringStateChange = () => {
       if (connection.iceGatheringState !== "complete") {
@@ -135,7 +138,10 @@ export function waitForIceGatheringComplete(connection: RTCPeerConnection) {
   });
 }
 
-export function waitForPeerConnection(connection: RTCPeerConnection) {
+export function waitForPeerConnection(
+  connection: RTCPeerConnection,
+  timeoutMs = 20_000,
+) {
   if (connection.connectionState === "connected") {
     return Promise.resolve();
   }
@@ -151,7 +157,7 @@ export function waitForPeerConnection(connection: RTCPeerConnection) {
           `peer connection did not connect: ${connection.connectionState}`,
         ),
       );
-    }, 20_000);
+    }, timeoutMs);
 
     const handleStateChange = () => {
       if (connection.connectionState !== "connected") {
@@ -169,7 +175,10 @@ export function waitForPeerConnection(connection: RTCPeerConnection) {
   });
 }
 
-export function waitForDataChannelOpen(channel: RTCDataChannel) {
+export function waitForDataChannelOpen(
+  channel: RTCDataChannel,
+  timeoutMs = 20_000,
+) {
   if (channel.readyState === "open") {
     return Promise.resolve();
   }
@@ -178,7 +187,7 @@ export function waitForDataChannelOpen(channel: RTCDataChannel) {
     const timer = setTimeout(() => {
       channel.removeEventListener("open", handleOpen);
       reject(new Error("data channel did not open in time"));
-    }, 20_000);
+    }, timeoutMs);
 
     const handleOpen = () => {
       clearTimeout(timer);
@@ -330,5 +339,8 @@ function getCandidateLines(sdp?: string) {
   }
   return sdp
     .split(/\r?\n/)
-    .filter((line) => line.startsWith("a=candidate:") || line === "a=end-of-candidates");
+    .filter(
+      (line) =>
+        line.startsWith("a=candidate:") || line === "a=end-of-candidates",
+    );
 }

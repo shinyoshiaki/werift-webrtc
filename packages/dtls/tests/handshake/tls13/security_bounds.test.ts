@@ -5,6 +5,10 @@ import {
   createHandshakeDatagram,
 } from "../../../src/carrier/direct";
 import { SignatureScheme } from "../../../src/cipher/const";
+import {
+  EPOCH_KEY_TTL_MS,
+  EPOCH_PRUNE_INTERVAL_MS,
+} from "../../../src/engine/v1_3/types";
 import { HandshakeType } from "../../../src/handshake/const";
 import {
   cookieBinding,
@@ -23,10 +27,6 @@ import {
 } from "../../../src/handshake/message/tls13/ack";
 import { Certificate13 } from "../../../src/handshake/message/tls13/certificate";
 import { FragmentedHandshake } from "../../../src/record/message/fragment";
-import {
-  EPOCH_KEY_TTL_MS,
-  EPOCH_PRUNE_INTERVAL_MS,
-} from "../../../src/engine/v1_3/types";
 
 describe("security bounds: cookie binding", () => {
   test("cookie verifies only for matching peer + ClientHello", () => {
@@ -173,9 +173,9 @@ describe("security bounds: partial ACK", () => {
       { epoch: 2, sequenceNumber: 1 },
     ];
     // Act / Assert: 部分 ACK では group 全体は fully-acked ではない
-    expect(
-      recordsFullyAcked(group, [{ epoch: 2, sequenceNumber: 0 }]),
-    ).toBe(false);
+    expect(recordsFullyAcked(group, [{ epoch: 2, sequenceNumber: 0 }])).toBe(
+      false,
+    );
     expect(
       recordsFullyAcked(group, [
         { epoch: 2, sequenceNumber: 0 },
