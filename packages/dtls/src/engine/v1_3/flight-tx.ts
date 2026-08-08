@@ -32,8 +32,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     // Epoch 0: 13-byte DTLSPlaintext header + 12-byte HS fragment header
     // Encrypted: 5-byte unified header + 12-byte HS header + 1-byte inner
     // content type (DTLSInnerPlaintext) + 16-byte GCM tag
-    const maxFrag =
-      epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 1 - 16;
+    const maxFrag = epoch === 0 ? mtu - 13 - 12 : mtu - 5 - 12 - 1 - 16;
     if (maxFrag < 1) {
       throw new Error(`MTU ${mtu} too small for handshake records`);
     }

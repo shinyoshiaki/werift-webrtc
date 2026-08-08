@@ -1082,9 +1082,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       // Server receives client Finished — mutual auth policy
       if (this.expectClientCertificate) {
         if (!this.clientCertificateReceived) {
-          throw new Error(
-            "client Finished before Certificate (mutual auth)",
-          );
+          throw new Error("client Finished before Certificate (mutual auth)");
         }
         if (!this.clientCertificateVerified) {
           // Empty Certificate decline or failed CV → certificate_required

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { Alert } from "../../../src/handshake/message/alert";
-import { AlertDesc } from "../../../src/record/const";
-import { CertificateRequest13 } from "../../../src/handshake/message/tls13/certificateRequest";
 import { SignatureAlgorithms } from "../../../src/handshake/extensions/signatureAlgorithms";
+import { Alert } from "../../../src/handshake/message/alert";
+import { CertificateRequest13 } from "../../../src/handshake/message/tls13/certificateRequest";
+import { AlertDesc } from "../../../src/record/const";
 
 describe("TLS 1.3 alert codec", () => {
   test("alert has level and description bytes", () => {

@@ -1,16 +1,16 @@
 import { describe, expect, test } from "vitest";
+import { defaultKeySchedule } from "../../../src/cipher/tls13/keySchedule";
 import {
   MAX_EARLY_APP_DATA_BYTES,
   MAX_EARLY_APP_DATA_RECORDS,
 } from "../../../src/engine/v1_3/types";
+import { HandshakeType } from "../../../src/handshake/const";
 import { ContentType } from "../../../src/record/const";
+import { FragmentedHandshake } from "../../../src/record/message/fragment";
 import {
   createEpochProtection,
   encryptRecord,
 } from "../../../src/record/v1_3/record";
-import { defaultKeySchedule } from "../../../src/cipher/tls13/keySchedule";
-import { FragmentedHandshake } from "../../../src/record/message/fragment";
-import { HandshakeType } from "../../../src/handshake/const";
 
 describe("security bounds: early app data", () => {
   test("early app data caps are positive and small", () => {
