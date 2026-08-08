@@ -27,6 +27,7 @@ import { SupportedVersions } from "../../handshake/extensions/supportedVersions"
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { Finished } from "../../handshake/message/finished";
+import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { ServerHello } from "../../handshake/message/server/hello";
 import { Certificate13 } from "../../handshake/message/tls13/certificate";
 import { CertificateRequest13 } from "../../handshake/message/tls13/certificateRequest";
@@ -85,13 +86,15 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         break;
       case HandshakeType.hello_verify_request_3:
         if (this.role === "client") {
-          // Peer is on the DTLS 1.2 cookie path. If we offered 1.2, association
-          // selects V1_2 via supported_versions preference — not an error/regex
-          // downgrade. Pure 1.3 clients still fail with ProtocolVersionError.
+          // DTLS 1.2 cookie challenge (unauthenticated). Dual association may
+          // continue on the 1.2 cookie path while still advertising 1.3 in
+          // supported_versions — never treat HVR as "drop to pure 1.2-only".
           if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
+            const hvr = ServerHelloVerifyRequest.deSerialize(body);
             throw new DtlsVersionSelected(
               DtlsVersion.V1_2,
-              "peer HelloVerifyRequest: selected DTLS 1.2 from offered versions",
+              "peer HelloVerifyRequest: continue dual negotiation on DTLS 1.2 cookie path",
+              Buffer.from(hvr.cookie),
             );
           }
           throw new ProtocolVersionError(
@@ -325,17 +328,29 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
 
-    // Peer signature_algorithms → CertificateVerify scheme negotiation
+    // signature_algorithms is mandatory for certificate authentication (RFC 8446 §4.2.3)
     const sigExt = ch.extensions.find(
       (e) => e.type === SignatureAlgorithms.type,
     );
-    if (sigExt) {
-      try {
-        const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
-        if (schemes.length) this.peerSignatureSchemes = schemes;
-      } catch {
-        /* keep defaults */
+    if (!sigExt) {
+      await this.sendFatalAlert(AlertDesc.MissingExtension);
+      this.fail(
+        new Error("missing signature_algorithms extension in ClientHello"),
+      );
+      return;
+    }
+    try {
+      const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
+      if (!schemes.length) {
+        await this.sendFatalAlert(AlertDesc.MissingExtension);
+        this.fail(new Error("ClientHello signature_algorithms empty"));
+        return;
       }
+      this.peerSignatureSchemes = schemes;
+    } catch {
+      await this.sendFatalAlert(AlertDesc.DecodeError);
+      this.fail(new Error("ClientHello signature_algorithms invalid"));
+      return;
     }
 
     // supported_groups ∩ local groups (RFC 8446) — required for HRR selection
@@ -748,8 +763,14 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const ksExt = sh.extensions.find((e) => e.type === KeyShare.type);
     if (!ksExt) throw new Error("ServerHello missing key_share");
     const serverShare = KeyShare.fromServerData(ksExt.data).serverShare!;
+    // RFC 8446: server_share.group must match the KeyShareEntry the client sent
+    // in the (post-HRR) ClientHello — tracked as this.selectedGroup.
+    if (serverShare.group !== this.selectedGroup) {
+      throw new Error(
+        `ServerHello key_share group 0x${serverShare.group.toString(16)} does not match offered 0x${this.selectedGroup.toString(16)}`,
+      );
+    }
     this.remoteKeyShare = serverShare;
-    this.selectedGroup = serverShare.group as NamedCurveAlgorithms;
     this.serverRandom = DtlsRandom.from(sh.random as any);
     // Client continues its own message_seq after ClientHello (0)
     // messageSeq currently reflects last received server seq; keep local counter for sends
@@ -980,8 +1001,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       // Final flight is retransmittable until server ACK (RFC 9147)
       await this.sendHandshakeFlight(clientMsgs, 2, true);
 
-      // Send ACK for server flight
-      await this.sendAck();
+      // Defer server-flight ACK until after the enclosing record is noted in
+      // receivedRecordNumbers (noteHandshakeRecordForAck runs after process returns).
+      // Also includes EE/Cert/CV/Finished from the same server flight already noted.
+      queueMicrotask(() => {
+        void this.sendAck().catch((e) => log("deferred server-flight ACK", e));
+      });
 
       this.writeEpoch = 3;
       this.readEpoch = 3;
@@ -1019,7 +1044,10 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.readEpoch = 3;
       this.writeEpoch = 3;
 
-      await this.sendAck();
+      // Defer ACK until client Finished record is noted for ACK bookkeeping
+      queueMicrotask(() => {
+        void this.sendAck().catch((e) => log("deferred client-flight ACK", e));
+      });
 
       this.markConnected();
       log("server connected");

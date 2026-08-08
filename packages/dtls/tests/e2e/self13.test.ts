@@ -1017,46 +1017,48 @@ test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
   });
 }, 20_000);
 
-test("e2e/self13 server [1.2,1.3] prefers 1.2 with dual client", async () => {
-  // Arrange: server preference order puts 1.2 first; client offers both
+test("e2e/self13 [V1_2,V1_3] normalizes to 1.3-first preference", async () => {
+  // Arrange: Epic 1 does not support intentional 1.2-before-1.3 preference
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
-  const { HashAlgorithm, SignatureAlgorithm } = await import(
-    "../../src/cipher/const"
-  );
-  const sig = {
-    hash: HashAlgorithm.sha256_4,
-    signature: SignatureAlgorithm.rsa_1,
-  };
   const server = new DtlsServer({
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
     protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+    addressValidation: "none",
   });
   const client = new DtlsClient({
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
-    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+    addressValidation: "none",
   });
 
-  // Act / Assert: association は server preference で 1.2 を選ぶ
+  // Assert: both sides coerce to [1.3, 1.2] and negotiate DTLS 1.3
+  expect(server.protocolVersions).toEqual([
+    DtlsVersion.V1_3,
+    DtlsVersion.V1_2,
+  ]);
+  expect(client.protocolVersions).toEqual([
+    DtlsVersion.V1_3,
+    DtlsVersion.V1_2,
+  ]);
+
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("server prefers 1.2 timeout")),
+      () => reject(new Error("normalized dual 1.3 timeout")),
       15_000,
     );
     client.onConnect.subscribe(() => {
-      expect(client.isDtls13).toBe(false);
-      expect(server.isDtls13).toBe(false);
-      void client.send(Buffer.from("pref12"));
+      expect(client.isDtls13).toBe(true);
+      expect(server.isDtls13).toBe(true);
+      void client.send(Buffer.from("norm13"));
     });
     server.onData.subscribe((d) => {
-      expect(d.toString()).toBe("pref12");
+      expect(d.toString()).toBe("norm13");
       clearTimeout(timer);
       client.close();
       server.close();

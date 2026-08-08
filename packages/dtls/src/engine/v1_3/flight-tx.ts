@@ -120,8 +120,9 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     this.carrier.events.onFlightCreated?.(flightId, notifyPackets);
 
     if (retransmittable) {
-      // New outbound flight boundary — do not carry prior-flight ACK records
-      this.clearAckAccumulator();
+      // NOTE: do NOT clearAckAccumulator here — that tracks *remote inbound*
+      // records we still need to ACK (e.g. server flight before client final).
+      // Clear only after sendAck() emits those numbers.
       this.pendingFlight = cachePackets;
       this.pendingFlightRecordGroups = datagramRecordGroups.map((g) =>
         g.map((r) => ({ ...r })),

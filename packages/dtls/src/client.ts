@@ -4,21 +4,30 @@ import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
 import { HandshakeType } from "./handshake/const";
+import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
+import { ServerHello } from "./handshake/message/server/hello";
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
 import {
+  DTLS_1_2_VERSION,
+  DTLS_1_3_VERSION,
   DtlsVersion,
   DtlsVersionSelected,
   ProtocolVersionError,
+  hasTlsDowngradeSentinel,
   supportsVersion,
 } from "./version";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
-  private dualSelected12 = false;
+  /**
+   * True while dual [1.3,1.2] association is continuing on the DTLS 1.2 cookie
+   * path after HVR — still offers 1.3 in supported_versions (not pure 1.2-only).
+   */
+  private dualCookiePath = false;
 
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
@@ -30,10 +39,7 @@ export class DtlsClient extends DtlsSocket {
       supportsVersion(versions, DtlsVersion.V1_3) &&
       supportsVersion(versions, DtlsVersion.V1_2);
 
-    // Pure 1.3 or dual (any preference order that includes 1.3): start 1.3 engine
-    // with offeredProtocolVersions = local preference for supported_versions.
-    // Dual does not "fail then retry" via HelloVerifyRequest error regex —
-    // association selects V1_2 via DtlsVersionSelected when peer is 1.2-path.
+    // Pure 1.3 or dual [1.3,1.2]: start 1.3 engine advertising offered versions.
     if (only13 || dual) {
       this.startEngine13(only13, versions);
     }
@@ -42,7 +48,6 @@ export class DtlsClient extends DtlsSocket {
   }
 
   private startEngine13(strict13: boolean, offered: readonly DtlsVersion[]) {
-    // Server-auth-only clients may omit cert/key; mutual auth requires both.
     const engine = new Dtls13Connection(
       {
         transport: this.options.transport,
@@ -55,40 +60,39 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
-        // Dual: advertise both versions in CH supported_versions (preference order)
         offeredProtocolVersions: offered,
       },
       SessionType.CLIENT,
     );
 
-    const dualCanSelect12 =
+    const dualCanContinue12 =
       !strict13 && supportsVersion(this.protocolVersions, DtlsVersion.V1_2);
 
-    // Transparent dual selection: swallow only intentional V1_2 selection
     this.bridgeEngine13(engine, {
       filterError: (e) =>
-        dualCanSelect12 &&
-        !this.dualSelected12 &&
+        dualCanContinue12 &&
+        !this.dualCookiePath &&
         e instanceof DtlsVersionSelected &&
         e.version === DtlsVersion.V1_2,
     });
 
-    if (dualCanSelect12) {
+    if (dualCanContinue12) {
       engine.onError.subscribe((e) => {
-        if (this.dualSelected12) return;
+        if (this.dualCookiePath) return;
         if (
           !(e instanceof DtlsVersionSelected) ||
           e.version !== DtlsVersion.V1_2
         ) {
           return;
         }
-        log("association selected DTLS 1.2", e.message);
-        this.dualSelected12 = true;
+        log(
+          "dual association: HVR → continue on 1.2 cookie path with supported_versions still offering 1.3",
+          e.message,
+        );
+        this.dualCookiePath = true;
         this.engine13 = undefined;
         this.connected = false;
-        // Soft path already cancelled timers; close carrier only (keep UDP)
         engine.releaseForVersionFallback();
-        // Restore 1.2 receive path and fresh 1.2 context
         this.transport.socket.onData = this.udpOnMessage;
         this.dtls = new (this.dtls.constructor as any)(
           this.options,
@@ -101,16 +105,42 @@ export class DtlsClient extends DtlsSocket {
           this.options.signatureHash,
         );
         this.srtp = new (this.srtp.constructor as any)();
-        this.setupExtensionsFor12Fallback();
-        this.connect12().catch((err) => this.onError.execute(err));
+        // Dual extensions: 1.2 suites + supported_versions [1.3,1.2]
+        this.setupExtensionsForDualCookiePath();
+        void this.continueDualAfterHvr(e.helloVerifyCookie).catch((err) =>
+          this.onError.execute(err instanceof Error ? err : new Error(String(err))),
+        );
       });
     }
   }
 
-  /** Re-init extensions after dual version selection tears down the 1.3 engine. */
-  private setupExtensionsFor12Fallback() {
+  /**
+   * Dual cookie path extensions: keep advertising DTLS 1.3 in supported_versions
+   * so a 1.3-capable server that sees a MITM-stripped CH can still put the
+   * DOWNGRD sentinel; pure 1.2-only peers ignore the extension.
+   */
+  private setupExtensionsForDualCookiePath() {
     this.extensions = [];
     this.setupExtensions();
+    // Prepend supported_versions [1.3, 1.2] (preference order)
+    const sv = SupportedVersions.forClient([
+      DTLS_1_3_VERSION,
+      DTLS_1_2_VERSION,
+    ]);
+    this.extensions.unshift(sv.clientExtension);
+  }
+
+  /**
+   * After HVR: start the 1.2 flight stack with dual extensions still advertising
+   * supported_versions [1.3, 1.2]. A fresh Flight1→HVR→Flight3 uses the normal
+   * 1.2 cookie path (same CH body with cookie for Finished MAC) rather than a
+   * pure 1.2-only ClientHello without supported_versions.
+   *
+   * The unauthenticated HVR only moves association onto the dual cookie path;
+   * final version is confirmed by ServerHello + DOWNGRD sentinel check.
+   */
+  private async continueDualAfterHvr(_cookie?: Buffer) {
+    await this.connect12();
   }
 
   async connect() {
@@ -139,7 +169,6 @@ export class DtlsClient extends DtlsSocket {
 
     for (const handshake of assembled) {
       switch (handshake.msg_type) {
-        // flight2
         case HandshakeType.hello_verify_request_3:
           {
             const verifyReq = ServerHelloVerifyRequest.deSerialize(
@@ -148,11 +177,9 @@ export class DtlsClient extends DtlsSocket {
             await new Flight3(this.transport, this.dtls).exec(verifyReq);
           }
           break;
-        // flight 4
         case HandshakeType.server_hello_2:
           {
             if (this.connected) return;
-            // If we offered only 1.3, ServerHello without 1.3 is a version error
             const only13 =
               this.protocolVersions.length === 1 &&
               this.protocolVersions[0] === DtlsVersion.V1_3;
@@ -164,6 +191,44 @@ export class DtlsClient extends DtlsSocket {
               );
               return;
             }
+
+            // Dual cookie path: 1.2 ServerHello while we still offered 1.3 —
+            // enforce RFC 8446 / 9147 downgrade sentinel check.
+            if (
+              this.dualCookiePath ||
+              supportsVersion(this.protocolVersions, DtlsVersion.V1_3)
+            ) {
+              try {
+                const sh = ServerHello.deSerialize(handshake.fragment);
+                const random32 = Buffer.concat([
+                  (() => {
+                    const b = Buffer.alloc(4);
+                    b.writeUInt32BE(sh.random.gmt_unix_time >>> 0, 0);
+                    return b;
+                  })(),
+                  sh.random.random_bytes,
+                ]);
+                // negotiated version is DTLS 1.2 wire (legacy)
+                if (hasTlsDowngradeSentinel(random32)) {
+                  this.onError.execute(
+                    new ProtocolVersionError(
+                      "illegal_parameter: ServerHello Random contains TLS downgrade sentinel while client offered DTLS 1.3",
+                    ),
+                  );
+                  return;
+                }
+              } catch (e) {
+                if (
+                  e instanceof ProtocolVersionError ||
+                  (e instanceof Error && e.name === "ProtocolVersionError")
+                ) {
+                  this.onError.execute(e as Error);
+                  return;
+                }
+                // fall through to normal 1.2 handling if parse issues
+              }
+            }
+
             this.flight5 = new Flight5(
               this.transport,
               this.dtls,
@@ -197,7 +262,6 @@ export class DtlsClient extends DtlsSocket {
             await this.flight5?.exec();
           }
           break;
-        // flight 6
         case HandshakeType.finished_20:
           {
             this.dtls.flight = 7;

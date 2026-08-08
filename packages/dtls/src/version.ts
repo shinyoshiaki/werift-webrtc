@@ -47,7 +47,35 @@ export function normalizeProtocolVersions(
       out.push(v);
     }
   }
+  // Epic 1 supported dual pattern is [V1_3, V1_2] only.
+  // Intentional [V1_2, V1_3] (prefer 1.2 while 1.3-capable) is not supported:
+  // it requires full TLS 1.3 downgrade-sentinel server semantics for 1.2 selection.
+  if (
+    out.includes(DtlsVersion.V1_2) &&
+    out.includes(DtlsVersion.V1_3) &&
+    out[0] !== DtlsVersion.V1_3
+  ) {
+    return [DtlsVersion.V1_3, DtlsVersion.V1_2];
+  }
   return out;
+}
+
+/** TLS 1.3 / DTLS 1.3 ServerHello.random downgrade sentinels (RFC 8446 §4.1.3). */
+export const DOWNGRADE_TLS12_SENTINEL = Buffer.from("444F574E47524401", "hex"); // DOWNGRD\x01
+export const DOWNGRADE_TLS11_SENTINEL = Buffer.from("444F574E47524400", "hex"); // DOWNGRD\x00
+
+/**
+ * TLS 1.3 client check: if we offered 1.3 but ServerHello negotiated ≤1.2,
+ * abort when Random ends with a downgrade sentinel (1.3-capable server selected
+ * lower version — typically MITM stripped ClientHello versions).
+ */
+export function hasTlsDowngradeSentinel(serverRandom32: Buffer): boolean {
+  if (serverRandom32.length < 8) return false;
+  const tail = serverRandom32.subarray(serverRandom32.length - 8);
+  return (
+    tail.equals(DOWNGRADE_TLS12_SENTINEL) ||
+    tail.equals(DOWNGRADE_TLS11_SENTINEL)
+  );
 }
 
 export function supportsVersion(
@@ -123,14 +151,18 @@ export class ProtocolVersionError extends Error {
 }
 
 /**
- * Intentional dual-stack version selection result (not a handshake failure).
- * Association layer switches engines; must not be treated as public onError.
+ * Dual-stack association signal: peer used DTLS 1.2 HelloVerifyRequest cookie path.
+ * Not a final version selection — association continues dual negotiation on the
+ * 1.2 cookie path while still advertising supported_versions including 1.3.
+ * Must not be treated as public onError.
  */
 export class DtlsVersionSelected extends Error {
   readonly code = "version_selected";
   constructor(
     public readonly version: DtlsVersion,
     message?: string,
+    /** Cookie from HelloVerifyRequest to continue dual CH on 1.2 path. */
+    public readonly helloVerifyCookie?: Buffer,
   ) {
     super(message ?? `selected DTLS ${version}`);
     this.name = "DtlsVersionSelected";

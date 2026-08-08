@@ -16,7 +16,24 @@ export function schemesForKey(keyPem: string): number[] {
   const key = createPrivateKey(keyPem);
   const type = key.asymmetricKeyType;
   if (type === "rsa") return [SignatureScheme.rsa_pss_rsae_sha256];
-  if (type === "ec") return [SignatureScheme.ecdsa_secp256r1_sha256];
+  if (type === "ec") {
+    // Only secp256r1 is supported for ecdsa_secp256r1_sha256
+    const details = key.asymmetricKeyDetails as
+      | { namedCurve?: string }
+      | undefined;
+    const curve = details?.namedCurve;
+    if (
+      curve &&
+      curve !== "prime256v1" &&
+      curve !== "P-256" &&
+      curve !== "secp256r1"
+    ) {
+      // Unsupported curve for our CertificateVerify schemes
+      return [];
+    }
+    // Missing curve metadata: assume P-256 (Node often omits for some PEM forms)
+    return [SignatureScheme.ecdsa_secp256r1_sha256];
+  }
   return [];
 }
 

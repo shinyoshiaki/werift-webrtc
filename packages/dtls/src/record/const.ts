@@ -32,5 +32,7 @@ export enum AlertDesc {
   InternalError = 80,
   UserCanceled = 90,
   NoRenegotiation = 100,
+  /** RFC 8446 missing_extension */
+  MissingExtension = 109,
   UnsupportedExtension = 110,
 }

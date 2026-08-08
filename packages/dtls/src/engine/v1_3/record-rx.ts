@@ -325,9 +325,9 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         this.scheduleRetransmit();
         return;
       }
-      // Fully ACK'd
+      // Fully ACK'd (local outbound flight). Do not clear receivedRecordNumbers —
+      // that tracks remote inbound records still needing ACK emission.
       this.clearPendingFlight();
-      this.clearAckAccumulator();
       // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
       this.applyPendingKeyUpdateWrite();
     } catch (e) {
