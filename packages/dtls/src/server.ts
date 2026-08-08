@@ -149,10 +149,9 @@ export class DtlsServer extends DtlsSocket {
                   );
                   eng.injectDatagram(pkt, peerAddr);
                 }
-                log(
-                  "association selected DTLS 1.3, reinjected ClientHello",
-                  { peer: peerAddr },
-                );
+                log("association selected DTLS 1.3, reinjected ClientHello", {
+                  peer: peerAddr,
+                });
                 return;
               }
               // selected === V1_2 or undefined → stay on 1.2 path below

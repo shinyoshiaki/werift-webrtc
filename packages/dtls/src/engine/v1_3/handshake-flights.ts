@@ -141,9 +141,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const extensions = this.buildClientHelloExtensions();
     // Dual CH advertises 1.2 cipher suites too so a 1.2-only peer can complete
     // cookie + 1.2 selection without rejecting "only 0x1301" ClientHellos.
-    const cipherSuites: number[] = [
-      CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
-    ];
+    const cipherSuites: number[] = [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301];
     if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
       cipherSuites.push(
         CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,

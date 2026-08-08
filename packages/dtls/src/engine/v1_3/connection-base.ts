@@ -10,6 +10,7 @@ import { generateKeyPair } from "../../cipher/namedCurve";
 import { SessionType, type SessionTypes } from "../../cipher/suites/abstract";
 import { defaultKeySchedule } from "../../cipher/tls13/keySchedule";
 import { parseCertAndKey } from "../../cipher/tls13/signature";
+import { DEFAULT_SIGNATURE_SCHEMES } from "../../handshake/extensions/signatureAlgorithms";
 import type { AckRecordNumber } from "../../handshake/message/tls13/ack";
 import { DtlsRandom } from "../../handshake/random";
 import { Event } from "../../imports/common";
@@ -19,7 +20,6 @@ import {
   type EpochProtection,
   createEpochProtection,
 } from "../../record/v1_3/record";
-import { DEFAULT_SIGNATURE_SCHEMES } from "../../handshake/extensions/signatureAlgorithms";
 import {
   DtlsVersion,
   ProtocolVersionError,
