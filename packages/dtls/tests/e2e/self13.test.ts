@@ -1022,7 +1022,11 @@ test("e2e/self13 [V1_2,V1_3] is rejected (fail-fast, no silent rewrite)", () => 
   expect(
     () =>
       new DtlsServer({
-        transport: { send: async () => {}, onData: () => {}, close: async () => {} } as any,
+        transport: {
+          send: async () => {},
+          onData: () => {},
+          close: async () => {},
+        } as any,
         cert: certPem,
         key: keyPem,
         protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
@@ -1031,7 +1035,11 @@ test("e2e/self13 [V1_2,V1_3] is rejected (fail-fast, no silent rewrite)", () => 
   expect(
     () =>
       new DtlsClient({
-        transport: { send: async () => {}, onData: () => {}, close: async () => {} } as any,
+        transport: {
+          send: async () => {},
+          onData: () => {},
+          close: async () => {},
+        } as any,
         protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
       }),
   ).toThrow(/not supported.*\[V1_3, V1_2\]/);
