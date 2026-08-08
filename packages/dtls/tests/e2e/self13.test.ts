@@ -501,7 +501,8 @@ test("e2e/self13 crossed KeyUpdate(request_update=true) advances two generations
         const sEng = (server as any).engine13;
         const settle = Date.now() + 2000;
         while (
-          (cEng.getPendingFlightSize() > 0 || sEng.getPendingFlightSize() > 0) &&
+          (cEng.getPendingFlightSize() > 0 ||
+            sEng.getPendingFlightSize() > 0) &&
           Date.now() < settle
         ) {
           await new Promise((r) => setTimeout(r, 20));
