@@ -14,7 +14,15 @@ export class KeyUpdate implements Handshake {
   }
 
   static deSerialize(buf: Buffer): KeyUpdate {
+    // RFC 8446 §4.6.3: exactly one byte, KeyUpdateRequest update_not_requested(0)
+    // or update_requested(1); other values → illegal_parameter
     if (buf.length < 1) throw new Error("KeyUpdate: truncated");
+    if (buf.length !== 1) {
+      throw new Error("decode_error: invalid KeyUpdate length");
+    }
+    if (buf[0] !== 0 && buf[0] !== 1) {
+      throw new Error("illegal_parameter: invalid KeyUpdateRequest");
+    }
     return new KeyUpdate(buf[0] === 1);
   }
 

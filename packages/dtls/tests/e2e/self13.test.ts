@@ -404,7 +404,8 @@ test("e2e/self13 KeyUpdate(request_update) gets explicit ACK then response KeyUp
         const sEng = (server as any).engine13;
         const settle = Date.now() + 2000;
         while (
-          (cEng.getPendingFlightSize() > 0 || sEng.getPendingFlightSize() > 0) &&
+          (cEng.getPendingFlightSize() > 0 ||
+            sEng.getPendingFlightSize() > 0) &&
           Date.now() < settle
         ) {
           await new Promise((r) => setTimeout(r, 20));
@@ -468,6 +469,94 @@ test("e2e/self13 KeyUpdate(request_update) gets explicit ACK then response KeyUp
     });
     server.onData.subscribe((d) => {
       expect(d.toString()).toBe("ku-req");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 25_000);
+
+test("e2e/self13 crossed KeyUpdate(request_update=true) advances two generations", async () => {
+  // Arrange: TLS 1.3 crossed update_requested — both send KU(true) nearly together;
+  // each must ACK peer KU, finish own KU, then send deferred response KU(false).
+  const { server, client } = await pair();
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("crossed keyupdate timeout")),
+      20_000,
+    );
+    client.onConnect.subscribe(async () => {
+      try {
+        const cEng = (client as any).engine13;
+        const sEng = (server as any).engine13;
+        const settle = Date.now() + 2000;
+        while (
+          (cEng.getPendingFlightSize() > 0 || sEng.getPendingFlightSize() > 0) &&
+          Date.now() < settle
+        ) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        const cWrite0 = cEng.writeEpoch as number;
+        const sWrite0 = sEng.writeEpoch as number;
+
+        // Act: both sides request update nearly simultaneously (cross)
+        await Promise.all([client.keyUpdate(true), server.keyUpdate(true)]);
+
+        // Assert: both complete own KU + deferred response KU without fail()
+        // → write generation advances by 2 on each side
+        const deadline = Date.now() + 5000;
+        while (
+          (cEng.writeEpoch < cWrite0 + 2 ||
+            sEng.writeEpoch < sWrite0 + 2 ||
+            cEng.pendingKeyUpdateWrite ||
+            sEng.pendingKeyUpdateWrite ||
+            cEng.deferredKeyUpdateResponse ||
+            sEng.deferredKeyUpdateResponse) &&
+          Date.now() < deadline
+        ) {
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        expect(cEng.pendingKeyUpdateWrite).toBeUndefined();
+        expect(sEng.pendingKeyUpdateWrite).toBeUndefined();
+        expect(cEng.deferredKeyUpdateResponse).toBe(false);
+        expect(sEng.deferredKeyUpdateResponse).toBe(false);
+        expect(cEng.writeEpoch).toBe(cWrite0 + 2);
+        expect(sEng.writeEpoch).toBe(sWrite0 + 2);
+        expect(client.connected).toBe(true);
+        expect(server.connected).toBe(true);
+
+        // Bidirectional app data on final keys
+        await client.send(Buffer.from("cross-ku-c2s"));
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    let gotC2s = false;
+    server.onData.subscribe(async (d) => {
+      try {
+        if (!gotC2s) {
+          expect(d.toString()).toBe("cross-ku-c2s");
+          gotC2s = true;
+          await server.send(Buffer.from("cross-ku-s2c"));
+        }
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    client.onData.subscribe((d) => {
+      expect(d.toString()).toBe("cross-ku-s2c");
       clearTimeout(timer);
       client.close();
       server.close();

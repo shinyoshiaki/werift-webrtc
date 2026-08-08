@@ -133,18 +133,12 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         if (rec.kind === "plaintext") {
           const accepted = await this.onPlaintextRecordAsync(rec);
           if (accepted && rec.contentType === ContentType.handshake) {
-            await this.finishHandshakeRecordAck(
-              rec.epoch,
-              rec.sequenceNumber,
-            );
+            await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
           }
         } else {
           const accepted = await this.onCiphertextRecordAsync(rec);
           if (accepted && rec.contentType === ContentType.handshake) {
-            await this.finishHandshakeRecordAck(
-              rec.epoch,
-              rec.sequenceNumber,
-            );
+            await this.finishHandshakeRecordAck(rec.epoch, rec.sequenceNumber);
           }
         }
       } catch (e) {
@@ -206,13 +200,20 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     if (this.ackAfterCurrentRecord) {
       this.ackAfterCurrentRecord = false;
       await this.sendAck();
-      // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate
+      // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate.
+      // If our own KeyUpdate is still un-ACKed, defer the response until after
+      // handleAck → applyPendingKeyUpdateWrite (crossed update_requested).
       if (this.keyUpdateResponseAfterAck) {
         this.keyUpdateResponseAfterAck = false;
-        try {
-          await this.keyUpdate(false);
-        } catch (e) {
-          this.fail(e instanceof Error ? e : new Error(String(e)));
+        if (this.pendingKeyUpdateWrite) {
+          this.deferredKeyUpdateResponse = true;
+          log("defer KeyUpdate response until own KeyUpdate is ACK'd");
+        } else {
+          try {
+            await this.keyUpdate(false);
+          } catch (e) {
+            this.fail(e instanceof Error ? e : new Error(String(e)));
+          }
         }
       }
     }
@@ -368,6 +369,13 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       this.clearPendingFlight();
       // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
       this.applyPendingKeyUpdateWrite();
+      // Crossed update_requested: send deferred response now that own KU is ACK'd
+      if (this.deferredKeyUpdateResponse && !this.pendingKeyUpdateWrite) {
+        this.deferredKeyUpdateResponse = false;
+        void this.keyUpdate(false).catch((e) =>
+          this.fail(e instanceof Error ? e : new Error(String(e))),
+        );
+      }
     } catch (e) {
       log("bad ACK", e);
     }

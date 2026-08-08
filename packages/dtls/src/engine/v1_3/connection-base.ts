@@ -179,6 +179,12 @@ export abstract class Dtls13ConnectionBase {
    */
   protected keyUpdateResponseAfterAck = false;
   /**
+   * Peer requested update while our own KeyUpdate is still awaiting ACK.
+   * Send response KeyUpdate only after applyPendingKeyUpdateWrite() (RFC 9147 §8:
+   * no concurrent un-ACKed KeyUpdates; TLS 1.3 crossed update_requested case).
+   */
+  protected deferredKeyUpdateResponse = false;
+  /**
    * Handshake records that were successfully accepted (processed or buffered).
    * Replay path re-ACKs only records present here — anti-replay alone does not
    * imply the peer may treat the record as acknowledged.

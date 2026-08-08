@@ -34,6 +34,13 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     if (!this.connected && this.writeEpoch < 3) {
       throw new Error("DTLS 1.3 not ready to send application data");
     }
+    // TLS 1.3 / RFC 9147: after update_requested, send response KeyUpdate before
+    // further application data. Hold app data while the response is deferred.
+    if (this.deferredKeyUpdateResponse || this.keyUpdateResponseAfterAck) {
+      throw new Error(
+        "KeyUpdate response pending; application data blocked until response KeyUpdate is sent",
+      );
+    }
     const ep = this.epochs.get(this.writeEpoch);
     if (!ep?.writeKeys) throw new Error("no application write keys");
     const record = encryptRecord(buf, ContentType.applicationData, ep);
