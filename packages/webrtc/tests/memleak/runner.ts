@@ -124,6 +124,7 @@ export async function runScenario(
     verdict,
     analysis,
     error,
+    expectedLeak: scenario.expectedLeak,
   };
 }
 

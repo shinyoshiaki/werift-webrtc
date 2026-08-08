@@ -312,7 +312,7 @@
 
 ### send()
 
-> **send**(`buf`): `Promise`\<`void`\>
+> **send**(`buf`, `addr`?): `Promise`\<`void`\>
 
 send application data
 
@@ -321,6 +321,10 @@ send application data
 ##### buf
 
 `Buffer`
+
+##### addr?
+
+readonly \[`string`, `number`\]
 
 #### Returns
 

@@ -26,6 +26,8 @@ export type ScenarioReport = {
   verdict: LeakVerdict;
   analysis?: LeakAnalysis;
   error?: string;
+  /** true のとき FAIL は検出ロジック検証の期待結果 */
+  expectedLeak?: boolean;
 };
 
 export type MemleakReport = {
@@ -108,13 +110,23 @@ function buildMarkdown(report: MemleakReport): string {
   for (const s of report.scenarios) {
     lines.push(`## ${s.label} (\`${s.id}\`)`);
     lines.push("");
-    lines.push(
-      s.verdict.leaked
-        ? `**Result: FAIL (leak suspected)**`
-        : s.error
-          ? `**Result: ERROR**`
-          : `**Result: PASS**`,
-    );
+    if (s.expectedLeak) {
+      lines.push(
+        s.verdict.leaked
+          ? `**Result: EXPECTED FAIL (synthetic leak detected — harness OK)**`
+          : s.error
+            ? `**Result: ERROR**`
+            : `**Result: UNEXPECTED PASS (synthetic leak was not detected)**`,
+      );
+    } else {
+      lines.push(
+        s.verdict.leaked
+          ? `**Result: FAIL (leak suspected)**`
+          : s.error
+            ? `**Result: ERROR**`
+            : `**Result: PASS**`,
+      );
+    }
     lines.push("");
     lines.push("| Metric | Value |");
     lines.push("| --- | --- |");

@@ -1,11 +1,16 @@
 /**
  * メモリリーク試験の主要ユースケースシナリオ定義。
  * 実時間 1 時間相当の処理量バジェットを計算し、時間加速して消化する。
+ *
+ * 注意: タイマーや Event 購読をサイクル終了後に必ず解放すること。
+ * 未 clear の setTimeout が PeerConnection をクロージャで保持すると、
+ * 本番リークのように Event / DTLS オブジェクトが蓄積して見える。
  */
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
   MediaStreamTrack,
+  type RTCDataChannel,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
@@ -51,28 +56,58 @@ export type Scenario = {
   id: ScenarioId;
   label: string;
   budget: ScenarioBudget;
+  /** 合成リーク検証など、FAIL が期待されるシナリオ */
+  expectedLeak?: boolean;
   /** 1 サイクル実行。接続確立 → 処理 → close */
   runCycle: (cycle: number) => Promise<CycleResult>;
 };
 
+type Unsub = () => void;
+
+/** タイムアウト付き Promise。解決/拒否/finally で必ず timer を clear する */
+function withTimeout<T>(
+  work: (signal: { expired: boolean }) => Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  const signal = { expired: false };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      signal.expired = true;
+      reject(new Error(`${label} timeout (${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+  return Promise.race([work(signal), timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function exchangeIceCandidates(
   pc1: RTCPeerConnection,
   pc2: RTCPeerConnection,
-): void {
+): Unsub {
+  const unsubs: Unsub[] = [];
   const forward = (local: RTCPeerConnection, remote: RTCPeerConnection) => {
-    local.onIceCandidate.subscribe((candidate) => {
+    const { unSubscribe } = local.onIceCandidate.subscribe((candidate) => {
       if (!candidate) return;
       if (remote.signalingState !== "closed") {
         remote.addIceCandidate(candidate).catch((error) => {
           if ((error as Error).message !== "The remote description was null") {
+            // closed 後の競合は無視
+            if (remote.signalingState === "closed") return;
             throw error;
           }
         });
       }
     });
+    unsubs.push(unSubscribe);
   };
   forward(pc1, pc2);
   forward(pc2, pc1);
+  return () => {
+    for (const u of unsubs) u();
+  };
 }
 
 async function exchangeOfferAnswer(
@@ -91,14 +126,13 @@ async function waitConnected(
   timeoutMs = 15_000,
 ): Promise<void> {
   if (pc.connectionState === "connected") return;
-  await Promise.race([
-    pc.connectionStateChange.watch((v) => v === "connected"),
-    delay(timeoutMs).then(() => {
-      throw new Error(
-        `connectionState did not become connected (state=${pc.connectionState})`,
-      );
-    }),
-  ]);
+  await withTimeout(
+    async () => {
+      await pc.connectionStateChange.watch((v) => v === "connected");
+    },
+    timeoutMs,
+    "connectionState connected",
+  );
 }
 
 /** イベントループを塞がないよう、一定回数ごとに yield する */
@@ -127,6 +161,13 @@ async function waitForBufferedAmount(
     }
     await delay(1);
   }
+}
+
+async function closePeers(...pcs: RTCPeerConnection[]): Promise<void> {
+  await Promise.all(pcs.map((pc) => pc.close()));
+  // ソケット/タイマー解放のための短い猶予
+  await delay(20);
+  await new Promise<void>((r) => setImmediate(r));
 }
 
 export function computeBudgets(env: MemleakEnv): {
@@ -204,60 +245,55 @@ export function createDataChannelScenario(env: MemleakEnv): Scenario {
     id: "datachannel",
     label: budget.label,
     budget,
-    async runCycle(cycle: number): Promise<CycleResult> {
+    async runCycle(_cycle: number): Promise<CycleResult> {
       const pc1 = new RTCPeerConnection();
       const pc2 = new RTCPeerConnection();
+      let stopIce: Unsub = () => {};
+      let stopRecv: Unsub = () => {};
       try {
-        const openPromise = new Promise<
-          [
-            import("../../src").RTCDataChannel,
-            import("../../src").RTCDataChannel,
-          ]
-        >((resolve, reject) => {
-          const dc1 = pc1.createDataChannel("memleak");
-          let dc2: import("../../src").RTCDataChannel | undefined;
-          const maybeResolve = () => {
-            if (dc1.readyState === "open" && dc2?.readyState === "open") {
-              resolve([dc1, dc2]);
-            }
-          };
-          dc1.onopen = () => maybeResolve();
-          dc1.onerror = ({ error }) => reject(error);
-          pc2.ondatachannel = ({ channel }) => {
-            dc2 = channel;
-            channel.onopen = () => maybeResolve();
-            channel.onerror = ({ error }) => reject(error);
-          };
-          setTimeout(
-            () => reject(new Error("DataChannel open timeout")),
-            15_000,
-          );
-        });
+        const openPromise = withTimeout(
+          async () =>
+            new Promise<[RTCDataChannel, RTCDataChannel]>((resolve, reject) => {
+              const dc1 = pc1.createDataChannel("memleak");
+              let dc2: RTCDataChannel | undefined;
+              const maybeResolve = () => {
+                if (dc1.readyState === "open" && dc2?.readyState === "open") {
+                  resolve([dc1, dc2]);
+                }
+              };
+              dc1.onopen = () => maybeResolve();
+              dc1.onerror = ({ error }) => reject(error);
+              pc2.ondatachannel = ({ channel }) => {
+                dc2 = channel;
+                channel.onopen = () => maybeResolve();
+                channel.onerror = ({ error }) => reject(error);
+              };
+            }),
+          15_000,
+          "DataChannel open",
+        );
 
-        exchangeIceCandidates(pc1, pc2);
+        stopIce = exchangeIceCandidates(pc1, pc2);
         await exchangeOfferAnswer(pc1, pc2);
         const [dc1, dc2] = await openPromise;
 
         let received = 0;
         const receiveTarget = messagesPerCycle;
-        const allReceived = new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `DataChannel receive timeout (${received}/${receiveTarget})`,
-                ),
-              ),
-            Math.max(120_000, messagesPerCycle * 20),
-          );
-          dc2.onMessage.subscribe(() => {
-            received++;
-            if (received >= receiveTarget) {
-              clearTimeout(timer);
-              resolve();
-            }
-          });
-        });
+        const allReceived = withTimeout(
+          async () =>
+            new Promise<void>((resolve) => {
+              const { unSubscribe } = dc2.onMessage.subscribe(() => {
+                received++;
+                if (received >= receiveTarget) {
+                  unSubscribe();
+                  resolve();
+                }
+              });
+              stopRecv = unSubscribe;
+            }),
+          Math.max(120_000, messagesPerCycle * 20),
+          `DataChannel receive (${receiveTarget})`,
+        );
 
         // 時間加速: RTT 待ちせず一括送信（bufferedAmount でバックプレッシャー）
         const payload = "m";
@@ -273,11 +309,18 @@ export function createDataChannelScenario(env: MemleakEnv): Scenario {
 
         await allReceived;
         injectSyntheticLeak(env.injectLeakBytes);
+        dc1.onopen = undefined;
+        dc1.onerror = undefined;
+        dc2.onopen = undefined;
+        dc2.onerror = undefined;
+        pc2.ondatachannel = null;
         dc1.close();
         dc2.close();
         return { unitsProcessed: messagesPerCycle };
       } finally {
-        await Promise.all([pc1.close(), pc2.close()]);
+        stopRecv();
+        stopIce();
+        await closePeers(pc1, pc2);
       }
     },
   };
@@ -294,6 +337,8 @@ export function createMediaScenario(env: MemleakEnv): Scenario {
     async runCycle(_cycle: number): Promise<CycleResult> {
       const sendonly = new RTCPeerConnection();
       const recvonly = new RTCPeerConnection();
+      let stopIce: Unsub = () => {};
+      const stopRecv: Unsub[] = [];
       try {
         const track = new MediaStreamTrack({ kind: "video" });
         const transceiver = sendonly.addTransceiver(track, {
@@ -301,35 +346,36 @@ export function createMediaScenario(env: MemleakEnv): Scenario {
         });
 
         let received = 0;
-        const receiveDone = new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `RTP receive timeout (${received}/${framesPerCycle})`,
-                ),
-              ),
-            Math.max(120_000, framesPerCycle * 10),
-          );
-          recvonly.onRemoteTransceiverAdded.subscribe((t) => {
-            t.onTrack.subscribe((remoteTrack) => {
-              remoteTrack.onReceiveRtp.subscribe(() => {
-                received++;
-                if (received >= framesPerCycle) {
-                  clearTimeout(timer);
-                  resolve();
-                }
+        const receiveDone = withTimeout(
+          async () =>
+            new Promise<void>((resolve) => {
+              const sub1 = recvonly.onRemoteTransceiverAdded.subscribe((t) => {
+                const sub2 = t.onTrack.subscribe((remoteTrack) => {
+                  const sub3 = remoteTrack.onReceiveRtp.subscribe(() => {
+                    received++;
+                    if (received >= framesPerCycle) {
+                      sub3.unSubscribe();
+                      sub2.unSubscribe();
+                      sub1.unSubscribe();
+                      resolve();
+                    }
+                  });
+                  stopRecv.push(sub3.unSubscribe);
+                });
+                stopRecv.push(sub2.unSubscribe);
               });
-            });
-          });
-        });
+              stopRecv.push(sub1.unSubscribe);
+            }),
+          Math.max(120_000, framesPerCycle * 10),
+          `RTP receive (${framesPerCycle})`,
+        );
 
         // sender ready を接続前から購読（発火済みの asPromise 待ちを避ける）
         const senderReady = transceiver.sender.onReady
           .asPromise(10_000)
           .catch(() => undefined);
 
-        exchangeIceCandidates(sendonly, recvonly);
+        stopIce = exchangeIceCandidates(sendonly, recvonly);
         await exchangeOfferAnswer(sendonly, recvonly);
         await Promise.all([waitConnected(sendonly), senderReady]);
 
@@ -353,7 +399,9 @@ export function createMediaScenario(env: MemleakEnv): Scenario {
         injectSyntheticLeak(env.injectLeakBytes);
         return { unitsProcessed: framesPerCycle };
       } finally {
-        await Promise.all([sendonly.close(), recvonly.close()]);
+        for (const u of stopRecv) u();
+        stopIce();
+        await closePeers(sendonly, recvonly);
       }
     },
   };
@@ -370,22 +418,30 @@ export function createConnectionScenario(env: MemleakEnv): Scenario {
       // メディア/データなしで ICE → DTLS → SCTP 確立と close のみ
       const pc1 = new RTCPeerConnection();
       const pc2 = new RTCPeerConnection();
+      let stopIce: Unsub = () => {};
       try {
         // SCTP 確立を促すため DataChannel を 1 本作成するがメッセージは送らない
         const dc = pc1.createDataChannel("lifecycle");
-        const dcOpen = new Promise<void>((resolve, reject) => {
-          dc.onopen = () => resolve();
-          dc.onerror = ({ error }) => reject(error);
-          setTimeout(() => reject(new Error("DC open timeout")), 15_000);
-        });
-        exchangeIceCandidates(pc1, pc2);
+        const dcOpen = withTimeout(
+          async () =>
+            new Promise<void>((resolve, reject) => {
+              dc.onopen = () => resolve();
+              dc.onerror = ({ error }) => reject(error);
+            }),
+          15_000,
+          "DC open",
+        );
+        stopIce = exchangeIceCandidates(pc1, pc2);
         await exchangeOfferAnswer(pc1, pc2);
         await Promise.all([waitConnected(pc1), waitConnected(pc2), dcOpen]);
         injectSyntheticLeak(env.injectLeakBytes);
+        dc.onopen = undefined;
+        dc.onerror = undefined;
         dc.close();
         return { unitsProcessed: 1 };
       } finally {
-        await Promise.all([pc1.close(), pc2.close()]);
+        stopIce();
+        await closePeers(pc1, pc2);
       }
     },
   };
@@ -393,17 +449,19 @@ export function createConnectionScenario(env: MemleakEnv): Scenario {
 
 /**
  * 合成リーク検証用シナリオ。
- * PeerConnection は張らず、意図的に Buffer を保持してヒープ増加を起こす。
+ * PeerConnection は張らず、意図的にオブジェクトを保持してヒープ増加を起こす。
+ * 本シナリオの FAIL は検出ロジックの健全性確認であり、本番リークではない。
  */
 export function createSyntheticLeakScenario(env: MemleakEnv): Scenario {
   const iterations = Math.min(env.iterations, 20);
   const leakBytes = env.injectLeakBytes > 0 ? env.injectLeakBytes : 256 * 1024;
   return {
     id: "synthetic-leak",
-    label: "合成リーク（検出ロジック検証）",
+    label: "合成リーク（検出ロジック検証・FAIL 期待）",
+    expectedLeak: true,
     budget: {
       id: "synthetic-leak",
-      label: "合成リーク（検出ロジック検証）",
+      label: "合成リーク（検出ロジック検証・FAIL 期待）",
       iterations,
       unitsPerCycle: 1,
       totalUnits: iterations,

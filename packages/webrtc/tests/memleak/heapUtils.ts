@@ -282,8 +282,10 @@ export function detectLeak(
   const xs = afterWarmup.map((s) => s.cycle);
   const { slope, rSquared } = linearRegression(xs, smoothed);
 
-  const baselineWindow = smoothed.slice(0, Math.min(5, smoothed.length));
-  const finalWindow = smoothed.slice(Math.max(0, smoothed.length - 5));
+  // ベースラインと最終を重ならない窓で取り、短系列で同一中央値になる誤判定を避ける
+  const windowSize = Math.min(5, Math.max(1, Math.floor(smoothed.length / 2)));
+  const baselineWindow = smoothed.slice(0, windowSize);
+  const finalWindow = smoothed.slice(smoothed.length - windowSize);
   const baselineMedian = median(baselineWindow);
   const finalMedian = median(finalWindow);
   const marginBytes = baselineMedian * options.marginRatio;

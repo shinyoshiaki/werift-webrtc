@@ -116,14 +116,18 @@ ICE consent / SCTP RTO / DTLS 再送など**タイマー依存の挙動は実時
 
 1. **summary.md** の「リーク箇所の分析」を見る  
    - `analyze.ts` が早期/後期スナップショットを比較し、クラス別ノード数の増加上位を出す  
-   - 例: `RTCPeerConnection(+12)`, `Timeout(+40)` など
+   - 例: `RTCPeerConnection(+12)`, `Timeout(+40)` など  
+   - `synthetic-leak` の **EXPECTED FAIL** は検出ロジック検証の成功であり、本番リークではない
 2. **Chrome DevTools** で該当の `.heapsnapshot` を開く  
    - Chromium → DevTools → Memory → Load  
    - 増加していたクラスの retainer（誰が参照を握っているか）を確認
 3. **ソース調査**  
    - 該当クラスの `close()` / イベント購読解除 / タイマー clear 漏れを疑う  
    - 接続ライフサイクル（コントロール）だけ増えるなら下位トランスポート、media だけなら RTP 経路、などシナリオ差分で切り分ける
-4. **分析の限界**  
+4. **ハーネス起因の疑似リーク**  
+   - 未 `clearTimeout` のタイマーや `Event.subscribe` の未解除は、`RTCPeerConnection` / `Event` をクロージャで保持し **本番リークのように見える**  
+   - シナリオ側は `withTimeout` と `exchangeIceCandidates` の unsubscribe を必ず finally で呼ぶこと
+5. **分析の限界**  
    - ノード数比較は「毎サイクル生成・廃棄される型」のリークを捉えやすい  
    - 既存オブジェクトへの参照追加や external/arrayBuffers 領域だけ増えるケースは heapUsed トレンド側で検知する
 
