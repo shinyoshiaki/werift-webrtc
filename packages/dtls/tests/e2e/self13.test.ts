@@ -655,8 +655,56 @@ test("e2e/self13 dtls-cookie address validation completes handshake", async () =
   });
 }, 20_000);
 
+test("e2e/self13 empty group intersection fails (no silent force-group)", async () => {
+  // Arrange: no overlap in supported_groups
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+    namedGroups: [NamedCurveAlgorithm.x25519_29],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+    addressValidation: "none",
+    namedGroups: [NamedCurveAlgorithm.secp256r1_23],
+  });
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("expected group negotiation failure")),
+      8_000,
+    );
+    const onErr = (e: Error) => {
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      if (/overlapping named groups|group/i.test(e.message)) {
+        resolve();
+        return;
+      }
+      reject(e);
+    };
+    client.onError.subscribe(onErr);
+    server.onError.subscribe(onErr);
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      reject(new Error("must not connect with empty group intersection"));
+    });
+    await client.connect();
+  });
+}, 15_000);
+
 test("e2e/self13 cookie + key_share group mismatch completes via combined HRR", async () => {
-  // Arrange: server X25519 only, client P-256 only → single HRR with cookie+group
+  // Arrange: client advertises both groups but key_share offers only P-256 first;
+  // server is X25519-only → intersection={X25519}, combined HRR (cookie+group).
+  // (Client P-256-only ∩ server X25519-only must fail — that is correct RFC 8446.)
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -674,7 +722,11 @@ test("e2e/self13 cookie + key_share group mismatch completes via combined HRR", 
     key: keyPem,
     protocolVersions: [DtlsVersion.V1_3],
     addressValidation: "dtls-cookie",
-    namedGroups: [NamedCurveAlgorithm.secp256r1_23],
+    // Preference order: first group is key_share offer; X25519 still advertised
+    namedGroups: [
+      NamedCurveAlgorithm.secp256r1_23,
+      NamedCurveAlgorithm.x25519_29,
+    ],
   });
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
@@ -958,6 +1010,63 @@ test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
       ) {
         return;
       }
+      clearTimeout(timer);
+      reject(e);
+    });
+    await client.connect();
+  });
+}, 20_000);
+
+test("e2e/self13 server [1.2,1.3] prefers 1.2 with dual client", async () => {
+  // Arrange: server preference order puts 1.2 first; client offers both
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2, DtlsVersion.V1_3],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+
+  // Act / Assert: association は server preference で 1.2 を選ぶ
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("server prefers 1.2 timeout")),
+      15_000,
+    );
+    client.onConnect.subscribe(() => {
+      expect(client.isDtls13).toBe(false);
+      expect(server.isDtls13).toBe(false);
+      void client.send(Buffer.from("pref12"));
+    });
+    server.onData.subscribe((d) => {
+      expect(d.toString()).toBe("pref12");
+      clearTimeout(timer);
+      client.close();
+      server.close();
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
       clearTimeout(timer);
       reject(e);
     });

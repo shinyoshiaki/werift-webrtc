@@ -19,7 +19,12 @@ import {
   type EpochProtection,
   createEpochProtection,
 } from "../../record/v1_3/record";
-import { DtlsVersion, ProtocolVersionError } from "../../version";
+import { DEFAULT_SIGNATURE_SCHEMES } from "../../handshake/extensions/signatureAlgorithms";
+import {
+  DtlsVersion,
+  ProtocolVersionError,
+  normalizeProtocolVersions,
+} from "../../version";
 import { HandshakeTranscript } from "./transcript";
 import {
   type AddressValidationMode,
@@ -77,6 +82,31 @@ export abstract class Dtls13ConnectionBase {
 
   protected firstClientHelloBody?: Buffer;
   protected awaitingHrr = false;
+  /** Number of HelloRetryRequests processed (client) or sent (server). Max 1. */
+  protected hrrCount = 0;
+  /**
+   * Groups offered in the first ClientHello key_share (client).
+   * HRR selected_group must not already appear here (RFC 8446 §4.1.4).
+   */
+  protected initialKeyShareGroups: number[] = [];
+  /**
+   * Versions listed in ClientHello supported_versions (preference order).
+   * Dual-stack association may include V1_2 for true negotiation.
+   */
+  protected readonly offeredProtocolVersions: DtlsVersion[];
+  /**
+   * Peer signature_algorithms from ClientHello (server) or CertificateRequest
+   * schemes we will use for client CertificateVerify selection.
+   */
+  protected peerSignatureSchemes: number[] = [...DEFAULT_SIGNATURE_SCHEMES];
+  /** Schemes we advertised in CertificateRequest (server mutual auth). */
+  protected certificateRequestSignatureSchemes: number[] = [
+    ...DEFAULT_SIGNATURE_SCHEMES,
+  ];
+  /** Schemes we advertise in ClientHello / accept for server CertificateVerify. */
+  protected localOfferedSignatureSchemes: number[] = [
+    ...DEFAULT_SIGNATURE_SCHEMES,
+  ];
   protected peerFinishedReceived = false;
   protected localFinishedSent = false;
   protected flightId = 0;
@@ -197,6 +227,11 @@ export abstract class Dtls13ConnectionBase {
     ];
     this.localKeyPair = generateKeyPair(this.groups[0]);
     this.selectedGroup = this.groups[0];
+    this.offeredProtocolVersions = normalizeProtocolVersions(
+      options.offeredProtocolVersions ?? [DtlsVersion.V1_3],
+    );
+    // Client key_share initially offers the preferred local group only
+    this.initialKeyShareGroups = [this.selectedGroup];
     this.addressValidation = options.addressValidation ?? "dtls-cookie";
     // ICE-authenticated / none: address already trusted for amplification purposes
     this.addressValidated =
@@ -380,6 +415,14 @@ export abstract class Dtls13ConnectionBase {
     this.retransmitCount = 0;
   }
 
+  /**
+   * Drop pending ACK record numbers at flight boundaries so later ACKs do not
+   * re-list records from a previous flight (RFC 9147 §7 bookkeeping).
+   */
+  protected clearAckAccumulator() {
+    this.receivedRecordNumbers = [];
+  }
+
   protected applyPendingKeyUpdateWrite() {
     if (!this.pendingKeyUpdateWrite) return;
     const { nextWriteEpoch, nextTrafficSecret } = this.pendingKeyUpdateWrite;
@@ -420,13 +463,13 @@ export abstract class Dtls13ConnectionBase {
     this.closed = true;
     this.onError.execute(err);
 
-    // Protocol-version soft fail: keep UDP socket open so dual-stack fallback
-    // ([1.3,1.2]) can rebind onData and continue as DTLS 1.2 on the same Transport.
+    // Protocol-version soft fail / dual version selection: keep UDP socket open
+    // so association can rebind onData and continue as DTLS 1.2 on the same Transport.
     const softVersion =
       err instanceof ProtocolVersionError ||
-      /protocol version|HelloVerifyRequest|DTLS 1\.2-only|protocol_version/i.test(
-        err.message,
-      );
+      err.name === "ProtocolVersionError" ||
+      err.name === "DtlsVersionSelected" ||
+      (err as { code?: string }).code === "version_selected";
     if (softVersion) {
       return;
     }
@@ -449,8 +492,14 @@ export abstract class Dtls13ConnectionBase {
     return this.negotiatedSrtpProfile as SrtpProfile | undefined;
   }
 
-  /** Public carrier for tests / SPED integration. */
-  get handshakeCarrier(): DirectHandshakeCarrier {
-    return this.carrier;
+  /**
+   * Package-internal: reinject a datagram (dual-engine association).
+   * Not a stable Public API — Epic 2 may re-export a carrier interface.
+   */
+  injectDatagram(
+    bytes: Buffer,
+    peer?: [string, number] | { address?: string; port?: number } | string,
+  ): void {
+    this.carrier.inject(bytes, peer);
   }
 }

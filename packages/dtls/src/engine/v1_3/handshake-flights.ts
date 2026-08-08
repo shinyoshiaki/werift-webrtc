@@ -9,6 +9,7 @@ import { generateKeyPair } from "../../cipher/namedCurve";
 import { prfPreMasterSecret } from "../../cipher/prf";
 import { hashSha256 } from "../../cipher/tls13/hkdf";
 import {
+  selectSignatureScheme,
   signCertificateVerify,
   verifyCertificateVerify,
 } from "../../cipher/tls13/signature";
@@ -21,10 +22,7 @@ import {
 } from "../../handshake/extensions/cookie";
 import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../handshake/extensions/keyShare";
-import {
-  DEFAULT_SIGNATURE_SCHEMES,
-  SignatureAlgorithms,
-} from "../../handshake/extensions/signatureAlgorithms";
+import { SignatureAlgorithms } from "../../handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../../handshake/extensions/supportedVersions";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { ClientHello } from "../../handshake/message/client/hello";
@@ -37,18 +35,23 @@ import { EncryptedExtensions } from "../../handshake/message/tls13/encryptedExte
 import { KeyUpdate } from "../../handshake/message/tls13/keyUpdate";
 import { DtlsRandom } from "../../handshake/random";
 import type { SrtpProfile } from "../../imports/rtp";
-import { ContentType } from "../../record/const";
+import { AlertDesc, ContentType } from "../../record/const";
 import type { FragmentedHandshake } from "../../record/message/fragment";
 import {
   createEpochProtection,
-  encryptRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
 import type { Extension } from "../../typings/domain";
 import {
   DTLS_1_3_VERSION,
+  DtlsVersion,
+  DtlsVersionSelected,
   ProtocolVersionError,
   WireVersion,
+  peerVersionsFromSupportedVersionsWire,
+  protocolVersionsToWire,
+  selectVersion,
+  supportsVersion,
 } from "../../version";
 import { Dtls13RecordRx } from "./record-rx";
 import { HandshakeTranscript } from "./transcript";
@@ -82,9 +85,17 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         break;
       case HandshakeType.hello_verify_request_3:
         if (this.role === "client") {
-          // Peer is speaking DTLS 1.2 cookie exchange — not DTLS 1.3
+          // Peer is on the DTLS 1.2 cookie path. If we offered 1.2, association
+          // selects V1_2 via supported_versions preference — not an error/regex
+          // downgrade. Pure 1.3 clients still fail with ProtocolVersionError.
+          if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
+            throw new DtlsVersionSelected(
+              DtlsVersion.V1_2,
+              "peer HelloVerifyRequest: selected DTLS 1.2 from offered versions",
+            );
+          }
           throw new ProtocolVersionError(
-            "received HelloVerifyRequest: peer appears to be DTLS 1.2-only",
+            "received HelloVerifyRequest: peer is DTLS 1.2-only but client is DTLS 1.3-only",
           );
         }
         break;
@@ -128,12 +139,23 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     const extensions = this.buildClientHelloExtensions();
+    // Dual CH advertises 1.2 cipher suites too so a 1.2-only peer can complete
+    // cookie + 1.2 selection without rejecting "only 0x1301" ClientHellos.
+    const cipherSuites: number[] = [
+      CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
+    ];
+    if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
+      cipherSuites.push(
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+      );
+    }
     const ch = new ClientHello(
       WireVersion.DTLS_1_2, // legacy_version
       this.clientRandom,
       this.sessionId,
       Buffer.alloc(0), // legacy_cookie must be empty in DTLS 1.3
-      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      cipherSuites,
       [0],
       extensions,
     );
@@ -149,6 +171,8 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const body = ch.serialize();
     if (!this.firstClientHelloBody) {
       this.firstClientHelloBody = body;
+      // Snapshot key_share groups from the first CH for HRR validation
+      this.initialKeyShareGroups = [this.selectedGroup];
       this.transcript.add(HandshakeType.client_hello_1, body);
     } else if (this.awaitingHrr) {
       // After HRR, second CH is added after message_hash already set
@@ -167,7 +191,13 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
   protected buildClientHelloExtensions(): Extension[] {
     const exts: Extension[] = [];
 
-    exts.push(SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension);
+    // Dual-stack association may advertise both 1.3 and 1.2 in preference order
+    const wireVersions = protocolVersionsToWire(this.offeredProtocolVersions);
+    // Always include 1.3 when this engine is used (offered list may be dual)
+    if (!wireVersions.includes(DTLS_1_3_VERSION)) {
+      wireVersions.unshift(DTLS_1_3_VERSION);
+    }
+    exts.push(SupportedVersions.forClient(wireVersions).clientExtension);
 
     const curves = EllipticCurves.createEmpty();
     curves.data = this.groups as any;
@@ -183,7 +213,16 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       ]).clientExtension,
     );
 
-    exts.push(SignatureAlgorithms.create().extension);
+    // Dual CH also lists rsa_pkcs1_sha256 so DTLS 1.2 peers (flight2) can match
+    // RSA certificates; 1.3 CertificateVerify still rejects PKCS#1.
+    const sigSchemes = [...this.localOfferedSignatureSchemes];
+    if (
+      supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2) &&
+      !sigSchemes.includes(0x0401)
+    ) {
+      sigSchemes.push(0x0401); // rsa_pkcs1_sha256 for 1.2 peers only
+    }
+    exts.push(SignatureAlgorithms.create(sigSchemes).extension);
 
     if (this.tlsCookie.length > 0) {
       exts.push(new CookieExtension(this.tlsCookie).extension);
@@ -266,8 +305,62 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
     const sv = SupportedVersions.fromData(versionsExt.data, false);
+    // Engine is DTLS 1.3: require peer to include 1.3 in supported_versions
+    const peerVersions = peerVersionsFromSupportedVersionsWire(sv.versions);
+    try {
+      const selected = selectVersion(
+        this.offeredProtocolVersions.length
+          ? this.offeredProtocolVersions
+          : [DtlsVersion.V1_3],
+        peerVersions,
+      );
+      if (selected !== DtlsVersion.V1_3) {
+        await this.sendProtocolVersionAlert();
+        return;
+      }
+    } catch {
+      await this.sendProtocolVersionAlert();
+      return;
+    }
     if (!sv.versions.includes(DTLS_1_3_VERSION)) {
       await this.sendProtocolVersionAlert();
+      return;
+    }
+
+    // Peer signature_algorithms → CertificateVerify scheme negotiation
+    const sigExt = ch.extensions.find(
+      (e) => e.type === SignatureAlgorithms.type,
+    );
+    if (sigExt) {
+      try {
+        const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
+        if (schemes.length) this.peerSignatureSchemes = schemes;
+      } catch {
+        /* keep defaults */
+      }
+    }
+
+    // supported_groups ∩ local groups (RFC 8446) — required for HRR selection
+    const sgExt = ch.extensions.find((e) => e.type === EllipticCurves.type);
+    let clientSupportedGroups: number[] = [];
+    if (sgExt) {
+      try {
+        clientSupportedGroups = EllipticCurves.fromData(sgExt.data).data;
+      } catch {
+        clientSupportedGroups = [];
+      }
+    }
+    const groupIntersection = this.groups.filter((g) =>
+      clientSupportedGroups.includes(g),
+    );
+    if (groupIntersection.length === 0) {
+      // Protocol failure (not forged noise): alert + tear down (do not silent-drop)
+      await this.sendFatalAlert(AlertDesc.HandshakeFailure);
+      this.fail(
+        new Error(
+          "no overlapping named groups (supported_groups ∩ server groups empty)",
+        ),
+      );
       return;
     }
 
@@ -277,10 +370,23 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       throw new Error("ClientHello missing key_share");
     }
     const ks = KeyShare.fromClientData(keyShareExt.data);
+    // Accept only shares in the intersection (not merely server groups)
     const clientShare = ks.clientShares?.find((s) =>
-      this.groups.includes(s.group as NamedCurveAlgorithms),
+      groupIntersection.includes(s.group as NamedCurveAlgorithms),
+    );
+    // HRR selected_group: first intersection group not already in client key_share
+    const offeredShareGroups = new Set(
+      (ks.clientShares ?? []).map((s) => s.group),
+    );
+    const hrrGroupCandidate = groupIntersection.find(
+      (g) => !offeredShareGroups.has(g),
     );
     const needGroupHrr = !clientShare;
+    if (needGroupHrr && hrrGroupCandidate === undefined) {
+      throw new Error(
+        "client key_share has no acceptable group and no HRR candidate in intersection",
+      );
+    }
 
     // Address validation via TLS cookie (HRR), bound to peer + first ClientHello.
     // When cookie and group selection both needed, emit a *single* combined HRR
@@ -293,8 +399,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         this.firstClientHelloBody = body;
         this.cookieClientHelloHash = hashSha256(body);
         this.sessionId = Buffer.from(ch.sessionId);
+        if (this.hrrCount >= 1) {
+          throw new Error("second HelloRetryRequest not allowed");
+        }
+        this.hrrCount += 1;
         await this.sendHelloRetryRequest(
-          needGroupHrr ? this.groups[0] : undefined,
+          needGroupHrr ? hrrGroupCandidate : undefined,
           true,
           body,
         );
@@ -316,7 +426,11 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     if (needGroupHrr) {
       this.firstClientHelloBody = this.firstClientHelloBody ?? body;
       this.sessionId = Buffer.from(ch.sessionId);
-      await this.sendHelloRetryRequest(this.groups[0], false, body);
+      if (this.hrrCount >= 1) {
+        throw new Error("second HelloRetryRequest not allowed");
+      }
+      this.hrrCount += 1;
+      await this.sendHelloRetryRequest(hrrGroupCandidate, false, body);
       return;
     }
 
@@ -435,7 +549,14 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     if (this.options.certificateRequest) {
       this.certificateRequestContext = Buffer.from(randomBytes(8));
       this.expectClientCertificate = true;
-      const cr = CertificateRequest13.create(this.certificateRequestContext);
+      // Advertise schemes we accept for client CertificateVerify
+      this.certificateRequestSignatureSchemes = [
+        ...this.localOfferedSignatureSchemes,
+      ];
+      const cr = CertificateRequest13.create(
+        this.certificateRequestContext,
+        this.certificateRequestSignatureSchemes,
+      );
       this.messageSeq += 1;
       cr.messageSeq = this.messageSeq;
       this.transcript.add(HandshakeType.certificate_request_13, cr.serialize());
@@ -456,11 +577,16 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       encFragsList.push(f);
     }
 
-    // CertificateVerify
+    // CertificateVerify: peer ClientHello signature_algorithms ∩ local key
+    const serverCvScheme = selectSignatureScheme(
+      this.keyPem,
+      this.peerSignatureSchemes,
+    );
     const { algorithm, signature } = signCertificateVerify(
       this.keyPem,
       true,
       this.transcript.bytes,
+      serverCvScheme,
     );
     const cv = new CertificateVerify13(algorithm, signature);
     this.messageSeq += 1;
@@ -528,6 +654,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       0,
       true,
     );
+    // Budget-checked (same anti-amp path as flights / ACK / alerts)
     if (!this.consumeSendBudget(shBytes.length)) {
       throw new Error("anti-amplification: budget exhausted for ServerHello");
     }
@@ -574,10 +701,27 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     if (isHrr) {
+      // RFC 8446 §4.1.4: at most one HRR; selected_group must be newly offered
+      if (this.hrrCount >= 1) {
+        throw new Error("second HelloRetryRequest not allowed");
+      }
+      this.hrrCount += 1;
       const ksExt = sh.extensions.find((e) => e.type === KeyShare.type);
       const group = ksExt
         ? KeyShare.fromServerData(ksExt.data).selectedGroup
         : undefined;
+      if (group !== undefined) {
+        if (!this.groups.includes(group as NamedCurveAlgorithms)) {
+          throw new Error(
+            `HRR selected_group 0x${group.toString(16)} not in client supported_groups`,
+          );
+        }
+        if (this.initialKeyShareGroups.includes(group)) {
+          throw new Error(
+            `HRR selected_group 0x${group.toString(16)} was already in initial key_share`,
+          );
+        }
+      }
       const cookieExt = sh.extensions.find(
         (e) => e.type === CookieExtension.type,
       );
@@ -673,13 +817,17 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         if (!schemes.length) {
           throw new Error("CertificateRequest signature_algorithms empty");
         }
-        // Intersection with local defaults must be non-empty for mutual auth
-        const ok = schemes.some((s) => DEFAULT_SIGNATURE_SCHEMES.includes(s));
+        // Keep peer order for CertificateVerify selection; require intersection
+        const ok = schemes.some((s) =>
+          this.localOfferedSignatureSchemes.includes(s),
+        );
         if (!ok) {
           throw new Error(
             "no overlapping signature_algorithms with CertificateRequest",
           );
         }
+        this.certificateRequestSignatureSchemes = schemes;
+        this.peerSignatureSchemes = schemes;
       } catch (e) {
         if (e instanceof Error && /overlapping|empty/.test(e.message)) throw e;
         throw new Error("CertificateRequest invalid signature_algorithms");
@@ -721,8 +869,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const cv = CertificateVerify13.deSerialize(body);
     // Client only verifies server CertificateVerify; server verifies client CV for mutual auth
     const peerIsServer = this.role === "client";
-    // Reject algorithms outside the TLS 1.3 schemes we advertise / accept
-    if (!DEFAULT_SIGNATURE_SCHEMES.includes(cv.algorithm)) {
+    // Accept only schemes we actually advertised for this handshake direction
+    const allowed =
+      this.role === "client"
+        ? this.localOfferedSignatureSchemes
+        : this.certificateRequestSignatureSchemes;
+    if (!allowed.includes(cv.algorithm)) {
       throw new Error(
         `CertificateVerify algorithm 0x${cv.algorithm.toString(16)} not negotiated`,
       );
@@ -789,10 +941,17 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         cFrag.message_seq = cCert.messageSeq;
         clientMsgs.push(cFrag);
 
+        const clientCvScheme = selectSignatureScheme(
+          this.keyPem,
+          this.certificateRequestSignatureSchemes.length
+            ? this.certificateRequestSignatureSchemes
+            : this.peerSignatureSchemes,
+        );
         const { algorithm, signature } = signCertificateVerify(
           this.keyPem,
           false,
           this.transcript.bytes,
+          clientCvScheme,
         );
         const cCv = new CertificateVerify13(algorithm, signature);
         this.messageSeq += 1;

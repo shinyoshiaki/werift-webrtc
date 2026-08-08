@@ -16,7 +16,7 @@ import {
   parseNextRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
-import { ProtocolVersionError } from "../../version";
+import { DtlsVersionSelected, ProtocolVersionError } from "../../version";
 import { Dtls13FlightTx } from "./flight-tx";
 import {
   FRAGMENT_TTL_MS,
@@ -56,7 +56,9 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         // discarded inside handleDatagramAsync and should not reach here often.
         if (
           e instanceof ProtocolVersionError ||
+          e instanceof DtlsVersionSelected ||
           (e instanceof Error && e.name === "ProtocolVersionError") ||
+          (e instanceof Error && e.name === "DtlsVersionSelected") ||
           (e instanceof Error && (e as any).dtlsAuthenticated === true)
         ) {
           try {
@@ -133,10 +135,12 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           }
         }
       } catch (e) {
-        // Protocol version soft-fail must surface for dual-stack fallback
+        // Protocol version / dual selection must surface to association layer
         if (
           e instanceof ProtocolVersionError ||
-          (e instanceof Error && e.name === "ProtocolVersionError")
+          e instanceof DtlsVersionSelected ||
+          (e instanceof Error && e.name === "ProtocolVersionError") ||
+          (e instanceof Error && e.name === "DtlsVersionSelected")
         ) {
           throw e;
         }
@@ -323,6 +327,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       }
       // Fully ACK'd
       this.clearPendingFlight();
+      this.clearAckAccumulator();
       // RFC 9147 §8: only after KeyUpdate is ACK'd may we send with new keys
       this.applyPendingKeyUpdateWrite();
     } catch (e) {

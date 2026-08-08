@@ -6,6 +6,7 @@ import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { Transport } from "../../imports/common";
 import { debug } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
+import type { DtlsVersion } from "../../version";
 
 /** Anti-amplification: server may send at most 3× received before address validated. */
 export const ANTI_AMPLIFICATION_FACTOR = 3;
@@ -54,8 +55,12 @@ export interface Dtls13Options {
    * - ice-authenticated / none: skip cookie (peer path already authenticated)
    */
   addressValidation?: AddressValidationMode;
+  /**
+   * Versions advertised in ClientHello supported_versions (preference order).
+   * Default: `[V1_3]` only. Dual-stack association passes `[V1_3, V1_2]` etc.
+   */
+  offeredProtocolVersions?: readonly DtlsVersion[];
 }
-
 export type Role = "client" | "server";
 
 /** HelloRetryRequest special random (RFC 8446). */

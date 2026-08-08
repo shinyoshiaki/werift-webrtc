@@ -12,9 +12,10 @@ import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
 import { DtlsSocket, type Options } from "./socket";
 import {
-  DTLS_1_3_VERSION,
   DtlsVersion,
   ProtocolVersionError,
+  peerVersionsFromSupportedVersionsWire,
+  selectVersion,
   supportsVersion,
 } from "./version";
 
@@ -65,6 +66,8 @@ export class DtlsServer extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        // Engine only speaks 1.3 once selected; preference used at association
+        offeredProtocolVersions: [DtlsVersion.V1_3],
       },
       SessionType.SERVER,
     );
@@ -72,31 +75,32 @@ export class DtlsServer extends DtlsSocket {
   }
 
   /**
-   * Dual-mode: on ClientHello, switch to 1.3 engine when peer offers DTLS 1.3
-   * and this server lists 1.3; otherwise stay on 1.2.
+   * Association-layer version selection from ClientHello supported_versions
+   * and local protocolVersions preference order.
    */
-  private tryUpgradeTo13(clientHello: ClientHello): boolean {
-    if (this.engine13) return true;
-    if (!supportsVersion(this.protocolVersions, DtlsVersion.V1_3)) {
-      return false;
-    }
+  private selectVersionFromClientHello(
+    clientHello: ClientHello,
+  ): DtlsVersion | undefined {
     const ext = clientHello.extensions.find(
       (e) => e.type === SupportedVersions.type,
     );
-    if (!ext) return false;
-    try {
-      const sv = SupportedVersions.fromData(ext.data, false);
-      if (!sv.versions.includes(DTLS_1_3_VERSION)) return false;
-    } catch {
-      return false;
+    let peerSupported: DtlsVersion[];
+    if (!ext) {
+      // Legacy DTLS 1.2 ClientHello without supported_versions
+      peerSupported = [DtlsVersion.V1_2];
+    } else {
+      try {
+        const sv = SupportedVersions.fromData(ext.data, false);
+        peerSupported = peerVersionsFromSupportedVersionsWire(sv.versions);
+      } catch {
+        return undefined;
+      }
     }
-
-    // Rebuild as 1.3 server and re-inject the original datagram is hard;
-    // instead create engine and let the next ClientHello (retransmit) complete.
-    // For dual servers that prefer 1.3, start engine13 on first matching CH by
-    // constructing engine and processing via a synthetic path.
-    this.startEngine13();
-    return !!this.engine13;
+    try {
+      return selectVersion(this.protocolVersions, peerSupported);
+    } catch {
+      return undefined;
+    }
   }
 
   private flight6?: Flight6;
@@ -119,48 +123,48 @@ export class DtlsServer extends DtlsSocket {
             }
             const clientHello = ClientHello.deSerialize(handshake.fragment);
 
-            // Dual [1.3, 1.2]: upgrade when peer offers 1.3
+            // Dual / multi-version: select via local preference ∩ peer supported
             if (
               supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
               supportsVersion(this.protocolVersions, DtlsVersion.V1_2)
             ) {
-              const ext = clientHello.extensions.find(
-                (e) => e.type === SupportedVersions.type,
-              );
-              if (ext) {
-                try {
-                  const sv = SupportedVersions.fromData(ext.data, false);
-                  if (sv.versions.includes(DTLS_1_3_VERSION)) {
-                    // Peer wants 1.3: switch engines and re-inject this ClientHello
-                    // as a full epoch-0 plaintext record (no retransmit wait).
-                    // Preserve ClientHello source address so dtls-cookie binding
-                    // uses the same peerKey at mint and verify (not "unknown").
-                    const peerAddr = peerAddrFromTransport(
-                      this.options.transport as {
-                        rinfo?: { address?: string; port?: number };
-                      },
-                    );
-                    this.startEngine13();
-                    const eng = this.engine13 as Dtls13Connection | undefined;
-                    if (eng) {
-                      const fragBytes = handshake.serialize();
-                      const pkt = serializePlaintextRecord(
-                        ContentType.handshake,
-                        0,
-                        0,
-                        fragBytes,
-                      );
-                      eng.handshakeCarrier.inject(pkt, peerAddr);
-                    }
-                    log(
-                      "upgraded server to DTLS 1.3 engine, reinjected ClientHello",
-                      { peer: peerAddr },
-                    );
-                    return;
-                  }
-                } catch {
-                  /* fall through to 1.2 */
+              const selected = this.selectVersionFromClientHello(clientHello);
+              if (selected === DtlsVersion.V1_3) {
+                // Preserve ClientHello source address so dtls-cookie binding
+                // uses the same peerKey at mint and verify (not "unknown").
+                const peerAddr = peerAddrFromTransport(
+                  this.options.transport as {
+                    rinfo?: { address?: string; port?: number };
+                  },
+                );
+                this.startEngine13();
+                const eng = this.engine13 as Dtls13Connection | undefined;
+                if (eng) {
+                  const fragBytes = handshake.serialize();
+                  const pkt = serializePlaintextRecord(
+                    ContentType.handshake,
+                    0,
+                    0,
+                    fragBytes,
+                  );
+                  eng.injectDatagram(pkt, peerAddr);
                 }
+                log(
+                  "association selected DTLS 1.3, reinjected ClientHello",
+                  { peer: peerAddr },
+                );
+                return;
+              }
+              // selected === V1_2 or undefined → stay on 1.2 path below
+              if (selected === undefined) {
+                // No overlap with dual server — alert
+                await this.sendPlaintextAlert(AlertDesc.ProtocolVersion);
+                this.onError.execute(
+                  new ProtocolVersionError(
+                    "no overlapping DTLS protocol version with peer",
+                  ),
+                );
+                return;
               }
             }
 
@@ -178,8 +182,7 @@ export class DtlsServer extends DtlsSocket {
               return;
             }
 
-            // 1.3-only peer? If we are 1.2-only and CH only has 1.3 ciphers,
-            // send protocol_version alert so the client fails without timeout.
+            // 1.2-only server vs 1.3-only peer: protocol_version alert
             if (
               !supportsVersion(this.protocolVersions, DtlsVersion.V1_3) &&
               clientHello.cipherSuites.every((c) => c === 0x1301)

@@ -11,16 +11,44 @@ import { buildCertificateVerifyContent } from "../../handshake/message/tls13/cer
 import { SignatureScheme } from "../const";
 import { hashSha256 } from "./hkdf";
 
+/** Schemes this key material can produce for TLS 1.3 CertificateVerify. */
+export function schemesForKey(keyPem: string): number[] {
+  const key = createPrivateKey(keyPem);
+  const type = key.asymmetricKeyType;
+  if (type === "rsa") return [SignatureScheme.rsa_pss_rsae_sha256];
+  if (type === "ec") return [SignatureScheme.ecdsa_secp256r1_sha256];
+  return [];
+}
+
+/**
+ * Pick the first scheme in `allowed` (peer preference order) that the local
+ * key can produce. Throws if intersection is empty.
+ */
+export function selectSignatureScheme(
+  keyPem: string,
+  allowed: readonly number[],
+): number {
+  const local = new Set(schemesForKey(keyPem));
+  for (const s of allowed) {
+    if (local.has(s)) return s;
+  }
+  throw new Error(
+    `no overlapping CertificateVerify signature scheme (allowed=[${allowed
+      .map((x) => "0x" + x.toString(16))
+      .join(",")}])`,
+  );
+}
+
 /**
  * Sign TLS 1.3 CertificateVerify content with the local private key.
  * RSA uses rsa_pss_rsae_sha256 only (RFC 8446 forbids rsa_pkcs1_* for CV).
- * EC uses ecdsa_secp256r1_sha256.
+ * EC uses ecdsa_secp256r1_sha256. `preferredScheme` must be in peer intersection.
  */
 export function signCertificateVerify(
   keyPem: string,
   isServer: boolean,
   transcript: Buffer,
-  _preferredScheme?: number,
+  preferredScheme?: number,
 ): { algorithm: number; signature: Buffer } {
   const content = buildCertificateVerifyContent(
     isServer,
@@ -32,6 +60,15 @@ export function signCertificateVerify(
   if (type === "rsa") {
     // TLS 1.3 CertificateVerify: RSA-PSS only (never PKCS#1 v1.5)
     const algorithm = SignatureScheme.rsa_pss_rsae_sha256;
+    if (
+      preferredScheme !== undefined &&
+      preferredScheme !== algorithm &&
+      preferredScheme !== 0x0804
+    ) {
+      throw new Error(
+        `RSA key cannot sign CertificateVerify with scheme 0x${preferredScheme.toString(16)}`,
+      );
+    }
     const signer = createSign("sha256");
     signer.update(content);
     const signature = signer.sign({
@@ -43,13 +80,20 @@ export function signCertificateVerify(
   }
 
   if (type === "ec") {
+    const algorithm = SignatureScheme.ecdsa_secp256r1_sha256;
+    if (
+      preferredScheme !== undefined &&
+      preferredScheme !== algorithm &&
+      preferredScheme !== 0x0403
+    ) {
+      throw new Error(
+        `EC key cannot sign CertificateVerify with scheme 0x${preferredScheme.toString(16)}`,
+      );
+    }
     const signer = createSign("sha256");
     signer.update(content);
     const signature = signer.sign(key);
-    return {
-      algorithm: SignatureScheme.ecdsa_secp256r1_sha256,
-      signature,
-    };
+    return { algorithm, signature };
   }
 
   throw new Error(`unsupported key type for CertificateVerify: ${type}`);

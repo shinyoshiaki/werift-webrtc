@@ -57,10 +57,82 @@ export function supportsVersion(
   return versions.includes(target);
 }
 
+export function dtlsVersionToWire(v: DtlsVersion): number {
+  return v === DtlsVersion.V1_3 ? DTLS_1_3_VERSION : DTLS_1_2_VERSION;
+}
+
+export function wireToDtlsVersion(n: number): DtlsVersion | undefined {
+  if (n === DTLS_1_3_VERSION) return DtlsVersion.V1_3;
+  if (n === DTLS_1_2_VERSION) return DtlsVersion.V1_2;
+  return undefined;
+}
+
+/**
+ * Association-layer version selection (both roles).
+ * Walks `localPreference` in order and returns the first version also in
+ * `peerSupported`. Empty intersection → ProtocolVersionError.
+ */
+export function selectVersion(
+  localPreference: readonly DtlsVersion[],
+  peerSupported: readonly DtlsVersion[],
+): DtlsVersion {
+  const peer = new Set(peerSupported);
+  for (const v of localPreference) {
+    if (peer.has(v)) return v;
+  }
+  throw new ProtocolVersionError(
+    `no overlapping DTLS protocol version (local=[${localPreference.join(",")}] peer=[${peerSupported.join(",")}])`,
+  );
+}
+
+/**
+ * Map ClientHello supported_versions wire list → DtlsVersion[].
+ * Unknown codepoints are ignored. Empty / missing → treat as DTLS 1.2 only
+ * (legacy peers without the extension).
+ */
+export function peerVersionsFromSupportedVersionsWire(
+  wireVersions: readonly number[] | undefined,
+): DtlsVersion[] {
+  if (!wireVersions || wireVersions.length === 0) {
+    return [DtlsVersion.V1_2];
+  }
+  const out: DtlsVersion[] = [];
+  const seen = new Set<DtlsVersion>();
+  for (const w of wireVersions) {
+    const v = wireToDtlsVersion(w);
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out.length > 0 ? out : [DtlsVersion.V1_2];
+}
+
+export function protocolVersionsToWire(
+  versions: readonly DtlsVersion[],
+): number[] {
+  return versions.map(dtlsVersionToWire);
+}
+
 export class ProtocolVersionError extends Error {
   readonly code = "protocol_version";
   constructor(message: string) {
     super(message);
     this.name = "ProtocolVersionError";
+  }
+}
+
+/**
+ * Intentional dual-stack version selection result (not a handshake failure).
+ * Association layer switches engines; must not be treated as public onError.
+ */
+export class DtlsVersionSelected extends Error {
+  readonly code = "version_selected";
+  constructor(
+    public readonly version: DtlsVersion,
+    message?: string,
+  ) {
+    super(message ?? `selected DTLS ${version}`);
+    this.name = "DtlsVersionSelected";
   }
 }

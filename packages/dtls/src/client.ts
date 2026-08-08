@@ -10,15 +10,15 @@ import type { FragmentedHandshake } from "./record/message/fragment";
 import { DtlsSocket, type Options } from "./socket";
 import {
   DtlsVersion,
+  DtlsVersionSelected,
   ProtocolVersionError,
-  normalizeProtocolVersions,
   supportsVersion,
 } from "./version";
 
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 export class DtlsClient extends DtlsSocket {
-  private dualFallbackTo12 = false;
+  private dualSelected12 = false;
 
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
@@ -26,30 +26,22 @@ export class DtlsClient extends DtlsSocket {
 
     const versions = this.protocolVersions;
     const only13 = versions.length === 1 && versions[0] === DtlsVersion.V1_3;
-    const prefer13 =
-      versions[0] === DtlsVersion.V1_3 &&
+    const dual =
+      supportsVersion(versions, DtlsVersion.V1_3) &&
       supportsVersion(versions, DtlsVersion.V1_2);
 
-    // Pure 1.3 or 1.3-preferred dual: start on 1.3 engine.
-    // Dual falls back to 1.2 if peer cannot do 1.3 (protocol_version / clear 1.2 path).
-    if (only13 || prefer13) {
-      this.startEngine13(only13);
+    // Pure 1.3 or dual (any preference order that includes 1.3): start 1.3 engine
+    // with offeredProtocolVersions = local preference for supported_versions.
+    // Dual does not "fail then retry" via HelloVerifyRequest error regex —
+    // association selects V1_2 via DtlsVersionSelected when peer is 1.2-path.
+    if (only13 || dual) {
+      this.startEngine13(only13, versions);
     }
 
-    log(this.dtls.sessionId, "start client", { versions, only13, prefer13 });
+    log(this.dtls.sessionId, "start client", { versions, only13, dual });
   }
 
-  private isVersionFallbackError(e: Error): boolean {
-    return (
-      e instanceof ProtocolVersionError ||
-      /protocol version/i.test(e.message) ||
-      /HelloVerifyRequest/i.test(e.message) ||
-      /DTLS 1\.2-only/i.test(e.message) ||
-      /protocol_version/i.test(e.message)
-    );
-  }
-
-  private startEngine13(strict13: boolean) {
+  private startEngine13(strict13: boolean, offered: readonly DtlsVersion[]) {
     // Server-auth-only clients may omit cert/key; mutual auth requires both.
     const engine = new Dtls13Connection(
       {
@@ -63,30 +55,38 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        // Dual: advertise both versions in CH supported_versions (preference order)
+        offeredProtocolVersions: offered,
       },
       SessionType.CLIENT,
     );
 
-    const dualCanFallback =
+    const dualCanSelect12 =
       !strict13 && supportsVersion(this.protocolVersions, DtlsVersion.V1_2);
 
-    // Transparent dual fallback: do not surface ProtocolVersionError on public onError
+    // Transparent dual selection: swallow only intentional V1_2 selection
     this.bridgeEngine13(engine, {
       filterError: (e) =>
-        dualCanFallback &&
-        !this.dualFallbackTo12 &&
-        this.isVersionFallbackError(e),
+        dualCanSelect12 &&
+        !this.dualSelected12 &&
+        e instanceof DtlsVersionSelected &&
+        e.version === DtlsVersion.V1_2,
     });
 
-    if (dualCanFallback) {
+    if (dualCanSelect12) {
       engine.onError.subscribe((e) => {
-        if (this.dualFallbackTo12) return;
-        if (!this.isVersionFallbackError(e)) return;
-        log("falling back to DTLS 1.2 after version mismatch", e.message);
-        this.dualFallbackTo12 = true;
+        if (this.dualSelected12) return;
+        if (
+          !(e instanceof DtlsVersionSelected) ||
+          e.version !== DtlsVersion.V1_2
+        ) {
+          return;
+        }
+        log("association selected DTLS 1.2", e.message);
+        this.dualSelected12 = true;
         this.engine13 = undefined;
         this.connected = false;
-        // Engine soft-fail already cancelled timers; close carrier only (keep UDP)
+        // Soft path already cancelled timers; close carrier only (keep UDP)
         engine.releaseForVersionFallback();
         // Restore 1.2 receive path and fresh 1.2 context
         this.transport.socket.onData = this.udpOnMessage;
@@ -107,7 +107,7 @@ export class DtlsClient extends DtlsSocket {
     }
   }
 
-  /** Re-init extensions after dual fallback tears down the 1.3 engine. */
+  /** Re-init extensions after dual version selection tears down the 1.3 engine. */
   private setupExtensionsFor12Fallback() {
     this.extensions = [];
     this.setupExtensions();

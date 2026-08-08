@@ -120,6 +120,8 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     this.carrier.events.onFlightCreated?.(flightId, notifyPackets);
 
     if (retransmittable) {
+      // New outbound flight boundary — do not carry prior-flight ACK records
+      this.clearAckAccumulator();
       this.pendingFlight = cachePackets;
       this.pendingFlightRecordGroups = datagramRecordGroups.map((g) =>
         g.map((r) => ({ ...r })),
@@ -145,6 +147,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     }
 
     for (const pkt of cachePackets) {
+      // carrier.send copies bytes; budget still enforced here
       if (!this.consumeSendBudget(pkt.bytes.length)) {
         throw new Error(
           `anti-amplification: budget exhausted on send (received=${this.bytesReceived} sent=${this.bytesSent} need=${pkt.bytes.length})`,
@@ -214,6 +217,25 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     return true;
   }
 
+  /**
+   * All outbound DTLS records (handshake flights, retransmit, ACK, alerts)
+   * must pass through this path so anti-amplification covers aggregate TX.
+   * @returns false if budget blocked the send (caller must not assume wire TX).
+   */
+  protected async sendWithBudget(record: Buffer): Promise<boolean> {
+    if (!this.consumeSendBudget(record.length)) {
+      log(
+        "sendWithBudget blocked by anti-amplification",
+        this.bytesReceived,
+        this.bytesSent,
+        record.length,
+      );
+      return false;
+    }
+    await this.options.transport.send(record);
+    return true;
+  }
+
   protected scheduleRetransmit() {
     this.cancelRetransmit?.();
     // Allow post-handshake retransmit (final flight / KeyUpdate) when connected
@@ -269,6 +291,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * Send an ACK listing successfully accepted handshake records (RFC 9147 §7).
    * Empty record_numbers is allowed and prompts peer retransmission.
    * Prefers encrypted epoch (writeEpoch / 2 / 3); falls back to epoch-0 plaintext.
+   * Always budget-checked (no anti-amp bypass).
    */
   protected async sendAck(opts?: { allowEmpty?: boolean }): Promise<void> {
     const allowEmpty = opts?.allowEmpty === true;
@@ -293,18 +316,27 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       this.epochs.get(this.writeEpoch) ||
       this.epochs.get(2) ||
       this.epochs.get(3);
+    let record: Buffer;
     if (ep?.writeKeys) {
-      const record = encryptRecord(body, ContentType.ack, ep);
-      this.bytesSent += record.length;
-      await this.options.transport.send(record);
-      return;
+      record = encryptRecord(body, ContentType.ack, ep);
+    } else {
+      // Epoch 0 plaintext ACK (early handshake / no traffic keys yet)
+      const seq = this.recordSeqEpoch0++;
+      record = serializePlaintextRecord(ContentType.ack, 0, seq, body);
     }
-
-    // Epoch 0 plaintext ACK (early handshake / no traffic keys yet)
-    const seq = this.recordSeqEpoch0++;
-    const record = serializePlaintextRecord(ContentType.ack, 0, seq, body);
-    this.bytesSent += record.length;
-    await this.options.transport.send(record);
+    const ok = await this.sendWithBudget(record);
+    if (!ok) {
+      // Budget exhausted: put numbers back so a later ACK can retry
+      for (const n of numbers) {
+        if (
+          !this.receivedRecordNumbers.some(
+            (r) => r.epoch === n.epoch && r.sequenceNumber === n.sequenceNumber,
+          )
+        ) {
+          this.receivedRecordNumbers.push(n);
+        }
+      }
+    }
   }
 
   /** Explicit empty ACK path (RFC 9147 §7: prompts peer retransmit). */
@@ -319,14 +351,13 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         const ep = this.epochs.get(this.writeEpoch);
         if (ep?.writeKeys) {
           const record = encryptRecord(alert, ContentType.alert, ep);
-          this.bytesSent += record.length;
-          await this.options.transport.send(record);
+          await this.sendWithBudget(record);
           return;
         }
       }
       const seq = this.recordSeqEpoch0++;
       const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
-      await this.options.transport.send(record);
+      await this.sendWithBudget(record);
     } catch (e) {
       log("sendFatalAlert failed", e);
     }
@@ -363,7 +394,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     const alert = Buffer.from([2, AlertDesc.ProtocolVersion]);
     const seq = this.recordSeqEpoch0++;
     const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
-    await this.options.transport.send(record);
+    await this.sendWithBudget(record);
     this.fail(
       new ProtocolVersionError(
         "no overlapping DTLS 1.3 protocol version with peer",
