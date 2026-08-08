@@ -57,11 +57,13 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 | measure WPT coverage         | `npm run wpt:coverage` |
 | format code                  | `npm run format`      |
 | regenerate docs              | `npm run doc`         |
+| memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
 
 For targeted work, prefer the narrowest package command first, for example:
 
 * `cd packages/webrtc && npm test`
 * `cd packages/rtp && npm run type && npm test`
+* `cd packages/webrtc && npm run memleak` (Node 24+; not part of CI)
 
 ## Validation
 
