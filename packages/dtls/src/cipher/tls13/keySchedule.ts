@@ -174,9 +174,33 @@ export class Dtls13KeySchedule {
     );
   }
 
+  /**
+   * TLS 1.3 binder_key (RFC 8446 §7.1).
+   * Derive-Secret(Early Secret, "ext binder" | "res binder", "")
+   * Used for PSK binder computation; Epic 1 exposes derivation for vectors /
+   * future 0-RTT (handshake path remains PSK-less).
+   */
+  binderKey(earlySecret: Buffer, resumption = false): Buffer {
+    const label = resumption ? "res binder" : "ext binder";
+    return deriveSecret(earlySecret, label, Buffer.alloc(0), this.labelPrefix);
+  }
+
+  /**
+   * Finished verify_data = HMAC(finished_key, Hash(Handshake Context))
+   * (RFC 8446 §4.4.4). Same construction for PSK binders with binder_key.
+   */
   verifyData(baseKey: Buffer, transcript: Buffer): Buffer {
     const finishedKey = this.finishedKey(baseKey);
     return hmacSha256(finishedKey, hashSha256(transcript));
+  }
+
+  /**
+   * PSK binder HMAC (RFC 8446 §4.2.11.2):
+   * HMAC(finished_key(binder_key), Hash(transcript up to Binder))
+   * Same primitive as Finished verify_data with binder_key as base.
+   */
+  binderVerifyData(binderKey: Buffer, transcript: Buffer): Buffer {
+    return this.verifyData(binderKey, transcript);
   }
 
   /**

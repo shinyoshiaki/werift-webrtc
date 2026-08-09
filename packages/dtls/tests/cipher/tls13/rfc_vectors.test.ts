@@ -11,6 +11,8 @@ import {
 } from "../../../src/cipher/tls13/aead";
 import {
   DTLS13_LABEL_PREFIX,
+  TLS13_LABEL_PREFIX,
+  emptyHashSha256,
   hashSha256,
   hkdfExpandLabelManual,
   hmacSha256,
@@ -78,6 +80,79 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     expect(hmacSha256(finKey, hashSha256(transcript)).toString("hex")).toBe(
       PINNED_VERIFY_DATA,
     );
+  });
+
+  // Pinned binder / finished vectors (RFC 8446 structure; independent of SUT re-run)
+  // Early Secret = HKDF-Extract(0, 0) with SHA-256; binder = Derive-Secret(ES, label, "")
+  const PINNED_EARLY_SECRET =
+    "33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a";
+  const PINNED_EXT_BINDER_DTLS =
+    "c3dedc65210ffcaea237a62deb2f1d0096c1ef6cc731eb6c2c848ad532b24f8f";
+  const PINNED_RES_BINDER_DTLS =
+    "81cd192620efec1413480b308cf853e8b855059a91bb52f20116df602846694e";
+  const PINNED_BINDER_VD_DTLS =
+    "cfaa1583596da7ca18cc866a1645c07ee7eb60b9f7579e5aa3a1af34ac9ca310";
+  const PINNED_EXT_BINDER_TLS =
+    "8fa31e7b3844748675c3a4728ba01c382ebd0c5f64cc6bee56c863982624c3e2";
+  const PINNED_TLS_FINISHED_KEY =
+    "8b093b35b9da43f00ec48f6cc2bba5d331540e476e74c45cfa1c5c82f1320b80";
+  const PINNED_TLS_VERIFY_DATA =
+    "cf35732e38830f8b7a4e9e2170b0187bc7db9cfb3b8f39436b3564442828efd3";
+
+  test("binder_key ext/res match pinned Derive-Secret vectors (dtls13)", () => {
+    // Arrange
+    const early = ks.earlySecret();
+    // Act
+    const ext = ks.binderKey(early, false);
+    const res = ks.binderKey(early, true);
+    // Assert
+    expect(early.toString("hex")).toBe(PINNED_EARLY_SECRET);
+    expect(ext.toString("hex")).toBe(PINNED_EXT_BINDER_DTLS);
+    expect(res.toString("hex")).toBe(PINNED_RES_BINDER_DTLS);
+    // Structure: Derive-Secret uses Hash("") context
+    const manualExt = hkdfExpandLabelManual(
+      early,
+      "ext binder",
+      emptyHashSha256(),
+      32,
+      DTLS13_LABEL_PREFIX,
+    );
+    expect(manualExt.toString("hex")).toBe(PINNED_EXT_BINDER_DTLS);
+  });
+
+  test("binder verify_data uses finished construction on binder_key", () => {
+    // Arrange
+    const transcript = Buffer.from(
+      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "hex",
+    );
+    const early = ks.earlySecret();
+    const bk = ks.binderKey(early, false);
+    // Act
+    const vd = ks.binderVerifyData(bk, transcript);
+    // Assert
+    expect(vd.toString("hex")).toBe(PINNED_BINDER_VD_DTLS);
+    expect(vd.equals(ks.verifyData(bk, transcript))).toBe(true);
+  });
+
+  test("TLS 1.3 label prefix binder + Finished match independent pinned vectors", () => {
+    // Arrange: RFC 8446 uses "tls13 " prefix (contrast dtls13)
+    const ksTls = new Dtls13KeySchedule(TLS13_LABEL_PREFIX);
+    const transcript = Buffer.from(
+      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "hex",
+    );
+    // Act
+    const early = ksTls.earlySecret();
+    const ext = ksTls.binderKey(early, false);
+    const finKey = ksTls.finishedKey(secret0);
+    const vd = ksTls.verifyData(secret0, transcript);
+    // Assert
+    expect(ext.toString("hex")).toBe(PINNED_EXT_BINDER_TLS);
+    expect(finKey.toString("hex")).toBe(PINNED_TLS_FINISHED_KEY);
+    expect(vd.toString("hex")).toBe(PINNED_TLS_VERIFY_DATA);
+    // TLS finished key differs from dtls13 for same secret0
+    expect(finKey.toString("hex")).not.toBe(PINNED_FINISHED_KEY);
   });
 
   test("EXTRACTOR-dtls_srtp exporter matches pinned 60-byte vector", () => {

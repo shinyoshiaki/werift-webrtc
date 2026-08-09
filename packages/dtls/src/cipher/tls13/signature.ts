@@ -1,9 +1,9 @@
 import {
   X509Certificate,
   createPrivateKey,
-  createPublicKey,
   createSign,
   createVerify,
+  type KeyObject,
 } from "crypto";
 import { Certificate as FidmCertificate, PrivateKey } from "@fidm/x509";
 
@@ -11,24 +11,32 @@ import { buildCertificateVerifyContent } from "../../handshake/message/tls13/cer
 import { SignatureScheme } from "../const";
 import { hashSha256 } from "./hkdf";
 
+/** True if OpenSSL/Node namedCurve is NIST P-256 (secp256r1). */
+export function isSecp256r1Curve(namedCurve: string | undefined): boolean {
+  if (!namedCurve) return false;
+  return (
+    namedCurve === "prime256v1" ||
+    namedCurve === "P-256" ||
+    namedCurve === "secp256r1"
+  );
+}
+
+function namedCurveOf(key: KeyObject): string | undefined {
+  const details = key.asymmetricKeyDetails as
+    | { namedCurve?: string }
+    | undefined;
+  return details?.namedCurve;
+}
+
 /** Schemes this key material can produce for TLS 1.3 CertificateVerify. */
 export function schemesForKey(keyPem: string): number[] {
   const key = createPrivateKey(keyPem);
   const type = key.asymmetricKeyType;
   if (type === "rsa") return [SignatureScheme.rsa_pss_rsae_sha256];
   if (type === "ec") {
-    // Only secp256r1 is supported for ecdsa_secp256r1_sha256
-    const details = key.asymmetricKeyDetails as
-      | { namedCurve?: string }
-      | undefined;
-    const curve = details?.namedCurve;
-    if (
-      curve &&
-      curve !== "prime256v1" &&
-      curve !== "P-256" &&
-      curve !== "secp256r1"
-    ) {
-      // Unsupported curve for our CertificateVerify schemes
+    // ecdsa_secp256r1_sha256 requires P-256 only (RFC 8446 §4.2.3)
+    const curve = namedCurveOf(key);
+    if (curve && !isSecp256r1Curve(curve)) {
       return [];
     }
     // Missing curve metadata: assume P-256 (Node often omits for some PEM forms)
@@ -97,6 +105,12 @@ export function signCertificateVerify(
   }
 
   if (type === "ec") {
+    const curve = namedCurveOf(key);
+    if (curve && !isSecp256r1Curve(curve)) {
+      throw new Error(
+        `EC key namedCurve ${curve} cannot sign ecdsa_secp256r1_sha256 (P-256 only)`,
+      );
+    }
     const algorithm = SignatureScheme.ecdsa_secp256r1_sha256;
     if (
       preferredScheme !== undefined &&
@@ -118,7 +132,8 @@ export function signCertificateVerify(
 
 /**
  * Verify TLS 1.3 CertificateVerify against peer certificate DER.
- * Accepts only RSA-PSS and ECDSA schemes (not rsa_pkcs1_*).
+ * Accepts only RSA-PSS and ECDSA-P-256 schemes (not rsa_pkcs1_*).
+ * RFC 8446: ecdsa_secp256r1_sha256 requires a P-256 public key.
  */
 export function verifyCertificateVerify(
   certDer: Buffer,
@@ -138,6 +153,11 @@ export function verifyCertificateVerify(
     algorithm === SignatureScheme.rsa_pss_rsae_sha256 ||
     algorithm === 0x0804
   ) {
+    if (key.asymmetricKeyType !== "rsa") {
+      throw new Error(
+        "illegal_parameter: rsa_pss_rsae_sha256 CertificateVerify but public key is not RSA",
+      );
+    }
     const verifier = createVerify("sha256");
     verifier.update(content);
     return verifier.verify(
@@ -158,6 +178,19 @@ export function verifyCertificateVerify(
   }
 
   if (algorithm === SignatureScheme.ecdsa_secp256r1_sha256) {
+    if (key.asymmetricKeyType !== "ec") {
+      throw new Error(
+        "illegal_parameter: ecdsa_secp256r1_sha256 CertificateVerify but public key is not EC",
+      );
+    }
+    const curve = namedCurveOf(key);
+    // When namedCurve is present it MUST be P-256; missing metadata is allowed
+    // only for keys that Node still verifies as secp256r1.
+    if (curve && !isSecp256r1Curve(curve)) {
+      throw new Error(
+        `illegal_parameter: ecdsa_secp256r1_sha256 requires P-256 public key (got ${curve})`,
+      );
+    }
     const verifier = createVerify("sha256");
     verifier.update(content);
     return verifier.verify(key, signature);
