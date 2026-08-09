@@ -216,13 +216,25 @@ export abstract class Dtls13ConnectionBase {
    */
   protected pinnedPeerKey?: string;
   /**
-   * First accepted remote 5-tuple for this association (pre-cookie).
+   * First *accepted* remote 5-tuple for this association (pre-cookie).
+   * Set only after a valid DTLS 1.3 ClientHello / ServerHello is accepted —
+   * not on raw UDP (prevents garbage pre-handshake peer-lock DoS).
    * While set (or pinned), other sources are dropped so UdpTransport.rinfo
    * hijack cannot redirect handshake TX / steal anti-amp budget.
    */
   protected provisionalPeerKey?: string;
+  /**
+   * Source of the datagram currently being processed (temporary).
+   * Used for cookie binding / reply TX before provisional promotion.
+   */
+  protected currentPeerKey?: string;
+  protected currentPeerAddr?: [string, number];
+  protected currentDatagramBytes = 0;
+  protected currentDatagramCounted = false;
   /** Explicit send address for transport.send (never rely on last rinfo). */
   protected peerAddr?: [string, number];
+  /** ClientHello-offered use_srtp MKI (for RFC 5764 response check). */
+  protected clientOfferedSrtpMki = Buffer.alloc(0);
   /** Hash of first ClientHello used when minting the cookie. */
   protected cookieClientHelloHash?: Buffer;
   /**
@@ -489,7 +501,7 @@ export abstract class Dtls13ConnectionBase {
   }
 
   /**
-   * Bind association to the first remote 5-tuple (provisional until pin).
+   * Bind association to the first *accepted* remote 5-tuple (provisional until pin).
    * Subsequent different sources are dropped (Epic 1: no CID / migration).
    */
   protected lockProvisionalPeer(key: string, addr?: [string, number]): void {
@@ -498,6 +510,30 @@ export abstract class Dtls13ConnectionBase {
     this.provisionalPeerKey = key;
     this.peerKey = key;
     if (addr) this.peerAddr = addr;
+  }
+
+  /**
+   * Promote the temporary source of the current datagram to the association peer.
+   * Call only after a record was successfully decoded as an acceptable
+   * DTLS 1.3 ClientHello (server) or ServerHello/HRR (client) — never on garbage.
+   */
+  protected acceptAssociationPeer(): void {
+    const key =
+      this.currentPeerKey && this.currentPeerKey !== "unknown"
+        ? this.currentPeerKey
+        : this.peerKey;
+    const addr = this.currentPeerAddr ?? this.peerAddr;
+    if (!key || key === "unknown") return;
+    this.lockProvisionalPeer(key, addr);
+    // ICE / none: address already trusted — pin on first accepted hello
+    if (this.addressValidated && !this.pinnedPeerKey) {
+      this.pinPeer(key, addr);
+    }
+    // Count this datagram toward anti-amp only once accepted as association traffic
+    if (!this.currentDatagramCounted && this.currentDatagramBytes > 0) {
+      this.bytesReceived += this.currentDatagramBytes;
+      this.currentDatagramCounted = true;
+    }
   }
 
   /** Pin association to a single remote 5-tuple (no migration in Epic 1). */
@@ -514,9 +550,23 @@ export abstract class Dtls13ConnectionBase {
     return this.pinnedPeerKey ?? this.provisionalPeerKey;
   }
 
+  /**
+   * Peer key for cookie binding during the current datagram (before or after promote).
+   */
+  protected associationPeerKey(): string {
+    return (
+      this.pinnedPeerKey ??
+      this.provisionalPeerKey ??
+      (this.currentPeerKey && this.currentPeerKey !== "unknown"
+        ? this.currentPeerKey
+        : this.peerKey)
+    );
+  }
+
   /** Address for all outbound datagrams — never depend on last UDP rinfo alone. */
   protected getSendAddr(): [string, number] | undefined {
-    return this.peerAddr;
+    // Prefer pinned/provisional peerAddr; fall back to current datagram source
+    return this.peerAddr ?? this.currentPeerAddr;
   }
 
   protected clearPendingFlight() {

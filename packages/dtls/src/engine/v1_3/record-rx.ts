@@ -94,23 +94,37 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     // Epic 1: once a remote 5-tuple is associated (provisional or pinned),
     // only that source may deliver datagrams. Prevents UdpTransport.rinfo
     // hijack redirecting TX / sharing anti-amp budget across attackers.
+    // Provisional is set only after a valid DTLS hello is accepted — not on
+    // raw garbage (that would create a pre-handshake peer-lock DoS).
     const expected = this.expectedPeerKey();
     if (expected && peerKey && peerKey !== "unknown" && peerKey !== expected) {
       log("drop datagram from non-association peer", peerKey, expected);
       return;
     }
 
-    // First accepted source becomes the provisional (or immediately pinned) peer
-    if (peerKey && peerKey !== "unknown") {
-      this.lockProvisionalPeer(peerKey, peerAddr);
-      // ICE / none: address already trusted — pin on first datagram
-      if (this.addressValidated && !this.pinnedPeerKey) {
-        this.pinPeer(peerKey, peerAddr ?? this.peerAddr);
-      }
+    // Temporary source for this datagram only (reply / cookie binding)
+    this.currentPeerKey = peerKey;
+    this.currentPeerAddr = peerAddr;
+    this.currentDatagramBytes = data.length;
+    this.currentDatagramCounted = false;
+    // Already-associated peer: count RX for anti-amp immediately
+    if (expected && peerKey === expected) {
+      this.bytesReceived += data.length;
+      this.currentDatagramCounted = true;
     }
 
-    // Count only association peer traffic toward anti-amplification
-    this.bytesReceived += data.length;
+    try {
+      await this.processDatagramRecords(data);
+    } finally {
+      this.currentPeerKey = undefined;
+      this.currentPeerAddr = undefined;
+      this.currentDatagramBytes = 0;
+      this.currentDatagramCounted = false;
+    }
+  }
+
+  /** Parse and dispatch all records in one UDP datagram. */
+  protected async processDatagramRecords(data: Buffer): Promise<void> {
     this.evictExpiredFragments();
     let offset = 0;
     while (offset < data.length) {

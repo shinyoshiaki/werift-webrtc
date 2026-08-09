@@ -77,10 +77,11 @@ const HRR_ALLOWED_EXTS = new Set([
 ]);
 /**
  * Known extensions that are legal in EncryptedExtensions (TLS 1.3 registry).
- * Unrecognized types are ignored; known-but-forbidden types abort.
+ * Known types outside this set in EE → illegal_parameter.
  */
 const EE_KNOWN_ALLOWED_EXTS = new Set([
-  UseSRTP.type, // CH/EE only in TLS 1.3
+  EllipticCurves.type, // 10 supported_groups (CH, EE)
+  UseSRTP.type, // 14 use_srtp (CH, EE)
 ]);
 /** Known TLS 1.3 extension types we parse (for wrong-message rejection). */
 const KNOWN_EXTENSION_TYPES = new Set([
@@ -93,6 +94,26 @@ const KNOWN_EXTENSION_TYPES = new Set([
   KeyShare.type, // 51
   EXT_EARLY_DATA, // 42
 ]);
+
+/**
+ * RFC 8446: There MUST NOT be more than one extension of the same type
+ * in a given extension block.
+ */
+function assertUniqueExtensions(
+  extensions: { type: number }[],
+  context: string,
+): void {
+  const seen = new Set<number>();
+  for (const e of extensions) {
+    if (seen.has(e.type)) {
+      throw new DtlsProtocolError(
+        `illegal_parameter: duplicate extension 0x${e.type.toString(16)} in ${context}`,
+        AlertDesc.IllegalParameter,
+      );
+    }
+    seen.add(e.type);
+  }
+}
 
 /**
  * Handshake message handlers ordered like index.ts Figure 3 flights:
@@ -270,8 +291,10 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     if (this.options.srtpProfiles?.length) {
+      // MKI offered on the wire (empty MKI encoded as single 0 length byte historically)
+      this.clientOfferedSrtpMki = Buffer.from([0x00]);
       exts.push(
-        UseSRTP.create(this.options.srtpProfiles, Buffer.from([0x00]))
+        UseSRTP.create(this.options.srtpProfiles, this.clientOfferedSrtpMki)
           .extension,
       );
     }
@@ -299,7 +322,10 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       extensions.push(KeyShare.forHelloRetryRequest(group).serverExtension);
     }
     if (withCookie) {
-      const binding = cookieBinding(this.peerKey, clientHelloBody);
+      const binding = cookieBinding(
+        this.associationPeerKey(),
+        clientHelloBody,
+      );
       const cookie = mintCookie(this.cookieSecret, binding);
       this.tlsCookie = Buffer.from(cookie);
       this.cookieClientHelloHash = hashSha256(clientHelloBody);
@@ -342,6 +368,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     messageSeq: number,
   ): Promise<void> {
     const ch = ClientHello.deSerialize(body);
+    assertUniqueExtensions(ch.extensions, "ClientHello");
 
     // RFC 9147: legacy_version MUST be DTLS 1.2 (0xfefd)
     const chVer =
@@ -429,59 +456,77 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
 
+    // First acceptable DTLS 1.3 ClientHello → promote temporary source to peer.
+    // Garbage UDP never reaches here, so cannot lock the association out.
+    this.acceptAssociationPeer();
+
     // signature_algorithms is mandatory for certificate authentication (RFC 8446 §4.2.3)
     const sigExt = ch.extensions.find(
       (e) => e.type === SignatureAlgorithms.type,
     );
     if (!sigExt) {
-      await this.sendFatalAlert(AlertDesc.MissingExtension);
-      this.fail(
-        new Error("missing signature_algorithms extension in ClientHello"),
+      throw new DtlsProtocolError(
+        "missing_extension: ClientHello missing signature_algorithms",
+        AlertDesc.MissingExtension,
       );
-      return;
     }
     try {
       const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
       if (!schemes.length) {
-        await this.sendFatalAlert(AlertDesc.MissingExtension);
-        this.fail(new Error("ClientHello signature_algorithms empty"));
-        return;
+        throw new DtlsProtocolError(
+          "missing_extension: ClientHello signature_algorithms empty",
+          AlertDesc.MissingExtension,
+        );
       }
       this.peerSignatureSchemes = schemes;
-    } catch {
-      await this.sendFatalAlert(AlertDesc.DecodeError);
-      this.fail(new Error("ClientHello signature_algorithms invalid"));
-      return;
+    } catch (e) {
+      if (e instanceof DtlsProtocolError) throw e;
+      throw new DtlsProtocolError(
+        "decode_error: ClientHello signature_algorithms invalid",
+        AlertDesc.DecodeError,
+      );
     }
 
-    // supported_groups ∩ local groups (RFC 8446) — required for HRR selection
+    // supported_groups is mandatory for (EC)DHE (RFC 8446 §9.2 / §4.2.7)
     const sgExt = ch.extensions.find((e) => e.type === EllipticCurves.type);
-    let clientSupportedGroups: number[] = [];
-    if (sgExt) {
-      try {
-        clientSupportedGroups = EllipticCurves.fromData(sgExt.data).data;
-      } catch {
-        clientSupportedGroups = [];
-      }
+    if (!sgExt) {
+      throw new DtlsProtocolError(
+        "missing_extension: ClientHello missing supported_groups",
+        AlertDesc.MissingExtension,
+      );
+    }
+    let clientSupportedGroups: number[];
+    try {
+      clientSupportedGroups = EllipticCurves.fromData(sgExt.data).data;
+    } catch {
+      throw new DtlsProtocolError(
+        "decode_error: ClientHello supported_groups invalid",
+        AlertDesc.DecodeError,
+      );
+    }
+    if (!clientSupportedGroups.length) {
+      throw new DtlsProtocolError(
+        "missing_extension: ClientHello supported_groups empty",
+        AlertDesc.MissingExtension,
+      );
     }
     const groupIntersection = this.groups.filter((g) =>
       clientSupportedGroups.includes(g),
     );
     if (groupIntersection.length === 0) {
-      // Protocol failure (not forged noise): alert + tear down (do not silent-drop)
-      await this.sendFatalAlert(AlertDesc.HandshakeFailure);
-      this.fail(
-        new Error(
-          "no overlapping named groups (supported_groups ∩ server groups empty)",
-        ),
+      throw new DtlsProtocolError(
+        "handshake_failure: no overlapping named groups (supported_groups ∩ server groups empty)",
+        AlertDesc.HandshakeFailure,
       );
-      return;
     }
 
-    // Key share: needed both for combined cookie HRR and for accepting CH
+    // key_share is mandatory for (EC)DHE ClientHello (RFC 8446 §9.2)
     const keyShareExt = ch.extensions.find((e) => e.type === KeyShare.type);
     if (!keyShareExt) {
-      throw new Error("ClientHello missing key_share");
+      throw new DtlsProtocolError(
+        "missing_extension: ClientHello missing key_share",
+        AlertDesc.MissingExtension,
+      );
     }
     const ks = KeyShare.fromClientData(keyShareExt.data);
     // Accept only shares in the intersection (not merely server groups)
@@ -497,8 +542,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     );
     const needGroupHrr = !clientShare;
     if (needGroupHrr && hrrGroupCandidate === undefined) {
-      throw new Error(
-        "client key_share has no acceptable group and no HRR candidate in intersection",
+      throw new DtlsProtocolError(
+        "handshake_failure: client key_share has no acceptable group and no HRR candidate in intersection",
+        AlertDesc.HandshakeFailure,
       );
     }
 
@@ -513,7 +559,10 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         this.firstClientHelloBody = body;
         this.cookieClientHelloHash = hashSha256(body);
         if (this.hrrCount >= 1) {
-          throw new Error("second HelloRetryRequest not allowed");
+          throw new DtlsProtocolError(
+            "second HelloRetryRequest not allowed",
+            AlertDesc.UnexpectedMessage,
+          );
         }
         this.hrrCount += 1;
         await this.sendHelloRetryRequest(
@@ -526,7 +575,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       const cookie = CookieExtension.fromData(cookieExt.data).cookie;
       // Binding must use the first ClientHello (mint-time), not the second
       const chForBind = this.firstClientHelloBody ?? body;
-      const binding = cookieBinding(this.peerKey, chForBind);
+      const binding = cookieBinding(this.associationPeerKey(), chForBind);
       if (!verifyCookie(this.cookieSecret, cookie, binding)) {
         throw new DtlsProtocolError(
           "invalid DTLS cookie (peer address or ClientHello binding mismatch)",
@@ -536,13 +585,16 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.addressValidated = true;
       this.tlsCookie = Buffer.from(cookie);
       // Cookie validates the remote address — pin so other 5-tuples cannot hijack TX
-      this.pinPeer(this.peerKey, this.peerAddr);
+      this.pinPeer(this.associationPeerKey(), this.getSendAddr());
     }
 
     if (needGroupHrr) {
       this.firstClientHelloBody = this.firstClientHelloBody ?? body;
       if (this.hrrCount >= 1) {
-        throw new Error("second HelloRetryRequest not allowed");
+        throw new DtlsProtocolError(
+          "second HelloRetryRequest not allowed",
+          AlertDesc.UnexpectedMessage,
+        );
       }
       this.hrrCount += 1;
       await this.sendHelloRetryRequest(hrrGroupCandidate, false, body);
@@ -560,17 +612,34 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
     // if post-HRR, messageSeq remains 0 from HRR; sendServerFlight +=1 → SH seq 1
 
-    // use_srtp
+    // use_srtp (RFC 5764): strict decode; pick one mutually supported profile
     const srtpExt = ch.extensions.find((e) => e.type === UseSRTP.type);
-    if (srtpExt && this.options.srtpProfiles?.length) {
+    if (srtpExt) {
+      let use: UseSRTP;
       try {
-        const use = UseSRTP.fromData(srtpExt.data);
+        use = UseSRTP.fromData(srtpExt.data);
+      } catch (e) {
+        throw new DtlsProtocolError(
+          `decode_error: malformed use_srtp in ClientHello: ${e instanceof Error ? e.message : String(e)}`,
+          AlertDesc.DecodeError,
+        );
+      }
+      if (!use.profiles.length) {
+        throw new DtlsProtocolError(
+          "illegal_parameter: use_srtp profiles empty in ClientHello",
+          AlertDesc.IllegalParameter,
+        );
+      }
+      // Store client MKI for EE response echo check
+      this.clientOfferedSrtpMki = Buffer.from(use.mki ?? Buffer.alloc(0));
+      if (this.options.srtpProfiles?.length) {
         const match = use.profiles.find((p) =>
           this.options.srtpProfiles!.includes(p as SrtpProfile),
         );
-        if (match) this.negotiatedSrtpProfile = match;
-      } catch {
-        /* ignore */
+        if (match !== undefined) {
+          this.negotiatedSrtpProfile = match;
+        }
+        // No shared profile: omit use_srtp from EE (do not abort handshake)
       }
     }
 
@@ -698,6 +767,19 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
           "illegal_parameter: ClientHello2 missing key_share after HRR selected_group",
         );
       }
+      // RFC 8446 §4.1.4: replace with a single KeyShareEntry for selected_group
+      let shares: { group: number }[] = [];
+      try {
+        shares =
+          KeyShare.fromClientData(m2.get(KeyShare.type)!).clientShares ?? [];
+      } catch {
+        fail("illegal_parameter: ClientHello2 key_share malformed after HRR");
+      }
+      if (shares.length !== 1 || shares[0].group !== this.hrrSelectedGroup) {
+        fail(
+          `illegal_parameter: ClientHello2 key_share must be a single entry for HRR selected_group 0x${this.hrrSelectedGroup.toString(16)}`,
+        );
+      }
     } else {
       // Must be identical to CH1
       const k1 = m1.get(KeyShare.type);
@@ -797,10 +879,11 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     // EncryptedExtensions (may include use_srtp)
     const eeExts: Extension[] = [];
     if (this.negotiatedSrtpProfile !== undefined) {
+      // RFC 5764: single selected profile; MKI must match client offer
       eeExts.push(
         UseSRTP.create(
           [this.negotiatedSrtpProfile as SrtpProfile],
-          Buffer.from([0x00]),
+          Buffer.from(this.clientOfferedSrtpMki),
         ).extension,
       );
     }
@@ -951,6 +1034,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
   ): Promise<void> {
     const sh = ServerHello.deSerialize(body);
     this.messageSeq = messageSeq;
+    assertUniqueExtensions(sh.extensions, "ServerHello");
 
     // RFC 9147: ServerHello.legacy_version MUST be DTLS 1.2 (0xfefd)
     const shVer =
@@ -1015,6 +1099,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         `server selected unsupported version 0x${selected.toString(16)}`,
       );
     }
+
+    // Acceptable DTLS 1.3 ServerHello / HRR → bind association peer
+    this.acceptAssociationPeer();
 
     if (isHrr) {
       // RFC 8446 §4.1.4: at most one HRR; selected_group must be newly offered
@@ -1149,47 +1236,76 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
   protected async onEncryptedExtensions(body: Buffer): Promise<void> {
     const ee = EncryptedExtensions.deSerialize(body);
-    // Allowlist: known EE-legal types only if offered in ClientHello;
-    // known-but-not-EE types abort; unknown types ignored (RFC 8446).
+    assertUniqueExtensions(ee.extensions, "EncryptedExtensions");
+    // RFC 8446:
+    // 1) Any extension not offered in ClientHello → unsupported_extension
+    // 2) Recognized but not legal in EE → illegal_parameter
+    // 3) Unrecognized but offered → ignore content
     for (const ext of ee.extensions) {
-      if (KNOWN_EXTENSION_TYPES.has(ext.type)) {
-        if (!EE_KNOWN_ALLOWED_EXTS.has(ext.type)) {
-          throw new DtlsProtocolError(
-            `illegal_parameter: extension 0x${ext.type.toString(16)} forbidden in EncryptedExtensions`,
-            AlertDesc.IllegalParameter,
-          );
-        }
-        // Response must be for an extension the client offered
-        if (!this.clientOfferedExtensionTypes.has(ext.type)) {
-          throw new DtlsProtocolError(
-            `illegal_parameter: unsolicited extension 0x${ext.type.toString(16)} in EncryptedExtensions`,
-            AlertDesc.IllegalParameter,
-          );
-        }
+      if (!this.clientOfferedExtensionTypes.has(ext.type)) {
+        throw new DtlsProtocolError(
+          `unsupported_extension: unsolicited extension 0x${ext.type.toString(16)} in EncryptedExtensions`,
+          AlertDesc.UnsupportedExtension,
+        );
       }
-      // unrecognized: ignore
+      if (
+        KNOWN_EXTENSION_TYPES.has(ext.type) &&
+        !EE_KNOWN_ALLOWED_EXTS.has(ext.type)
+      ) {
+        throw new DtlsProtocolError(
+          `illegal_parameter: extension 0x${ext.type.toString(16)} forbidden in EncryptedExtensions`,
+          AlertDesc.IllegalParameter,
+        );
+      }
     }
-    // Negotiate use_srtp from EncryptedExtensions (TLS 1.3 placement).
-    // EE is AEAD-authenticated: malformed use_srtp is a fatal protocol error.
+    // Negotiate use_srtp from EncryptedExtensions (TLS 1.3 / RFC 5764).
     const srtpExt = ee.extensions.find((e) => e.type === UseSRTP.type);
     if (srtpExt) {
       if (!this.options.srtpProfiles?.length) {
         throw new DtlsProtocolError(
-          "illegal_parameter: unsolicited use_srtp in EncryptedExtensions",
+          "unsupported_extension: unsolicited use_srtp in EncryptedExtensions",
+          AlertDesc.UnsupportedExtension,
+        );
+      }
+      let use: UseSRTP;
+      try {
+        use = UseSRTP.fromData(srtpExt.data);
+      } catch (e) {
+        throw new DtlsProtocolError(
+          `decode_error: malformed use_srtp in EncryptedExtensions: ${e instanceof Error ? e.message : String(e)}`,
+          AlertDesc.DecodeError,
+        );
+      }
+      // RFC 5764: server response MUST contain exactly one ProtectionProfile
+      if (use.profiles.length !== 1) {
+        throw new DtlsProtocolError(
+          `illegal_parameter: use_srtp server response must contain exactly one profile (got ${use.profiles.length})`,
           AlertDesc.IllegalParameter,
         );
       }
-      const use = UseSRTP.fromData(srtpExt.data);
-      const match = use.profiles.find((p) =>
-        this.options.srtpProfiles!.includes(p as SrtpProfile),
-      );
-      if (match !== undefined) this.negotiatedSrtpProfile = match;
+      const selected = use.profiles[0];
+      if (!this.options.srtpProfiles.includes(selected as SrtpProfile)) {
+        throw new DtlsProtocolError(
+          `illegal_parameter: use_srtp profile 0x${selected.toString(16)} was not offered by client`,
+          AlertDesc.IllegalParameter,
+        );
+      }
+      // MKI in response must match what the client offered (RFC 5764)
+      const respMki = Buffer.from(use.mki ?? Buffer.alloc(0));
+      if (!respMki.equals(this.clientOfferedSrtpMki)) {
+        throw new DtlsProtocolError(
+          "illegal_parameter: use_srtp MKI in server response does not match ClientHello offer",
+          AlertDesc.IllegalParameter,
+        );
+      }
+      this.negotiatedSrtpProfile = selected;
     }
     this.transcript.add(HandshakeType.encrypted_extensions_8, body);
   }
 
   protected async onCertificateRequest(body: Buffer): Promise<void> {
     const cr = CertificateRequest13.deSerialize(body);
+    assertUniqueExtensions(cr.extensions, "CertificateRequest");
     // Main handshake: context MUST be zero-length (post-handshake auth not supported)
     if (cr.certificateRequestContext.length !== 0) {
       throw new Error(

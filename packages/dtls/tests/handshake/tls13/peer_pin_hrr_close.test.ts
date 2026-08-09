@@ -1,11 +1,23 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
-import { MAX_ACK_RECORD_NUMBERS } from "../../../src/engine/v1_3/types";
 import {
   DtlsAck,
   MAX_ACK_RECORD_NUMBERS_INBOUND,
 } from "../../../src/handshake/message/tls13/ack";
+import { MAX_ACK_RECORD_NUMBERS } from "../../../src/engine/v1_3/types";
+import { CipherSuite } from "../../../src/cipher/const";
+import { NamedCurveAlgorithm } from "../../../src/cipher/const";
+import { generateKeyPair } from "../../../src/cipher/namedCurve";
+import { EllipticCurves } from "../../../src/handshake/extensions/ellipticCurves";
+import { KeyShare } from "../../../src/handshake/extensions/keyShare";
+import { SignatureAlgorithms } from "../../../src/handshake/extensions/signatureAlgorithms";
+import { SupportedVersions } from "../../../src/handshake/extensions/supportedVersions";
+import { ClientHello } from "../../../src/handshake/message/client/hello";
+import { DtlsRandom } from "../../../src/handshake/random";
+import { ContentType } from "../../../src/record/const";
+import { serializePlaintextRecord } from "../../../src/record/v1_3/record";
+import { DTLS_1_3_VERSION, WireVersion } from "../../../src/version";
 import { certPem, keyPem } from "../../fixture";
 
 const dtls13Options = {
@@ -73,8 +85,6 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
         // used last-rinfo for TX (simulate foreign source by mutating rinfo)
         const realClient = clientTransport.address;
         serverTransport.rinfo = { address: "203.0.113.9", port: 9 };
-        // Foreign garbage on server socket (won't match pin → dropped by engine)
-        // Even if rinfo flipped, engine must send to pinned peerAddr
         void client.send(Buffer.from(word));
         // Restore rinfo for OS path so client can still receive (send uses pin)
         serverTransport.rinfo = {
@@ -89,7 +99,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
 
   test("dtls-cookie pin: foreign source packets do not steal association", async () => {
     // Arrange
-    const { server, client, serverTransport, clientTransport } = await pair({
+    const { server, client, serverTransport } = await pair({
       addressValidation: "dtls-cookie",
     });
 
@@ -128,6 +138,57 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       await client.connect();
     });
   }, 20_000);
+
+  test("pre-handshake garbage from B does not lock out legitimate ClientHello from A", async () => {
+    // Arrange: P1 regression — lockProvisionalPeer must not run on undecoded UDP
+    const { server, client, serverTransport } = await pair({
+      addressValidation: "none",
+    });
+
+    // Act: attacker B sends random garbage before any handshake
+    serverTransport.onData?.(Buffer.from("not-a-dtls-record-at-all"), [
+      "203.0.113.50",
+      9,
+    ] as any);
+    await new Promise((r) => setTimeout(r, 30));
+
+    const engEarly = (server as any).engine13;
+    // 1.3-only server may create engine on first data via dual path; pure 1.3 uses engine13 from start
+    // Either way, provisional must not be locked to the attacker
+    if (engEarly) {
+      expect(engEarly.provisionalPeerKey).toBeUndefined();
+      expect(engEarly.pinnedPeerKey).toBeUndefined();
+    }
+
+    // Assert: legitimate handshake still completes
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("garbage-then-CH handshake timeout")),
+        15_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        const eng = (server as any).engine13;
+        expect(eng).toBeTruthy();
+        // Peer is the real client, not attacker B
+        const key = eng.pinnedPeerKey ?? eng.provisionalPeerKey;
+        expect(key).toBeTruthy();
+        expect(String(key)).not.toContain("203.0.113.50");
+        client.close();
+        server.close();
+        resolve();
+      });
+      await client.connect();
+    });
+  }, 20_000);
 });
 
 describe("P2: inbound ACK processing bound", () => {
@@ -148,9 +209,9 @@ describe("P2: inbound ACK processing bound", () => {
     expect(ack.recordNumbers.length).toBe(MAX_ACK_RECORD_NUMBERS_INBOUND);
     expect(MAX_ACK_RECORD_NUMBERS_INBOUND).toBe(MAX_ACK_RECORD_NUMBERS);
     expect(ack.recordNumbers[0].sequenceNumber).toBe(0);
-    expect(ack.recordNumbers[ack.recordNumbers.length - 1].sequenceNumber).toBe(
-      MAX_ACK_RECORD_NUMBERS_INBOUND - 1,
-    );
+    expect(
+      ack.recordNumbers[ack.recordNumbers.length - 1].sequenceNumber,
+    ).toBe(MAX_ACK_RECORD_NUMBERS_INBOUND - 1);
   });
 });
 
@@ -178,10 +239,6 @@ describe("P2: close_notify epoch/seq boundary", () => {
         expect(eng).toBeTruthy();
         // Act: set close boundary at epoch 3 seq 11 (as if close_notify arrived first)
         eng.peerCloseBoundary = { epoch: 3, sequenceNumber: 11 };
-        // Simulate onCiphertextRecord app data checks via protected method path:
-        // seq 10 must be allowed; seq 12 must be dropped
-        const before = eng.peerCloseBoundary;
-        expect(before.sequenceNumber).toBe(11);
         const shouldDrop = (epoch: number, seq: number) => {
           const b = eng.peerCloseBoundary;
           return (
@@ -202,6 +259,400 @@ describe("P2: close_notify epoch/seq boundary", () => {
   }, 20_000);
 });
 
+describe("P2: missing_extension fails promptly (not timeout)", () => {
+  function buildChMissingKeyShare(): Buffer {
+    const curves = EllipticCurves.createEmpty();
+    curves.data = [NamedCurveAlgorithm.x25519_29] as any;
+    const ch = new ClientHello(
+      WireVersion.DTLS_1_2,
+      new DtlsRandom(),
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+        curves.extension,
+        // deliberately omit key_share
+        SignatureAlgorithms.create().extension,
+      ],
+    );
+    ch.messageSeq = 0;
+    const frag = ch.toFragment();
+    frag.message_seq = 0;
+    return serializePlaintextRecord(
+      ContentType.handshake,
+      0,
+      0,
+      frag.serialize(),
+    );
+  }
+
+  function buildChMissingSupportedGroups(): Buffer {
+    const kp = generateKeyPair(NamedCurveAlgorithm.x25519_29);
+    const ch = new ClientHello(
+      WireVersion.DTLS_1_2,
+      new DtlsRandom(),
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+        // deliberately omit supported_groups
+        KeyShare.forClient([
+          { group: NamedCurveAlgorithm.x25519_29, keyExchange: kp.publicKey },
+        ]).clientExtension,
+        SignatureAlgorithms.create().extension,
+      ],
+    );
+    ch.messageSeq = 0;
+    const frag = ch.toFragment();
+    frag.message_seq = 0;
+    return serializePlaintextRecord(
+      ContentType.handshake,
+      0,
+      0,
+      frag.serialize(),
+    );
+  }
+
+  test("ClientHello without key_share fails with missing_extension", async () => {
+    // Arrange
+    const serverTransport = await UdpTransport.init("udp4");
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    // Act / Assert
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("missing key_share should fail promptly")),
+        3_000,
+      );
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        try {
+          expect(e.message).toMatch(/missing_extension|key_share/i);
+          server.close();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      serverTransport.onData?.(buildChMissingKeyShare(), [
+        "127.0.0.1",
+        9,
+      ] as any);
+    });
+  }, 10_000);
+
+  test("ClientHello without supported_groups fails with missing_extension", async () => {
+    // Arrange
+    const serverTransport = await UdpTransport.init("udp4");
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    // Act / Assert
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(new Error("missing supported_groups should fail promptly")),
+        3_000,
+      );
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        try {
+          expect(e.message).toMatch(/missing_extension|supported_groups/i);
+          server.close();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      serverTransport.onData?.(buildChMissingSupportedGroups(), [
+        "127.0.0.1",
+        9,
+      ] as any);
+    });
+  }, 10_000);
+});
+
+describe("P2: use_srtp RFC 5764 server response", () => {
+  test("rejects multi-profile use_srtp in EncryptedExtensions", async () => {
+    // Arrange: client engine with offered use_srtp
+    const { client, server } = await pair();
+    const eng = (client as any).engine13;
+    eng.clientOfferedExtensionTypes = new Set([14]); // use_srtp
+    eng.clientOfferedSrtpMki = Buffer.from([0x00]);
+    eng.options.srtpProfiles = [1, 2];
+    const { UseSRTP } = await import(
+      "../../../src/handshake/extensions/useSrtp"
+    );
+    const { EncryptedExtensions } = await import(
+      "../../../src/handshake/message/tls13/encryptedExtensions"
+    );
+    // Act: server illegally returns two profiles
+    const multi = UseSRTP.create([1, 2], Buffer.from([0x00]));
+    const ee = new EncryptedExtensions([multi.extension]);
+    // Assert
+    await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
+      /exactly one profile/i,
+    );
+    client.close();
+    server.close();
+  });
+
+  test("rejects use_srtp profile not offered by client", async () => {
+    // Arrange
+    const { client, server } = await pair();
+    const eng = (client as any).engine13;
+    eng.clientOfferedExtensionTypes = new Set([14]);
+    eng.clientOfferedSrtpMki = Buffer.from([0x00]);
+    eng.options.srtpProfiles = [1];
+    const { UseSRTP } = await import(
+      "../../../src/handshake/extensions/useSrtp"
+    );
+    const { EncryptedExtensions } = await import(
+      "../../../src/handshake/message/tls13/encryptedExtensions"
+    );
+    const bad = UseSRTP.create([0x0007], Buffer.from([0x00]));
+    const ee = new EncryptedExtensions([bad.extension]);
+    // Act / Assert
+    await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
+      /not offered/i,
+    );
+    client.close();
+    server.close();
+  });
+
+  test("rejects use_srtp MKI mismatch", async () => {
+    // Arrange
+    const { client, server } = await pair();
+    const eng = (client as any).engine13;
+    eng.clientOfferedExtensionTypes = new Set([14]);
+    eng.clientOfferedSrtpMki = Buffer.from([0x00]);
+    eng.options.srtpProfiles = [1];
+    const { UseSRTP } = await import(
+      "../../../src/handshake/extensions/useSrtp"
+    );
+    const { EncryptedExtensions } = await import(
+      "../../../src/handshake/message/tls13/encryptedExtensions"
+    );
+    const badMki = UseSRTP.create([1], Buffer.from([0x01, 0x02]));
+    const ee = new EncryptedExtensions([badMki.extension]);
+    // Act / Assert
+    await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
+      /MKI/i,
+    );
+    client.close();
+    server.close();
+  });
+
+  test("rejects unsolicited unknown extension in EE", async () => {
+    // Arrange
+    const { client, server } = await pair();
+    const eng = (client as any).engine13;
+    eng.clientOfferedExtensionTypes = new Set([10]); // only supported_groups
+    const { EncryptedExtensions } = await import(
+      "../../../src/handshake/message/tls13/encryptedExtensions"
+    );
+    // unknown type 0x9999 not offered
+    const ee = new EncryptedExtensions([
+      { type: 0x9999, data: Buffer.from([1]) },
+    ]);
+    // Act / Assert
+    await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
+      /unsupported_extension|unsolicited/i,
+    );
+    client.close();
+    server.close();
+  });
+
+  test("allows supported_groups in EE when offered", async () => {
+    // Arrange
+    const { client, server } = await pair();
+    const eng = (client as any).engine13;
+    eng.clientOfferedExtensionTypes = new Set([EllipticCurves.type]);
+    const curves = EllipticCurves.createEmpty();
+    curves.data = [NamedCurveAlgorithm.x25519_29] as any;
+    const { EncryptedExtensions } = await import(
+      "../../../src/handshake/message/tls13/encryptedExtensions"
+    );
+    const ee = new EncryptedExtensions([curves.extension]);
+    // Act: must not throw (transcript add only)
+    await eng.onEncryptedExtensions(ee.serialize());
+    client.close();
+    server.close();
+  });
+});
+
+describe("P2: duplicate extensions rejected", () => {
+  test("ClientHello with duplicate extension type fails", async () => {
+    // Arrange
+    const serverTransport = await UdpTransport.init("udp4");
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    const kp = generateKeyPair(NamedCurveAlgorithm.x25519_29);
+    const curves = EllipticCurves.createEmpty();
+    curves.data = [NamedCurveAlgorithm.x25519_29] as any;
+    const sv = SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension;
+    const ch = new ClientHello(
+      WireVersion.DTLS_1_2,
+      new DtlsRandom(),
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        sv,
+        sv, // duplicate supported_versions
+        curves.extension,
+        KeyShare.forClient([
+          { group: NamedCurveAlgorithm.x25519_29, keyExchange: kp.publicKey },
+        ]).clientExtension,
+        SignatureAlgorithms.create().extension,
+      ],
+    );
+    ch.messageSeq = 0;
+    const frag = ch.toFragment();
+    frag.message_seq = 0;
+    const pkt = serializePlaintextRecord(
+      ContentType.handshake,
+      0,
+      0,
+      frag.serialize(),
+    );
+    // Act / Assert
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("duplicate extension should fail promptly")),
+        3_000,
+      );
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        try {
+          expect(e.message).toMatch(/duplicate extension/i);
+          server.close();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      serverTransport.onData?.(pkt, ["127.0.0.1", 9] as any);
+    });
+  }, 10_000);
+});
+
+describe("P2: CH2 key_share single entry after HRR selected_group", () => {
+  test("rejects ClientHello2 key_share with extra groups", async () => {
+    // Arrange: use server engine internals after recording HRR selected_group
+    const { server, client } = await pair();
+    const eng = (server as any).engine13;
+    eng.hrrSelectedGroup = NamedCurveAlgorithm.secp256r1_23;
+    eng.hrrHadCookie = false;
+    eng.awaitingHrr = true;
+
+    const rand = new DtlsRandom();
+    const curves = EllipticCurves.createEmpty();
+    curves.data = [
+      NamedCurveAlgorithm.x25519_29,
+      NamedCurveAlgorithm.secp256r1_23,
+    ] as any;
+    const baseExts = [
+      SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+      curves.extension,
+      SignatureAlgorithms.create().extension,
+    ];
+    const kp1 = generateKeyPair(NamedCurveAlgorithm.x25519_29);
+    const ch1 = new ClientHello(
+      WireVersion.DTLS_1_2,
+      rand,
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        ...baseExts,
+        KeyShare.forClient([
+          {
+            group: NamedCurveAlgorithm.x25519_29,
+            keyExchange: kp1.publicKey,
+          },
+        ]).clientExtension,
+      ],
+    );
+    const ch1Body = ch1.serialize();
+    eng.firstClientHelloBody = ch1Body;
+
+    const kpP256 = generateKeyPair(NamedCurveAlgorithm.secp256r1_23);
+    const kpX = generateKeyPair(NamedCurveAlgorithm.x25519_29);
+    // Act: CH2 with two key shares (illegal after selected_group HRR)
+    const ch2 = new ClientHello(
+      WireVersion.DTLS_1_2,
+      rand,
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        ...baseExts,
+        KeyShare.forClient([
+          {
+            group: NamedCurveAlgorithm.secp256r1_23,
+            keyExchange: kpP256.publicKey,
+          },
+          {
+            group: NamedCurveAlgorithm.x25519_29,
+            keyExchange: kpX.publicKey,
+          },
+        ]).clientExtension,
+      ],
+    );
+    // Assert
+    expect(() =>
+      eng.validateClientHelloAfterHrr(ch1Body, ch2, ch2.serialize()),
+    ).toThrow(/single entry|selected_group/i);
+
+    // Legal: single P-256 share
+    const ch2ok = new ClientHello(
+      WireVersion.DTLS_1_2,
+      rand,
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        ...baseExts,
+        KeyShare.forClient([
+          {
+            group: NamedCurveAlgorithm.secp256r1_23,
+            keyExchange: kpP256.publicKey,
+          },
+        ]).clientExtension,
+      ],
+    );
+    expect(() =>
+      eng.validateClientHelloAfterHrr(ch1Body, ch2ok, ch2ok.serialize()),
+    ).not.toThrow();
+
+    client.close();
+    server.close();
+  });
+});
+
 describe("P2: dynamic MTU retransmit re-fragment source retained", () => {
   test("pendingFlightSource is stored for retransmittable flights", async () => {
     // Arrange
@@ -215,25 +666,19 @@ describe("P2: dynamic MTU retransmit re-fragment source retained", () => {
         clearTimeout(timer);
         reject(e);
       });
-      // During handshake client has pendingFlightSource for CH
       const eng = (client as any).engine13;
       client.onConnect.subscribe(() => {
         clearTimeout(timer);
-        // After connect pending is cleared; carrier still has setMtu
         eng.carrier.setMtu(400);
         expect(eng.carrier.getMtu()).toBe(400);
         client.close();
         server.close();
         resolve();
       });
-      // Act: start connect and observe mid-flight source
       const p = client.connect();
-      // Brief tick so CH is sent
       await new Promise((r) => setTimeout(r, 20));
       if (eng.getPendingFlightSize() > 0) {
-        expect(
-          eng.pendingFlightSource || eng["pendingFlightSource"],
-        ).toBeTruthy();
+        expect(eng.pendingFlightSource || eng["pendingFlightSource"]).toBeTruthy();
       }
       await p;
     });
