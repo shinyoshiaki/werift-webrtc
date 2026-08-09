@@ -14,9 +14,12 @@ import {
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
+  kProbeAbortLossFraction,
   kProbeMinDurationMs,
   kProbeMinPackets,
   kProbePaddingPacketBytes,
+  kProbeResultMaxOverAcked,
+  kProbeResultMaxOverTarget,
   kSentInfoMaxAgeMs,
 } from "./constants";
 import { InterArrivalDelta } from "./interArrivalDelta";
@@ -67,6 +70,12 @@ export class GccBandwidthEstimator
   private lossBasedBps = kDefaultStartBitrateBps;
   private startBitrateBps: number;
   private probingConfigured = false;
+  /**
+   * False until the first exponential probe session reaches `complete`.
+   * Probe-result target×1.5 cap is applied only after this becomes true, so
+   * cold-start ×3/×6 exploration is not clipped to start×1.5.
+   */
+  private initialExponentialDone = false;
   /** Valid TWCC samples seen at least once (gates publishing estimates). */
   private hasValidSample = false;
   /** Bytes already sent while any probe cluster is active. */
@@ -242,6 +251,16 @@ export class GccBandwidthEstimator
       this.onOveruseDetected.execute(usage);
     }
 
+    // Stop probe padding immediately under clear congestion so recovery
+    // does not re-flood a capacity-limited link.
+    const congested =
+      usage === "overuse" || lossFraction >= kProbeAbortLossFraction;
+    if (congested && this.probe.shouldTagProbePacket()) {
+      this.probe.abort(nowMs);
+      this.probeClusterSentBytes = 0;
+      this.lastProbeTargetBps = 0;
+    }
+
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
 
@@ -261,26 +280,58 @@ export class GccBandwidthEstimator
 
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
 
+    // Apply probe result only when the path is not congested.
+    // Cap policy differs by phase (use {@link initialExponentialDone}, not
+    // probeState alone — completion and takePending happen in the same TWCC):
+    // - Initial exponential: accept measured rate with acked soft ceiling only
+    //   so ×3/×6 can raise the estimate well above start.
+    // - Recovery: also cap vs delay/loss target so probes cannot re-flood.
     const probeBps = this.probe.takePendingEstimateBps();
-    if (probeBps > target) {
-      target = probeBps;
-      this.aimd.reset(probeBps);
-      this.lossBwe.reset(probeBps);
-      this.delayBasedBps = probeBps;
-      this.lossBasedBps = probeBps;
-      for (const cfg of this.probe.setEstimatedBitrate(probeBps, nowMs)) {
-        this.onProbeClusterStarted(cfg, nowMs);
+    if (probeBps > target && !congested) {
+      const initialProbing = !this.initialExponentialDone;
+      let accepted = Math.min(probeBps, kMaxBitrateBps);
+      if (initialProbing) {
+        if (ackedBps > kMinBitrateBps) {
+          accepted = Math.min(accepted, ackedBps * kProbeResultMaxOverAcked);
+        }
+      } else {
+        // Recovery: min(probe, max(target×1.5, acked×2)).
+        const targetCap = target * kProbeResultMaxOverTarget;
+        const ackedCap =
+          ackedBps > kMinBitrateBps
+            ? ackedBps * kProbeResultMaxOverAcked
+            : targetCap;
+        accepted = Math.min(accepted, Math.max(targetCap, ackedCap));
       }
+      if (accepted > target) {
+        target = accepted;
+        this.aimd.reset(accepted);
+        this.lossBwe.reset(accepted);
+        this.delayBasedBps = accepted;
+        this.lossBasedBps = accepted;
+        for (const cfg of this.probe.setEstimatedBitrate(accepted, nowMs)) {
+          this.onProbeClusterStarted(cfg, nowMs);
+        }
+      }
+    }
+
+    if (this.probe.probeState === "complete") {
+      this.initialExponentialDone = true;
     }
 
     if (target > 0 && this.hasValidSample) {
       setAvailableBitrateIfChanged(this, target);
     }
 
-    // Recovery probe only after initial probing is complete and the delay path
-    // reports underuse. requestProbe enforces cooldown and does not re-floor
-    // to the cold-start bitrate (avoids re-congesting a capacity-limited link).
-    if (usage === "underuse" && this.probe.probeState === "complete") {
+    // Recovery probe only after initial probing is complete, delay path
+    // reports underuse, and loss is not the binding constraint.
+    const lossBinding = this.lossBasedBps < this.delayBasedBps * 0.98;
+    if (
+      usage === "underuse" &&
+      this.probe.probeState === "complete" &&
+      !congested &&
+      !lossBinding
+    ) {
       const est = this._availableBitrate > 0 ? this._availableBitrate : target;
       for (const cfg of this.probe.requestProbe(est, nowMs)) {
         this.onProbeClusterStarted(cfg, nowMs);
@@ -306,6 +357,7 @@ export class GccBandwidthEstimator
     this.delayBasedBps = this.startBitrateBps;
     this.lossBasedBps = this.startBitrateBps;
     this.probingConfigured = false;
+    this.initialExponentialDone = false;
     this.hasValidSample = false;
     this.probeClusterSentBytes = 0;
     this.probeClusterStartMs = 0;

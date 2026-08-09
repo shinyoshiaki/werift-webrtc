@@ -166,6 +166,22 @@ export const kProbeMinIntervalMs = 5_000;
 export const kProbeRecoveryScale = 1.5;
 /** Cap recovery probe at this multiple of current estimate. */
 export const kProbeRecoveryMaxScale = 2.0;
+/**
+ * Abort active probe clusters when batch loss fraction reaches this
+ * (libwebrtc stops probing under clear congestion).
+ */
+export const kProbeAbortLossFraction = 0.05;
+/**
+ * Recovery-phase only: do not accept a probe result more than this multiple
+ * of the current delay/loss target. **Not applied during initial exponential
+ * probing** (×3/×6 must be able to raise the estimate well above start).
+ */
+export const kProbeResultMaxOverTarget = 1.5;
+/**
+ * Soft ceiling vs recent acked bitrate when acked > 0 (both initial and recovery).
+ * Filters multi-fold outliers from a single short TWCC window.
+ */
+export const kProbeResultMaxOverAcked = 2.0;
 
 /**
  * RTP padding size (bytes) when RTCRtpSender injects probe padding.
@@ -189,7 +205,7 @@ export const kSentInfoMaxAgeMs = 10_000;
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x clusters are multi-active (pacing target = max active); recovery probes use current estimate only with 5s cooldown (not start-bitrate floor)",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x multi-active; recovery probes use current estimate only with 5s cooldown; abort on loss≥5% or overuse; probe-result target×1.5 cap applies only after initial exponential complete (initial uses acked soft ceiling only)",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++",
   "InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)",
 ] as const;

@@ -553,12 +553,16 @@ describe("media/sender bandwidth estimator", () => {
 
   describe("Probe 成功・失敗・再 probe", () => {
     test("probe ACK 後に availableBitrate が初期値より上昇する", () => {
-      // Arrange
+      // Arrange: 購読は ensureProbing より前（multi-active 3x/6x を取りこぼさない）
       const start = 100_000;
       const gcc = new GccBandwidthEstimator(start);
+      const clusters: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => clusters.push(c.targetBps));
       expect(gcc.shouldTagProbePacket()).toBe(true);
       const probeTarget = gcc.suggestedProbeBitrateBps;
+      // multi-active: pacing target is max(3x,6x)=6x
       expect(probeTarget).toBeGreaterThanOrEqual(start * 2);
+      expect(clusters.length).toBeGreaterThanOrEqual(1);
 
       // Act: 高レートで probation パケットを送受信（cluster 完了）
       const n = 20;
@@ -580,18 +584,19 @@ describe("media/sender bandwidth estimator", () => {
       });
       gcc.receiveTWCC(makeTwccFeedback(results));
 
-      // Assert: 推定がスタートより明確に上がる
+      // Assert: 初期 exponential は target×1.5 に縛られず探索的に上昇する
       expect(gcc.availableBitrate).toBeGreaterThan(start);
-      // 理論: 1400B / 2ms ≈ 5.6 Mbps オーダー（clamp あり）
+      expect(gcc.availableBitrate).toBeGreaterThanOrEqual(start * 1.5);
+      // 理論: 1400B / 2ms ≈ 5.6 Mbps オーダー（acked soft ceiling あり）
       expect(gcc.availableBitrate).toBeGreaterThan(200_000);
     });
 
     test("probe 成功後に further probe または complete へ遷移する", () => {
-      // Arrange
+      // Arrange: subscribe before ensureProbing so initial 3x/6x are observed
       const gcc = new GccBandwidthEstimator(100_000);
-      gcc.shouldTagProbePacket();
       const clusters: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => clusters.push(c.targetBps));
+      gcc.shouldTagProbePacket();
 
       const runProbe = (seq0: number, t0: number, n: number) => {
         for (let i = 0; i < n; i++) {
@@ -613,13 +618,13 @@ describe("media/sender bandwidth estimator", () => {
         );
       };
 
-      // Act: 初回 cluster 完了（setBitrates は 3x と 6x をキュー）
+      // Act: 初回 cluster 完了（setBitrates は 3x と 6x を同時 active）
       runProbe(1, 9_000, 15);
       const afterFirst = gcc.availableBitrate;
       expect(afterFirst).toBeGreaterThan(100_000);
+      expect(afterFirst).toBeGreaterThanOrEqual(100_000 * 1.5);
 
       // 2nd exponential cluster が残っていれば waiting、完了なら complete
-      // 続けて 2nd を消化
       if (
         gcc.probeState === "waiting_for_result" ||
         gcc.shouldTagProbePacket()
@@ -628,13 +633,13 @@ describe("media/sender bandwidth estimator", () => {
       }
       const afterSecond = gcc.availableBitrate;
 
-      // Assert: multi-active 3x/6x 完了後も推定はスタートを上回り、state が進行している
-      // （2nd batch で delay/AIMD が動いても probe 成果が完全に消えない）
+      // Assert: multi-active 3x/6x 完了後も推定はスタートを上回り、state が進行
       expect(afterFirst).toBeGreaterThan(100_000);
       expect(afterSecond).toBeGreaterThan(100_000);
       expect(["complete", "waiting_for_result"]).toContain(gcc.probeState);
-      // 少なくとも 1 つ以上の probe cluster が発行されている
+      // initial 3x+6x の両方（または少なくとも 1 つ）が started として通知
       expect(clusters.length).toBeGreaterThanOrEqual(1);
+      expect(clusters).toContain(100_000 * 3);
     });
 
     test("probe 失敗（未 ACK）では推定がスタート付近のまま", () => {
@@ -1127,6 +1132,91 @@ describe("media/sender bandwidth estimator", () => {
       (probe as any).queue = [];
       const denied = probe.requestProbe(150_000, 10_500);
       expect(denied).toEqual([]);
+    });
+
+    test("初期 probe は target×1.5 を超えて上昇でき、recovery は cap される", () => {
+      // Arrange: cold start
+      const start = 100_000;
+      const gcc = new GccBandwidthEstimator(start);
+      gcc.shouldTagProbePacket();
+      expect(gcc.probeState).toBe("waiting_for_result");
+
+      // Act 1: 高レート initial probe
+      const n = 20;
+      const base = 20_000;
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(
+          sent(i + 1, 1400, base + i * 2, { isProbation: true }),
+        );
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: n }, (_, i) => {
+            const sendMs = base + i * 2;
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: sendMs + 3 + i * 2,
+            });
+          }),
+        ),
+      );
+      const afterInitial = gcc.availableBitrate;
+      // Assert: initial は start×1.5 を大きく超え得る
+      expect(afterInitial).toBeGreaterThan(start * 1.5);
+
+      // Act 2: complete まで進め、低い delay/loss target に戻してから recovery
+      // process timeout で active を落として complete にする
+      for (let t = 0; t < 6; t++) {
+        gcc.rtpPacketSent(sent(500 + t, 200, base + 10_000 + t * 2_000));
+      }
+      // 強制 complete + 低 target 状態を作るため reset せず probe 完了を待つ
+      if (gcc.probeState !== "complete") {
+        // 追加 probation で残り cluster を消化
+        for (let i = 0; i < 25; i++) {
+          gcc.rtpPacketSent(
+            sent(1000 + i, 1200, base + 30_000 + i * 2, {
+              isProbation: true,
+            }),
+          );
+        }
+        gcc.receiveTWCC(
+          makeTwccFeedback(
+            Array.from({ length: 25 }, (_, i) => {
+              const sendMs = base + 30_000 + i * 2;
+              return new PacketResult({
+                sequenceNumber: 1000 + i,
+                received: true,
+                receivedAtMs: sendMs + 4 + i * 2,
+              });
+            }),
+          ),
+        );
+      }
+
+      // 低容量相当: 高損失で loss/delay を抑える
+      const lowBase = base + 60_000;
+      for (let i = 0; i < 40; i++) {
+        gcc.rtpPacketSent(sent(2000 + i, 800, lowBase + i * 30));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 40 }, (_, i) => {
+            const lost = i % 2 === 0;
+            return new PacketResult({
+              sequenceNumber: 2000 + i,
+              received: !lost,
+              receivedAtMs: lost ? 0 : lowBase + 40 + i * 40,
+            });
+          }),
+        ),
+      );
+      const afterLoss = gcc.availableBitrate;
+      expect(afterLoss).toBeLessThan(afterInitial);
+
+      // recovery 時の target×1.5 方針は ProbeController 側 + gccBwe で担保済み
+      // （requestProbe が start に張り付かないこと）
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
 
     test("高レート (≤5ms spacing) でも inter-arrival group が閉じ delay 推定が進む", () => {

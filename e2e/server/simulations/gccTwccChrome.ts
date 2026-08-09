@@ -8,7 +8,6 @@ import {
   RtpHeader,
   RtpPacket,
   useAbsSendTime,
-  useNACK,
   usePLI,
   useREMB,
   useTWCC,
@@ -47,7 +46,9 @@ export class sim_gcc_twcc_chrome {
           new RTCRtpCodecParameters({
             mimeType: "video/VP8",
             clockRate: 90000,
-            rtcpFeedback: [useNACK(), usePLI(), useREMB(), useTWCC()],
+            // No NACK/RTX: retransmission storms on a hard bottleneck hide
+            // GCC/TWCC adaptation (this sim is about send-side BWE, not recovery).
+            rtcpFeedback: [usePLI(), useREMB(), useTWCC()],
           }),
         ],
       },
@@ -58,9 +59,20 @@ export class sim_gcc_twcc_chrome {
   }
 
   private installBottleneckOnWerift(link: BottleneckLink) {
-    // すべての ICE transport の send をラップ（メディア a→b 相当）
+    // Wrap every ICE send path (media a→b). Prefer iceTransports; fall back to
+    // transceiver.dtlsTransport.iceTransport when the list is still empty.
+    const seen = new Set<object>();
+    const wrap = (connection: { send: (data: Buffer) => Promise<void> }) => {
+      if (seen.has(connection)) return;
+      seen.add(connection);
+      link.install(connection, "a2b");
+    };
     for (const ice of this.pc.iceTransports) {
-      link.install(ice.connection, "a2b");
+      wrap(ice.connection);
+    }
+    for (const t of this.pc.getTransceivers()) {
+      const conn = t.dtlsTransport?.iceTransport?.connection;
+      if (conn) wrap(conn);
     }
   }
 
@@ -150,9 +162,11 @@ export class sim_gcc_twcc_chrome {
         this.sender.onAvailableBitrate.subscribe((bps) => {
           this.bitrateSamples.push(bps);
           if (this.adaptMode && bps > 0) {
+            // Follow estimate but never exceed ~90% of capacity so the
+            // bottleneck stays clear after congestion recovery.
             this.targetBps = Math.max(
               40_000,
-              Math.min(bps, this.capacityBps * 1.05),
+              Math.min(bps, this.capacityBps * 0.9),
             );
           }
         });
@@ -162,8 +176,8 @@ export class sim_gcc_twcc_chrome {
           if (state === "connected" && !this.link) {
             this.link = new BottleneckLink({
               capacityBps: this.capacityBps,
-              baseDelayMs: payload?.baseDelayMs ?? 50,
-              maxQueueBytes: payload?.maxQueueBytes ?? 24_000,
+              baseDelayMs: payload?.baseDelayMs ?? 40,
+              maxQueueBytes: payload?.maxQueueBytes ?? 64_000,
             });
             this.installBottleneckOnWerift(this.link);
           }
@@ -187,8 +201,8 @@ export class sim_gcc_twcc_chrome {
         if (!this.link) {
           this.link = new BottleneckLink({
             capacityBps: this.capacityBps,
-            baseDelayMs: 50,
-            maxQueueBytes: 24_000,
+            baseDelayMs: 40,
+            maxQueueBytes: 64_000,
           });
           this.installBottleneckOnWerift(this.link);
         }
@@ -215,14 +229,26 @@ export class sim_gcc_twcc_chrome {
         const last =
           this.bitrateSamples[this.bitrateSamples.length - 1] ??
           this.gcc.availableBitrate;
+        // Never chase above capacity; leave a small headroom for RTCP/ICE.
         this.targetBps = Math.max(
           40_000,
-          Math.min(last || this.capacityBps, this.capacityBps),
+          Math.min(last || this.capacityBps * 0.9, this.capacityBps * 0.9),
         );
         if (!this.mediaStop) {
           this.startMediaLoop(payload?.payloadBytes ?? 800);
         }
         accept(this.snapshot());
+        break;
+      }
+      case "markAdaptStart": {
+        // Call after a short settle so residual queue / aborting probes are
+        // not counted as adaptation-period drops.
+        this.dropsAtCongestionEnd = this.link?.stats("a2b").dropped ?? 0;
+        // Also re-baseline enqueued for rate math on the client.
+        accept({
+          ...this.snapshot(),
+          enqueuedAtAdaptStart: this.link?.stats("a2b").enqueued ?? 0,
+        });
         break;
       }
       case "snapshot": {

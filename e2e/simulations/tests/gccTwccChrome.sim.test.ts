@@ -49,8 +49,9 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
         payload: {
           capacityBps,
           startBitrateBps: 700_000,
-          baseDelayMs: 50,
-          maxQueueBytes: 24_000,
+          baseDelayMs: 40,
+          // Larger queue so brief probe/ICE bursts do not dominate drop rate.
+          maxQueueBytes: 64_000,
         },
       });
       await pc.setRemoteDescription(offer);
@@ -82,15 +83,19 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
       expect(congested.lastBitrate).toBeLessThan(550_000);
       expect(congested.lastBitrate).toBeLessThan(capacityBps * 2.5);
 
-      // Act 2: 推定帯域に追従
+      // Act 2: 推定帯域に追従。キュー排水と probe abort の settle 後に計測開始
       await peer.request(LABEL, { type: "startAdapt" });
+      await sleep(1_500);
+      const adaptBaseline = await peer.request(LABEL, {
+        type: "markAdaptStart",
+      });
       await sleep(4_000);
       const adapted = await peer.request(LABEL, { type: "snapshot" });
 
       // Assert 2: 適応後は送信ターゲットが容量近傍以下で、推定も開始 700kbps 帯から下がる
       // 日本語: 適応モードで target が capacity 以下に抑制されている
       expect(adapted.adaptMode).toBe(true);
-      expect(adapted.targetBps).toBeLessThanOrEqual(capacityBps * 1.2);
+      expect(adapted.targetBps).toBeLessThanOrEqual(capacityBps * 1.05);
       // 日本語: 最終推定が開始帯の高値に張り付いていない
       expect(adapted.lastBitrate).toBeLessThan(500_000);
       // 日本語: ゼロ張り付きではない（GCC 下限 ~10kbps 近傍までは許容）
@@ -101,9 +106,11 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
           ? congested.outbound.dropped / congested.outbound.enqueued
           : 1;
       const adaptDropped = adapted.dropsDuringAdapt;
+      const baselineEnq =
+        adaptBaseline.enqueuedAtAdaptStart ?? congested.outbound.enqueued;
       const adaptEnqueued = Math.max(
         1,
-        adapted.outbound.enqueued - congested.outbound.enqueued,
+        adapted.outbound.enqueued - baselineEnq,
       );
       const adaptRate = adaptDropped / adaptEnqueued;
       expect(adaptRate).toBeLessThan(congRate);
