@@ -1,18 +1,18 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
-import { CipherSuite } from "../../src/cipher/const";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
-import { ClientHello } from "../../src/handshake/message/client/hello";
-import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
+import { CipherSuite } from "../../src/cipher/const";
+import { NamedCurveAlgorithm } from "../../src/cipher/const";
+import { generateKeyPair } from "../../src/cipher/namedCurve";
 import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../src/handshake/extensions/keyShare";
 import { SignatureAlgorithms } from "../../src/handshake/extensions/signatureAlgorithms";
-import { NamedCurveAlgorithm } from "../../src/cipher/const";
-import { generateKeyPair } from "../../src/cipher/namedCurve";
+import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
+import { ClientHello } from "../../src/handshake/message/client/hello";
 import { DtlsRandom } from "../../src/handshake/random";
-import { DTLS_1_3_VERSION, WireVersion } from "../../src/version";
 import { ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
+import { DTLS_1_3_VERSION, WireVersion } from "../../src/version";
 import { certPem, keyPem } from "../fixture";
 
 function buildChWithout1301(): Buffer {
@@ -163,7 +163,10 @@ describe("e2e/self13 ClientHello validation", () => {
     });
     // Act / Assert: connection succeeds with zero-length session id policy
     await new Promise<void>(async (resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("session id timeout")), 10_000);
+      const timer = setTimeout(
+        () => reject(new Error("session id timeout")),
+        10_000,
+      );
       client.onConnect.subscribe(() => {
         const eng = (server as any).engine13;
         expect(eng.sessionId.length).toBe(0);

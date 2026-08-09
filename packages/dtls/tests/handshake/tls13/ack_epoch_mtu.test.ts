@@ -3,10 +3,13 @@ import {
   ACK_ENCRYPTED_OVERHEAD,
   ACK_PLAINTEXT_OVERHEAD,
   ACK_RECORD_NUMBER_BYTES,
-  MAX_ACK_RECORD_NUMBERS,
   MAX_ACCEPTED_HS_RECORDS,
+  MAX_ACK_RECORD_NUMBERS,
 } from "../../../src/engine/v1_3/types";
-import { DtlsAck, remainingAfterAck } from "../../../src/handshake/message/tls13/ack";
+import {
+  DtlsAck,
+  remainingAfterAck,
+} from "../../../src/handshake/message/tls13/ack";
 
 describe("ACK epoch filtering (Erratum 8108)", () => {
   test("filters record_numbers with epoch > receivedEpoch", () => {
@@ -50,7 +53,9 @@ describe("ACK dynamic MTU sizing", () => {
   test("max records fit under encrypted overhead for small MTU", () => {
     // Arrange
     const mtu = 180;
-    const n = Math.floor((mtu - ACK_ENCRYPTED_OVERHEAD) / ACK_RECORD_NUMBER_BYTES);
+    const n = Math.floor(
+      (mtu - ACK_ENCRYPTED_OVERHEAD) / ACK_RECORD_NUMBER_BYTES,
+    );
     const maxN = Math.max(1, Math.min(MAX_ACK_RECORD_NUMBERS, n));
     // Act: build ACK with that many numbers
     const numbers = Array.from({ length: maxN }, (_, i) => ({
