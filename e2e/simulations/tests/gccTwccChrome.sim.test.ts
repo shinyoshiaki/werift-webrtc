@@ -95,8 +95,7 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
       expect(adapted.lastBitrate).toBeLessThan(500_000);
       // 日本語: ゼロ張り付きではない（GCC 下限 ~10kbps 近傍までは許容）
       expect(adapted.lastBitrate).toBeGreaterThanOrEqual(10_000);
-      // 日本語: 適応期のドロップ率が輻輳期より悪いわけではない
-      // （probe 残存で絶対数が増える場合があるため、enqueued あたりの比率で比較）
+      // 日本語: 適応期は輻輳期よりドロップ率が厳密に低下する（追従後の輻輳緩和）
       const congRate =
         congested.outbound.enqueued > 0
           ? congested.outbound.dropped / congested.outbound.enqueued
@@ -107,7 +106,9 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
         adapted.outbound.enqueued - congested.outbound.enqueued,
       );
       const adaptRate = adaptDropped / adaptEnqueued;
-      expect(adaptRate).toBeLessThanOrEqual(congRate + 0.15);
+      expect(adaptRate).toBeLessThan(congRate);
+      // 日本語: 適応期の追加ドロップ絶対数も輻輳期より少ない
+      expect(adaptDropped).toBeLessThan(congested.outbound.dropped);
 
       // 日本語: Chrome が RTP を受信していること（getStats）
       let packetsReceived = 0;

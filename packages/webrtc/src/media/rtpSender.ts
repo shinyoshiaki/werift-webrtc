@@ -245,14 +245,21 @@ export class RTCRtpSender {
    * Behavior on swap:
    * 1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
    * 2. Unbinds the stable {@link onAvailableBitrate} bridge, then `dispose()`/`reset()` the old instance.
-   * 3. Starts the new instance clean (no implicit state merge) and rebinds the bridge.
+   * 3. **Always** `reset()` the injected `impl` so a previously used instance
+   *    starts clean (no implicit state merge), then rebinds the bridge.
    *
    * Subscriptions to {@link onAvailableBitrate} on this sender are preserved.
    * Re-subscribe algorithm-specific events on the new concrete instance.
    */
   setBandwidthEstimator(impl: BandwidthEstimator): void {
     const prev = this._senderBWE;
-    if (prev === impl) return;
+    if (prev === impl) {
+      // Same instance: still reset so callers get a clean estimator state.
+      impl.reset?.();
+      this.paceBudgetBytes = 0;
+      this.lastPaceMs = 0;
+      return;
+    }
     this.bweAvailableBitrateUnsub?.();
     this.bweAvailableBitrateUnsub = undefined;
     this.bweProbeUnsub?.();
@@ -262,6 +269,8 @@ export class RTCRtpSender {
     } else {
       prev.reset?.();
     }
+    // Clean start for the injected estimator (used or fresh).
+    impl.reset?.();
     this._senderBWE = impl;
     this.bindBandwidthEstimatorEvents(impl);
     this.paceBudgetBytes = 0;

@@ -156,6 +156,16 @@ export const kFurtherProbeThreshold = 0.7;
 export const kProbeMinDurationMs = 15;
 export const kProbeMinPackets = 5;
 export const kProbeResultTimeoutMs = 1000;
+/**
+ * Min interval between recovery / further probe sessions (ms).
+ * Prevents continuous underuse-triggered padding from re-congesting the link
+ * after the estimate has settled near capacity.
+ */
+export const kProbeMinIntervalMs = 5_000;
+/** Recovery probe scale relative to current estimate only (not start bitrate). */
+export const kProbeRecoveryScale = 1.5;
+/** Cap recovery probe at this multiple of current estimate. */
+export const kProbeRecoveryMaxScale = 2.0;
 
 /**
  * RTP padding size (bytes) when RTCRtpSender injects probe padding.
@@ -179,7 +189,7 @@ export const kSentInfoMaxAgeMs = 10_000;
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x clusters are multi-active (pacing target = max active)",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x clusters are multi-active (pacing target = max active); recovery probes use current estimate only with 5s cooldown (not start-bitrate floor)",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++",
   "InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)",
 ] as const;

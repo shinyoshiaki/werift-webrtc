@@ -277,11 +277,12 @@ export class GccBandwidthEstimator
       setAvailableBitrateIfChanged(this, target);
     }
 
-    if (usage === "underuse") {
-      for (const cfg of this.probe.requestProbe(
-        this._availableBitrate || target,
-        nowMs,
-      )) {
+    // Recovery probe only after initial probing is complete and the delay path
+    // reports underuse. requestProbe enforces cooldown and does not re-floor
+    // to the cold-start bitrate (avoids re-congesting a capacity-limited link).
+    if (usage === "underuse" && this.probe.probeState === "complete") {
+      const est = this._availableBitrate > 0 ? this._availableBitrate : target;
+      for (const cfg of this.probe.requestProbe(est, nowMs)) {
         this.onProbeClusterStarted(cfg, nowMs);
       }
     }

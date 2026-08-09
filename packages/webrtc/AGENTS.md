@@ -32,15 +32,18 @@ Instructions for coding agents working in `packages/webrtc`.
 | test package | `npm test` |
 | type-check package | `npm run type` |
 | format package | `npm run format` |
+| package-local GCC/TWCC simulation (CI-excluded) | `npm run test:sim` |
 | memory leak test (Node 24+, local only) | `npm run memleak` |
 | allowlisted upstream WPT | `npm run wpt` |
 | WPT coverage | `npm run wpt:coverage` |
 
 Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
+Package-local bottleneck sims: `simulations/` (`npm run test:sim`). Chrome peer sims live under `e2e/simulations/`.
 
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
+* GCC / TWCC / BottleneckLink changes: `npm run test:sim` when feasible (CI-excluded).
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
 

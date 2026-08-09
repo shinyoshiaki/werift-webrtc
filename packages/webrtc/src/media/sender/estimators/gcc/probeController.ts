@@ -6,7 +6,10 @@ import {
   kMinBitrateBps,
   kProbeBitrateMultipliers,
   kProbeMinDurationMs,
+  kProbeMinIntervalMs,
   kProbeMinPackets,
+  kProbeRecoveryMaxScale,
+  kProbeRecoveryScale,
   kProbeResultTimeoutMs,
 } from "./constants";
 
@@ -39,13 +42,10 @@ interface ActiveCluster {
  * Probe controller (libwebrtc `ProbeController` structure).
  *
  * - `setBitrates` / cold start → exponential probe clusters (×3 and ×6)
- * - **Multi-active**: initial 3x/6x (and any co-enqueued set) can be active
- *   simultaneously; pacing target is the max among active clusters
- * - On successful TWCC-measured probe, may schedule further probing when the
- *   estimate exceeds `further_probe_threshold` × last probe size
- *
- * The sender must raise its pacing rate to `currentProbeTargetBps` and tag
- * packets with `isProbation` while any cluster is active.
+ * - **Multi-active**: initial 3x/6x can be active simultaneously
+ * - Recovery / further probes use the **current estimate** (not start bitrate)
+ *   and respect {@link kProbeMinIntervalMs} cooldown so padding does not
+ *   re-congest after the estimate settles near capacity
  */
 export class ProbeController {
   private state: ProbeState = "init";
@@ -56,6 +56,8 @@ export class ProbeController {
   private estimatedBps = 0;
   private pendingEstimateBps = 0;
   private lastProbeTargetBps = 0;
+  /** When the last probe session ended (complete / timeout / abort). */
+  private lastProbeEndMs = Number.NEGATIVE_INFINITY;
   private minBitrateBps = kMinBitrateBps;
   private startBitrateBps = kDefaultStartBitrateBps;
   private maxBitrateBps = kMaxBitrateBps;
@@ -69,6 +71,7 @@ export class ProbeController {
     this.estimatedBps = 0;
     this.pendingEstimateBps = 0;
     this.lastProbeTargetBps = 0;
+    this.lastProbeEndMs = Number.NEGATIVE_INFINITY;
     this.minBitrateBps = kMinBitrateBps;
     this.startBitrateBps = kDefaultStartBitrateBps;
     this.maxBitrateBps = kMaxBitrateBps;
@@ -128,26 +131,42 @@ export class ProbeController {
     return [];
   }
 
-  /** Application / recovery request for additional probes. */
+  /**
+   * Application / recovery request for additional probes.
+   *
+   * Uses **current estimate only** (not start bitrate floor) so recovery after
+   * congestion does not re-probe at the cold-start rate. Cooldown applies.
+   */
   requestProbe(estimatedBps: number, nowMs: number): ProbeClusterConfig[] {
     if (this.state === "waiting_for_result") return [];
-    const base = Math.max(
-      estimatedBps,
-      this.startBitrateBps,
-      kDefaultStartBitrateBps,
-    );
-    const target = clamp(base * 1.5, this.maxBitrateBps);
+    if (this.state === "init") return [];
+    if (!this.cooldownElapsed(nowMs)) return [];
+
+    const base = Math.max(estimatedBps, this.minBitrateBps);
+    // Cap so recovery cannot jump more than recoveryMaxScale × current estimate.
+    const uncapped = base * kProbeRecoveryScale;
+    const capped = Math.min(uncapped, base * kProbeRecoveryMaxScale);
+    const target = clamp(capped, this.maxBitrateBps);
+    // Skip trivial probes that barely exceed the current estimate.
+    if (target <= base * 1.05) return [];
     return this.enqueueClusters(nowMs, [target], /*activateAll*/ false);
   }
 
   setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
+    if (!this.cooldownElapsed(nowMs) && this.state === "complete") {
+      return [];
+    }
     if (
       this.lastProbeTargetBps > 0 &&
       bitrateBps > this.lastProbeTargetBps * kFurtherProbeThreshold &&
       (this.state === "complete" || this.state === "waiting_for_result")
     ) {
+      // Further step relative to current estimate, not an unbounded climb.
       const next = clamp(
-        bitrateBps * kFurtherProbeStepMultiplier,
+        Math.min(
+          bitrateBps * kFurtherProbeStepMultiplier,
+          bitrateBps * kProbeRecoveryMaxScale,
+        ),
         this.maxBitrateBps,
       );
       return this.enqueueClusters(nowMs, [next], false);
@@ -159,6 +178,7 @@ export class ProbeController {
    * Advance timeouts / promote queued clusters.
    */
   process(nowMs: number): ProbeClusterConfig[] {
+    const before = this.active.length;
     const remaining: ActiveCluster[] = [];
     for (const c of this.active) {
       if (nowMs - c.startMs > kProbeResultTimeoutMs) {
@@ -168,11 +188,15 @@ export class ProbeController {
       remaining.push(c);
     }
     this.active = remaining;
-    if (
+    if (before > 0 && this.active.length === 0 && this.queue.length === 0) {
+      this.lastProbeEndMs = nowMs;
+      this.state = this.estimatedBps > 0 ? "complete" : "init";
+    } else if (
       this.active.length === 0 &&
       this.queue.length === 0 &&
       this.state === "waiting_for_result"
     ) {
+      this.lastProbeEndMs = nowMs;
       this.state = this.estimatedBps > 0 ? "complete" : "init";
     }
     return this.maybeActivateQueued(nowMs);
@@ -216,6 +240,7 @@ export class ProbeController {
       this.active = this.active.filter((c) => !doneIds.has(c.config.id));
       if (this.active.length === 0 && this.queue.length === 0) {
         this.state = "complete";
+        this.lastProbeEndMs = receivedAtMs;
       }
     }
   }
@@ -225,8 +250,13 @@ export class ProbeController {
     this.queue = [];
     if (this.state === "waiting_for_result") {
       this.state = this.estimatedBps > 0 ? "complete" : "init";
+      this.lastProbeEndMs = nowMs;
     }
-    void nowMs;
+  }
+
+  private cooldownElapsed(nowMs: number): boolean {
+    if (!Number.isFinite(this.lastProbeEndMs)) return true;
+    return nowMs - this.lastProbeEndMs >= kProbeMinIntervalMs;
   }
 
   private initiateExponentialProbing(nowMs: number): ProbeClusterConfig[] {

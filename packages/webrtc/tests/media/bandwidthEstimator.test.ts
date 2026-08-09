@@ -9,6 +9,7 @@ import {
   LossBasedBwe,
   PacketResult,
   PacketStatus,
+  ProbeController,
   type ProbePacingController,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -1061,6 +1062,71 @@ describe("media/sender bandwidth estimator", () => {
       expect(started).toContain(100_000 * 3);
       expect(started).toContain(100_000 * 6);
       expect(gcc.suggestedProbeBitrateBps).toBe(100_000 * 6);
+    });
+
+    test("使用済み estimator の再注入で reset され履歴が残らない", async () => {
+      // Arrange: 一度 TWCC を処理して availableBitrate を立てる
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 20_000;
+      for (let i = 0; i < 20; i++) {
+        gcc.rtpPacketSent(sent(i + 1, 800, t0 + i * 20));
+      }
+      gcc.receiveTWCC(
+        makeTwccFeedback(
+          Array.from({ length: 20 }, (_, i) => {
+            return new PacketResult({
+              sequenceNumber: i + 1,
+              received: true,
+              receivedAtMs: t0 + 30 + i * 20,
+            });
+          }),
+        ),
+      );
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+      const usedBitrate = gcc.availableBitrate;
+
+      // Act: 別 sender に同じインスタンスを注入 → setBandwidthEstimator が reset
+      const { sender } = await prepareConnectedSender();
+      sender.setBandwidthEstimator(gcc);
+
+      // Assert: 履歴クリア（availableBitrate は 0 に戻る）
+      expect(gcc.availableBitrate).toBe(0);
+      expect(gcc.availableBitrate).not.toBe(usedBitrate);
+      // 再観測なしでは通知しない
+      const fired: number[] = [];
+      sender.onAvailableBitrate.subscribe((v) => fired.push(v));
+      expect(fired).toEqual([]);
+    });
+
+    test("recovery probe は start 帯域に張り付かず cooldown を守る", () => {
+      // Arrange
+      const probe = new ProbeController();
+      probe.setBitrates(10_000, 700_000, 1_000_000_000, 0);
+      // initial 3x/6x をタイムアウトで完了扱いにする
+      probe.process(2_000);
+      // 強制的に complete + 推定 150kbps
+      (probe as any).state = "complete";
+      (probe as any).active = [];
+      (probe as any).queue = [];
+      (probe as any).lastProbeEndMs = 0;
+      (probe as any).estimatedBps = 150_000;
+
+      // Act
+      const recovery = probe.requestProbe(150_000, 10_000);
+
+      // Assert: target は ~225kbps 付近で、start*1.5(=1.05M) ではない
+      expect(recovery.length).toBe(1);
+      expect(recovery[0].targetBps).toBeLessThanOrEqual(150_000 * 2);
+      expect(recovery[0].targetBps).toBeGreaterThan(150_000);
+      expect(recovery[0].targetBps).toBeLessThan(700_000);
+
+      // cooldown: 直後は拒否
+      (probe as any).lastProbeEndMs = 10_000;
+      (probe as any).state = "complete";
+      (probe as any).active = [];
+      (probe as any).queue = [];
+      const denied = probe.requestProbe(150_000, 10_500);
+      expect(denied).toEqual([]);
     });
 
     test("高レート (≤5ms spacing) でも inter-arrival group が閉じ delay 推定が進む", () => {
