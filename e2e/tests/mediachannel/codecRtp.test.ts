@@ -479,38 +479,25 @@ describe("mediachannel_codec_rtp", () => {
             }
 
             // Arrange m-lines: m0 send capture, m1 recv repacketized
+            // 全コーデック共通: Node offerer / Chrome answerer
             pc.addTrack(mediaTrack);
             pc.addTransceiver(kind, { direction: "recvonly" });
             for (const t of pc.getTransceivers()) {
               preferCodec(t, codecMime(codec), kind);
             }
 
-            // Act:
-            // - H.264: Chrome offerer（encode 経路、シナリオ A と同じ）
-            // - 他: Node offerer（双方向 m-line が安定）
-            const init = await peer.request(label, { type: "init" });
+            // Act: Node offer → Chrome answer
+            const offer = await peer.request(label, { type: "init" });
             serverReady = true;
-            if (init && (init as any).chromeIsOfferer) {
-              await pc.setLocalDescription(await pc.createOffer());
-              for (const t of pc.getTransceivers()) {
-                preferCodec(t, codecMime(codec), kind);
-              }
-              const answer = await peer.request(label, {
-                type: "offer",
-                payload: pc.localDescription,
-              });
-              await pc.setRemoteDescription(answer);
-            } else {
-              await pc.setRemoteDescription(init);
-              for (const t of pc.getTransceivers()) {
-                preferCodec(t, codecMime(codec), kind);
-              }
-              await pc.setLocalDescription(await pc.createAnswer());
-              await peer.request(label, {
-                type: "answer",
-                payload: pc.localDescription,
-              });
+            await pc.setRemoteDescription(offer);
+            for (const t of pc.getTransceivers()) {
+              preferCodec(t, codecMime(codec), kind);
             }
+            await pc.setLocalDescription(await pc.createAnswer());
+            await peer.request(label, {
+              type: "answer",
+              payload: pc.localDescription,
+            });
 
             // Assert Node depacketize + repacketize メトリクス
             const result = await pollDepacketizeSuccess(label, 40_000);

@@ -430,97 +430,19 @@ class PacketizeHandler {
 
 /**
  * Scenario C: Chrome → packages/rtp depacketize → packages/rtp Packetizer → Chrome.
- * All E2E codecs (VP8 / H.264 / Opus / VP9 / AV1).
- *
- * Signaling:
- * - Default (VP8/Opus/VP9/AV1): Node offerer (stable dual m-line)
- * - H.264: Chrome offerer (same encode path as scenario A; answerer often sends 0 RTP)
+ * All E2E codecs (VP8 / H.264 / Opus / VP9 / AV1) share the same signaling:
+ * Node is offerer, Chrome answers.
  *
  * m-line order:
  *   m0 Node recvonly  ← Chrome capture
  *   m1 Node sendonly  → Chrome (repacketized)
+ *
+ * Note: useH264() must advertise SDP encoding name `H264` (uppercase) so Chrome
+ * as answerer can software-encode; lowercase `h264` yields 0 outbound RTP.
  */
 class RepacketizeHandler {
   private state: HandlerState = { stoppers: [] };
-  /** When true, Chrome creates the offer (`init` does not return SDP). */
-  private chromeIsOfferer = false;
   constructor(private readonly codec: CodecRtpName) {}
-
-  private wireReceiveAndRepacketize(
-    pc: RTCPeerConnection,
-    receiver: {
-      onTrack: { subscribe: (cb: (track: any) => void) => void };
-      receiver: { sendRtcpPLI: (ssrc: number) => Promise<void> | void };
-    },
-    sendTrack: InstanceType<typeof MediaStreamTrack>,
-  ) {
-    receiver.onTrack.subscribe((track) => {
-      const packetizer = createRtpPacketizer(this.codec, {
-        maxPayloadSize: this.codec === "opus" ? 1200 : 400,
-        payloadType: sendTrack.codec?.payloadType ?? 96,
-      });
-
-      let rtpPackets = 0;
-      const unsubCount = track.onReceiveRtp.subscribe(() => {
-        rtpPackets++;
-        if (this.state.stats) this.state.stats.rtpPackets = rtpPackets;
-      });
-      this.state.stoppers.push(() => unsubCount.unSubscribe());
-
-      const { stats, stop } = attachDepacketizer({
-        codec: this.codec,
-        track,
-        pc,
-        sendPli: codecKind(this.codec) === "video",
-        pliIntervalMs: 1000,
-        onFrame: (frame) => {
-          try {
-            const pt = sendTrack.codec?.payloadType;
-            const packets = packetizer.packetize(
-              frame.data,
-              frame.timestamp >>> 0,
-              {
-                isKeyframe: frame.isKeyframe,
-                frameType: frame.isKeyframe ? "key" : "delta",
-              },
-            );
-            const m = this.state.repacketizeMetrics;
-            if (m) {
-              m.framesRepacketized++;
-              m.packetsSent += packets.length;
-              if (packets.length > 1) m.multiPacketFrames++;
-              if (m.firstRtpTimestamp === undefined) {
-                m.firstRtpTimestamp = frame.timestamp >>> 0;
-              }
-              m.lastRtpTimestamp = frame.timestamp >>> 0;
-            }
-            for (const rtp of packets) {
-              if (pt !== undefined) {
-                rtp.header.payloadType = pt;
-              }
-              sendTrack.writeRtp(rtp);
-            }
-          } catch (error) {
-            console.warn(
-              `[codecRtp repacketize ${this.codec}] packetize error`,
-              error,
-            );
-          }
-        },
-      });
-      const shared = stats as DepacketizeStats & { rtpPackets?: number };
-      shared.rtpPackets = 0;
-      this.state.stats = shared;
-      this.state.stoppers.push(stop);
-
-      track.onReceiveRtp.once(() => {
-        try {
-          const ssrc = track.ssrc;
-          if (ssrc) void receiver.receiver.sendRtcpPLI(ssrc);
-        } catch {}
-      });
-    });
-  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -533,8 +455,6 @@ class RepacketizeHandler {
             packetsSent: 0,
           },
         };
-        // H.264 encode is unreliable when Chrome is answerer → Chrome offers
-        this.chromeIsOfferer = this.codec === "h264";
         const pc = await createPc(this.codec);
         this.state.pc = pc;
         const kind = codecKind(this.codec);
@@ -542,21 +462,75 @@ class RepacketizeHandler {
         const receiver = pc.addTransceiver(kind, { direction: "recvonly" });
         const sendTrack = new MediaStreamTrack({ kind });
         pc.addTrack(sendTrack);
-        this.wireReceiveAndRepacketize(pc, receiver, sendTrack);
 
-        if (this.chromeIsOfferer) {
-          accept({ chromeIsOfferer: true });
-        } else {
-          await pc.setLocalDescription(await pc.createOffer());
-          accept(pc.localDescription);
-        }
-        break;
-      }
-      case "offer": {
-        // Chrome-offerer path (H.264)
-        const pc = this.state.pc!;
-        await pc.setRemoteDescription(payload);
-        await pc.setLocalDescription(await pc.createAnswer());
+        receiver.onTrack.subscribe((track) => {
+          const packetizer = createRtpPacketizer(this.codec, {
+            maxPayloadSize: this.codec === "opus" ? 1200 : 400,
+            payloadType: sendTrack.codec?.payloadType ?? 96,
+          });
+
+          let rtpPackets = 0;
+          const unsubCount = track.onReceiveRtp.subscribe(() => {
+            rtpPackets++;
+            if (this.state.stats) this.state.stats.rtpPackets = rtpPackets;
+          });
+          this.state.stoppers.push(() => unsubCount.unSubscribe());
+
+          const { stats, stop } = attachDepacketizer({
+            codec: this.codec,
+            track,
+            pc,
+            sendPli: codecKind(this.codec) === "video",
+            pliIntervalMs: 1000,
+            onFrame: (frame) => {
+              try {
+                const pt = sendTrack.codec?.payloadType;
+                const packets = packetizer.packetize(
+                  frame.data,
+                  frame.timestamp >>> 0,
+                  {
+                    isKeyframe: frame.isKeyframe,
+                    frameType: frame.isKeyframe ? "key" : "delta",
+                  },
+                );
+                const m = this.state.repacketizeMetrics;
+                if (m) {
+                  m.framesRepacketized++;
+                  m.packetsSent += packets.length;
+                  if (packets.length > 1) m.multiPacketFrames++;
+                  if (m.firstRtpTimestamp === undefined) {
+                    m.firstRtpTimestamp = frame.timestamp >>> 0;
+                  }
+                  m.lastRtpTimestamp = frame.timestamp >>> 0;
+                }
+                for (const rtp of packets) {
+                  if (pt !== undefined) {
+                    rtp.header.payloadType = pt;
+                  }
+                  sendTrack.writeRtp(rtp);
+                }
+              } catch (error) {
+                console.warn(
+                  `[codecRtp repacketize ${this.codec}] packetize error`,
+                  error,
+                );
+              }
+            },
+          });
+          const shared = stats as DepacketizeStats & { rtpPackets?: number };
+          shared.rtpPackets = 0;
+          this.state.stats = shared;
+          this.state.stoppers.push(stop);
+
+          track.onReceiveRtp.once(() => {
+            try {
+              const ssrc = track.ssrc;
+              if (ssrc) void receiver.receiver.sendRtcpPLI(ssrc);
+            } catch {}
+          });
+        });
+
+        await pc.setLocalDescription(await pc.createOffer());
         accept(pc.localDescription);
         break;
       }
@@ -568,7 +542,6 @@ class RepacketizeHandler {
         break;
       }
       case "answer": {
-        // Node-offerer path
         await this.state.pc?.setRemoteDescription(payload);
         accept({});
         break;

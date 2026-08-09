@@ -40,8 +40,9 @@ available; the browser is offerer / Node answers. Scenario B always uses live Ch
 of packetized fixture RTP.
 
 **Scenario C (repacketize)** runs for VP8, H.264, Opus, VP9, and AV1 (Chrome → depacketize →
-`packages/rtp` Packetizer → Chrome). H.264 C uses Chrome as offerer (encode path); other
-codecs use Node as offerer for dual m-line stability.
+`packages/rtp` Packetizer → Chrome). All codecs use the same signaling: **Node offerer /
+Chrome answerer**. (H.264 requires SDP encoding name `H264` uppercase — see `useH264()` —
+so Chrome can software-encode as answerer.)
 
 ## Regenerating (developers)
 
