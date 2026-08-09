@@ -36,6 +36,15 @@ WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
 
 ***
 
+### handshakeCarrier?
+
+> `optional` **handshakeCarrier**: `DtlsHandshakeCarrier`
+
+Optional DTLS 1.3 handshake carrier (tests / Epic 2 SPED).
+When set, the 1.3 engine uses this instead of creating DirectHandshakeCarrier.
+
+***
+
 ### key?
 
 > `optional` **key**: `string`
