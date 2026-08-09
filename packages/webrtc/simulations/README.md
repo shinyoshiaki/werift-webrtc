@@ -37,3 +37,9 @@ werift ↔ Chrome は `e2e/simulations/`（ネットワーク制限は werift �
 ```bash
 cd e2e && npm run test:sim
 ```
+
+## 回帰メモ（BWE）
+
+- `hasTwccReceiveTiming`: `ReceivedWithoutDelta` と `receivedAtMs === 0` を分離（delay サンプル判定）
+- 決定的 bitrate 系列テスト: `bandwidthEstimator.test.ts` の「決定的入力での bitrate 系列」
+- Playwright ブラウザは `e2e/.playwright-browsers/`（git 管理外）。履歴にもバイナリを含めない
