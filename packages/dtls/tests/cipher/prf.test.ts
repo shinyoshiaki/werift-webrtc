@@ -34,7 +34,7 @@ describe("cipher/prf", () => {
   });
 
   test("prfPreMasterSecret rejects X25519 all-zero public key", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const priv = Buffer.alloc(32, 1);
     const pub = Buffer.alloc(32, 0);
     // Act / Assert: low-order point を拒否

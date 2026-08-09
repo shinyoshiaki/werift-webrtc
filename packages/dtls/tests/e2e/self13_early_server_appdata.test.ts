@@ -12,7 +12,7 @@ import { certPem, keyPem } from "../fixture";
  */
 describe("e2e/self13 early server application data", () => {
   test("server app data after server Finished is delivered to client", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -74,7 +74,7 @@ describe("e2e/self13 early server application data", () => {
       });
 
       client.onConnect.subscribe(() => {
-        // Assert: early data flushed at connect (or already delivered)
+        // Assert: 暗号ベクトルを検証する
         void (async () => {
           // Allow microtask flush of earlyAppData
           await new Promise((r) => setTimeout(r, 50));
@@ -91,7 +91,7 @@ describe("e2e/self13 early server application data", () => {
         })();
       });
 
-      // Act: start client; when server has epoch-3 write keys, send early app data
+      // Act: 暗号ベクトルを検証する
       // before client Finished (server not yet connected)
       const sendEarlyWhenReady = async () => {
         for (let i = 0; i < 100; i++) {

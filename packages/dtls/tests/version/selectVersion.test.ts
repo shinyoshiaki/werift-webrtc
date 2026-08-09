@@ -13,17 +13,17 @@ import {
 
 describe("selectVersion (association layer)", () => {
   test("prefers first local version in peer intersection [1.3,1.2]", () => {
-    // Arrange / Act
+    // Arrange: 前提を準備する
     const v = selectVersion(
       [DtlsVersion.V1_3, DtlsVersion.V1_2],
       [DtlsVersion.V1_3, DtlsVersion.V1_2],
     );
-    // Assert
+    // Assert: version 交渉を検証する
     expect(v).toBe(DtlsVersion.V1_3);
   });
 
   test("normalizeProtocolVersions rejects [1.2,1.3] (fail-fast)", () => {
-    // Arrange / Act / Assert: Epic 1 does not support 1.2-first dual; no silent rewrite
+    // Arrange: 前提を準備する
     expect(() =>
       normalizeProtocolVersions([DtlsVersion.V1_2, DtlsVersion.V1_3]),
     ).toThrow(/not supported.*\[V1_3, V1_2\]/);
@@ -42,7 +42,7 @@ describe("selectVersion (association layer)", () => {
   });
 
   test("intersection empty throws ProtocolVersionError", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(() => selectVersion([DtlsVersion.V1_3], [DtlsVersion.V1_2])).toThrow(
       ProtocolVersionError,
     );
@@ -52,7 +52,7 @@ describe("selectVersion (association layer)", () => {
   });
 
   test("peerVersionsFromSupportedVersionsWire maps wire codes", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(
       peerVersionsFromSupportedVersionsWire([
         DTLS_1_3_VERSION,
@@ -69,10 +69,10 @@ describe("selectVersion (association layer)", () => {
   });
 
   test("hasTlsDowngradeSentinel detects DOWNGRD tails", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const ok = Buffer.alloc(32, 1);
     const bad = Buffer.concat([Buffer.alloc(24, 2), DOWNGRADE_TLS12_SENTINEL]);
-    // Act / Assert
+    // Act / Assert: 期待どおりの結果を検証する
     expect(hasTlsDowngradeSentinel(ok)).toBe(false);
     expect(hasTlsDowngradeSentinel(bad)).toBe(true);
   });

@@ -142,7 +142,7 @@ function buildChWithBadCompression(): Buffer {
 
 describe("e2e/self13 ClientHello validation", () => {
   test("rejects ClientHello without 0x1301 with handshake_failure", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -151,7 +151,7 @@ describe("e2e/self13 ClientHello validation", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act: inject CH without TLS_AES_128_GCM_SHA256
+    // Act: ハンドシェイクを検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("cipher suite reject timeout")),
@@ -172,7 +172,7 @@ describe("e2e/self13 ClientHello validation", () => {
   }, 10_000);
 
   test("rejects non-empty legacy_cookie with illegal_parameter", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -181,7 +181,7 @@ describe("e2e/self13 ClientHello validation", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act / Assert
+    // Act / Assert: cookie 経路を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("legacy_cookie reject timeout")),
@@ -205,7 +205,7 @@ describe("e2e/self13 ClientHello validation", () => {
   }, 10_000);
 
   test("rejects ClientHello with wrong legacy_version", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -214,7 +214,7 @@ describe("e2e/self13 ClientHello validation", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act / Assert
+    // Act / Assert: version 交渉を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("legacy_version reject timeout")),
@@ -238,7 +238,7 @@ describe("e2e/self13 ClientHello validation", () => {
   }, 10_000);
 
   test("rejects ClientHello with non-[0] compression_methods", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -247,7 +247,7 @@ describe("e2e/self13 ClientHello validation", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("compression reject timeout")),
@@ -271,7 +271,7 @@ describe("e2e/self13 ClientHello validation", () => {
   }, 10_000);
 
   test("ServerHello uses zero-length session_id (no echo)", async () => {
-    // Arrange: full self HS then inspect that we don't require session id match
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -289,7 +289,7 @@ describe("e2e/self13 ClientHello validation", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act / Assert: connection succeeds with zero-length session id policy
+    // Act / Assert: 期待どおりの結果を検証する
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("session id timeout")),

@@ -56,7 +56,7 @@ function buildChWithSupportedVersionsData(svData: Buffer): Buffer {
 
 describe("SupportedVersions wire validation", () => {
   test("ClientHello: rejects odd length, empty list, trailing bytes", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     // empty list (len=0)
     expect(() =>
       SupportedVersions.fromData(Buffer.from([0x00]), false),
@@ -78,7 +78,7 @@ describe("SupportedVersions wire validation", () => {
   });
 
   test("ServerHello/HRR: requires exactly 2 bytes", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(() => SupportedVersions.fromData(Buffer.from([0xfe]), true)).toThrow(
       /exactly 2/i,
     );
@@ -104,12 +104,12 @@ describe("dual server supported_versions negative integration", () => {
   }
 
   test("unknown version only → protocol_version (not silent 1.2)", async () => {
-    // Arrange: extension present with TLS classic codepoint only (unknown to DTLS map)
+    // Arrange: 前提を準備する
     const { server, serverTransport } = await dualServer();
     const pkt = buildChWithSupportedVersionsData(
       Buffer.from([0x02, 0x03, 0x03]), // TLS 1.2 0x0303 — not a DTLS wire version
     );
-    // Act / Assert: must not become connected as DTLS 1.2
+    // Act / Assert: version 交渉を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("unknown-only should fail promptly")),
@@ -117,7 +117,7 @@ describe("dual server supported_versions negative integration", () => {
       );
       server.onError.subscribe((e) => {
         clearTimeout(timer);
-        // Act/Assert: association must fail closed (not complete as DTLS 1.2)
+        // Act / Assert: version 交渉を検証する
         expect(server.connected).toBe(false);
         server.close();
         resolve();
@@ -133,10 +133,10 @@ describe("dual server supported_versions negative integration", () => {
   }, 10_000);
 
   test("empty supported_versions list → protocol failure", async () => {
-    // Arrange: extension present with empty list (malformed: len=0)
+    // Arrange: 前提を準備する
     const { server, serverTransport } = await dualServer();
     const pkt = buildChWithSupportedVersionsData(Buffer.from([0x00]));
-    // Act / Assert: decode or version fail — must not complete as 1.2
+    // Act / Assert: version 交渉を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("empty list should fail promptly")),
@@ -167,13 +167,13 @@ describe("dual server supported_versions negative integration", () => {
   }, 10_000);
 
   test("trailing bytes in supported_versions → not accepted as dual 1.3", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { server, serverTransport } = await dualServer();
     // declared 2 bytes of versions but trailing 0xff
     const pkt = buildChWithSupportedVersionsData(
       Buffer.from([0x02, 0xfe, 0xfc, 0xff]),
     );
-    // Act / Assert
+    // Act / Assert: version 交渉を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("trailing bytes should fail/drop")),

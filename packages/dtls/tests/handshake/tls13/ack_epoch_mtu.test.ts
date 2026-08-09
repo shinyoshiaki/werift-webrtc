@@ -13,16 +13,16 @@ import {
 
 describe("ACK epoch filtering (Erratum 8108)", () => {
   test("filters record_numbers with epoch > receivedEpoch", () => {
-    // Arrange: forged epoch-0 ACK claims encrypted records
+    // Arrange: 前提を準備する
     const claimed = [
       { epoch: 0, sequenceNumber: 1 },
       { epoch: 2, sequenceNumber: 0 },
       { epoch: 3, sequenceNumber: 5 },
     ];
     const receivedEpoch = 0;
-    // Act
+    // Act: epoch 管理を検証する
     const applicable = claimed.filter((r) => r.epoch <= receivedEpoch);
-    // Assert: only epoch ≤ 0 accepted from plaintext ACK
+    // Assert: epoch 管理を検証する
     expect(applicable).toEqual([{ epoch: 0, sequenceNumber: 1 }]);
     const pending = [
       { epoch: 2, sequenceNumber: 0 },
@@ -32,16 +32,16 @@ describe("ACK epoch filtering (Erratum 8108)", () => {
   });
 
   test("encrypted ACK on epoch 2 may ACK epoch 2 records", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const claimed = [
       { epoch: 2, sequenceNumber: 0 },
       { epoch: 2, sequenceNumber: 1 },
       { epoch: 3, sequenceNumber: 0 }, // higher than received → ignore
     ];
     const receivedEpoch = 2;
-    // Act
+    // Act: ACK 処理を検証する
     const applicable = claimed.filter((r) => r.epoch <= receivedEpoch);
-    // Assert
+    // Assert: ACK 処理を検証する
     expect(applicable).toEqual([
       { epoch: 2, sequenceNumber: 0 },
       { epoch: 2, sequenceNumber: 1 },
@@ -51,19 +51,19 @@ describe("ACK epoch filtering (Erratum 8108)", () => {
 
 describe("ACK dynamic MTU sizing", () => {
   test("max records fit under encrypted overhead for small MTU", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const mtu = 180;
     const n = Math.floor(
       (mtu - ACK_ENCRYPTED_OVERHEAD) / ACK_RECORD_NUMBER_BYTES,
     );
     const maxN = Math.max(1, Math.min(MAX_ACK_RECORD_NUMBERS, n));
-    // Act: build ACK with that many numbers
+    // Act: MTU 制約を検証する
     const numbers = Array.from({ length: maxN }, (_, i) => ({
       epoch: 2,
       sequenceNumber: i,
     }));
     const body = new DtlsAck(numbers).serialize();
-    // Assert: body + encrypted overhead ≤ mtu
+    // Assert: MTU 制約を検証する
     expect(body.length + (ACK_ENCRYPTED_OVERHEAD - 2)).toBeLessThanOrEqual(mtu);
     // 2 bytes list length is inside ACK body; overhead includes list len in constant
     // Encrypted wire ≈ 5+1+body+16; body = 2+16*N
@@ -72,13 +72,13 @@ describe("ACK dynamic MTU sizing", () => {
   });
 
   test("plaintext ACK overhead constant is consistent", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(ACK_PLAINTEXT_OVERHEAD).toBe(15); // 13 hdr + 2 list len
     expect(ACK_RECORD_NUMBER_BYTES).toBe(16);
   });
 
   test("accepted HS record cap covers multi-fragment flight", () => {
-    // Arrange / Act / Assert: 64 frags + CV + Finished ≤ cap
+    // Arrange: 前提を準備する
     expect(MAX_ACCEPTED_HS_RECORDS).toBeGreaterThanOrEqual(66);
   });
 });

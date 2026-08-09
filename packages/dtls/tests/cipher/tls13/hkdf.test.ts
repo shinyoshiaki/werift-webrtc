@@ -19,11 +19,11 @@ import { Dtls13KeySchedule } from "../../../src/cipher/tls13/keySchedule";
 
 describe("cipher/tls13/hkdf", () => {
   test("HKDF-Extract empty IKM uses Hash.length zeros", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const salt = Buffer.alloc(32);
     const ikm = Buffer.alloc(32);
 
-    // Act
+    // Act: 暗号ベクトルを検証する
     const prk = hkdfExtract(salt, ikm);
 
     // Assert: 安定した 32 バイト PRK
@@ -31,12 +31,12 @@ describe("cipher/tls13/hkdf", () => {
   });
 
   test("HKDF-Expand-Label uses dtls13 prefix", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const secret = Buffer.alloc(32, 1);
     const label = "key";
     const context = Buffer.alloc(0);
 
-    // Act
+    // Act: 暗号ベクトルを検証する
     const key = hkdfExpandLabelManual(
       secret,
       label,
@@ -52,10 +52,10 @@ describe("cipher/tls13/hkdf", () => {
   });
 
   test("empty Hash is SHA-256 of empty input", () => {
-    // Arrange / Act
+    // Arrange: 前提を準備する
     const h = emptyHashSha256();
 
-    // Assert
+    // Assert: 期待どおりの結果を検証する
     expect(h.equals(hashSha256(Buffer.alloc(0)))).toBe(true);
     expect(h.toString("hex")).toBe(
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -63,41 +63,41 @@ describe("cipher/tls13/hkdf", () => {
   });
 
   test("Finished verify_data is HMAC of transcript hash", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const ks = new Dtls13KeySchedule(DTLS13_LABEL_PREFIX);
     const baseKey = Buffer.alloc(32, 0xab);
     const transcript = Buffer.from("hello-transcript");
 
-    // Act
+    // Act: 暗号ベクトルを検証する
     const vd = ks.verifyData(baseKey, transcript);
     const finishedKey = ks.finishedKey(baseKey);
     const expected = hmacSha256(finishedKey, hashSha256(transcript));
 
-    // Assert
+    // Assert: 暗号ベクトルを検証する
     expect(vd.equals(expected)).toBe(true);
     expect(vd.length).toBe(32);
   });
 
   test("traffic secret update is deterministic", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const ks = new Dtls13KeySchedule();
     const secret = Buffer.alloc(32, 7);
 
-    // Act
+    // Act: 期待どおりの結果を検証する
     const next1 = ks.updateTrafficSecret(secret);
     const next2 = ks.updateTrafficSecret(secret);
 
-    // Assert
+    // Assert: 期待どおりの結果を検証する
     expect(next1.equals(next2)).toBe(true);
     expect(next1.equals(secret)).toBe(false);
   });
 
   test("exporter EXTRACTOR-dtls_srtp is deterministic", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const ks = new Dtls13KeySchedule();
     const expMaster = Buffer.alloc(32, 9);
 
-    // Act
+    // Act: use_srtp/MKI を検証する
     const a = ks.exportKeyingMaterial(
       expMaster,
       "EXTRACTOR-dtls_srtp",
@@ -111,7 +111,7 @@ describe("cipher/tls13/hkdf", () => {
       60,
     );
 
-    // Assert
+    // Assert: use_srtp/MKI を検証する
     expect(a.length).toBe(60);
     expect(a.equals(b)).toBe(true);
   });
@@ -119,7 +119,7 @@ describe("cipher/tls13/hkdf", () => {
 
 describe("cipher/tls13/aead", () => {
   test("encrypt/decrypt roundtrip with DTLS 1.3 nonce/AAD", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const key = Buffer.alloc(16, 0x11);
     const iv = Buffer.alloc(12, 0x22);
     const epoch = 2;
@@ -128,18 +128,18 @@ describe("cipher/tls13/aead", () => {
     const plaintext = buildInnerPlaintext(Buffer.from("ping"), 23, 0);
     const aad = Buffer.from([0x2f, 0x00, 0x07, 0x00, plaintext.length + 16]);
 
-    // Act
+    // Act: レコード保護を検証する
     const ct = encryptAes128Gcm(key, nonce, plaintext, aad);
     const pt = decryptAes128Gcm(key, nonce, ct, aad);
     const inner = parseInnerPlaintext(pt);
 
-    // Assert
+    // Assert: レコード保護を検証する
     expect(inner.contentType).toBe(23);
     expect(inner.content.toString()).toBe("ping");
   });
 
   test("sequenceToUInt64 is big-endian 64-bit sequence only", () => {
-    // Arrange / Act
+    // Arrange: 前提を準備する
     const buf = sequenceToUInt64(0x010203040506);
 
     // Assert: epoch は含めない（上位は 0）

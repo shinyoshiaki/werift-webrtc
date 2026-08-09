@@ -53,11 +53,11 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     "6a4f97e87a35a583d1af794e1e4947eb8df3a10c131856f33b2609231d2ce0ea";
 
   test("HKDF-Expand-Label dtls13 key/iv/sn match pinned digests", () => {
-    // Arrange / Act
+    // Arrange: 前提を準備する
     const key = hkdfExpandLabelManual(secret0, "key", Buffer.alloc(0), 16);
     const iv = hkdfExpandLabelManual(secret0, "iv", Buffer.alloc(0), 12);
     const sn = hkdfExpandLabelManual(secret0, "sn", Buffer.alloc(0), 16);
-    // Assert: fixed vectors (not re-running the SUT for expected)
+    // Assert: 暗号ベクトルを検証する
     expect(key.toString("hex")).toBe(PINNED_KEY);
     expect(iv.toString("hex")).toBe(PINNED_IV);
     expect(sn.toString("hex")).toBe(PINNED_SN);
@@ -65,15 +65,15 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   });
 
   test("Finished verify_data matches pinned TLS 1.3 / dtls13 construction", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const transcript = Buffer.from(
       "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "hex",
     );
-    // Act
+    // Act: 暗号ベクトルを検証する
     const vd = ks.verifyData(secret0, transcript);
     const finKey = ks.finishedKey(secret0);
-    // Assert: pinned finished key + verify_data (transcript hash path)
+    // Assert: 暗号ベクトルを検証する
     expect(finKey.toString("hex")).toBe(PINNED_FINISHED_KEY);
     expect(vd.toString("hex")).toBe(PINNED_VERIFY_DATA);
     // Structure: HMAC(finished_key, Hash(transcript))
@@ -100,12 +100,12 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     "cf35732e38830f8b7a4e9e2170b0187bc7db9cfb3b8f39436b3564442828efd3";
 
   test("binder_key ext/res match pinned Derive-Secret vectors (dtls13)", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const early = ks.earlySecret();
-    // Act
+    // Act: 暗号ベクトルを検証する
     const ext = ks.binderKey(early, false);
     const res = ks.binderKey(early, true);
-    // Assert
+    // Assert: 暗号ベクトルを検証する
     expect(early.toString("hex")).toBe(PINNED_EARLY_SECRET);
     expect(ext.toString("hex")).toBe(PINNED_EXT_BINDER_DTLS);
     expect(res.toString("hex")).toBe(PINNED_RES_BINDER_DTLS);
@@ -121,33 +121,33 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   });
 
   test("binder verify_data uses finished construction on binder_key", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const transcript = Buffer.from(
       "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "hex",
     );
     const early = ks.earlySecret();
     const bk = ks.binderKey(early, false);
-    // Act
+    // Act: 暗号ベクトルを検証する
     const vd = ks.binderVerifyData(bk, transcript);
-    // Assert
+    // Assert: 暗号ベクトルを検証する
     expect(vd.toString("hex")).toBe(PINNED_BINDER_VD_DTLS);
     expect(vd.equals(ks.verifyData(bk, transcript))).toBe(true);
   });
 
   test("TLS 1.3 label prefix binder + Finished match independent pinned vectors", () => {
-    // Arrange: RFC 8446 uses "tls13 " prefix (contrast dtls13)
+    // Arrange: 前提を準備する
     const ksTls = new Dtls13KeySchedule(TLS13_LABEL_PREFIX);
     const transcript = Buffer.from(
       "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "hex",
     );
-    // Act
+    // Act: 暗号ベクトルを検証する
     const early = ksTls.earlySecret();
     const ext = ksTls.binderKey(early, false);
     const finKey = ksTls.finishedKey(secret0);
     const vd = ksTls.verifyData(secret0, transcript);
-    // Assert
+    // Assert: 暗号ベクトルを検証する
     expect(ext.toString("hex")).toBe(PINNED_EXT_BINDER_TLS);
     expect(finKey.toString("hex")).toBe(PINNED_TLS_FINISHED_KEY);
     expect(vd.toString("hex")).toBe(PINNED_TLS_VERIFY_DATA);
@@ -156,30 +156,30 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   });
 
   test("EXTRACTOR-dtls_srtp exporter matches pinned 60-byte vector", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const expMaster = Buffer.alloc(32, 0x22);
-    // Act
+    // Act: use_srtp/MKI を検証する
     const out = ks.exportKeyingMaterial(
       expMaster,
       "EXTRACTOR-dtls_srtp",
       Buffer.alloc(0),
       60,
     );
-    // Assert
+    // Assert: use_srtp/MKI を検証する
     expect(out.length).toBe(60);
     expect(out.toString("hex")).toBe(PINNED_EXPORTER_60);
   });
 
   test("KeyUpdate traffic upd secret matches pinned digest", () => {
-    // Arrange / Act
+    // Arrange: 前提を準備する
     const next = ks.updateTrafficSecret(secret0);
-    // Assert
+    // Assert: KeyUpdate を検証する
     expect(next.toString("hex")).toBe(PINNED_TRAFFIC_UPD);
     expect(next.equals(secret0)).toBe(false);
   });
 
   test("AEAD encrypt/decrypt with known key/iv/seq (record protection)", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const key = Buffer.alloc(16, 0x33);
     const iv = Buffer.alloc(12, 0x44);
     const seq = 7;
@@ -187,11 +187,11 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     const plaintext = buildInnerPlaintext(Buffer.from("app-payload"), 23, 0);
     const header = serializeUnifiedHeader(epoch, seq, plaintext.length + 16);
     const nonce = buildNonce(iv, epoch, seq);
-    // Act
+    // Act: レコード保護を検証する
     const ct = encryptAes128Gcm(key, nonce, plaintext, header);
     const pt = decryptAes128Gcm(key, nonce, ct, header);
     const inner = parseInnerPlaintext(pt);
-    // Assert
+    // Assert: レコード保護を検証する
     expect(nonce.toString("hex")).toBe("444444444444444444444443");
     expect(inner.contentType).toBe(23);
     expect(inner.content.toString()).toBe("app-payload");
@@ -203,21 +203,21 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   });
 
   test("record number encryption mask is involution", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const snKey = Buffer.alloc(16, 0x55);
     const ciphertext = Buffer.alloc(32, 0x66);
     const header = serializeUnifiedHeader(2, 0xabcd, 32);
     const mask = recordNumberMask(snKey, ciphertext);
-    // Act
+    // Act: レコード保護を検証する
     const masked = applyRecordNumberMask(header, mask);
     const unmasked = applyRecordNumberMask(masked, mask);
-    // Assert
+    // Assert: レコード保護を検証する
     expect(unmasked.equals(header)).toBe(true);
     expect(masked.equals(header)).toBe(false);
   });
 
   test("unified record encrypt/decrypt + replay rejection", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const keys = {
       key: Buffer.alloc(16, 0x77),
       iv: Buffer.alloc(12, 0x88),
@@ -227,34 +227,34 @@ describe("tls13 RFC-structure deterministic vectors", () => {
     w.writeKeys = keys;
     const r = createEpochProtection(2);
     r.readKeys = { ...keys };
-    // Act
+    // Act: リプレイを検証する
     const wire = encryptRecord(Buffer.from("rec"), ContentType.handshake, w);
     const d1 = decryptRecord(wire, () => r);
-    // Assert
+    // Assert: リプレイを検証する
     expect(d1!.content.toString()).toBe("rec");
     expect(d1!.sequenceNumber).toBe(0);
     expect(() => decryptRecord(wire, () => r)).toThrow(/replay/);
   });
 
   test("sequence reconstruction for 16-bit truncated seq", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(reconstructSequence(0, 2, 0)).toBe(0);
     expect(reconstructSequence(1, 2, 0)).toBe(1);
     expect(reconstructSequence(0xffff, 2, 0xfffe)).toBe(0xffff);
   });
 
   test("ACK serialize/deSerialize empty and multi record numbers", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const empty = new DtlsAck([]);
     const multi = new DtlsAck([
       { epoch: 2, sequenceNumber: 0 },
       { epoch: 2, sequenceNumber: 3 },
       { epoch: 3, sequenceNumber: 1 },
     ]);
-    // Act
+    // Act: ACK 処理を検証する
     const e = DtlsAck.deSerialize(empty.serialize());
     const m = DtlsAck.deSerialize(multi.serialize());
-    // Assert
+    // Assert: ACK 処理を検証する
     expect(e.recordNumbers).toEqual([]);
     expect(m.recordNumbers).toEqual(multi.recordNumbers);
     // empty ACK has uint16 length 0
@@ -262,15 +262,15 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   });
 
   test("KeyUpdate wire codec and traffic secret chain", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const ku0 = new KeyUpdate(false);
     const ku1 = new KeyUpdate(true);
-    // Act
+    // Act: KeyUpdate を検証する
     const round0 = KeyUpdate.deSerialize(ku0.serialize());
     const round1 = KeyUpdate.deSerialize(ku1.serialize());
     const s1 = ks.updateTrafficSecret(secret0);
     const s2 = ks.updateTrafficSecret(s1);
-    // Assert
+    // Assert: KeyUpdate を検証する
     expect(round0.requestUpdate).toBe(false);
     expect(round1.requestUpdate).toBe(true);
     expect(s1.equals(secret0)).toBe(false);
@@ -279,12 +279,12 @@ describe("tls13 RFC-structure deterministic vectors", () => {
   });
 
   test("nonce uses 64-bit sequence only (epoch not mixed into AEAD seq)", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const iv = Buffer.alloc(12, 0);
-    // Act
+    // Act: レコード保護を検証する
     const n0 = buildNonce(iv, 2, 0);
     const n1 = buildNonce(iv, 9, 1);
-    // Assert
+    // Assert: レコード保護を検証する
     expect(sequenceToUInt64(1).readBigUInt64BE(0)).toBe(1n);
     expect(n0.every((b) => b === 0)).toBe(true);
     expect(n1[11]).toBe(1);

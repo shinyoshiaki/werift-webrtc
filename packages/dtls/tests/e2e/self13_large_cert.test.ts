@@ -10,7 +10,7 @@ const largeKeyPem = readFileSync(join(assets, "large_key.pem"), "utf8");
 
 describe("e2e/self13 large certificate full handshake", () => {
   test("multi-KB X.509 cert: fragmentation + CertificateVerify + app data", async () => {
-    // Arrange: real multi-KB X.509 (not random buffer codec-only test)
+    // Arrange: 前提を準備する
     expect(Buffer.from(largeCertPem).length).toBeGreaterThan(2000);
 
     const serverTransport = await UdpTransport.init("udp4");
@@ -35,7 +35,7 @@ describe("e2e/self13 large certificate full handshake", () => {
       mtu: 400,
     });
 
-    // Act / Assert: full HS + CertificateVerify + bidirectional app data
+    // Act / Assert: フラグメント処理を検証する
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("large cert e2e timeout")),

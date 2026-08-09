@@ -5,7 +5,7 @@ import { certPem, keyPem } from "../fixture";
 
 describe("e2e/self13 client cert decline", () => {
   test("client without cert sends empty Certificate; server rejects with certificate_required", async () => {
-    // Arrange: server requires client cert; client has no cert/key
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -24,7 +24,7 @@ describe("e2e/self13 client cert decline", () => {
       addressValidation: "none",
     });
 
-    // Act / Assert: client may finish its side; server policy rejects empty cert
+    // Act / Assert: 証明書・署名を検証する
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("empty cert decline timeout")),

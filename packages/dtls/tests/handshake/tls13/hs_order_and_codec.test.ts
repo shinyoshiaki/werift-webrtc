@@ -13,7 +13,7 @@ import { certPem, keyPem } from "../../fixture";
 
 describe("P2: handshake message order state machine", () => {
   test("client rejects Certificate before EncryptedExtensions", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -33,7 +33,7 @@ describe("P2: handshake message order state machine", () => {
     // Force phase as if SH was processed
     eng.hsPhase = "wait_ee";
 
-    // Act / Assert: Certificate when EE expected
+    // Act / Assert: 証明書・署名を検証する
     await expect(
       eng.dispatchHandshake(
         {
@@ -55,7 +55,7 @@ describe("P2: handshake message order state machine", () => {
   });
 
   test("server rejects EncryptedExtensions from client on epoch 2", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -67,7 +67,7 @@ describe("P2: handshake message order state machine", () => {
     const eng = (server as any).engine13;
     eng.hsPhase = "wait_client_finished";
 
-    // Act / Assert
+    // Act / Assert: レコード保護を検証する
     await expect(
       eng.dispatchHandshake(
         {
@@ -89,13 +89,13 @@ describe("P2: handshake message order state machine", () => {
 
 describe("P2: strict vector length validation", () => {
   test("key_share client rejects trailing bytes", () => {
-    // Arrange: valid single X25519 share + trailing 0xff
+    // Arrange: 前提を準備する
     const kp = generateKeyPair(NamedCurveAlgorithm.x25519_29);
     const good = KeyShare.forClient([
       { group: NamedCurveAlgorithm.x25519_29, keyExchange: kp.publicKey },
     ]).serializeClientData();
     const bad = Buffer.concat([good, Buffer.from([0xff])]);
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     expect(() => KeyShare.fromClientData(bad)).toThrow(/length mismatch/i);
   });
 

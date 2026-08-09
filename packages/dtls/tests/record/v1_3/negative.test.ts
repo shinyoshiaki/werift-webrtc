@@ -5,7 +5,7 @@ import { parseDatagramRecords } from "../../../src/record/v1_3/record";
 
 describe("record/v1_3 negative", () => {
   test("truncated unified header throws", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const buf = Buffer.from([0x2f]); // only first byte
 
     // Act / Assert: ヘッダ不足はエラー
@@ -13,7 +13,7 @@ describe("record/v1_3 negative", () => {
   });
 
   test("oversized length throws DtlsDecodeError (strict truncation)", () => {
-    // Arrange: length claims 1000 but body is short
+    // Arrange: 前提を準備する
     const header = serializeUnifiedHeader(2, 1, 1000);
     const data = Buffer.concat([header, Buffer.alloc(10)]);
 
@@ -24,17 +24,17 @@ describe("record/v1_3 negative", () => {
   });
 
   test("invalid first byte is rejected", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const data = Buffer.from([0x00, 0x01, 0x02]);
 
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     expect(() => parseDatagramRecords(data, () => undefined)).toThrow(
       /invalid DTLS record/,
     );
   });
 
   test("CID bit set is rejected on parse", () => {
-    // Arrange: C=1
+    // Arrange: 前提を準備する
     const data = Buffer.from([
       0x30,
       0x00,
@@ -44,7 +44,7 @@ describe("record/v1_3 negative", () => {
       ...Buffer.alloc(16),
     ]);
 
-    // Act / Assert
+    // Act / Assert: codec の往復を検証する
     expect(() => parseDatagramRecords(data, () => undefined)).toThrow(
       /Connection ID/,
     );

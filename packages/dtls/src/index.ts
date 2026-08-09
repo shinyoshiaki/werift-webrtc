@@ -5,10 +5,11 @@ export { DtlsClient } from "./client";
 export { DtlsServer } from "./server";
 export { DtlsSocket, DtlsVersion } from "./socket";
 export type { Options } from "./socket";
+// DtlsInternalOptions (handshakeCarrier) is intentionally NOT exported — not stable Public API.
 export { ProtocolVersionError } from "./version";
 // selectVersion / DtlsVersionSelected are association-internal (not Public API).
 // Carrier / SPED types are package-internal for Epic 1.
-// Import from "./carrier/*" or "./version" only in tests / Epic 2 integration.
+// Import from "./carrier/*" or "./version" or "./socket" only in tests / Epic 2 integration.
 
 /*
  * DTLS 1.2 full handshake (RFC 6347) — default when protocolVersions is unset

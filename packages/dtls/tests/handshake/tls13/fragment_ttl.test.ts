@@ -13,7 +13,7 @@ import { certPem, keyPem } from "../../fixture";
  */
 describe("security bounds: fragment TTL accounting", () => {
   test("expired incomplete fragments free reserved bytes", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const transport = await UdpTransport.init("udp4");
     const server = new Dtls13Connection(
       {
@@ -35,7 +35,7 @@ describe("security bounds: fragment TTL accounting", () => {
       40,
       Buffer.alloc(40, 0xab),
     );
-    // Act: feed into reassembly (does not complete)
+    // Act: フラグメント処理を検証する
     const incomplete = eng.reassemble(part);
     expect(incomplete).toBeNull();
     expect(eng.fragmentBuffer.size).toBe(1);
@@ -45,14 +45,14 @@ describe("security bounds: fragment TTL accounting", () => {
     const key = [...eng.fragmentBuffer.keys()][0];
     eng.fragmentBuffer.get(key).createdAt = Date.now() - FRAGMENT_TTL_MS - 1;
 
-    // Act: eviction
+    // Act: フラグメント処理を検証する
     eng.evictExpiredFragments();
 
-    // Assert: entry gone and reserved bytes fully released
+    // Assert: フラグメント処理を検証する
     expect(eng.fragmentBuffer.size).toBe(0);
     expect(eng.fragmentBufferBytes).toBe(0);
 
-    // Act: reuse capacity after TTL — must not hit "total bytes exceeded"
+    // Act: フラグメント処理を検証する
     const part2 = new FragmentedHandshake(
       HandshakeType.certificate_11,
       total,

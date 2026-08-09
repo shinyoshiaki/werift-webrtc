@@ -22,6 +22,13 @@ import {
 
 export const DTLS13_LEGACY_VERSION = { major: 254, minor: 253 }; // 0xfefd
 
+/**
+ * RFC 8446 / RFC 9147 record size limits (TLS 1.3 plaintext / ciphertext).
+ * Plaintext fragment ≤ 2^14; ciphertext expansion allows +256 bytes.
+ */
+export const DTLS13_MAX_PLAINTEXT_LENGTH = 1 << 14; // 16384
+export const DTLS13_MAX_CIPHERTEXT_LENGTH = DTLS13_MAX_PLAINTEXT_LENGTH + 256; // 16640
+
 /** Thrown when a ciphertext is discarded by anti-replay (not a fatal connection error). */
 export class DtlsReplayError extends Error {
   readonly code = "replay";
@@ -44,6 +51,19 @@ export class DtlsDecodeError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DtlsDecodeError";
+  }
+}
+
+/**
+ * Record exceeds TLS 1.3 / DTLS 1.3 length limits (alert record_overflow).
+ * Visible in the header before AEAD for length-present ciphertext.
+ */
+export class DtlsRecordOverflowError extends Error {
+  readonly code = "record_overflow";
+  readonly alertDescription = 22; // AlertDesc.RecordOverflow
+  constructor(message: string) {
+    super(message);
+    this.name = "DtlsRecordOverflowError";
   }
 }
 
@@ -78,10 +98,21 @@ export function encryptRecord(
   if (!epochState.writeKeys) {
     throw new Error(`no write keys for epoch ${epochState.epoch}`);
   }
+  // RFC 8446 §5.1: plaintext fragment MUST NOT exceed 2^14 bytes
+  if (content.length > DTLS13_MAX_PLAINTEXT_LENGTH) {
+    throw new DtlsRecordOverflowError(
+      `record_overflow: plaintext ${content.length} exceeds ${DTLS13_MAX_PLAINTEXT_LENGTH}`,
+    );
+  }
   const seq = epochState.writeSequence++;
   const inner = buildInnerPlaintext(content, contentType, 0);
   // Header length field covers encrypted_record length (ciphertext + tag)
   const ciphertextLength = inner.length + 16;
+  if (ciphertextLength > DTLS13_MAX_CIPHERTEXT_LENGTH) {
+    throw new DtlsRecordOverflowError(
+      `record_overflow: ciphertext ${ciphertextLength} exceeds ${DTLS13_MAX_CIPHERTEXT_LENGTH}`,
+    );
+  }
   // AAD uses the header with the *unencrypted* sequence number (RFC 9147)
   const headerPlain = serializeUnifiedHeader(
     epochState.epoch,
@@ -161,6 +192,12 @@ export function decryptRecord(
     );
   }
   const length = data.readUInt16BE(1 + seqLen);
+  // RFC 8446 §5.2: ciphertext length MUST NOT exceed 2^14 + 256
+  if (length > DTLS13_MAX_CIPHERTEXT_LENGTH) {
+    throw new DtlsRecordOverflowError(
+      `record_overflow: ciphertext length ${length} exceeds ${DTLS13_MAX_CIPHERTEXT_LENGTH}`,
+    );
+  }
   const total = headerLen + length;
   if (data.length < total) {
     throw new DtlsDecodeError(
@@ -204,6 +241,12 @@ export function decryptRecord(
         headerPlain,
       );
       const { content, contentType } = parseInnerPlaintext(inner);
+      // RFC 8446 §5.4: plaintext after deprotection MUST NOT exceed 2^14
+      if (content.length > DTLS13_MAX_PLAINTEXT_LENGTH) {
+        throw new DtlsRecordOverflowError(
+          `record_overflow: deprotected plaintext ${content.length} exceeds ${DTLS13_MAX_PLAINTEXT_LENGTH}`,
+        );
+      }
 
       if (!epochState.readReplay.mayReceive(seq)) {
         throw new DtlsReplayError(
@@ -276,6 +319,11 @@ export function serializePlaintextRecord(
   fragment: Buffer,
   protocolVersion = DTLS13_LEGACY_VERSION,
 ): Buffer {
+  if (fragment.length > DTLS13_MAX_PLAINTEXT_LENGTH) {
+    throw new DtlsRecordOverflowError(
+      `record_overflow: plaintext fragment ${fragment.length} exceeds ${DTLS13_MAX_PLAINTEXT_LENGTH}`,
+    );
+  }
   const pkt = new DtlsPlaintext(
     {
       contentType,
@@ -342,6 +390,11 @@ export function parseNextRecord(
     const epoch = data.readUInt16BE(3);
     const sequenceNumber = data.readUIntBE(5, 6);
     const contentLen = data.readUInt16BE(11);
+    if (contentLen > DTLS13_MAX_PLAINTEXT_LENGTH) {
+      throw new DtlsRecordOverflowError(
+        `record_overflow: plaintext length ${contentLen} exceeds ${DTLS13_MAX_PLAINTEXT_LENGTH}`,
+      );
+    }
     if (data.length < 13 + contentLen) {
       throw new DtlsDecodeError(
         `plaintext record truncated: need ${13 + contentLen}, have ${data.length}`,

@@ -73,7 +73,7 @@ function writeCerts() {
 
 describe("e2e/boringssl harness gate", () => {
   test("CI requires dtls13_echo harness (P0 interop)", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     if (requireHarness) {
       expect(
         hasHarness,
@@ -89,7 +89,7 @@ describe("e2e/boringssl harness gate", () => {
   });
 
   test("built revision matches pin when .built-revision present", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const built = readBuiltRevision();
     // Act / Assert: pin ビルド後は revision 一致を強制
     if (built) {
@@ -108,13 +108,13 @@ describe("e2e/boringssl harness gate", () => {
 
 describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
   test("documents pinned revision and harness", () => {
-    // Arrange / Assert
+    // Arrange: 前提を準備する
     expect(BORINGSSL_PIN_REVISION.length).toBeGreaterThan(8);
     expect(echoPath && existsSync(echoPath)).toBe(true);
   });
 
   test("werift client connects to BoringSSL DTLS 1.3 server with bidirectional data", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { certPath, keyPath } = writeCerts();
     const port = 45000 + Math.floor(Math.random() * 1000);
 
@@ -138,7 +138,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
     });
 
     try {
-      // Act: handshake
+      // Act: ハンドシェイクを検証する
       await new Promise<void>(async (resolve, reject) => {
         const timer = setTimeout(() => {
           const msg = `BoringSSL server interop timeout\nstderr=${stderr}`;
@@ -192,7 +192,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
   }, 25_000);
 
   test("BoringSSL client → werift server: must receive client data and echo response", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { certPath, keyPath } = writeCerts();
     const serverTransport = await UdpTransport.init("udp4");
     const port = serverTransport.address.port;
@@ -233,7 +233,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
     });
 
     try {
-      // Act: wait for handshake
+      // Act: 相互接続を検証する
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           const msg = `BoringSSL client interop timeout\nstderr=${stderr}\nstdout=${stdout}`;
@@ -305,7 +305,7 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
 
 if (!hasHarness && !requireHarness) {
   test("boringssl harness skipped (build tests/e2e/boringssl/dtls13_echo)", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     console.info(
       "[boringssl] skipped: run fetch-and-build-boringssl.sh " +
         `(pin ${BORINGSSL_PIN_REVISION}). bssl tool present=${!!bsslPath}`,

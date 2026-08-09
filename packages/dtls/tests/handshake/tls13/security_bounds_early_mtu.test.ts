@@ -14,7 +14,7 @@ import {
 
 describe("security bounds: early app data", () => {
   test("early app data caps are positive and small", () => {
-    // Arrange / Act / Assert: pre-Finished reorder window is bounded
+    // Arrange: 前提を準備する
     expect(MAX_EARLY_APP_DATA_RECORDS).toBeGreaterThan(0);
     expect(MAX_EARLY_APP_DATA_RECORDS).toBeLessThanOrEqual(32);
     expect(MAX_EARLY_APP_DATA_BYTES).toBeGreaterThan(0);
@@ -24,7 +24,7 @@ describe("security bounds: early app data", () => {
 
 describe("security bounds: encrypted handshake MTU", () => {
   test("encrypted HS record with maxFrag fits MTU (includes inner content type)", () => {
-    // Arrange: unified header(5) + HS header(12) + fragment + content type(1) + tag(16)
+    // Arrange: 前提を準備する
     const mtu = 400;
     const maxFrag = mtu - 5 - 12 - 1 - 16;
     expect(maxFrag).toBe(366);
@@ -34,7 +34,7 @@ describe("security bounds: encrypted handshake MTU", () => {
     const ep = createEpochProtection(2);
     ep.writeKeys = traffic;
 
-    // Act: full fragment at the size flight-tx would use after the fix
+    // Act: MTU 制約を検証する
     const body = Buffer.alloc(maxFrag, 0xab);
     const hs = new FragmentedHandshake(
       HandshakeType.certificate_11,
@@ -48,7 +48,7 @@ describe("security bounds: encrypted handshake MTU", () => {
     expect(hsBytes.length).toBe(12 + maxFrag);
     const record = encryptRecord(hsBytes, ContentType.handshake, ep);
 
-    // Assert: wire length never exceeds MTU
+    // Assert: MTU 制約を検証する
     expect(record.length).toBeLessThanOrEqual(mtu);
     // Old formula maxFrag = mtu-5-12-16 would produce mtu+1 after inner CT
     const oldMaxFrag = mtu - 5 - 12 - 16;

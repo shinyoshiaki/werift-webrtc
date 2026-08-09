@@ -30,7 +30,7 @@ function wrapTransport(
 }
 
 test("e2e/self13 recovers from first ClientHello loss", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = wrapTransport(
     await UdpTransport.init("udp4"),
@@ -47,7 +47,7 @@ test("e2e/self13 recovers from first ClientHello loss", async () => {
   const server = new DtlsServer({ transport: serverTransport, ...opts });
   const client = new DtlsClient({ transport: clientTransport, ...opts });
 
-  // Act / Assert
+  // Act / Assert: 損失・順序異常を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("loss timeout")), 20_000);
     client.onConnect.subscribe(() => {
@@ -73,7 +73,7 @@ test("e2e/self13 recovers from first ClientHello loss", async () => {
 }, 25_000);
 
 test("e2e/self13 tolerates duplicate ClientHello datagrams", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = wrapTransport(
     await UdpTransport.init("udp4"),
@@ -90,7 +90,7 @@ test("e2e/self13 tolerates duplicate ClientHello datagrams", async () => {
   const server = new DtlsServer({ transport: serverTransport, ...opts });
   const client = new DtlsClient({ transport: clientTransport, ...opts });
 
-  // Act / Assert
+  // Act / Assert: 損失・順序異常を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("duplicate timeout")),
@@ -115,15 +115,15 @@ test("e2e/self13 tolerates duplicate ClientHello datagrams", async () => {
 }, 20_000);
 
 test("ACK codec roundtrip for record numbers", () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const ack = new DtlsAck([
     { epoch: 2, sequenceNumber: 0 },
     { epoch: 2, sequenceNumber: 1 },
   ]);
-  // Act
+  // Act: ACK 処理を検証する
   const wire = ack.serialize();
   const parsed = DtlsAck.deSerialize(wire);
-  // Assert
+  // Assert: ACK 処理を検証する
   expect(parsed.recordNumbers).toEqual([
     { epoch: 2, sequenceNumber: 0 },
     { epoch: 2, sequenceNumber: 1 },
@@ -155,7 +155,7 @@ test("e2e/self13 recovers when early handshake datagrams are dropped", async () 
   const server = new DtlsServer({ transport: serverTransport, ...opts });
   const client = new DtlsClient({ transport: clientTransport, ...opts });
 
-  // Act / Assert
+  // Act / Assert: ハンドシェイクを検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("handshake loss timeout")),
@@ -210,7 +210,7 @@ test("e2e/self13 tolerates duplicate application data records", async () => {
     }
   };
 
-  // Act / Assert
+  // Act / Assert: 損失・順序異常を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("dup appdata timeout")),
@@ -282,7 +282,7 @@ test("e2e/self13 reorders client application data after handshake", async () => 
     await orig(buf, addr);
   };
 
-  // Act / Assert
+  // Act / Assert: ハンドシェイクを検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("app reorder timeout")),
@@ -344,7 +344,7 @@ test("e2e/self13 recovers from client final-flight loss", async () => {
   const server = new DtlsServer({ transport: serverTransport, ...opts });
   const client = new DtlsClient({ transport: clientTransport, ...opts });
 
-  // Act / Assert
+  // Act / Assert: 損失・順序異常を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("final-flight loss timeout")),
@@ -401,7 +401,7 @@ test("e2e/self13 recovers from KeyUpdate loss", async () => {
     await orig(buf, addr);
   };
 
-  // Act / Assert
+  // Act / Assert: KeyUpdate を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("KeyUpdate loss timeout")),
@@ -454,7 +454,7 @@ test("e2e/self13 completes with small MTU forcing certificate fragmentation", as
   const server = new DtlsServer({ transport: serverTransport, ...opts });
   const client = new DtlsClient({ transport: clientTransport, ...opts });
 
-  // Act / Assert
+  // Act / Assert: MTU 制約を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("small-MTU cert timeout")),

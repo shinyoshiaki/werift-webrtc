@@ -4,14 +4,14 @@ import { CertificateRequest13 } from "../../../src/handshake/message/tls13/certi
 
 describe("CertificateRequest13 main handshake context", () => {
   test("create() with empty context is valid for main handshake", () => {
-    // Arrange / Act: RFC 8446 §4.3.2 — main HS context SHALL be zero-length
+    // Arrange: 前提を準備する
     const cr = CertificateRequest13.create(
       Buffer.alloc(0),
       DEFAULT_SIGNATURE_SCHEMES,
     );
     const wire = cr.serialize();
     const parsed = CertificateRequest13.deSerialize(wire);
-    // Assert
+    // Assert: ハンドシェイクを検証する
     expect(parsed.certificateRequestContext.length).toBe(0);
     expect(parsed.extensions.length).toBeGreaterThan(0);
   });

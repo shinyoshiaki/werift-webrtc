@@ -52,7 +52,7 @@ function buildProbeClientHello(): Buffer {
 
 describe("anti-amplification budget (per association peer)", () => {
   test("server total TX ≤ 3× RX from the associated source before validation", async () => {
-    // Arrange: cookie-validated server; capture all outbound
+    // Arrange: 前提を準備する
     const sent: Buffer[] = [];
     const serverTransport = await UdpTransport.init("udp4");
     const originalSend = serverTransport.send.bind(serverTransport);
@@ -70,7 +70,7 @@ describe("anti-amplification budget (per association peer)", () => {
 
     const probe = buildProbeClientHello();
     const peer: Address = ["203.0.113.1", 40000];
-    // Act: flood many unauthenticated ClientHellos from the *same* source
+    // Act: 期待どおりの結果を検証する
     // (retransmits / retries before cookie). Budget is 3× bytes from this peer.
     const floodCount = 8;
     for (let i = 0; i < floodCount; i++) {
@@ -82,7 +82,7 @@ describe("anti-amplification budget (per association peer)", () => {
     const totalSent = sent.reduce((n, b) => n + b.length, 0);
     const totalRecv = probe.length * floodCount;
 
-    // Assert: outbound never exceeds 3× inbound from the associated peer
+    // Assert: 期待どおりの結果を検証する
     expect(totalSent).toBeLessThanOrEqual(
       ANTI_AMPLIFICATION_FACTOR * totalRecv,
     );
@@ -93,7 +93,7 @@ describe("anti-amplification budget (per association peer)", () => {
   }, 15_000);
 
   test("cookie-less CH does not permanently lock association (other sources still answered)", async () => {
-    // Arrange: dtls-cookie — first valid CH must NOT demux-lock the peer
+    // Arrange: 前提を準備する
     const sent: Buffer[] = [];
     const sendAddrs: Array<Address | undefined> = [];
     const serverTransport = await UdpTransport.init("udp4");
@@ -115,7 +115,7 @@ describe("anti-amplification budget (per association peer)", () => {
     const attacker: Address = ["203.0.113.10", 50000];
     const legit: Address = ["198.51.100.50", 50001];
 
-    // Act: attacker B sends cookie-less CH → gets HRR but must not lock association
+    // Act: cookie 経路を検証する
     serverTransport.onData?.(probe, attacker as any);
     await new Promise((r) => setTimeout(r, 50));
     const eng = (server as any).engine13;

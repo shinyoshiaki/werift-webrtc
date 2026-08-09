@@ -11,7 +11,7 @@ import { certPem, keyPem } from "../fixture";
  */
 describe("e2e/client dual fallback openssl", () => {
   test("werift [1.3,1.2] client connects to openssl -dtls1_2", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const port = 55561;
     const args = [
       "s_server",
@@ -41,7 +41,7 @@ describe("e2e/client dual fallback openssl", () => {
       protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
     });
 
-    // Act / Assert
+    // Act / Assert: ハンドシェイクを検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error("openssl dual fallback timeout"));
@@ -69,7 +69,7 @@ describe("e2e/client dual fallback openssl", () => {
   }, 20_000);
 
   test("werift 1.2 client EXTRACTOR-dtls_srtp still works with openssl", async () => {
-    // Arrange: pure 1.2 regression for exporter path
+    // Arrange: 前提を準備する
     const port = 55562;
     const args = [
       "s_server",
@@ -100,7 +100,7 @@ describe("e2e/client dual fallback openssl", () => {
       srtpProfiles: [0x0001],
     });
 
-    // Act / Assert
+    // Act / Assert: use_srtp/MKI を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("srtp 1.2 openssl timeout")),

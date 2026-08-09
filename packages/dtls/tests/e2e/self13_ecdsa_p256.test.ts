@@ -23,7 +23,7 @@ import {
 
 describe("e2e/self13 ECDSA P-256 CertificateVerify", () => {
   test("full handshake with P-256 ECDSA certificate (positive)", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -68,13 +68,13 @@ describe("e2e/self13 ECDSA P-256 CertificateVerify", () => {
       client.onConnect.subscribe(() => {
         void client.send(Buffer.from("ecdsa-p256"));
       });
-      // Act
+      // Act: 証明書・署名を検証する
       await client.connect();
     });
   }, 20_000);
 
   test("P-384 server certificate fails scheme negotiation (negative)", async () => {
-    // Arrange: server only has P-384 EC key → no ecdsa_secp256r1_sha256
+    // Arrange: 前提を準備する
     expect(schemesForKey(ecdsaP384KeyPem)).toEqual([]);
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
@@ -92,7 +92,7 @@ describe("e2e/self13 ECDSA P-256 CertificateVerify", () => {
       addressValidation: "none",
     });
 
-    // Act / Assert: handshake must fail (no overlapping CV scheme)
+    // Act / Assert: 証明書・署名を検証する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("p384 should fail promptly")),
@@ -128,7 +128,7 @@ describe("e2e/self13 ECDSA P-256 CertificateVerify", () => {
 
 describe("CertificateVerify curve / key type binding", () => {
   test("schemesForKey: P-256 offers ecdsa; P-384 offers none; RSA offers PSS", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(schemesForKey(ecdsaP256KeyPem)).toEqual([
       SignatureScheme.ecdsa_secp256r1_sha256,
     ]);
@@ -141,13 +141,13 @@ describe("CertificateVerify curve / key type binding", () => {
   });
 
   test("verifyCertificateVerify rejects ecdsa_secp256r1_sha256 on P-384 cert", () => {
-    // Arrange: craft a signature with P-384 key claiming P-256 scheme
+    // Arrange: 前提を準備する
     const transcript = Buffer.alloc(32, 7);
     const content = buildCertificateVerifyContent(true, hashSha256(transcript));
     const signer = createSign("sha256");
     signer.update(content);
     const sig = signer.sign(createPrivateKey(ecdsaP384KeyPem));
-    // Act / Assert
+    // Act / Assert: 証明書・署名を検証する
     expect(() =>
       verifyCertificateVerify(
         new X509Certificate(ecdsaP384CertPem).raw,
@@ -160,11 +160,11 @@ describe("CertificateVerify curve / key type binding", () => {
   });
 
   test("verifyCertificateVerify rejects ecdsa scheme on RSA cert", () => {
-    // Arrange: RSA signature bytes used with wrong algorithm label
+    // Arrange: 前提を準備する
     const transcript = Buffer.alloc(16, 1);
     const { signature } = signCertificateVerify(keyPem, true, transcript);
     const der = FidmCertificate.fromPEM(Buffer.from(certPem)).raw;
-    // Act / Assert
+    // Act / Assert: 証明書・署名を検証する
     expect(() =>
       verifyCertificateVerify(
         der,
@@ -177,14 +177,14 @@ describe("CertificateVerify curve / key type binding", () => {
   });
 
   test("signCertificateVerify rejects P-384 private key", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(() =>
       signCertificateVerify(ecdsaP384KeyPem, true, Buffer.alloc(8)),
     ).toThrow(/P-256|namedCurve|secp384/i);
   });
 
   test("P-256 CertificateVerify roundtrip verifies", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const transcript = Buffer.from("p256-cv-transcript");
     const { algorithm, signature } = signCertificateVerify(
       ecdsaP256KeyPem,
@@ -192,7 +192,7 @@ describe("CertificateVerify curve / key type binding", () => {
       transcript,
     );
     const der = FidmCertificate.fromPEM(Buffer.from(ecdsaP256CertPem)).raw;
-    // Act
+    // Act: 証明書・署名を検証する
     const ok = verifyCertificateVerify(
       der,
       algorithm,
@@ -200,7 +200,7 @@ describe("CertificateVerify curve / key type binding", () => {
       true,
       transcript,
     );
-    // Assert
+    // Assert: 証明書・署名を検証する
     expect(algorithm).toBe(SignatureScheme.ecdsa_secp256r1_sha256);
     expect(ok).toBe(true);
   });

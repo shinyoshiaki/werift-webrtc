@@ -9,7 +9,11 @@ import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
-import { DtlsSocket, type Options } from "./socket";
+import {
+  DtlsSocket,
+  type DtlsInternalOptions,
+  type Options,
+} from "./socket";
 import {
   DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
@@ -29,7 +33,7 @@ export class DtlsClient extends DtlsSocket {
    */
   private dualCookiePath = false;
 
-  constructor(options: Options) {
+  constructor(options: Options | DtlsInternalOptions) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
 
@@ -60,7 +64,8 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
-        carrier: this.options.handshakeCarrier,
+        // handshakeCarrier is DtlsInternalOptions only (not stable Public API)
+        carrier: (this.options as DtlsInternalOptions).handshakeCarrier,
         offeredProtocolVersions: offered,
       },
       SessionType.CLIENT,

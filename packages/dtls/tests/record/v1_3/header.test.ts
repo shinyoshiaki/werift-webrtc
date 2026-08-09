@@ -17,15 +17,15 @@ import {
 
 describe("record/v1_3/header", () => {
   test("serialize and parse unified header with length", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const header = serializeUnifiedHeader(2, 0x1234, 50);
 
-    // Act
+    // Act: codec の往復を検証する
     const parsed = parseUnifiedHeader(
       Buffer.concat([header, Buffer.alloc(50)]),
     );
 
-    // Assert
+    // Assert: codec の往復を検証する
     expect(isUnifiedHeader(header[0])).toBe(true);
     expect(parsed.epochLowBits).toBe(2);
     expect(parsed.sequenceNumber).toBe(0x1234);
@@ -34,16 +34,16 @@ describe("record/v1_3/header", () => {
   });
 
   test("CID=1 is rejected", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const bad = Buffer.from([0x30, 0x00, 0x01, 0x00, 0x10]); // C bit set
 
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     expect(isCidPresent(bad[0])).toBe(true);
     expect(() => parseUnifiedHeader(bad)).toThrow(/Connection ID/);
   });
 
   test("encrypt/decrypt record roundtrip with anti-replay", () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const writeEp = createEpochProtection(2);
     writeEp.writeKeys = {
       key: Buffer.alloc(16, 1),
@@ -58,11 +58,11 @@ describe("record/v1_3/header", () => {
     };
     const payload = Buffer.from("handshake-body");
 
-    // Act
+    // Act: リプレイを検証する
     const wire = encryptRecord(payload, ContentType.handshake, writeEp);
     const dec = decryptRecord(wire, () => readEp);
 
-    // Assert
+    // Assert: リプレイを検証する
     expect(dec).not.toBeNull();
     expect(dec!.contentType).toBe(ContentType.handshake);
     expect(dec!.content.equals(payload)).toBe(true);
@@ -72,7 +72,7 @@ describe("record/v1_3/header", () => {
   });
 
   test("trial decrypt tries multiple epochs sharing low 2 bits", () => {
-    // Arrange: epoch 3 and 7 both match low bits 3; only epoch 3 has the right key
+    // Arrange: 前提を準備する
     const writeEp = createEpochProtection(3);
     writeEp.writeKeys = {
       key: Buffer.alloc(16, 1),
@@ -94,34 +94,34 @@ describe("record/v1_3/header", () => {
     const payload = Buffer.from("epoch-trial");
     const wire = encryptRecord(payload, ContentType.handshake, writeEp);
 
-    // Act: resolver returns newest-first [7, 3]; 7 fails AEAD, 3 succeeds
+    // Act: レコード保護を検証する
     const dec = decryptRecord(wire, () => [wrongNewer, correct]);
 
-    // Assert
+    // Assert: レコード保護を検証する
     expect(dec).not.toBeNull();
     expect(dec!.epoch).toBe(3);
     expect(dec!.content.equals(payload)).toBe(true);
   });
 
   test("reconstructSequence advances window", () => {
-    // Arrange / Act / Assert
+    // Arrange: 前提を準備する
     expect(reconstructSequence(5, 2, 0)).toBe(5);
     expect(reconstructSequence(1, 2, 0xfffe)).toBe(0x10001);
   });
 
   test("parseNextRecord throws DtlsDecodeError on truncated plaintext", () => {
-    // Arrange: content-type handshake but only 5 bytes
+    // Arrange: 前提を準備する
     const partial = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x00]);
-    // Act / Assert
+    // Act / Assert: codec の往復を検証する
     expect(() => parseNextRecord(partial, () => undefined)).toThrow(
       DtlsDecodeError,
     );
   });
 
   test("decryptRecord throws DtlsDecodeError on truncated ciphertext", () => {
-    // Arrange: unified header claiming length beyond buffer
+    // Arrange: 前提を準備する
     const buf = Buffer.from([0x26, 0x00, 0x00, 0xff]); // incomplete
-    // Act / Assert
+    // Act / Assert: レコード保護を検証する
     expect(() => decryptRecord(buf, () => undefined)).toThrow(DtlsDecodeError);
   });
 });

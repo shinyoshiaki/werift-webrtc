@@ -9,7 +9,7 @@ import { certPem, keyPem } from "../fixture";
  * P-256 key share path via direct Dtls13Connection (groups option).
  */
 test("e2e/self13 P-256 key share bidirectional data", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -39,7 +39,7 @@ test("e2e/self13 P-256 key share bidirectional data", async () => {
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("p256 timeout")), 15_000);
     server.onData.subscribe((data) => {
-      // Assert
+      // Assert: 期待どおりの結果を検証する
       expect(data.toString()).toBe("p256");
       void server.send(Buffer.from("p256_ok"));
     });
@@ -62,7 +62,7 @@ test("e2e/self13 P-256 key share bidirectional data", async () => {
       void client.send(Buffer.from("p256"));
     });
 
-    // Act
+    // Act: 期待どおりの結果を検証する
     await client.connect();
   });
 }, 20_000);

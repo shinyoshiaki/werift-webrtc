@@ -153,24 +153,11 @@ describe("datachannel/ice tcp", () => {
         "datachannel_ice_tcp init",
       );
       await pc.setRemoteDescription(answer);
-      try {
-        await Promise.all([
-          waitForPeerConnection(pc, 45_000),
-          waitForDataChannelOpen(channel, 45_000),
-        ]);
-      } catch (err) {
-        // Synthetic-only path is environment-dependent (hidden stats TCP without
-        // SDP lines). Skip rather than hard-fail CI when connectivity cannot form.
-        if (directTcpCandidates.length === 0) {
-          skip(
-            `ICE-TCP connectivity unavailable with synthetic active candidate: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-          return;
-        }
-        throw err;
-      }
+      // 接続失敗は skip に変換しない（回帰を silence しない）
+      await Promise.all([
+        waitForPeerConnection(pc, 45_000),
+        waitForDataChannelOpen(channel, 45_000),
+      ]);
 
       await expectMessage(channel, "server-to-browser-ice-tcp", () => {});
       await expectMessage(channel, "browser-to-server-ice-tcppong", () => {

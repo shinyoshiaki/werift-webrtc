@@ -48,7 +48,7 @@ async function pair(extra?: {
 
 describe("P1: remote peer pin (rinfo hijack)", () => {
   test("post-handshake app data is not redirected after foreign UDP packet", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { server, client, serverTransport, clientTransport } = await pair();
     const word = "pin-test";
 
@@ -67,12 +67,12 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       });
 
       server.onData.subscribe((data) => {
-        // Assert: server still received client data after noise
+        // Assert: ACK 処理を検証する
         expect(data.toString()).toBe(word);
         void server.send(Buffer.from(word + "_ok"));
       });
       client.onData.subscribe((data) => {
-        // Assert: client got response on the real 5-tuple (not hijacked)
+        // Assert: ACK 処理を検証する
         expect(data.toString()).toBe(word + "_ok");
         clearTimeout(timer);
         client.close();
@@ -81,7 +81,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       });
 
       client.onConnect.subscribe(() => {
-        // Act: inject noise that would rewrite UdpTransport.rinfo if association
+        // Act: ACK 処理を検証する
         // used last-rinfo for TX (simulate foreign source by mutating rinfo)
         const realClient = clientTransport.address;
         serverTransport.rinfo = { address: "203.0.113.9", port: 9 };
@@ -98,7 +98,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
   }, 20_000);
 
   test("dtls-cookie pin: foreign source packets do not steal association", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { server, client, serverTransport } = await pair({
       addressValidation: "dtls-cookie",
     });
@@ -117,7 +117,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
         reject(e);
       });
       client.onConnect.subscribe(() => {
-        // Act: after connect, pin is set — foreign rinfo must not redirect
+        // Act: cookie 経路を検証する
         const eng = (server as any).engine13;
         expect(eng).toBeTruthy();
         expect(eng.pinnedPeerKey || eng.provisionalPeerKey).toBeTruthy();
@@ -140,12 +140,12 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
   }, 20_000);
 
   test("pre-handshake garbage from B does not lock out legitimate ClientHello from A", async () => {
-    // Arrange: P1 regression — lockProvisionalPeer must not run on undecoded UDP
+    // Arrange: 前提を準備する
     const { server, client, serverTransport } = await pair({
       addressValidation: "none",
     });
 
-    // Act: attacker B sends random garbage before any handshake
+    // Act: ハンドシェイクを検証する
     serverTransport.onData?.(Buffer.from("not-a-dtls-record-at-all"), [
       "203.0.113.50",
       9,
@@ -160,7 +160,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       expect(engEarly.pinnedPeerKey).toBeUndefined();
     }
 
-    // Assert: legitimate handshake still completes
+    // Assert: ハンドシェイクを検証する
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("garbage-then-CH handshake timeout")),
@@ -191,7 +191,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
   }, 20_000);
 
   test("valid cookie-less CH from B does not lock out legitimate A (dtls-cookie)", async () => {
-    // Arrange: B sends a well-formed CH without completing cookie → A must still connect
+    // Arrange: 前提を準備する
     const { server, client, serverTransport } = await pair({
       addressValidation: "dtls-cookie",
     });
@@ -229,14 +229,14 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       );
     })();
 
-    // Act: attacker B valid CH (no cookie) — server may HRR but must not pin
+    // Act: cookie 経路を検証する
     serverTransport.onData?.(probe, ["203.0.113.77", 4444] as any);
     await new Promise((r) => setTimeout(r, 50));
     const engB = (server as any).engine13;
     expect(engB.provisionalPeerKey).toBeUndefined();
     expect(engB.pinnedPeerKey).toBeUndefined();
 
-    // Assert: legitimate client A completes cookie exchange + handshake
+    // Assert: cookie 経路を検証する
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("B-CH then A handshake timeout")),
@@ -265,7 +265,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
   }, 20_000);
 
   test("client pins destination at connect; forged HRR from B does not redirect CH2", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { server, client, clientTransport } = await pair({
       addressValidation: "dtls-cookie",
     });
@@ -285,7 +285,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       return origSend(buf, addr);
     };
 
-    // Act: pin destination via connect, then inject foreign-looking SH/HRR path
+    // Act: HelloRetryRequest 経路を検証する
     // by mutating rinfo as if a packet arrived from B (demux must drop / not rebind)
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
@@ -302,7 +302,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       });
       client.onConnect.subscribe(() => {
         clearTimeout(timer);
-        // Assert: client pin uses loopback when rinfo was 0.0.0.0 (normalize)
+        // Assert: HelloRetryRequest 経路を検証する
         const expectedHost =
           realServer.address === "0.0.0.0" ? "127.0.0.1" : realServer.address;
         expect(clientEng.pinnedPeerKey).toBe(
@@ -329,7 +329,7 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
 
 describe("P2: inbound ACK processing bound", () => {
   test("deSerialize caps record_numbers at MAX_ACK_RECORD_NUMBERS_INBOUND", () => {
-    // Arrange: wire claims many more entries than local bound
+    // Arrange: 前提を準備する
     const n = MAX_ACK_RECORD_NUMBERS_INBOUND + 50;
     const listLen = n * 16;
     const buf = Buffer.alloc(2 + listLen);
@@ -339,9 +339,9 @@ describe("P2: inbound ACK processing bound", () => {
       buf.writeBigUInt64BE(BigInt(3), off);
       buf.writeBigUInt64BE(BigInt(i), off + 8);
     }
-    // Act
+    // Act: ACK 処理を検証する
     const ack = DtlsAck.deSerialize(buf);
-    // Assert
+    // Assert: ACK 処理を検証する
     expect(ack.recordNumbers.length).toBe(MAX_ACK_RECORD_NUMBERS_INBOUND);
     expect(MAX_ACK_RECORD_NUMBERS_INBOUND).toBe(MAX_ACK_RECORD_NUMBERS);
     expect(ack.recordNumbers[0].sequenceNumber).toBe(0);
@@ -353,7 +353,7 @@ describe("P2: inbound ACK processing bound", () => {
 
 describe("P2: close_notify epoch/seq boundary", () => {
   test("application data with lower seq than close_notify is still deliverable", async () => {
-    // Arrange: full handshake then inject reordered close + app via engine internals
+    // Arrange: 前提を準備する
     const { server, client } = await pair();
 
     await new Promise<void>(async (resolve, reject) => {
@@ -373,7 +373,7 @@ describe("P2: close_notify epoch/seq boundary", () => {
         clearTimeout(timer);
         const eng = (client as any).engine13;
         expect(eng).toBeTruthy();
-        // Act: set close boundary at epoch 3 seq 11 (as if close_notify arrived first)
+        // Act: alert/close を検証する
         eng.peerCloseBoundary = { epoch: 3, sequenceNumber: 11 };
         const shouldDrop = (epoch: number, seq: number) => {
           const b = eng.peerCloseBoundary;
@@ -381,7 +381,7 @@ describe("P2: close_notify epoch/seq boundary", () => {
             epoch > b.epoch || (epoch === b.epoch && seq > b.sequenceNumber)
           );
         };
-        // Assert: RFC 9147 — only greater epoch/seq ignored
+        // Assert: alert/close を検証する
         expect(shouldDrop(3, 10)).toBe(false);
         expect(shouldDrop(3, 11)).toBe(false);
         expect(shouldDrop(3, 12)).toBe(true);
@@ -454,7 +454,7 @@ describe("P2: missing_extension fails promptly (not timeout)", () => {
   }
 
   test("ClientHello without key_share fails with missing_extension", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -463,7 +463,7 @@ describe("P2: missing_extension fails promptly (not timeout)", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("missing key_share should fail promptly")),
@@ -487,7 +487,7 @@ describe("P2: missing_extension fails promptly (not timeout)", () => {
   }, 10_000);
 
   test("ClientHello without supported_groups fails with missing_extension", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -496,7 +496,7 @@ describe("P2: missing_extension fails promptly (not timeout)", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
     });
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () =>
@@ -523,7 +523,7 @@ describe("P2: missing_extension fails promptly (not timeout)", () => {
 
 describe("P2: use_srtp RFC 5764 server response", () => {
   test("rejects multi-profile use_srtp in EncryptedExtensions", async () => {
-    // Arrange: client engine with offered use_srtp
+    // Arrange: 前提を準備する
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]); // use_srtp
@@ -535,10 +535,10 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     const { EncryptedExtensions } = await import(
       "../../../src/handshake/message/tls13/encryptedExtensions"
     );
-    // Act: server illegally returns two profiles
+    // Act: レコード保護を検証する
     const multi = UseSRTP.create([1, 2], Buffer.alloc(0));
     const ee = new EncryptedExtensions([multi.extension]);
-    // Assert
+    // Assert: レコード保護を検証する
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
       /exactly one profile/i,
     );
@@ -547,7 +547,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
   });
 
   test("rejects use_srtp profile not offered by client", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]);
@@ -561,7 +561,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     );
     const bad = UseSRTP.create([0x0007], Buffer.alloc(0));
     const ee = new EncryptedExtensions([bad.extension]);
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
       /not offered/i,
     );
@@ -570,7 +570,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
   });
 
   test("rejects use_srtp MKI mismatch (different non-empty)", async () => {
-    // Arrange: client offered empty MKI; server returns different non-empty
+    // Arrange: 前提を準備する
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]);
@@ -584,7 +584,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     );
     const badMki = UseSRTP.create([1], Buffer.from([0x01, 0x02]));
     const ee = new EncryptedExtensions([badMki.extension]);
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
       /MKI/i,
     );
@@ -593,7 +593,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
   });
 
   test("accepts empty MKI response even if client offered non-empty MKI", async () => {
-    // Arrange: RFC 5764 — server may disable MKI with empty response
+    // Arrange: 前提を準備する
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]);
@@ -607,7 +607,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     );
     const emptyMki = UseSRTP.create([1], Buffer.alloc(0));
     const ee = new EncryptedExtensions([emptyMki.extension]);
-    // Act / Assert: must not throw
+    // Act / Assert: use_srtp/MKI を検証する
     await eng.onEncryptedExtensions(ee.serialize());
     expect(eng.negotiatedSrtpProfile).toBe(1);
     client.close();
@@ -615,7 +615,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
   });
 
   test("rejects unsolicited unknown extension in EE", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([10]); // only supported_groups
@@ -626,7 +626,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     const ee = new EncryptedExtensions([
       { type: 0x9999, data: Buffer.from([1]) },
     ]);
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
       /unsupported_extension|unsolicited/i,
     );
@@ -635,7 +635,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
   });
 
   test("allows supported_groups in EE when offered", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([EllipticCurves.type]);
@@ -645,7 +645,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
       "../../../src/handshake/message/tls13/encryptedExtensions"
     );
     const ee = new EncryptedExtensions([curves.extension]);
-    // Act: must not throw (transcript add only)
+    // Act: 期待どおりの結果を検証する
     await eng.onEncryptedExtensions(ee.serialize());
     client.close();
     server.close();
@@ -654,7 +654,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
 
 describe("P2: duplicate extensions rejected", () => {
   test("ClientHello with duplicate extension type fails", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const server = new DtlsServer({
       transport: serverTransport,
@@ -693,7 +693,7 @@ describe("P2: duplicate extensions rejected", () => {
       0,
       frag.serialize(),
     );
-    // Act / Assert
+    // Act / Assert: 不正入力を拒否する
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("duplicate extension should fail promptly")),
@@ -716,7 +716,7 @@ describe("P2: duplicate extensions rejected", () => {
 
 describe("P2: CH2 key_share single entry after HRR selected_group", () => {
   test("rejects ClientHello2 key_share with extra groups", async () => {
-    // Arrange: use server engine internals after recording HRR selected_group
+    // Arrange: 前提を準備する
     const { server, client } = await pair();
     const eng = (server as any).engine13;
     eng.hrrSelectedGroup = NamedCurveAlgorithm.secp256r1_23;
@@ -757,7 +757,7 @@ describe("P2: CH2 key_share single entry after HRR selected_group", () => {
 
     const kpP256 = generateKeyPair(NamedCurveAlgorithm.secp256r1_23);
     const kpX = generateKeyPair(NamedCurveAlgorithm.x25519_29);
-    // Act: CH2 with two key shares (illegal after selected_group HRR)
+    // Act: 不正入力を拒否する
     const ch2 = new ClientHello(
       WireVersion.DTLS_1_2,
       rand,
@@ -779,7 +779,7 @@ describe("P2: CH2 key_share single entry after HRR selected_group", () => {
         ]).clientExtension,
       ],
     );
-    // Assert
+    // Assert: 不正入力を拒否する
     expect(() =>
       eng.validateClientHelloAfterHrr(ch1Body, ch2, ch2.serialize()),
     ).toThrow(/single entry|selected_group/i);
@@ -813,7 +813,7 @@ describe("P2: CH2 key_share single entry after HRR selected_group", () => {
 
 describe("P2: dynamic MTU retransmit re-fragment source retained", () => {
   test("pendingFlightSource is stored for retransmittable flights", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const { server, client } = await pair();
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(

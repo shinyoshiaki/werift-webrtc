@@ -55,7 +55,7 @@ export class DtlsSocket {
   readonly protocolVersions: DtlsVersion[];
 
   constructor(
-    public options: Options,
+    public options: Options | DtlsInternalOptions,
     public sessionType: SessionTypes,
   ) {
     this.protocolVersions = normalizeProtocolVersions(
@@ -355,6 +355,11 @@ export interface Options {
    * Protocol versions in preference order.
    * Default: `[DtlsVersion.V1_2]` (backward compatible).
    * DTLS 1.3 requires explicit opt-in.
+   *
+   * Epic 1 supported dual pattern is **`[V1_3, V1_2]` only**.
+   * `[V1_2, V1_3]` is rejected (fail-fast) — full 1.2-first dual with
+   * downgrade-sentinel server semantics is out of scope for Epic 1.
+   * Single-version lists `[V1_3]` / `[V1_2]` are always accepted.
    */
   protocolVersions?: readonly DtlsVersion[];
   /**
@@ -364,11 +369,6 @@ export interface Options {
    */
   addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
   /**
-   * Optional DTLS 1.3 handshake carrier (tests / Epic 2 SPED).
-   * When set, the 1.3 engine uses this instead of creating DirectHandshakeCarrier.
-   */
-  handshakeCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
-  /**
    * DTLS 1.3 named groups preference order (key_share).
    * Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.
    */
@@ -376,5 +376,14 @@ export interface Options {
   /** DTLS 1.3 carrier MTU hint for handshake fragmentation (bytes). */
   mtu?: number;
 }
+
+/**
+ * Internal options for unit tests and Epic 2 SPED carrier injection.
+ * **Not part of the stable Public API** — application code must use {@link Options} only.
+ * `handshakeCarrier` is intentionally excluded from {@link Options}.
+ */
+export type DtlsInternalOptions = Options & {
+  handshakeCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
+};
 
 export { DtlsVersion };

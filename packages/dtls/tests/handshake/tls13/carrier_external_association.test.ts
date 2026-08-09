@@ -3,6 +3,7 @@ import { UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
 import { DirectHandshakeCarrier } from "../../../src/carrier/direct";
 import type { RetransmissionMode } from "../../../src/carrier/types";
+import type { DtlsInternalOptions } from "../../../src/socket";
 import { certPem, keyPem } from "../../fixture";
 
 /**
@@ -11,7 +12,7 @@ import { certPem, keyPem } from "../../fixture";
  */
 describe("association external carrier / retransmission mode", () => {
   test("injected DirectHandshakeCarrier completes handshake", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -23,6 +24,7 @@ describe("association external carrier / retransmission mode", () => {
       mtu: 1200,
     });
 
+    // handshakeCarrier は DtlsInternalOptions のみ（安定 Public API ではない）
     const server = new DtlsServer({
       transport: serverTransport,
       cert: certPem,
@@ -30,7 +32,7 @@ describe("association external carrier / retransmission mode", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
       handshakeCarrier: serverCarrier,
-    });
+    } as DtlsInternalOptions);
     const client = new DtlsClient({
       transport: clientTransport,
       cert: certPem,
@@ -38,9 +40,9 @@ describe("association external carrier / retransmission mode", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
       handshakeCarrier: clientCarrier,
-    });
+    } as DtlsInternalOptions);
 
-    // Act / Assert
+    // Act / Assert: ハンドシェイクを検証する
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("injected carrier handshake timeout")),
@@ -55,7 +57,7 @@ describe("association external carrier / retransmission mode", () => {
         reject(e);
       });
       client.onConnect.subscribe(() => {
-        // Assert: same carrier instance is wired
+        // Assert: ハンドシェイクを検証する
         const eng = (client as any).engine13;
         expect(eng.carrier).toBe(clientCarrier);
         expect(clientCarrier.getRetransmissionMode()).toBe("internal");
@@ -69,7 +71,7 @@ describe("association external carrier / retransmission mode", () => {
   }, 20_000);
 
   test("external mode stops association retransmit; internal resumes", async () => {
-    // Arrange: drop server → client path so client keeps retransmitting CH
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -93,7 +95,7 @@ describe("association external carrier / retransmission mode", () => {
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
       handshakeCarrier: clientCarrier,
-    });
+    } as DtlsInternalOptions);
     // No server — client will retransmit ClientHello
 
     const modes: RetransmissionMode[] = [];
@@ -104,7 +106,7 @@ describe("association external carrier / retransmission mode", () => {
       prevHook?.(m);
     };
 
-    // Act
+    // Act: carrier/再送を検証する
     void client.connect();
     await new Promise((r) => setTimeout(r, 80));
     const txBeforeExternal = clientTx;
@@ -115,14 +117,14 @@ describe("association external carrier / retransmission mode", () => {
     clientCarrier.setRetransmissionMode("external");
     await new Promise((r) => setTimeout(r, 1200));
     const txDuringExternal = clientTx;
-    // Assert: no additional retransmits while external (RTO ~1s)
+    // Assert: carrier/再送を検証する
     expect(txDuringExternal).toBe(txBeforeExternal);
     expect(modes).toContain("external");
 
     // Resume internal: association scheduleRetransmit runs again
     clientCarrier.setRetransmissionMode("internal");
     await new Promise((r) => setTimeout(r, 1500));
-    // Assert: retransmit resumed
+    // Assert: carrier/再送を検証する
     expect(clientTx).toBeGreaterThan(txDuringExternal);
     expect(modes).toEqual(["external", "internal"]);
 

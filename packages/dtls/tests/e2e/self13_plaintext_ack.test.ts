@@ -8,7 +8,7 @@ import { certPem, keyPem } from "../fixture";
 
 describe("e2e/self13 plaintext ACK after protected state", () => {
   test("forged epoch-0 ACK does not advance KeyUpdate write epoch", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -51,11 +51,11 @@ describe("e2e/self13 plaintext ACK after protected state", () => {
             }));
           expect(pending.length).toBeGreaterThan(0);
 
-          // Act: call handleAck as if a forged epoch-0 ACK arrived claiming
+          // Act: KeyUpdate を検証する
           // the encrypted KeyUpdate records (Erratum 8108 attack)
           eng.handleAck(new DtlsAck(pending).serialize(), 0);
 
-          // Assert: write epoch must NOT advance (epoch 0 cannot ACK epoch≥2)
+          // Assert: KeyUpdate を検証する
           expect(eng.writeEpoch).toBe(writeBefore);
           expect(eng.pendingKeyUpdateWrite).toBeTruthy();
           expect(eng.pendingFlightRecords.length).toBe(pending.length);
@@ -90,7 +90,7 @@ describe("e2e/self13 plaintext ACK after protected state", () => {
   }, 20_000);
 
   test("forged epoch-0 empty ACK does not drive retransmit after connected", async () => {
-    // Arrange
+    // Arrange: 前提を準備する
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
@@ -125,7 +125,7 @@ describe("e2e/self13 plaintext ACK after protected state", () => {
           await client.keyUpdate(false);
           const retransmitBefore = eng.retransmitCount as number;
 
-          // Act: empty epoch-0 ACKs after protected state must not retransmit
+          // Act: ACK 処理を検証する
           for (let i = 0; i < 5; i++) {
             eng.handleAck(new DtlsAck([]).serialize(), 0);
           }

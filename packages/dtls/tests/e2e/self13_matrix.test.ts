@@ -25,7 +25,7 @@ async function udpPair() {
 }
 
 test("e2e/self13 P-256 via public DtlsClient/DtlsServer namedGroups", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { serverTransport, clientTransport } = await udpPair();
   const groups = [NamedCurveAlgorithm.secp256r1_23] as const;
   const server = new DtlsServer({
@@ -39,7 +39,7 @@ test("e2e/self13 P-256 via public DtlsClient/DtlsServer namedGroups", async () =
     namedGroups: groups,
   });
 
-  // Act / Assert
+  // Act / Assert: 期待どおりの結果を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("p256 api timeout")),
@@ -68,7 +68,7 @@ test("e2e/self13 P-256 via public DtlsClient/DtlsServer namedGroups", async () =
 }, 20_000);
 
 test("e2e/self13 HRR when client key_share group mismatches server preference", async () => {
-  // Arrange: client offers only X25519; server prefers P-256 only → HRR
+  // Arrange: 前提を準備する
   const { serverTransport, clientTransport } = await udpPair();
   const server = new DtlsServer({
     transport: serverTransport,
@@ -95,7 +95,7 @@ test("e2e/self13 HRR when client key_share group mismatches server preference", 
   // Current engine sends only selectedGroup (= first). Server P-256 only → HRR for P-256.
   // Client has secp256r1 in list → sendClientHello(group) regenerates. Need client groups to include P-256.
 
-  // Act / Assert
+  // Act / Assert: HelloRetryRequest 経路を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("HRR timeout")), 20_000);
     client.onConnect.subscribe(() => {
@@ -123,7 +123,7 @@ test("e2e/self13 HRR when client key_share group mismatches server preference", 
 }, 25_000);
 
 test("e2e/self13 multi-record flight via small MTU", async () => {
-  // Arrange: tiny MTU forces Certificate/Finished fragmentation across records
+  // Arrange: 前提を準備する
   const { serverTransport, clientTransport } = await udpPair();
   const server = new DtlsServer({
     transport: serverTransport,
@@ -136,7 +136,7 @@ test("e2e/self13 multi-record flight via small MTU", async () => {
     mtu: 200,
   });
 
-  // Act / Assert
+  // Act / Assert: MTU 制約を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("mtu timeout")), 20_000);
     client.onConnect.subscribe(() => {
@@ -162,7 +162,7 @@ test("e2e/self13 multi-record flight via small MTU", async () => {
 }, 25_000);
 
 test("e2e/self13 large multi-fragment handshake body via very small MTU", async () => {
-  // Arrange: even smaller MTU + mutual auth = larger flight (extra certs)
+  // Arrange: 前提を準備する
   const { serverTransport, clientTransport } = await udpPair();
   const server = new DtlsServer({
     transport: serverTransport,
@@ -177,7 +177,7 @@ test("e2e/self13 large multi-fragment handshake body via very small MTU", async 
     certificateRequest: true,
   });
 
-  // Act / Assert
+  // Act / Assert: MTU 制約を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("large flight timeout")),
@@ -215,7 +215,7 @@ test("e2e/self13 large multi-fragment handshake body via very small MTU", async 
 }, 30_000);
 
 test("e2e/self13 reorders encrypted handshake records within a datagram batch", async () => {
-  // Arrange: swap order of the first two *encrypted* (epoch 2) server sends.
+  // Arrange: 前提を準備する
   // Plaintext ServerHello must stay first so keys can be installed.
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
@@ -262,7 +262,7 @@ test("e2e/self13 reorders encrypted handshake records within a datagram batch", 
     mtu: 400,
   });
 
-  // Act / Assert
+  // Act / Assert: ハンドシェイクを検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("reorder timeout")),
@@ -297,7 +297,7 @@ test("e2e/self13 reorders encrypted handshake records within a datagram batch", 
 }, 25_000);
 
 test("e2e/self13 fail() closes association and clears pending flight", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { serverTransport, clientTransport } = await udpPair();
   // 1.3-only client vs nothing useful: inject version error via 1.2 peer path
   // Direct engine: trigger fail via protocol version alert path from empty peer
@@ -310,7 +310,7 @@ test("e2e/self13 fail() closes association and clears pending flight", async () 
     },
     SessionType.SERVER,
   );
-  // Act / Assert: hard fail (non-version) closes + onClose; soft version keeps UDP
+  // Act / Assert: 不正入力を拒否する
   let hardClosed = false;
   let hardErrored = false;
   server.onClose.subscribe(() => {

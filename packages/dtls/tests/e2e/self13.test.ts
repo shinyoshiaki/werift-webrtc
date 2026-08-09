@@ -40,7 +40,7 @@ async function pair(extra?: {
 }
 
 test("e2e/self13 full handshake bidirectional data", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { server, client } = await pair();
   const word = "dtls13";
 
@@ -50,7 +50,7 @@ test("e2e/self13 full handshake bidirectional data", async () => {
       15_000,
     );
 
-    // Act
+    // Act: ハンドシェイクを検証する
     server.onData.subscribe((data) => {
       // Assert: サーバがアプリデータを受信
       expect(data.toString()).toBe(word);
@@ -202,7 +202,7 @@ test("e2e/self13 bad CertificateVerify fails server promptly (mutual auth)", asy
 }, 10_000);
 
 test("e2e/self13 KeyUpdate pending write epoch does not copy old read keys", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { server, client } = await pair();
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
@@ -214,7 +214,7 @@ test("e2e/self13 KeyUpdate pending write epoch does not copy old read keys", asy
         const eng = (client as any).engine13;
         const beforeWrite = eng.writeEpoch as number;
         const beforeRead = eng.readEpoch as number;
-        // Act: local KeyUpdate — write epoch advances only after ACK, but
+        // Act: KeyUpdate を検証する
         // the pending epoch entry is installed immediately with writeKeys.
         await client.keyUpdate(false);
         const pending = eng.pendingKeyUpdateWrite;
@@ -246,7 +246,7 @@ test("e2e/self13 KeyUpdate pending write epoch does not copy old read keys", asy
 }, 20_000);
 
 test("e2e/self13 KeyUpdate then bidirectional data", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { server, client } = await pair();
 
   await new Promise<void>(async (resolve, reject) => {
@@ -341,7 +341,7 @@ test("e2e/self13 KeyUpdate ACKed without RTO retransmit (no loss)", async () => 
           return origSend(buf);
         };
 
-        // Act: KeyUpdate (request_update=false)
+        // Act: KeyUpdate を検証する
         await client.keyUpdate(false);
 
         // Assert: write epoch が ACK で進む（再送 RTO の ~1s より十分短い）
@@ -427,7 +427,7 @@ test("e2e/self13 KeyUpdate(request_update) gets explicit ACK then response KeyUp
           return sOrig(buf);
         };
 
-        // Act: client KeyUpdate with request_update
+        // Act: KeyUpdate を検証する
         await client.keyUpdate(true);
 
         // Wait until both sides advanced write epochs (client KU ACK'd + server KU ACK'd)
@@ -487,7 +487,7 @@ test("e2e/self13 KeyUpdate(request_update) gets explicit ACK then response KeyUp
 }, 25_000);
 
 test("e2e/self13 crossed KeyUpdate(request_update=true) advances two generations", async () => {
-  // Arrange: TLS 1.3 crossed update_requested — both send KU(true) nearly together;
+  // Arrange: 前提を準備する
   // each must ACK peer KU, finish own KU, then send deferred response KU(false).
   const { server, client } = await pair();
   await new Promise<void>(async (resolve, reject) => {
@@ -510,10 +510,10 @@ test("e2e/self13 crossed KeyUpdate(request_update=true) advances two generations
         const cWrite0 = cEng.writeEpoch as number;
         const sWrite0 = sEng.writeEpoch as number;
 
-        // Act: both sides request update nearly simultaneously (cross)
+        // Act: KeyUpdate を検証する
         await Promise.all([client.keyUpdate(true), server.keyUpdate(true)]);
 
-        // Assert: both complete own KU + deferred response KU without fail()
+        // Assert: KeyUpdate を検証する
         // → write generation advances by 2 on each side
         const deadline = Date.now() + 5000;
         while (
@@ -597,7 +597,7 @@ test("e2e/self13 server-initiated KeyUpdate then bidirectional data", async () =
         if (!gotPre) {
           expect(data.toString()).toBe("s-pre");
           gotPre = true;
-          // Act: server KeyUpdate
+          // Act: KeyUpdate を検証する
           await server.keyUpdate(false);
           await server.send(Buffer.from("s-post"));
         }
@@ -672,7 +672,7 @@ test("e2e/self13 repeated mutual KeyUpdate (client then server)", async () => {
 }, 25_000);
 
 test("e2e/self13 exporter EXTRACTOR-dtls_srtp matches both sides", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { server, client } = await pair();
 
   await new Promise<void>(async (resolve, reject) => {
@@ -683,10 +683,10 @@ test("e2e/self13 exporter EXTRACTOR-dtls_srtp matches both sides", async () => {
 
     const check = () => {
       if (!client.connected || !server.connected) return;
-      // Act
+      // Act: use_srtp/MKI を検証する
       const c = client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 60);
       const s = server.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 60);
-      // Assert
+      // Assert: use_srtp/MKI を検証する
       expect(c.equals(s)).toBe(true);
       clearTimeout(timer);
       client.close();
@@ -710,7 +710,7 @@ test("e2e/self13 exporter EXTRACTOR-dtls_srtp matches both sides", async () => {
 }, 20_000);
 
 test("e2e/self13 1.3-only client vs 1.2-only server fails with ProtocolVersionError", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -777,7 +777,7 @@ test("e2e/self13 1.3-only client vs 1.2-only server fails with ProtocolVersionEr
 }, 12_000);
 
 test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version error", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -853,7 +853,7 @@ test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version 
 }, 12_000);
 
 test("e2e/self13 mutual auth with CertificateRequest", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { server, client } = await pair({ certificateRequest: true });
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
@@ -881,13 +881,13 @@ test("e2e/self13 mutual auth with CertificateRequest", async () => {
       clearTimeout(timer);
       reject(e);
     });
-    // Act
+    // Act: 証明書・署名を検証する
     await client.connect();
   });
 }, 20_000);
 
 test("e2e/self13 dtls-cookie address validation completes handshake", async () => {
-  // Arrange: default cookie path
+  // Arrange: 前提を準備する
   const { server, client } = await pair({
     addressValidation: "dtls-cookie",
   });
@@ -914,13 +914,13 @@ test("e2e/self13 dtls-cookie address validation completes handshake", async () =
       clearTimeout(timer);
       reject(e);
     });
-    // Act
+    // Act: cookie 経路を検証する
     await client.connect();
   });
 }, 20_000);
 
 test("e2e/self13 empty group intersection fails (no silent force-group)", async () => {
-  // Arrange: no overlap in supported_groups
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -966,7 +966,7 @@ test("e2e/self13 empty group intersection fails (no silent force-group)", async 
 }, 15_000);
 
 test("e2e/self13 cookie + key_share group mismatch completes via combined HRR", async () => {
-  // Arrange: client advertises both groups but key_share offers only P-256 first;
+  // Arrange: 前提を準備する
   // server is X25519-only → intersection={X25519}, combined HRR (cookie+group).
   // (Client P-256-only ∩ server X25519-only must fail — that is correct RFC 8446.)
   const serverTransport = await UdpTransport.init("udp4");
@@ -1064,7 +1064,7 @@ test("e2e/self13 client without cert/key completes server-auth-only handshake", 
 }, 20_000);
 
 test("e2e/self13 use_srtp bridges to DtlsSocket.srtp.srtpProfile both sides", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const { ProtectionProfileAeadAes128Gcm } = await import(
     "../../../rtp/src/srtp/const"
   );
@@ -1117,7 +1117,7 @@ test("e2e/self13 use_srtp bridges to DtlsSocket.srtp.srtpProfile both sides", as
 }, 20_000);
 
 test("e2e/self13 dual [1.3,1.2] server upgrades for 1.3-only client", async () => {
-  // Arrange: server lists both versions; client is 1.3-only
+  // Arrange: 前提を準備する
   // addressValidation 未指定 → 既定 dtls-cookie 経路（reinject で peer 保持が必須）
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
@@ -1187,7 +1187,7 @@ test("e2e/self13 dual [1.3,1.2] server × [1.3] client with addressValidation no
     addressValidation: "none",
   });
 
-  // Act / Assert
+  // Act / Assert: version 交渉を検証する
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("dual none upgrade timeout")),
@@ -1217,7 +1217,7 @@ test("e2e/self13 dual [1.3,1.2] server × [1.3] client with addressValidation no
 }, 20_000);
 
 test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
-  // Arrange
+  // Arrange: 前提を準備する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -1282,7 +1282,7 @@ test("e2e/self13 [1.3,1.2] client falls back to 1.2-only server", async () => {
 }, 20_000);
 
 test("e2e/self13 [V1_2,V1_3] is rejected (fail-fast, no silent rewrite)", () => {
-  // Arrange / Act / Assert: preference order is part of the API contract
+  // Arrange: 前提を準備する
   expect(
     () =>
       new DtlsServer({
