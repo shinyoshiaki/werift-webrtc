@@ -37,11 +37,7 @@ function peerAddrFromTransport(transport: {
 }
 
 export class DtlsServer extends DtlsSocket {
-  /**
-   * Public constructor — stable {@link Options} only.
-   * Test/SPED carrier injection uses package-internal `createDtlsServerInternal`
-   * (not part of the stable Public API).
-   */
+  /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
     super(options, SessionType.SERVER);
     this.onHandleHandshakes = this.handleHandshakes;

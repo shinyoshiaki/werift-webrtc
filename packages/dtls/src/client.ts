@@ -30,11 +30,7 @@ export class DtlsClient extends DtlsSocket {
    */
   private dualCookiePath = false;
 
-  /**
-   * Public constructor — stable {@link Options} only.
-   * Test/SPED carrier injection uses package-internal `createDtlsClientInternal`
-   * (not part of the stable Public API).
-   */
+  /** Public constructor — accepts stable {@link Options} only. */
   constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;

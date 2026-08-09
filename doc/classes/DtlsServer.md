@@ -16,8 +16,7 @@
 
 > **new DtlsServer**(`options`): [`DtlsServer`](DtlsServer.md)
 
-Public constructor — stable [Options](../interfaces/Options.md) only.
-For test/SPED carrier injection use createDtlsServerInternal.
+Public constructor — accepts stable [Options](../interfaces/Options.md) only.
 
 #### Parameters
 
