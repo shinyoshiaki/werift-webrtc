@@ -41,6 +41,24 @@ import {
 } from "./types";
 
 /**
+ * Full-handshake message order (RFC 8446). Post-handshake KeyUpdate uses
+ * `connected` phase. Unexpected types → unexpected_message.
+ */
+export type HsPhase =
+  | "start"
+  | "wait_server_hello" // client after CH
+  | "wait_ee" // client after SH
+  | "wait_cert_or_cr" // client after EE
+  | "wait_cert" // client after CR
+  | "wait_cv" // client after peer Certificate
+  | "wait_finished" // client after CV (or server after client CV)
+  | "wait_client_hello" // server start
+  | "wait_client_cert" // server after own flight, mutual auth
+  | "wait_client_cv"
+  | "wait_client_finished"
+  | "connected";
+
+/**
  * Shared mutable state and lifecycle for the DTLS 1.3 endpoint.
  * Layer 0 in the flight stack (see index.ts Figure 3).
  */
@@ -220,11 +238,11 @@ export abstract class Dtls13ConnectionBase {
    */
   protected pinnedPeerKey?: string;
   /**
-   * First *accepted* remote 5-tuple for this association (pre-cookie).
-   * Set only after a valid DTLS 1.3 ClientHello / ServerHello is accepted —
-   * not on raw UDP (prevents garbage pre-handshake peer-lock DoS).
-   * While set (or pinned), other sources are dropped so UdpTransport.rinfo
-   * hijack cannot redirect handshake TX / steal anti-amp budget.
+   * First *associated* remote 5-tuple (pre-cookie provisional, or post-cookie pin).
+   * Server with dtls-cookie: NOT set on the first cookie-less ClientHello —
+   * only after cookie verification (return-routability). Until then HRR replies
+   * use currentPeerAddr and an unauthenticated source cannot lock the association.
+   * Client: set/pinned at connect() to the configured destination.
    */
   protected provisionalPeerKey?: string;
   /**
@@ -235,8 +253,18 @@ export abstract class Dtls13ConnectionBase {
   protected currentPeerAddr?: [string, number];
   protected currentDatagramBytes = 0;
   protected currentDatagramCounted = false;
+  /**
+   * Where to retransmit the pending flight when peer is not yet pinned
+   * (e.g. server HRR with cookie before address validation).
+   */
+  protected pendingFlightReplyTo?: [string, number];
   /** Explicit send address for transport.send (never rely on last rinfo). */
   protected peerAddr?: [string, number];
+  /**
+   * Handshake message-order state machine (RFC 8446 full handshake order).
+   * Unexpected HandshakeType → unexpected_message.
+   */
+  protected hsPhase: HsPhase = "start";
   /** ClientHello-offered use_srtp MKI (for RFC 5764 response check). */
   protected clientOfferedSrtpMki = Buffer.alloc(0);
   /** Hash of first ClientHello used when minting the cookie. */
@@ -319,6 +347,8 @@ export abstract class Dtls13ConnectionBase {
     this.addressValidated =
       this.addressValidation === "none" ||
       this.addressValidation === "ice-authenticated";
+    this.hsPhase =
+      this.role === "client" ? "wait_server_hello" : "wait_client_hello";
     this.installEpoch(0, createEpochProtection(0));
     // Injectable carrier for SPED / tests; default wraps transport directly
     this.carrier =
@@ -521,8 +551,9 @@ export abstract class Dtls13ConnectionBase {
 
   /**
    * Promote the temporary source of the current datagram to the association peer.
-   * Call only after a record was successfully decoded as an acceptable
-   * DTLS 1.3 ClientHello (server) or ServerHello/HRR (client) — never on garbage.
+   * Server dtls-cookie: call only after cookie verification (or when address is
+   * already trusted via ice/none) — never on the first cookie-less ClientHello.
+   * Client: destination is pinned at connect(); this only accounts anti-amp RX.
    */
   protected acceptAssociationPeer(): void {
     const key =
@@ -530,17 +561,40 @@ export abstract class Dtls13ConnectionBase {
         ? this.currentPeerKey
         : this.peerKey;
     const addr = this.currentPeerAddr ?? this.peerAddr;
-    if (!key || key === "unknown") return;
+    if (!key || key === "unknown") {
+      this.accountCurrentDatagramForAntiAmp();
+      return;
+    }
+    // Already pinned (e.g. client connect destination): do not rebind to a
+    // different source — demux already drops non-expected peers.
+    if (this.pinnedPeerKey && this.pinnedPeerKey !== key) {
+      return;
+    }
     this.lockProvisionalPeer(key, addr);
-    // ICE / none: address already trusted — pin on first accepted hello
+    // ICE / none: address already trusted — pin on first accepted association
     if (this.addressValidated && !this.pinnedPeerKey) {
       this.pinPeer(key, addr);
     }
-    // Count this datagram toward anti-amp only once accepted as association traffic
-    if (!this.currentDatagramCounted && this.currentDatagramBytes > 0) {
-      this.bytesReceived += this.currentDatagramBytes;
+    this.accountCurrentDatagramForAntiAmp();
+  }
+
+  /**
+   * Count the current datagram toward the anti-amplification budget.
+   * Unassociated (no provisional/pin): treat this datagram as a fresh
+   * unauthenticated exchange — reset counters so attacker B cannot lock
+   * budget, and each CH reply is budgeted only against that CH.
+   */
+  protected accountCurrentDatagramForAntiAmp(): void {
+    if (this.currentDatagramCounted) return;
+    if (this.currentDatagramBytes <= 0) return;
+    if (!this.provisionalPeerKey && !this.pinnedPeerKey) {
+      this.bytesReceived = this.currentDatagramBytes;
+      this.bytesSent = 0;
       this.currentDatagramCounted = true;
+      return;
     }
+    this.bytesReceived += this.currentDatagramBytes;
+    this.currentDatagramCounted = true;
   }
 
   /** Pin association to a single remote 5-tuple (no migration in Epic 1). */
@@ -550,6 +604,7 @@ export abstract class Dtls13ConnectionBase {
     this.provisionalPeerKey = key;
     this.peerKey = key;
     if (addr) this.peerAddr = addr;
+    this.pendingFlightReplyTo = undefined;
   }
 
   /** Expected peer key for inbound demux (pinned preferred, else provisional). */
@@ -572,8 +627,8 @@ export abstract class Dtls13ConnectionBase {
 
   /** Address for all outbound datagrams — never depend on last UDP rinfo alone. */
   protected getSendAddr(): [string, number] | undefined {
-    // Prefer pinned/provisional peerAddr; fall back to current datagram source
-    return this.peerAddr ?? this.currentPeerAddr;
+    // Prefer pinned/provisional peerAddr; pending HRR reply-to; current source
+    return this.peerAddr ?? this.pendingFlightReplyTo ?? this.currentPeerAddr;
   }
 
   protected clearPendingFlight() {
@@ -585,6 +640,7 @@ export abstract class Dtls13ConnectionBase {
     this.pendingFlightRecordBytes = [];
     this.pendingFlightSource = undefined;
     this.pendingServerHello = undefined;
+    this.pendingFlightReplyTo = undefined;
     this.retransmitCount = 0;
   }
 
@@ -609,6 +665,7 @@ export abstract class Dtls13ConnectionBase {
 
   protected markConnected(opts?: { keepPendingFlight?: boolean }) {
     this.connected = true;
+    this.hsPhase = "connected";
     // Pin peer at handshake complete if not already (ICE/none or dual reinject)
     if (this.peerKey !== "unknown") {
       this.pinPeer(this.peerKey, this.peerAddr);

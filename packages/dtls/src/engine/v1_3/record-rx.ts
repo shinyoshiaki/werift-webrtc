@@ -636,23 +636,27 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         msgType === HandshakeType.hello_verify_request_3
       );
     }
-    // Handshake epoch 2: HS messages only (no KeyUpdate)
+    // Handshake epoch 2: role-specific full-handshake messages only
     if (epoch === 2) {
+      if (this.role === "client") {
+        return (
+          msgType === HandshakeType.encrypted_extensions_8 ||
+          msgType === HandshakeType.certificate_request_13 ||
+          msgType === HandshakeType.certificate_11 ||
+          msgType === HandshakeType.certificate_verify_15 ||
+          msgType === HandshakeType.finished_20
+        );
+      }
+      // server receives only client Certificate* / Finished on epoch 2
       return (
-        msgType === HandshakeType.encrypted_extensions_8 ||
-        msgType === HandshakeType.certificate_request_13 ||
         msgType === HandshakeType.certificate_11 ||
         msgType === HandshakeType.certificate_verify_15 ||
         msgType === HandshakeType.finished_20
       );
     }
-    // Application epochs: KeyUpdate (+ rare post-HS Certificate)
+    // Application epochs: KeyUpdate only (post-handshake auth not implemented)
     if (epoch >= 3) {
-      return (
-        msgType === HandshakeType.key_update_24 ||
-        msgType === HandshakeType.certificate_11 ||
-        msgType === HandshakeType.certificate_verify_15
-      );
+      return msgType === HandshakeType.key_update_24;
     }
     return false;
   }
@@ -661,6 +665,20 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     hs: FragmentedHandshake,
     epoch: number,
   ): Promise<void> {
+    // Unassociated server (no provisional/pin): a new ClientHello is a fresh
+    // cookie attempt from any source — do not treat message_seq 0 as a duplicate
+    // of a prior attacker's abandoned CH (return-routability / DoS resistance).
+    if (
+      this.role === "server" &&
+      !this.expectedPeerKey() &&
+      hs.msg_type === HandshakeType.client_hello_1 &&
+      this.hsPhase === "wait_client_hello"
+    ) {
+      if (hs.message_seq < this.nextReceiveSeq) {
+        this.nextReceiveSeq = hs.message_seq;
+        this.handshakeInbox.clear();
+      }
+    }
     const seq = hs.message_seq;
     if (seq < this.nextReceiveSeq) {
       // Duplicate handshake message (flight retransmit) — re-ACK so sender advances

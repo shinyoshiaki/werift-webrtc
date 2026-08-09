@@ -189,6 +189,142 @@ describe("P1: remote peer pin (rinfo hijack)", () => {
       await client.connect();
     });
   }, 20_000);
+
+  test("valid cookie-less CH from B does not lock out legitimate A (dtls-cookie)", async () => {
+    // Arrange: B sends a well-formed CH without completing cookie → A must still connect
+    const { server, client, serverTransport } = await pair({
+      addressValidation: "dtls-cookie",
+    });
+    const probe = (() => {
+      const kp = generateKeyPair(NamedCurveAlgorithm.x25519_29);
+      const curves = EllipticCurves.createEmpty();
+      curves.data = [NamedCurveAlgorithm.x25519_29] as any;
+      const ch = new ClientHello(
+        WireVersion.DTLS_1_2,
+        new DtlsRandom(),
+        Buffer.alloc(0),
+        Buffer.alloc(0),
+        [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+        [0],
+        [
+          SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+          curves.extension,
+          KeyShare.forClient([
+            {
+              group: NamedCurveAlgorithm.x25519_29,
+              keyExchange: kp.publicKey,
+            },
+          ]).clientExtension,
+          SignatureAlgorithms.create().extension,
+        ],
+      );
+      ch.messageSeq = 0;
+      const frag = ch.toFragment();
+      frag.message_seq = 0;
+      return serializePlaintextRecord(
+        ContentType.handshake,
+        0,
+        0,
+        frag.serialize(),
+      );
+    })();
+
+    // Act: attacker B valid CH (no cookie) — server may HRR but must not pin
+    serverTransport.onData?.(probe, ["203.0.113.77", 4444] as any);
+    await new Promise((r) => setTimeout(r, 50));
+    const engB = (server as any).engine13;
+    expect(engB.provisionalPeerKey).toBeUndefined();
+    expect(engB.pinnedPeerKey).toBeUndefined();
+
+    // Assert: legitimate client A completes cookie exchange + handshake
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("B-CH then A handshake timeout")),
+        15_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        const eng = (server as any).engine13;
+        const key = eng.pinnedPeerKey ?? eng.provisionalPeerKey;
+        expect(key).toBeTruthy();
+        expect(String(key)).not.toContain("203.0.113.77");
+        client.close();
+        server.close();
+        resolve();
+      });
+      await client.connect();
+    });
+  }, 20_000);
+
+  test("client pins destination at connect; forged HRR from B does not redirect CH2", async () => {
+    // Arrange
+    const { server, client, clientTransport } = await pair({
+      addressValidation: "dtls-cookie",
+    });
+    const clientEng = (client as any).engine13;
+    const realServer = clientTransport.rinfo!;
+    // Capture client outbound addresses
+    const sendAddrs: Array<[string, number] | undefined> = [];
+    const origSend = clientTransport.send.bind(clientTransport);
+    clientTransport.send = async (buf: Buffer, addr?: any) => {
+      sendAddrs.push(
+        Array.isArray(addr)
+          ? [addr[0], addr[1]]
+          : addr?.address != null
+            ? [addr.address, addr.port]
+            : undefined,
+      );
+      return origSend(buf, addr);
+    };
+
+    // Act: pin destination via connect, then inject foreign-looking SH/HRR path
+    // by mutating rinfo as if a packet arrived from B (demux must drop / not rebind)
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("client pin connect timeout")),
+        15_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        // Assert: client pin uses loopback when rinfo was 0.0.0.0 (normalize)
+        const expectedHost =
+          realServer.address === "0.0.0.0" ? "127.0.0.1" : realServer.address;
+        expect(clientEng.pinnedPeerKey).toBe(
+          `${expectedHost}:${realServer.port}`,
+        );
+        for (const a of sendAddrs) {
+          if (!a) continue;
+          expect(a[0]).toBe(expectedHost);
+          expect(a[1]).toBe(realServer.port);
+        }
+        // Mutate rinfo as if foreign source "arrived" — getSendAddr must stay
+        clientTransport.rinfo = { address: "198.51.100.9", port: 9 };
+        const dest = clientEng.getSendAddr?.() ?? clientEng.peerAddr;
+        expect(dest[0]).toBe(expectedHost);
+        expect(dest[1]).toBe(realServer.port);
+        client.close();
+        server.close();
+        resolve();
+      });
+      await client.connect();
+    });
+  }, 20_000);
 });
 
 describe("P2: inbound ACK processing bound", () => {
@@ -391,7 +527,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]); // use_srtp
-    eng.clientOfferedSrtpMki = Buffer.from([0x00]);
+    eng.clientOfferedSrtpMki = Buffer.alloc(0);
     eng.options.srtpProfiles = [1, 2];
     const { UseSRTP } = await import(
       "../../../src/handshake/extensions/useSrtp"
@@ -400,7 +536,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
       "../../../src/handshake/message/tls13/encryptedExtensions"
     );
     // Act: server illegally returns two profiles
-    const multi = UseSRTP.create([1, 2], Buffer.from([0x00]));
+    const multi = UseSRTP.create([1, 2], Buffer.alloc(0));
     const ee = new EncryptedExtensions([multi.extension]);
     // Assert
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
@@ -415,7 +551,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]);
-    eng.clientOfferedSrtpMki = Buffer.from([0x00]);
+    eng.clientOfferedSrtpMki = Buffer.alloc(0);
     eng.options.srtpProfiles = [1];
     const { UseSRTP } = await import(
       "../../../src/handshake/extensions/useSrtp"
@@ -423,7 +559,7 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     const { EncryptedExtensions } = await import(
       "../../../src/handshake/message/tls13/encryptedExtensions"
     );
-    const bad = UseSRTP.create([0x0007], Buffer.from([0x00]));
+    const bad = UseSRTP.create([0x0007], Buffer.alloc(0));
     const ee = new EncryptedExtensions([bad.extension]);
     // Act / Assert
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
@@ -433,12 +569,12 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     server.close();
   });
 
-  test("rejects use_srtp MKI mismatch", async () => {
-    // Arrange
+  test("rejects use_srtp MKI mismatch (different non-empty)", async () => {
+    // Arrange: client offered empty MKI; server returns different non-empty
     const { client, server } = await pair();
     const eng = (client as any).engine13;
     eng.clientOfferedExtensionTypes = new Set([14]);
-    eng.clientOfferedSrtpMki = Buffer.from([0x00]);
+    eng.clientOfferedSrtpMki = Buffer.alloc(0);
     eng.options.srtpProfiles = [1];
     const { UseSRTP } = await import(
       "../../../src/handshake/extensions/useSrtp"
@@ -452,6 +588,28 @@ describe("P2: use_srtp RFC 5764 server response", () => {
     await expect(eng.onEncryptedExtensions(ee.serialize())).rejects.toThrow(
       /MKI/i,
     );
+    client.close();
+    server.close();
+  });
+
+  test("accepts empty MKI response even if client offered non-empty MKI", async () => {
+    // Arrange: RFC 5764 — server may disable MKI with empty response
+    const { client, server } = await pair();
+    const eng = (client as any).engine13;
+    eng.clientOfferedExtensionTypes = new Set([14]);
+    eng.clientOfferedSrtpMki = Buffer.from([0xaa, 0xbb]);
+    eng.options.srtpProfiles = [1];
+    const { UseSRTP } = await import(
+      "../../../src/handshake/extensions/useSrtp"
+    );
+    const { EncryptedExtensions } = await import(
+      "../../../src/handshake/message/tls13/encryptedExtensions"
+    );
+    const emptyMki = UseSRTP.create([1], Buffer.alloc(0));
+    const ee = new EncryptedExtensions([emptyMki.extension]);
+    // Act / Assert: must not throw
+    await eng.onEncryptedExtensions(ee.serialize());
+    expect(eng.negotiatedSrtpProfile).toBe(1);
     client.close();
     server.close();
   });

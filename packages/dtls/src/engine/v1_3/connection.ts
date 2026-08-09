@@ -21,6 +21,14 @@ import type { Dtls13Options } from "./types";
 
 export type { AddressValidationMode, Dtls13Options } from "./types";
 
+/** Map unspecified bind addresses to loopback for client peer pin / TX. */
+function normalizeClientDest(addr: [string, number]): [string, number] {
+  const host = addr[0];
+  if (host === "0.0.0.0") return ["127.0.0.1", addr[1]];
+  if (host === "::" || host === "[::]") return ["::1", addr[1]];
+  return addr;
+}
+
 export class Dtls13Connection extends Dtls13HandshakeFlights {
   constructor(options: Dtls13Options, sessionType: SessionTypes) {
     super(options, sessionType);
@@ -30,14 +38,19 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     if (this.role !== "client") {
       throw new Error("connect() is client-only");
     }
-    // Set explicit TX destination from transport.rinfo before any send so
-    // UdpTransport last-rinfo cannot redirect ClientHello / retransmits.
-    // Do NOT pin yet: bind address may be 0.0.0.0 while wire source is 127.0.0.1;
-    // provisional/pin locks to the first real inbound peer (then markConnected).
-    const dest = this.addrToTuple(this.peerFromTransport());
-    if (dest) {
+    // Pin the configured remote 5-tuple at connect (RFC 9147: no silent
+    // migration). A forged HRR/ServerHello from another source must not
+    // redirect ClientHello2 or subsequent TX.
+    // Normalize wildcard bind addresses (0.0.0.0 / ::) to loopback so demux
+    // matches the actual UDP source of local peers (tests set rinfo from
+    // UdpTransport.address which is often 0.0.0.0:port).
+    const raw = this.addrToTuple(this.peerFromTransport());
+    if (raw) {
+      const dest = normalizeClientDest(raw);
       this.peerAddr = dest;
+      this.pinPeer(`${dest[0]}:${dest[1]}`, dest);
     }
+    this.hsPhase = "wait_server_hello";
     await this.sendClientHello();
   }
 

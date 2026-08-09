@@ -120,6 +120,80 @@ function assertUniqueExtensions(
  *   Flight 1/3 ClientHello → Flight 2 HRR* → Flight 4 server → Flight 5 client → post-HS KeyUpdate
  */
 export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
+  /**
+   * Drop an abandoned cookie-less HRR attempt so another source can start
+   * (return-routability: unauthenticated CH must not lock the association).
+   */
+  protected abandonUnauthenticatedHelloAttempt(messageSeq: number): void {
+    this.clearPendingFlight();
+    this.hrrCount = 0;
+    this.awaitingHrr = false;
+    this.firstClientHelloBody = undefined;
+    this.tlsCookie = Buffer.alloc(0);
+    this.cookieClientHelloHash = undefined;
+    this.hrrHadCookie = false;
+    this.hrrSelectedGroup = undefined;
+    this.hrrCipherSuite = undefined;
+    this.transcript = new HandshakeTranscript();
+    this.handshakeInbox.clear();
+    this.nextReceiveSeq = messageSeq;
+    this.bytesReceived = 0;
+    this.bytesSent = 0;
+    this.currentDatagramCounted = false;
+    this.accountCurrentDatagramForAntiAmp();
+  }
+
+  /**
+   * RFC 8446 full-handshake order. Returns false if the type is not expected
+   * in the current hsPhase (caller must abort with unexpected_message).
+   */
+  protected isExpectedHandshakeType(msgType: number): boolean {
+    if (msgType === HandshakeType.key_update_24) {
+      return this.hsPhase === "connected";
+    }
+    if (this.role === "client") {
+      switch (this.hsPhase) {
+        case "wait_server_hello":
+          return (
+            msgType === HandshakeType.server_hello_2 ||
+            msgType === HandshakeType.hello_verify_request_3
+          );
+        case "wait_ee":
+          return msgType === HandshakeType.encrypted_extensions_8;
+        case "wait_cert_or_cr":
+          return (
+            msgType === HandshakeType.certificate_request_13 ||
+            msgType === HandshakeType.certificate_11
+          );
+        case "wait_cert":
+          return msgType === HandshakeType.certificate_11;
+        case "wait_cv":
+          return msgType === HandshakeType.certificate_verify_15;
+        case "wait_finished":
+          return msgType === HandshakeType.finished_20;
+        case "connected":
+          return false; // only KeyUpdate (handled above)
+        default:
+          return false;
+      }
+    }
+    // server
+    switch (this.hsPhase) {
+      case "wait_client_hello":
+        return msgType === HandshakeType.client_hello_1;
+      case "wait_client_cert":
+        return msgType === HandshakeType.certificate_11;
+      case "wait_client_cv":
+        return msgType === HandshakeType.certificate_verify_15;
+      case "wait_client_finished":
+        return msgType === HandshakeType.finished_20;
+      case "connected":
+        return false;
+      default:
+        return false;
+    }
+  }
+
   protected async dispatchHandshake(
     hs: FragmentedHandshake,
     epoch: number,
@@ -133,7 +207,16 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       hs.message_seq,
       "epoch",
       epoch,
+      "phase",
+      this.hsPhase,
     );
+
+    if (!this.isExpectedHandshakeType(hs.msg_type)) {
+      throw new DtlsProtocolError(
+        `unexpected_message: handshake type ${hs.msg_type} in phase ${this.hsPhase}`,
+        AlertDesc.UnexpectedMessage,
+      );
+    }
 
     switch (hs.msg_type) {
       case HandshakeType.client_hello_1:
@@ -167,18 +250,33 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       case HandshakeType.encrypted_extensions_8:
         if (this.role === "client") {
           await this.onEncryptedExtensions(body);
+          this.hsPhase = "wait_cert_or_cr";
         }
         break;
       case HandshakeType.certificate_request_13:
         if (this.role === "client") {
           await this.onCertificateRequest(body);
+          this.hsPhase = "wait_cert";
         }
         break;
       case HandshakeType.certificate_11:
         await this.onCertificate(body);
+        if (this.role === "client") {
+          this.hsPhase = "wait_cv";
+        } else {
+          // server: non-empty client Certificate → CV; empty decline → Finished
+          this.hsPhase = this.remoteCert
+            ? "wait_client_cv"
+            : "wait_client_finished";
+        }
         break;
       case HandshakeType.certificate_verify_15:
         await this.onCertificateVerify(body);
+        if (this.role === "client") {
+          this.hsPhase = "wait_finished";
+        } else {
+          this.hsPhase = "wait_client_finished";
+        }
         break;
       case HandshakeType.finished_20:
         await this.onFinished(body, epoch);
@@ -291,8 +389,8 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     if (this.options.srtpProfiles?.length) {
-      // MKI offered on the wire (empty MKI encoded as single 0 length byte historically)
-      this.clientOfferedSrtpMki = Buffer.from([0x00]);
+      // Empty MKI payload (RFC 5764 opaque srtp_mki<0..255> with length 0)
+      this.clientOfferedSrtpMki = Buffer.alloc(0);
       exts.push(
         UseSRTP.create(this.options.srtpProfiles, this.clientOfferedSrtpMki)
           .extension,
@@ -413,6 +511,20 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
 
+    // Unassociated cookie-less CH while awaiting HRR: abandon the previous
+    // unauthenticated attempt *before* CH2 validation (another source must not
+    // be treated as ClientHello2 of the prior attacker).
+    const cookieExtEarly = ch.extensions.find(
+      (e) => e.type === CookieExtension.type,
+    );
+    if (
+      !this.expectedPeerKey() &&
+      !cookieExtEarly &&
+      (this.awaitingHrr || this.hrrCount >= 1)
+    ) {
+      this.abandonUnauthenticatedHelloAttempt(messageSeq);
+    }
+
     // After HRR: CH2 must match CH1 except allowed deltas (RFC 8446 §4.1.4)
     if (this.awaitingHrr && this.firstClientHelloBody) {
       this.validateClientHelloAfterHrr(this.firstClientHelloBody, ch, body);
@@ -453,9 +565,10 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
 
-    // First acceptable DTLS 1.3 ClientHello → promote temporary source to peer.
-    // Garbage UDP never reaches here, so cannot lock the association out.
-    this.acceptAssociationPeer();
+    // Do NOT acceptAssociationPeer() yet under dtls-cookie: a valid cookie-less
+    // ClientHello must not permanently lock the association (return-routability).
+    // Budget this CH for a possible HRR reply without demux-lock.
+    this.accountCurrentDatagramForAntiAmp();
 
     // signature_algorithms is mandatory for certificate authentication (RFC 8446 §4.2.3)
     const sigExt = ch.extensions.find(
@@ -553,6 +666,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         (e) => e.type === CookieExtension.type,
       );
       if (!cookieExt) {
+        // Unauthenticated CH: reply HRR to current source only. Do not lock
+        // provisional peer — another client must still be able to start.
+        // Prior attempt already abandoned above when needed.
         this.firstClientHelloBody = body;
         this.cookieClientHelloHash = hashSha256(body);
         if (this.hrrCount >= 1) {
@@ -572,7 +688,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       const cookie = CookieExtension.fromData(cookieExt.data).cookie;
       // Binding must use the first ClientHello (mint-time), not the second
       const chForBind = this.firstClientHelloBody ?? body;
-      const binding = cookieBinding(this.associationPeerKey(), chForBind);
+      // Bind to the source of *this* datagram (CH2 return path)
+      const bindPeer =
+        this.currentPeerKey && this.currentPeerKey !== "unknown"
+          ? this.currentPeerKey
+          : this.associationPeerKey();
+      const binding = cookieBinding(bindPeer, chForBind);
       if (!verifyCookie(this.cookieSecret, cookie, binding)) {
         throw new DtlsProtocolError(
           "invalid DTLS cookie (peer address or ClientHello binding mismatch)",
@@ -581,8 +702,15 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       }
       this.addressValidated = true;
       this.tlsCookie = Buffer.from(cookie);
-      // Cookie validates the remote address — pin so other 5-tuples cannot hijack TX
-      this.pinPeer(this.associationPeerKey(), this.getSendAddr());
+      // Cookie validates return-routability — now lock + pin the association
+      this.acceptAssociationPeer();
+      this.pinPeer(
+        this.associationPeerKey(),
+        this.currentPeerAddr ?? this.getSendAddr(),
+      );
+    } else {
+      // ice-authenticated / none: first fully validated CH locks association
+      this.acceptAssociationPeer();
     }
 
     if (needGroupHrr) {
@@ -1022,6 +1150,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     this.serverFlightComplete = true;
     // Server can send early app data on epoch 3 after its Finished (WARP); optional
     this.writeEpoch = 3;
+    this.hsPhase = this.expectClientCertificate
+      ? "wait_client_cert"
+      : "wait_client_finished";
   }
 
   // --- Flight 4 receive (client): ServerHello → ... ---
@@ -1097,7 +1228,8 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       );
     }
 
-    // Acceptable DTLS 1.3 ServerHello / HRR → bind association peer
+    // Client destination is already pinned at connect(); only count anti-amp RX.
+    // Do not rebind TX to a different source (acceptAssociationPeer no-ops on pin mismatch).
     this.acceptAssociationPeer();
 
     if (isHrr) {
@@ -1109,6 +1241,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         );
       }
       this.hrrCount += 1;
+      // Stay in wait_server_hello for the final ServerHello after CH2
       // Cipher suite must be one we offered
       if (sh.cipherSuite !== CipherSuite.TLS_AES_128_GCM_SHA256_0x1301) {
         throw new DtlsProtocolError(
@@ -1229,6 +1362,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     this.readEpoch = 2;
     this.writeEpoch = 2;
     this.clientExpectsServerFlight = true;
+    this.hsPhase = "wait_ee";
   }
 
   protected async onEncryptedExtensions(body: Buffer): Promise<void> {
@@ -1287,9 +1421,13 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
           AlertDesc.IllegalParameter,
         );
       }
-      // MKI in response must match what the client offered (RFC 5764)
+      // RFC 5764: server may echo the client's MKI or return empty (disable MKI).
+      // A different non-empty MKI is illegal.
       const respMki = Buffer.from(use.mki ?? Buffer.alloc(0));
-      if (!respMki.equals(this.clientOfferedSrtpMki)) {
+      if (
+        respMki.length > 0 &&
+        !respMki.equals(this.clientOfferedSrtpMki)
+      ) {
         throw new DtlsProtocolError(
           "illegal_parameter: use_srtp MKI in server response does not match ClientHello offer",
           AlertDesc.IllegalParameter,

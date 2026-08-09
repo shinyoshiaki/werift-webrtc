@@ -37,8 +37,11 @@ export class SignatureAlgorithms {
   static fromData(data: Buffer): SignatureAlgorithms {
     if (data.length < 2) throw new Error("signature_algorithms: truncated");
     const len = data.readUInt16BE(0);
-    if (data.length < 2 + len || len % 2 !== 0) {
-      throw new Error("signature_algorithms: invalid");
+    // Strict: no trailing bytes after declared vector
+    if (data.length !== 2 + len || len % 2 !== 0 || len < 2) {
+      throw new Error(
+        `signature_algorithms: invalid length (declared ${len}, total ${data.length})`,
+      );
     }
     const schemes: number[] = [];
     for (let i = 0; i < len; i += 2) {

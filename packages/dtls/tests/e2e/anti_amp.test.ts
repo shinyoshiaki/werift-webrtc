@@ -92,8 +92,8 @@ describe("anti-amplification budget (per association peer)", () => {
     await serverTransport.close();
   }, 15_000);
 
-  test("foreign sources after association lock do not inflate RX budget", async () => {
-    // Arrange
+  test("cookie-less CH does not permanently lock association (other sources still answered)", async () => {
+    // Arrange: dtls-cookie — first valid CH must NOT demux-lock the peer
     const sent: Buffer[] = [];
     const sendAddrs: Array<Address | undefined> = [];
     const serverTransport = await UdpTransport.init("udp4");
@@ -112,28 +112,32 @@ describe("anti-amplification budget (per association peer)", () => {
     });
 
     const probe = buildProbeClientHello();
-    const realPeer: Address = ["203.0.113.10", 50000];
-    // Act: first CH locks the association peer
-    serverTransport.onData?.(probe, realPeer as any);
-    await new Promise((r) => setTimeout(r, 50));
-    const sentAfterFirst = sent.reduce((n, b) => n + b.length, 0);
+    const attacker: Address = ["203.0.113.10", 50000];
+    const legit: Address = ["198.51.100.50", 50001];
 
-    // Flood from *other* 5-tuples (must not count toward budget / redirect TX)
-    for (let i = 0; i < 10; i++) {
-      serverTransport.onData?.(probe, ["198.51.100.1", 60000 + i] as any);
-      await new Promise((r) => setTimeout(r, 5));
-    }
+    // Act: attacker B sends cookie-less CH → gets HRR but must not lock association
+    serverTransport.onData?.(probe, attacker as any);
     await new Promise((r) => setTimeout(r, 50));
+    const eng = (server as any).engine13;
+    expect(eng.provisionalPeerKey).toBeUndefined();
+    expect(eng.pinnedPeerKey).toBeUndefined();
+    const sentAfterB = sent.reduce((n, b) => n + b.length, 0);
+    expect(sentAfterB).toBeGreaterThan(0);
+    expect(sentAfterB).toBeLessThanOrEqual(
+      ANTI_AMPLIFICATION_FACTOR * probe.length,
+    );
 
-    const sentAfterFlood = sent.reduce((n, b) => n + b.length, 0);
-    // Assert: no additional TX driven by foreign sources
-    expect(sentAfterFlood).toBe(sentAfterFirst);
-    // All TX was directed at the real peer (explicit address)
-    for (const a of sendAddrs) {
-      expect(a).toEqual(realPeer);
-    }
-    // Budget still ≤ 3× single real CH (not 11× CH from attackers)
-    expect(sentAfterFlood).toBeLessThanOrEqual(
+    // Legitimate A can still receive an HRR (not dropped as foreign peer)
+    serverTransport.onData?.(probe, legit as any);
+    await new Promise((r) => setTimeout(r, 50));
+    const sentAfterA = sent.reduce((n, b) => n + b.length, 0);
+    expect(sentAfterA).toBeGreaterThan(sentAfterB);
+    // At least one reply must target A (association not permanently locked to B)
+    expect(sendAddrs.some((a) => a?.[0] === legit[0] && a?.[1] === legit[1])).toBe(
+      true,
+    );
+    // A's incremental TX budgeted against A's CH only (ephemeral, not +B)
+    expect(sentAfterA - sentAfterB).toBeLessThanOrEqual(
       ANTI_AMPLIFICATION_FACTOR * probe.length,
     );
 

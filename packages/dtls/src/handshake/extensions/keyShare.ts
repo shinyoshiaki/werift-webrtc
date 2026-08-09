@@ -1,3 +1,4 @@
+import { NamedCurveAlgorithm } from "../../cipher/const";
 import type { Extension } from "../../typings/domain";
 
 /** Extension type key_share = 51 */
@@ -6,6 +7,36 @@ export const KEY_SHARE_TYPE = 51;
 export interface KeyShareEntry {
   group: number;
   keyExchange: Buffer;
+}
+
+/**
+ * Expected key_exchange lengths for groups we support (RFC 8446 §4.2.8).
+ * Unknown groups are not length-checked here (rejected later by negotiation).
+ */
+function expectedKeyExchangeLength(group: number): number | undefined {
+  switch (group) {
+    case NamedCurveAlgorithm.x25519_29:
+      return 32;
+    case NamedCurveAlgorithm.secp256r1_23:
+      return 65; // uncompressed point 0x04 || X || Y
+    default:
+      return undefined;
+  }
+}
+
+function assertKeyExchangeEncoding(group: number, ke: Buffer): void {
+  const expected = expectedKeyExchangeLength(group);
+  if (expected !== undefined && ke.length !== expected) {
+    throw new Error(
+      `key_share: illegal_parameter key_exchange length ${ke.length} for group 0x${group.toString(16)} (expected ${expected})`,
+    );
+  }
+  // P-256 uncompressed point must start with 0x04
+  if (group === NamedCurveAlgorithm.secp256r1_23 && ke[0] !== 0x04) {
+    throw new Error(
+      "key_share: illegal_parameter P-256 key_exchange must be uncompressed (0x04…)",
+    );
+  }
 }
 
 /**
@@ -39,7 +70,12 @@ export class KeyShare {
     const listLen = data.readUInt16BE(0);
     let offset = 2;
     const end = 2 + listLen;
-    if (data.length < end) throw new Error("key_share client: length mismatch");
+    // Strict: no trailing bytes after declared client_shares vector
+    if (data.length !== end) {
+      throw new Error(
+        `key_share client: length mismatch (declared ${listLen}, total ${data.length - 2})`,
+      );
+    }
     const shares: KeyShareEntry[] = [];
     while (offset < end) {
       if (end - offset < 4)
@@ -51,6 +87,7 @@ export class KeyShare {
         throw new Error("key_share client: ke truncated");
       const keyExchange = Buffer.from(data.subarray(offset, offset + keLen));
       offset += keLen;
+      assertKeyExchangeEncoding(group, keyExchange);
       shares.push({ group, keyExchange });
     }
     return KeyShare.forClient(shares);
@@ -64,9 +101,14 @@ export class KeyShare {
     if (data.length < 4) throw new Error("key_share server: truncated");
     const group = data.readUInt16BE(0);
     const keLen = data.readUInt16BE(2);
-    if (data.length < 4 + keLen)
-      throw new Error("key_share server: ke truncated");
+    // Strict: no trailing bytes
+    if (data.length !== 4 + keLen) {
+      throw new Error(
+        `key_share server: length mismatch (declared ke ${keLen}, total ${data.length - 4})`,
+      );
+    }
     const keyExchange = Buffer.from(data.subarray(4, 4 + keLen));
+    assertKeyExchangeEncoding(group, keyExchange);
     return KeyShare.forServer({ group, keyExchange });
   }
 

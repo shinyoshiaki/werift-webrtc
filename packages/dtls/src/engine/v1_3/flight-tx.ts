@@ -167,6 +167,11 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
           this.pendingFlightRecordBytes.push(Buffer.from(packets[i]));
         }
       }
+      // Unpinned HRR: remember reply-to so retransmit is not lost when
+      // currentPeerAddr is cleared after the datagram handler returns.
+      if (!this.peerAddr && this.currentPeerAddr) {
+        this.pendingFlightReplyTo = [...this.currentPeerAddr];
+      }
       this.retransmitCount = 0;
       this.scheduleRetransmit();
     }
