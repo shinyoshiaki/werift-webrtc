@@ -1,2 +1,3 @@
-# Local Playwright browser cache (do not commit)
+# Local Playwright browser cache (do not commit).
+# Populated by `npm run install:browsers` / playwright install — never track.
 .playwright-browsers/
