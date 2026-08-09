@@ -141,6 +141,88 @@ describe("ReceiverTWCC", () => {
     expect(rx.nextReportTsn).toBe(103);
   });
 
+  test("late reorder で not-received を後から received として再 feedback する", () => {
+    // Arrange
+    const { rx, dtls } = makeReceiver();
+
+    // Act 1: 100, 102（101 missing）
+    rx.handleTWCC(100);
+    rx.handleTWCC(102);
+    (rx as any).sendTWCC();
+    expect(dtls.sendRtcp).toHaveBeenCalledTimes(1);
+    const wire1 = (
+      (dtls.sendRtcp as any).mock.calls[0][0] as { serialize: () => Buffer }[]
+    )[0].serialize();
+    const [fb1] = RtcpPacketConverter.deSerialize(wire1) as [
+      RtcpTransportLayerFeedback,
+    ];
+    const twcc1 = fb1.feedback as TransportWideCC;
+    expect(
+      twcc1.packetResults.map((r) => [r.sequenceNumber, r.received]),
+    ).toEqual([
+      [100, true],
+      [101, false],
+      [102, true],
+    ]);
+    expect(rx.nextReportTsn).toBe(103);
+
+    // Act 2: 101 が遅れて到着 → corrective feedback
+    rx.handleTWCC(101);
+    (rx as any).sendTWCC();
+    expect(dtls.sendRtcp).toHaveBeenCalledTimes(2);
+    const wire2 = (
+      (dtls.sendRtcp as any).mock.calls[1][0] as { serialize: () => Buffer }[]
+    )[0].serialize();
+    const [fb2] = RtcpPacketConverter.deSerialize(wire2) as [
+      RtcpTransportLayerFeedback,
+    ];
+    const twcc2 = fb2.feedback as TransportWideCC;
+    // Assert: 101 を received として報告（frontier は 103 のまま or 前進しない後退なし）
+    expect(twcc2.baseSequenceNumber).toBe(101);
+    const map = new Map(
+      twcc2.packetResults.map((r) => [r.sequenceNumber, r.received]),
+    );
+    expect(map.get(101)).toBe(true);
+    expect(rx.nextReportTsn).toBe(103);
+  });
+
+  test("RunLength は 13bit 上限(8191)を超える run を分割する", () => {
+    // Arrange: frontier=0, receive only TSN 9000 → ~9000 not-received
+    const { rx, dtls } = makeReceiver();
+    rx.nextReportTsn = 0;
+    rx.handleTWCC(9000);
+    // handleTWCC は auto-send しない（1 packet）
+    (rx as any).sendTWCC();
+
+    expect(dtls.sendRtcp).toHaveBeenCalled();
+    const wire = (
+      (dtls.sendRtcp as any).mock.calls[0][0] as { serialize: () => Buffer }[]
+    )[0].serialize();
+    // Round-trip must succeed (13-bit field not overflowed)
+    const [fb] = RtcpPacketConverter.deSerialize(wire) as [
+      RtcpTransportLayerFeedback,
+    ];
+    const twcc = fb.feedback as TransportWideCC;
+    expect(twcc.baseSequenceNumber).toBe(0);
+    expect(twcc.packetStatusCount).toBe(9001);
+    // multiple run-length chunks for the not-received prefix
+    const notRecvChunks = twcc.packetChunks.filter(
+      (c: any) =>
+        c.packetStatus === PacketStatus.TypeTCCPacketNotReceived &&
+        typeof c.runLength === "number",
+    );
+    expect(notRecvChunks.length).toBeGreaterThan(1);
+    for (const c of notRecvChunks as any[]) {
+      expect(c.runLength).toBeLessThanOrEqual(8191);
+    }
+    // sum of not-received runs + received tail ≈ status count
+    const sumNot = notRecvChunks.reduce(
+      (s: number, c: any) => s + c.runLength,
+      0,
+    );
+    expect(sumNot).toBe(9000);
+  });
+
   test("reference_time は 64ms 量子化値で、first delta はその再構成時刻から測る", () => {
     // Arrange: inject known timestamps via extensionInfo
     const { rx, dtls } = makeReceiver();

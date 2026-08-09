@@ -22,7 +22,7 @@ import {
 /**
  * libwebrtc ProbeController-aligned states:
  * - init: no probing initiated yet
- * - waiting_for_result: cluster(s) outstanding
+ * - waiting_for_result: cluster(s) outstanding (queued and/or front active)
  * - complete: initial exponential probing finished
  */
 export type ProbeState = "init" | "waiting_for_result" | "complete";
@@ -59,18 +59,22 @@ interface ActiveCluster {
 }
 
 /**
- * Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
+ * Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator` +
+ * BitrateProber FIFO semantics).
  *
- * - `setBitrates` / cold start → exponential probe clusters (×3 and ×6)
- * - **Multi-active**: initial 3x/6x can be active simultaneously
- * - Per-packet **cluster id** (via wideSeq map) — ACKs credit one cluster only
- * - Result validation: min receive %, send/recv intervals, send/recv rate ratio
+ * - `setBitrates` / cold start creates exponential configs (×3 then ×6)
+ * - Configs are **queued**; only the **front** cluster is active for pacing
+ *   and packet assignment (libwebrtc BitrateProber FIFO — not multi-active)
+ * - InitiateProbing may still **return** both configs (started events) so the
+ *   app can see planned clusters; only one is paced at a time
+ * - Send fill requires **minBytes AND minPackets**; ACK validation uses 80%
  * - Recovery probes use current estimate + cooldown
  */
 export class ProbeController {
   private state: ProbeState = "init";
   private nextClusterId = 1;
-  private active: ActiveCluster[] = [];
+  /** At most one active cluster (FIFO front). */
+  private active: ActiveCluster | undefined;
   private queue: ProbeClusterConfig[] = [];
   private estimatedBps = 0;
   private pendingEstimateBps = 0;
@@ -82,13 +86,11 @@ export class ProbeController {
   private networkAvailable = true;
   /** transport-wide seq → cluster id for probation packets. */
   private seqToCluster = new Map<number, number>();
-  /** Cluster currently being filled with sent packets (round-robin among active). */
-  private fillClusterId = 0;
 
   reset(_atTimeMs = 0) {
     this.state = "init";
     this.nextClusterId = 1;
-    this.active = [];
+    this.active = undefined;
     this.queue = [];
     this.estimatedBps = 0;
     this.pendingEstimateBps = 0;
@@ -99,7 +101,6 @@ export class ProbeController {
     this.maxBitrateBps = kMaxBitrateBps;
     this.networkAvailable = true;
     this.seqToCluster.clear();
-    this.fillClusterId = 0;
   }
 
   get probeState(): ProbeState {
@@ -110,9 +111,9 @@ export class ProbeController {
     return this.estimatedBps;
   }
 
+  /** Pacing target = front (only) active cluster bitrate. */
   get currentProbeTargetBps() {
-    if (this.active.length === 0) return 0;
-    return Math.max(...this.active.map((c) => c.config.targetBps));
+    return this.active?.config.targetBps ?? 0;
   }
 
   get suggestedProbeBitrateBps() {
@@ -120,7 +121,12 @@ export class ProbeController {
   }
 
   get activeClusterCount() {
-    return this.active.length;
+    return this.active ? 1 : 0;
+  }
+
+  /** Queued clusters waiting behind the front (e.g. 6x while 3x runs). */
+  get queuedClusterCount() {
+    return this.queue.length;
   }
 
   takePendingEstimateBps(): number {
@@ -130,18 +136,31 @@ export class ProbeController {
   }
 
   shouldTagProbePacket(): boolean {
-    return this.active.length > 0;
+    return this.active !== undefined;
   }
 
   /**
-   * Bytes still needed across active clusters (for padding injection).
+   * Whether the front cluster still needs more sent packets/bytes.
    */
-  remainingProbeBytes(): number {
-    let rem = 0;
-    for (const c of this.active) {
-      rem += Math.max(0, c.config.minBytes - c.sentBytes);
-    }
-    return rem;
+  private sendFillComplete(c: ActiveCluster): boolean {
+    return (
+      c.sentPackets >= c.config.minPackets &&
+      c.sentBytes >= c.config.minBytes
+    );
+  }
+
+  /**
+   * Bytes still needed for the **front** active cluster (padding injection).
+   * Considers both minBytes and a byte proxy for remaining minPackets.
+   */
+  remainingProbeBytes(packetBytes = 200): number {
+    if (!this.active) return 0;
+    const c = this.active;
+    if (this.sendFillComplete(c)) return 0;
+    const needBytes = Math.max(0, c.config.minBytes - c.sentBytes);
+    const needPkts = Math.max(0, c.config.minPackets - c.sentPackets);
+    const needPktBytes = needPkts * Math.max(1, packetBytes);
+    return Math.max(needBytes, needPktBytes);
   }
 
   setBitrates(
@@ -169,7 +188,7 @@ export class ProbeController {
     const capped = Math.min(uncapped, base * kProbeRecoveryMaxScale);
     const target = clamp(capped, this.maxBitrateBps);
     if (target <= base * 1.05) return [];
-    return this.enqueueClusters(nowMs, [target], false);
+    return this.enqueueClusters(nowMs, [target]);
   }
 
   setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
@@ -188,49 +207,40 @@ export class ProbeController {
         ),
         this.maxBitrateBps,
       );
-      return this.enqueueClusters(nowMs, [next], false);
+      return this.enqueueClusters(nowMs, [next]);
     }
     return [];
   }
 
   process(nowMs: number): ProbeClusterConfig[] {
-    const before = this.active.length;
-    const remaining: ActiveCluster[] = [];
-    for (const c of this.active) {
-      if (nowMs - c.startMs > kProbeResultTimeoutMs) {
-        this.dropClusterSeqs(c.config.id);
-        continue;
-      }
-      remaining.push(c);
+    if (this.active && nowMs - this.active.startMs > kProbeResultTimeoutMs) {
+      this.dropClusterSeqs(this.active.config.id);
+      this.active = undefined;
     }
-    this.active = remaining;
-    if (before > 0 && this.active.length === 0 && this.queue.length === 0) {
-      this.lastProbeEndMs = nowMs;
-      this.state = this.estimatedBps > 0 ? "complete" : "init";
-    } else if (
-      this.active.length === 0 &&
-      this.queue.length === 0 &&
-      this.state === "waiting_for_result"
-    ) {
-      this.lastProbeEndMs = nowMs;
-      this.state = this.estimatedBps > 0 ? "complete" : "init";
+    if (!this.active && this.queue.length === 0) {
+      if (this.state === "waiting_for_result") {
+        this.lastProbeEndMs = nowMs;
+        this.state = this.estimatedBps > 0 ? "complete" : "init";
+      }
+      return [];
     }
     return this.maybeActivateQueued(nowMs);
   }
 
   /**
    * Record a probation (probe-tagged) packet at send time.
-   * Assigns the packet to one active cluster and stores wideSeq → clusterId.
+   * Always assigns to the **front** active cluster.
    */
   onProbePacketSent(
     sizeBytes: number,
     sendMs: number,
     wideSeq: number,
   ): number {
-    if (this.active.length === 0) return 0;
-    const cluster = this.pickClusterToFill();
-    if (!cluster) return 0;
+    if (!this.active) return 0;
+    // Do not over-assign beyond fill goals (BitrateProber stops probing).
+    if (this.sendFillComplete(this.active)) return 0;
 
+    const cluster = this.active;
     const seq = wideSeq & 0xffff;
     this.seqToCluster.set(seq, cluster.config.id);
 
@@ -247,27 +257,25 @@ export class ProbeController {
   /**
    * ACK a packet. Only credits the cluster that owned the wideSeq at send.
    * Applies ProbeBitrateEstimator validation before accepting a result.
+   * On completion, pops front and activates the next queued cluster.
    */
   onAckedPacket(
     sizeBytes: number,
     receivedAtMs: number,
     isProbe: boolean,
     wideSeq?: number,
-  ) {
-    if (this.active.length === 0 || !isProbe) return;
+  ): ProbeClusterConfig[] {
+    if (!this.active || !isProbe) return [];
 
-    let cluster: ActiveCluster | undefined;
+    let cluster: ActiveCluster | undefined = this.active;
     if (wideSeq !== undefined) {
       const id = this.seqToCluster.get(wideSeq & 0xffff);
-      if (id !== undefined) {
-        cluster = this.active.find((c) => c.config.id === id);
+      if (id === undefined || id !== this.active.config.id) {
+        // ACK for a previous/unknown cluster — ignore for front validation.
+        return [];
       }
+      cluster = this.active;
     }
-    // Fallback: single active cluster without seq map (unit tests).
-    if (!cluster && this.active.length === 1 && this.seqToCluster.size === 0) {
-      cluster = this.active[0];
-    }
-    if (!cluster) return;
 
     if (cluster.ackedPackets === 0) {
       cluster.firstRecvMs = receivedAtMs;
@@ -278,7 +286,7 @@ export class ProbeController {
     cluster.ackedPackets += 1;
 
     const estimate = this.estimateClusterBitrate(cluster);
-    if (estimate === undefined) return;
+    if (estimate === undefined) return [];
 
     if (estimate > this.estimatedBps) {
       this.estimatedBps = estimate;
@@ -289,17 +297,19 @@ export class ProbeController {
       cluster.config.targetBps,
     );
 
-    // Cluster complete — remove it.
+    // Cluster complete — pop front and activate next (FIFO).
     this.dropClusterSeqs(cluster.config.id);
-    this.active = this.active.filter((c) => c.config.id !== cluster!.config.id);
-    if (this.active.length === 0 && this.queue.length === 0) {
+    this.active = undefined;
+    const started = this.maybeActivateQueued(receivedAtMs);
+    if (!this.active && this.queue.length === 0) {
       this.state = "complete";
       this.lastProbeEndMs = receivedAtMs;
     }
+    return started;
   }
 
   abort(nowMs: number) {
-    this.active = [];
+    this.active = undefined;
     this.queue = [];
     this.seqToCluster.clear();
     if (this.state === "waiting_for_result") {
@@ -353,16 +363,6 @@ export class ProbeController {
     return clamp(res, this.maxBitrateBps);
   }
 
-  private pickClusterToFill(): ActiveCluster | undefined {
-    // Prefer the cluster that still needs sent bytes (lowest id first).
-    const needing = this.active
-      .filter((c) => c.sentBytes < c.config.minBytes)
-      .sort((a, b) => a.config.id - b.config.id);
-    if (needing.length > 0) return needing[0];
-    // All filled on send side — still tag against highest-id active for ACKs.
-    return this.active[this.active.length - 1];
-  }
-
   private dropClusterSeqs(clusterId: number) {
     for (const [seq, id] of this.seqToCluster) {
       if (id === clusterId) this.seqToCluster.delete(seq);
@@ -378,13 +378,19 @@ export class ProbeController {
     const bitrates = kProbeBitrateMultipliers.map((s) =>
       clamp(this.startBitrateBps * s, this.maxBitrateBps),
     );
-    return this.enqueueClusters(nowMs, bitrates, true);
+    // Return all configs (libwebrtc InitiateProbing returns both 3x and 6x)
+    // but only activate the front for pacing (BitrateProber FIFO).
+    return this.enqueueClusters(nowMs, bitrates, /*returnAll*/ true);
   }
 
+  /**
+   * @param returnAll when true (initial exponential), return every created
+   *   config for telemetry even though only the front is activated.
+   */
   private enqueueClusters(
     nowMs: number,
     bitrates: number[],
-    activateAll: boolean,
+    returnAll = false,
   ): ProbeClusterConfig[] {
     const configs: ProbeClusterConfig[] = [];
     for (const bps of bitrates) {
@@ -405,27 +411,19 @@ export class ProbeController {
     if (bitrates.length) {
       this.state = "waiting_for_result";
     }
-    if (activateAll) {
-      return this.activateAllQueued(nowMs);
+    const activated = this.maybeActivateQueued(nowMs);
+    // For initial probing, surface all planned configs (3x+6x) to the app
+    // while only the front is actually paced.
+    if (returnAll && configs.length > 0) {
+      return configs;
     }
-    return this.maybeActivateQueued(nowMs);
-  }
-
-  private activateAllQueued(nowMs: number): ProbeClusterConfig[] {
-    const started: ProbeClusterConfig[] = [];
-    while (this.queue.length > 0) {
-      const config = this.queue.shift()!;
-      this.active.push(this.newActive(config, nowMs));
-      started.push(config);
-    }
-    if (started.length) this.state = "waiting_for_result";
-    return started;
+    return activated;
   }
 
   private maybeActivateQueued(nowMs: number): ProbeClusterConfig[] {
-    if (this.active.length > 0 || this.queue.length === 0) return [];
+    if (this.active || this.queue.length === 0) return [];
     const config = this.queue.shift()!;
-    this.active.push(this.newActive(config, nowMs));
+    this.active = this.newActive(config, nowMs);
     this.state = "waiting_for_result";
     return [config];
   }

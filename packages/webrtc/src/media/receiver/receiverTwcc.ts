@@ -18,6 +18,14 @@ const log = debug("werift:packages/webrtc/media/receiver/receiverTwcc");
 const TWCC_SEQ_MOD = 0x10000;
 /** Reject feedback windows larger than half the sequence space. */
 const MAX_FEEDBACK_SPAN = 0x7fff;
+/**
+ * How far before {@link ReceiverTWCC.nextReportTsn} a late-reordered packet
+ * may still generate corrective feedback (libwebrtc keeps arrival timestamps
+ * briefly for ResendsTimestampsOnReordering).
+ */
+const REORDER_BACK_WINDOW = 64;
+/** Wire RunLengthChunk.runLength is 13 bits → max 8191. */
+const RUN_LENGTH_MAX = 8191;
 
 type ExtensionInfo = { tsn: number; timestamp: bigint };
 
@@ -27,12 +35,18 @@ type ExtensionInfo = { tsn: number; timestamp: bigint };
  * Feedback triggers: every 100ms (periodic) or when >10 packets are buffered.
  * Status chunks cover the full transport-sequence span (including gaps as
  * PacketNotReceived), including losses that straddle feedback boundaries via
- * {@link nextReportTsn}.
+ * {@link nextReportTsn}. Late reordered packets within
+ * {@link REORDER_BACK_WINDOW} can produce corrective feedback.
  */
 export class ReceiverTWCC {
   extensionInfo: {
     [tsn: number]: ExtensionInfo;
   } = {};
+  /**
+   * Recent arrivals retained after feedback so a late packet that filled a
+   * prior "not received" hole can be re-reported (bounded back-window).
+   */
+  private arrivalHistory = new Map<number, ExtensionInfo>();
   /** Periodic 100ms loop runs while true (enabled in constructor). */
   twccRunning = true;
   /** uint8 */
@@ -41,6 +55,8 @@ export class ReceiverTWCC {
    * Next transport sequence that should appear in feedback (wrap-aware).
    * When set, a feedback that receives only TSN N reports any missing
    * sequences from this cursor through N as PacketNotReceived.
+   * Late arrivals with TSN in (nextReportTsn − BACK_WINDOW, nextReportTsn)
+   * may still trigger corrective feedback without moving the frontier back.
    */
   nextReportTsn?: number;
 
@@ -54,10 +70,13 @@ export class ReceiverTWCC {
 
   handleTWCC(transportSequenceNumber: number) {
     const tsn = transportSequenceNumber & 0xffff;
-    this.extensionInfo[tsn] = {
+    const info: ExtensionInfo = {
       tsn,
       timestamp: microTime(),
     };
+    this.extensionInfo[tsn] = info;
+    this.arrivalHistory.set(tsn, info);
+    this.pruneHistory(tsn);
 
     if (Object.keys(this.extensionInfo).length > 10) {
       this.sendTWCC();
@@ -71,27 +90,59 @@ export class ReceiverTWCC {
     }
   }
 
+  private pruneHistory(latestTsn: number) {
+    // Keep roughly 2× back-window around the frontier / latest.
+    const keep = REORDER_BACK_WINDOW * 2 + 16;
+    if (this.arrivalHistory.size <= keep) return;
+    for (const tsn of this.arrivalHistory.keys()) {
+      const back = (latestTsn - tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+      if (back > keep && back < MAX_FEEDBACK_SPAN) {
+        this.arrivalHistory.delete(tsn);
+      }
+    }
+  }
+
   private sendTWCC() {
     if (Object.keys(this.extensionInfo).length === 0) return;
 
-    const received = Object.values(this.extensionInfo).map((e) => ({
+    // Base/max are decided from **pending** arrivals only (this feedback cycle).
+    // History fills timestamps for neighbors when building status (corrective).
+    const pending = Object.values(this.extensionInfo).map((e) => ({
       tsn: e.tsn & 0xffff,
       timestamp: e.timestamp,
     }));
 
-    const baseSequenceNumber = this.resolveBaseSequence(received);
+    const baseSequenceNumber = this.resolveBaseSequence(pending);
     if (baseSequenceNumber === undefined) {
-      // Only already-reported sequences remain — drop them.
+      // Only already-reported sequences remain — drop pending buffer.
       this.extensionInfo = {};
       return;
     }
 
-    // Latest received packet that is at/after base (wrap-aware forward half).
+    // Latest pending packet at/after base; also extend max through history so a
+    // corrective feedback can re-include already-seen neighbors (e.g. 101 late
+    // after 100/102 were reported → report 101..102 with 102 from history).
     let maxOffset = -1;
-    for (const r of received) {
-      const off = (r.tsn - baseSequenceNumber + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+    const consider = (tsn: number) => {
+      const off = (tsn - baseSequenceNumber + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
       if (off < MAX_FEEDBACK_SPAN) {
         maxOffset = Math.max(maxOffset, off);
+      }
+    };
+    for (const r of pending) consider(r.tsn);
+    // If this is a corrective feedback (base < frontier), include history up to
+    // frontier-1 so previously received packets in the hole range reappear.
+    if (this.nextReportTsn !== undefined) {
+      const frontier = this.nextReportTsn & 0xffff;
+      const back =
+        (frontier - baseSequenceNumber + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+      if (back > 0 && back <= REORDER_BACK_WINDOW) {
+        // Cover [base, frontier) at least.
+        const frontierOff =
+          (frontier - 1 - baseSequenceNumber + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+        if (frontierOff < MAX_FEEDBACK_SPAN) {
+          maxOffset = Math.max(maxOffset, frontierOff);
+        }
       }
     }
     if (maxOffset < 0) {
@@ -115,18 +166,20 @@ export class ReceiverTWCC {
     const packetChunks: (RunLengthChunk | StatusVectorChunk)[] = [];
     const recvDeltas: RecvDelta[] = [];
 
-    // Build full transport-sequence status series (received + not-received gaps).
     type StatusEntry = {
       received: boolean;
       status: PacketStatus;
     };
     const statuses: StatusEntry[] = [];
 
-    // First received timestamp in this feedback (for reference_time).
+    // Lookup: pending extensionInfo first, then history (for re-reports).
+    const lookup = (seq: number): ExtensionInfo | undefined =>
+      this.extensionInfo[seq] ?? this.arrivalHistory.get(seq);
+
     let firstRecvTimestamp: bigint | undefined;
     for (let offset = 0; offset < packetStatusCount; offset++) {
       const seq = (baseSequenceNumber + offset) & 0xffff;
-      const info = this.extensionInfo[seq];
+      const info = lookup(seq);
       if (info && firstRecvTimestamp === undefined) {
         firstRecvTimestamp = info.timestamp;
       }
@@ -142,12 +195,11 @@ export class ReceiverTWCC {
     );
     const referenceTimeUs =
       BigInt(referenceTimeUnits) * 64n * 1000n; /* microseconds */
-    /** Running clock for successive received packets (microseconds). */
     let prevRecvUs = referenceTimeUs;
 
     for (let offset = 0; offset < packetStatusCount; offset++) {
       const seq = (baseSequenceNumber + offset) & 0xffff;
-      const info = this.extensionInfo[seq];
+      const info = lookup(seq);
       if (!info) {
         statuses.push({
           received: false,
@@ -171,19 +223,14 @@ export class ReceiverTWCC {
       });
     }
 
-    // Compress status series into RunLength chunks.
+    // Compress status series into RunLength chunks (split at 13-bit max).
     let runStatus = statuses[0].status;
     let runStart = 0;
     for (let i = 1; i <= statuses.length; i++) {
       const done = i === statuses.length;
       const status = done ? undefined : statuses[i].status;
       if (done || status !== runStatus) {
-        packetChunks.push(
-          new RunLengthChunk({
-            packetStatus: runStatus,
-            runLength: i - runStart,
-          }),
-        );
+        pushRunLengthChunks(packetChunks, runStatus, i - runStart);
         if (!done) {
           runStatus = status!;
           runStart = i;
@@ -207,29 +254,72 @@ export class ReceiverTWCC {
     this.dtlsTransport.sendRtcp([packet]).catch((err) => {
       log(err);
     });
+
+    // Clear pending; history keeps arrivals for late-reorder corrections.
     this.extensionInfo = {};
-    // Next feedback must cover from the sequence after lastTsn (cross-boundary loss).
-    this.nextReportTsn = (lastTsn + 1) & 0xffff;
+    // Advance frontier only forward (corrective feedback must not rewind it).
+    this.advanceNextReportTsn((lastTsn + 1) & 0xffff);
     this.fbPktCount = uint8Add(this.fbPktCount, 1);
   }
 
   /**
+   * Advance {@link nextReportTsn} only in the forward half of the sequence
+   * space so a corrective feedback for an old hole does not move the frontier
+   * backward.
+   */
+  private advanceNextReportTsn(candidate: number) {
+    const next = candidate & 0xffff;
+    if (this.nextReportTsn === undefined) {
+      this.nextReportTsn = next;
+      return;
+    }
+    const advance =
+      (next - this.nextReportTsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+    if (advance > 0 && advance < MAX_FEEDBACK_SPAN) {
+      this.nextReportTsn = next;
+    }
+  }
+
+  /**
    * Choose feedback base:
-   * - If {@link nextReportTsn} is set, use it so losses since the previous
+   * - Late packets within REORDER_BACK_WINDOW before nextReportTsn → base at
+   *   the earliest such packet (corrective feedback).
+   * - Else if nextReportTsn is set, use it so losses since the previous
    *   feedback are reported as PacketNotReceived.
-   * - Otherwise (first feedback) use wrap-aware earliest among received.
+   * - Else (first feedback) use wrap-aware earliest among received.
    */
   private resolveBaseSequence(
     received: { tsn: number; timestamp: bigint }[],
   ): number | undefined {
     if (this.nextReportTsn !== undefined) {
-      const base = this.nextReportTsn & 0xffff;
-      // Require at least one received packet at/after base.
+      const frontier = this.nextReportTsn & 0xffff;
+
+      // Corrective path: late arrival filling a prior hole.
+      const late = received.filter((r) => {
+        const back = (frontier - r.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+        return back > 0 && back <= REORDER_BACK_WINDOW;
+      });
+      if (late.length > 0) {
+        // Earliest late packet (max back-distance from frontier).
+        let best = late[0];
+        let bestBack =
+          (frontier - best.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+        for (const r of late) {
+          const back = (frontier - r.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+          if (back > bestBack) {
+            best = r;
+            bestBack = back;
+          }
+        }
+        return best.tsn & 0xffff;
+      }
+
+      // Normal path: require at least one packet at/after frontier.
       const hasNew = received.some((r) => {
-        const off = (r.tsn - base + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+        const off = (r.tsn - frontier + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
         return off < MAX_FEEDBACK_SPAN;
       });
-      return hasNew ? base : undefined;
+      return hasNew ? frontier : undefined;
     }
 
     // First feedback: largest circular gap → base after gap.
@@ -248,5 +338,24 @@ export class ReceiverTWCC {
       }
     }
     return base;
+  }
+}
+
+/** Split a run into one or more RunLengthChunk (max 8191 each). */
+function pushRunLengthChunks(
+  out: (RunLengthChunk | StatusVectorChunk)[],
+  packetStatus: PacketStatus,
+  runLength: number,
+) {
+  let remaining = runLength;
+  while (remaining > 0) {
+    const n = Math.min(remaining, RUN_LENGTH_MAX);
+    out.push(
+      new RunLengthChunk({
+        packetStatus,
+        runLength: n,
+      }),
+    );
+    remaining -= n;
   }
 }

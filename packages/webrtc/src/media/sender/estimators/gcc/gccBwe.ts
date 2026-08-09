@@ -123,7 +123,7 @@ export class GccBandwidthEstimator
   pendingProbePaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
     this.ensureProbing(milliTime());
     if (!this.probe.shouldTagProbePacket()) return 0;
-    const remaining = this.probe.remainingProbeBytes();
+    const remaining = this.probe.remainingProbeBytes(packetBytes);
     if (remaining <= 0) return 0;
     return Math.ceil(remaining / Math.max(1, packetBytes));
   }
@@ -223,12 +223,16 @@ export class GccBandwidthEstimator
       }
 
       this.recordAck(info.size, result.receivedAtMs);
-      this.probe.onAckedPacket(
+      // onAckedPacket may complete the front cluster and activate the next
+      // (FIFO 3x → 6x); surface newly activated configs to the pacer.
+      for (const cfg of this.probe.onAckedPacket(
         info.size,
         result.receivedAtMs,
         !!info.isProbation,
         seq,
-      );
+      )) {
+        this.onProbeClusterStarted(cfg, result.receivedAtMs);
+      }
       this.pushInterArrival(info.sendingAtMs, result.receivedAtMs, info.size);
     }
 

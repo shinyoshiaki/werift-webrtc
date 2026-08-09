@@ -227,8 +227,15 @@ export class LossBasedBwe {
       );
     }
 
-    // Not ready: keep last estimate (libwebrtc waits for min observations).
+    // Not ready: libwebrtc LossBasedBweV2::IsReady() false → return the
+    // delay-based estimate (state kDelayBasedEstimate). Do **not** cap delay
+    // with the start/current loss-limited value during cold start or after
+    // probe reset clears observations.
     if (this.numObservations < kLossBasedMinNumObservations) {
+      if (this.delayBasedBps > 0) {
+        this.state = "delay_based";
+        return this.delayBasedBps;
+      }
       return this.current.lossLimitedBandwidthBps;
     }
 
@@ -350,7 +357,11 @@ export class LossBasedBwe {
   private updateState(prev: number, next: number, lastSendMs: number) {
     if (next < this.delayBasedBps && next < kMaxBitrateBps) {
       if (next < prev * 0.99 || next < prev) {
-        // Enter decreasing + arm HOLD.
+        // Enter decreasing + arm HOLD (libwebrtc order):
+        // 1) hold_until = now + *current* duration (first time = 300 ms)
+        // 2) then duration *= factor for the *next* HOLD (600 ms, …)
+        this.holdUntilMs = lastSendMs + this.holdDurationMs;
+        this.holdRateBps = next;
         this.holdDurationMs = Math.min(
           kLossBasedMaxHoldDurationMs,
           Math.max(
@@ -358,8 +369,6 @@ export class LossBasedBwe {
             this.holdDurationMs * kLossBasedHoldDurationFactor,
           ),
         );
-        this.holdUntilMs = lastSendMs + this.holdDurationMs;
-        this.holdRateBps = next;
         this.state = "decreasing";
         return;
       }
