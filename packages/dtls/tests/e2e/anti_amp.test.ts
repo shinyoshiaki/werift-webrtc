@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
+import { type Address, UdpTransport } from "../../../common/src";
 import { DtlsServer, DtlsVersion } from "../../src";
 import { CipherSuite } from "../../src/cipher/const";
 import { NamedCurveAlgorithm } from "../../src/cipher/const";
@@ -56,7 +56,7 @@ describe("anti-amplification budget (per association peer)", () => {
     const sent: Buffer[] = [];
     const serverTransport = await UdpTransport.init("udp4");
     const originalSend = serverTransport.send.bind(serverTransport);
-    serverTransport.send = async (buf: Buffer, addr?: [string, number]) => {
+    serverTransport.send = async (buf: Buffer, addr?: Address) => {
       sent.push(Buffer.from(buf));
       return originalSend(buf, addr);
     };
@@ -69,7 +69,7 @@ describe("anti-amplification budget (per association peer)", () => {
     });
 
     const probe = buildProbeClientHello();
-    const peer: [string, number] = ["203.0.113.1", 40000];
+    const peer: Address = ["203.0.113.1", 40000];
     // Act: flood many unauthenticated ClientHellos from the *same* source
     // (retransmits / retries before cookie). Budget is 3× bytes from this peer.
     const floodCount = 8;
@@ -95,10 +95,10 @@ describe("anti-amplification budget (per association peer)", () => {
   test("foreign sources after association lock do not inflate RX budget", async () => {
     // Arrange
     const sent: Buffer[] = [];
-    const sendAddrs: Array<[string, number] | undefined> = [];
+    const sendAddrs: Array<Address | undefined> = [];
     const serverTransport = await UdpTransport.init("udp4");
     const originalSend = serverTransport.send.bind(serverTransport);
-    serverTransport.send = async (buf: Buffer, addr?: [string, number]) => {
+    serverTransport.send = async (buf: Buffer, addr?: Address) => {
       sent.push(Buffer.from(buf));
       sendAddrs.push(addr);
       return originalSend(buf, addr);
@@ -112,7 +112,7 @@ describe("anti-amplification budget (per association peer)", () => {
     });
 
     const probe = buildProbeClientHello();
-    const realPeer: [string, number] = ["203.0.113.10", 50000];
+    const realPeer: Address = ["203.0.113.10", 50000];
     // Act: first CH locks the association peer
     serverTransport.onData?.(probe, realPeer as any);
     await new Promise((r) => setTimeout(r, 50));
