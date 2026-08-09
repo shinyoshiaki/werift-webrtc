@@ -46,8 +46,8 @@ export class sim_gcc_twcc_chrome {
           new RTCRtpCodecParameters({
             mimeType: "video/VP8",
             clockRate: 90000,
-            // No NACK/RTX: retransmission storms on a hard bottleneck hide
-            // GCC/TWCC adaptation (this sim is about send-side BWE, not recovery).
+            // Omit NACK: Chrome NACK/RTX storms after the congestion phase
+            // re-flood the bottleneck and hide GCC/TWCC adaptation results.
             rtcpFeedback: [usePLI(), useREMB(), useTWCC()],
           }),
         ],
@@ -176,8 +176,8 @@ export class sim_gcc_twcc_chrome {
           if (state === "connected" && !this.link) {
             this.link = new BottleneckLink({
               capacityBps: this.capacityBps,
-              baseDelayMs: payload?.baseDelayMs ?? 40,
-              maxQueueBytes: payload?.maxQueueBytes ?? 64_000,
+              baseDelayMs: payload?.baseDelayMs ?? 50,
+              maxQueueBytes: payload?.maxQueueBytes ?? 24_000,
             });
             this.installBottleneckOnWerift(this.link);
           }
@@ -201,8 +201,8 @@ export class sim_gcc_twcc_chrome {
         if (!this.link) {
           this.link = new BottleneckLink({
             capacityBps: this.capacityBps,
-            baseDelayMs: 40,
-            maxQueueBytes: 64_000,
+            baseDelayMs: 50,
+            maxQueueBytes: 24_000,
           });
           this.installBottleneckOnWerift(this.link);
         }

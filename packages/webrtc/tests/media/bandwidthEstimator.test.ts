@@ -166,6 +166,27 @@ describe("media/sender bandwidth estimator", () => {
       expect(probe.getPacingBitrateBps()).toBeGreaterThan(0);
     });
 
+    test("共通 BandwidthEstimator に congestion API は含まれない（compile-time）", () => {
+      // Arrange / Assert (type-level): congestion 系キーが共通 interface に無いこと
+      type Forbidden =
+        | "onCongestion"
+        | "onCongestionScore"
+        | "congestion"
+        | "congestionScore";
+      type Intersection = Extract<keyof BandwidthEstimator, Forbidden>;
+      type AssertNoCongestion = [Intersection] extends [never] ? true : false;
+      const noCongestionOnCommon: AssertNoCongestion = true;
+      expect(noCongestionOnCommon).toBe(true);
+
+      // runtime: 具象の固有イベントは共通型経由では触れない（代入は型エラー）
+      const asCommon: BandwidthEstimator = new SenderBandwidthEstimator();
+      expect(asCommon.availableBitrate).toBeDefined();
+      expect(typeof asCommon.receiveTWCC).toBe("function");
+      // 具象側には congestion があるが、共通契約外
+      const legacy = new SenderBandwidthEstimator();
+      expect(typeof legacy.onCongestion.subscribe).toBe("function");
+    });
+
     test("senderBWE は getter のみで直接代入できない", () => {
       // Arrange
       const sender = new RTCRtpSender("audio");

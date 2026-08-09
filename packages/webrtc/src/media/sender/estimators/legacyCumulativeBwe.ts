@@ -48,6 +48,8 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
     return this._congestionScore;
   }
   set congestionScore(v: number) {
+    // Change-only: do not re-fire when the score is unchanged.
+    if (v === this._congestionScore) return;
     this._congestionScore = v;
     this.onCongestionScore.execute(v);
   }

@@ -49,9 +49,9 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
         payload: {
           capacityBps,
           startBitrateBps: 700_000,
-          baseDelayMs: 40,
-          // Larger queue so brief probe/ICE bursts do not dominate drop rate.
-          maxQueueBytes: 64_000,
+          baseDelayMs: 50,
+          // Small queue so capacity overshoot produces measurable drops.
+          maxQueueBytes: 24_000,
         },
       });
       await pc.setRemoteDescription(offer);
@@ -73,8 +73,6 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
       const congested = await peer.request(LABEL, {
         type: "markCongestionEnd",
       });
-      // eslint-disable-next-line no-console
-      console.log("congested snapshot", JSON.stringify(congested, null, 2));
 
       // Assert 1: ボトルネックでロスが発生し、推定が下がっている
       // 日本語: 接続と送信が進んでいること
