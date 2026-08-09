@@ -14,6 +14,11 @@ import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { debug } from "../../imports/common";
 import type { FragmentedHandshake } from "../../record/message/fragment";
 import type { Extension } from "../../typings/domain";
+import {
+  DtlsVersion,
+  normalizeProtocolVersions,
+  supportsVersion,
+} from "../../version";
 import { Flight } from "../flight";
 
 const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
@@ -71,6 +76,16 @@ export class Flight4 extends Flight {
     }
     const renegotiationIndication = RenegotiationIndication.createEmpty();
     extensions.push(renegotiationIndication.extension);
+
+    // RFC 8446 §4.1.3 / RFC 9147: a TLS 1.3-capable server that negotiates
+    // TLS 1.2 (this flight) MUST place DOWNGRD\x01 in ServerHello.Random[24..31].
+    // Dual [V1_3, V1_2] servers always set this when on the 1.2 flight path.
+    const versions = normalizeProtocolVersions(
+      this.dtls.options.protocolVersions,
+    );
+    if (supportsVersion(versions, DtlsVersion.V1_3)) {
+      this.cipher.localRandom.applyTls12DowngradeSentinel();
+    }
 
     const serverHello = new ServerHello(
       this.dtls.version,

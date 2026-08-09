@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../../common/src";
-import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
+import { DtlsVersion } from "../../../src";
 import { DirectHandshakeCarrier } from "../../../src/carrier/direct";
 import type { RetransmissionMode } from "../../../src/carrier/types";
-import type { DtlsInternalOptions } from "../../../src/socket";
+import {
+  createDtlsClientInternal,
+  createDtlsServerInternal,
+} from "../../../src/internal";
 import { certPem, keyPem } from "../../fixture";
 
 /**
@@ -24,23 +27,23 @@ describe("association external carrier / retransmission mode", () => {
       mtu: 1200,
     });
 
-    // handshakeCarrier は DtlsInternalOptions のみ（安定 Public API ではない）
-    const server = new DtlsServer({
+    // handshakeCarrier は非公開ファクトリ経由のみ（安定 Public API ではない）
+    const server = createDtlsServerInternal({
       transport: serverTransport,
       cert: certPem,
       key: keyPem,
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
       handshakeCarrier: serverCarrier,
-    } as DtlsInternalOptions);
-    const client = new DtlsClient({
+    });
+    const client = createDtlsClientInternal({
       transport: clientTransport,
       cert: certPem,
       key: keyPem,
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
       handshakeCarrier: clientCarrier,
-    } as DtlsInternalOptions);
+    });
 
     // Act / Assert: ハンドシェイクを検証する
     await new Promise<void>(async (resolve, reject) => {
@@ -88,14 +91,14 @@ describe("association external carrier / retransmission mode", () => {
 
     // Blackhole: server does not process (never responds)
     // Use a dummy server transport peer so CH is sent
-    const client = new DtlsClient({
+    const client = createDtlsClientInternal({
       transport: clientTransport,
       cert: certPem,
       key: keyPem,
       protocolVersions: [DtlsVersion.V1_3],
       addressValidation: "none",
       handshakeCarrier: clientCarrier,
-    } as DtlsInternalOptions);
+    });
     // No server — client will retransmit ClientHello
 
     const modes: RetransmissionMode[] = [];

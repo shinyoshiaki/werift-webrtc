@@ -55,7 +55,7 @@ export class DtlsSocket {
   readonly protocolVersions: DtlsVersion[];
 
   constructor(
-    public options: Options | DtlsInternalOptions,
+    public options: Options,
     public sessionType: SessionTypes,
   ) {
     this.protocolVersions = normalizeProtocolVersions(
@@ -378,8 +378,10 @@ export interface Options {
 }
 
 /**
+ * @internal
  * Internal options for unit tests and Epic 2 SPED carrier injection.
- * **Not part of the stable Public API** — application code must use {@link Options} only.
+ * **Not part of the stable Public API** — never pass to the public constructors.
+ * Use {@link createDtlsClientInternal} / {@link createDtlsServerInternal} instead.
  * `handshakeCarrier` is intentionally excluded from {@link Options}.
  */
 export type DtlsInternalOptions = Options & {

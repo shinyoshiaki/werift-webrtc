@@ -36,15 +36,6 @@ WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
 
 ***
 
-### handshakeCarrier?
-
-> `optional` **handshakeCarrier**: `DtlsHandshakeCarrier`
-
-Optional DTLS 1.3 handshake carrier (tests / Epic 2 SPED).
-When set, the 1.3 engine uses this instead of creating DirectHandshakeCarrier.
-
-***
-
 ### key?
 
 > `optional` **key**: `string`
@@ -75,6 +66,11 @@ Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 o
 Protocol versions in preference order.
 Default: `[DtlsVersion.V1_2]` (backward compatible).
 DTLS 1.3 requires explicit opt-in.
+
+Epic 1 supported dual pattern is **`[V1_3, V1_2]` only**.
+`[V1_2, V1_3]` is rejected (fail-fast) — full 1.2-first dual with
+downgrade-sentinel server semantics is out of scope for Epic 1.
+Single-version lists `[V1_3]` / `[V1_2]` are always accepted.
 
 ***
 

@@ -9,11 +9,8 @@ import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
 import { debug } from "./imports/common";
 import type { FragmentedHandshake } from "./record/message/fragment";
-import {
-  DtlsSocket,
-  type DtlsInternalOptions,
-  type Options,
-} from "./socket";
+import { DtlsSocket, type Options } from "./socket";
+import type { DtlsInternalOptions } from "./socket";
 import {
   DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
@@ -33,7 +30,12 @@ export class DtlsClient extends DtlsSocket {
    */
   private dualCookiePath = false;
 
-  constructor(options: Options | DtlsInternalOptions) {
+  /**
+   * Public constructor — stable {@link Options} only.
+   * Test/SPED carrier injection uses package-internal `createDtlsClientInternal`
+   * (not part of the stable Public API).
+   */
+  constructor(options: Options) {
     super(options, SessionType.CLIENT);
     this.onHandleHandshakes = this.handleHandshakes;
 

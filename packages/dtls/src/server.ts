@@ -10,11 +10,8 @@ import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
-import {
-  DtlsSocket,
-  type DtlsInternalOptions,
-  type Options,
-} from "./socket";
+import { DtlsSocket, type Options } from "./socket";
+import type { DtlsInternalOptions } from "./socket";
 import {
   DtlsVersion,
   ProtocolVersionError,
@@ -40,7 +37,12 @@ function peerAddrFromTransport(transport: {
 }
 
 export class DtlsServer extends DtlsSocket {
-  constructor(options: Options | DtlsInternalOptions) {
+  /**
+   * Public constructor — stable {@link Options} only.
+   * Test/SPED carrier injection uses package-internal `createDtlsServerInternal`
+   * (not part of the stable Public API).
+   */
+  constructor(options: Options) {
     super(options, SessionType.SERVER);
     this.onHandleHandshakes = this.handleHandshakes;
 
