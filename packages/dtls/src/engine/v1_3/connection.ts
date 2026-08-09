@@ -11,8 +11,11 @@
  * Mutable crypto state stays in this stack; isolated from the DTLS 1.2 engine.
  */
 import type { SessionTypes } from "../../cipher/suites/abstract";
-import { ContentType } from "../../record/const";
-import { encryptRecord } from "../../record/v1_3/record";
+import { AlertDesc, ContentType } from "../../record/const";
+import {
+  encryptRecord,
+  serializePlaintextRecord,
+} from "../../record/v1_3/record";
 import { Dtls13HandshakeFlights } from "./handshake-flights";
 import type { Dtls13Options } from "./types";
 
@@ -26,6 +29,14 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
   async connect(): Promise<void> {
     if (this.role !== "client") {
       throw new Error("connect() is client-only");
+    }
+    // Set explicit TX destination from transport.rinfo before any send so
+    // UdpTransport last-rinfo cannot redirect ClientHello / retransmits.
+    // Do NOT pin yet: bind address may be 0.0.0.0 while wire source is 127.0.0.1;
+    // provisional/pin locks to the first real inbound peer (then markConnected).
+    const dest = this.addrToTuple(this.peerFromTransport());
+    if (dest) {
+      this.peerAddr = dest;
     }
     await this.sendClientHello();
   }
@@ -44,7 +55,7 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     const ep = this.epochs.get(this.writeEpoch);
     if (!ep?.writeKeys) throw new Error("no application write keys");
     const record = encryptRecord(buf, ContentType.applicationData, ep);
-    await this.options.transport.send(record);
+    await this.options.transport.send(record, this.getSendAddr());
   }
 
   exportKeyingMaterial(label: string, length: number): Buffer {
@@ -89,8 +100,45 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
 
   close() {
     if (this.closed) return;
+    // RFC 8446: send close_notify before tearing down write side (unless already sent)
+    if (this.connected && !this.localCloseNotifySent) {
+      void this.sendCloseNotify().finally(() => this.teardownClose());
+      return;
+    }
+    this.teardownClose();
+  }
+
+  /** Best-effort close_notify on current write epoch. */
+  protected async sendCloseNotify(): Promise<void> {
+    if (this.localCloseNotifySent) return;
+    try {
+      const alert = Buffer.from([1, AlertDesc.CloseNotify]); // warning level
+      const ep = this.epochs.get(this.writeEpoch);
+      if (ep?.writeKeys) {
+        const record = encryptRecord(alert, ContentType.alert, ep);
+        this.localCloseNotifySent = true;
+        await this.options.transport.send(record, this.getSendAddr());
+      } else if (!this.hasProtectedWriteKeys()) {
+        const seq = this.recordSeqEpoch0++;
+        const record = serializePlaintextRecord(
+          ContentType.alert,
+          0,
+          seq,
+          alert,
+        );
+        this.localCloseNotifySent = true;
+        await this.options.transport.send(record, this.getSendAddr());
+      }
+    } catch (e) {
+      // ignore send failures during close
+    }
+  }
+
+  private teardownClose() {
+    if (this.closed) return;
     this.closed = true;
     this.clearPendingFlight();
+    this.clearEarlyAppData();
     this.cancelEpochPrune?.();
     this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();

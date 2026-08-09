@@ -16,7 +16,11 @@ import {
   parseNextRecord,
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
-import { DtlsVersionSelected, ProtocolVersionError } from "../../version";
+import {
+  DtlsProtocolError,
+  DtlsVersionSelected,
+  ProtocolVersionError,
+} from "../../version";
 import { Dtls13FlightTx } from "./flight-tx";
 import {
   FRAGMENT_TTL_MS,
@@ -51,10 +55,11 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     if (this.closed) return;
     // Serialize RX so concurrent UDP datagrams cannot race key install / inbox
     const buf = Buffer.from(data);
-    // Prefer explicit peer; else last UDP rinfo so dual reinject keeps cookie binding
-    const peer = peerKeyFromAddr(addr ?? this.peerFromTransport());
+    const src = addr ?? this.peerFromTransport();
+    const peer = peerKeyFromAddr(src);
+    const peerAddr = this.addrToTuple(src);
     this.rxChain = this.rxChain
-      .then(() => this.handleDatagramAsync(buf, peer))
+      .then(() => this.handleDatagramAsync(buf, peer, peerAddr))
       .catch((e) => {
         // ProtocolVersionError / authenticated handshake failures already call fail()
         // or rethrow after failAuthenticatedHandshake. Unauthenticated errors are
@@ -62,8 +67,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         if (
           e instanceof ProtocolVersionError ||
           e instanceof DtlsVersionSelected ||
+          e instanceof DtlsProtocolError ||
           (e instanceof Error && e.name === "ProtocolVersionError") ||
           (e instanceof Error && e.name === "DtlsVersionSelected") ||
+          (e instanceof Error && e.name === "DtlsProtocolError") ||
           (e instanceof Error && (e as any).dtlsAuthenticated === true)
         ) {
           try {
@@ -80,11 +87,34 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
   protected async handleDatagramAsync(
     data: Buffer,
     peerKey?: string,
+    peerAddr?: [string, number],
   ): Promise<void> {
     if (this.closed) return;
-    if (peerKey && peerKey !== "unknown") {
-      this.peerKey = peerKey;
+
+    // Epic 1: once a remote 5-tuple is associated (provisional or pinned),
+    // only that source may deliver datagrams. Prevents UdpTransport.rinfo
+    // hijack redirecting TX / sharing anti-amp budget across attackers.
+    const expected = this.expectedPeerKey();
+    if (
+      expected &&
+      peerKey &&
+      peerKey !== "unknown" &&
+      peerKey !== expected
+    ) {
+      log("drop datagram from non-association peer", peerKey, expected);
+      return;
     }
+
+    // First accepted source becomes the provisional (or immediately pinned) peer
+    if (peerKey && peerKey !== "unknown") {
+      this.lockProvisionalPeer(peerKey, peerAddr);
+      // ICE / none: address already trusted — pin on first datagram
+      if (this.addressValidated && !this.pinnedPeerKey) {
+        this.pinPeer(peerKey, peerAddr ?? this.peerAddr);
+      }
+    }
+
+    // Count only association peer traffic toward anti-amplification
     this.bytesReceived += data.length;
     this.evictExpiredFragments();
     let offset = 0;
@@ -144,13 +174,19 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           }
         }
       } catch (e) {
-        // Protocol version / dual selection must surface to association layer
+        // Protocol version / dual selection / negotiation failures surface
         if (
           e instanceof ProtocolVersionError ||
           e instanceof DtlsVersionSelected ||
+          e instanceof DtlsProtocolError ||
           (e instanceof Error && e.name === "ProtocolVersionError") ||
-          (e instanceof Error && e.name === "DtlsVersionSelected")
+          (e instanceof Error && e.name === "DtlsVersionSelected") ||
+          (e instanceof Error && e.name === "DtlsProtocolError")
         ) {
+          if (e instanceof DtlsProtocolError) {
+            await this.failAuthenticatedHandshake(e);
+            return;
+          }
           throw e;
         }
         // AEAD already succeeded for ciphertext → authenticated content.
@@ -162,7 +198,23 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           );
           return;
         }
-        // Plaintext epoch-0 is unauthenticated bootstrap: silent discard
+        // Plaintext epoch-0 negotiation errors that use DtlsProtocolError already
+        // handled above. Remaining Error from parse noise: silent discard.
+        // Promotion: locally determined negotiation / semantic protocol failures
+        // (must not degrade to retransmit timeout — RFC 8446 handshake_failure).
+        if (
+          e instanceof Error &&
+          /illegal_parameter|handshake_failure|missing_extension|protocol|no overlapping|not offered|not allowed|mismatch|forbidden|unsolicited|unsupported cipher|unsupported version|signature scheme/i.test(
+            e.message,
+          )
+        ) {
+          await this.failAuthenticatedHandshake(
+            e instanceof DtlsProtocolError
+              ? e
+              : new DtlsProtocolError(e.message),
+          );
+          return;
+        }
         log(
           "drop unauthenticated plaintext process error",
           e instanceof Error ? e.message : String(e),
@@ -265,7 +317,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       return false;
     }
     if (rec.contentType === ContentType.alert) {
-      this.handleAlert(rec.fragment, 0);
+      this.handleAlert(rec.fragment, 0, rec.sequenceNumber);
       return false;
     }
     if (rec.contentType === ContentType.ack) {
@@ -296,9 +348,21 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       case ContentType.handshake:
         return this.processHandshakeBytes(rec.content, rec.epoch);
       case ContentType.applicationData:
-        if (this.peerWriteClosed) {
-          log("ignore application data after peer close_notify");
-          return false;
+        // RFC 9147: ignore data with (epoch,seq) greater than close_notify's
+        // (not mere receive order — UDP may reorder)
+        if (this.peerCloseBoundary) {
+          const b = this.peerCloseBoundary;
+          if (
+            rec.epoch > b.epoch ||
+            (rec.epoch === b.epoch && rec.sequenceNumber > b.sequenceNumber)
+          ) {
+            log(
+              "ignore application data after close_notify boundary",
+              rec.epoch,
+              rec.sequenceNumber,
+            );
+            return false;
+          }
         }
         if (!this.connected) {
           // UDP reorder: epoch-3 app data before markConnected.
@@ -325,7 +389,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         this.handleAck(rec.content, rec.epoch);
         return false;
       case ContentType.alert:
-        this.handleAlert(rec.content, rec.epoch);
+        this.handleAlert(rec.content, rec.epoch, rec.sequenceNumber);
         return false;
       default:
         log("unknown content type", rec.contentType);
@@ -335,12 +399,16 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
 
   /**
    * TLS 1.3 / RFC 8446 alert handling:
-   * - close_notify: peer write closed only (do not force-close local write)
+   * - close_notify: peer write closed at (epoch,seq); data after that pair ignored
    * - user_canceled: closure alert (warning); wait for close_notify
    * - other error descriptions: fatal regardless of legacy level
    * - malformed / truncated alert → decode_error fatal
    */
-  protected handleAlert(fragment: Buffer, receivedEpoch: number) {
+  protected handleAlert(
+    fragment: Buffer,
+    receivedEpoch: number,
+    sequenceNumber = 0,
+  ) {
     if (fragment.length < 2) {
       this.fail(new Error("decode_error: truncated alert"));
       return;
@@ -352,12 +420,23 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       this.fail(new Error("decode_error: malformed alert"));
       return;
     }
-    log("alert", alert.level, alert.description, "epoch", receivedEpoch);
+    log(
+      "alert",
+      alert.level,
+      alert.description,
+      "epoch",
+      receivedEpoch,
+      "seq",
+      sequenceNumber,
+    );
 
     if (alert.description === AlertDesc.CloseNotify) {
-      // One-way write closure from peer — keep local write open
-      this.peerWriteClosed = true;
-      log("peer close_notify: peer write side closed");
+      // RFC 9147: store boundary; ignore later app data by epoch/seq pair
+      this.peerCloseBoundary = {
+        epoch: receivedEpoch,
+        sequenceNumber,
+      };
+      log("peer close_notify boundary", receivedEpoch, sequenceNumber);
       return;
     }
 

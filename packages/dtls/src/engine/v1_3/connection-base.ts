@@ -208,10 +208,31 @@ export abstract class Dtls13ConnectionBase {
   protected addressValidated = false;
   protected bytesReceived = 0;
   protected bytesSent = 0;
-  /** Last peer key (ip:port) for cookie binding / address validation. */
+  /** Current peer key (ip:port) for cookie binding / address validation. */
   protected peerKey = "unknown";
+  /**
+   * After address validation / connect, only this peer may deliver datagrams
+   * and all TX is directed here (Epic 1: no CID migration).
+   */
+  protected pinnedPeerKey?: string;
+  /**
+   * First accepted remote 5-tuple for this association (pre-cookie).
+   * While set (or pinned), other sources are dropped so UdpTransport.rinfo
+   * hijack cannot redirect handshake TX / steal anti-amp budget.
+   */
+  protected provisionalPeerKey?: string;
+  /** Explicit send address for transport.send (never rely on last rinfo). */
+  protected peerAddr?: [string, number];
   /** Hash of first ClientHello used when minting the cookie. */
   protected cookieClientHelloHash?: Buffer;
+  /**
+   * HRR deltas that ClientHello2 may apply (RFC 8446 §4.1.4).
+   * Set when processing / sending HelloRetryRequest.
+   */
+  protected hrrHadCookie = false;
+  protected hrrSelectedGroup?: number;
+  /** Extension types offered in the (last accepted) ClientHello — for EE allowlist. */
+  protected clientOfferedExtensionTypes = new Set<number>();
   protected readonly addressValidation: AddressValidationMode;
   protected certificateRequestContext = Buffer.alloc(0);
   protected expectClientCertificate = false;
@@ -225,10 +246,20 @@ export abstract class Dtls13ConnectionBase {
   protected earlyAppData: Buffer[] = [];
   protected earlyAppDataBytes = 0;
   /**
-   * Peer sent close_notify — their write side is closed; ignore further app data.
-   * Local write side stays open until we send close_notify / fail / close.
+   * Peer close_notify boundary (RFC 9147: ignore app data with larger epoch/seq).
+   * Not mere receive-order — UDP may reorder.
    */
-  protected peerWriteClosed = false;
+  protected peerCloseBoundary?: { epoch: number; sequenceNumber: number };
+  /** We have sent close_notify (or fatal alert) on the write path. */
+  protected localCloseNotifySent = false;
+  /**
+   * Source fragments for pending retransmittable flight (pre-chunk) so
+   * retransmit can re-fragment under a smaller MTU.
+   */
+  protected pendingFlightSource?: {
+    fragments: import("../../record/message/fragment").FragmentedHandshake[];
+    epoch: number;
+  };
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   protected rxChain: Promise<void> = Promise.resolve();
 
@@ -439,6 +470,55 @@ export abstract class Dtls13ConnectionBase {
     return r;
   }
 
+  protected addrToTuple(
+    addr?: [string, number] | { address?: string; port?: number } | string,
+  ): [string, number] | undefined {
+    if (!addr) return undefined;
+    if (typeof addr === "string") {
+      const i = addr.lastIndexOf(":");
+      if (i <= 0) return undefined;
+      const port = Number(addr.slice(i + 1));
+      if (!Number.isFinite(port)) return undefined;
+      return [addr.slice(0, i), port];
+    }
+    if (Array.isArray(addr)) return [addr[0], addr[1]];
+    if (addr.address != null && addr.port != null) {
+      return [addr.address, addr.port];
+    }
+    return undefined;
+  }
+
+  /**
+   * Bind association to the first remote 5-tuple (provisional until pin).
+   * Subsequent different sources are dropped (Epic 1: no CID / migration).
+   */
+  protected lockProvisionalPeer(key: string, addr?: [string, number]): void {
+    if (!key || key === "unknown") return;
+    if (this.provisionalPeerKey || this.pinnedPeerKey) return;
+    this.provisionalPeerKey = key;
+    this.peerKey = key;
+    if (addr) this.peerAddr = addr;
+  }
+
+  /** Pin association to a single remote 5-tuple (no migration in Epic 1). */
+  protected pinPeer(key: string, addr?: [string, number]): void {
+    if (!key || key === "unknown") return;
+    this.pinnedPeerKey = key;
+    this.provisionalPeerKey = key;
+    this.peerKey = key;
+    if (addr) this.peerAddr = addr;
+  }
+
+  /** Expected peer key for inbound demux (pinned preferred, else provisional). */
+  protected expectedPeerKey(): string | undefined {
+    return this.pinnedPeerKey ?? this.provisionalPeerKey;
+  }
+
+  /** Address for all outbound datagrams — never depend on last UDP rinfo alone. */
+  protected getSendAddr(): [string, number] | undefined {
+    return this.peerAddr;
+  }
+
   protected clearPendingFlight() {
     this.cancelRetransmit?.();
     this.cancelRetransmit = undefined;
@@ -446,6 +526,7 @@ export abstract class Dtls13ConnectionBase {
     this.pendingFlightRecords = [];
     this.pendingFlightRecordGroups = [];
     this.pendingFlightRecordBytes = [];
+    this.pendingFlightSource = undefined;
     this.pendingServerHello = undefined;
     this.retransmitCount = 0;
   }
@@ -471,6 +552,10 @@ export abstract class Dtls13ConnectionBase {
 
   protected markConnected(opts?: { keepPendingFlight?: boolean }) {
     this.connected = true;
+    // Pin peer at handshake complete if not already (ICE/none or dual reinject)
+    if (this.peerKey !== "unknown") {
+      this.pinPeer(this.peerKey, this.peerAddr);
+    }
     if (!opts?.keepPendingFlight) {
       this.clearPendingFlight();
       this.carrier.cancelAllTimers();

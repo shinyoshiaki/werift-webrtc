@@ -61,6 +61,9 @@ export function recordsFullyAcked(
   return records.every((r) => done.has(recordKey(r)));
 }
 
+/** Local processing bound for inbound ACK record_numbers (matches TX cap). */
+export const MAX_ACK_RECORD_NUMBERS_INBOUND = 32;
+
 export class DtlsAck {
   constructor(public recordNumbers: AckRecordNumber[]) {}
 
@@ -69,8 +72,13 @@ export class DtlsAck {
     const listLen = buf.readUInt16BE(0);
     if (buf.length < 2 + listLen) throw new Error("ACK: truncated body");
     if (listLen % 16 !== 0) throw new Error("ACK: invalid list length");
+    const total = listLen / 16;
+    // Wire may advertise up to ~4095 entries; cap local allocation/processing
+    // (ticket security bound). Extra entries are ignored, not a hard wire error.
+    const processCount = Math.min(total, MAX_ACK_RECORD_NUMBERS_INBOUND);
     const recordNumbers: AckRecordNumber[] = [];
-    for (let off = 2; off < 2 + listLen; off += 16) {
+    for (let i = 0; i < processCount; i++) {
+      const off = 2 + i * 16;
       // uint64 epoch, uint64 sequence — use low 32/48 bits we care about
       const epoch = Number(buf.readBigUInt64BE(off));
       const sequenceNumber = Number(buf.readBigUInt64BE(off + 8));

@@ -153,6 +153,22 @@ export class ProtocolVersionError extends Error {
 }
 
 /**
+ * Locally determined handshake/protocol negotiation failure.
+ * Unlike forged UDP noise, these should alert (best-effort) and fail()
+ * rather than silent-drop into retransmission timeout.
+ */
+export class DtlsProtocolError extends Error {
+  readonly code = "protocol_error";
+  constructor(
+    message: string,
+    public readonly alertDescription?: number,
+  ) {
+    super(message);
+    this.name = "DtlsProtocolError";
+  }
+}
+
+/**
  * Dual-stack association signal: peer used DTLS 1.2 HelloVerifyRequest cookie path.
  * Not a final version selection — association continues dual negotiation on the
  * 1.2 cookie path while still advertising supported_versions including 1.3.

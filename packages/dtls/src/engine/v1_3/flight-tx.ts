@@ -2,7 +2,7 @@ import { createHandshakeDatagram } from "../../carrier/direct";
 import type { AckRecordNumber } from "../../handshake/message/tls13/ack";
 import { DtlsAck } from "../../handshake/message/tls13/ack";
 import { AlertDesc, ContentType } from "../../record/const";
-import type { FragmentedHandshake } from "../../record/message/fragment";
+import { FragmentedHandshake } from "../../record/message/fragment";
 import {
   encryptRecord,
   serializePlaintextRecord,
@@ -132,6 +132,21 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       // remote flight → clear old remote ACK list at that point (RFC 9147 §7).
       // Do NOT clear receivedRecordNumbers here (local send ≠ remote ACK state).
       this.clearRemoteAckOnNextInbound = true;
+      // Keep pre-chunk source for MTU-change re-fragmentation on retransmit
+      this.pendingFlightSource = {
+        fragments: fragments.map(
+          (f) =>
+            new FragmentedHandshake(
+              f.msg_type,
+              f.length,
+              f.message_seq,
+              f.fragment_offset,
+              f.fragment_length,
+              Buffer.from(f.fragment),
+            ),
+        ),
+        epoch,
+      };
       this.pendingFlight = cachePackets;
       this.pendingFlightRecordGroups = datagramRecordGroups.map((g) =>
         g.map((r) => ({ ...r })),
@@ -156,6 +171,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       this.scheduleRetransmit();
     }
 
+    const sendAddr = this.getSendAddr();
     for (const pkt of cachePackets) {
       // Single-record datagrams must fit MTU (RFC 9147 / UDP path MTU)
       if (pkt.bytes.length > mtu) {
@@ -169,7 +185,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
           `anti-amplification: budget exhausted on send (received=${this.bytesReceived} sent=${this.bytesSent} need=${pkt.bytes.length})`,
         );
       }
-      await this.carrier.send(pkt);
+      await this.carrier.send(pkt, sendAddr);
     }
   }
 
@@ -248,7 +264,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       );
       return false;
     }
-    await this.options.transport.send(record);
+    await this.options.transport.send(record, this.getSendAddr());
     return true;
   }
 
@@ -270,7 +286,9 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
   protected async doRetransmit(): Promise<void> {
     if (
       this.closed ||
-      (this.pendingFlight.length === 0 && !this.pendingServerHello)
+      (this.pendingFlight.length === 0 &&
+        !this.pendingServerHello &&
+        !this.pendingFlightSource)
     ) {
       return;
     }
@@ -280,11 +298,44 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       return;
     }
     log("retransmit flight", this.flightId, this.retransmitCount);
+
+    const mtu = this.carrier.getMtu();
+    // RFC 9147: on PMTU reduction, re-fragment the same handshake message
+    // bytes into smaller records (and optionally back off record size).
+    const anyOversized =
+      this.pendingFlightRecordBytes.some((b) => b.length > mtu) ||
+      (this.pendingServerHello != null &&
+        this.pendingServerHello.bytes.length > mtu);
+    if (anyOversized && this.pendingFlightSource) {
+      const savedCount = this.retransmitCount;
+      const src = this.pendingFlightSource;
+      const savedSh = this.pendingServerHello;
+      try {
+        // Rebuild flight under current MTU (new record sequence numbers)
+        this.pendingServerHello = undefined;
+        await this.sendHandshakeFlight(src.fragments, src.epoch, true);
+        // Keep SH for retransmit if still pending (plaintext SH not re-chunked)
+        this.pendingServerHello = savedSh;
+        this.retransmitCount = savedCount;
+        this.scheduleRetransmit();
+        return;
+      } catch (e) {
+        log("re-fragment on MTU change failed", e);
+        this.pendingServerHello = savedSh;
+        this.retransmitCount = savedCount;
+      }
+    }
+
     // ServerHello is retransmitted with the encrypted flight until fully ACK'd
     const toSend = this.pendingServerHello
       ? [this.pendingServerHello, ...this.pendingFlight]
       : this.pendingFlight;
+    const sendAddr = this.getSendAddr();
     for (const p of toSend) {
+      if (p.bytes.length > mtu) {
+        log("skip retransmit: record exceeds current MTU", p.bytes.length);
+        continue;
+      }
       if (!this.consumeSendBudget(p.bytes.length)) {
         log(
           "retransmit blocked by anti-amplification",
@@ -294,7 +345,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
         break;
       }
       try {
-        await this.carrier.send(p);
+        await this.carrier.send(p, sendAddr);
       } catch (e) {
         this.fail(e instanceof Error ? e : new Error(String(e)));
         return;
@@ -403,6 +454,8 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
   }
 
   protected alertDescForHandshakeError(err: Error): number {
+    const fromProto = (err as { alertDescription?: number }).alertDescription;
+    if (typeof fromProto === "number") return fromProto;
     const m = err.message;
     if (/verify_data|Finished|DecryptError|MAC/i.test(m)) {
       return AlertDesc.DecryptError;
@@ -414,8 +467,11 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     ) {
       return AlertDesc.DecryptError;
     }
-    if (/illegal|not negotiated|unsupported|unexpected/i.test(m)) {
+    if (/illegal|not negotiated|unsupported|unexpected|missing_extension/i.test(m)) {
       return AlertDesc.IllegalParameter;
+    }
+    if (/no overlapping/i.test(m)) {
+      return AlertDesc.HandshakeFailure;
     }
     return AlertDesc.HandshakeFailure;
   }

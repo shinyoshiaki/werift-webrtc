@@ -37,7 +37,10 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     this.injectHandler = handler;
   }
 
-  async send(packet: DtlsHandshakeDatagram): Promise<void> {
+  async send(
+    packet: DtlsHandshakeDatagram,
+    addr?: [string, number],
+  ): Promise<void> {
     if (this.closed) return;
     // Defensive: never share retransmit-cache Buffer with callbacks or the wire path.
     // Mutating callback bytes must not corrupt pendingFlight retransmits.
@@ -55,7 +58,8 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
         }),
       );
     }
-    await this.transport.send(wireBytes);
+    // Always pass explicit peer when known so UdpTransport.rinfo hijack cannot redirect
+    await this.transport.send(wireBytes, addr);
   }
 
   inject(bytes: Buffer, peer?: InjectPeerAddr): void {
