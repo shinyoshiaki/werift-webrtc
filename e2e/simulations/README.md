@@ -33,4 +33,10 @@ npm run test:sim
 1. werift が TWCC 付き offer を送り、Chrome が recvonly answer。
 2. 接続後、werift の ICE `send` に上限帯域（例: 200 kbps）ボトルネックを装着。
 3. 容量超過の固定レートで RTP を送り、ドロップと `onAvailableBitrate` 低下を確認。
-4. 推定帯域に送信レートを追従させ、追加ドロップが減ることを確認。
+4. 推定帯域に送信レートを追従させ、**適応期のドロップ率・追加ドロップ数が輻輳期より厳密に低下**することを確認。
+
+### 補足
+
+- 本 sim では **NACK を交渉しない**（輻輳期の損失に対する Chrome NACK/RTX 再送嵐が、適応後のドロップ緩和検証を隠すため）。
+- 適応計測は probe abort / キュー排水の settle 後に開始する（`markAdaptStart`）。
+- ブラウザは `npx playwright install` で取得する。ローカルキャッシュ `e2e/.playwright-browsers/` は git 管理外。
