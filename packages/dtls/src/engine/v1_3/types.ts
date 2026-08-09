@@ -23,10 +23,23 @@ export const MAX_RETAINED_APP_EPOCHS = 4;
 export const EPOCH_KEY_TTL_MS = 60_000;
 /** How often to run idle epoch TTL prune (timer-driven, not only on epoch ops). */
 export const EPOCH_PRUNE_INTERVAL_MS = 5_000;
-/** RFC 9147 ACK record_numbers list upper bound (bytes ≈ 16 * N). */
+/**
+ * Soft upper bound on ACK record_numbers (also clamped by dynamic MTU).
+ * Intermediate ACKs are flushed before this is exceeded so large flights
+ * (e.g. fragmented Certificate) remain fully ACKable.
+ */
 export const MAX_ACK_RECORD_NUMBERS = 32;
-/** Cap of successfully accepted handshake records tracked for replay re-ACK. */
-export const MAX_ACCEPTED_HS_RECORDS = 64;
+/**
+ * Cap of successfully accepted handshake records tracked for replay re-ACK.
+ * Must cover a full multi-fragment flight (64 frags + CV + Finished).
+ */
+export const MAX_ACCEPTED_HS_RECORDS = 128;
+/** Encrypted ACK record overhead: unified hdr(5) + inner CT(1) + list len(2) + GCM tag(16). */
+export const ACK_ENCRYPTED_OVERHEAD = 5 + 1 + 2 + 16;
+/** Plaintext ACK record overhead: DTLSPlaintext hdr(13) + list len(2). */
+export const ACK_PLAINTEXT_OVERHEAD = 13 + 2;
+/** Bytes per RecordNumber on the wire. */
+export const ACK_RECORD_NUMBER_BYTES = 16;
 
 /**
  * Epoch-3 application data may arrive before markConnected (UDP reorder).

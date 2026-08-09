@@ -10,6 +10,9 @@ import {
 import { ProtocolVersionError } from "../../version";
 import { Dtls13ConnectionBase } from "./connection-base";
 import {
+  ACK_ENCRYPTED_OVERHEAD,
+  ACK_PLAINTEXT_OVERHEAD,
+  ACK_RECORD_NUMBER_BYTES,
   ANTI_AMPLIFICATION_FACTOR,
   MAX_ACK_RECORD_NUMBERS,
   log,
@@ -301,30 +304,47 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
   }
 
   /**
+   * Max RecordNumbers that fit in one ACK under current MTU / write epoch.
+   * RFC 9147: ACK records must fit the path MTU estimate.
+   */
+  protected maxAckRecordsForMtu(): number {
+    const mtu = this.carrier.getMtu();
+    const ep =
+      this.epochs.get(this.writeEpoch) ||
+      this.epochs.get(2) ||
+      this.epochs.get(3);
+    const overhead =
+      ep?.writeKeys != null ? ACK_ENCRYPTED_OVERHEAD : ACK_PLAINTEXT_OVERHEAD;
+    const n = Math.floor((mtu - overhead) / ACK_RECORD_NUMBER_BYTES);
+    return Math.max(1, Math.min(MAX_ACK_RECORD_NUMBERS, n));
+  }
+
+  /**
    * Send an ACK listing successfully accepted handshake records (RFC 9147 §7).
    * Empty record_numbers is allowed and prompts peer retransmission.
    * Prefers encrypted epoch (writeEpoch / 2 / 3); falls back to epoch-0 plaintext.
-   * Always budget-checked (no anti-amp bypass).
+   * Count is clamped by dynamic MTU. Always budget-checked (no anti-amp bypass).
    */
   protected async sendAck(opts?: { allowEmpty?: boolean }): Promise<void> {
     const allowEmpty = opts?.allowEmpty === true;
     if (this.receivedRecordNumbers.length === 0 && !allowEmpty) {
       return;
     }
-    // Sort by epoch then sequence (RFC 9147 record_numbers order is free, but
-    // stable sorted lists aid interop / debugging and meet size bounds cleanly).
-    const numbers = [...this.receivedRecordNumbers]
-      .sort((a, b) =>
-        a.epoch !== b.epoch
-          ? a.epoch - b.epoch
-          : a.sequenceNumber - b.sequenceNumber,
-      )
-      .slice(0, MAX_ACK_RECORD_NUMBERS);
-    this.receivedRecordNumbers = [];
+    const maxN = this.maxAckRecordsForMtu();
+    // Prefer oldest unacked first so large flights drain front-to-back
+    const sorted = [...this.receivedRecordNumbers].sort((a, b) =>
+      a.epoch !== b.epoch
+        ? a.epoch - b.epoch
+        : a.sequenceNumber - b.sequenceNumber,
+    );
+    const numbers = sorted.slice(0, maxN);
+    // Keep remainder for a subsequent ACK (do not drop unacked records)
+    this.receivedRecordNumbers = sorted.slice(maxN);
     const ack = new DtlsAck(numbers);
     const body = ack.serialize();
 
     // Prefer encrypted ACK on current write epoch (handshake or app)
+    // After protected keys exist, never fall back to epoch-0 plaintext ACK
     const ep =
       this.epochs.get(this.writeEpoch) ||
       this.epochs.get(2) ||
@@ -332,23 +352,29 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     let record: Buffer;
     if (ep?.writeKeys) {
       record = encryptRecord(body, ContentType.ack, ep);
-    } else {
-      // Epoch 0 plaintext ACK (early handshake / no traffic keys yet)
+    } else if (this.writeEpoch < 2 && !this.connected) {
+      // Epoch 0 plaintext ACK only before handshake traffic keys exist
       const seq = this.recordSeqEpoch0++;
       record = serializePlaintextRecord(ContentType.ack, 0, seq, body);
+    } else {
+      // No usable write keys — put numbers back
+      this.receivedRecordNumbers = [...numbers, ...this.receivedRecordNumbers];
+      return;
+    }
+    if (record.length > this.carrier.getMtu()) {
+      // Should not happen if maxAckRecordsForMtu is correct; drop one and retry
+      log("ACK exceeds MTU; reducing record list", record.length);
+      this.receivedRecordNumbers = [...numbers, ...this.receivedRecordNumbers];
+      if (numbers.length > 1) {
+        this.receivedRecordNumbers = this.receivedRecordNumbers.slice(1);
+        await this.sendAck(opts);
+      }
+      return;
     }
     const ok = await this.sendWithBudget(record);
     if (!ok) {
       // Budget exhausted: put numbers back so a later ACK can retry
-      for (const n of numbers) {
-        if (
-          !this.receivedRecordNumbers.some(
-            (r) => r.epoch === n.epoch && r.sequenceNumber === n.sequenceNumber,
-          )
-        ) {
-          this.receivedRecordNumbers.push(n);
-        }
-      }
+      this.receivedRecordNumbers = [...numbers, ...this.receivedRecordNumbers];
     }
   }
 
@@ -421,7 +447,13 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * If this is the first record of a new remote flight (after we sent a local
    * flight), clear the previous flight's ACK list first (RFC 9147 §7).
    */
-  protected noteHandshakeRecordForAck(epoch: number, sequenceNumber: number) {
+  /**
+   * @returns true if the caller should flush an intermediate ACK (accumulator full).
+   */
+  protected noteHandshakeRecordForAck(
+    epoch: number,
+    sequenceNumber: number,
+  ): boolean {
     if (this.clearRemoteAckOnNextInbound) {
       this.receivedRecordNumbers = [];
       this.clearRemoteAckOnNextInbound = false;
@@ -433,17 +465,15 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     if (!exists) {
       this.receivedRecordNumbers.push({ epoch, sequenceNumber });
     }
-    // Bound memory: keep the most recent N
-    if (this.receivedRecordNumbers.length > MAX_ACK_RECORD_NUMBERS) {
-      this.receivedRecordNumbers = this.receivedRecordNumbers.slice(
-        -MAX_ACK_RECORD_NUMBERS,
-      );
-    }
+    // Flush intermediate ACK before overflow so large flights remain ACKable
+    // (RFC 9147: prefer unacked records; never silently drop them).
+    return this.receivedRecordNumbers.length >= this.maxAckRecordsForMtu();
   }
 
   /**
    * Re-queue a previously accepted handshake record for ACK on replay.
    * Does nothing if the record was never successfully accepted.
+   * @returns true if the record was re-queued (caller may sendAck).
    */
   protected noteReplayForAck(epoch: number, sequenceNumber: number): boolean {
     if (!this.wasHandshakeRecordAccepted(epoch, sequenceNumber)) {
@@ -454,11 +484,6 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     );
     if (!exists) {
       this.receivedRecordNumbers.push({ epoch, sequenceNumber });
-    }
-    if (this.receivedRecordNumbers.length > MAX_ACK_RECORD_NUMBERS) {
-      this.receivedRecordNumbers = this.receivedRecordNumbers.slice(
-        -MAX_ACK_RECORD_NUMBERS,
-      );
     }
     return true;
   }

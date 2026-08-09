@@ -261,10 +261,11 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.cookieClientHelloHash = hashSha256(clientHelloBody);
       extensions.push(new CookieExtension(cookie).extension);
     }
+    // DTLS 1.3: zero-length legacy_session_id (do not echo client session id)
     const hrr = new ServerHello(
       WireVersion.DTLS_1_2,
       hrrRandom,
-      this.sessionId,
+      Buffer.alloc(0),
       CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
       0,
       extensions,
@@ -297,6 +298,38 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     messageSeq: number,
   ): Promise<void> {
     const ch = ClientHello.deSerialize(body);
+
+    // RFC 9147: DTLS 1.3 ClientHello.legacy_cookie MUST be zero-length
+    if (ch.cookie.length !== 0) {
+      await this.sendFatalAlert(AlertDesc.IllegalParameter);
+      this.fail(
+        new Error(
+          "illegal_parameter: DTLS 1.3 ClientHello legacy_cookie must be empty",
+        ),
+      );
+      return;
+    }
+
+    // RFC 9147: do not use TLS compatibility mode — never echo legacy_session_id
+    // (always reply with zero-length session_id in HRR/ServerHello).
+    this.sessionId = Buffer.alloc(0);
+
+    // Cipher suite selection: must offer TLS_AES_128_GCM_SHA256 (0x1301)
+    if (!ch.cipherSuites.includes(CipherSuite.TLS_AES_128_GCM_SHA256_0x1301)) {
+      await this.sendFatalAlert(AlertDesc.HandshakeFailure);
+      this.fail(
+        new Error(
+          "handshake_failure: ClientHello does not offer TLS_AES_128_GCM_SHA256",
+        ),
+      );
+      return;
+    }
+
+    // After HRR: CH2 must match CH1 except allowed fields (RFC 8446 §4.1.4)
+    if (this.awaitingHrr && this.firstClientHelloBody) {
+      this.validateClientHelloAfterHrr(this.firstClientHelloBody, ch, body);
+    }
+
     const versionsExt = ch.extensions.find(
       (e) => e.type === SupportedVersions.type,
     );
@@ -410,7 +443,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       if (!cookieExt) {
         this.firstClientHelloBody = body;
         this.cookieClientHelloHash = hashSha256(body);
-        this.sessionId = Buffer.from(ch.sessionId);
         if (this.hrrCount >= 1) {
           throw new Error("second HelloRetryRequest not allowed");
         }
@@ -437,7 +469,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
     if (needGroupHrr) {
       this.firstClientHelloBody = this.firstClientHelloBody ?? body;
-      this.sessionId = Buffer.from(ch.sessionId);
       if (this.hrrCount >= 1) {
         throw new Error("second HelloRetryRequest not allowed");
       }
@@ -450,7 +481,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     this.selectedGroup = clientShare.group as NamedCurveAlgorithms;
     this.localKeyPair = generateKeyPair(this.selectedGroup);
     this.clientRandom = DtlsRandom.from(ch.random as any);
-    this.sessionId = Buffer.from(ch.sessionId);
+    // sessionId stays zero-length for DTLS 1.3 (no echo)
     // Server message_seq: first ServerHello is 0; after HRR (already 0) continue at 1
     if (!this.awaitingHrr) {
       this.messageSeq = -1; // sendServerFlight does +=1 → ServerHello seq 0
@@ -486,6 +517,70 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
   }
 
   /**
+   * After HRR, ClientHello2 must match ClientHello1 except allowed deltas
+   * (RFC 8446 §4.1.4): key_share, cookie, early_data removal, padding, etc.
+   */
+  protected validateClientHelloAfterHrr(
+    ch1Body: Buffer,
+    ch2: ClientHello,
+    _ch2Body: Buffer,
+  ): void {
+    const ch1 = ClientHello.deSerialize(ch1Body);
+    if (ch2.cookie.length !== 0) {
+      throw new Error(
+        "illegal_parameter: DTLS 1.3 ClientHello2 legacy_cookie must be empty",
+      );
+    }
+    // cipher_suites must be identical
+    if (
+      ch1.cipherSuites.length !== ch2.cipherSuites.length ||
+      ch1.cipherSuites.some((c, i) => c !== ch2.cipherSuites[i])
+    ) {
+      throw new Error(
+        "illegal_parameter: ClientHello2 cipher_suites differ from ClientHello1",
+      );
+    }
+    // compression_methods identical
+    if (
+      ch1.compressionMethods.length !== ch2.compressionMethods.length ||
+      ch1.compressionMethods.some((c, i) => c !== ch2.compressionMethods[i])
+    ) {
+      throw new Error(
+        "illegal_parameter: ClientHello2 compression_methods differ from ClientHello1",
+      );
+    }
+    // Extensions that must not change (except key_share, cookie, early_data)
+    const mutable = new Set([
+      KeyShare.type,
+      CookieExtension.type,
+      // early_data type is 42 if present — allow drop
+      42,
+    ]);
+    const extMap = (exts: { type: number; data: Buffer }[]) => {
+      const m = new Map<number, Buffer>();
+      for (const e of exts) {
+        if (!mutable.has(e.type)) m.set(e.type, e.data);
+      }
+      return m;
+    };
+    const m1 = extMap(ch1.extensions);
+    const m2 = extMap(ch2.extensions);
+    if (m1.size !== m2.size) {
+      throw new Error(
+        "illegal_parameter: ClientHello2 extensions differ from ClientHello1",
+      );
+    }
+    for (const [t, d1] of m1) {
+      const d2 = m2.get(t);
+      if (!d2 || !d1.equals(d2)) {
+        throw new Error(
+          `illegal_parameter: ClientHello2 extension 0x${t.toString(16)} differs from ClientHello1`,
+        );
+      }
+    }
+  }
+
+  /**
    * HelloRetryRequest. Optionally includes cookie for address validation
    * and/or selected_group for key_share. Combined cookie+group HRR avoids a
    * second message_seq=0 HRR that clients would treat as a duplicate.
@@ -504,10 +599,11 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     ];
     // use_srtp is carried in EncryptedExtensions (TLS 1.3), not ServerHello
 
+    // DTLS 1.3: zero-length legacy_session_id (RFC 9147 — no TLS compatibility mode)
     const sh = new ServerHello(
       WireVersion.DTLS_1_2,
       this.serverRandom,
-      this.sessionId,
+      Buffer.alloc(0),
       CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
       0,
       shExtensions,
@@ -864,6 +960,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
   protected async onCertificateRequest(body: Buffer): Promise<void> {
     const cr = CertificateRequest13.deSerialize(body);
+    // Main handshake: context MUST be zero-length (post-handshake auth not supported)
+    if (cr.certificateRequestContext.length !== 0) {
+      throw new Error(
+        "illegal_parameter: CertificateRequest.certificate_request_context must be empty in main handshake",
+      );
+    }
     // certificate_request_context must be echoed in client Certificate (RFC 8446 §4.3.2)
     this.certificateRequestContext = Buffer.from(cr.certificateRequestContext);
     this.peerRequestedClientCert = true;
@@ -932,7 +1034,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     if (!cert.certificates.length) {
       throw new Error("empty certificate list");
     }
-    // Server Certificate uses empty context
+    // Server Certificate context MUST be zero-length in main handshake
+    if (cert.certificateRequestContext.length !== 0) {
+      throw new Error(
+        "illegal_parameter: server Certificate.certificate_request_context must be empty",
+      );
+    }
     this.remoteCert = cert.certificates[0];
     this.transcript.add(HandshakeType.certificate_11, body);
   }

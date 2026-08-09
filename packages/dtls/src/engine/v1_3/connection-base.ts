@@ -224,6 +224,11 @@ export abstract class Dtls13ConnectionBase {
    */
   protected earlyAppData: Buffer[] = [];
   protected earlyAppDataBytes = 0;
+  /**
+   * Peer sent close_notify — their write side is closed; ignore further app data.
+   * Local write side stays open until we send close_notify / fail / close.
+   */
+  protected peerWriteClosed = false;
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   protected rxChain: Promise<void> = Promise.resolve();
 

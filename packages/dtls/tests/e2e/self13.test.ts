@@ -818,8 +818,11 @@ test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version 
       if (
         e instanceof ProtocolVersionError ||
         e.name === "ProtocolVersionError" ||
-        /protocol version|cipher suite|1\.3/i.test(e.message)
+        /protocol version|cipher suite|1\.3|handshake_failure|0x1301|TLS_AES/i.test(
+          e.message,
+        )
       ) {
+        // 1.2 CH may lack 0x1301 → handshake_failure, or version mismatch alert
         resolve();
         return;
       }

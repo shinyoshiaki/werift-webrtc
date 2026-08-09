@@ -198,10 +198,20 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     epoch: number,
     sequenceNumber: number,
   ): Promise<void> {
-    this.noteHandshakeRecordForAck(epoch, sequenceNumber);
+    const needIntermediate = this.noteHandshakeRecordForAck(
+      epoch,
+      sequenceNumber,
+    );
+    // Intermediate ACK when accumulator is full (large fragmented Certificate)
+    if (needIntermediate && !this.ackAfterCurrentRecord) {
+      await this.sendAck();
+    }
     if (this.ackAfterCurrentRecord) {
       this.ackAfterCurrentRecord = false;
-      await this.sendAck();
+      // Drain all pending ACK numbers (may need multiple MTU-sized ACKs)
+      while (this.receivedRecordNumbers.length > 0) {
+        await this.sendAck();
+      }
       // RFC 9147: response KeyUpdate is not an implicit ACK of peer KeyUpdate.
       // If our own KeyUpdate is still un-ACKed, defer the response until after
       // handleAck → applyPendingKeyUpdateWrite (crossed update_requested).
@@ -225,6 +235,14 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
    * @returns true if handshake content was accepted (reassembled and/or queued)
    * so the containing DTLS record may be listed in a subsequent ACK.
    */
+  /**
+   * True once we have (or had) protected traffic keys — epoch-0 ACK/alert must
+   * not affect protected state (RFC 9147 + Erratum 8108).
+   */
+  protected hasProtectedWriteKeys(): boolean {
+    return this.writeEpoch >= 2 || this.connected;
+  }
+
   protected async onPlaintextRecordAsync(rec: {
     contentType: number;
     epoch: number;
@@ -236,16 +254,30 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       log("drop plaintext with non-zero epoch", rec.epoch);
       return false;
     }
+    // After protected keys exist, discard unauthenticated epoch-0 ACK/alert
+    // (forged plaintext must not drive retransmit / KeyUpdate / close).
+    if (
+      this.hasProtectedWriteKeys() &&
+      (rec.contentType === ContentType.ack ||
+        rec.contentType === ContentType.alert)
+    ) {
+      log("drop unauthenticated epoch-0 ACK/alert after protected state");
+      return false;
+    }
     if (rec.contentType === ContentType.alert) {
-      this.handleAlert(rec.fragment);
+      this.handleAlert(rec.fragment, 0);
       return false;
     }
     if (rec.contentType === ContentType.ack) {
-      // RFC 9147: ACK may appear on any epoch including epoch-0 plaintext
-      this.handleAck(rec.fragment);
+      this.handleAck(rec.fragment, 0);
       return false;
     }
     if (rec.contentType === ContentType.handshake) {
+      // After fully connected, ignore late epoch-0 handshake (except soft dual path)
+      if (this.connected) {
+        log("drop epoch-0 handshake after connected");
+        return false;
+      }
       return this.processHandshakeBytes(rec.fragment, 0);
     }
     return false;
@@ -264,6 +296,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       case ContentType.handshake:
         return this.processHandshakeBytes(rec.content, rec.epoch);
       case ContentType.applicationData:
+        if (this.peerWriteClosed) {
+          log("ignore application data after peer close_notify");
+          return false;
+        }
         if (!this.connected) {
           // UDP reorder: epoch-3 app data before markConnected.
           // Bound buffer to prevent pre-Finished memory DoS (RFC 9147: buffer or discard).
@@ -286,10 +322,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         this.onData.execute(rec.content);
         return false;
       case ContentType.ack:
-        this.handleAck(rec.content);
+        this.handleAck(rec.content, rec.epoch);
         return false;
       case ContentType.alert:
-        this.handleAlert(rec.content);
+        this.handleAlert(rec.content, rec.epoch);
         return false;
       default:
         log("unknown content type", rec.contentType);
@@ -299,11 +335,12 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
 
   /**
    * TLS 1.3 / RFC 8446 alert handling:
-   * - close_notify closes the association (level ignored)
-   * - any other alert description is fatal regardless of legacy level field
+   * - close_notify: peer write closed only (do not force-close local write)
+   * - user_canceled: closure alert (warning); wait for close_notify
+   * - other error descriptions: fatal regardless of legacy level
    * - malformed / truncated alert → decode_error fatal
    */
-  protected handleAlert(fragment: Buffer) {
+  protected handleAlert(fragment: Buffer, receivedEpoch: number) {
     if (fragment.length < 2) {
       this.fail(new Error("decode_error: truncated alert"));
       return;
@@ -315,20 +352,18 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       this.fail(new Error("decode_error: malformed alert"));
       return;
     }
-    log("alert", alert.level, alert.description);
+    log("alert", alert.level, alert.description, "epoch", receivedEpoch);
 
     if (alert.description === AlertDesc.CloseNotify) {
-      // Peer closed write; tear down association and stop timers
-      if (this.closed) return;
-      this.clearPendingFlight();
-      this.clearEarlyAppData();
-      this.cancelEpochPrune?.();
-      this.cancelEpochPrune = undefined;
-      this.carrier.cancelAllTimers();
-      this.closed = true;
-      this.carrier.close();
-      void this.options.transport.close().catch(() => {});
-      this.onClose.execute();
+      // One-way write closure from peer — keep local write open
+      this.peerWriteClosed = true;
+      log("peer close_notify: peer write side closed");
+      return;
+    }
+
+    if (alert.description === AlertDesc.UserCanceled) {
+      // Closure alert (typically warning); often followed by close_notify
+      log("peer user_canceled");
       return;
     }
 
@@ -349,20 +384,44 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     );
   }
 
-  protected handleAck(content: Buffer) {
+  /**
+   * @param receivedEpoch epoch of the ACK record itself (Erratum 8108:
+   *   ignore RecordNumbers with epoch > receivedEpoch).
+   */
+  protected handleAck(content: Buffer, receivedEpoch: number) {
     try {
       const ack = DtlsAck.deSerialize(content);
-      log("received ACK", ack.recordNumbers.length);
+      log("received ACK", ack.recordNumbers.length, "on epoch", receivedEpoch);
       if (this.pendingFlightRecords.length === 0 && !this.pendingServerHello) {
         return;
       }
       // RFC 9147 §7: empty ACK acknowledges nothing — retransmit unacked flight
+      // Do not let unauthenticated epoch-0 empty ACKs drive retransmit once protected.
       if (ack.recordNumbers.length === 0) {
+        if (receivedEpoch === 0 && this.hasProtectedWriteKeys()) {
+          log("ignore empty epoch-0 ACK after protected state");
+          return;
+        }
         log("empty ACK: retransmit pending flight (does not clear)");
         if (this.pendingFlight.length > 0 || this.pendingServerHello) {
           void this.doRetransmit();
         }
         return;
+      }
+      // Erratum 8108 / RFC 9147: ACK must not claim higher-epoch records than
+      // the epoch it was received on (blocks plaintext ACK of encrypted flight).
+      const applicable = ack.recordNumbers.filter(
+        (r) => r.epoch <= receivedEpoch,
+      );
+      if (applicable.length === 0) {
+        log("ACK ignored: all record_numbers exceed received epoch");
+        return;
+      }
+      if (applicable.length < ack.recordNumbers.length) {
+        log(
+          "ACK filtered higher-epoch record_numbers",
+          ack.recordNumbers.length - applicable.length,
+        );
       }
       const before = this.pendingFlightRecords.length;
       // Drop ACK'd records (and their wire bytes) so retransmit never resends them
@@ -371,7 +430,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         this.pendingFlightRecords.length
       ) {
         const acked = new Set(
-          ack.recordNumbers.map((r) => `${r.epoch}:${r.sequenceNumber}`),
+          applicable.map((r) => `${r.epoch}:${r.sequenceNumber}`),
         );
         const keptRecs: AckRecordNumber[] = [];
         const keptBytes: Buffer[] = [];
@@ -387,7 +446,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
       } else {
         this.pendingFlightRecords = remainingAfterAck(
           this.pendingFlightRecords,
-          ack.recordNumbers,
+          applicable,
         );
         this.pendingFlightRecordBytes = [];
       }
