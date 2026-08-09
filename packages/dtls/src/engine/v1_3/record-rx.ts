@@ -95,12 +95,7 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     // only that source may deliver datagrams. Prevents UdpTransport.rinfo
     // hijack redirecting TX / sharing anti-amp budget across attackers.
     const expected = this.expectedPeerKey();
-    if (
-      expected &&
-      peerKey &&
-      peerKey !== "unknown" &&
-      peerKey !== expected
-    ) {
+    if (expected && peerKey && peerKey !== "unknown" && peerKey !== expected) {
       log("drop datagram from non-association peer", peerKey, expected);
       return;
     }

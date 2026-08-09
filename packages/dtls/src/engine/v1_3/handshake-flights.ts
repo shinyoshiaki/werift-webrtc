@@ -354,10 +354,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     // RFC 9147 / TLS 1.3: compression_methods MUST be exactly [0]
-    if (
-      ch.compressionMethods.length !== 1 ||
-      ch.compressionMethods[0] !== 0
-    ) {
+    if (ch.compressionMethods.length !== 1 || ch.compressionMethods[0] !== 0) {
       throw new DtlsProtocolError(
         "illegal_parameter: ClientHello.compression_methods must be [0]",
         AlertDesc.IllegalParameter,
@@ -973,7 +970,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
     // DTLS 1.3: we send empty legacy_session_id; server must echo empty
     if (
-      !Buffer.from(sh.sessionId).equals(Buffer.from(this.sessionId ?? Buffer.alloc(0)))
+      !Buffer.from(sh.sessionId).equals(
+        Buffer.from(this.sessionId ?? Buffer.alloc(0)),
+      )
     ) {
       throw new DtlsProtocolError(
         "illegal_parameter: ServerHello.legacy_session_id does not match ClientHello",

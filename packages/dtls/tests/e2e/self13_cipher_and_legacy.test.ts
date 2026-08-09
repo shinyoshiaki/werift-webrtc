@@ -256,9 +256,7 @@ describe("e2e/self13 ClientHello validation", () => {
       server.onError.subscribe((e) => {
         clearTimeout(timer);
         try {
-          expect(e.message).toMatch(
-            /illegal_parameter|compression_methods/i,
-          );
+          expect(e.message).toMatch(/illegal_parameter|compression_methods/i);
           server.close();
           resolve();
         } catch (err) {

@@ -467,7 +467,9 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     ) {
       return AlertDesc.DecryptError;
     }
-    if (/illegal|not negotiated|unsupported|unexpected|missing_extension/i.test(m)) {
+    if (
+      /illegal|not negotiated|unsupported|unexpected|missing_extension/i.test(m)
+    ) {
       return AlertDesc.IllegalParameter;
     }
     if (/no overlapping/i.test(m)) {
