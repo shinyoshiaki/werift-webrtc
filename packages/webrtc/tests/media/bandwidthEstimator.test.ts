@@ -11,6 +11,7 @@ import {
   PacketStatus,
   ProbeController,
   type ProbePacingController,
+  hasTwccReceiveTiming,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
@@ -433,6 +434,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("決定的入力での bitrate 系列（制御応答の形状回帰）", () => {
       // Arrange: 壁時計に依存しない固定 send/recv タイムライン
+      // 参照ベクトル（許容幅）: 形状 + 粗いレンジで libwebrtc 完全一致は非ゴール
       const start = 400_000;
       const gcc = new GccBandwidthEstimator(start);
       const series: number[] = [];
@@ -453,10 +455,11 @@ describe("media/sender bandwidth estimator", () => {
         });
         record();
       }
-      // Assert 1: 安定期は正の推定
+      // Assert 1: 安定期は正の推定（400kbps スタート近傍〜数 Mbps 探索帯）
       expect(series.length).toBeGreaterThanOrEqual(1);
       const steady = series[series.length - 1];
-      expect(steady).toBeGreaterThan(0);
+      expect(steady).toBeGreaterThan(50_000);
+      expect(steady).toBeLessThan(10_000_000);
 
       // Act phase 2: 遅延勾配で overuse → 推定が下がる方向
       feedDelayScenario(gcc, {
@@ -490,16 +493,21 @@ describe("media/sender bandwidth estimator", () => {
       record();
       const afterLoss = series[series.length - 1];
 
-      // Assert: 制御応答の形状（厳密な bps 一致は要求しない）
-      // 日本語: 遅延 overuse または損失後に推定が安定期より高い値に張り付かない
+      // Assert: 決定的系列の期待形状 + 許容レンジ
+      // 日本語: 遅延 overuse 後は安定期を大きく超えない
       expect(afterDelay).toBeLessThanOrEqual(steady * 1.15);
+      // 日本語: 高損失後は安定期より明確に下がる
       expect(afterLoss).toBeLessThan(steady);
+      expect(afterLoss).toBeLessThanOrEqual(afterDelay * 1.05);
       // 日本語: ゼロ張り付きや異常な上限跳躍がない
       expect(afterLoss).toBeGreaterThanOrEqual(10_000);
+      expect(afterLoss).toBeLessThan(5_000_000);
       expect(Math.max(...series)).toBeLessThan(50_000_000);
       // 日本語: 最終推定は損失反映後も正で、安定期を超えて再膨張していない
       expect(series[series.length - 1]).toBe(afterLoss);
       expect(series[series.length - 1]).toBeLessThanOrEqual(steady);
+      // 日本語: 系列長は phase 記録回数と一致（決定的入力の再現性）
+      expect(series.length).toBeGreaterThanOrEqual(5);
     });
 
     test("LossBasedBwe 観測窓 + Newton で高損失時に帯域が下がる", () => {

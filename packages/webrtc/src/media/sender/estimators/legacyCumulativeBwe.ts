@@ -4,6 +4,7 @@ import { milliTime } from "../../../utils";
 import type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
 import { setAvailableBitrateIfChanged } from "../bandwidthEstimator";
 import { CumulativeResult } from "../cumulativeResult";
+import { hasTwccReceiveTiming } from "./twccReceiveTiming";
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;
@@ -89,7 +90,8 @@ export class SenderBandwidthEstimator implements BandwidthEstimator {
       const wideSeq = result.sequenceNumber;
       const info = this.sentInfos[wideSeq];
       if (!info) continue;
-      if (!result.receivedAtMs) continue;
+      // Timing sample: not WithoutDelta; receivedAtMs===0 is valid (not falsy).
+      if (!hasTwccReceiveTiming(result)) continue;
 
       this.cumulativeResult.addPacket(
         info.size,

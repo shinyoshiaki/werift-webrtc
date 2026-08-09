@@ -7,6 +7,7 @@ import type {
   SentInfo,
 } from "../../bandwidthEstimator";
 import { setAvailableBitrateIfChanged } from "../../bandwidthEstimator";
+import { hasTwccReceiveTiming } from "../twccReceiveTiming";
 import { AimdRateControl } from "./aimdRateControl";
 import {
   GCC_KNOWN_DIFFERENCES,
@@ -221,8 +222,9 @@ export class GccBandwidthEstimator
         sendMs: info.sendingAtMs,
       });
 
-      // ReceivedWithoutDelta: counts as received for loss, no delay sample.
-      if (!result.receivedAtMs) {
+      // ReceivedWithoutDelta / no timing: received for loss only, skip delay path.
+      // Do not use falsy `!receivedAtMs` — 0 is a valid reference-relative time.
+      if (!hasTwccReceiveTiming(result)) {
         continue;
       }
 

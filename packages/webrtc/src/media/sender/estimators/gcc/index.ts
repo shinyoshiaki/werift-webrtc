@@ -33,3 +33,4 @@ export {
 } from "./sequenceNumber";
 export { TrendlineEstimator } from "./trendlineEstimator";
 export type { BandwidthUsage } from "./overuseDetector";
+export { hasTwccReceiveTiming } from "../twccReceiveTiming";
