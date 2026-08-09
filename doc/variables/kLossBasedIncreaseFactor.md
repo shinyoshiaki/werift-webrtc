@@ -6,4 +6,4 @@
 
 # Variable: kLossBasedIncreaseFactor
 
-> `const` **kLossBasedIncreaseFactor**: `1.05` = `1.05`
+> `const` **kLossBasedIncreaseFactor**: `1.02` = `1.02`

@@ -9,9 +9,10 @@
 LossBasedBweV2-aligned controller
 (`modules/congestion_controller/goog_cc/loss_based_bwe_v2.*`).
 
-Implements observation window, candidate generation (factor / acked / delay),
-loss probability model, Newton updates for inherent loss, and objective
-ranking. Defaults mirror Chromium field-trial defaults where practical.
+- Partial observations accumulate until duration ≥ 250ms (lower bound)
+- Estimates require ≥ 3 committed observations
+- Loss probability: inherent + (1−inherent)×excess/sending (libwebrtc)
+- Constants match Chromium field-trial defaults (lkgr)
 
 ## Constructors
 
@@ -61,6 +62,20 @@ ranking. Defaults mirror Chromium field-trial defaults where practical.
 
 ***
 
+### observationCount
+
+#### Get Signature
+
+> **get** **observationCount**(): `number`
+
+Number of committed observations (for readiness tests).
+
+##### Returns
+
+`number`
+
+***
+
 ### targetBitrateBps
 
 #### Get Signature
@@ -107,7 +122,7 @@ ranking. Defaults mirror Chromium field-trial defaults where practical.
 
 ### update()
 
-> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `_nowMs`, `batchBytes`, `sendDurationMs`): `number`
+> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `nowMs`, `batchBytes`, `sendDurationMs`): `number`
 
 #### Parameters
 
@@ -115,7 +130,7 @@ ranking. Defaults mirror Chromium field-trial defaults where practical.
 
 `number`
 
-unused except compatibility (prefer packet counts)
+fallback when packet counts are 0
 
 ##### delayBasedBps
 
@@ -141,9 +156,11 @@ known packets in batch
 
 lost among known
 
-##### \_nowMs
+##### nowMs
 
 `number` = `0`
+
+send-timeline reference (used for partial window start)
 
 ##### batchBytes
 
@@ -155,7 +172,7 @@ total sent bytes in batch
 
 `number` = `0`
 
-duration of this batch on the **send** timeline
+duration of this batch on the send timeline
 
 #### Returns
 

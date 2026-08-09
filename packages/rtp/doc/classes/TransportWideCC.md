@@ -104,6 +104,12 @@
 
 > **get** **packetResults**(): [`PacketResult`](PacketResult.md)[]
 
+Expand packet status chunks into per-packet results with a single
+sequence cursor and recv-delta cursor (draft-holmer TWCC).
+
+Handles both [RunLengthChunk](RunLengthChunk.md) and [StatusVectorChunk](StatusVectorChunk.md),
+and advances the sequence across chunk boundaries.
+
 ##### Returns
 
 [`PacketResult`](PacketResult.md)[]

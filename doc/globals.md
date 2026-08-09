@@ -36,6 +36,7 @@
 - [GroupDescription](classes/GroupDescription.md)
 - [H264RtpPayload](classes/H264RtpPayload.md)
 - [IceCandidate](classes/IceCandidate.md)
+- [InterArrivalDelta](classes/InterArrivalDelta.md)
 - [LegacyCumulativeBandwidthEstimator](classes/LegacyCumulativeBandwidthEstimator.md)
 - [LossBasedBwe](classes/LossBasedBwe.md)
 - [MediaDescription](classes/MediaDescription.md)
