@@ -12,7 +12,13 @@ export class CookieExtension {
   static fromData(data: Buffer): CookieExtension {
     if (data.length < 2) throw new Error("cookie extension: truncated");
     const len = data.readUInt16BE(0);
-    if (data.length < 2 + len) throw new Error("cookie extension: length");
+    // RFC 8446: opaque cookie<1..2^16-1> — non-empty, no trailing bytes
+    if (len < 1) throw new Error("cookie extension: empty cookie not allowed");
+    if (data.length !== 2 + len) {
+      throw new Error(
+        `cookie extension: length mismatch (declared ${len}, total ${data.length - 2})`,
+      );
+    }
     return new CookieExtension(Buffer.from(data.subarray(2, 2 + len)));
   }
 

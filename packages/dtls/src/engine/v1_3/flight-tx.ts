@@ -496,7 +496,23 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     const alert = Buffer.from([2, AlertDesc.ProtocolVersion]);
     const seq = this.recordSeqEpoch0++;
     const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
-    await this.sendWithBudget(record);
+    // Best-effort alert; budget may block pre-cookie
+    try {
+      await this.sendWithBudget(record);
+    } catch {
+      // ignore budget failures for optional alert
+    }
+    // Pre-cookie: do not tear down association (spoofed CH with bad versions)
+    if (
+      this.role === "server" &&
+      this.addressValidation === "dtls-cookie" &&
+      !this.addressValidated
+    ) {
+      log(
+        "pre-cookie protocol_version alert sent without fail (unvalidated source)",
+      );
+      return;
+    }
     this.fail(
       new ProtocolVersionError(
         "no overlapping DTLS 1.3 protocol version with peer",

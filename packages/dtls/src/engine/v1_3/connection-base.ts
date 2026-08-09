@@ -284,6 +284,11 @@ export abstract class Dtls13ConnectionBase {
   protected clientCertificateVerified = false;
   protected peerRequestedClientCert = false;
   /**
+   * After CertificateRequest: whether we will present a local certificate
+   * (false → empty Certificate decline when schemes/key do not match).
+   */
+  protected presentClientCertificate = false;
+  /**
    * Epoch-3 app data received before markConnected (UDP reorder window).
    * Bounded — see MAX_EARLY_APP_DATA_* in types.ts.
    */

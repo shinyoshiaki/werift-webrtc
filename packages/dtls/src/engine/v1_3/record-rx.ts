@@ -192,11 +192,32 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           (e instanceof Error && e.name === "DtlsVersionSelected") ||
           (e instanceof Error && e.name === "DtlsProtocolError")
         ) {
-          if (e instanceof DtlsProtocolError) {
-            await this.failAuthenticatedHandshake(e);
+          if (e instanceof DtlsVersionSelected) throw e;
+          if (e instanceof ProtocolVersionError) {
+            // Dual-stack selection signals are handled by association layer
+            if (this.isPreCookieUnvalidatedServer()) {
+              log(
+                "pre-cookie protocol_version from unvalidated source (no fail)",
+                e.message,
+              );
+              return;
+            }
+            throw e;
+          }
+          // DtlsProtocolError
+          if (this.isPreCookieUnvalidatedServer() && rec.kind === "plaintext") {
+            // RFC 9147 cookie exchange: spoofed-source epoch-0 semantic errors
+            // must not tear down the association before return-routability.
+            log(
+              "pre-cookie protocol error from unvalidated source (no fail)",
+              e instanceof Error ? e.message : String(e),
+            );
             return;
           }
-          throw e;
+          await this.failAuthenticatedHandshake(
+            e instanceof Error ? e : new Error(String(e)),
+          );
+          return;
         }
         // AEAD already succeeded for ciphertext → authenticated content.
         // Crypto/transcript failures must fatal-alert and fail() immediately
@@ -207,16 +228,21 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           );
           return;
         }
-        // Plaintext epoch-0 negotiation errors that use DtlsProtocolError already
-        // handled above. Remaining Error from parse noise: silent discard.
-        // Promotion: locally determined negotiation / semantic protocol failures
-        // (must not degrade to retransmit timeout — RFC 8446 handshake_failure).
+        // Plaintext epoch-0: promote local negotiation/semantic failures, but
+        // never fail() the association before cookie validation (dtls-cookie).
         if (
           e instanceof Error &&
-          /illegal_parameter|handshake_failure|missing_extension|protocol|no overlapping|not offered|not allowed|mismatch|forbidden|unsolicited|unsupported cipher|unsupported version|signature scheme/i.test(
+          /illegal_parameter|handshake_failure|missing_extension|protocol|no overlapping|not offered|not allowed|mismatch|forbidden|unsolicited|unsupported cipher|unsupported version|signature scheme|all-zero|low-order|invalid point|ECDH|key_share/i.test(
             e.message,
           )
         ) {
+          if (this.isPreCookieUnvalidatedServer()) {
+            log(
+              "pre-cookie semantic error from unvalidated source (no fail)",
+              e.message,
+            );
+            return;
+          }
           await this.failAuthenticatedHandshake(
             e instanceof DtlsProtocolError
               ? e
@@ -304,6 +330,19 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     return this.writeEpoch >= 2 || this.connected;
   }
 
+  /**
+   * Server with dtls-cookie before address validation: unauthenticated epoch-0
+   * semantic errors must not fail()/close the whole association (spoofed-source
+   * DoS). ICE/none keep prompt failure.
+   */
+  protected isPreCookieUnvalidatedServer(): boolean {
+    return (
+      this.role === "server" &&
+      this.addressValidation === "dtls-cookie" &&
+      !this.addressValidated
+    );
+  }
+
   protected async onPlaintextRecordAsync(rec: {
     contentType: number;
     epoch: number;
@@ -339,6 +378,11 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         log("drop epoch-0 handshake after connected");
         return false;
       }
+      if (rec.fragment.length === 0) {
+        // Epoch-0 empty HS is noise; do not fail pre-cookie association
+        log("drop empty epoch-0 handshake content");
+        return false;
+      }
       return this.processHandshakeBytes(rec.fragment, 0);
     }
     return false;
@@ -355,6 +399,13 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
   }): Promise<boolean> {
     switch (rec.contentType) {
       case ContentType.handshake:
+        // RFC 8446: zero-length Handshake after deprotection → unexpected_message
+        if (rec.content.length === 0) {
+          throw new DtlsProtocolError(
+            "unexpected_message: empty handshake content after AEAD",
+            AlertDesc.UnexpectedMessage,
+          );
+        }
         return this.processHandshakeBytes(rec.content, rec.epoch);
       case ContentType.applicationData:
         // RFC 9147: ignore data with (epoch,seq) greater than close_notify's
@@ -398,11 +449,21 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         this.handleAck(rec.content, rec.epoch);
         return false;
       case ContentType.alert:
+        // RFC 8446: zero-length Alert after deprotection → unexpected_message
+        if (rec.content.length === 0) {
+          throw new DtlsProtocolError(
+            "unexpected_message: empty alert content after AEAD",
+            AlertDesc.UnexpectedMessage,
+          );
+        }
         this.handleAlert(rec.content, rec.epoch, rec.sequenceNumber);
         return false;
       default:
-        log("unknown content type", rec.contentType);
-        return false;
+        // AEAD-authenticated unknown type is fatal (not silent ignore)
+        throw new DtlsProtocolError(
+          `unexpected_message: unexpected content type ${rec.contentType} after AEAD`,
+          AlertDesc.UnexpectedMessage,
+        );
     }
   }
 
@@ -606,9 +667,12 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         );
       }
       offset += total;
-      // Epoch / role allowlist for handshake message types (DoS / state abuse)
-      if (!this.isAllowedHandshake(hs.msg_type, epoch)) {
-        log("drop disallowed handshake", hs.msg_type, "epoch", epoch);
+      // Epoch 0: coarse allowlist only (unauthenticated DoS surface).
+      // Epoch ≥ 2: AEAD-authenticated — always pass to the handshake state
+      // machine so wrong-order / wrong-role types become unexpected_message
+      // (RFC 8446), not silent drop.
+      if (epoch === 0 && !this.isAllowedHandshake(hs.msg_type, epoch)) {
+        log("drop disallowed epoch-0 handshake", hs.msg_type);
         continue;
       }
       const complete = this.reassemble(hs);
@@ -622,8 +686,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
   }
 
   /**
-   * Restrict which handshake types may be processed on a given epoch / role.
-   * Forged or out-of-state messages are dropped without killing the connection.
+   * Epoch-0 only: restrict which handshake types may be processed without AEAD.
+   * Authenticated epochs rely on `isExpectedHandshakeType` in dispatchHandshake.
    */
   protected isAllowedHandshake(msgType: number, epoch: number): boolean {
     // Epoch 0 plaintext: only ClientHello / ServerHello (HRR) / HelloVerifyRequest
@@ -636,29 +700,8 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
         msgType === HandshakeType.hello_verify_request_3
       );
     }
-    // Handshake epoch 2: role-specific full-handshake messages only
-    if (epoch === 2) {
-      if (this.role === "client") {
-        return (
-          msgType === HandshakeType.encrypted_extensions_8 ||
-          msgType === HandshakeType.certificate_request_13 ||
-          msgType === HandshakeType.certificate_11 ||
-          msgType === HandshakeType.certificate_verify_15 ||
-          msgType === HandshakeType.finished_20
-        );
-      }
-      // server receives only client Certificate* / Finished on epoch 2
-      return (
-        msgType === HandshakeType.certificate_11 ||
-        msgType === HandshakeType.certificate_verify_15 ||
-        msgType === HandshakeType.finished_20
-      );
-    }
-    // Application epochs: KeyUpdate only (post-handshake auth not implemented)
-    if (epoch >= 3) {
-      return msgType === HandshakeType.key_update_24;
-    }
-    return false;
+    // Authenticated epochs: defer to state machine
+    return true;
   }
 
   protected async enqueueHandshake(

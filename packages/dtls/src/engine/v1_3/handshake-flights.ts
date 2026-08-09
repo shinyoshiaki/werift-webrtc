@@ -8,6 +8,7 @@ import { generateKeyPair } from "../../cipher/namedCurve";
 import { prfPreMasterSecret } from "../../cipher/prf";
 import { hashSha256 } from "../../cipher/tls13/hkdf";
 import {
+  schemesForKey,
   selectSignatureScheme,
   signCertificateVerify,
   verifyCertificateVerify,
@@ -979,12 +980,20 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const shBody = sh.serialize();
     this.transcript.add(HandshakeType.server_hello_2, shBody);
 
-    // ECDHE
-    const shared = prfPreMasterSecret(
-      this.remoteKeyShare!.keyExchange,
-      this.localKeyPair.privateKey,
-      this.selectedGroup,
-    );
+    // ECDHE — cryptographically invalid share → illegal_parameter (not timeout)
+    let shared: Buffer;
+    try {
+      shared = prfPreMasterSecret(
+        this.remoteKeyShare!.keyExchange,
+        this.localKeyPair.privateKey,
+        this.selectedGroup,
+      );
+    } catch (e) {
+      throw new DtlsProtocolError(
+        `illegal_parameter: invalid peer key_share / ECDH (${e instanceof Error ? e.message : String(e)})`,
+        AlertDesc.IllegalParameter,
+      );
+    }
     const hsSecrets = this.keySchedule.deriveHandshakeSecrets(
       shared,
       this.transcript.bytes,
@@ -1342,11 +1351,19 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     // Stop ClientHello retransmission; we are past flight 1
     this.clearPendingFlight();
 
-    const shared = prfPreMasterSecret(
-      serverShare.keyExchange,
-      this.localKeyPair.privateKey,
-      this.selectedGroup,
-    );
+    let shared: Buffer;
+    try {
+      shared = prfPreMasterSecret(
+        serverShare.keyExchange,
+        this.localKeyPair.privateKey,
+        this.selectedGroup,
+      );
+    } catch (e) {
+      throw new DtlsProtocolError(
+        `illegal_parameter: invalid peer key_share / ECDH (${e instanceof Error ? e.message : String(e)})`,
+        AlertDesc.IllegalParameter,
+      );
+    }
     const hsSecrets = this.keySchedule.deriveHandshakeSecrets(
       shared,
       this.transcript.bytes,
@@ -1440,8 +1457,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     assertUniqueExtensions(cr.extensions, "CertificateRequest");
     // Main handshake: context MUST be zero-length (post-handshake auth not supported)
     if (cr.certificateRequestContext.length !== 0) {
-      throw new Error(
+      throw new DtlsProtocolError(
         "illegal_parameter: CertificateRequest.certificate_request_context must be empty in main handshake",
+        AlertDesc.IllegalParameter,
       );
     }
     // certificate_request_context must be echoed in client Certificate (RFC 8446 §4.3.2)
@@ -1452,37 +1470,38 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       (e) => e.type === SignatureAlgorithms.type,
     );
     if (!sigExt) {
-      throw new Error(
+      throw new DtlsProtocolError(
         "missing_extension: CertificateRequest requires signature_algorithms",
+        AlertDesc.MissingExtension,
       );
     }
+    let schemes: number[];
     try {
-      const schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
-      if (!schemes.length) {
-        throw new Error("CertificateRequest signature_algorithms empty");
-      }
-      // Keep peer order for CertificateVerify selection; require intersection
-      // only when we have a local cert to present.
-      if (this.hasLocalIdentity) {
-        const ok = schemes.some((s) =>
-          this.localOfferedSignatureSchemes.includes(s),
-        );
-        if (!ok) {
-          throw new Error(
-            "no overlapping signature_algorithms with CertificateRequest",
-          );
-        }
-      }
-      this.certificateRequestSignatureSchemes = schemes;
-      this.peerSignatureSchemes = schemes;
-    } catch (e) {
-      if (
-        e instanceof Error &&
-        /overlapping|empty|missing_extension/.test(e.message)
-      ) {
-        throw e;
-      }
-      throw new Error("CertificateRequest invalid signature_algorithms");
+      schemes = SignatureAlgorithms.fromData(sigExt.data).schemes;
+    } catch {
+      throw new DtlsProtocolError(
+        "decode_error: CertificateRequest invalid signature_algorithms",
+        AlertDesc.DecodeError,
+      );
+    }
+    if (!schemes.length) {
+      throw new DtlsProtocolError(
+        "missing_extension: CertificateRequest signature_algorithms empty",
+        AlertDesc.MissingExtension,
+      );
+    }
+    // Peer preference order for any CertificateVerify we may send
+    this.certificateRequestSignatureSchemes = schemes;
+    this.peerSignatureSchemes = schemes;
+    // RFC 8446: if we cannot produce a matching CertificateVerify scheme for
+    // our actual key, send empty Certificate (decline) — do not abort.
+    if (this.hasLocalIdentity && this.keyPem) {
+      const keySchemes = schemesForKey(this.keyPem);
+      this.presentClientCertificate = schemes.some((s) =>
+        keySchemes.includes(s),
+      );
+    } else {
+      this.presentClientCertificate = false;
     }
     this.transcript.add(HandshakeType.certificate_request_13, body);
   }
@@ -1583,10 +1602,15 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.installEpoch(3, ep3);
 
       // Optional client Certificate + CertificateVerify for mutual auth
-      // RFC 8446: if no suitable cert, send empty Certificate and skip CV.
+      // RFC 8446: if no suitable cert / scheme, send empty Certificate and skip CV.
       const clientMsgs: FragmentedHandshake[] = [];
       if (this.peerRequestedClientCert) {
-        if (this.hasLocalIdentity && this.certDer.length && this.keyPem) {
+        if (
+          this.presentClientCertificate &&
+          this.hasLocalIdentity &&
+          this.certDer.length &&
+          this.keyPem
+        ) {
           const cCert = new Certificate13(this.certificateRequestContext, [
             this.certDer,
           ]);
