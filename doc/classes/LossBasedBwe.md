@@ -9,10 +9,12 @@
 LossBasedBweV2-aligned controller
 (`modules/congestion_controller/goog_cc/loss_based_bwe_v2.*`).
 
-- Partial observations accumulate until duration ≥ 250ms (lower bound)
-- Estimates require ≥ 3 committed observations
-- Loss probability: inherent + (1−inherent)×excess/sending (libwebrtc)
-- Constants match Chromium field-trial defaults (lkgr)
+- Partial observations accumulate until send-timeline duration ≥ 250ms
+- Soft loss: not-received seqs live in a map and can be unmarked if later
+  reported as received before the observation commits
+- Byte-loss objective/derivative when `UseByteLossRate` (default true)
+- High-bandwidth bias adjusted by average loss ratio
+- Instant upper/lower bounds + delayed-increase window + HOLD rate
 
 ## Constructors
 
@@ -122,7 +124,7 @@ Number of committed observations (for readiness tests).
 
 ### update()
 
-> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `nowMs`, `batchBytes`, `sendDurationMs`): `number`
+> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `firstSendMs`, `batchBytes`, `lastSendMs`, `lostBytes`, `packets`?): `number`
 
 #### Parameters
 
@@ -156,11 +158,11 @@ known packets in batch
 
 lost among known
 
-##### nowMs
+##### firstSendMs
 
 `number` = `0`
 
-send-timeline reference (used for partial window start)
+actual first send time of this batch (send timeline)
 
 ##### batchBytes
 
@@ -168,11 +170,24 @@ send-timeline reference (used for partial window start)
 
 total sent bytes in batch
 
-##### sendDurationMs
+##### lastSendMs
 
 `number` = `0`
 
-duration of this batch on the send timeline
+actual last send time of this batch (send timeline)
+
+##### lostBytes
+
+`number` = `0`
+
+lost bytes in batch (byte-loss mode); if 0 with losses,
+  approximated from average packet size
+
+##### packets?
+
+`LossPacketFeedback`[]
+
+optional per-packet feedback for soft-loss map
 
 #### Returns
 

@@ -8,13 +8,14 @@
 
 Probe controller (libwebrtc `ProbeController` structure).
 
-- `setBitrates` / cold start → exponential probe clusters (× first/second scale)
-- While waiting, `currentProbeTargetBps` is the pacing target for the sender
+- `setBitrates` / cold start → exponential probe clusters (×3 and ×6)
+- **Multi-active**: initial 3x/6x (and any co-enqueued set) can be active
+  simultaneously; pacing target is the max among active clusters
 - On successful TWCC-measured probe, may schedule further probing when the
   estimate exceeds `further_probe_threshold` × last probe size
 
 The sender must raise its pacing rate to `currentProbeTargetBps` and tag
-packets with `isProbation` while a cluster is active.
+packets with `isProbation` while any cluster is active.
 
 ## Constructors
 
@@ -28,13 +29,27 @@ packets with `isProbation` while a cluster is active.
 
 ## Accessors
 
+### activeClusterCount
+
+#### Get Signature
+
+> **get** **activeClusterCount**(): `number`
+
+Number of currently active probe clusters.
+
+##### Returns
+
+`number`
+
+***
+
 ### currentProbeTargetBps
 
 #### Get Signature
 
 > **get** **currentProbeTargetBps**(): `number`
 
-Active cluster pacing target (0 if none).
+Max active cluster pacing target (0 if none).
 
 ##### Returns
 

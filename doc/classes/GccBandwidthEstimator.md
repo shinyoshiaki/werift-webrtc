@@ -66,7 +66,7 @@ Unit is always bits per second (bps). Change-only (not every recompute).
 
 ### knownDifferences
 
-> `readonly` `static` **knownDifferences**: readonly \[`"LossBasedBweV2: observation window (15), 250ms lower bound, min 3 observations, candidates/Newton/objective ported; TCP-fairness upper bound omitted (optional Chromium path)"`, `"No REMB integration; TWCC-only send-side mode (ticket non-goal)"`, `"Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender)"`, `"Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++"`\] = `GCC_KNOWN_DIFFERENCES`
+> `readonly` `static` **knownDifferences**: readonly \[`"LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)"`, `"No REMB integration; TWCC-only send-side mode (ticket non-goal)"`, `"Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x clusters are multi-active (pacing target = max active)"`, `"Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++"`, `"InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)"`\] = `GCC_KNOWN_DIFFERENCES`
 
 ## Accessors
 

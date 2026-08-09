@@ -9,8 +9,10 @@
 > **sortPacketResultsByWideSeq**\<`T`\>(`results`): `T`[]
 
 Sort TWCC packet results into send-order with wrap-around safety.
-Uses the first sequence as an origin so a window that crosses 0xFFFF sorts
-as e.g. 65534, 65535, 0, 1 rather than 0, 1, 65534, 65535.
+
+Chooses the origin that minimises the covered span (largest gap between
+consecutive sequences, including wrap), so a window like
+`{0, 1, 65534, 65535}` sorts as `65534, 65535, 0, 1` rather than numeric order.
 
 ## Type Parameters
 
