@@ -39,7 +39,9 @@ export class SupportedVersions {
     }
     const len = data.readUInt8(0);
     if (len % 2 !== 0) {
-      throw new Error("supported_versions: client versions length must be even");
+      throw new Error(
+        "supported_versions: client versions length must be even",
+      );
     }
     // At least one version (2 bytes); empty list is invalid wire for a present extension
     if (len < 2) {

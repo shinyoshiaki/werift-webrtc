@@ -1424,10 +1424,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       // RFC 5764: server may echo the client's MKI or return empty (disable MKI).
       // A different non-empty MKI is illegal.
       const respMki = Buffer.from(use.mki ?? Buffer.alloc(0));
-      if (
-        respMki.length > 0 &&
-        !respMki.equals(this.clientOfferedSrtpMki)
-      ) {
+      if (respMki.length > 0 && !respMki.equals(this.clientOfferedSrtpMki)) {
         throw new DtlsProtocolError(
           "illegal_parameter: use_srtp MKI in server response does not match ClientHello offer",
           AlertDesc.IllegalParameter,

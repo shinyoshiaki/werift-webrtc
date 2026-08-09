@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { UdpTransport } from "../../../../common/src";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
 import { NamedCurveAlgorithm } from "../../../src/cipher/const";
 import { generateKeyPair } from "../../../src/cipher/namedCurve";
 import { HandshakeType } from "../../../src/handshake/const";
@@ -7,8 +9,6 @@ import { SignatureAlgorithms } from "../../../src/handshake/extensions/signature
 import { CertificateRequest13 } from "../../../src/handshake/message/tls13/certificateRequest";
 import { AlertDesc } from "../../../src/record/const";
 import { DtlsProtocolError } from "../../../src/version";
-import { UdpTransport } from "../../../../common/src";
-import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
 import { certPem, keyPem } from "../../fixture";
 
 describe("P2: handshake message order state machine", () => {

@@ -151,9 +151,10 @@ export class DtlsSocket {
   protected setupExtensions() {
     log(this.dtls.sessionId, "support srtpProfiles", this.options.srtpProfiles);
     if (this.options.srtpProfiles && this.options.srtpProfiles.length > 0) {
+      // Empty MKI payload (length byte is written by UseSRTP.serialize).
       const useSrtp = UseSRTP.create(
         this.options.srtpProfiles,
-        Buffer.from([0x00]),
+        Buffer.alloc(0),
       );
       this.extensions.push(useSrtp.extension);
     }

@@ -58,19 +58,16 @@ describe("SupportedVersions wire validation", () => {
   test("ClientHello: rejects odd length, empty list, trailing bytes", () => {
     // Arrange / Act / Assert
     // empty list (len=0)
-    expect(() => SupportedVersions.fromData(Buffer.from([0x00]), false)).toThrow(
-      /at least 2 bytes/i,
-    );
+    expect(() =>
+      SupportedVersions.fromData(Buffer.from([0x00]), false),
+    ).toThrow(/at least 2 bytes/i);
     // odd length
     expect(() =>
       SupportedVersions.fromData(Buffer.from([0x01, 0xfe]), false),
     ).toThrow(/even/i);
     // trailing bytes after declared list
     expect(() =>
-      SupportedVersions.fromData(
-        Buffer.from([0x02, 0xfe, 0xfc, 0xff]),
-        false,
-      ),
+      SupportedVersions.fromData(Buffer.from([0x02, 0xfe, 0xfc, 0xff]), false),
     ).toThrow(/mismatch|trailing|length/i);
     // valid dual
     const ok = SupportedVersions.fromData(
@@ -127,7 +124,9 @@ describe("dual server supported_versions negative integration", () => {
       });
       server.onConnect.subscribe(() => {
         clearTimeout(timer);
-        reject(new Error("must not connect on unknown-only supported_versions"));
+        reject(
+          new Error("must not connect on unknown-only supported_versions"),
+        );
       });
       serverTransport.onData?.(pkt, ["127.0.0.1", 40001] as any);
     });

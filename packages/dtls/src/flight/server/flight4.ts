@@ -57,8 +57,10 @@ export class Flight4 extends Flight {
     // todo fix; should use socket.extensions
     const extensions: Extension[] = [];
     if (this.srtp.srtpProfile) {
+      // mki is payload-only (RFC 5764); empty Buffer → wire mki_len=0.
+      // Do not pass Buffer.from([0x00]) — that is a 1-byte MKI, not "empty".
       extensions.push(
-        UseSRTP.create([this.srtp.srtpProfile], Buffer.from([0x00])).extension,
+        UseSRTP.create([this.srtp.srtpProfile], Buffer.alloc(0)).extension,
       );
     }
     if (this.dtls.options.extendedMasterSecret) {

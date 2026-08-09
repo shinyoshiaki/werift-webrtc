@@ -1,5 +1,5 @@
+import { X509Certificate, createPrivateKey, createSign } from "crypto";
 import { Certificate as FidmCertificate } from "@fidm/x509";
-import { createPrivateKey, createSign, X509Certificate } from "crypto";
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
@@ -143,10 +143,7 @@ describe("CertificateVerify curve / key type binding", () => {
   test("verifyCertificateVerify rejects ecdsa_secp256r1_sha256 on P-384 cert", () => {
     // Arrange: craft a signature with P-384 key claiming P-256 scheme
     const transcript = Buffer.alloc(32, 7);
-    const content = buildCertificateVerifyContent(
-      true,
-      hashSha256(transcript),
-    );
+    const content = buildCertificateVerifyContent(true, hashSha256(transcript));
     const signer = createSign("sha256");
     signer.update(content);
     const sig = signer.sign(createPrivateKey(ecdsaP384KeyPem));

@@ -133,9 +133,9 @@ describe("anti-amplification budget (per association peer)", () => {
     const sentAfterA = sent.reduce((n, b) => n + b.length, 0);
     expect(sentAfterA).toBeGreaterThan(sentAfterB);
     // At least one reply must target A (association not permanently locked to B)
-    expect(sendAddrs.some((a) => a?.[0] === legit[0] && a?.[1] === legit[1])).toBe(
-      true,
-    );
+    expect(
+      sendAddrs.some((a) => a?.[0] === legit[0] && a?.[1] === legit[1]),
+    ).toBe(true);
     // A's incremental TX budgeted against A's CH only (ephemeral, not +B)
     expect(sentAfterA - sentAfterB).toBeLessThanOrEqual(
       ANTI_AMPLIFICATION_FACTOR * probe.length,

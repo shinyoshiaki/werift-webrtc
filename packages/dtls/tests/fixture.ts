@@ -53,7 +53,6 @@ MRWZMFdB3hM1ZJ3myUyE8qw=
 -----END PRIVATE KEY-----
 `;
 
-
 /** P-256 ECDSA server/client certificate (self-signed) for CertificateVerify E2E. */
 export const ecdsaP256CertPem = `-----BEGIN CERTIFICATE-----
 MIIBgTCCASegAwIBAgIUWPl9ezaAwooN0W/noF6nMqO27+UwCgYIKoZIzj0EAwIw

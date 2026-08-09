@@ -25,6 +25,16 @@ describe("handshake_extensions_useSrtp", () => {
     expect(c.mki.length).toBe(0);
   });
 
+  test("Buffer.from([0x00]) is a 1-byte MKI payload, not empty", () => {
+    // Arrange / Act: legacy callers mistook [0x00] for "empty MKI length byte"
+    const mistaken = UseSRTP.create([1], Buffer.from([0x00]));
+    // Assert: wire has mki_len=1, payload=0x00 — Chrome rejects as illegal_parameter
+    const wire = mistaken.serialize();
+    expect(wire[wire.length - 2]).toBe(1);
+    expect(wire[wire.length - 1]).toBe(0x00);
+    expect(mistaken.mki.length).toBe(1);
+  });
+
   test("fromData roundtrip", () => {
     // Arrange / Act
     const c = UseSRTP.deSerialize(raw);

@@ -1,9 +1,9 @@
 import {
+  type KeyObject,
   X509Certificate,
   createPrivateKey,
   createSign,
   createVerify,
-  type KeyObject,
 } from "crypto";
 import { Certificate as FidmCertificate, PrivateKey } from "@fidm/x509";
 
