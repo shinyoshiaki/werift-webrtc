@@ -38,7 +38,7 @@ Instructions for coding agents working in `packages/webrtc`.
 | WPT coverage | `npm run wpt:coverage` |
 
 Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
-Package-local bottleneck sims: `simulations/` (`npm run test:sim`). Chrome peer sims live under `e2e/simulations/`.
+Package-local bottleneck sims: `simulations/` (`npm run test:sim`). Chrome peer sims live under `e2e/simulations/` (`cd e2e && npm run test:sim`).
 
 ## Validation
 
