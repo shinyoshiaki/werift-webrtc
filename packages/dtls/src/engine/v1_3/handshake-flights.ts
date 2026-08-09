@@ -322,10 +322,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       extensions.push(KeyShare.forHelloRetryRequest(group).serverExtension);
     }
     if (withCookie) {
-      const binding = cookieBinding(
-        this.associationPeerKey(),
-        clientHelloBody,
-      );
+      const binding = cookieBinding(this.associationPeerKey(), clientHelloBody);
       const cookie = mintCookie(this.cookieSecret, binding);
       this.tlsCookie = Buffer.from(cookie);
       this.cookieClientHelloHash = hashSha256(clientHelloBody);
