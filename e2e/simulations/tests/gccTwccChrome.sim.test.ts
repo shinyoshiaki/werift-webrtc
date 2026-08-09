@@ -73,8 +73,13 @@ describe("e2e/simulations/gcc-twcc-chrome", () => {
       const congested = await peer.request(LABEL, {
         type: "markCongestionEnd",
       });
+      // eslint-disable-next-line no-console
+      console.log("congested snapshot", JSON.stringify(congested, null, 2));
 
       // Assert 1: ボトルネックでロスが発生し、推定が下がっている
+      // 日本語: 接続と送信が進んでいること
+      expect(congested.connectionState).toBe("connected");
+      expect(congested.outbound.enqueued).toBeGreaterThan(10);
       // 日本語: werift 送信経路でドロップが発生していること
       expect(congested.outbound.dropped).toBeGreaterThan(0);
       // 日本語: TWCC 経由で onAvailableBitrate が少なくとも 1 回発火していること
