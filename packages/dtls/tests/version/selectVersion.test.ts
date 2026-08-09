@@ -59,12 +59,13 @@ describe("selectVersion (association layer)", () => {
         DTLS_1_2_VERSION,
       ]),
     ).toEqual([DtlsVersion.V1_3, DtlsVersion.V1_2]);
-    expect(peerVersionsFromSupportedVersionsWire([])).toEqual([
-      DtlsVersion.V1_2,
-    ]);
+    // Extension absent only → legacy 1.2
     expect(peerVersionsFromSupportedVersionsWire(undefined)).toEqual([
       DtlsVersion.V1_2,
     ]);
+    // Present but empty / unknown-only → no negotiable version (not 1.2)
+    expect(peerVersionsFromSupportedVersionsWire([])).toEqual([]);
+    expect(peerVersionsFromSupportedVersionsWire([0x0303])).toEqual([]);
   });
 
   test("hasTlsDowngradeSentinel detects DOWNGRD tails", () => {

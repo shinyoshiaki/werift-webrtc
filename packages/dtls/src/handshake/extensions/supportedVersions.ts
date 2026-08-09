@@ -25,15 +25,32 @@ export class SupportedVersions {
 
   static fromData(data: Buffer, isServerHello: boolean): SupportedVersions {
     if (isServerHello) {
-      if (data.length < 2)
-        throw new Error("supported_versions: truncated server");
+      // ServerHello / HRR: exactly one uint16 selected version (no trailing)
+      if (data.length !== 2) {
+        throw new Error(
+          `supported_versions: ServerHello/HRR must be exactly 2 bytes (got ${data.length})`,
+        );
+      }
       return SupportedVersions.forServer(data.readUInt16BE(0));
     }
-    if (data.length < 1)
+    // ClientHello: versions<2..254> as length-prefixed even list, exact length
+    if (data.length < 1) {
       throw new Error("supported_versions: truncated client");
+    }
     const len = data.readUInt8(0);
-    if (data.length < 1 + len || len % 2 !== 0) {
-      throw new Error("supported_versions: invalid client list");
+    if (len % 2 !== 0) {
+      throw new Error("supported_versions: client versions length must be even");
+    }
+    // At least one version (2 bytes); empty list is invalid wire for a present extension
+    if (len < 2) {
+      throw new Error(
+        "supported_versions: client versions list must be at least 2 bytes",
+      );
+    }
+    if (data.length !== 1 + len) {
+      throw new Error(
+        `supported_versions: client list length mismatch (declared ${len}, total ${data.length})`,
+      );
     }
     const versions: number[] = [];
     for (let i = 0; i < len; i += 2) {

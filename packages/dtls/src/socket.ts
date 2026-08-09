@@ -363,6 +363,11 @@ export interface Options {
    */
   addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
   /**
+   * Optional DTLS 1.3 handshake carrier (tests / Epic 2 SPED).
+   * When set, the 1.3 engine uses this instead of creating DirectHandshakeCarrier.
+   */
+  handshakeCarrier?: import("./carrier/types").DtlsHandshakeCarrier;
+  /**
    * DTLS 1.3 named groups preference order (key_share).
    * Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.
    */

@@ -1,7 +1,10 @@
 import { randomBytes } from "crypto";
 
 import { DirectHandshakeCarrier } from "../../carrier/direct";
-import type { DtlsHandshakeDatagram } from "../../carrier/types";
+import type {
+  DtlsHandshakeCarrier,
+  DtlsHandshakeDatagram,
+} from "../../carrier/types";
 import {
   NamedCurveAlgorithm,
   type NamedCurveAlgorithms,
@@ -49,7 +52,8 @@ export abstract class Dtls13ConnectionBase {
 
   connected = false;
   protected readonly role: Role;
-  protected readonly carrier: DirectHandshakeCarrier;
+  /** Handshake carrier (injectable; default DirectHandshakeCarrier). */
+  protected readonly carrier: DtlsHandshakeCarrier;
   protected readonly keySchedule = defaultKeySchedule;
   protected readonly certDer: Buffer;
   protected readonly keyPem: string;
@@ -316,9 +320,12 @@ export abstract class Dtls13ConnectionBase {
       this.addressValidation === "none" ||
       this.addressValidation === "ice-authenticated";
     this.installEpoch(0, createEpochProtection(0));
-    this.carrier = new DirectHandshakeCarrier(options.transport, {
-      mtu: options.mtu,
-    });
+    // Injectable carrier for SPED / tests; default wraps transport directly
+    this.carrier =
+      options.carrier ??
+      new DirectHandshakeCarrier(options.transport, {
+        mtu: options.mtu,
+      });
     // Inject may carry peer from dual-engine reinject; fall back to transport.rinfo
     const self = this as this & {
       handleDatagram: (data: Buffer, addr?: any) => void;

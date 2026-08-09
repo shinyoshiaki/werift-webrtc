@@ -60,6 +60,7 @@ export class DtlsClient extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        carrier: this.options.handshakeCarrier,
         offeredProtocolVersions: offered,
       },
       SessionType.CLIENT,

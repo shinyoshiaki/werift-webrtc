@@ -117,13 +117,17 @@ export function selectVersion(
 
 /**
  * Map ClientHello supported_versions wire list → DtlsVersion[].
- * Unknown codepoints are ignored. Empty / missing → treat as DTLS 1.2 only
- * (legacy peers without the extension).
+ *
+ * - `undefined` (extension absent): legacy peer → [V1_2] only.
+ * - present but empty after filter, or only unknown codepoints: []
+ *   (no common version → caller must fail with protocol_version).
+ * Unknown codepoints are skipped; they do not imply DTLS 1.2.
  */
 export function peerVersionsFromSupportedVersionsWire(
   wireVersions: readonly number[] | undefined,
 ): DtlsVersion[] {
-  if (!wireVersions || wireVersions.length === 0) {
+  // Extension not present — only this path is legacy DTLS 1.2
+  if (wireVersions === undefined) {
     return [DtlsVersion.V1_2];
   }
   const out: DtlsVersion[] = [];
@@ -135,7 +139,8 @@ export function peerVersionsFromSupportedVersionsWire(
       out.push(v);
     }
   }
-  return out.length > 0 ? out : [DtlsVersion.V1_2];
+  // Empty or unknown-only: no negotiable version (not legacy 1.2)
+  return out;
 }
 
 export function protocolVersionsToWire(

@@ -2,6 +2,7 @@
  * DTLS 1.3 engine shared types and constants.
  * See packages/dtls/src/index.ts Figure 3 for the flight sequence.
  */
+import type { DtlsHandshakeCarrier } from "../../carrier/types";
 import type { NamedCurveAlgorithms } from "../../cipher/const";
 import type { Transport } from "../../imports/common";
 import { debug } from "../../imports/common";
@@ -58,6 +59,12 @@ export type AddressValidationMode =
 
 export interface Dtls13Options {
   transport: Transport;
+  /**
+   * Optional handshake carrier (transport-independent). When omitted, a
+   * DirectHandshakeCarrier is created from `transport`. Inject a custom
+   * carrier for SPED / external retransmission tests (Epic 2).
+   */
+  carrier?: DtlsHandshakeCarrier;
   /**
    * Server certificate (required for servers).
    * Client: optional for server-auth-only; required when peer sends CertificateRequest.

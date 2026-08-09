@@ -66,6 +66,7 @@ export class DtlsServer extends DtlsSocket {
           ? [...this.options.namedGroups]
           : undefined,
         mtu: this.options.mtu,
+        carrier: this.options.handshakeCarrier,
         // Engine only speaks 1.3 once selected; preference used at association
         offeredProtocolVersions: [DtlsVersion.V1_3],
       },
@@ -86,13 +87,15 @@ export class DtlsServer extends DtlsSocket {
     );
     let peerSupported: DtlsVersion[];
     if (!ext) {
-      // Legacy DTLS 1.2 ClientHello without supported_versions
-      peerSupported = [DtlsVersion.V1_2];
+      // Extension absent only → legacy DTLS 1.2
+      peerSupported = peerVersionsFromSupportedVersionsWire(undefined);
     } else {
       try {
         const sv = SupportedVersions.fromData(ext.data, false);
+        // Empty / unknown-only → [] → no overlap (protocol_version), not 1.2
         peerSupported = peerVersionsFromSupportedVersionsWire(sv.versions);
       } catch {
+        // Malformed supported_versions (odd length, trailing bytes, empty list)
         return undefined;
       }
     }
