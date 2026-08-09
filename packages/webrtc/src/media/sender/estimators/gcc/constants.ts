@@ -56,14 +56,23 @@ export const kThresholdGainDown = 0.039;
 
 export const kMaxAdaptOffsetMs = 15;
 
-// --- AIMD ---
+// --- AIMD (libwebrtc AimdRateControl) ---
 
+/** Multiplicative decrease factor (libwebrtc beta ≈ 0.85). */
 export const kBeta = 0.85;
+/** Multiplicative increase base per second (≈ 1.08). */
 export const kMultiplicativeIncreaseFactor = 1.08;
+/** Additive increase scale (packets per response-time unit). */
 export const kAdditiveIncreaseFactor = 0.5;
+/** Extra delay added to RTT for additive response time. */
 export const kReactionTimeMs = 100;
 export const kBitrateWindowMs = 1000;
 export const kDefaultRttMs = 100;
+/**
+ * Allow another decrease before RTT elapses when acked throughput falls
+ * below this fraction of the current estimate (libwebrtc-style throughput check).
+ */
+export const kThroughputLowerFraction = 0.5;
 
 // --- Loss-based (libwebrtc LossBasedBweV2 field-trial defaults, lkgr) ---
 
@@ -218,7 +227,9 @@ export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal; future work)",
   "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x multi-active with per-packet cluster id via wideSeq map; ProbeBitrateEstimator-style min receive % / send-recv ratio / interval checks ported; recovery probes use current estimate + 5s cooldown; abort on loss≥5% or overuse; no ALR-only probe path",
-  "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc)",
+  "AIMD: TimeToReduceFurther (RTT spacing + throughput check) and hold-after-decrease ported; RTT is estimated from feedback arrival − last send (not full ICE/STUN RTT stats / NetworkController RTT)",
+  "TWCC 24-bit reference_time is unwrapped across feedbacks in GccBandwidthEstimator (continuous ms timeline); packetResults alone still report raw wrap-relative times",
+  "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc public test vectors)",
   "InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)",
   "Transport-wide sequence is shared on the DTLS transport while BWE instances are per RTCRtpSender (ticket constraint; multi-sender asymmetry is intentional)",
 ] as const;

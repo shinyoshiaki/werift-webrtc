@@ -34,3 +34,8 @@ export {
 export { TrendlineEstimator } from "./trendlineEstimator";
 export type { BandwidthUsage } from "./overuseDetector";
 export { hasTwccReceiveTiming } from "../twccReceiveTiming";
+export {
+  TwccReferenceTimeUnwrapper,
+  TWCC_REFERENCE_TIME_MOD,
+  TWCC_REFERENCE_TIME_UNIT_MS,
+} from "../twccReferenceTime";

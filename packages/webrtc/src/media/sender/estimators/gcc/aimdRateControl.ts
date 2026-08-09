@@ -8,18 +8,27 @@ import {
   kMinBitrateBps,
   kMultiplicativeIncreaseFactor,
   kReactionTimeMs,
+  kThroughputLowerFraction,
 } from "./constants";
 import type { BandwidthUsage } from "./overuseDetector";
 
 type RateControlState = "hold" | "increase" | "decrease";
 
 /**
- * AIMD rate controller for the delay-based estimate A_hat (draft §5.5).
+ * AIMD rate controller for the delay-based estimate A_hat.
+ *
+ * Aligns with libwebrtc `AimdRateControl` control points:
+ * - Decrease at most once per RTT (`TimeToReduceFurther`), then hold
+ * - Multiplicative increase in slow-start / far from max; additive near max
+ * - Soft upper bound vs acknowledged throughput
+ *
+ * @see modules/congestion_controller/goog_cc/aimd_rate_control.cc
  */
 export class AimdRateControl {
   private bitrateBps = kDefaultStartBitrateBps;
   private state: RateControlState = "increase";
   private lastUpdateMs = 0;
+  private lastDecreaseMs = 0;
   private rttMs = kDefaultRttMs;
   private avgMaxBitrateKbps = -1;
   private varMaxBitrateKbps = 0.4;
@@ -29,6 +38,7 @@ export class AimdRateControl {
     this.bitrateBps = clamp(startBps);
     this.state = "increase";
     this.lastUpdateMs = 0;
+    this.lastDecreaseMs = 0;
     this.rttMs = kDefaultRttMs;
     this.avgMaxBitrateKbps = -1;
     this.varMaxBitrateKbps = 0.4;
@@ -36,7 +46,14 @@ export class AimdRateControl {
   }
 
   setRtt(rttMs: number) {
-    if (rttMs > 0) this.rttMs = rttMs;
+    if (rttMs > 0) {
+      // Clamp to a practical range (10 ms .. 2000 ms).
+      this.rttMs = Math.min(2000, Math.max(10, rttMs));
+    }
+  }
+
+  get rtt(): number {
+    return this.rttMs;
   }
 
   get targetBitrateBps() {
@@ -50,7 +67,7 @@ export class AimdRateControl {
   /**
    * @param usage overuse detector state
    * @param acknowledgedBitrateBps measured incoming / acked bitrate R_hat
-   * @param nowMs wall clock
+   * @param nowMs wall clock (or feedback timeline)
    */
   update(
     usage: BandwidthUsage,
@@ -60,33 +77,52 @@ export class AimdRateControl {
     if (this.lastUpdateMs === 0) {
       this.lastUpdateMs = nowMs;
     }
-
-    this.changeState(usage);
-
     const timeSinceUpdateMs = Math.max(nowMs - this.lastUpdateMs, 0);
-    if (this.state === "increase") {
-      this.bitrateBps = this.increase(
-        this.bitrateBps,
-        acknowledgedBitrateBps,
-        timeSinceUpdateMs,
-      );
-    } else if (this.state === "decrease") {
-      const decreased = Math.max(
-        acknowledgedBitrateBps * kBeta,
-        kMinBitrateBps,
-      );
-      if (decreased < this.bitrateBps) {
-        this.bitrateBps = decreased;
+
+    if (usage === "overuse") {
+      // libwebrtc: decrease only when TimeToReduceFurther, then hold so we do
+      // not multiply-apply beta on every TWCC batch (~100 ms).
+      if (this.timeToReduceFurther(nowMs, acknowledgedBitrateBps)) {
+        const input =
+          acknowledgedBitrateBps > 0
+            ? acknowledgedBitrateBps
+            : this.bitrateBps;
+        const decreased = Math.max(input * kBeta, kMinBitrateBps);
+        if (decreased < this.bitrateBps) {
+          this.bitrateBps = decreased;
+        }
+        this.lastDecreaseMs = nowMs;
+        this.inSlowStart = false;
+        if (acknowledgedBitrateBps > 0) {
+          this.updateMaxBitrateEstimate(acknowledgedBitrateBps / 1000);
+        }
       }
-      // Track near-capacity statistics for additive vs multiplicative increase.
-      this.updateMaxBitrateEstimate(acknowledgedBitrateBps / 1000);
-      this.inSlowStart = false;
+      this.state = "hold";
+    } else if (usage === "normal") {
+      if (this.state === "hold" || this.state === "increase") {
+        this.state = "increase";
+        this.bitrateBps = this.increase(
+          this.bitrateBps,
+          acknowledgedBitrateBps,
+          timeSinceUpdateMs,
+        );
+      }
+    } else {
+      // underuse: hold to let queues drain (libwebrtc stay on hold)
+      this.state = "hold";
     }
-    // hold: keep bitrate
 
     // Bound estimate near actual throughput (draft A_hat < 1.5 * R_hat).
-    if (acknowledgedBitrateBps > 0) {
-      this.bitrateBps = Math.min(this.bitrateBps, 1.5 * acknowledgedBitrateBps);
+    // Skip when acked is vanishingly small (queue drain / sparse feedback)
+    // so we do not cascade the estimate to kMinBitrateBps.
+    if (
+      acknowledgedBitrateBps > 0 &&
+      acknowledgedBitrateBps > this.bitrateBps * 0.05
+    ) {
+      this.bitrateBps = Math.min(
+        this.bitrateBps,
+        1.5 * acknowledgedBitrateBps,
+      );
     }
 
     this.bitrateBps = clamp(this.bitrateBps);
@@ -94,24 +130,25 @@ export class AimdRateControl {
     return this.bitrateBps;
   }
 
-  private changeState(usage: BandwidthUsage) {
-    switch (this.state) {
-      case "hold":
-        if (usage === "overuse") this.state = "decrease";
-        else if (usage === "normal") this.state = "increase";
-        break;
-      case "increase":
-        if (usage === "overuse") this.state = "decrease";
-        else if (usage === "underuse") this.state = "hold";
-        break;
-      case "decrease":
-        if (usage === "overuse") {
-          // stay in decrease
-        } else if (usage === "normal" || usage === "underuse") {
-          this.state = "hold";
-        }
-        break;
+  /**
+   * libwebrtc `TimeToReduceFurther`: allow another decrease after ≥ RTT, or
+   * when measured throughput falls well below the current estimate.
+   */
+  timeToReduceFurther(
+    nowMs: number,
+    acknowledgedBitrateBps: number,
+  ): boolean {
+    if (this.lastDecreaseMs === 0) return true;
+    const sinceMs = nowMs - this.lastDecreaseMs;
+    if (sinceMs >= Math.max(this.rttMs, kReactionTimeMs)) return true;
+    if (
+      acknowledgedBitrateBps > 0 &&
+      acknowledgedBitrateBps <
+        this.bitrateBps * kThroughputLowerFraction
+    ) {
+      return true;
     }
+    return false;
   }
 
   private increase(
@@ -125,12 +162,14 @@ export class AimdRateControl {
       !this.nearMax(acknowledgedBitrateBps);
 
     if (useMultiplicative) {
+      // eta = 1.08 ^ min(Δt_sec, 1)
       const eta =
         kMultiplicativeIncreaseFactor **
         Math.min(timeSinceUpdateMs / 1000, 1.0);
       return currentBps * eta;
     }
 
+    // Additive: ~1 packet per RTT-scale response time
     const responseTimeMs = kReactionTimeMs + this.rttMs;
     const alpha =
       kAdditiveIncreaseFactor *

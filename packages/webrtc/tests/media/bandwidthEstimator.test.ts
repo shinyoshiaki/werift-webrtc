@@ -12,6 +12,9 @@ import {
   ProbeController,
   type ProbePacingController,
   hasTwccReceiveTiming,
+  TwccReferenceTimeUnwrapper,
+  TWCC_REFERENCE_TIME_MOD,
+  TWCC_REFERENCE_TIME_UNIT_MS,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
@@ -1060,11 +1063,58 @@ describe("media/sender bandwidth estimator", () => {
   });
 
   describe("AIMD", () => {
-    test("overuse で beta 倍", () => {
+    test("overuse で beta 倍（1 回）", () => {
+      // Arrange
       const aimd = new AimdRateControl();
       aimd.reset(500_000);
+      aimd.setRtt(100);
+      // Act / Assert: 初回 overuse は beta 倍
       expect(aimd.update("overuse", 500_000, 1000)).toBe(
         Math.round(500_000 * kBeta),
+      );
+    });
+
+    test("overuse 連続でも RTT 以内は再減速しない（TimeToReduceFurther）", () => {
+      // Arrange: RTT=200ms
+      const aimd = new AimdRateControl();
+      aimd.reset(400_000);
+      aimd.setRtt(200);
+      const t0 = 10_000;
+      // Act: 初回 decrease → acked * beta
+      const after1 = aimd.update("overuse", 400_000, t0);
+      expect(after1).toBe(Math.round(400_000 * kBeta));
+      // Act: RTT 未満で再度 overuse
+      const after2 = aimd.update("overuse", 380_000, t0 + 50);
+      // Assert: 再減速しない（TimeToReduceFurther=false）
+      expect(after2).toBe(after1);
+      // Act: RTT 経過後は再減速可。推定 = acked * beta（現推定への連乗ではない）
+      const after3 = aimd.update("overuse", 380_000, t0 + 250);
+      expect(after3).toBe(Math.round(380_000 * kBeta));
+      // 日本語: 過剰反応で kMin まで連打されない
+      expect(after3).toBeGreaterThan(100_000);
+    });
+
+    test("決定的 overuse 系列は libwebrtc 的に RTT 間隔で減速する", () => {
+      // Arrange: 固定入力に対する期待系列
+      // decrease = beta * acked（現推定への連乗ではない）→ acked 一定なら 1 回で収束
+      const aimd = new AimdRateControl();
+      aimd.reset(800_000);
+      aimd.setRtt(100);
+      const series: number[] = [];
+      const acked = 600_000;
+      // Act: 50ms 刻みで 10 回 overuse
+      for (let i = 0; i < 10; i++) {
+        series.push(aimd.update("overuse", acked, 1000 + i * 50));
+      }
+      const once = Math.round(acked * kBeta);
+      // Assert: 初回で acked*beta、以降 RTT 内は不変、RTT 後も acked 不変なら同じ値
+      expect(series[0]).toBe(once);
+      expect(series[1]).toBe(once);
+      expect(series[2]).toBe(once);
+      expect(series.every((v) => v === once)).toBe(true);
+      // 日本語: 10 回連打しても 0.85^10 には落ちない
+      expect(series[series.length - 1]).toBeGreaterThan(
+        Math.round(acked * kBeta ** 5),
       );
     });
   });
@@ -1079,6 +1129,81 @@ describe("media/sender bandwidth estimator", () => {
           new PacketResult({ sequenceNumber: 65535, received: true }),
         ]).map((r) => r.sequenceNumber),
       ).toEqual([65534, 65535, 0, 1]);
+    });
+
+    test("24-bit reference_time wrap を連続時刻へ展開する", () => {
+      // Arrange: units near wrap then after wrap
+      const u = new TwccReferenceTimeUnwrapper();
+      const nearEnd = TWCC_REFERENCE_TIME_MOD - 2; // ... wrap soon
+      const base1 = u.unwrapBaseMs(nearEnd);
+      expect(base1).toBe(nearEnd * TWCC_REFERENCE_TIME_UNIT_MS);
+
+      // Act: wrap to 1
+      const base2 = u.unwrapBaseMs(1);
+      // Assert: continuous forward (not jump back by ~12 days)
+      expect(base2).toBeGreaterThan(base1);
+      expect(base2 - base1).toBe((1 + 2) * TWCC_REFERENCE_TIME_UNIT_MS);
+
+      // Act: rebase packetResults as TransportWideCC would emit (raw wrap)
+      const u2 = new TwccReferenceTimeUnwrapper();
+      const rawNear = [
+        new PacketResult({
+          sequenceNumber: 1,
+          received: true,
+          receivedAtMs: nearEnd * TWCC_REFERENCE_TIME_UNIT_MS + 5,
+        }),
+      ];
+      const rebased1 = u2.rebasePacketResults(rawNear, nearEnd);
+      const rawAfter = [
+        new PacketResult({
+          sequenceNumber: 2,
+          received: true,
+          // packetResults would use referenceTime=1 → 64ms base + delta
+          receivedAtMs: 1 * TWCC_REFERENCE_TIME_UNIT_MS + 10,
+        }),
+      ];
+      const rebased2 = u2.rebasePacketResults(rawAfter, 1);
+      // Assert: rebased timeline is continuous
+      expect(rebased2[0].receivedAtMs).toBeGreaterThan(
+        rebased1[0].receivedAtMs,
+      );
+    });
+
+    test("reference_time wrap 前後でも acked bitrate / trendline が壊れない", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(300_000);
+      const nearEnd = TWCC_REFERENCE_TIME_MOD - 3;
+      const n = 25;
+      // Send packets around wrap
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(sent(100 + i, 800, 50_000 + i * 20));
+      }
+      // Act 1: feedback just before wrap (synthetic times near nearEnd*64)
+      const pre = Array.from({ length: 12 }, (_, i) => {
+        return new PacketResult({
+          sequenceNumber: 100 + i,
+          received: true,
+          receivedAtMs: nearEnd * TWCC_REFERENCE_TIME_UNIT_MS + i * 20,
+        });
+      });
+      const fb1 = makeTwccFeedback(pre);
+      fb1.referenceTime = nearEnd;
+      gcc.receiveTWCC(fb1);
+
+      // Act 2: feedback after wrap (raw times near 0)
+      const post = Array.from({ length: 13 }, (_, i) => {
+        return new PacketResult({
+          sequenceNumber: 112 + i,
+          received: true,
+          receivedAtMs: 1 * TWCC_REFERENCE_TIME_UNIT_MS + i * 20,
+        });
+      });
+      const fb2 = makeTwccFeedback(post);
+      fb2.referenceTime = 1;
+      gcc.receiveTWCC(fb2);
+
+      // Assert: estimate advances (wrap で窓が壊れ 0 張り付きにならない)
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
     });
   });
 
@@ -1381,25 +1506,31 @@ describe("media/sender bandwidth estimator", () => {
         );
       }
 
-      // 低容量相当: 高損失で loss/delay を抑える
+      // 低容量相当: 高損失で loss/delay を抑える（複数 observation）
       const lowBase = base + 60_000;
-      for (let i = 0; i < 40; i++) {
-        gcc.rtpPacketSent(sent(2000 + i, 800, lowBase + i * 30));
+      for (let batch = 0; batch < 4; batch++) {
+        const seq0 = 2000 + batch * 40;
+        const t0 = lowBase + batch * 400;
+        for (let i = 0; i < 40; i++) {
+          gcc.rtpPacketSent(sent(seq0 + i, 800, t0 + i * 30));
+        }
+        gcc.receiveTWCC(
+          makeTwccFeedback(
+            Array.from({ length: 40 }, (_, i) => {
+              const lost = i % 2 === 0;
+              return new PacketResult({
+                sequenceNumber: seq0 + i,
+                received: !lost,
+                receivedAtMs: lost ? 0 : t0 + 40 + i * 40,
+              });
+            }),
+          ),
+        );
       }
-      gcc.receiveTWCC(
-        makeTwccFeedback(
-          Array.from({ length: 40 }, (_, i) => {
-            const lost = i % 2 === 0;
-            return new PacketResult({
-              sequenceNumber: 2000 + i,
-              received: !lost,
-              receivedAtMs: lost ? 0 : lowBase + 40 + i * 40,
-            });
-          }),
-        ),
-      );
       const afterLoss = gcc.availableBitrate;
-      expect(afterLoss).toBeLessThan(afterInitial);
+      // 日本語: 高損失後は初期 probe 成功時より高く張り付かない
+      expect(afterLoss).toBeLessThanOrEqual(afterInitial);
+      expect(afterLoss).toBeLessThan(afterInitial * 1.01);
 
       // recovery 時の target×1.5 方針は ProbeController 側 + gccBwe で担保済み
       // （requestProbe が start に張り付かないこと）

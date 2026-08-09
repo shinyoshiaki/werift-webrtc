@@ -8,10 +8,12 @@ import type {
 } from "../../bandwidthEstimator";
 import { setAvailableBitrateIfChanged } from "../../bandwidthEstimator";
 import { hasTwccReceiveTiming } from "../twccReceiveTiming";
+import { TwccReferenceTimeUnwrapper } from "../twccReferenceTime";
 import { AimdRateControl } from "./aimdRateControl";
 import {
   GCC_KNOWN_DIFFERENCES,
   kBitrateWindowMs,
+  kDefaultRttMs,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
@@ -55,6 +57,8 @@ export class GccBandwidthEstimator
   private readonly lossBwe = new LossBasedBwe();
   private readonly probe = new ProbeController();
   private readonly interArrival = new InterArrivalDelta();
+  /** Unwraps 24-bit TWCC reference_time across feedbacks. */
+  private readonly refTimeUnwrapper = new TwccReferenceTimeUnwrapper();
 
   private sentInfos = new Map<number, SentInfo>();
   /**
@@ -164,7 +168,13 @@ export class GccBandwidthEstimator
     let lastSend = 0;
     const lossPackets: LossPacketFeedback[] = [];
 
-    const results = sortPacketResultsByWideSeq(feedback.packetResults);
+    // Expand 24-bit reference_time across feedbacks so receivedAtMs stays
+    // continuous through wrap (0xFFFFFF → 0).
+    const rebased = this.refTimeUnwrapper.rebasePacketResults(
+      feedback.packetResults,
+      feedback.referenceTime,
+    );
+    const results = sortPacketResultsByWideSeq(rebased);
 
     for (const result of results) {
       const seq = result.sequenceNumber & 0xffff;
@@ -251,6 +261,15 @@ export class GccBandwidthEstimator
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
 
+    // RTT proxy: feedback arrival wall time − last send of this batch.
+    // Not full ICE/STUN RTT; used for AIMD decrease spacing (TimeToReduceFurther).
+    if (batchLastSend > 0) {
+      const rttProxy = nowMs - batchLastSend;
+      if (rttProxy >= 10 && rttProxy <= 2000) {
+        this.aimd.setRtt(Math.max(kDefaultRttMs, rttProxy));
+      }
+    }
+
     this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
     this.lossBasedBps = this.lossBwe.update(
       lossFraction,
@@ -336,6 +355,7 @@ export class GccBandwidthEstimator
     this.lossBwe.reset(this.startBitrateBps);
     this.probe.reset();
     this.interArrival.reset();
+    this.refTimeUnwrapper.reset();
     this.sentInfos.clear();
     this.finalizedSeqs.clear();
     this.lastUsage = "normal";
