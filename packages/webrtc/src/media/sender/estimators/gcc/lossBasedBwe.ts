@@ -326,7 +326,7 @@ export class LossBasedBwe {
     lossLimitedBw: number,
     sendingRate: number,
   ): number {
-    let inherent = Math.min(Math.max(inherentLoss, 0), 1);
+    const inherent = Math.min(Math.max(inherentLoss, 0), 1);
     let p = inherent;
     if (sendingRate > 0 && sendingRate > lossLimitedBw) {
       p += (1 - inherent) * ((sendingRate - lossLimitedBw) / sendingRate);

@@ -23,6 +23,8 @@ function waitForExit(child) {
 }
 
 async function main() {
+  // Path filter must not be bare "./tests" — vitest treats it as a substring
+  // match and would also pick up simulations/tests (CI-excluded sims).
   const child = spawn(
     npmCommand(),
     [
@@ -30,7 +32,8 @@ async function main() {
       "--",
       "vitest",
       "run",
-      "./tests",
+      "--dir",
+      "tests",
       "--browser.headless",
       "--reporter=dot",
     ],

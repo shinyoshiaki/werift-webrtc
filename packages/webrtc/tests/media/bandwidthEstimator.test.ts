@@ -449,16 +449,7 @@ describe("media/sender bandwidth estimator", () => {
 
       // Act: 300ms を 3 回 → 3 observations
       for (let i = 0; i < 3; i++) {
-        loss.update(
-          0.0,
-          400_000,
-          380_000,
-          30,
-          0,
-          2000 + i * 300,
-          15_000,
-          300,
-        );
+        loss.update(0.0, 400_000, 380_000, 30, 0, 2000 + i * 300, 15_000, 300);
       }
       expect(loss.observationCount).toBeGreaterThanOrEqual(3);
     });

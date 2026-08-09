@@ -344,7 +344,7 @@ export class RunLengthChunk {
     for (let i = 0; i < this.runLength; ++i) {
       results.push(
         new PacketResult({
-          sequenceNumber: (++currentSequenceNumber) & 0xffff,
+          sequenceNumber: ++currentSequenceNumber & 0xffff,
           received,
           status: this.packetStatus,
         }),

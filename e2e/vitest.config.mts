@@ -25,6 +25,16 @@ export default defineConfig({
   test: {
     globals: true,
     testTimeout: 20_000,
+    // CI / chrome:prod は通常 e2e のみ。simulations は CI 対象外（npm run test:sim）。
+    // `./tests` という CLI フィルタは path 部分一致のため simulations/tests にも
+    // マッチしてしまうため、include で明示的に絞る。
+    include: ["tests/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/simulations/**",
+      "lib/**",
+    ],
     // fileParallelism: false,
     retry: 1,
     browser: {
