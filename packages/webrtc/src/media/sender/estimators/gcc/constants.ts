@@ -102,6 +102,43 @@ export const kLossBasedTemporalWeightFactor = 0.9;
 /** BwRampupUpperBoundFactor default 1.5. */
 export const kLossBasedRampupUpperBoundFactor = 1.5;
 
+/**
+ * UseByteLossRate default true — objective/derivative use lost/received **bytes**.
+ */
+export const kLossBasedUseByteLossRate = true;
+
+/** LossThresholdOfHighBandwidthPreference default 0.2. */
+export const kLossBasedLossThresholdOfHighBandwidthPreference = 0.2;
+/** BandwidthPreferenceSmoothingFactor default 0.002. */
+export const kLossBasedBandwidthPreferenceSmoothingFactor = 0.002;
+
+/** InstantUpperBoundBwBalance default 100 kbps. */
+export const kLossBasedInstantUpperBoundBwBalanceBps = 100_000;
+/** InstantUpperBoundLossOffset default 0.05. */
+export const kLossBasedInstantUpperBoundLossOffset = 0.05;
+/** InstantUpperBoundTemporalWeightFactor default 0.9. */
+export const kLossBasedInstantUpperBoundTemporalWeightFactor = 0.9;
+
+/** LowerBoundByAckedRateFactor default 1.0. */
+export const kLossBasedLowerBoundByAckedRateFactor = 1.0;
+
+/** DelayedIncreaseWindow default 300ms. */
+export const kLossBasedDelayedIncreaseWindowMs = 300;
+/** MaxIncreaseFactor default 1.3. */
+export const kLossBasedMaxIncreaseFactor = 1.3;
+
+/** HoldDurationFactor default 3.0 in some builds; field trial default 2.0. */
+export const kLossBasedHoldDurationFactor = 2.0;
+/** Initial HOLD duration (ms). libwebrtc kInitHoldDuration = 300ms. */
+export const kLossBasedInitHoldDurationMs = 300;
+/** Max HOLD duration (ms). libwebrtc kMaxHoldDuration = 60s. */
+export const kLossBasedMaxHoldDurationMs = 60_000;
+
+/** BoundBestCandidate default true. */
+export const kLossBasedBoundBestCandidate = true;
+/** NotIncreaseIfInherentLossLessThanAverageLoss default true. */
+export const kLossBasedNotIncreaseIfInherentLessThanAverage = true;
+
 /** Legacy names kept for tests. */
 export const kLossIncreaseThreshold = 0.02;
 export const kLossDecreaseThreshold = 0.1;
@@ -135,22 +172,14 @@ export const kProbePaddingMaxBurst = 16;
 export const kSentInfoMaxAgeMs = 10_000;
 
 /**
- * Intentional differences vs Chromium/libwebrtc goog_cc.
- *
- * - Pure TypeScript: not bit-identical floating point / timing with C++.
- * - LossBasedBweV2 full candidate mesh simplified to threshold/state form.
- * - No REMB integration (TWCC-only send-side mode).
- * - Pacer is a lightweight token-bucket + padding injection on RTCRtpSender,
- *   not webrtc::PacedSender / PacketRouter.
- */
-/**
  * Intentional differences vs Chromium libwebrtc goog_cc.
  * Acceptable under the ticket's pure-TypeScript / no C++ binding constraint;
  * algorithm structure and control response match the reference.
  */
 export const GCC_KNOWN_DIFFERENCES = [
-  "LossBasedBweV2: observation window (15), 250ms lower bound, min 3 observations, candidates/Newton/objective ported; TCP-fairness upper bound omitted (optional Chromium path)",
+  "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender)",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x clusters are multi-active (pacing target = max active)",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++",
+  "InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)",
 ] as const;

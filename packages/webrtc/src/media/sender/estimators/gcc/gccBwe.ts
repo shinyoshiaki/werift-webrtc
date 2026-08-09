@@ -20,7 +20,7 @@ import {
   kSentInfoMaxAgeMs,
 } from "./constants";
 import { InterArrivalDelta } from "./interArrivalDelta";
-import { LossBasedBwe } from "./lossBasedBwe";
+import { LossBasedBwe, type LossPacketFeedback } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
@@ -55,6 +55,11 @@ export class GccBandwidthEstimator
   private readonly interArrival = new InterArrivalDelta();
 
   private sentInfos = new Map<number, SentInfo>();
+  /**
+   * Sequences finalized as **received**. Not-received is never permanently
+   * finalized — a later feedback may report the same seq as received
+   * (TWCC PacketNotReceived ≠ definitive loss).
+   */
   private finalizedSeqs = new Set<number>();
   private lastUsage: BandwidthUsage = "normal";
   private ackedBytesWindow: { tMs: number; bytes: number }[] = [];
@@ -64,10 +69,10 @@ export class GccBandwidthEstimator
   private probingConfigured = false;
   /** Valid TWCC samples seen at least once (gates publishing estimates). */
   private hasValidSample = false;
-  /** Bytes already sent while the current probe cluster is active. */
+  /** Bytes already sent while any probe cluster is active. */
   private probeClusterSentBytes = 0;
   private probeClusterStartMs = 0;
-  private lastProbeClusterId = 0;
+  private lastProbeTargetBps = 0;
 
   get availableBitrate() {
     return this._availableBitrate;
@@ -110,6 +115,7 @@ export class GccBandwidthEstimator
     if (targetBps <= 0) return 0;
 
     // Aim for min(minPackets * packetBytes, targetBps * minDuration).
+    // With multi-active clusters, size padding for the max target (covers both).
     const minBytes = Math.max(
       kProbeMinPackets * packetBytes,
       Math.ceil((targetBps / 8) * (kProbeMinDurationMs / 1000)),
@@ -133,14 +139,15 @@ export class GccBandwidthEstimator
     this.pruneSentInfos(info.sendingAtMs, info.wideSeq);
     const seq = info.wideSeq & 0xffff;
     this.sentInfos.set(seq, info);
+    // Re-sending the same wide-seq (after wrap / reuse) clears prior finalize.
     this.finalizedSeqs.delete(seq);
     this.ensureProbing(info.sendingAtMs);
 
     // Track probe-cluster fill (media + padding tagged as probation).
     if (info.isProbation && this.probe.shouldTagProbePacket()) {
-      const id = this.probe.currentProbeTargetBps; // identity proxy per active target
-      if (id !== this.lastProbeClusterId) {
-        this.lastProbeClusterId = id;
+      const target = this.probe.currentProbeTargetBps;
+      if (target !== this.lastProbeTargetBps) {
+        this.lastProbeTargetBps = target;
         this.probeClusterSentBytes = 0;
         this.probeClusterStartMs = info.sendingAtMs;
       }
@@ -157,6 +164,11 @@ export class GccBandwidthEstimator
     let received = 0;
     let lost = 0;
     let matched = 0;
+    let lostBytes = 0;
+    let batchBytes = 0;
+    let firstSend = Number.POSITIVE_INFINITY;
+    let lastSend = 0;
+    const lossPackets: LossPacketFeedback[] = [];
 
     const results = sortPacketResultsByWideSeq(feedback.packetResults);
 
@@ -168,25 +180,43 @@ export class GccBandwidthEstimator
         continue;
       }
       if (this.finalizedSeqs.has(seq)) {
+        // Already confirmed received — ignore duplicate / overlapping reports.
         continue;
       }
 
       matched++;
+      batchBytes += info.size;
+      if (info.sendingAtMs < firstSend) firstSend = info.sendingAtMs;
+      if (info.sendingAtMs > lastSend) lastSend = info.sendingAtMs;
+
       if (!result.received) {
+        // Soft loss: count for this observation, do NOT permanently finalize.
         lost++;
-        this.finalizedSeqs.add(seq);
+        lostBytes += info.size;
+        lossPackets.push({
+          seq,
+          size: info.size,
+          received: false,
+          sendMs: info.sendingAtMs,
+        });
         continue;
       }
+
+      // Received — may unmark a prior soft loss inside LossBasedBwe partial map.
+      received++;
+      this.finalizedSeqs.add(seq);
+      lossPackets.push({
+        seq,
+        size: info.size,
+        received: true,
+        sendMs: info.sendingAtMs,
+      });
 
       // ReceivedWithoutDelta: counts as received for loss, no delay sample.
       if (!result.receivedAtMs) {
-        received++;
-        this.finalizedSeqs.add(seq);
         continue;
       }
 
-      received++;
-      this.finalizedSeqs.add(seq);
       this.recordAck(info.size, result.receivedAtMs);
       this.probe.onAckedPacket(
         info.size,
@@ -205,34 +235,15 @@ export class GccBandwidthEstimator
     const known = received + lost;
     const lossFraction = known > 0 ? lost / known : 0;
     const ackedBps = this.measureAckedBitrate(nowMs);
-    // Bytes in this matched batch (for observation sending-rate context).
-    let batchBytes = 0;
-    for (const result of results) {
-      const info = this.sentInfos.get(result.sequenceNumber & 0xffff);
-      if (info) batchBytes += info.size;
-    }
 
-    // Inter-arrival groups intentionally span TWCC feedback batches (do not
-    // force-close mid-group here — that would break high-rate continuous media).
     const usage = this.trendline.state;
     if (usage !== this.lastUsage) {
       this.lastUsage = usage;
       this.onOveruseDetected.execute(usage);
     }
 
-    // Send-timeline duration of this batch (for loss observation sending rate).
-    let firstSend = Number.POSITIVE_INFINITY;
-    let lastSend = 0;
-    for (const result of results) {
-      const info = this.sentInfos.get(result.sequenceNumber & 0xffff);
-      if (!info) continue;
-      if (info.sendingAtMs < firstSend) firstSend = info.sendingAtMs;
-      if (info.sendingAtMs > lastSend) lastSend = info.sendingAtMs;
-    }
-    const sendDurationMs =
-      Number.isFinite(firstSend) && lastSend > firstSend
-        ? lastSend - firstSend
-        : 0;
+    const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
+    const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
 
     this.delayBasedBps = this.aimd.update(usage, ackedBps, nowMs);
     this.lossBasedBps = this.lossBwe.update(
@@ -241,9 +252,11 @@ export class GccBandwidthEstimator
       ackedBps,
       known,
       lost,
-      nowMs,
+      batchFirstSend,
       batchBytes,
-      sendDurationMs,
+      batchLastSend,
+      lostBytes,
+      lossPackets,
     );
 
     let target = Math.min(this.delayBasedBps, this.lossBasedBps);
@@ -295,7 +308,7 @@ export class GccBandwidthEstimator
     this.hasValidSample = false;
     this.probeClusterSentBytes = 0;
     this.probeClusterStartMs = 0;
-    this.lastProbeClusterId = 0;
+    this.lastProbeTargetBps = 0;
   }
 
   dispose() {
@@ -306,9 +319,12 @@ export class GccBandwidthEstimator
   }
 
   private onProbeClusterStarted(cfg: ProbeClusterConfig, nowMs: number) {
-    this.probeClusterSentBytes = 0;
-    this.probeClusterStartMs = nowMs;
-    this.lastProbeClusterId = cfg.targetBps;
+    // Multi-active: only reset fill counter when target grows (new higher cluster).
+    if (cfg.targetBps >= this.lastProbeTargetBps) {
+      this.probeClusterSentBytes = 0;
+      this.probeClusterStartMs = nowMs;
+      this.lastProbeTargetBps = cfg.targetBps;
+    }
     this.onProbeClusterConfig.execute(cfg);
   }
 

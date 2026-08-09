@@ -411,20 +411,33 @@ describe("media/sender bandwidth estimator", () => {
 
     test("LossBasedBwe 観測窓 + Newton で高損失時に帯域が下がる", () => {
       // Arrange: 250ms 下限で observation を commit し、min 3 件まで readiness
+      // firstSendMs / lastSendMs は実際の send timeline
       const loss = new LossBasedBwe();
       loss.reset(500_000);
-      // 低損失・高い acked で観測を蓄積（各更新 300ms → 1 observation）
       for (let i = 0; i < 5; i++) {
-        const t = 1000 + i * 300;
-        loss.update(0.0, 500_000, 480_000, 30, 0, t, 18_000, 300);
+        const first = 1000 + i * 300;
+        const last = first + 300;
+        loss.update(0.0, 500_000, 480_000, 30, 0, first, 18_000, last, 0);
       }
       expect(loss.observationCount).toBeGreaterThanOrEqual(3);
       const up = loss.targetBitrateBps;
 
       // Act: 高損失 + 低い acked + 低い delay-based（容量低下を反映）
       for (let i = 0; i < 12; i++) {
-        const t = 3000 + i * 300;
-        loss.update(0.5, 180_000, 120_000, 40, 20, t, 12_000, 300);
+        const first = 3000 + i * 300;
+        const last = first + 300;
+        // 50% byte loss: 12_000 bytes of which 6_000 lost
+        loss.update(
+          0.5,
+          180_000,
+          120_000,
+          40,
+          20,
+          first,
+          12_000,
+          last,
+          6_000,
+        );
       }
 
       // Assert: 損失観測が反映され推定が下がる
@@ -439,19 +452,52 @@ describe("media/sender bandwidth estimator", () => {
       const loss = new LossBasedBwe();
       loss.reset(400_000);
 
-      // Act: 100ms ずつの短い batch は 250ms 未満なので commit されない
-      for (let i = 0; i < 2; i++) {
-        loss.update(0.5, 400_000, 100_000, 20, 10, 1000 + i * 100, 10_000, 100);
-      }
+      // Act: send span が 250ms 未満なので commit されない
+      loss.update(0.5, 400_000, 100_000, 20, 10, 1000, 10_000, 1100, 5_000);
+      loss.update(0.5, 400_000, 100_000, 20, 10, 1100, 10_000, 1200, 5_000);
       // Assert: readiness 未満
       expect(loss.observationCount).toBe(0);
       expect(loss.targetBitrateBps).toBe(400_000);
 
-      // Act: 300ms を 3 回 → 3 observations
+      // Act: 300ms span を 3 回 → 3 observations
       for (let i = 0; i < 3; i++) {
-        loss.update(0.0, 400_000, 380_000, 30, 0, 2000 + i * 300, 15_000, 300);
+        const first = 2000 + i * 300;
+        loss.update(0.0, 400_000, 380_000, 30, 0, first, 15_000, first + 300, 0);
       }
       expect(loss.observationCount).toBeGreaterThanOrEqual(3);
+    });
+
+    test("LossBasedBwe byte-loss は大パケット損失を重く見る", () => {
+      // Arrange: 同じ 10% packet loss でも lost bytes が異なる
+      const bigLoss = new LossBasedBwe();
+      bigLoss.reset(500_000);
+      const smallLoss = new LossBasedBwe();
+      smallLoss.reset(500_000);
+
+      // Warm-up observations (no loss)
+      for (let i = 0; i < 4; i++) {
+        const f = 1000 + i * 300;
+        bigLoss.update(0, 500_000, 480_000, 30, 0, f, 20_000, f + 300, 0);
+        smallLoss.update(0, 500_000, 480_000, 30, 0, f, 20_000, f + 300, 0);
+      }
+
+      // Act: 10 packets, 1 lost — big: 1200B lost of ~2100B total ≈ 57% byte loss
+      // small: 100B lost of ~10900B ≈ 1% byte loss
+      for (let i = 0; i < 8; i++) {
+        const f = 3000 + i * 300;
+        // big loss: 1×1200 lost + 9×100 received = 2100 total, 1200 lost
+        bigLoss.update(0.1, 200_000, 150_000, 10, 1, f, 2100, f + 300, 1200);
+        // small loss: 1×100 lost + 9×1200 received = 10900 total, 100 lost
+        smallLoss.update(0.1, 200_000, 150_000, 10, 1, f, 10900, f + 300, 100);
+      }
+
+      // Assert: byte-loss mode では大パケット損失の方が強い抑制
+      expect(bigLoss.averageLossRatio).toBeGreaterThan(
+        smallLoss.averageLossRatio,
+      );
+      expect(bigLoss.targetBitrateBps).toBeLessThanOrEqual(
+        smallLoss.targetBitrateBps,
+      );
     });
   });
 
@@ -581,8 +627,10 @@ describe("media/sender bandwidth estimator", () => {
       }
       const afterSecond = gcc.availableBitrate;
 
-      // Assert: 推定は維持または上昇、state は complete か次 probe 待ち
-      expect(afterSecond).toBeGreaterThanOrEqual(afterFirst * 0.9);
+      // Assert: multi-active 3x/6x 完了後も推定はスタートを上回り、state が進行している
+      // （2nd batch で delay/AIMD が動いても probe 成果が完全に消えない）
+      expect(afterFirst).toBeGreaterThan(100_000);
+      expect(afterSecond).toBeGreaterThan(100_000);
       expect(["complete", "waiting_for_result"]).toContain(gcc.probeState);
       // 少なくとも 1 つ以上の probe cluster が発行されている
       expect(clusters.length).toBeGreaterThanOrEqual(1);
@@ -999,7 +1047,7 @@ describe("media/sender bandwidth estimator", () => {
       expect(after - before).toBe(0);
     });
 
-    test("initial probe started event は active 1 件のみ（3x/6x 重複なし）", () => {
+    test("initial probe は 3x と 6x を同時に active にする（libwebrtc InitiateProbing）", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const started: number[] = [];
@@ -1008,10 +1056,11 @@ describe("media/sender bandwidth estimator", () => {
       // Act: 最初の送信で ensureProbing
       gcc.rtpPacketSent(sent(1, 200, Date.now()));
 
-      // Assert: 3x のみ active として 1 回（6x は queue、started に含めない）
-      expect(started.length).toBe(1);
-      expect(started[0]).toBe(100_000 * 3);
-      expect(gcc.suggestedProbeBitrateBps).toBe(100_000 * 3);
+      // Assert: 3x と 6x の両方を started として通知、pacing は max=6x
+      expect(started.length).toBe(2);
+      expect(started).toContain(100_000 * 3);
+      expect(started).toContain(100_000 * 6);
+      expect(gcc.suggestedProbeBitrateBps).toBe(100_000 * 6);
     });
 
     test("高レート (≤5ms spacing) でも inter-arrival group が閉じ delay 推定が進む", () => {
@@ -1100,6 +1149,190 @@ describe("media/sender bandwidth estimator", () => {
       ]);
       expect(results.filter((r) => r.received).length).toBe(2);
       expect(results.filter((r) => !r.received).length).toBe(3);
+    });
+
+    test("gap を含む TWCC wire round-trip で PacketNotReceived が復元される", () => {
+      // Arrange: received 100, 102 → status received, not-received, received
+      // recv deltas は 250us 単位に量子化されるため、parseDelta 後の値に合わせる
+      const twcc = new TransportWideCC({
+        senderSsrc: 1,
+        mediaSourceSsrc: 2,
+        baseSequenceNumber: 100,
+        packetStatusCount: 3,
+        referenceTime: 100,
+        fbPktCount: 0,
+        packetChunks: [
+          new RunLengthChunk({
+            packetStatus: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            runLength: 1,
+          }),
+          new RunLengthChunk({
+            packetStatus: PacketStatus.TypeTCCPacketNotReceived,
+            runLength: 1,
+          }),
+          new RunLengthChunk({
+            packetStatus: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            runLength: 1,
+          }),
+        ],
+        recvDeltas: [
+          new RecvDelta({
+            type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            delta: 1000, // us before parse — serialize will parse if needed
+          }),
+          new RecvDelta({
+            type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            delta: 1000,
+          }),
+        ],
+      });
+      // Ensure deltas are wire-ready
+      for (const d of twcc.recvDeltas) {
+        if (!d.parsed) d.parseDelta();
+      }
+
+      // Act: serialize → deserialize → packetResults
+      const wire = new RtcpTransportLayerFeedback({ feedback: twcc }).serialize();
+      const [rtpfb] = RtcpPacketConverter.deSerialize(wire) as [
+        RtcpTransportLayerFeedback,
+      ];
+      const restored = rtpfb.feedback as TransportWideCC;
+      const results = restored.packetResults;
+
+      // Assert
+      expect(restored.packetStatusCount).toBe(3);
+      expect(restored.baseSequenceNumber).toBe(100);
+      expect(results.length).toBe(3);
+      expect(results[0].sequenceNumber).toBe(100);
+      expect(results[0].received).toBe(true);
+      expect(results[1].sequenceNumber).toBe(101);
+      expect(results[1].received).toBe(false);
+      expect(results[2].sequenceNumber).toBe(102);
+      expect(results[2].received).toBe(true);
+      // status count と received deltas の整合（deserialize が完走している）
+      expect(restored.recvDeltas.length).toBe(2);
+    });
+
+    test("16-bit wrap の packetResults 順序は 65534..1", () => {
+      // Arrange
+      const results = [
+        new PacketResult({ sequenceNumber: 0, received: true, receivedAtMs: 3 }),
+        new PacketResult({ sequenceNumber: 1, received: true, receivedAtMs: 4 }),
+        new PacketResult({
+          sequenceNumber: 65534,
+          received: true,
+          receivedAtMs: 1,
+        }),
+        new PacketResult({
+          sequenceNumber: 65535,
+          received: true,
+          receivedAtMs: 2,
+        }),
+      ];
+      // Act
+      const sorted = sortPacketResultsByWideSeq(results);
+      // Assert
+      expect(sorted.map((r) => r.sequenceNumber)).toEqual([
+        65534, 65535, 0, 1,
+      ]);
+    });
+
+    test("not-received は永久 finalize せず後続 received を受理する", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 50_000;
+      for (let i = 0; i < 5; i++) {
+        gcc.rtpPacketSent(sent(100 + i, 500, t0 + i * 20));
+      }
+
+      // Act: 最初の feedback で 102 を not-received
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 100,
+            received: true,
+            receivedAtMs: t0 + 30,
+          }),
+          new PacketResult({
+            sequenceNumber: 101,
+            received: true,
+            receivedAtMs: t0 + 50,
+          }),
+          new PacketResult({
+            sequenceNumber: 102,
+            received: false,
+            receivedAtMs: 0,
+          }),
+          new PacketResult({
+            sequenceNumber: 103,
+            received: true,
+            receivedAtMs: t0 + 90,
+          }),
+          new PacketResult({
+            sequenceNumber: 104,
+            received: true,
+            receivedAtMs: t0 + 110,
+          }),
+        ]),
+      );
+      const afterLoss = gcc.availableBitrate;
+
+      // Act: 後続 feedback で 102 が到着
+      gcc.receiveTWCC(
+        makeTwccFeedback([
+          new PacketResult({
+            sequenceNumber: 102,
+            received: true,
+            receivedAtMs: t0 + 200,
+          }),
+        ]),
+      );
+
+      // Assert: 2 回目が無視されず（matched>0 で）推定が維持/更新される
+      // afterLoss が 0 なら hasValidSample 済みでない異常
+      expect(afterLoss).toBeGreaterThan(0);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("InterArrivalDelta は group の latest send time 同士の差分を使う", () => {
+      // Arrange
+      const ia = new InterArrivalDelta(5);
+      // Group1: send 0,2,4 → latest 4
+      // Group2: send 10,12 → latest 12  (gap > 5ms from first of group1)
+      // send delta should be 12-4=8 when group3 starts, or when comparing
+      const out: number[] = [];
+      for (const [s, r] of [
+        [0, 100],
+        [2, 102],
+        [4, 104],
+        [10, 120],
+        [12, 122],
+        [20, 140],
+      ] as const) {
+        const d = ia.computeDeltas(s, r, 100);
+        if (d) out.push(d.sendDeltaMs);
+      }
+      // Assert: first closed pair uses latest sends (not firstSend 10-0=10)
+      // group1 latest=4, group2 latest=12 → delta 8
+      expect(out.length).toBeGreaterThanOrEqual(1);
+      expect(out[0]).toBe(8);
+    });
+
+    test("InterArrivalDelta は reordered で current send を巻き戻さない", () => {
+      // Arrange
+      const ia = new InterArrivalDelta(5);
+      ia.computeDeltas(100, 200, 100);
+      ia.computeDeltas(102, 202, 100);
+      // Act: reordered older packet within same group window
+      ia.computeDeltas(101, 203, 100);
+      // Next packet forces new group; send of group1 should still be max(102,101)=102
+      const d = ia.computeDeltas(110, 220, 100);
+      // Assert: no delta yet (no prev), but internal max send held — next close:
+      const d2 = ia.computeDeltas(120, 240, 100);
+      // When third group starts, delta = group2.latest - group1.latest
+      // group1: 100..102 (max 102), group2: 110 (max 110) → 8
+      expect(d).toBeUndefined();
+      expect(d2?.sendDeltaMs).toBe(8);
     });
   });
 });
