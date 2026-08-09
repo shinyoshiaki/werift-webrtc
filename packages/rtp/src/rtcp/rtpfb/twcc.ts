@@ -226,30 +226,79 @@ export class TransportWideCC {
     return Buffer.concat([this.header.serialize(), body]);
   }
 
+  /**
+   * Expand packet status chunks into per-packet results with a single
+   * sequence cursor and recv-delta cursor (draft-holmer TWCC).
+   *
+   * Handles both {@link RunLengthChunk} and {@link StatusVectorChunk},
+   * and advances the sequence across chunk boundaries.
+   */
   get packetResults(): PacketResult[] {
-    const currentSequenceNumber = this.baseSequenceNumber - 1;
-    const results = this.packetChunks
-      .filter((v) => v instanceof RunLengthChunk)
-      .flatMap((chunk) =>
-        (chunk as RunLengthChunk).results(currentSequenceNumber),
-      );
+    const results: PacketResult[] = [];
+    let seq = this.baseSequenceNumber & 0xffff;
+    let remaining = this.packetStatusCount;
 
-    let deltaIdx = 0;
-    const referenceTime = BigInt(this.referenceTime) * 64n;
-    let currentReceivedAtMs = referenceTime;
+    for (const chunk of this.packetChunks) {
+      if (remaining <= 0) break;
 
-    for (const result of results) {
-      const recvDelta = this.recvDeltas[deltaIdx];
-      if (!result.received || !recvDelta) {
+      if (chunk instanceof RunLengthChunk) {
+        const count = Math.min(Math.max(0, chunk.runLength), remaining);
+        for (let i = 0; i < count; i++) {
+          results.push(
+            new PacketResult({
+              sequenceNumber: (seq + i) & 0xffff,
+              received: isTwccReceivedStatus(chunk.packetStatus),
+              status: chunk.packetStatus,
+            }),
+          );
+        }
+        seq = (seq + count) & 0xffff;
+        remaining -= count;
         continue;
       }
-      currentReceivedAtMs += BigInt(recvDelta.delta) / 1000n;
-      result.delta = recvDelta.delta;
-      result.receivedAtMs = Number(currentReceivedAtMs);
+
+      if (chunk instanceof StatusVectorChunk) {
+        for (const symbol of chunk.symbolList) {
+          if (remaining <= 0) break;
+          results.push(
+            new PacketResult({
+              sequenceNumber: seq,
+              received: isTwccReceivedStatus(symbol),
+              status: symbol,
+            }),
+          );
+          seq = (seq + 1) & 0xffff;
+          remaining--;
+        }
+      }
+    }
+
+    // Assign cumulative receive times from recv deltas (microseconds → ms).
+    let deltaIdx = 0;
+    let currentReceivedAtMs = Number(BigInt(this.referenceTime) * 64n);
+    for (const result of results) {
+      if (!result.received) continue;
+      // ReceivedWithoutDelta: counted as received, but no timing sample.
+      if (result.status === PacketStatus.TypeTCCPacketReceivedWithoutDelta) {
+        continue;
+      }
+      const recvDelta = this.recvDeltas[deltaIdx];
+      if (!recvDelta) break;
       deltaIdx++;
+      currentReceivedAtMs += recvDelta.delta / 1000;
+      result.delta = recvDelta.delta;
+      result.receivedAtMs = currentReceivedAtMs;
     }
     return results;
   }
+}
+
+function isTwccReceivedStatus(status: number): boolean {
+  return (
+    status === PacketStatus.TypeTCCPacketReceivedSmallDelta ||
+    status === PacketStatus.TypeTCCPacketReceivedLargeDelta ||
+    status === PacketStatus.TypeTCCPacketReceivedWithoutDelta
+  );
 }
 
 //  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
@@ -283,15 +332,22 @@ export class RunLengthChunk {
     return buf;
   }
 
+  /**
+   * Expand this run into `runLength` packet results starting after
+   * `currentSequenceNumber` (caller passes last assigned seq, or
+   * `baseSequenceNumber - 1` for the first chunk).
+   */
   results(currentSequenceNumber: number) {
-    const received =
-      this.packetStatus === PacketStatus.TypeTCCPacketReceivedSmallDelta ||
-      this.packetStatus === PacketStatus.TypeTCCPacketReceivedLargeDelta;
-
+    const received = isTwccReceivedStatus(this.packetStatus);
     const results: PacketResult[] = [];
-    for (let i = 0; i <= this.runLength; ++i) {
+    // Exactly runLength packets (not runLength+1).
+    for (let i = 0; i < this.runLength; ++i) {
       results.push(
-        new PacketResult({ sequenceNumber: ++currentSequenceNumber, received }),
+        new PacketResult({
+          sequenceNumber: (++currentSequenceNumber) & 0xffff,
+          received,
+          status: this.packetStatus,
+        }),
       );
     }
     return results;
@@ -434,6 +490,8 @@ export class PacketResult {
   delta = 0;
   received = false;
   receivedAtMs = 0;
+  /** TWCC packet status symbol (for delta presence). */
+  status = PacketStatus.TypeTCCPacketNotReceived;
   constructor(props: Partial<PacketResult>) {
     Object.assign(this, props);
   }

@@ -525,15 +525,11 @@ export class RTCRtpSender {
         const pending = e.pendingProbePaddingPackets(kProbePaddingPacketBytes);
         if (pending <= 0) break;
         const n = Math.min(pending, kProbePaddingMaxBurst);
-        const seq0 =
-          this.sequenceNumber === undefined
-            ? 0
-            : uint16Add(this.sequenceNumber, 1);
         for (let i = 0; i < n; i++) {
-          const nextSeq = i === 0 ? seq0 : uint16Add(seq0, i);
+          // Sequence is allocated by sendRtpInternal (unified outbound counter).
           const pad = new RtpPacket(
             new RtpHeader({
-              sequenceNumber: nextSeq,
+              sequenceNumber: 0,
               timestamp: this.timestamp ?? 0,
               payloadType: this.codec.payloadType,
               ssrc: this.ssrc,
@@ -550,7 +546,6 @@ export class RTCRtpSender {
           await this.sendRtpInternal(pad, {
             injectProbePadding: false,
             forceProbeTag: true,
-            absoluteSequenceNumber: nextSeq,
             isProbePadding: true,
           });
           totalSent++;
@@ -567,6 +562,7 @@ export class RTCRtpSender {
     opts: {
       injectProbePadding?: boolean;
       forceProbeTag?: boolean;
+      /** @deprecated Prefer unified allocation; kept for explicit overrides. */
       absoluteSequenceNumber?: number;
       isProbePadding?: boolean;
     } = {},
@@ -591,11 +587,20 @@ export class RTCRtpSender {
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    if (opts.absoluteSequenceNumber !== undefined) {
-      // Probe padding: already-chosen unique absolute sequence number.
-      header.sequenceNumber = opts.absoluteSequenceNumber & 0xffff;
-    } else {
-      header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
+    // Unified outbound RTP sequence number (media + probe padding).
+    // Always strictly increment after the last sent packet so padding cannot
+    // collide with a later media packet that reuses the source sequence space.
+    {
+      const sourceSeq = header.sequenceNumber;
+      if (opts.absoluteSequenceNumber !== undefined) {
+        header.sequenceNumber = opts.absoluteSequenceNumber & 0xffff;
+      } else if (this.sequenceNumber === undefined) {
+        header.sequenceNumber = uint16Add(sourceSeq, this.seqOffset);
+      } else {
+        header.sequenceNumber = uint16Add(this.sequenceNumber, 1);
+        // Keep seqOffset coherent for any code paths that still inspect it.
+        this.seqOffset = uint16Add(header.sequenceNumber, -sourceSeq);
+      }
     }
     this.timestamp = header.timestamp;
     this.sequenceNumber = header.sequenceNumber;
@@ -669,6 +674,10 @@ export class RTCRtpSender {
       rtpPayload = red.serialize();
     }
 
+    // RFC 3550 Sender Report "sender's octet count" counts payload octets only
+    // (excludes RTP header and padding). Capture length before RFC padding.
+    const payloadOctetsForSr = rtpPayload.length;
+
     // RFC 3550 §5.1: if P=1, the payload ends with padding octets and the last
     // octet is the padding length (including itself). SRTP encrypts this region
     // as-is, so padding must be in the buffer passed to sendRtp — not only in
@@ -677,7 +686,7 @@ export class RTCRtpSender {
       rtpPayload = appendRfc3550Padding(rtpPayload, header.paddingSize);
     }
 
-    this.octetCount += rtpPayload.length;
+    this.octetCount += payloadOctetsForSr;
 
     // size is actual on-wire SRTP length returned by the transport (includes
     // real padding bytes when present). Do not invent size from paddingSize.

@@ -11,7 +11,6 @@ import { AimdRateControl } from "./aimdRateControl";
 import {
   GCC_KNOWN_DIFFERENCES,
   kBitrateWindowMs,
-  kBurstTimeMs,
   kDefaultStartBitrateBps,
   kMaxBitrateBps,
   kMinBitrateBps,
@@ -20,18 +19,13 @@ import {
   kProbePaddingPacketBytes,
   kSentInfoMaxAgeMs,
 } from "./constants";
+import { InterArrivalDelta } from "./interArrivalDelta";
 import { LossBasedBwe } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
 import { sortPacketResultsByWideSeq } from "./sequenceNumber";
 import { TrendlineEstimator } from "./trendlineEstimator";
-
-interface GroupSample {
-  sendMs: number;
-  recvMs: number;
-  size: number;
-}
 
 /**
  * Google Congestion Control send-side bandwidth estimator (libwebrtc-aligned).
@@ -58,11 +52,10 @@ export class GccBandwidthEstimator
   private readonly aimd = new AimdRateControl();
   private readonly lossBwe = new LossBasedBwe();
   private readonly probe = new ProbeController();
+  private readonly interArrival = new InterArrivalDelta();
 
   private sentInfos = new Map<number, SentInfo>();
   private finalizedSeqs = new Set<number>();
-  private prevGroup?: GroupSample;
-  private currentGroup?: GroupSample;
   private lastUsage: BandwidthUsage = "normal";
   private ackedBytesWindow: { tMs: number; bytes: number }[] = [];
   private delayBasedBps = kDefaultStartBitrateBps;
@@ -179,8 +172,15 @@ export class GccBandwidthEstimator
       }
 
       matched++;
-      if (!result.received || !result.receivedAtMs) {
+      if (!result.received) {
         lost++;
+        this.finalizedSeqs.add(seq);
+        continue;
+      }
+
+      // ReceivedWithoutDelta: counts as received for loss, no delay sample.
+      if (!result.receivedAtMs) {
+        received++;
         this.finalizedSeqs.add(seq);
         continue;
       }
@@ -212,8 +212,8 @@ export class GccBandwidthEstimator
       if (info) batchBytes += info.size;
     }
 
-    // Use TWCC receive times for trendline (not sender wall clock).
-    this.flushGroup();
+    // Inter-arrival groups intentionally span TWCC feedback batches (do not
+    // force-close mid-group here — that would break high-rate continuous media).
     const usage = this.trendline.state;
     if (usage !== this.lastUsage) {
       this.lastUsage = usage;
@@ -283,10 +283,9 @@ export class GccBandwidthEstimator
     this.aimd.reset(this.startBitrateBps);
     this.lossBwe.reset(this.startBitrateBps);
     this.probe.reset();
+    this.interArrival.reset();
     this.sentInfos.clear();
     this.finalizedSeqs.clear();
-    this.prevGroup = undefined;
-    this.currentGroup = undefined;
     this.lastUsage = "normal";
     this.ackedBytesWindow = [];
     this._availableBitrate = 0;
@@ -394,44 +393,9 @@ export class GccBandwidthEstimator
   }
 
   private pushInterArrival(sendMs: number, recvMs: number, size: number) {
-    if (!this.currentGroup) {
-      this.currentGroup = { sendMs, recvMs, size };
-      return;
+    const deltas = this.interArrival.computeDeltas(sendMs, recvMs, size);
+    if (deltas) {
+      this.trendline.update(deltas.recvDeltaMs, deltas.sendDeltaMs, recvMs);
     }
-
-    const interSend = sendMs - this.currentGroup.sendMs;
-    const interRecv = recvMs - this.currentGroup.recvMs;
-    const d = interRecv - interSend;
-
-    const sameBurst =
-      interSend <= kBurstTimeMs || (interRecv < kBurstTimeMs && d < 0);
-
-    if (sameBurst) {
-      this.currentGroup.sendMs = sendMs;
-      this.currentGroup.recvMs = recvMs;
-      this.currentGroup.size += size;
-      return;
-    }
-
-    this.emitGroup(this.currentGroup);
-    this.currentGroup = { sendMs, recvMs, size };
-  }
-
-  private flushGroup() {
-    if (this.currentGroup) {
-      this.emitGroup(this.currentGroup);
-    }
-  }
-
-  private emitGroup(group: GroupSample) {
-    if (this.prevGroup) {
-      const interSend = group.sendMs - this.prevGroup.sendMs;
-      const interRecv = group.recvMs - this.prevGroup.recvMs;
-      if (interSend > 0) {
-        // Always pass TWCC-derived receive time for a consistent timeline.
-        this.trendline.update(interRecv, interSend, group.recvMs);
-      }
-    }
-    this.prevGroup = group;
   }
 }

@@ -5,6 +5,7 @@ import {
   AimdRateControl,
   type BandwidthEstimator,
   GccBandwidthEstimator,
+  InterArrivalDelta,
   LossBasedBwe,
   PacketResult,
   PacketStatus,
@@ -12,10 +13,12 @@ import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSender,
+  RecvDelta,
   RtcpPacketConverter,
   RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
+  RunLengthChunk,
   SenderBandwidthEstimator,
   type SentInfo,
   TransportWideCC,
@@ -407,19 +410,57 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("LossBasedBwe 観測窓 + Newton で高損失時に帯域が下がる", () => {
+      // Arrange: 250ms 下限で observation を commit し、min 3 件まで readiness
       const loss = new LossBasedBwe();
       loss.reset(500_000);
+      // 低損失・高い acked で観測を蓄積（各更新 300ms → 1 observation）
       for (let i = 0; i < 5; i++) {
-        loss.update(0.0, 500_000, 480_000, 20, 0, 1000 + i, 20_000, 200);
+        const t = 1000 + i * 300;
+        loss.update(0.0, 500_000, 480_000, 30, 0, t, 18_000, 300);
       }
+      expect(loss.observationCount).toBeGreaterThanOrEqual(3);
       const up = loss.targetBitrateBps;
-      for (let i = 0; i < 10; i++) {
-        // 高い送信レートに対して 40% loss → capacity 推定を下げる
-        loss.update(0.4, 300_000, 200_000, 40, 16, 2000 + i, 40_000, 200);
+
+      // Act: 高損失 + 低い acked + 低い delay-based（容量低下を反映）
+      for (let i = 0; i < 12; i++) {
+        const t = 3000 + i * 300;
+        loss.update(0.5, 180_000, 120_000, 40, 20, t, 12_000, 300);
       }
+
+      // Assert: 損失観測が反映され推定が下がる
+      expect(loss.averageLossRatio).toBeGreaterThan(0.2);
+      expect(loss.observationCount).toBeGreaterThanOrEqual(8);
       expect(loss.targetBitrateBps).toBeLessThan(up);
-      expect(loss.averageLossRatio).toBeGreaterThan(0.1);
-      expect(loss.inherentLossEstimate).toBeGreaterThan(0);
+      expect(loss.targetBitrateBps).toBeLessThanOrEqual(250_000);
+    });
+
+    test("LossBasedBwe は 250ms×3 観測まで推定を据え置く", () => {
+      // Arrange
+      const loss = new LossBasedBwe();
+      loss.reset(400_000);
+
+      // Act: 100ms ずつの短い batch は 250ms 未満なので commit されない
+      for (let i = 0; i < 2; i++) {
+        loss.update(0.5, 400_000, 100_000, 20, 10, 1000 + i * 100, 10_000, 100);
+      }
+      // Assert: readiness 未満
+      expect(loss.observationCount).toBe(0);
+      expect(loss.targetBitrateBps).toBe(400_000);
+
+      // Act: 300ms を 3 回 → 3 observations
+      for (let i = 0; i < 3; i++) {
+        loss.update(
+          0.0,
+          400_000,
+          380_000,
+          30,
+          0,
+          2000 + i * 300,
+          15_000,
+          300,
+        );
+      }
+      expect(loss.observationCount).toBeGreaterThanOrEqual(3);
     });
   });
 
@@ -893,6 +934,181 @@ describe("media/sender bandwidth estimator", () => {
           new PacketResult({ sequenceNumber: 65535, received: true }),
         ]).map((r) => r.sequenceNumber),
       ).toEqual([65534, 65535, 0, 1]);
+    });
+  });
+
+  describe("Blocker regressions", () => {
+    test("media → padding → media で RTP sequence が重複しない", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
+
+      // Act: media
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 10,
+            timestamp: 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        ),
+      );
+      // padding が挟まる
+      expect(sentPackets.some((p) => p.header.padding)).toBe(true);
+
+      // 次の media (source seq=11)
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 11,
+            timestamp: 2000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        ),
+      );
+
+      // Assert: 全 RTP sequence が一意
+      const seqs = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(seqs).size).toBe(seqs.length);
+      // media の 2 パケットも padding と衝突しない
+      const mediaSeqs = sentPackets
+        .filter((p) => !p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      expect(mediaSeqs.length).toBe(2);
+      expect(mediaSeqs[0]).not.toBe(mediaSeqs[1]);
+    });
+
+    test("probe padding は SR octetCount に含めない", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      const before = (sender as any).octetCount as number;
+
+      // Act: padding only
+      const n = await sender.maybeInjectProbePadding();
+      expect(n).toBeGreaterThan(0);
+      expect(sentPackets.every((p) => p.header.padding)).toBe(true);
+
+      // Assert: 0-byte media payload → octetCount 増分 0
+      const after = (sender as any).octetCount as number;
+      expect(after - before).toBe(0);
+    });
+
+    test("initial probe started event は active 1 件のみ（3x/6x 重複なし）", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const started: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => started.push(c.targetBps));
+
+      // Act: 最初の送信で ensureProbing
+      gcc.rtpPacketSent(sent(1, 200, Date.now()));
+
+      // Assert: 3x のみ active として 1 回（6x は queue、started に含めない）
+      expect(started.length).toBe(1);
+      expect(started[0]).toBe(100_000 * 3);
+      expect(gcc.suggestedProbeBitrateBps).toBe(100_000 * 3);
+    });
+
+    test("高レート (≤5ms spacing) でも inter-arrival group が閉じ delay 推定が進む", () => {
+      // Arrange
+      const ia = new InterArrivalDelta(5);
+      const deltas: number[] = [];
+      // Act: 2ms 間隔で 50 パケット（合計 100ms）
+      for (let i = 0; i < 50; i++) {
+        const d = ia.computeDeltas(
+          i * 2,
+          1000 + i * 2 + (i > 20 ? i : 0),
+          1200,
+        );
+        if (d) deltas.push(d.sendDeltaMs);
+      }
+      // Assert: firstSend を固定しているため 5ms 超で group が閉じる
+      expect(deltas.length).toBeGreaterThan(5);
+      // 各 group の send delta は group length オーダー
+      expect(deltas.every((x) => x >= 5)).toBe(true);
+    });
+
+    test("TransportWideCC example2 の packetResults が 14 件展開される", () => {
+      // Arrange: リポジトリ fixture example2（2× StatusVectorChunk）
+      const data = Buffer.from([
+        0xaf, 0xcd, 0x0, 0x6, 0xfa, 0x17, 0xfa, 0x17, 0x19, 0x3d, 0xd8, 0xbb,
+        0x1, 0x74, 0x0, 0xe, 0x45, 0xb1, 0x5a, 0x40, 0xd8, 0x0, 0xf0, 0xff,
+        0xd0, 0x0, 0x0, 0x1,
+      ]);
+      const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
+        RtcpTransportLayerFeedback,
+      ];
+      const twcc = rtpfb.feedback as TransportWideCC;
+
+      // Act
+      const results = twcc.packetResults;
+
+      // Assert
+      expect(twcc.packetStatusCount).toBe(14);
+      expect(results.length).toBe(14);
+      expect(results[0].sequenceNumber).toBe(372);
+      expect(results[13].sequenceNumber).toBe((372 + 13) & 0xffff);
+      // 先頭は small/large delta 受信
+      expect(results[0].received).toBe(true);
+      expect(results[0].receivedAtMs).toBeGreaterThan(0);
+      // not received シンボル
+      expect(results.some((r) => !r.received)).toBe(true);
+    });
+
+    test("複数 RunLengthChunk で sequence cursor が進む", () => {
+      // Arrange
+      const twcc = new TransportWideCC({
+        senderSsrc: 1,
+        mediaSourceSsrc: 2,
+        baseSequenceNumber: 100,
+        packetStatusCount: 5,
+        referenceTime: 10,
+        fbPktCount: 0,
+        packetChunks: [
+          new RunLengthChunk({
+            packetStatus: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            runLength: 2,
+          }),
+          new RunLengthChunk({
+            packetStatus: PacketStatus.TypeTCCPacketNotReceived,
+            runLength: 3,
+          }),
+        ],
+        recvDeltas: [
+          new RecvDelta({
+            type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            delta: 1000,
+          }),
+          new RecvDelta({
+            type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            delta: 1000,
+          }),
+        ],
+      });
+
+      // Act
+      const results = twcc.packetResults;
+
+      // Assert
+      expect(results.map((r) => r.sequenceNumber)).toEqual([
+        100, 101, 102, 103, 104,
+      ]);
+      expect(results.filter((r) => r.received).length).toBe(2);
+      expect(results.filter((r) => !r.received).length).toBe(3);
     });
   });
 });

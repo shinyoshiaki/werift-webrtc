@@ -1,5 +1,6 @@
 import {
   kDefaultStartBitrateBps,
+  kFurtherProbeStepMultiplier,
   kFurtherProbeThreshold,
   kMaxBitrateBps,
   kMinBitrateBps,
@@ -132,13 +133,16 @@ export class ProbeController {
   }
 
   setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
+    // Further probes while waiting for results when estimate exceeds threshold
+    // of the last completed probe target (libwebrtc WaitingForProbingResult).
     if (
-      this.state === "complete" &&
       this.lastProbeTargetBps > 0 &&
-      bitrateBps > this.lastProbeTargetBps * kFurtherProbeThreshold
+      bitrateBps > this.lastProbeTargetBps * kFurtherProbeThreshold &&
+      (this.state === "complete" || this.state === "waiting_for_result")
     ) {
+      // Further step is ×2 (not initial ×3).
       const next = clamp(
-        bitrateBps * kProbeBitrateMultipliers[0],
+        bitrateBps * kFurtherProbeStepMultiplier,
         this.maxBitrateBps,
       );
       return this.enqueueClusters(nowMs, [next], true);
@@ -201,12 +205,16 @@ export class ProbeController {
     return this.enqueueClusters(nowMs, bitrates, true);
   }
 
+  /**
+   * Enqueue probe clusters and return only the cluster that became **active**
+   * now (for `onProbeClusterStarted`). Queued-but-not-started configs are not
+   * returned — callers must not treat them as started.
+   */
   private enqueueClusters(
     nowMs: number,
     bitrates: number[],
     _probeFurther: boolean,
   ): ProbeClusterConfig[] {
-    const created: ProbeClusterConfig[] = [];
     for (const bps of bitrates) {
       const config: ProbeClusterConfig = {
         id: this.nextClusterId++,
@@ -215,13 +223,12 @@ export class ProbeController {
         minDurationMs: kProbeMinDurationMs,
       };
       this.queue.push(config);
-      created.push(config);
     }
-    if (created.length) {
+    if (bitrates.length) {
       this.state = "waiting_for_result";
     }
-    this.maybeActivateNext(nowMs);
-    return created;
+    // Only notify about the cluster that is actually active.
+    return this.maybeActivateNext(nowMs);
   }
 
   private maybeActivateNext(nowMs: number): ProbeClusterConfig[] {

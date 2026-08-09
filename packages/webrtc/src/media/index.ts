@@ -26,6 +26,7 @@ export {
   AimdRateControl,
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,
+  InterArrivalDelta,
   LossBasedBwe,
   ProbeController,
   TrendlineEstimator,

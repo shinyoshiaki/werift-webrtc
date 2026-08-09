@@ -7,8 +7,10 @@ import {
   kLossBasedInherentLossUpperBoundBwBalanceBps,
   kLossBasedInherentLossUpperBoundOffset,
   kLossBasedInitialInherentLoss,
+  kLossBasedMinNumObservations,
   kLossBasedNewtonIterations,
   kLossBasedNewtonStepSize,
+  kLossBasedObservationDurationLowerBoundMs,
   kLossBasedObservationWindow,
   kLossBasedRampupUpperBoundFactor,
   kLossBasedTemporalWeightFactor,
@@ -42,9 +44,10 @@ interface Observation {
  * LossBasedBweV2-aligned controller
  * (`modules/congestion_controller/goog_cc/loss_based_bwe_v2.*`).
  *
- * Implements observation window, candidate generation (factor / acked / delay),
- * loss probability model, Newton updates for inherent loss, and objective
- * ranking. Defaults mirror Chromium field-trial defaults where practical.
+ * - Partial observations accumulate until duration ≥ 250ms (lower bound)
+ * - Estimates require ≥ 3 committed observations
+ * - Loss probability: inherent + (1−inherent)×excess/sending (libwebrtc)
+ * - Constants match Chromium field-trial defaults (lkgr)
  */
 export class LossBasedBwe {
   private current: ChannelParameters = {
@@ -62,7 +65,6 @@ export class LossBasedBwe {
     firstSendMs: 0,
     lastSendMs: 0,
   };
-  private lastObservationSendMs = 0;
   private temporalWeights: number[] = [];
 
   constructor() {
@@ -85,7 +87,6 @@ export class LossBasedBwe {
       firstSendMs: 0,
       lastSendMs: 0,
     };
-    this.lastObservationSendMs = 0;
     this.recomputeTemporalWeights();
   }
 
@@ -105,6 +106,11 @@ export class LossBasedBwe {
     return this.current.inherentLoss;
   }
 
+  /** Number of committed observations (for readiness tests). */
+  get observationCount(): number {
+    return this.numObservations;
+  }
+
   setBitrateIfHigher(bps: number) {
     if (bps > this.current.lossLimitedBandwidthBps) {
       this.current.lossLimitedBandwidthBps = clamp(bps);
@@ -112,14 +118,14 @@ export class LossBasedBwe {
   }
 
   /**
-   * @param lossFraction unused except compatibility (prefer packet counts)
+   * @param lossFraction fallback when packet counts are 0
    * @param delayBasedBps delay-based A_hat
    * @param acknowledgedBps recent acked bitrate (TWCC-relative throughput)
    * @param packetCount known packets in batch
    * @param lostCount lost among known
-   * @param nowMs unused (send timeline comes from batch)
+   * @param nowMs send-timeline reference (used for partial window start)
    * @param batchBytes total sent bytes in batch
-   * @param sendDurationMs duration of this batch on the **send** timeline
+   * @param sendDurationMs duration of this batch on the send timeline
    */
   update(
     lossFraction: number,
@@ -127,7 +133,7 @@ export class LossBasedBwe {
     acknowledgedBps = 0,
     packetCount = 0,
     lostCount = 0,
-    _nowMs = 0,
+    nowMs = 0,
     batchBytes = 0,
     sendDurationMs = 0,
   ): number {
@@ -135,23 +141,18 @@ export class LossBasedBwe {
       this.acknowledgedBps = acknowledgedBps;
     }
 
-    const n = packetCount > 0 ? packetCount : 20;
+    const n = packetCount > 0 ? packetCount : 0;
     const lost =
       packetCount > 0
         ? lostCount
-        : Math.round(Math.min(Math.max(lossFraction, 0), 1) * n);
+        : Math.round(Math.min(Math.max(lossFraction, 0), 1) * Math.max(n, 1));
 
-    const durationMs = Math.max(sendDurationMs, 1);
-    const instSending =
-      batchBytes > 0
-        ? (batchBytes * 8 * 1000) / durationMs
-        : acknowledgedBps > 0
-          ? acknowledgedBps
-          : this.current.lossLimitedBandwidthBps;
+    if (n > 0) {
+      this.accumulatePartial(n, lost, batchBytes, sendDurationMs, nowMs);
+    }
 
-    this.pushObservation(n, lost, instSending);
-
-    if (this.numObservations <= 0) {
+    // Not ready: keep last estimate (libwebrtc waits for min observations).
+    if (this.numObservations < kLossBasedMinNumObservations) {
       return this.current.lossLimitedBandwidthBps;
     }
 
@@ -173,20 +174,6 @@ export class LossBasedBwe {
       this.current.lossLimitedBandwidthBps,
     );
 
-    // High observed loss: never stay above acknowledged * (1 - 0.5 p)
-    // (operational safety when objective ranking is near-flat).
-    const avgLoss = this.getAverageReportedLossRatio();
-    if (avgLoss > 0.1) {
-      const ceiling =
-        this.acknowledgedBps > 0
-          ? this.acknowledgedBps * (1 - 0.5 * avgLoss)
-          : this.current.lossLimitedBandwidthBps * (1 - 0.5 * avgLoss);
-      if (this.current.lossLimitedBandwidthBps > ceiling) {
-        this.current.lossLimitedBandwidthBps = clamp(ceiling);
-      }
-    }
-
-    // State labels for diagnostics / tests.
     if (this.current.lossLimitedBandwidthBps < prev * 0.95) {
       this.state = "decreasing";
     } else if (
@@ -205,7 +192,53 @@ export class LossBasedBwe {
     return this.current.lossLimitedBandwidthBps;
   }
 
-  private pushObservation(
+  private accumulatePartial(
+    numPackets: number,
+    numLost: number,
+    batchBytes: number,
+    sendDurationMs: number,
+    nowMs: number,
+  ) {
+    if (this.partial.numPackets === 0) {
+      this.partial.firstSendMs = nowMs > 0 ? nowMs - sendDurationMs : 0;
+    }
+    this.partial.numPackets += numPackets;
+    this.partial.numLost += numLost;
+    this.partial.bytes += batchBytes;
+    this.partial.lastSendMs =
+      nowMs > 0 ? nowMs : this.partial.lastSendMs + sendDurationMs;
+
+    const durationMs = Math.max(
+      this.partial.lastSendMs - this.partial.firstSendMs,
+      sendDurationMs,
+      0,
+    );
+    if (durationMs < kLossBasedObservationDurationLowerBoundMs) {
+      return;
+    }
+
+    const sendingRateBps =
+      this.partial.bytes > 0 && durationMs > 0
+        ? (this.partial.bytes * 8 * 1000) / durationMs
+        : this.acknowledgedBps > 0
+          ? this.acknowledgedBps
+          : this.current.lossLimitedBandwidthBps;
+
+    this.commitObservation(
+      this.partial.numPackets,
+      this.partial.numLost,
+      sendingRateBps,
+    );
+    this.partial = {
+      numPackets: 0,
+      numLost: 0,
+      bytes: 0,
+      firstSendMs: 0,
+      lastSendMs: 0,
+    };
+  }
+
+  private commitObservation(
     numPackets: number,
     numLost: number,
     sendingRateBps: number,
@@ -255,16 +288,13 @@ export class LossBasedBwe {
     for (const f of kLossBasedCandidateFactors) {
       bandwidths.push(this.current.lossLimitedBandwidthBps * f);
     }
-    // Explicit decrease candidates under observed loss (libwebrtc includes 0.95 factor).
     if (this.acknowledgedBps > 0) {
       bandwidths.push(this.acknowledgedBps);
-      bandwidths.push(this.acknowledgedBps * 0.85);
     }
     if (delayBasedBps > 0) {
       bandwidths.push(delayBasedBps);
     }
 
-    // Ramp-up cap: do not jump above factor * acked when increasing.
     const rampupCap =
       this.acknowledgedBps > 0
         ? this.acknowledgedBps * kLossBasedRampupUpperBoundFactor
@@ -287,15 +317,19 @@ export class LossBasedBwe {
     });
   }
 
-  /** loss_probability ≈ inherent_loss + max(0, sending - bw) / sending */
+  /**
+   * libwebrtc loss probability:
+   * inherent + (1 - inherent) * max(0, sending - bw) / sending
+   */
   private getLossProbability(
     inherentLoss: number,
     lossLimitedBw: number,
     sendingRate: number,
   ): number {
-    let p = Math.min(Math.max(inherentLoss, 0), 1);
+    let inherent = Math.min(Math.max(inherentLoss, 0), 1);
+    let p = inherent;
     if (sendingRate > 0 && sendingRate > lossLimitedBw) {
-      p += (sendingRate - lossLimitedBw) / sendingRate;
+      p += (1 - inherent) * ((sendingRate - lossLimitedBw) / sendingRate);
     }
     return Math.min(Math.max(p, 1e-6), 1 - 1e-6);
   }
@@ -367,7 +401,7 @@ export class LossBasedBwe {
         w *
         (o.numLostPackets * Math.log(lp) +
           o.numReceivedPackets * Math.log(1 - lp));
-      objective += w * bias * o.numPackets;
+      objective += w * bias;
     }
     return objective;
   }

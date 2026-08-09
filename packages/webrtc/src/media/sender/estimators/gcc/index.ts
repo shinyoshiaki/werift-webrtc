@@ -17,6 +17,12 @@ export {
 } from "./constants";
 export { AimdRateControl } from "./aimdRateControl";
 export { GccBandwidthEstimator } from "./gccBwe";
+export {
+  InterArrivalDelta,
+  kBurstDeltaThresholdMs,
+  kMaxBurstDurationMs,
+  kSendTimeGroupLengthMs,
+} from "./interArrivalDelta";
 export { LossBasedBwe } from "./lossBasedBwe";
 export type { LossBasedState } from "./lossBasedBwe";
 export { ProbeController } from "./probeController";

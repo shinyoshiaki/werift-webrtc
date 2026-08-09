@@ -65,37 +65,56 @@ export const kReactionTimeMs = 100;
 export const kBitrateWindowMs = 1000;
 export const kDefaultRttMs = 100;
 
-// --- Loss-based (libwebrtc LossBasedBweV2 field-trial defaults) ---
+// --- Loss-based (libwebrtc LossBasedBweV2 field-trial defaults, lkgr) ---
 
-/** Observation window size (`ObservationWindowSize`, default 20). */
-export const kLossBasedObservationWindow = 20;
+/** ObservationWindowSize default 15. */
+export const kLossBasedObservationWindow = 15;
 
-/** CandidateFactors default {1.05, 1.0, 0.95}. */
-export const kLossBasedCandidateFactors = [1.05, 1.0, 0.95] as const;
+/**
+ * Min observation duration before a partial window is committed (ms).
+ * libwebrtc `ObservationDurationLowerBound` default 250ms.
+ */
+export const kLossBasedObservationDurationLowerBoundMs = 250;
+
+/**
+ * Min committed observations before estimates are used.
+ * libwebrtc readiness uses delayed start after several observations (3).
+ */
+export const kLossBasedMinNumObservations = 3;
+
+/** CandidateFactors default {1.02, 1.0, 0.95}. */
+export const kLossBasedCandidateFactors = [1.02, 1.0, 0.95] as const;
 
 export const kLossBasedInherentLossLowerBound = 1e-3;
 export const kLossBasedInherentLossUpperBoundOffset = 0.05;
-/** 15 kbps balance term in inherent-loss upper bound. */
-export const kLossBasedInherentLossUpperBoundBwBalanceBps = 15_000;
+/** InherentLossUpperBoundBwBalance default 100 kbps. */
+export const kLossBasedInherentLossUpperBoundBwBalanceBps = 100_000;
 export const kLossBasedInitialInherentLoss = 0.01;
 export const kLossBasedNewtonIterations = 1;
-export const kLossBasedNewtonStepSize = 0.5;
-export const kLossBasedHigherBwBiasFactor = 0.00001;
-export const kLossBasedHigherLogBwBiasFactor = 0.001;
-export const kLossBasedTemporalWeightFactor = 0.99;
-/** BwRampupUpperBoundFactor default 1.1. */
-export const kLossBasedRampupUpperBoundFactor = 1.1;
+/** NewtonStepSize default 0.75. */
+export const kLossBasedNewtonStepSize = 0.75;
+/** HigherBandwidthBiasFactor default 0.0002. */
+export const kLossBasedHigherBwBiasFactor = 0.0002;
+/** HigherLogBandwidthBiasFactor default 0.02. */
+export const kLossBasedHigherLogBwBiasFactor = 0.02;
+/** TemporalWeightFactor default 0.9. */
+export const kLossBasedTemporalWeightFactor = 0.9;
+/** BwRampupUpperBoundFactor default 1.5. */
+export const kLossBasedRampupUpperBoundFactor = 1.5;
 
 /** Legacy names kept for tests. */
 export const kLossIncreaseThreshold = 0.02;
 export const kLossDecreaseThreshold = 0.1;
-export const kLossBasedIncreaseFactor = 1.05;
+export const kLossBasedIncreaseFactor = 1.02;
 export const kLossBasedBackoffFactor = 0.5;
 export const kLossIncreaseFactor = kLossBasedIncreaseFactor;
 
 // --- ProbeController ---
 
+/** Initial exponential probe steps: start×3, start×6. */
 export const kProbeBitrateMultipliers = [3, 6] as const;
+/** Further probes after success use ×2 (libwebrtc further probe step). */
+export const kFurtherProbeStepMultiplier = 2;
 export const kFurtherProbeThreshold = 0.7;
 export const kProbeMinDurationMs = 15;
 export const kProbeMinPackets = 5;
@@ -130,7 +149,7 @@ export const kSentInfoMaxAgeMs = 10_000;
  * algorithm structure and control response match the reference.
  */
 export const GCC_KNOWN_DIFFERENCES = [
-  "LossBasedBweV2: observation window, candidates, Newton inherent-loss update, and objective ranking ported; TCP-fairness upper bound omitted (optional Chromium path)",
+  "LossBasedBweV2: observation window (15), 250ms lower bound, min 3 observations, candidates/Newton/objective ported; TCP-fairness upper bound omitted (optional Chromium path)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal)",
   "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender)",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++",
