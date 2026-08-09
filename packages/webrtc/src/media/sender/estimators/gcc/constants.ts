@@ -204,8 +204,9 @@ export const kSentInfoMaxAgeMs = 10_000;
  */
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
-  "No REMB integration; TWCC-only send-side mode (ticket non-goal)",
+  "No REMB integration; TWCC-only send-side mode (ticket non-goal; future work)",
   "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x multi-active; recovery probes use current estimate only with 5s cooldown; abort on loss≥5% or overuse; probe-result target×1.5 cap applies only after initial exponential complete (initial uses acked soft ceiling only)",
-  "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++",
+  "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc)",
   "InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)",
+  "Transport-wide sequence is shared on the DTLS transport while BWE instances are per RTCRtpSender (ticket constraint; multi-sender asymmetry is intentional)",
 ] as const;

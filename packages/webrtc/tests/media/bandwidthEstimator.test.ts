@@ -431,6 +431,77 @@ describe("media/sender bandwidth estimator", () => {
       expect(highLoss).toBeLessThan(lowLoss);
     });
 
+    test("決定的入力での bitrate 系列（制御応答の形状回帰）", () => {
+      // Arrange: 壁時計に依存しない固定 send/recv タイムライン
+      const start = 400_000;
+      const gcc = new GccBandwidthEstimator(start);
+      const series: number[] = [];
+      const record = () => {
+        if (gcc.availableBitrate > 0) series.push(gcc.availableBitrate);
+      };
+      const t0 = 1_000_000; // fixed epoch ms
+
+      // Act phase 1: 安定・無損失・一定遅延 → 推定が立つ
+      for (let b = 0; b < 3; b++) {
+        feedDelayScenario(gcc, {
+          seq0: 1 + b * 40,
+          t0: t0 + b * 800,
+          count: 40,
+          sendInterval: 20,
+          recvStretchPerStep: 0,
+          lossRatio: 0,
+        });
+        record();
+      }
+      // Assert 1: 安定期は正の推定
+      expect(series.length).toBeGreaterThanOrEqual(1);
+      const steady = series[series.length - 1];
+      expect(steady).toBeGreaterThan(0);
+
+      // Act phase 2: 遅延勾配で overuse → 推定が下がる方向
+      feedDelayScenario(gcc, {
+        seq0: 200,
+        t0: t0 + 3_000,
+        count: 80,
+        sendInterval: 20,
+        recvStretchPerStep: 25,
+        lossRatio: 0,
+      });
+      record();
+      const afterDelay = series[series.length - 1];
+
+      // Act phase 3: 高損失 → さらに下がる（または維持）方向
+      feedDelayScenario(gcc, {
+        seq0: 300,
+        t0: t0 + 5_000,
+        count: 60,
+        sendInterval: 20,
+        recvStretchPerStep: 0,
+        lossRatio: 0.35,
+      });
+      feedDelayScenario(gcc, {
+        seq0: 400,
+        t0: t0 + 6_500,
+        count: 60,
+        sendInterval: 20,
+        recvStretchPerStep: 0,
+        lossRatio: 0.35,
+      });
+      record();
+      const afterLoss = series[series.length - 1];
+
+      // Assert: 制御応答の形状（厳密な bps 一致は要求しない）
+      // 日本語: 遅延 overuse または損失後に推定が安定期より高い値に張り付かない
+      expect(afterDelay).toBeLessThanOrEqual(steady * 1.15);
+      expect(afterLoss).toBeLessThan(steady);
+      // 日本語: ゼロ張り付きや異常な上限跳躍がない
+      expect(afterLoss).toBeGreaterThanOrEqual(10_000);
+      expect(Math.max(...series)).toBeLessThan(50_000_000);
+      // 日本語: 最終推定は損失反映後も正で、安定期を超えて再膨張していない
+      expect(series[series.length - 1]).toBe(afterLoss);
+      expect(series[series.length - 1]).toBeLessThanOrEqual(steady);
+    });
+
     test("LossBasedBwe 観測窓 + Newton で高損失時に帯域が下がる", () => {
       // Arrange: 250ms 下限で observation を commit し、min 3 件まで readiness
       // firstSendMs / lastSendMs は実際の send timeline

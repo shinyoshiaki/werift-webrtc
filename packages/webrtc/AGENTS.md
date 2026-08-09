@@ -39,11 +39,12 @@ Instructions for coding agents working in `packages/webrtc`.
 
 Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
 Package-local bottleneck sims: `simulations/` (`npm run test:sim`). Chrome peer sims live under `e2e/simulations/` (`cd e2e && npm run test:sim`).
+Both sim suites are **CI-excluded**; run them manually before merging GCC / TWCC / BottleneckLink changes.
 
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
-* GCC / TWCC / BottleneckLink changes: `npm run test:sim` when feasible (CI-excluded).
+* GCC / TWCC / BottleneckLink changes: run `npm run test:sim` (and `cd e2e && npm run test:sim` when Chrome path may be affected). Not part of default CI.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
 
