@@ -76,7 +76,14 @@ legacy.onCongestionScore.subscribe((score) => { /* … */ });
 
 Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay `0`.
 
+**Scope notes (ticket constraints / known differences):**
+
+- Transport-wide sequence numbers are allocated on the shared DTLS transport; each `RTCRtpSender` still has its **own** `BandwidthEstimator`. With multiple senders, feedback covers the whole transport while estimates remain per-sender (intentional; transport-level BWE / REMB are non-goals here).
+- GCC is structure-compatible with libwebrtc goog_cc, not bit-identical. See `GccBandwidthEstimator.knownDifferences` / `GCC_KNOWN_DIFFERENCES` for intentional gaps (no REMB, lightweight pacer, float/clock drift, etc.).
+- Bottleneck simulations are **CI-excluded**: `cd packages/webrtc && npm run test:sim`, and `cd e2e && npm run test:sim` (Chrome). Run them before merging GCC/TWCC changes.
+
 # examples
+
 
 https://github.com/shinyoshiaki/werift-webrtc/tree/master/examples
 
