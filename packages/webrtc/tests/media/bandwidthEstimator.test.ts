@@ -1501,6 +1501,46 @@ describe("media/sender bandwidth estimator", () => {
       expect(sorted.map((r) => r.sequenceNumber)).toEqual([65534, 65535, 0, 1]);
     });
 
+    test("receivedAtMs=0 でも SmallDelta は delay サンプルとして受理する", () => {
+      // Arrange: reference_time base 0 + first delta → receivedAtMs が 0 になり得る
+      const gcc = new GccBandwidthEstimator(300_000);
+      const n = 30;
+      for (let i = 0; i < n; i++) {
+        gcc.rtpPacketSent(sent(i + 1, 800, 100 + i * 20));
+      }
+      const results = Array.from({ length: n }, (_, i) => {
+        return new PacketResult({
+          sequenceNumber: i + 1,
+          received: true,
+          // Explicit small-delta status; receivedAtMs may be 0 for the first sample.
+          status: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+          receivedAtMs: i === 0 ? 0 : i * 20,
+        });
+      });
+      // Act
+      gcc.receiveTWCC(makeTwccFeedback(results));
+      // Assert: falsy 判定だと 0 を捨てて推定が進まない。0 は有効な時刻。
+      expect(
+        hasTwccReceiveTiming(
+          new PacketResult({
+            received: true,
+            status: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            receivedAtMs: 0,
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        hasTwccReceiveTiming(
+          new PacketResult({
+            received: true,
+            status: PacketStatus.TypeTCCPacketReceivedWithoutDelta,
+            receivedAtMs: 0,
+          }),
+        ),
+      ).toBe(false);
+      expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
     test("not-received は永久 finalize せず後続 received を受理する", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(300_000);

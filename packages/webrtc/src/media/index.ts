@@ -31,6 +31,7 @@ export {
   ProbeController,
   TrendlineEstimator,
   compareTransportWideSeq,
+  hasTwccReceiveTiming,
   kBeta,
   kDefaultStartBitrateBps,
   kLossBasedIncreaseFactor,
