@@ -14,6 +14,14 @@
 
 ***
 
+### minBytes
+
+> **minBytes**: `number`
+
+Minimum bytes expected for the cluster (for receive-ratio checks).
+
+***
+
 ### minDurationMs
 
 > **minDurationMs**: `number`

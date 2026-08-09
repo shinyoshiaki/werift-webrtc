@@ -1,6 +1,6 @@
 # WPT partial-pass progress
 
-| Generated at | 2026-07-25T03:14:25.498Z |
+| Generated at | 2026-08-09T11:35:34.417Z |
 
 ## Target success rates
 

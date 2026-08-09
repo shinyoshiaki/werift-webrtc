@@ -5,18 +5,18 @@ import {
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeBitrateMultipliers,
+  kProbeMaxIntervalMs,
+  kProbeMaxValidRatio,
   kProbeMinDurationMs,
   kProbeMinIntervalMs,
   kProbeMinPackets,
+  kProbeMinRatioForUnsaturated,
   kProbeMinReceivedBytesPercent,
   kProbeMinReceivedProbesPercent,
-  kProbeMaxValidRatio,
-  kProbeMinRatioForUnsaturated,
-  kProbeTargetUtilization,
-  kProbeMaxIntervalMs,
   kProbeRecoveryMaxScale,
   kProbeRecoveryScale,
   kProbeResultTimeoutMs,
+  kProbeTargetUtilization,
 } from "./constants";
 
 /**
@@ -222,7 +222,11 @@ export class ProbeController {
    * Record a probation (probe-tagged) packet at send time.
    * Assigns the packet to one active cluster and stores wideSeq → clusterId.
    */
-  onProbePacketSent(sizeBytes: number, sendMs: number, wideSeq: number): number {
+  onProbePacketSent(
+    sizeBytes: number,
+    sendMs: number,
+    wideSeq: number,
+  ): number {
     if (this.active.length === 0) return 0;
     const cluster = this.pickClusterToFill();
     if (!cluster) return 0;

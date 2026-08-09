@@ -332,9 +332,6 @@ survive estimator swaps. Algorithm-specific events remain on concrete instances.
 
 > **maybeInjectProbePadding**(): `Promise`\<`number`\>
 
-Dedicated probe-padding path: unique RTP sequence numbers and P-bit set.
-Media uses [sendRtp](RTCRtpSender.md#sendrtp); padding never re-enters media RED path.
-
 #### Returns
 
 `Promise`\<`number`\>
@@ -447,7 +444,8 @@ Default is the legacy [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstima
 Behavior on swap:
 1. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
 2. Unbinds the stable [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
-3. Starts the new instance clean (no implicit state merge) and rebinds the bridge.
+3. **Always** `reset()` the injected `impl` so a previously used instance
+   starts clean (no implicit state merge), then rebinds the bridge.
 
 Subscriptions to [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender are preserved.
 Re-subscribe algorithm-specific events on the new concrete instance.

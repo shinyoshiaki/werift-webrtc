@@ -1,4 +1,4 @@
-import { PacketStatus, type PacketResult } from "../../../imports/rtp";
+import { type PacketResult, PacketStatus } from "../../../imports/rtp";
 
 /**
  * Whether a TWCC {@link PacketResult} carries a usable receive-time sample

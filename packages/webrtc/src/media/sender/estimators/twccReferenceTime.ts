@@ -41,7 +41,7 @@ export class TwccReferenceTimeUnwrapper {
     }
 
     const half = TWCC_REFERENCE_TIME_MOD >> 1;
-    let delta = ref - this.lastRefUnits;
+    const delta = ref - this.lastRefUnits;
     // Forward wrap: last near top, current near 0
     if (delta < -half) {
       this.cycles += 1;
@@ -50,7 +50,10 @@ export class TwccReferenceTimeUnwrapper {
       this.cycles -= 1;
     }
     this.lastRefUnits = ref;
-    return (this.cycles * TWCC_REFERENCE_TIME_MOD + ref) * TWCC_REFERENCE_TIME_UNIT_MS;
+    return (
+      (this.cycles * TWCC_REFERENCE_TIME_MOD + ref) *
+      TWCC_REFERENCE_TIME_UNIT_MS
+    );
   }
 
   /**
@@ -61,9 +64,10 @@ export class TwccReferenceTimeUnwrapper {
    * @param referenceTimeUnits that feedback's reference_time
    * @returns new array with adjusted `receivedAtMs` (other fields shallow-copied)
    */
-  rebasePacketResults<
-    T extends { receivedAtMs: number; received: boolean },
-  >(results: T[], referenceTimeUnits: number): T[] {
+  rebasePacketResults<T extends { receivedAtMs: number; received: boolean }>(
+    results: T[],
+    referenceTimeUnits: number,
+  ): T[] {
     const wrappedBase =
       (referenceTimeUnits & (TWCC_REFERENCE_TIME_MOD - 1)) *
       TWCC_REFERENCE_TIME_UNIT_MS;

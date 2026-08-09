@@ -6,7 +6,16 @@
 
 # Class: AimdRateControl
 
-AIMD rate controller for the delay-based estimate A_hat (draft §5.5).
+AIMD rate controller for the delay-based estimate A_hat.
+
+Aligns with libwebrtc `AimdRateControl` control points:
+- Decrease at most once per RTT (`TimeToReduceFurther`), then hold
+- Multiplicative increase in slow-start / far from max; additive near max
+- Soft upper bound vs acknowledged throughput
+
+## See
+
+modules/congestion_controller/goog_cc/aimd_rate_control.cc
 
 ## Constructors
 
@@ -29,6 +38,18 @@ AIMD rate controller for the delay-based estimate A_hat (draft §5.5).
 ##### Returns
 
 `RateControlState`
+
+***
+
+### rtt
+
+#### Get Signature
+
+> **get** **rtt**(): `number`
+
+##### Returns
+
+`number`
 
 ***
 
@@ -76,6 +97,29 @@ AIMD rate controller for the delay-based estimate A_hat (draft §5.5).
 
 ***
 
+### timeToReduceFurther()
+
+> **timeToReduceFurther**(`nowMs`, `acknowledgedBitrateBps`): `boolean`
+
+libwebrtc `TimeToReduceFurther`: allow another decrease after ≥ RTT, or
+when measured throughput falls well below the current estimate.
+
+#### Parameters
+
+##### nowMs
+
+`number`
+
+##### acknowledgedBitrateBps
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### update()
 
 > **update**(`usage`, `acknowledgedBitrateBps`, `nowMs`): `number`
@@ -98,7 +142,7 @@ measured incoming / acked bitrate R_hat
 
 `number`
 
-wall clock
+wall clock (or feedback timeline)
 
 #### Returns
 

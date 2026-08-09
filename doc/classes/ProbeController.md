@@ -6,16 +6,13 @@
 
 # Class: ProbeController
 
-Probe controller (libwebrtc `ProbeController` structure).
+Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
 
 - `setBitrates` / cold start → exponential probe clusters (×3 and ×6)
-- **Multi-active**: initial 3x/6x (and any co-enqueued set) can be active
-  simultaneously; pacing target is the max among active clusters
-- On successful TWCC-measured probe, may schedule further probing when the
-  estimate exceeds `further_probe_threshold` × last probe size
-
-The sender must raise its pacing rate to `currentProbeTargetBps` and tag
-packets with `isProbation` while any cluster is active.
+- **Multi-active**: initial 3x/6x can be active simultaneously
+- Per-packet **cluster id** (via wideSeq map) — ACKs credit one cluster only
+- Result validation: min receive %, send/recv intervals, send/recv rate ratio
+- Recovery probes use current estimate + cooldown
 
 ## Constructors
 
@@ -35,8 +32,6 @@ packets with `isProbation` while any cluster is active.
 
 > **get** **activeClusterCount**(): `number`
 
-Number of currently active probe clusters.
-
 ##### Returns
 
 `number`
@@ -48,8 +43,6 @@ Number of currently active probe clusters.
 #### Get Signature
 
 > **get** **currentProbeTargetBps**(): `number`
-
-Max active cluster pacing target (0 if none).
 
 ##### Returns
 
@@ -87,8 +80,6 @@ Max active cluster pacing target (0 if none).
 
 > **get** **suggestedProbeBitrateBps**(): `number`
 
-Alias used by callers expecting “suggested” naming.
-
 ##### Returns
 
 `number`
@@ -113,7 +104,10 @@ Alias used by callers expecting “suggested” naming.
 
 ### onAckedPacket()
 
-> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`): `void`
+> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`?): `void`
+
+ACK a packet. Only credits the cluster that owned the wideSeq at send.
+Applies ProbeBitrateEstimator validation before accepting a result.
 
 #### Parameters
 
@@ -129,17 +123,46 @@ Alias used by callers expecting “suggested” naming.
 
 `boolean`
 
+##### wideSeq?
+
+`number`
+
 #### Returns
 
 `void`
 
 ***
 
+### onProbePacketSent()
+
+> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`): `number`
+
+Record a probation (probe-tagged) packet at send time.
+Assigns the packet to one active cluster and stores wideSeq → clusterId.
+
+#### Parameters
+
+##### sizeBytes
+
+`number`
+
+##### sendMs
+
+`number`
+
+##### wideSeq
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
 ### process()
 
 > **process**(`nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
-
-Advance timeouts / promote queued clusters.
 
 #### Parameters
 
@@ -153,11 +176,21 @@ Advance timeouts / promote queued clusters.
 
 ***
 
+### remainingProbeBytes()
+
+> **remainingProbeBytes**(): `number`
+
+Bytes still needed across active clusters (for padding injection).
+
+#### Returns
+
+`number`
+
+***
+
 ### requestProbe()
 
 > **requestProbe**(`estimatedBps`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
-
-Application / recovery request for additional probes.
 
 #### Parameters
 
@@ -194,9 +227,6 @@ Application / recovery request for additional probes.
 ### setBitrates()
 
 > **setBitrates**(`minBps`, `startBps`, `maxBps`, `nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
-
-libwebrtc SetBitrates — configure bounds and initiate exponential probing
-when still in the init state.
 
 #### Parameters
 

@@ -84,9 +84,7 @@ export class AimdRateControl {
       // not multiply-apply beta on every TWCC batch (~100 ms).
       if (this.timeToReduceFurther(nowMs, acknowledgedBitrateBps)) {
         const input =
-          acknowledgedBitrateBps > 0
-            ? acknowledgedBitrateBps
-            : this.bitrateBps;
+          acknowledgedBitrateBps > 0 ? acknowledgedBitrateBps : this.bitrateBps;
         const decreased = Math.max(input * kBeta, kMinBitrateBps);
         if (decreased < this.bitrateBps) {
           this.bitrateBps = decreased;
@@ -119,10 +117,7 @@ export class AimdRateControl {
       acknowledgedBitrateBps > 0 &&
       acknowledgedBitrateBps > this.bitrateBps * 0.05
     ) {
-      this.bitrateBps = Math.min(
-        this.bitrateBps,
-        1.5 * acknowledgedBitrateBps,
-      );
+      this.bitrateBps = Math.min(this.bitrateBps, 1.5 * acknowledgedBitrateBps);
     }
 
     this.bitrateBps = clamp(this.bitrateBps);
@@ -134,17 +129,13 @@ export class AimdRateControl {
    * libwebrtc `TimeToReduceFurther`: allow another decrease after ≥ RTT, or
    * when measured throughput falls well below the current estimate.
    */
-  timeToReduceFurther(
-    nowMs: number,
-    acknowledgedBitrateBps: number,
-  ): boolean {
+  timeToReduceFurther(nowMs: number, acknowledgedBitrateBps: number): boolean {
     if (this.lastDecreaseMs === 0) return true;
     const sinceMs = nowMs - this.lastDecreaseMs;
     if (sinceMs >= Math.max(this.rttMs, kReactionTimeMs)) return true;
     if (
       acknowledgedBitrateBps > 0 &&
-      acknowledgedBitrateBps <
-        this.bitrateBps * kThroughputLowerFraction
+      acknowledgedBitrateBps < this.bitrateBps * kThroughputLowerFraction
     ) {
       return true;
     }
