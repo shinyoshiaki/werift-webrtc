@@ -36,8 +36,7 @@ export function sortPacketResultsByWideSeq<
   for (let i = 0; i < unique.length; i++) {
     const a = unique[i];
     const b = unique[(i + 1) % unique.length];
-    const gap =
-      i === unique.length - 1 ? b + TWCC_SEQ_MOD - a : b - a;
+    const gap = i === unique.length - 1 ? b + TWCC_SEQ_MOD - a : b - a;
     if (gap > maxGap) {
       maxGap = gap;
       origin = b;

@@ -427,17 +427,7 @@ describe("media/sender bandwidth estimator", () => {
         const first = 3000 + i * 300;
         const last = first + 300;
         // 50% byte loss: 12_000 bytes of which 6_000 lost
-        loss.update(
-          0.5,
-          180_000,
-          120_000,
-          40,
-          20,
-          first,
-          12_000,
-          last,
-          6_000,
-        );
+        loss.update(0.5, 180_000, 120_000, 40, 20, first, 12_000, last, 6_000);
       }
 
       // Assert: 損失観測が反映され推定が下がる
@@ -462,7 +452,17 @@ describe("media/sender bandwidth estimator", () => {
       // Act: 300ms span を 3 回 → 3 observations
       for (let i = 0; i < 3; i++) {
         const first = 2000 + i * 300;
-        loss.update(0.0, 400_000, 380_000, 30, 0, first, 15_000, first + 300, 0);
+        loss.update(
+          0.0,
+          400_000,
+          380_000,
+          30,
+          0,
+          first,
+          15_000,
+          first + 300,
+          0,
+        );
       }
       expect(loss.observationCount).toBeGreaterThanOrEqual(3);
     });
@@ -1192,7 +1192,9 @@ describe("media/sender bandwidth estimator", () => {
       }
 
       // Act: serialize → deserialize → packetResults
-      const wire = new RtcpTransportLayerFeedback({ feedback: twcc }).serialize();
+      const wire = new RtcpTransportLayerFeedback({
+        feedback: twcc,
+      }).serialize();
       const [rtpfb] = RtcpPacketConverter.deSerialize(wire) as [
         RtcpTransportLayerFeedback,
       ];
@@ -1216,8 +1218,16 @@ describe("media/sender bandwidth estimator", () => {
     test("16-bit wrap の packetResults 順序は 65534..1", () => {
       // Arrange
       const results = [
-        new PacketResult({ sequenceNumber: 0, received: true, receivedAtMs: 3 }),
-        new PacketResult({ sequenceNumber: 1, received: true, receivedAtMs: 4 }),
+        new PacketResult({
+          sequenceNumber: 0,
+          received: true,
+          receivedAtMs: 3,
+        }),
+        new PacketResult({
+          sequenceNumber: 1,
+          received: true,
+          receivedAtMs: 4,
+        }),
         new PacketResult({
           sequenceNumber: 65534,
           received: true,
@@ -1232,9 +1242,7 @@ describe("media/sender bandwidth estimator", () => {
       // Act
       const sorted = sortPacketResultsByWideSeq(results);
       // Assert
-      expect(sorted.map((r) => r.sequenceNumber)).toEqual([
-        65534, 65535, 0, 1,
-      ]);
+      expect(sorted.map((r) => r.sequenceNumber)).toEqual([65534, 65535, 0, 1]);
     });
 
     test("not-received は永久 finalize せず後続 received を受理する", () => {

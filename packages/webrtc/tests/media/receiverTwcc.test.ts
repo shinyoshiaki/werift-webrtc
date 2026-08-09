@@ -2,8 +2,8 @@ import { describe, expect, test, vi } from "vitest";
 import {
   PacketStatus,
   RtcpPacketConverter,
-  RtcpTransportLayerFeedback,
-  TransportWideCC,
+  type RtcpTransportLayerFeedback,
+  type TransportWideCC,
 } from "../../src";
 import { ReceiverTWCC } from "../../src/media/receiver/receiverTwcc";
 
@@ -54,8 +54,7 @@ describe("ReceiverTWCC", () => {
       twcc.packetChunks.some(
         (c: any) =>
           c.packetStatus === PacketStatus.TypeTCCPacketNotReceived ||
-          (c.symbolList &&
-            c.symbolList.includes(PacketStatus.TypeTCCPacketNotReceived)),
+          c.symbolList?.includes(PacketStatus.TypeTCCPacketNotReceived),
       ),
     ).toBe(true);
   });

@@ -106,9 +106,7 @@ export class InterArrivalDelta {
 
         if (recvDeltaMs < 0) {
           this.numConsecutiveReorderedPackets++;
-          if (
-            this.numConsecutiveReorderedPackets >= kReorderedResetThreshold
-          ) {
+          if (this.numConsecutiveReorderedPackets >= kReorderedResetThreshold) {
             this.reset();
             this.current = {
               firstSendMs: sendMs,

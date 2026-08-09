@@ -1,5 +1,6 @@
 import {
   kDefaultStartBitrateBps,
+  kLossBasedBandwidthPreferenceSmoothingFactor,
   kLossBasedBoundBestCandidate,
   kLossBasedCandidateFactors,
   kLossBasedDelayedIncreaseWindowMs,
@@ -14,7 +15,6 @@ import {
   kLossBasedInstantUpperBoundBwBalanceBps,
   kLossBasedInstantUpperBoundLossOffset,
   kLossBasedLossThresholdOfHighBandwidthPreference,
-  kLossBasedBandwidthPreferenceSmoothingFactor,
   kLossBasedLowerBoundByAckedRateFactor,
   kLossBasedMaxHoldDurationMs,
   kLossBasedMaxIncreaseFactor,
@@ -291,10 +291,7 @@ export class LossBasedBwe {
     const upper = this.cachedInstantUpperBoundBps;
     const lower = this.cachedInstantLowerBoundBps;
     if (this.delayBasedBps > 0) {
-      bounded = Math.max(
-        lower,
-        Math.min(bounded, upper, this.delayBasedBps),
-      );
+      bounded = Math.max(lower, Math.min(bounded, upper, this.delayBasedBps));
     } else {
       bounded = Math.max(lower, Math.min(bounded, upper));
     }
@@ -428,13 +425,10 @@ export class LossBasedBwe {
       const avgSize =
         numPackets > 0 ? Math.max(1, Math.round(batchBytes / numPackets)) : 1;
       const lostSize =
-        lostBytes > 0
-          ? lostBytes
-          : numLost > 0
-            ? avgSize * numLost
-            : 0;
+        lostBytes > 0 ? lostBytes : numLost > 0 ? avgSize * numLost : 0;
       // Represent lost packets as unique synthetic keys for this batch.
-      const baseKey = (this.numObservations + 1) * 1_000_000 + this.partial.numPackets;
+      const baseKey =
+        (this.numObservations + 1) * 1_000_000 + this.partial.numPackets;
       for (let i = 0; i < numLost; i++) {
         const per =
           i === numLost - 1
@@ -488,9 +482,7 @@ export class LossBasedBwe {
     };
   }
 
-  private commitObservation(
-    o: Omit<Observation, "id">,
-  ) {
+  private commitObservation(o: Omit<Observation, "id">) {
     const obs: Observation = {
       ...o,
       id: this.numObservations++,
@@ -546,9 +538,7 @@ export class LossBasedBwe {
 
   private calculateInstantUpperBound() {
     let instant = kMaxBitrateBps;
-    if (
-      this.averageReportedLossRatio > kLossBasedInstantUpperBoundLossOffset
-    ) {
+    if (this.averageReportedLossRatio > kLossBasedInstantUpperBoundLossOffset) {
       instant =
         kLossBasedInstantUpperBoundBwBalanceBps /
         (this.averageReportedLossRatio - kLossBasedInstantUpperBoundLossOffset);
@@ -558,10 +548,7 @@ export class LossBasedBwe {
 
   private calculateInstantLowerBound() {
     let lower = 0;
-    if (
-      this.acknowledgedBps > 0 &&
-      kLossBasedLowerBoundByAckedRateFactor > 0
-    ) {
+    if (this.acknowledgedBps > 0 && kLossBasedLowerBoundByAckedRateFactor > 0) {
       lower = kLossBasedLowerBoundByAckedRateFactor * this.acknowledgedBps;
     }
     lower = Math.max(lower, kMinBitrateBps);
@@ -685,9 +672,7 @@ export class LossBasedBwe {
       (biasFactor *
         (kLossBasedLossThresholdOfHighBandwidthPreference - lossRate)) /
       (kLossBasedBandwidthPreferenceSmoothingFactor +
-        Math.abs(
-          kLossBasedLossThresholdOfHighBandwidthPreference - lossRate,
-        ))
+        Math.abs(kLossBasedLossThresholdOfHighBandwidthPreference - lossRate))
     );
   }
 
