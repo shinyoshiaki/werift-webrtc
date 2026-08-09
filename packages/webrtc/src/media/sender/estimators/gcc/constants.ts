@@ -156,6 +156,18 @@ export const kFurtherProbeThreshold = 0.7;
 export const kProbeMinDurationMs = 15;
 export const kProbeMinPackets = 5;
 export const kProbeResultTimeoutMs = 1000;
+/** libwebrtc ProbeBitrateEstimator: min % of probes that must be ACKed. */
+export const kProbeMinReceivedProbesPercent = 80;
+/** libwebrtc ProbeBitrateEstimator: min % of bytes that must be ACKed. */
+export const kProbeMinReceivedBytesPercent = 80;
+/** Reject estimate if receive/send rate ratio exceeds this. */
+export const kProbeMaxValidRatio = 2.0;
+/** If receive < this × send, treat link as capacity-limited. */
+export const kProbeMinRatioForUnsaturated = 0.9;
+/** Target utilization when capacity-limited (slightly under receive rate). */
+export const kProbeTargetUtilization = 0.95;
+/** Max send/receive interval for a valid probe cluster (ms). */
+export const kProbeMaxIntervalMs = 1000;
 /**
  * Min interval between recovery / further probe sessions (ms).
  * Prevents continuous underuse-triggered padding from re-congesting the link
@@ -205,7 +217,7 @@ export const kSentInfoMaxAgeMs = 10_000;
 export const GCC_KNOWN_DIFFERENCES = [
   "LossBasedBweV2: byte-loss objective/derivative (UseByteLossRate), bias adjustment by loss ratio, instant upper/lower bounds, delayed-increase window, HOLD rate; full ALR/padding-duration state machine simplified (IncreaseUsingPadding collapsed into increasing when padding path is unused)",
   "No REMB integration; TWCC-only send-side mode (ticket non-goal; future work)",
-  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x multi-active; recovery probes use current estimate only with 5s cooldown; abort on loss≥5% or overuse; probe-result target×1.5 cap applies only after initial exponential complete (initial uses acked soft ceiling only)",
+  "Probe pacing uses RTCRtpSender token-bucket + RTP padding injection (not webrtc::PacedSender); initial 3x/6x multi-active with per-packet cluster id via wideSeq map; ProbeBitrateEstimator-style min receive % / send-recv ratio / interval checks ported; recovery probes use current estimate + 5s cooldown; abort on loss≥5% or overuse; no ALR-only probe path",
   "Floating-point / wall-clock differences may cause sub-bps numerical drift vs C++ (not bit-identical to libwebrtc)",
   "InterArrivalDelta: reordered-reset / arrival-offset thresholds ported; system-clock path omitted (TWCC receive times only)",
   "Transport-wide sequence is shared on the DTLS transport while BWE instances are per RTCRtpSender (ticket constraint; multi-sender asymmetry is intentional)",

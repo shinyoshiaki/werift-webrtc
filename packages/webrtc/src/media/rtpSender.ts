@@ -514,8 +514,19 @@ export class RTCRtpSender {
    * Dedicated probe-padding path: unique RTP sequence numbers and P-bit set.
    * Media uses {@link sendRtp}; padding never re-enters media RED path.
    */
+  /** True when transport-wide CC header extension is negotiated. */
+  private isTransportCcNegotiated(): boolean {
+    return this.headerExtensions.some(
+      (e) => e.uri === RTP_EXTENSION_URI.transportWideCC,
+    );
+  }
+
   async maybeInjectProbePadding(): Promise<number> {
     if (this.dtlsTransport?.state !== "connected" || !this.codec) {
+      return 0;
+    }
+    // Probe padding requires TWCC so feedback can validate clusters.
+    if (!this.isTransportCcNegotiated()) {
       return 0;
     }
     if (this.probePaddingInFlight) {
@@ -584,11 +595,12 @@ export class RTCRtpSender {
 
     const { header, payload } = rtp;
 
-    // Token-bucket pacing only for estimators that implement ProbePacingController
-    // (e.g. GCC). Legacy default estimator must not alter send timing.
+    // Token-bucket pacing only for GCC when transport-cc is negotiated.
+    // Legacy default estimator must not alter send timing.
     const padBytes = header.padding ? header.paddingSize : 0;
     const payloadLen = payload.length + padBytes + (header.serializeSize || 12);
-    if (isProbePacingController(this._senderBWE)) {
+    const twccOn = this.isTransportCcNegotiated();
+    if (twccOn && isProbePacingController(this._senderBWE)) {
       if (!(await this.awaitPacingBudget(payloadLen))) {
         return;
       }
@@ -597,8 +609,9 @@ export class RTCRtpSender {
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     // Unified outbound RTP sequence number (media + probe padding).
-    // Always strictly increment after the last sent packet so padding cannot
-    // collide with a later media packet that reuses the source sequence space.
+    // Wire sequence is always monotonic so padding cannot collide with later
+    // media that reuses the source sequence space. Source gaps/reorders are
+    // collapsed to consecutive outbound seqs (documented intentional behavior).
     {
       const sourceSeq = header.sequenceNumber;
       if (opts.absoluteSequenceNumber !== undefined) {
@@ -702,22 +715,26 @@ export class RTCRtpSender {
     const size = await this.dtlsTransport.sendRtp(rtpPayload, header);
 
     this.runRtcp();
-    const millitime = milliTime();
-    const probeCtl = isProbePacingController(this._senderBWE)
-      ? this._senderBWE
-      : undefined;
-    const sentInfo: SentInfo = {
-      wideSeq: this.dtlsTransport.transportSequenceNumber,
-      size,
-      sendingAtMs: millitime,
-      sentAtMs: millitime,
-      isProbation:
-        opts.forceProbeTag === true ||
-        probeCtl?.shouldTagProbePacket() === true,
-    };
-    this._senderBWE.rtpPacketSent(sentInfo);
+    // BWE / TWCC only when transport-cc is negotiated — otherwise wideSeq would
+    // not advance and probe padding would be useless / harmful.
+    if (twccOn) {
+      const millitime = milliTime();
+      const probeCtl = isProbePacingController(this._senderBWE)
+        ? this._senderBWE
+        : undefined;
+      const sentInfo: SentInfo = {
+        wideSeq: this.dtlsTransport.transportSequenceNumber,
+        size,
+        sendingAtMs: millitime,
+        sentAtMs: millitime,
+        isProbation:
+          opts.forceProbeTag === true ||
+          probeCtl?.shouldTagProbePacket() === true,
+      };
+      this._senderBWE.rtpPacketSent(sentInfo);
+    }
 
-    if (opts.injectProbePadding) {
+    if (opts.injectProbePadding && twccOn) {
       await this.maybeInjectProbePadding();
     }
   }

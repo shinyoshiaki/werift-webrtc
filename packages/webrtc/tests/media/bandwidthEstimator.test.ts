@@ -1083,6 +1083,93 @@ describe("media/sender bandwidth estimator", () => {
   });
 
   describe("Blocker regressions", () => {
+    test("TWCC 未交渉では probe padding を送らない", async () => {
+      // Arrange: headerExtensions に transport-cc 無し
+      const gcc = new GccBandwidthEstimator(100_000);
+      const sender = new RTCRtpSender("video");
+      const dtls = createDtlsTransport();
+      (dtls as { state: string }).state = "connected";
+      const sentPackets: { header: RtpHeader }[] = [];
+      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+        sentPackets.push({
+          header: new RtpHeader({
+            ...header,
+            extensions: [...header.extensions],
+          }),
+        });
+        return payload.length + header.serializeSize;
+      }) as typeof dtls.sendRtp;
+      sender.setDtlsTransport(dtls);
+      sender.setBandwidthEstimator(gcc);
+      sender.prepareSend({
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/VP8",
+            clockRate: 90000,
+            payloadType: 96,
+          }),
+        ],
+        headerExtensions: [], // no transport-cc
+        muxId: "0",
+        rtcp: { cname: "test", mux: true },
+      });
+
+      // Act
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 1,
+            timestamp: 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: false,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(200),
+        ),
+      );
+
+      // Assert: media のみ、padding なし、BWE にも送っていない
+      expect(sentPackets.length).toBe(1);
+      expect(sentPackets.every((p) => !p.header.padding)).toBe(true);
+      expect(gcc.availableBitrate).toBe(0);
+    });
+
+    test("source sequence gap/reorder は wire 上で連番に潰される", async () => {
+      // Arrange: legacy でも同一の outbound 連番ポリシー
+      const { sender, sentPackets } = await prepareConnectedSender();
+      // Act: source seq 10, 12 (gap), 11 (reorder)
+      for (const seq of [10, 12, 11]) {
+        await sender.sendRtp(
+          new RtpPacket(
+            new RtpHeader({
+              sequenceNumber: seq,
+              timestamp: seq * 100,
+              payloadType: 96,
+              ssrc: 1,
+              extension: true,
+              extensions: [],
+              marker: false,
+              padding: false,
+              payloadOffset: 12,
+            }),
+            Buffer.alloc(40),
+          ),
+        );
+      }
+      // Assert: wire sequence は単調増加の連番（gap/reorder を潰す）
+      const wireSeqs = sentPackets
+        .filter((p) => !p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      expect(wireSeqs.length).toBeGreaterThanOrEqual(3);
+      for (let i = 1; i < 3; i++) {
+        expect(wireSeqs[i]).toBe((wireSeqs[i - 1] + 1) & 0xffff);
+      }
+    });
+
     test("media → padding → media で RTP sequence が重複しない", async () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);

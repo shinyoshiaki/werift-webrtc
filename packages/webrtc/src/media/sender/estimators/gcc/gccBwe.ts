@@ -16,8 +16,6 @@ import {
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbeAbortLossFraction,
-  kProbeMinDurationMs,
-  kProbeMinPackets,
   kProbePaddingPacketBytes,
   kProbeResultMaxOverAcked,
   kProbeResultMaxOverTarget,
@@ -121,18 +119,9 @@ export class GccBandwidthEstimator
   pendingProbePaddingPackets(packetBytes = kProbePaddingPacketBytes): number {
     this.ensureProbing(milliTime());
     if (!this.probe.shouldTagProbePacket()) return 0;
-    const targetBps = this.probe.currentProbeTargetBps;
-    if (targetBps <= 0) return 0;
-
-    // Aim for min(minPackets * packetBytes, targetBps * minDuration).
-    // With multi-active clusters, size padding for the max target (covers both).
-    const minBytes = Math.max(
-      kProbeMinPackets * packetBytes,
-      Math.ceil((targetBps / 8) * (kProbeMinDurationMs / 1000)),
-    );
-    const remaining = Math.max(0, minBytes - this.probeClusterSentBytes);
+    const remaining = this.probe.remainingProbeBytes();
     if (remaining <= 0) return 0;
-    return Math.ceil(remaining / packetBytes);
+    return Math.ceil(remaining / Math.max(1, packetBytes));
   }
 
   static readonly knownDifferences = GCC_KNOWN_DIFFERENCES;
@@ -153,14 +142,9 @@ export class GccBandwidthEstimator
     this.finalizedSeqs.delete(seq);
     this.ensureProbing(info.sendingAtMs);
 
-    // Track probe-cluster fill (media + padding tagged as probation).
+    // Assign probation packets to a probe cluster (wideSeq → cluster id).
     if (info.isProbation && this.probe.shouldTagProbePacket()) {
-      const target = this.probe.currentProbeTargetBps;
-      if (target !== this.lastProbeTargetBps) {
-        this.lastProbeTargetBps = target;
-        this.probeClusterSentBytes = 0;
-        this.probeClusterStartMs = info.sendingAtMs;
-      }
+      this.probe.onProbePacketSent(info.size, info.sendingAtMs, seq);
       this.probeClusterSentBytes += info.size;
     }
 
@@ -233,6 +217,7 @@ export class GccBandwidthEstimator
         info.size,
         result.receivedAtMs,
         !!info.isProbation,
+        seq,
       );
       this.pushInterArrival(info.sendingAtMs, result.receivedAtMs, info.size);
     }

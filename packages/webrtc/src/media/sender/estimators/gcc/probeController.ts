@@ -8,6 +8,12 @@ import {
   kProbeMinDurationMs,
   kProbeMinIntervalMs,
   kProbeMinPackets,
+  kProbeMinReceivedBytesPercent,
+  kProbeMinReceivedProbesPercent,
+  kProbeMaxValidRatio,
+  kProbeMinRatioForUnsaturated,
+  kProbeTargetUtilization,
+  kProbeMaxIntervalMs,
   kProbeRecoveryMaxScale,
   kProbeRecoveryScale,
   kProbeResultTimeoutMs,
@@ -27,41 +33,57 @@ export interface ProbeClusterConfig {
   targetBps: number;
   minPackets: number;
   minDurationMs: number;
-}
-
-interface ActiveCluster {
-  config: ProbeClusterConfig;
-  startMs: number;
-  bytes: number;
-  packets: number;
-  firstRecvMs: number;
-  lastRecvMs: number;
+  /** Minimum bytes expected for the cluster (for receive-ratio checks). */
+  minBytes: number;
 }
 
 /**
- * Probe controller (libwebrtc `ProbeController` structure).
+ * Per-cluster stats for libwebrtc ProbeBitrateEstimator-style validation.
+ * Packets are assigned a cluster id at send time (wideSeq → clusterId map).
+ */
+interface ActiveCluster {
+  config: ProbeClusterConfig;
+  startMs: number;
+  // Send-side
+  sentBytes: number;
+  sentPackets: number;
+  firstSendMs: number;
+  lastSendMs: number;
+  sizeLastSend: number;
+  // Receive / ACK side
+  ackedBytes: number;
+  ackedPackets: number;
+  firstRecvMs: number;
+  lastRecvMs: number;
+  sizeFirstRecv: number;
+}
+
+/**
+ * Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
  *
  * - `setBitrates` / cold start → exponential probe clusters (×3 and ×6)
  * - **Multi-active**: initial 3x/6x can be active simultaneously
- * - Recovery / further probes use the **current estimate** (not start bitrate)
- *   and respect {@link kProbeMinIntervalMs} cooldown so padding does not
- *   re-congest after the estimate settles near capacity
+ * - Per-packet **cluster id** (via wideSeq map) — ACKs credit one cluster only
+ * - Result validation: min receive %, send/recv intervals, send/recv rate ratio
+ * - Recovery probes use current estimate + cooldown
  */
 export class ProbeController {
   private state: ProbeState = "init";
   private nextClusterId = 1;
-  /** Multiple clusters may be active (libwebrtc InitiateProbing returns both). */
   private active: ActiveCluster[] = [];
   private queue: ProbeClusterConfig[] = [];
   private estimatedBps = 0;
   private pendingEstimateBps = 0;
   private lastProbeTargetBps = 0;
-  /** When the last probe session ended (complete / timeout / abort). */
   private lastProbeEndMs = Number.NEGATIVE_INFINITY;
   private minBitrateBps = kMinBitrateBps;
   private startBitrateBps = kDefaultStartBitrateBps;
   private maxBitrateBps = kMaxBitrateBps;
   private networkAvailable = true;
+  /** transport-wide seq → cluster id for probation packets. */
+  private seqToCluster = new Map<number, number>();
+  /** Cluster currently being filled with sent packets (round-robin among active). */
+  private fillClusterId = 0;
 
   reset(_atTimeMs = 0) {
     this.state = "init";
@@ -76,6 +98,8 @@ export class ProbeController {
     this.startBitrateBps = kDefaultStartBitrateBps;
     this.maxBitrateBps = kMaxBitrateBps;
     this.networkAvailable = true;
+    this.seqToCluster.clear();
+    this.fillClusterId = 0;
   }
 
   get probeState(): ProbeState {
@@ -86,18 +110,15 @@ export class ProbeController {
     return this.estimatedBps;
   }
 
-  /** Max active cluster pacing target (0 if none). */
   get currentProbeTargetBps() {
     if (this.active.length === 0) return 0;
     return Math.max(...this.active.map((c) => c.config.targetBps));
   }
 
-  /** Alias used by callers expecting “suggested” naming. */
   get suggestedProbeBitrateBps() {
     return this.currentProbeTargetBps;
   }
 
-  /** Number of currently active probe clusters. */
   get activeClusterCount() {
     return this.active.length;
   }
@@ -113,9 +134,16 @@ export class ProbeController {
   }
 
   /**
-   * libwebrtc SetBitrates — configure bounds and initiate exponential probing
-   * when still in the init state.
+   * Bytes still needed across active clusters (for padding injection).
    */
+  remainingProbeBytes(): number {
+    let rem = 0;
+    for (const c of this.active) {
+      rem += Math.max(0, c.config.minBytes - c.sentBytes);
+    }
+    return rem;
+  }
+
   setBitrates(
     minBps: number,
     startBps: number,
@@ -131,25 +159,17 @@ export class ProbeController {
     return [];
   }
 
-  /**
-   * Application / recovery request for additional probes.
-   *
-   * Uses **current estimate only** (not start bitrate floor) so recovery after
-   * congestion does not re-probe at the cold-start rate. Cooldown applies.
-   */
   requestProbe(estimatedBps: number, nowMs: number): ProbeClusterConfig[] {
     if (this.state === "waiting_for_result") return [];
     if (this.state === "init") return [];
     if (!this.cooldownElapsed(nowMs)) return [];
 
     const base = Math.max(estimatedBps, this.minBitrateBps);
-    // Cap so recovery cannot jump more than recoveryMaxScale × current estimate.
     const uncapped = base * kProbeRecoveryScale;
     const capped = Math.min(uncapped, base * kProbeRecoveryMaxScale);
     const target = clamp(capped, this.maxBitrateBps);
-    // Skip trivial probes that barely exceed the current estimate.
     if (target <= base * 1.05) return [];
-    return this.enqueueClusters(nowMs, [target], /*activateAll*/ false);
+    return this.enqueueClusters(nowMs, [target], false);
   }
 
   setEstimatedBitrate(bitrateBps: number, nowMs: number): ProbeClusterConfig[] {
@@ -161,7 +181,6 @@ export class ProbeController {
       bitrateBps > this.lastProbeTargetBps * kFurtherProbeThreshold &&
       (this.state === "complete" || this.state === "waiting_for_result")
     ) {
-      // Further step relative to current estimate, not an unbounded climb.
       const next = clamp(
         Math.min(
           bitrateBps * kFurtherProbeStepMultiplier,
@@ -174,15 +193,12 @@ export class ProbeController {
     return [];
   }
 
-  /**
-   * Advance timeouts / promote queued clusters.
-   */
   process(nowMs: number): ProbeClusterConfig[] {
     const before = this.active.length;
     const remaining: ActiveCluster[] = [];
     for (const c of this.active) {
       if (nowMs - c.startMs > kProbeResultTimeoutMs) {
-        // Timed out — drop this cluster.
+        this.dropClusterSeqs(c.config.id);
         continue;
       }
       remaining.push(c);
@@ -202,55 +218,150 @@ export class ProbeController {
     return this.maybeActivateQueued(nowMs);
   }
 
-  onAckedPacket(sizeBytes: number, receivedAtMs: number, isProbe: boolean) {
+  /**
+   * Record a probation (probe-tagged) packet at send time.
+   * Assigns the packet to one active cluster and stores wideSeq → clusterId.
+   */
+  onProbePacketSent(sizeBytes: number, sendMs: number, wideSeq: number): number {
+    if (this.active.length === 0) return 0;
+    const cluster = this.pickClusterToFill();
+    if (!cluster) return 0;
+
+    const seq = wideSeq & 0xffff;
+    this.seqToCluster.set(seq, cluster.config.id);
+
+    if (cluster.sentPackets === 0) {
+      cluster.firstSendMs = sendMs;
+    }
+    cluster.lastSendMs = sendMs;
+    cluster.sizeLastSend = sizeBytes;
+    cluster.sentBytes += sizeBytes;
+    cluster.sentPackets += 1;
+    return cluster.config.id;
+  }
+
+  /**
+   * ACK a packet. Only credits the cluster that owned the wideSeq at send.
+   * Applies ProbeBitrateEstimator validation before accepting a result.
+   */
+  onAckedPacket(
+    sizeBytes: number,
+    receivedAtMs: number,
+    isProbe: boolean,
+    wideSeq?: number,
+  ) {
     if (this.active.length === 0 || !isProbe) return;
 
-    // Credit every active cluster (lightweight pacer has no per-packet cluster id).
-    const completed: ProbeClusterConfig[] = [];
-    for (const c of this.active) {
-      c.bytes += sizeBytes;
-      c.packets += 1;
-      if (c.firstRecvMs === 0) c.firstRecvMs = receivedAtMs;
-      c.lastRecvMs = receivedAtMs;
-
-      const durationMs = c.lastRecvMs - c.firstRecvMs;
-      if (
-        c.packets >= c.config.minPackets &&
-        durationMs >= c.config.minDurationMs
-      ) {
-        const bps = (c.bytes * 8 * 1000) / Math.max(durationMs, 1);
-        const clamped = clamp(bps, this.maxBitrateBps);
-        if (clamped > this.estimatedBps) {
-          this.estimatedBps = clamped;
-          this.pendingEstimateBps = Math.max(
-            this.pendingEstimateBps,
-            this.estimatedBps,
-          );
-        }
-        this.lastProbeTargetBps = Math.max(
-          this.lastProbeTargetBps,
-          c.config.targetBps,
-        );
-        completed.push(c.config);
+    let cluster: ActiveCluster | undefined;
+    if (wideSeq !== undefined) {
+      const id = this.seqToCluster.get(wideSeq & 0xffff);
+      if (id !== undefined) {
+        cluster = this.active.find((c) => c.config.id === id);
       }
     }
+    // Fallback: single active cluster without seq map (unit tests).
+    if (!cluster && this.active.length === 1 && this.seqToCluster.size === 0) {
+      cluster = this.active[0];
+    }
+    if (!cluster) return;
 
-    if (completed.length > 0) {
-      const doneIds = new Set(completed.map((c) => c.id));
-      this.active = this.active.filter((c) => !doneIds.has(c.config.id));
-      if (this.active.length === 0 && this.queue.length === 0) {
-        this.state = "complete";
-        this.lastProbeEndMs = receivedAtMs;
-      }
+    if (cluster.ackedPackets === 0) {
+      cluster.firstRecvMs = receivedAtMs;
+      cluster.sizeFirstRecv = sizeBytes;
+    }
+    cluster.lastRecvMs = receivedAtMs;
+    cluster.ackedBytes += sizeBytes;
+    cluster.ackedPackets += 1;
+
+    const estimate = this.estimateClusterBitrate(cluster);
+    if (estimate === undefined) return;
+
+    if (estimate > this.estimatedBps) {
+      this.estimatedBps = estimate;
+      this.pendingEstimateBps = Math.max(this.pendingEstimateBps, estimate);
+    }
+    this.lastProbeTargetBps = Math.max(
+      this.lastProbeTargetBps,
+      cluster.config.targetBps,
+    );
+
+    // Cluster complete — remove it.
+    this.dropClusterSeqs(cluster.config.id);
+    this.active = this.active.filter((c) => c.config.id !== cluster!.config.id);
+    if (this.active.length === 0 && this.queue.length === 0) {
+      this.state = "complete";
+      this.lastProbeEndMs = receivedAtMs;
     }
   }
 
   abort(nowMs: number) {
     this.active = [];
     this.queue = [];
+    this.seqToCluster.clear();
     if (this.state === "waiting_for_result") {
       this.state = this.estimatedBps > 0 ? "complete" : "init";
       this.lastProbeEndMs = nowMs;
+    }
+  }
+
+  /**
+   * libwebrtc ProbeBitrateEstimator::HandleProbeAndEstimateBitrate validation.
+   * Returns bps estimate or undefined if not yet valid / failed.
+   */
+  private estimateClusterBitrate(c: ActiveCluster): number | undefined {
+    const minProbes = Math.ceil(
+      (c.config.minPackets * kProbeMinReceivedProbesPercent) / 100,
+    );
+    const minBytes = Math.ceil(
+      (c.config.minBytes * kProbeMinReceivedBytesPercent) / 100,
+    );
+    if (c.ackedPackets < minProbes || c.ackedBytes < minBytes) {
+      return undefined;
+    }
+
+    const sendIntervalMs = c.lastSendMs - c.firstSendMs;
+    const recvIntervalMs = c.lastRecvMs - c.firstRecvMs;
+    if (
+      sendIntervalMs <= 0 ||
+      sendIntervalMs > kProbeMaxIntervalMs ||
+      recvIntervalMs <= 0 ||
+      recvIntervalMs > kProbeMaxIntervalMs
+    ) {
+      return undefined;
+    }
+
+    // Exclude last sent / first received packet sizes (libwebrtc).
+    const sendSize = Math.max(0, c.sentBytes - c.sizeLastSend);
+    const recvSize = Math.max(0, c.ackedBytes - c.sizeFirstRecv);
+    if (sendSize <= 0 || recvSize <= 0) return undefined;
+
+    const sendBps = (sendSize * 8 * 1000) / sendIntervalMs;
+    const recvBps = (recvSize * 8 * 1000) / recvIntervalMs;
+    const ratio = recvBps / sendBps;
+    if (ratio > kProbeMaxValidRatio) {
+      return undefined;
+    }
+
+    let res = Math.min(sendBps, recvBps);
+    if (recvBps < kProbeMinRatioForUnsaturated * sendBps) {
+      res = kProbeTargetUtilization * recvBps;
+    }
+    return clamp(res, this.maxBitrateBps);
+  }
+
+  private pickClusterToFill(): ActiveCluster | undefined {
+    // Prefer the cluster that still needs sent bytes (lowest id first).
+    const needing = this.active
+      .filter((c) => c.sentBytes < c.config.minBytes)
+      .sort((a, b) => a.config.id - b.config.id);
+    if (needing.length > 0) return needing[0];
+    // All filled on send side — still tag against highest-id active for ACKs.
+    return this.active[this.active.length - 1];
+  }
+
+  private dropClusterSeqs(clusterId: number) {
+    for (const [seq, id] of this.seqToCluster) {
+      if (id === clusterId) this.seqToCluster.delete(seq);
     }
   }
 
@@ -260,19 +371,12 @@ export class ProbeController {
   }
 
   private initiateExponentialProbing(nowMs: number): ProbeClusterConfig[] {
-    const scales = [...kProbeBitrateMultipliers];
-    const bitrates = scales.map((s) =>
+    const bitrates = kProbeBitrateMultipliers.map((s) =>
       clamp(this.startBitrateBps * s, this.maxBitrateBps),
     );
-    // libwebrtc InitiateProbing returns both 3x and 6x in one call.
-    return this.enqueueClusters(nowMs, bitrates, /*activateAll*/ true);
+    return this.enqueueClusters(nowMs, bitrates, true);
   }
 
-  /**
-   * Enqueue probe clusters. When `activateAll` is true (initial exponential),
-   * all configs become active immediately and are returned as started.
-   * Otherwise only the first free slot is activated (further/request probes).
-   */
   private enqueueClusters(
     nowMs: number,
     bitrates: number[],
@@ -280,11 +384,16 @@ export class ProbeController {
   ): ProbeClusterConfig[] {
     const configs: ProbeClusterConfig[] = [];
     for (const bps of bitrates) {
+      const minBytes = Math.max(
+        kProbeMinPackets * 200,
+        Math.ceil((bps / 8) * (kProbeMinDurationMs / 1000)),
+      );
       const config: ProbeClusterConfig = {
         id: this.nextClusterId++,
         targetBps: bps,
         minPackets: kProbeMinPackets,
         minDurationMs: kProbeMinDurationMs,
+        minBytes,
       };
       configs.push(config);
       this.queue.push(config);
@@ -302,36 +411,36 @@ export class ProbeController {
     const started: ProbeClusterConfig[] = [];
     while (this.queue.length > 0) {
       const config = this.queue.shift()!;
-      this.active.push({
-        config,
-        startMs: nowMs,
-        bytes: 0,
-        packets: 0,
-        firstRecvMs: 0,
-        lastRecvMs: 0,
-      });
+      this.active.push(this.newActive(config, nowMs));
       started.push(config);
     }
-    if (started.length) {
-      this.state = "waiting_for_result";
-    }
+    if (started.length) this.state = "waiting_for_result";
     return started;
   }
 
   private maybeActivateQueued(nowMs: number): ProbeClusterConfig[] {
-    // Further/request probes: only one additional active if none running.
     if (this.active.length > 0 || this.queue.length === 0) return [];
     const config = this.queue.shift()!;
-    this.active.push({
-      config,
-      startMs: nowMs,
-      bytes: 0,
-      packets: 0,
-      firstRecvMs: 0,
-      lastRecvMs: 0,
-    });
+    this.active.push(this.newActive(config, nowMs));
     this.state = "waiting_for_result";
     return [config];
+  }
+
+  private newActive(config: ProbeClusterConfig, nowMs: number): ActiveCluster {
+    return {
+      config,
+      startMs: nowMs,
+      sentBytes: 0,
+      sentPackets: 0,
+      firstSendMs: 0,
+      lastSendMs: 0,
+      sizeLastSend: 0,
+      ackedBytes: 0,
+      ackedPackets: 0,
+      firstRecvMs: 0,
+      lastRecvMs: 0,
+      sizeFirstRecv: 0,
+    };
   }
 }
 
