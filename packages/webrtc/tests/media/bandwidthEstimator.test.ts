@@ -1362,8 +1362,8 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBe(0);
     });
 
-    test("source sequence gap/reorder は wire 上で連番に潰される", async () => {
-      // Arrange: legacy でも同一の outbound 連番ポリシー
+    test("media source sequence の gap/reorder は wire 上でも保持される", async () => {
+      // Arrange: legacy / media は source の gap・reorder を維持（NACK 意味を壊さない）
       const { sender, sentPackets } = await prepareConnectedSender();
       // Act: source seq 10, 12 (gap), 11 (reorder)
       for (const seq of [10, 12, 11]) {
@@ -1384,14 +1384,70 @@ describe("media/sender bandwidth estimator", () => {
           ),
         );
       }
-      // Assert: wire sequence は単調増加の連番（gap/reorder を潰す）
+      // Assert: wire も 10, 12, 11（gap/reorder が見える）
       const wireSeqs = sentPackets
         .filter((p) => !p.header.padding)
         .map((p) => p.header.sequenceNumber);
-      expect(wireSeqs.length).toBeGreaterThanOrEqual(3);
-      for (let i = 1; i < 3; i++) {
-        expect(wireSeqs[i]).toBe((wireSeqs[i - 1] + 1) & 0xffff);
-      }
+      expect(wireSeqs.slice(0, 3)).toEqual([10, 12, 11]);
+    });
+
+    test("media → padding → media で sequence 衝突せず source 相対は維持", async () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(100_000);
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      // Act: media 10（sendRtp 後に probe padding が自動注入される）
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 10,
+            timestamp: 1000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        ),
+      );
+      expect(sentPackets.some((p) => p.header.padding)).toBe(true);
+      const afterFirst = sentPackets.slice();
+      const padBetween = afterFirst
+        .filter((p) => p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      // padding は media 10 の直後から
+      expect(padBetween[0]).toBe(11);
+      const lastPad = padBetween[padBetween.length - 1];
+
+      // media 12 (source gap 10→12)
+      await sender.sendRtp(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 12,
+            timestamp: 2000,
+            payloadType: 96,
+            ssrc: 1,
+            extension: true,
+            extensions: [],
+            marker: false,
+            padding: false,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(80),
+        ),
+      );
+      const mediaSeqs = sentPackets
+        .filter((p) => !p.header.padding)
+        .map((p) => p.header.sequenceNumber);
+      expect(mediaSeqs[0]).toBe(10);
+      // 2nd media は 1st 後 padding の後（衝突なし）
+      expect(mediaSeqs[1]).toBeGreaterThan(lastPad);
+      // padding を挟まない media 同士では source gap が保持されることは別テストで確認
+      // 全 wire seq は一意
+      const all = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(all).size).toBe(all.length);
     });
 
     test("media → padding → media で RTP sequence が重複しない", async () => {
@@ -1879,6 +1935,66 @@ describe("media/sender bandwidth estimator", () => {
         ),
       ).toBe(false);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
+    });
+
+    test("sentInfos pruning は最新から後方 2048 を保持する", () => {
+      // Arrange
+      const gcc = new GccBandwidthEstimator(300_000);
+      const t0 = 100_000;
+      // Act: 4098 packets (exceeds 4096 trigger / 2048 keep)
+      for (let i = 0; i < 4098; i++) {
+        gcc.rtpPacketSent(sent(i, 200, t0 + i));
+      }
+      // Assert via private map: recent half kept, old half gone
+      const map = (gcc as any).sentInfos as Map<number, unknown>;
+      expect(map.size).toBeLessThanOrEqual(2048);
+      // 最新付近は残る
+      expect(map.has(4097)).toBe(true);
+      expect(map.has(4096)).toBe(true);
+      expect(map.has(4097 - 2047)).toBe(true); // back=2047 → keep
+      // 古い方は消える
+      expect(map.has(0)).toBe(false);
+      expect(map.has(1000)).toBe(false);
+      expect(map.has(4097 - 2048)).toBe(false); // back=2048 → prune
+    });
+
+    test("late TWCC correction は loss partial を二重計上しない", () => {
+      // Arrange
+      const loss = new LossBasedBwe();
+      loss.reset(300_000);
+      const packetsLost = [
+        {
+          seq: 10,
+          size: 100,
+          received: false,
+          sendMs: 1000,
+        },
+      ];
+      // Act 1: not-received
+      loss.update(1, 300_000, 0, 1, 1, 1000, 100, 1000, 100, packetsLost);
+      const partial1 = (loss as any).partial;
+      expect(partial1.numPackets).toBe(1);
+      expect(partial1.size).toBe(100);
+      expect(partial1.lostPackets.has(10)).toBe(true);
+
+      // Act 2: same seq received (late correction)
+      loss.update(
+        0,
+        300_000,
+        100_000,
+        1,
+        0,
+        1000,
+        100,
+        1000,
+        0,
+        [{ seq: 10, size: 100, received: true, sendMs: 1000 }],
+      );
+      const partial2 = (loss as any).partial;
+      // Assert: still one packet / 100 bytes; loss cleared
+      expect(partial2.numPackets).toBe(1);
+      expect(partial2.size).toBe(100);
+      expect(partial2.lostPackets.has(10)).toBe(false);
     });
 
     test("not-received は永久 finalize せず後続 received を受理する", () => {

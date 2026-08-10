@@ -103,6 +103,11 @@ export class LossBasedBwe {
     numPackets: 0,
     /** seq → lost size (soft loss map). */
     lostPackets: new Map<number, number>(),
+    /**
+     * seq → size for every packet already counted in this partial window.
+     * Late TWCC corrections update state in place without double-counting.
+     */
+    seenPackets: new Map<number, number>(),
     size: 0,
   };
   private temporalWeights: number[] = [];
@@ -133,6 +138,7 @@ export class LossBasedBwe {
     this.partial = {
       numPackets: 0,
       lostPackets: new Map(),
+      seenPackets: new Map(),
       size: 0,
     };
     this.recomputeTemporalWeights();
@@ -436,14 +442,29 @@ export class LossBasedBwe {
     packets?: LossPacketFeedback[],
   ) {
     if (packets && packets.length > 0) {
-      this.partial.numPackets += packets.length;
       for (const p of packets) {
-        if (p.received) {
-          this.partial.lostPackets.delete(p.seq & 0xffff);
-        } else {
-          this.partial.lostPackets.set(p.seq & 0xffff, p.size);
+        const seq = p.seq & 0xffff;
+        const prevSize = this.partial.seenPackets.get(seq);
+        if (prevSize !== undefined) {
+          // Already counted in this partial window — late correction only.
+          if (p.received) {
+            // not-received → received: unmark loss, keep numPackets/size.
+            this.partial.lostPackets.delete(seq);
+          } else if (!this.partial.lostPackets.has(seq)) {
+            // received → not-received (rare): mark soft loss without re-count.
+            this.partial.lostPackets.set(seq, prevSize);
+          }
+          continue;
         }
+        // First time seeing this sequence in the partial observation.
+        this.partial.seenPackets.set(seq, p.size);
+        this.partial.numPackets += 1;
         this.partial.size += p.size;
+        if (p.received) {
+          this.partial.lostPackets.delete(seq);
+        } else {
+          this.partial.lostPackets.set(seq, p.size);
+        }
       }
       firstSendMs = Math.min(...packets.map((p) => p.sendMs));
       lastSendMs = Math.max(...packets.map((p) => p.sendMs));
@@ -508,6 +529,7 @@ export class LossBasedBwe {
     this.partial = {
       numPackets: 0,
       lostPackets: new Map(),
+      seenPackets: new Map(),
       size: 0,
     };
   }

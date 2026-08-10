@@ -184,6 +184,12 @@ export class RTCRtpSender {
 
   // rtp
   private sequenceNumber?: number;
+  /**
+   * Padding packets sent since the last media packet. Applied to
+   * {@link seqOffset} on the next media send so probe padding cannot collide
+   * with subsequent media while **media source gaps/reorders are preserved**.
+   */
+  private paddingSeqSinceMedia = 0;
   private timestamp?: number;
   private timestampOffset = 0;
   private seqOffset = 0;
@@ -608,20 +614,30 @@ export class RTCRtpSender {
     header.ssrc = this.ssrc;
     header.payloadType = this.codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    // Unified outbound RTP sequence number (media + probe padding).
-    // Wire sequence is always monotonic so padding cannot collide with later
-    // media that reuses the source sequence space. Source gaps/reorders are
-    // collapsed to consecutive outbound seqs (documented intentional behavior).
+    // Outbound RTP sequence allocation:
+    // - **Media**: `sourceSeq + seqOffset` so source gaps/reorders stay visible
+    //   on the wire (NACK / jitter buffer / SFU semantics).
+    // - **Probe padding**: `lastSent + 1` so padding never reuses a media seq.
+    // - After padding, the next media send absorbs `paddingSeqSinceMedia` into
+    //   seqOffset so media continues after the padding range without collision.
     {
       const sourceSeq = header.sequenceNumber;
       if (opts.absoluteSequenceNumber !== undefined) {
         header.sequenceNumber = opts.absoluteSequenceNumber & 0xffff;
-      } else if (this.sequenceNumber === undefined) {
-        header.sequenceNumber = uint16Add(sourceSeq, this.seqOffset);
+        this.paddingSeqSinceMedia = 0;
+      } else if (opts.isProbePadding) {
+        header.sequenceNumber =
+          this.sequenceNumber === undefined
+            ? 0
+            : uint16Add(this.sequenceNumber, 1);
+        this.paddingSeqSinceMedia = uint16Add(this.paddingSeqSinceMedia, 1);
       } else {
-        header.sequenceNumber = uint16Add(this.sequenceNumber, 1);
-        // Keep seqOffset coherent for any code paths that still inspect it.
-        this.seqOffset = uint16Add(header.sequenceNumber, -sourceSeq);
+        // Media path
+        if (this.paddingSeqSinceMedia > 0) {
+          this.seqOffset = uint16Add(this.seqOffset, this.paddingSeqSinceMedia);
+          this.paddingSeqSinceMedia = 0;
+        }
+        header.sequenceNumber = uint16Add(sourceSeq, this.seqOffset);
       }
     }
     this.timestamp = header.timestamp;

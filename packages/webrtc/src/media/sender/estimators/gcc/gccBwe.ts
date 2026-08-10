@@ -414,23 +414,32 @@ export class GccBandwidthEstimator
     }
   }
 
+  /**
+   * Drop aged entries and keep only the **most recent** {@link keepWindow}
+   * sequences measured by wrap-aware **backward** distance from
+   * `latestWideSeq` (0 = latest). Using forward distance wrongly deleted
+   * recent packets and retained the oldest half of the ring.
+   */
   private pruneSentInfos(nowMs: number, latestWideSeq: number) {
+    const keepWindow = 2048;
     for (const [seq, info] of this.sentInfos) {
       if (nowMs - info.sendingAtMs > kSentInfoMaxAgeMs) {
         this.sentInfos.delete(seq);
         this.finalizedSeqs.delete(seq);
       }
     }
-    if (this.sentInfos.size > 4096) {
-      const origin = latestWideSeq & 0xffff;
-      const keys = [...this.sentInfos.keys()].sort((a, b) => {
-        const da = ((a & 0xffff) - origin + 0x10000) % 0x10000;
-        const db = ((b & 0xffff) - origin + 0x10000) % 0x10000;
-        return db - da;
-      });
-      for (let i = 0; i < keys.length - 2048; i++) {
-        this.sentInfos.delete(keys[i]);
-        this.finalizedSeqs.delete(keys[i]);
+    if (this.sentInfos.size <= keepWindow) {
+      if (this.finalizedSeqs.size > 8192) this.finalizedSeqs.clear();
+      return;
+    }
+    const origin = latestWideSeq & 0xffff;
+    for (const seq of [...this.sentInfos.keys()]) {
+      const s = seq & 0xffff;
+      // How many sequence steps **before** origin (wrap-aware). 0 = latest.
+      const back = (origin - s + 0x10000) % 0x10000;
+      if (back >= keepWindow) {
+        this.sentInfos.delete(seq);
+        this.finalizedSeqs.delete(seq);
       }
     }
     if (this.finalizedSeqs.size > 8192) {
