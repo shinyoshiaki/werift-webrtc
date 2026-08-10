@@ -3,7 +3,7 @@
 
 FROM golang:alpine as builder
 
-ARG VERSION=master
+ARG VERSION=main
 
 RUN apk add --no-cache git
 
@@ -25,7 +25,7 @@ FROM alpine
 
 ARG BUILD_DATE
 ARG VCS_REF
-ARG VERSION=master
+ARG VERSION=main
 
 LABEL org.label-schema.build-date="${BUILD_DATE}" \
       org.label-schema.name="pion-turn" \
