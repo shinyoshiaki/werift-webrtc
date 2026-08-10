@@ -25,6 +25,7 @@
     "format": "biome check --write src tests examples",
     "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
     "test": "vitest run ./tests",
+    "test:pion-turn": "bash ./scripts/run-pion-turn.sh --run -- npm test -- pion-turn",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i"

@@ -19,3 +19,4 @@ __screenshots__
 .env
 packages/webrtc/wpt/progress.state.json
 artifacts/
+.sak

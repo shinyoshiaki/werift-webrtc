@@ -9,19 +9,17 @@ services:
     image: pion-turn-tcp:${VERSION:-latest}
     build:
       context: ./
+      args:
+        VERSION: ${PION_TURN_VERSION:-main}
     stdin_open: true
     environment:
-      - VERSION=${PION_TURN_VERSION:-master}
+      - VERSION=${PION_TURN_VERSION:-main}
       - REALM=${PION_TURN_REALM:-localhost}
       - USERS=${PION_TURN_USERS:-username=password}
       - PUBLIC_IP=${PION_TURN_PUBLIC_IP:-127.0.0.1}
       - UDP_PORT=${PION_TURN_UDP_PORT:-3478}
+    # Host networking so dynamic UDP_PORT and relay ports are reachable from the host.
     network_mode: host
-    ports:
-      # STUN
-      - "${PION_TURN_UDP_PORT:-3478}:${PION_TURN_UDP_PORT:-3478}"
-      # TURN
-      - "49152-65535:49152-65535"
     cap_add:
       - NET_ADMIN
       - NET_RAW
