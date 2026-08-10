@@ -559,14 +559,6 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     // (always reply with zero-length session_id in HRR/ServerHello).
     this.sessionId = Buffer.alloc(0);
 
-    // Cipher suite selection: must offer TLS_AES_128_GCM_SHA256 (0x1301)
-    if (!ch.cipherSuites.includes(CipherSuite.TLS_AES_128_GCM_SHA256_0x1301)) {
-      throw new DtlsProtocolError(
-        "handshake_failure: ClientHello does not offer TLS_AES_128_GCM_SHA256",
-        AlertDesc.HandshakeFailure,
-      );
-    }
-
     // Cookie (if any) is verified later; do NOT wipe other peers' pre-cookie
     // attempts when a new cookie-less CH arrives (stateless cookie + per-peer map).
 
@@ -575,11 +567,21 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       ch.extensions.map((e) => e.type),
     );
 
+    // Budget this CH before any epoch-0 reply (version alert / HRR). Without
+    // RX accounting, pre-cookie anti-amplification blocks protocol_version(70).
+    // Do NOT acceptAssociationPeer() yet under dtls-cookie: a valid cookie-less
+    // ClientHello must not permanently lock the association (return-routability).
+    this.accountCurrentDatagramForAntiAmp();
+
+    // Version negotiation MUST run before cipher-suite selection so a 1.2-only
+    // ClientHello (often without 0x1301) gets protocol_version(70) rather than
+    // handshake_failure. Pre-cookie path still does not fail() the association
+    // (sendProtocolVersionAlert); alert is directed at currentPeerAddr.
     const versionsExt = ch.extensions.find(
       (e) => e.type === SupportedVersions.type,
     );
     if (!versionsExt) {
-      await this.sendProtocolVersionAlert();
+      await this.sendProtocolVersionAlert(this.currentPeerAddr);
       return;
     }
     const sv = SupportedVersions.fromData(versionsExt.data, false);
@@ -593,22 +595,26 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
         peerVersions,
       );
       if (selected !== DtlsVersion.V1_3) {
-        await this.sendProtocolVersionAlert();
+        await this.sendProtocolVersionAlert(this.currentPeerAddr);
         return;
       }
     } catch {
-      await this.sendProtocolVersionAlert();
+      await this.sendProtocolVersionAlert(this.currentPeerAddr);
       return;
     }
     if (!sv.versions.includes(DTLS_1_3_VERSION)) {
-      await this.sendProtocolVersionAlert();
+      await this.sendProtocolVersionAlert(this.currentPeerAddr);
       return;
     }
 
-    // Do NOT acceptAssociationPeer() yet under dtls-cookie: a valid cookie-less
-    // ClientHello must not permanently lock the association (return-routability).
-    // Budget this CH for a possible HRR reply without demux-lock.
-    this.accountCurrentDatagramForAntiAmp();
+    // Cipher suite selection: must offer TLS_AES_128_GCM_SHA256 (0x1301)
+    // (after version check so 1.2-only peers get protocol_version, not suite fail)
+    if (!ch.cipherSuites.includes(CipherSuite.TLS_AES_128_GCM_SHA256_0x1301)) {
+      throw new DtlsProtocolError(
+        "handshake_failure: ClientHello does not offer TLS_AES_128_GCM_SHA256",
+        AlertDesc.HandshakeFailure,
+      );
+    }
 
     // signature_algorithms is mandatory for certificate authentication (RFC 8446 §4.2.3)
     const sigExt = ch.extensions.find(

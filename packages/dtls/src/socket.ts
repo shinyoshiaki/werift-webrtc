@@ -23,12 +23,17 @@ import { RenegotiationIndication } from "./handshake/extensions/renegotiationInd
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
 import type { SrtpProfile } from "./imports/rtp";
+import { Alert } from "./handshake/message/alert";
 import { createPlaintext } from "./record/builder";
-import { ContentType } from "./record/const";
+import { AlertDesc, ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
-import { DtlsVersion, normalizeProtocolVersions } from "./version";
+import {
+  DtlsVersion,
+  ProtocolVersionError,
+  normalizeProtocolVersions,
+} from "./version";
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -138,7 +143,30 @@ export class DtlsSocket {
               }
               break;
             case ContentType.alert:
-              this.onClose.execute();
+              {
+                const alert = message.data as Alert | undefined;
+                if (
+                  alert &&
+                  alert.description === AlertDesc.ProtocolVersion
+                ) {
+                  // 1.2-only peer × 1.3-only server: protocol_version(70)
+                  const pe = new ProtocolVersionError(
+                    "peer rejected protocol version (alert protocol_version)",
+                  );
+                  this.dtls.fatalError = pe;
+                  this.onError.execute(pe);
+                } else if (alert && alert.level >= 2) {
+                  const fe = new Error(
+                    `alert fatal error: ${
+                      AlertDesc[alert.description] ?? alert.description
+                    }`,
+                  );
+                  this.dtls.fatalError = fe;
+                  this.onError.execute(fe);
+                } else {
+                  this.onClose.execute();
+                }
+              }
               break;
           }
         }

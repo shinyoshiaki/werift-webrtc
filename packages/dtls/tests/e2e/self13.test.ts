@@ -777,7 +777,8 @@ test("e2e/self13 1.3-only client vs 1.2-only server fails with ProtocolVersionEr
 }, 12_000);
 
 test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version error", async () => {
-  // Arrange: 前提を準備する
+  // Arrange: 既定 addressValidation (dtls-cookie) のまま — pre-cookie でも
+  // protocol_version(70) が送信元へ届き、再送 timeout にならないこと。
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -790,12 +791,12 @@ test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version 
     signature: SignatureAlgorithm.rsa_1,
   };
 
+  // addressValidation 未指定 → 既定 dtls-cookie
   const server = new DtlsServer({
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
     protocolVersions: [DtlsVersion.V1_3],
-    addressValidation: "none",
   });
   const client = new DtlsClient({
     transport: clientTransport,
@@ -805,10 +806,16 @@ test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version 
     protocolVersions: [DtlsVersion.V1_2],
   });
 
-  // Act / Assert: server が protocol_version alert / ProtocolVersionError
+  // Act / Assert: protocol_version(70) / ProtocolVersionError のみ成功扱い
+  // （handshake_failure・再送 timeout は失敗）
   await new Promise<void>(async (resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("expected version error, got timeout")),
+      () =>
+        reject(
+          new Error(
+            "expected ProtocolVersionError / protocol_version alert, got timeout",
+          ),
+        ),
       8_000,
     );
     const done = (e: Error) => {
@@ -818,26 +825,31 @@ test("e2e/self13 1.2-only client vs 1.3-only server fails with protocol version 
       if (
         e instanceof ProtocolVersionError ||
         e.name === "ProtocolVersionError" ||
-        /protocol version|cipher suite|1\.3|handshake_failure|0x1301|TLS_AES/i.test(
-          e.message,
-        )
+        e.message.includes("protocol_version") ||
+        /protocol version|no overlapping DTLS/i.test(e.message)
       ) {
-        // 1.2 CH may lack 0x1301 → handshake_failure, or version mismatch alert
         resolve();
         return;
       }
-      // 1.2 client may fail with flight timeout after server rejects — still not silent success
       if (/timeout|retransmit|over retransmit/i.test(e.message)) {
-        // Prefer explicit version path; still fail the soft timeout case
         reject(
           new Error(
-            `got timeout-like error, want protocol version: ${e.message}`,
+            `got timeout-like error, want protocol_version(70): ${e.message}`,
           ),
         );
         return;
       }
-      reject(new Error(`unexpected error: ${e.message}`));
+      if (/handshake_failure|0x1301|TLS_AES|cipher suite/i.test(e.message)) {
+        reject(
+          new Error(
+            `got cipher/handshake_failure, want protocol_version(70): ${e.message}`,
+          ),
+        );
+        return;
+      }
+      reject(new Error(`unexpected error: ${e.name}: ${e.message}`));
     };
+    // pre-cookie server は association を fail しないので client 側の alert 受信を主に見る
     server.onError.subscribe(done);
     client.onError.subscribe(done);
     client.onConnect.subscribe(() => {

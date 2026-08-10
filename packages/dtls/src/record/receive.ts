@@ -100,10 +100,9 @@ export const parsePlainText =
           "lastFlight",
           dtls.lastFlight,
         );
-        if (alert.level > 1) {
-          throw new Error("alert fatal error");
-        }
-        return [{ type: ContentType.alert, data: undefined }];
+        // Surface alert to socket (protocol_version / fatal) instead of
+        // throwing here — throw was only logged and left Flight retransmitting.
+        return [{ type: ContentType.alert, data: alert }];
       }
       default: {
         return [{ type: ContentType.alert, data: undefined }];

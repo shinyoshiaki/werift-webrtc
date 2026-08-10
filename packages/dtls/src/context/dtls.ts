@@ -30,6 +30,11 @@ export class DtlsContext {
     signature: SignatureAlgorithms;
   }[] = [];
   remoteExtendedMasterSecret = false;
+  /**
+   * Set when a fatal peer alert / hard error aborts the 1.2 flight loop.
+   * Flight.transmit checks this to stop retransmit and rethrow.
+   */
+  fatalError?: Error;
 
   constructor(
     public options: Options,

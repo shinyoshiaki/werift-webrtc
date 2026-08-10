@@ -54,6 +54,11 @@ export abstract class Flight {
 
       await setTimeout(1000 * ((retransmitCount + 1) / 2));
 
+      if (this.dtls.fatalError) {
+        this.setState("FINISHED");
+        throw this.dtls.fatalError;
+      }
+
       if (this.dtls.flight >= this.nextFlight) {
         this.setState("FINISHED");
         break;
@@ -65,6 +70,10 @@ export abstract class Flight {
           this.dtls.flight,
         );
       }
+    }
+
+    if (this.dtls.fatalError) {
+      throw this.dtls.fatalError;
     }
 
     if (retransmitCount > Flight.RetransmitCount) {
