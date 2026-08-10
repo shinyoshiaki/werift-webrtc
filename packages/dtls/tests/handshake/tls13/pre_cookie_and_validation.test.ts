@@ -62,7 +62,174 @@ function buildCh(opts?: {
   );
 }
 
-describe("P1: pre-cookie malformed CH must not kill association", () => {
+describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
+  test("A→valid CH, B→missing signature_algorithms CH, A still completes cookie path", async () => {
+    // Arrange: B's CH is parseable enough to reach validation after A got HRR;
+    // previously abandonUnauthenticatedHelloAttempt wiped A's CH1 before B failed.
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+    });
+
+    function buildChMissingSigAlgs(): Buffer {
+      const group = NamedCurveAlgorithm.x25519_29;
+      const kp = generateKeyPair(group);
+      const curves = EllipticCurves.createEmpty();
+      curves.data = [group] as any;
+      const ch = new ClientHello(
+        WireVersion.DTLS_1_2,
+        new DtlsRandom(),
+        Buffer.alloc(0),
+        Buffer.alloc(0),
+        [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+        [0],
+        [
+          SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+          curves.extension,
+          KeyShare.forClient([
+            { group, keyExchange: kp.publicKey },
+          ]).clientExtension,
+          // deliberately omit signature_algorithms
+        ],
+      );
+      ch.messageSeq = 0;
+      const frag = ch.toFragment();
+      frag.message_seq = 0;
+      return serializePlaintextRecord(
+        ContentType.handshake,
+        0,
+        0,
+        frag.serialize(),
+      );
+    }
+
+    // Act / Assert: B が CH1 を消しても A の cookie 経路は完走する
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("B incomplete CH wiped A state timeout")),
+        20_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(new Error(`server must not fail from B: ${e.message}`));
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      void client.connect();
+      await new Promise((r) => setTimeout(r, 40));
+      serverTransport.onData?.(buildChMissingSigAlgs(), [
+        "198.51.100.50",
+        5555,
+      ] as any);
+    });
+  }, 25_000);
+
+  test("invalid cookie yields illegal_parameter without killing other attempt", async () => {
+    // Arrange: dual sources — A completes; B sends garbage cookie
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+    });
+
+    function buildChWithBogusCookie(): Buffer {
+      const group = NamedCurveAlgorithm.x25519_29;
+      const kp = generateKeyPair(group);
+      const curves = EllipticCurves.createEmpty();
+      curves.data = [group] as any;
+      const badCookie = Buffer.alloc(68, 0xee);
+      const ch = new ClientHello(
+        WireVersion.DTLS_1_2,
+        new DtlsRandom(),
+        Buffer.alloc(0),
+        Buffer.alloc(0),
+        [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+        [0],
+        [
+          SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+          curves.extension,
+          KeyShare.forClient([
+            { group, keyExchange: kp.publicKey },
+          ]).clientExtension,
+          SignatureAlgorithms.create().extension,
+          new CookieExtension(badCookie).extension,
+        ],
+      );
+      ch.messageSeq = 1;
+      const frag = ch.toFragment();
+      frag.message_seq = 1;
+      return serializePlaintextRecord(
+        ContentType.handshake,
+        0,
+        1,
+        frag.serialize(),
+      );
+    }
+
+    // Act / Assert: B の invalid cookie 後も A は接続できる
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("invalid cookie isolation timeout")),
+        20_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(new Error(`server must not fail from bad cookie: ${e.message}`));
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      void client.connect();
+      await new Promise((r) => setTimeout(r, 40));
+      serverTransport.onData?.(buildChWithBogusCookie(), [
+        "203.0.113.77",
+        9999,
+      ] as any);
+    });
+  }, 25_000);
+
   test("A→valid CH, B→parseable malformed CH, A completes handshake", async () => {
     // Arrange: dtls-cookie server; B sends compression=[0,1] CH while A is mid-HRR
     const serverTransport = await UdpTransport.init("udp4");
@@ -296,6 +463,27 @@ describe("P2/P3: strict cookie and CertificateVerify codecs", () => {
     expect(() =>
       CookieExtension.fromData(Buffer.from([0x00, 0x02, 0xaa, 0xbb, 0xff])),
     ).toThrow(/length mismatch/i);
+  });
+
+  test("stateless address cookie embeds CH1 message_hash and binds peer", async () => {
+    // Arrange
+    const { mintAddressCookie, verifyAddressCookie, clientHelloMessageHash } =
+      await import("../../../src/handshake/extensions/cookie");
+    const { randomBytes } = await import("crypto");
+    const secret = randomBytes(16);
+    const ch1 = randomBytes(120);
+    const peer = "203.0.113.10:40000";
+    // Act
+    const cookie = mintAddressCookie(secret, peer, ch1, { selectedGroup: 29 });
+    const ok = verifyAddressCookie(secret, cookie, peer);
+    // Assert: CH1 hash が cookie に入り peer 不一致は失敗
+    expect(ok).toBeTruthy();
+    expect(ok!.ch1MessageHash.equals(clientHelloMessageHash(ch1))).toBe(true);
+    expect(ok!.selectedGroup).toBe(29);
+    expect(verifyAddressCookie(secret, cookie, "198.51.100.1:1")).toBeUndefined();
+    expect(
+      verifyAddressCookie(secret, Buffer.alloc(cookie.length, 0), peer),
+    ).toBeUndefined();
   });
 
   test("CertificateVerify13 rejects trailing bytes", () => {

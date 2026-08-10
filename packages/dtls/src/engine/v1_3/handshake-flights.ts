@@ -6,7 +6,6 @@ import {
 } from "../../cipher/const";
 import { generateKeyPair } from "../../cipher/namedCurve";
 import { prfPreMasterSecret } from "../../cipher/prf";
-import { hashSha256 } from "../../cipher/tls13/hkdf";
 import {
   schemesForKey,
   selectSignatureScheme,
@@ -16,9 +15,9 @@ import {
 import { HandshakeType } from "../../handshake/const";
 import {
   CookieExtension,
-  cookieBinding,
-  mintCookie,
-  verifyCookie,
+  clientHelloMessageHash,
+  mintAddressCookie,
+  verifyAddressCookie,
 } from "../../handshake/extensions/cookie";
 import { EllipticCurves } from "../../handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../handshake/extensions/keyShare";
@@ -121,29 +120,6 @@ function assertUniqueExtensions(
  *   Flight 1/3 ClientHello → Flight 2 HRR* → Flight 4 server → Flight 5 client → post-HS KeyUpdate
  */
 export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
-  /**
-   * Drop an abandoned cookie-less HRR attempt so another source can start
-   * (return-routability: unauthenticated CH must not lock the association).
-   */
-  protected abandonUnauthenticatedHelloAttempt(messageSeq: number): void {
-    this.clearPendingFlight();
-    this.hrrCount = 0;
-    this.awaitingHrr = false;
-    this.firstClientHelloBody = undefined;
-    this.tlsCookie = Buffer.alloc(0);
-    this.cookieClientHelloHash = undefined;
-    this.hrrHadCookie = false;
-    this.hrrSelectedGroup = undefined;
-    this.hrrCipherSuite = undefined;
-    this.transcript = new HandshakeTranscript();
-    this.handshakeInbox.clear();
-    this.nextReceiveSeq = messageSeq;
-    this.bytesReceived = 0;
-    this.bytesSent = 0;
-    this.currentDatagramCounted = false;
-    this.accountCurrentDatagramForAntiAmp();
-  }
-
   /**
    * RFC 8446 full-handshake order. Returns false if the type is not expected
    * in the current hsPhase (caller must abort with unexpected_message).
@@ -401,12 +377,14 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     return exts;
   }
 
-  // --- Flight 2: HelloRetryRequest (optional cookie / group) ---
-  protected async sendHelloRetryRequest(
+  /**
+   * Build HelloRetryRequest body (same shape as sendHelloRetryRequest) so a
+   * cookie-bearing CH2 can rebuild transcript without stored HRR bytes.
+   */
+  protected buildHelloRetryRequestBody(
     group: number | undefined,
-    withCookie: boolean,
-    clientHelloBody: Buffer,
-  ): Promise<void> {
+    cookie: Buffer | undefined,
+  ): Buffer {
     const hrrRandom = {
       gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
       random_bytes: HRR_RANDOM.subarray(4),
@@ -414,20 +392,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     const extensions: Extension[] = [
       SupportedVersions.forServer(DTLS_1_3_VERSION).serverExtension,
     ];
-    // Record HRR deltas for ClientHello2 validation (RFC 8446 §4.1.4)
-    this.hrrHadCookie = withCookie;
-    this.hrrSelectedGroup = group;
     if (group !== undefined) {
       extensions.push(KeyShare.forHelloRetryRequest(group).serverExtension);
     }
-    if (withCookie) {
-      const binding = cookieBinding(this.associationPeerKey(), clientHelloBody);
-      const cookie = mintCookie(this.cookieSecret, binding);
-      this.tlsCookie = Buffer.from(cookie);
-      this.cookieClientHelloHash = hashSha256(clientHelloBody);
+    if (cookie && cookie.length > 0) {
       extensions.push(new CookieExtension(cookie).extension);
     }
-    // DTLS 1.3: zero-length legacy_session_id (do not echo client session id)
     const hrr = new ServerHello(
       WireVersion.DTLS_1_2,
       hrrRandom,
@@ -436,25 +406,108 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       0,
       extensions,
     );
-    // First HRR: message_seq 0. Subsequent HRR (rare): increment, never reset.
-    if (this.awaitingHrr) {
-      this.messageSeq += 1;
-      // Transcript already has message_hash(CH1)+HRR1; append this CH then HRR2
-      this.transcript.add(HandshakeType.client_hello_1, clientHelloBody);
-    } else {
-      this.messageSeq = 0;
-      this.transcript = new HandshakeTranscript();
-      this.transcript.replaceWithMessageHash(clientHelloBody);
+    hrr.messageSeq = 0;
+    return hrr.serialize();
+  }
+
+  // --- Flight 2: HelloRetryRequest (optional cookie / group) ---
+  protected async sendHelloRetryRequest(
+    group: number | undefined,
+    withCookie: boolean,
+    clientHelloBody: Buffer,
+    peerKeyForAttempt?: string,
+  ): Promise<void> {
+    const peer =
+      peerKeyForAttempt && peerKeyForAttempt !== "unknown"
+        ? peerKeyForAttempt
+        : this.associationPeerKey();
+
+    // Record HRR deltas for ClientHello2 validation (RFC 8446 §4.1.4)
+    this.hrrHadCookie = withCookie;
+    this.hrrSelectedGroup = group;
+
+    let cookie: Buffer | undefined;
+    if (withCookie) {
+      cookie = mintAddressCookie(this.cookieSecret, peer, clientHelloBody, {
+        selectedGroup: group,
+      });
+      this.tlsCookie = Buffer.from(cookie);
+      this.cookieClientHelloHash = clientHelloMessageHash(clientHelloBody);
+      // Per-peer attempt only — never a single global CH1 slot shared by attackers
+      this.storePreCookieAttempt(peer, {
+        ch1Body: clientHelloBody,
+        ch1MessageHash: this.cookieClientHelloHash,
+        selectedGroup: group,
+      });
     }
-    hrr.messageSeq = this.messageSeq;
 
-    const body = hrr.serialize();
-    this.transcript.add(HandshakeType.server_hello_2, body);
-    this.awaitingHrr = true;
-    this.firstClientHelloBody = clientHelloBody;
+    const body = this.buildHelloRetryRequestBody(group, cookie);
+    // Pre-cookie HRR: do not commit a global transcript that another source can
+    // corrupt. Transcript is rebuilt from the cookie on CH2. For trusted-address
+    // group-only HRR, keep the classic transcript path.
+    if (!withCookie) {
+      if (this.awaitingHrr) {
+        this.messageSeq += 1;
+        this.transcript.add(HandshakeType.client_hello_1, clientHelloBody);
+      } else {
+        this.messageSeq = 0;
+        this.transcript = new HandshakeTranscript();
+        this.transcript.replaceWithMessageHash(clientHelloBody);
+      }
+      // Re-serialize HRR with correct message_seq for trusted path
+      const hrrRandom = {
+        gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
+        random_bytes: HRR_RANDOM.subarray(4),
+      };
+      const extensions: Extension[] = [
+        SupportedVersions.forServer(DTLS_1_3_VERSION).serverExtension,
+      ];
+      if (group !== undefined) {
+        extensions.push(KeyShare.forHelloRetryRequest(group).serverExtension);
+      }
+      const hrr = new ServerHello(
+        WireVersion.DTLS_1_2,
+        hrrRandom,
+        Buffer.alloc(0),
+        CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
+        0,
+        extensions,
+      );
+      hrr.messageSeq = this.messageSeq;
+      const trustedBody = hrr.serialize();
+      this.transcript.add(HandshakeType.server_hello_2, trustedBody);
+      this.awaitingHrr = true;
+      this.firstClientHelloBody = clientHelloBody;
+      const frag = hrr.toFragment();
+      frag.message_seq = this.messageSeq;
+      await this.sendHandshakeFlight([frag], 0, true);
+      return;
+    }
 
+    // Cookie HRR: message_seq 0; ephemeral send toward current peer only
+    this.messageSeq = 0;
+    const hrr = new ServerHello(
+      WireVersion.DTLS_1_2,
+      {
+        gmt_unix_time: HRR_RANDOM.readUInt32BE(0),
+        random_bytes: HRR_RANDOM.subarray(4),
+      },
+      Buffer.alloc(0),
+      CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
+      0,
+      [
+        SupportedVersions.forServer(DTLS_1_3_VERSION).serverExtension,
+        ...(group !== undefined
+          ? [KeyShare.forHelloRetryRequest(group).serverExtension]
+          : []),
+        new CookieExtension(cookie!).extension,
+      ],
+    );
+    hrr.messageSeq = 0;
     const frag = hrr.toFragment();
-    frag.message_seq = this.messageSeq;
+    frag.message_seq = 0;
+    // Do not set global awaitingHrr / firstClientHelloBody for pre-cookie HRR —
+    // state lives in preCookieAttempts + the cookie itself.
     await this.sendHandshakeFlight([frag], 0, true);
   }
 
@@ -485,15 +538,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     }
 
     // RFC 9147: DTLS 1.3 ClientHello.legacy_cookie MUST be zero-length
+    // Throw only — never fail() here (pre-cookie spoofed source DoS).
     if (ch.cookie.length !== 0) {
-      await this.sendFatalAlert(AlertDesc.IllegalParameter);
-      this.fail(
-        new DtlsProtocolError(
-          "illegal_parameter: DTLS 1.3 ClientHello legacy_cookie must be empty",
-          AlertDesc.IllegalParameter,
-        ),
+      throw new DtlsProtocolError(
+        "illegal_parameter: DTLS 1.3 ClientHello legacy_cookie must be empty",
+        AlertDesc.IllegalParameter,
       );
-      return;
     }
 
     // RFC 9147: do not use TLS compatibility mode — never echo legacy_session_id
@@ -502,34 +552,14 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
     // Cipher suite selection: must offer TLS_AES_128_GCM_SHA256 (0x1301)
     if (!ch.cipherSuites.includes(CipherSuite.TLS_AES_128_GCM_SHA256_0x1301)) {
-      await this.sendFatalAlert(AlertDesc.HandshakeFailure);
-      this.fail(
-        new DtlsProtocolError(
-          "handshake_failure: ClientHello does not offer TLS_AES_128_GCM_SHA256",
-          AlertDesc.HandshakeFailure,
-        ),
+      throw new DtlsProtocolError(
+        "handshake_failure: ClientHello does not offer TLS_AES_128_GCM_SHA256",
+        AlertDesc.HandshakeFailure,
       );
-      return;
     }
 
-    // Unassociated cookie-less CH while awaiting HRR: abandon the previous
-    // unauthenticated attempt *before* CH2 validation (another source must not
-    // be treated as ClientHello2 of the prior attacker).
-    const cookieExtEarly = ch.extensions.find(
-      (e) => e.type === CookieExtension.type,
-    );
-    if (
-      !this.expectedPeerKey() &&
-      !cookieExtEarly &&
-      (this.awaitingHrr || this.hrrCount >= 1)
-    ) {
-      this.abandonUnauthenticatedHelloAttempt(messageSeq);
-    }
-
-    // After HRR: CH2 must match CH1 except allowed deltas (RFC 8446 §4.1.4)
-    if (this.awaitingHrr && this.firstClientHelloBody) {
-      this.validateClientHelloAfterHrr(this.firstClientHelloBody, ch, body);
-    }
+    // Cookie (if any) is verified later; do NOT wipe other peers' pre-cookie
+    // attempts when a new cookie-less CH arrives (stateless cookie + per-peer map).
 
     // Track offered extensions for EncryptedExtensions allowlist
     this.clientOfferedExtensionTypes = new Set(
@@ -659,62 +689,141 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       );
     }
 
-    // Address validation via TLS cookie (HRR), bound to peer + first ClientHello.
-    // When cookie and group selection both needed, emit a *single* combined HRR
-    // so the client never sees a second HRR with message_seq=0 (duplicate drop).
+    // Address validation via TLS cookie (HRR). Cookie is stateless and embeds
+    // CH1 message_hash + optional selected_group so other sources cannot wipe
+    // the verified material by sending a second cookie-less CH.
+    // Combined cookie+group HRR when both needed (single HRR only).
     if (this.addressValidation === "dtls-cookie" && !this.addressValidated) {
       const cookieExt = ch.extensions.find(
         (e) => e.type === CookieExtension.type,
       );
       if (!cookieExt) {
-        // Unauthenticated CH: reply HRR to current source only. Do not lock
-        // provisional peer — another client must still be able to start.
-        // Prior attempt already abandoned above when needed.
-        this.firstClientHelloBody = body;
-        this.cookieClientHelloHash = hashSha256(body);
-        if (this.hrrCount >= 1) {
-          throw new DtlsProtocolError(
-            "second HelloRetryRequest not allowed",
-            AlertDesc.UnexpectedMessage,
-          );
-        }
-        this.hrrCount += 1;
+        // Unauthenticated CH: reply HRR to *this* source only. Store attempt
+        // under peerKey; never clear other peers' attempts.
+        const peer =
+          this.currentPeerKey && this.currentPeerKey !== "unknown"
+            ? this.currentPeerKey
+            : this.associationPeerKey();
         await this.sendHelloRetryRequest(
           needGroupHrr ? hrrGroupCandidate : undefined,
           true,
           body,
+          peer,
         );
         return;
       }
-      const cookie = CookieExtension.fromData(cookieExt.data).cookie;
-      // Binding must use the first ClientHello (mint-time), not the second
-      const chForBind = this.firstClientHelloBody ?? body;
-      // Bind to the source of *this* datagram (CH2 return path)
+      let cookieBuf: Buffer;
+      try {
+        cookieBuf = CookieExtension.fromData(cookieExt.data).cookie;
+      } catch (e) {
+        throw new DtlsProtocolError(
+          `illegal_parameter: malformed cookie extension (${e instanceof Error ? e.message : String(e)})`,
+          AlertDesc.IllegalParameter,
+        );
+      }
       const bindPeer =
         this.currentPeerKey && this.currentPeerKey !== "unknown"
           ? this.currentPeerKey
           : this.associationPeerKey();
-      const binding = cookieBinding(bindPeer, chForBind);
-      if (!verifyCookie(this.cookieSecret, cookie, binding)) {
+      const verified = verifyAddressCookie(
+        this.cookieSecret,
+        cookieBuf,
+        bindPeer,
+      );
+      if (!verified) {
+        // RFC 9147 §5.1: invalid cookie → illegal_parameter (this attempt only)
         throw new DtlsProtocolError(
-          "invalid DTLS cookie (peer address or ClientHello binding mismatch)",
-          AlertDesc.HandshakeFailure,
+          "illegal_parameter: invalid DTLS cookie (peer address or ClientHello binding mismatch)",
+          AlertDesc.IllegalParameter,
         );
       }
+      // Restore CH1 for optional field checks from per-peer map when present
+      const attempt = this.getPreCookieAttempt(bindPeer);
+      if (
+        attempt &&
+        attempt.ch1MessageHash.equals(verified.ch1MessageHash)
+      ) {
+        this.firstClientHelloBody = attempt.ch1Body;
+      } else {
+        // Stateless path: no CH1 body — transcript uses precomputed message_hash
+        this.firstClientHelloBody = undefined;
+      }
+      this.cookieClientHelloHash = verified.ch1MessageHash;
+      this.hrrHadCookie = true;
+      this.hrrSelectedGroup = verified.selectedGroup;
+      this.hrrCount = 1;
+      this.awaitingHrr = true;
+      this.tlsCookie = Buffer.from(cookieBuf);
+      // Rebuild transcript: message_hash(CH1) + reconstructed HRR
+      this.transcript = new HandshakeTranscript();
+      this.transcript.replaceWithPrecomputedMessageHash(
+        verified.ch1MessageHash,
+      );
+      const hrrBody = this.buildHelloRetryRequestBody(
+        verified.selectedGroup,
+        cookieBuf,
+      );
+      this.transcript.add(HandshakeType.server_hello_2, hrrBody);
+      this.messageSeq = 0; // last server HS was HRR seq 0
+
+      // Optional CH2 vs CH1 field check when we still have CH1 body
+      if (this.firstClientHelloBody) {
+        this.validateClientHelloAfterHrr(
+          this.firstClientHelloBody,
+          ch,
+          body,
+        );
+      } else if (needGroupHrr || verified.selectedGroup !== undefined) {
+        // Without CH1 body, still enforce single key_share for HRR group
+        if (verified.selectedGroup !== undefined) {
+          const shares = ks.clientShares ?? [];
+          if (
+            shares.length !== 1 ||
+            shares[0].group !== verified.selectedGroup
+          ) {
+            throw new DtlsProtocolError(
+              `illegal_parameter: ClientHello2 key_share must be a single entry for HRR selected_group 0x${verified.selectedGroup.toString(16)}`,
+              AlertDesc.IllegalParameter,
+            );
+          }
+        }
+      }
+
       this.addressValidated = true;
-      this.tlsCookie = Buffer.from(cookie);
-      // Cookie validates return-routability — now lock + pin the association
+      // Cookie validates return-routability — lock + pin this association
       this.acceptAssociationPeer();
       this.pinPeer(
         this.associationPeerKey(),
         this.currentPeerAddr ?? this.getSendAddr(),
       );
+      this.clearPreCookieAttempts();
+      // Group HRR already satisfied by CH2 if selected_group was in cookie
+      if (needGroupHrr && verified.selectedGroup === undefined) {
+        throw new DtlsProtocolError(
+          "illegal_parameter: cookie did not carry selected_group required for key_share",
+          AlertDesc.IllegalParameter,
+        );
+      }
     } else {
       // ice-authenticated / none: first fully validated CH locks association
       this.acceptAssociationPeer();
+      // After HRR without cookie path (group-only HRR on trusted address)
+      if (this.awaitingHrr && this.firstClientHelloBody) {
+        this.validateClientHelloAfterHrr(this.firstClientHelloBody, ch, body);
+      }
     }
 
-    if (needGroupHrr) {
+    if (needGroupHrr && this.addressValidated) {
+      // Trusted address (none/ice) or post-cookie still needs group HRR only
+      // (dtls-cookie with group already combined into cookie HRR above).
+      if (this.addressValidation === "dtls-cookie") {
+        // Cookie path should have combined group into the cookie HRR
+        // If we still need group after cookie, CH2 was wrong
+        throw new DtlsProtocolError(
+          "illegal_parameter: ClientHello2 still has no acceptable key_share after cookie HRR",
+          AlertDesc.IllegalParameter,
+        );
+      }
       this.firstClientHelloBody = this.firstClientHelloBody ?? body;
       if (this.hrrCount >= 1) {
         throw new DtlsProtocolError(
@@ -727,6 +836,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
 
+    if (!clientShare) {
+      throw new DtlsProtocolError(
+        "handshake_failure: ClientHello has no acceptable key_share",
+        AlertDesc.HandshakeFailure,
+      );
+    }
     this.remoteKeyShare = clientShare;
     this.selectedGroup = clientShare.group as NamedCurveAlgorithms;
     this.localKeyPair = generateKeyPair(this.selectedGroup);
@@ -771,8 +886,9 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
     // Transcript after HRR: message_hash(CH1) + HRR already set; else fresh CH
     // Do NOT touch nextReceiveSeq here — enqueueHandshake owns it (avoids double-increment).
-    if (this.awaitingHrr && this.firstClientHelloBody) {
+    if (this.awaitingHrr) {
       // second CH after HRR — transcript already has message_hash + HRR
+      // (cookie path rebuilds it even without firstClientHelloBody)
       this.transcript.add(HandshakeType.client_hello_1, body);
       this.awaitingHrr = false;
     } else {

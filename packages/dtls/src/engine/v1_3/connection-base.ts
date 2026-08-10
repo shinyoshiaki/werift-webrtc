@@ -35,7 +35,9 @@ import {
   EPOCH_KEY_TTL_MS,
   EPOCH_PRUNE_INTERVAL_MS,
   MAX_ACCEPTED_HS_RECORDS,
+  MAX_PRE_COOKIE_ATTEMPTS,
   MAX_RETAINED_APP_EPOCHS,
+  PRE_COOKIE_ATTEMPT_TTL_MS,
   type Role,
   log,
 } from "./types";
@@ -269,6 +271,20 @@ export abstract class Dtls13ConnectionBase {
   protected clientOfferedSrtpMki = Buffer.alloc(0);
   /** Hash of first ClientHello used when minting the cookie. */
   protected cookieClientHelloHash?: Buffer;
+  /**
+   * Per-source pre-cookie HRR attempts (CH1 body for optional field checks).
+   * Cookie itself is stateless (embeds CH1 message_hash); this map is an
+   * optimization and must never be a single global slot shared by all peers.
+   */
+  protected preCookieAttempts = new Map<
+    string,
+    {
+      ch1Body: Buffer;
+      ch1MessageHash: Buffer;
+      selectedGroup?: number;
+      createdAt: number;
+    }
+  >();
   /**
    * HRR deltas that ClientHello2 may apply (RFC 8446 §4.1.4).
    * Set when processing / sending HelloRetryRequest.
@@ -600,6 +616,75 @@ export abstract class Dtls13ConnectionBase {
     }
     this.bytesReceived += this.currentDatagramBytes;
     this.currentDatagramCounted = true;
+  }
+
+  /**
+   * Server with dtls-cookie before address validation: unauthenticated epoch-0
+   * semantic errors must not fail()/close the whole association (spoofed-source
+   * DoS). ICE/none keep prompt failure.
+   */
+  protected isPreCookieUnvalidatedServer(): boolean {
+    return (
+      this.role === "server" &&
+      this.addressValidation === "dtls-cookie" &&
+      !this.addressValidated
+    );
+  }
+
+  protected prunePreCookieAttempts(now = Date.now()): void {
+    for (const [k, v] of this.preCookieAttempts) {
+      if (now - v.createdAt > PRE_COOKIE_ATTEMPT_TTL_MS) {
+        this.preCookieAttempts.delete(k);
+      }
+    }
+    while (this.preCookieAttempts.size > MAX_PRE_COOKIE_ATTEMPTS) {
+      // Drop oldest
+      let oldestKey: string | undefined;
+      let oldestAt = Infinity;
+      for (const [k, v] of this.preCookieAttempts) {
+        if (v.createdAt < oldestAt) {
+          oldestAt = v.createdAt;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey) this.preCookieAttempts.delete(oldestKey);
+      else break;
+    }
+  }
+
+  protected storePreCookieAttempt(
+    peerKey: string,
+    attempt: {
+      ch1Body: Buffer;
+      ch1MessageHash: Buffer;
+      selectedGroup?: number;
+    },
+  ): void {
+    if (!peerKey || peerKey === "unknown") return;
+    this.prunePreCookieAttempts();
+    this.preCookieAttempts.set(peerKey, {
+      ch1Body: Buffer.from(attempt.ch1Body),
+      ch1MessageHash: Buffer.from(attempt.ch1MessageHash),
+      selectedGroup: attempt.selectedGroup,
+      createdAt: Date.now(),
+    });
+    this.prunePreCookieAttempts();
+  }
+
+  protected getPreCookieAttempt(peerKey: string):
+    | {
+        ch1Body: Buffer;
+        ch1MessageHash: Buffer;
+        selectedGroup?: number;
+        createdAt: number;
+      }
+    | undefined {
+    this.prunePreCookieAttempts();
+    return this.preCookieAttempts.get(peerKey);
+  }
+
+  protected clearPreCookieAttempts(): void {
+    this.preCookieAttempts.clear();
   }
 
   /** Pin association to a single remote 5-tuple (no migration in Epic 1). */

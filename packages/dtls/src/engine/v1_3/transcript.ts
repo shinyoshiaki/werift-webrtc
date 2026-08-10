@@ -25,12 +25,22 @@ export class HandshakeTranscript {
     chFull.writeUInt8(HandshakeType.client_hello_1, 0);
     chFull.writeUIntBE(clientHelloBody.length, 1, 3);
     clientHelloBody.copy(chFull, 4);
-    const hash = hashSha256(chFull);
+    this.replaceWithPrecomputedMessageHash(hashSha256(chFull));
+  }
+
+  /**
+   * HRR special case when only the ClientHello transcript hash is available
+   * (stateless cookie embeds this digest).
+   */
+  replaceWithPrecomputedMessageHash(chMessageHash32: Buffer): void {
+    if (chMessageHash32.length !== 32) {
+      throw new Error("message_hash digest must be 32 bytes");
+    }
     // message_hash(254) || 00 00 20 || Hash
     const mh = Buffer.alloc(4 + 32);
     mh.writeUInt8(HandshakeType.message_hash_254, 0);
     mh.writeUIntBE(32, 1, 3);
-    hash.copy(mh, 4);
+    chMessageHash32.copy(mh, 4);
     this.messages = [mh];
   }
 

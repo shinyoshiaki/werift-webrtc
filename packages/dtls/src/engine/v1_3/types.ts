@@ -12,6 +12,13 @@ import type { DtlsVersion } from "../../version";
 /** Anti-amplification: server may send at most 3× received before address validated. */
 export const ANTI_AMPLIFICATION_FACTOR = 3;
 
+/**
+ * Pre-cookie HRR attempt table (per source 5-tuple). Bounded so spoofed CH
+ * floods cannot grow unbounded server state (RFC 9147 cookie exchange).
+ */
+export const MAX_PRE_COOKIE_ATTEMPTS = 64;
+export const PRE_COOKIE_ATTEMPT_TTL_MS = 30_000;
+
 /** Fragment reassembly limits (RFC 9147: bound memory against abuse). */
 export const MAX_HS_MESSAGE_BYTES = 64 * 1024;
 export const MAX_FRAGMENT_BUFFER_MESSAGES = 8;

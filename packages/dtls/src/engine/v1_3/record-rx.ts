@@ -206,11 +206,24 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
           }
           // DtlsProtocolError
           if (this.isPreCookieUnvalidatedServer() && rec.kind === "plaintext") {
-            // RFC 9147 cookie exchange: spoofed-source epoch-0 semantic errors
-            // must not tear down the association before return-routability.
+            // RFC 9147: invalid cookie → illegal_parameter alert to this source,
+            // but never fail() the association (other attempts must survive).
+            const pe = e as DtlsProtocolError;
+            if (
+              pe.alertDescription === AlertDesc.IllegalParameter ||
+              /invalid DTLS cookie|illegal_parameter/i.test(pe.message)
+            ) {
+              try {
+                await this.sendFatalAlert(
+                  pe.alertDescription ?? AlertDesc.IllegalParameter,
+                );
+              } catch {
+                // best-effort alert
+              }
+            }
             log(
               "pre-cookie protocol error from unvalidated source (no fail)",
-              e instanceof Error ? e.message : String(e),
+              pe.message,
             );
             return;
           }
@@ -328,19 +341,6 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
    */
   protected hasProtectedWriteKeys(): boolean {
     return this.writeEpoch >= 2 || this.connected;
-  }
-
-  /**
-   * Server with dtls-cookie before address validation: unauthenticated epoch-0
-   * semantic errors must not fail()/close the whole association (spoofed-source
-   * DoS). ICE/none keep prompt failure.
-   */
-  protected isPreCookieUnvalidatedServer(): boolean {
-    return (
-      this.role === "server" &&
-      this.addressValidation === "dtls-cookie" &&
-      !this.addressValidated
-    );
   }
 
   protected async onPlaintextRecordAsync(rec: {
