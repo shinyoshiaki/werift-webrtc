@@ -259,7 +259,16 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
    * must pass through this path so anti-amplification covers aggregate TX.
    * @returns false if budget blocked the send (caller must not assume wire TX).
    */
-  protected async sendWithBudget(record: Buffer): Promise<boolean> {
+  /**
+   * @param dest Optional explicit peer for request/response (alerts / pre-cookie
+   * HRR). When omitted, uses getSendAddr() (pin / retransmit reply-to).
+   * Never route a response to pendingFlightReplyTo of a *different* source by
+   * accident — callers handling the current datagram should pass currentPeerAddr.
+   */
+  protected async sendWithBudget(
+    record: Buffer,
+    dest?: [string, number],
+  ): Promise<boolean> {
     if (!this.consumeSendBudget(record.length)) {
       log(
         "sendWithBudget blocked by anti-amplification",
@@ -269,7 +278,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       );
       return false;
     }
-    await this.options.transport.send(record, this.getSendAddr());
+    await this.options.transport.send(record, dest ?? this.getSendAddr());
     return true;
   }
 
@@ -439,20 +448,30 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     await this.sendAck({ allowEmpty: true });
   }
 
-  protected async sendFatalAlert(description: number): Promise<void> {
+  /**
+   * @param dest Explicit response address for the peer that caused the alert.
+   * Pre-cookie paths must pass currentPeerAddr so a fatal for B is not sent to A
+   * via pendingFlightReplyTo from an earlier HRR.
+   */
+  protected async sendFatalAlert(
+    description: number,
+    dest?: [string, number],
+  ): Promise<void> {
     const alert = Buffer.from([2, description]); // fatal
+    // Prefer explicit dest, then the datagram being processed, then pin/retransmit
+    const to = dest ?? this.currentPeerAddr ?? this.getSendAddr();
     try {
       if (this.writeEpoch >= 2) {
         const ep = this.epochs.get(this.writeEpoch);
         if (ep?.writeKeys) {
           const record = encryptRecord(alert, ContentType.alert, ep);
-          await this.sendWithBudget(record);
+          await this.sendWithBudget(record, to);
           return;
         }
       }
       const seq = this.recordSeqEpoch0++;
       const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
-      await this.sendWithBudget(record);
+      await this.sendWithBudget(record, to);
     } catch (e) {
       log("sendFatalAlert failed", e);
     }
@@ -491,14 +510,17 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
     this.fail(err);
   }
 
-  protected async sendProtocolVersionAlert(): Promise<void> {
+  protected async sendProtocolVersionAlert(
+    dest?: [string, number],
+  ): Promise<void> {
     // alert level fatal(2), description protocol_version(70)
     const alert = Buffer.from([2, AlertDesc.ProtocolVersion]);
     const seq = this.recordSeqEpoch0++;
     const record = serializePlaintextRecord(ContentType.alert, 0, seq, alert);
+    const to = dest ?? this.currentPeerAddr ?? this.getSendAddr();
     // Best-effort alert; budget may block pre-cookie
     try {
-      await this.sendWithBudget(record);
+      await this.sendWithBudget(record, to);
     } catch {
       // ignore budget failures for optional alert
     }

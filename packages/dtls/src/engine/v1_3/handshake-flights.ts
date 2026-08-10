@@ -15,6 +15,7 @@ import {
 import { HandshakeType } from "../../handshake/const";
 import {
   CookieExtension,
+  clientHelloImmutableFieldsHash,
   clientHelloMessageHash,
   mintAddressCookie,
   verifyAddressCookie,
@@ -763,11 +764,21 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       this.transcript.add(HandshakeType.server_hello_2, hrrBody);
       this.messageSeq = 0; // last server HS was HRR seq 0
 
-      // Optional CH2 vs CH1 field check when we still have CH1 body
+      // CH2 ≒ CH1 (RFC 8446 §4.1.4): full body compare when map hit; otherwise
+      // verify immutable-fields digest embedded in the stateless cookie.
       if (this.firstClientHelloBody) {
         this.validateClientHelloAfterHrr(this.firstClientHelloBody, ch, body);
-      } else if (needGroupHrr || verified.selectedGroup !== undefined) {
-        // Without CH1 body, still enforce single key_share for HRR group
+      } else {
+        const imm2 = clientHelloImmutableFieldsHash(body, {
+          hrrSelectedGroup: verified.selectedGroup,
+        });
+        if (!imm2.equals(verified.ch1ImmutableHash)) {
+          throw new DtlsProtocolError(
+            "illegal_parameter: ClientHello2 immutable fields do not match cookie-bound ClientHello1",
+            AlertDesc.IllegalParameter,
+          );
+        }
+        // key_share shape when HRR selected_group was present
         if (verified.selectedGroup !== undefined) {
           const shares = ks.clientShares ?? [];
           if (
@@ -779,6 +790,13 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
               AlertDesc.IllegalParameter,
             );
           }
+        }
+        // early_data must not appear after HRR
+        if (ch.extensions.some((e) => e.type === EXT_EARLY_DATA)) {
+          throw new DtlsProtocolError(
+            "illegal_parameter: ClientHello2 must not contain early_data after HRR",
+            AlertDesc.IllegalParameter,
+          );
         }
       }
 

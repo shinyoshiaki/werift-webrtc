@@ -145,11 +145,36 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
     });
   }, 25_000);
 
-  test("invalid cookie yields illegal_parameter without killing other attempt", async () => {
-    // Arrange: dual sources — A completes; B sends garbage cookie
+  test("invalid cookie alert goes to B not A; A completes after HRR", async () => {
+    // Arrange: HRR を捕捉した直後に B の invalid cookie を inject（setTimeout race なし）
     const serverTransport = await UdpTransport.init("udp4");
     const clientTransport = await UdpTransport.init("udp4");
     clientTransport.rinfo = serverTransport.address;
+
+    type SendRec = { buf: Buffer; addr?: [string, number] };
+    const serverSends: SendRec[] = [];
+    const origSend = serverTransport.send.bind(serverTransport);
+    let hrrSeen = false;
+    let resolveHrr: (() => void) | undefined;
+    const hrrPromise = new Promise<void>((r) => {
+      resolveHrr = r;
+    });
+
+    serverTransport.send = async (buf: Buffer, addr?: any) => {
+      const dest = Array.isArray(addr)
+        ? ([addr[0], addr[1]] as [string, number])
+        : addr?.address != null
+          ? ([addr.address, addr.port] as [string, number])
+          : undefined;
+      serverSends.push({ buf: Buffer.from(buf), addr: dest });
+      // Detect epoch-0 HRR (handshake ServerHello with HRR random) loosely:
+      // first server flight before connect is HRR under dtls-cookie.
+      if (!hrrSeen && dest) {
+        hrrSeen = true;
+        resolveHrr?.();
+      }
+      return origSend(buf, addr);
+    };
 
     const server = new DtlsServer({
       transport: serverTransport,
@@ -166,12 +191,15 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
       addressValidation: "dtls-cookie",
     });
 
+    const bAddr: [string, number] = ["203.0.113.77", 9999];
+
     function buildChWithBogusCookie(): Buffer {
       const group = NamedCurveAlgorithm.x25519_29;
       const kp = generateKeyPair(group);
       const curves = EllipticCurves.createEmpty();
       curves.data = [group] as any;
-      const badCookie = Buffer.alloc(68, 0xee);
+      // v2 cookie length = 104
+      const badCookie = Buffer.alloc(104, 0xee);
       const ch = new ClientHello(
         WireVersion.DTLS_1_2,
         new DtlsRandom(),
@@ -199,7 +227,15 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
       );
     }
 
-    // Act / Assert: B の invalid cookie 後も A は接続できる
+    function isFatalAlert(buf: Buffer): boolean {
+      // DTLSPlaintext alert: type=21, length>=2, body[0]=2 (fatal)
+      if (buf.length < 15 || buf[0] !== 21) return false;
+      const len = buf.readUInt16BE(11);
+      if (buf.length < 13 + len || len < 2) return false;
+      return buf[13] === 2; // fatal level
+    }
+
+    // Act / Assert
     await new Promise<void>(async (resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("invalid cookie isolation timeout")),
@@ -214,17 +250,44 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
         reject(new Error(`server must not fail from bad cookie: ${e.message}`));
       });
       client.onConnect.subscribe(() => {
-        clearTimeout(timer);
-        client.close();
-        server.close();
-        resolve();
+        try {
+          // B 宛に fatal alert が1つ以上
+          const alertsToB = serverSends.filter(
+            (s) =>
+              isFatalAlert(s.buf) &&
+              s.addr?.[0] === bAddr[0] &&
+              s.addr?.[1] === bAddr[1],
+          );
+          expect(alertsToB.length).toBeGreaterThanOrEqual(1);
+          // A (client real address) には fatal alert が行かない
+          const clientAddr = clientTransport.address;
+          const alertsToA = serverSends.filter(
+            (s) =>
+              isFatalAlert(s.buf) &&
+              s.addr?.[0] === clientAddr.address &&
+              s.addr?.[1] === clientAddr.port,
+          );
+          expect(alertsToA.length).toBe(0);
+          clearTimeout(timer);
+          client.close();
+          server.close();
+          resolve();
+        } catch (e) {
+          clearTimeout(timer);
+          reject(e);
+        }
       });
+
       void client.connect();
-      await new Promise((r) => setTimeout(r, 40));
-      serverTransport.onData?.(buildChWithBogusCookie(), [
-        "203.0.113.77",
-        9999,
-      ] as any);
+      // Wait until server has sent HRR toward A (pendingFlightReplyTo = A)
+      await Promise.race([
+        hrrPromise,
+        new Promise((_, r) =>
+          setTimeout(() => r(new Error("HRR not seen")), 10_000),
+        ),
+      ]);
+      // Inject B immediately after HRR while A is still unpinned
+      serverTransport.onData?.(buildChWithBogusCookie(), bAddr as any);
     });
   }, 25_000);
 
@@ -463,26 +526,64 @@ describe("P2/P3: strict cookie and CertificateVerify codecs", () => {
     ).toThrow(/length mismatch/i);
   });
 
-  test("stateless address cookie embeds CH1 message_hash and binds peer", async () => {
-    // Arrange
-    const { mintAddressCookie, verifyAddressCookie, clientHelloMessageHash } =
-      await import("../../../src/handshake/extensions/cookie");
+  test("stateless address cookie embeds hashes, group, expiry; binds peer", async () => {
+    // Arrange: 実 ClientHello body で immutable hash を検証
+    const {
+      mintAddressCookie,
+      verifyAddressCookie,
+      clientHelloMessageHash,
+      clientHelloImmutableFieldsHash,
+      ADDRESS_COOKIE_LENGTH,
+    } = await import("../../../src/handshake/extensions/cookie");
     const { randomBytes } = await import("crypto");
     const secret = randomBytes(16);
-    const ch1 = randomBytes(120);
+    const group = NamedCurveAlgorithm.x25519_29;
+    const kp = generateKeyPair(group);
+    const curves = EllipticCurves.createEmpty();
+    curves.data = [group] as any;
+    const ch = new ClientHello(
+      WireVersion.DTLS_1_2,
+      new DtlsRandom(),
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+      [0],
+      [
+        SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+        curves.extension,
+        KeyShare.forClient([{ group, keyExchange: kp.publicKey }])
+          .clientExtension,
+        SignatureAlgorithms.create().extension,
+      ],
+    );
+    const ch1 = ch.serialize();
     const peer = "203.0.113.10:40000";
+    const now = Math.floor(Date.now() / 1000);
     // Act
-    const cookie = mintAddressCookie(secret, peer, ch1, { selectedGroup: 29 });
-    const ok = verifyAddressCookie(secret, cookie, peer);
-    // Assert: CH1 hash が cookie に入り peer 不一致は失敗
+    const cookie = mintAddressCookie(secret, peer, ch1, {
+      selectedGroup: 29,
+      nowSec: now,
+    });
+    expect(cookie.length).toBe(ADDRESS_COOKIE_LENGTH);
+    const ok = verifyAddressCookie(secret, cookie, peer, { nowSec: now });
+    // Assert
     expect(ok).toBeTruthy();
     expect(ok!.ch1MessageHash.equals(clientHelloMessageHash(ch1))).toBe(true);
+    expect(
+      ok!.ch1ImmutableHash.equals(
+        clientHelloImmutableFieldsHash(ch1, { hrrSelectedGroup: 29 }),
+      ),
+    ).toBe(true);
     expect(ok!.selectedGroup).toBe(29);
     expect(
       verifyAddressCookie(secret, cookie, "198.51.100.1:1"),
     ).toBeUndefined();
+    // expiry
     expect(
-      verifyAddressCookie(secret, Buffer.alloc(cookie.length, 0), peer),
+      verifyAddressCookie(secret, cookie, peer, {
+        nowSec: now + 120,
+        maxAgeSec: 60,
+      }),
     ).toBeUndefined();
   });
 

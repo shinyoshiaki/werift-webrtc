@@ -214,8 +214,11 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
               /invalid DTLS cookie|illegal_parameter/i.test(pe.message)
             ) {
               try {
+                // Must target the source of *this* datagram (B), never A's
+                // pendingFlightReplyTo from an earlier HRR.
                 await this.sendFatalAlert(
                   pe.alertDescription ?? AlertDesc.IllegalParameter,
+                  this.currentPeerAddr,
                 );
               } catch {
                 // best-effort alert
