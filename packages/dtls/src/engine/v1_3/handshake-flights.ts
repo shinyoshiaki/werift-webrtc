@@ -485,7 +485,10 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       return;
     }
 
-    // Cookie HRR: message_seq 0; ephemeral send toward current peer only
+    // Cookie HRR: message_seq 0; one-shot send to current peer only.
+    // Not retransmittable: unauthenticated sources must not occupy pending
+    // flight / exhaust maxRetransmit and fail() the shared server (RFC 9147
+    // stateless cookie exchange keeps no retransmit state for CH1).
     this.messageSeq = 0;
     const hrr = new ServerHello(
       WireVersion.DTLS_1_2,
@@ -509,7 +512,12 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
     frag.message_seq = 0;
     // Do not set global awaitingHrr / firstClientHelloBody for pre-cookie HRR —
     // state lives in preCookieAttempts + the cookie itself.
-    await this.sendHandshakeFlight([frag], 0, true);
+    await this.sendHandshakeFlight(
+      [frag],
+      0,
+      false, // non-retransmittable
+      this.currentPeerAddr,
+    );
   }
 
   // --- Flight 1→4 server: process ClientHello ---

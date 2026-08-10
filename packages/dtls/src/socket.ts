@@ -325,9 +325,15 @@ export class DtlsSocket {
     engine.onData.subscribe((data) => this.onData.execute(data));
     engine.onError.subscribe((e) => {
       if (options?.filterError?.(e)) return;
+      this.connected = false;
       this.onError.execute(e);
     });
-    engine.onClose.subscribe(() => this.onClose.execute());
+    engine.onClose.subscribe(() => {
+      // Keep public DtlsSocket.connected in sync with engine teardown
+      // (peer close_notify or local close).
+      this.connected = false;
+      this.onClose.execute();
+    });
   }
 
   /**

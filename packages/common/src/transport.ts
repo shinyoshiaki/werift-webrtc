@@ -93,24 +93,19 @@ export class UdpTransport implements Transport {
   }
 
   send = async (data: Buffer, addr?: Address) => {
-    if (addr && !net.isIP(addr[0])) {
-      // if address is not resolved, need to use send callback to handle dns failure.
-      return new Promise<void>((r, f) => {
-        this.socket.send(data, addr![1], addr![0], (error) => {
-          if (error) {
-            log("send error", addr, data);
-            f(error);
-          } else {
-            r();
-          }
-        });
+    addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
+    // Always wait for the send callback so callers that close the socket in
+    // finally (e.g. DTLS close_notify then teardown) do not drop the packet.
+    return new Promise<void>((r, f) => {
+      this.socket.send(data, addr![1], addr![0], (error) => {
+        if (error) {
+          log("send error", addr, data);
+          f(error);
+        } else {
+          r();
+        }
       });
-    } else {
-      addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
-      // a preestablished remote address does not need a callback to verify dns.
-      // this is faster because event loop is not used per packet.
-      this.socket.send(data, addr[1], addr[0]);
-    }
+    });
   };
 
   get address() {

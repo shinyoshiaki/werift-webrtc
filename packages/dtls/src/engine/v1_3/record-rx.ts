@@ -504,12 +504,10 @@ export abstract class Dtls13RecordRx extends Dtls13FlightTx {
     );
 
     if (alert.description === AlertDesc.CloseNotify) {
-      // RFC 9147: store boundary; ignore later app data by epoch/seq pair
-      this.peerCloseBoundary = {
-        epoch: receivedEpoch,
-        sequenceNumber,
-      };
-      log("peer close_notify boundary", receivedEpoch, sequenceNumber);
+      // RFC 9147: record epoch/seq boundary for reordered app data; then align
+      // public lifecycle with local close() (onClose, timers, connected=false).
+      log("peer close_notify", receivedEpoch, sequenceNumber);
+      this.onPeerCloseNotify(receivedEpoch, sequenceNumber);
       return;
     }
 

@@ -511,6 +511,125 @@ describe("P2: CertificateRequest scheme mismatch declines with empty Certificate
   }, 15_000);
 });
 
+describe("P1: pre-cookie HRR is non-retransmitting; unresponsive source does not fail server", () => {
+  test("HRR to silent peer then legitimate client still connects", async () => {
+    // Arrange: 応答しない送信元へ cookie HRR を送った後でも正規クライアントが接続できる
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "dtls-cookie",
+    });
+
+    // Act: 無応答 source が CH を送り HRR を受ける（再送しない / fail しない）
+    const silentCh = buildCh();
+    serverTransport.onData?.(silentCh, ["198.51.100.9", 4444] as any);
+    await new Promise((r) => setTimeout(r, 50));
+    const eng = (server as any).engine13;
+    // Assert: pre-cookie HRR は pending retransmit を占有しない
+    expect(eng.getPendingFlightSize?.() ?? eng.pendingFlight?.length ?? 0).toBe(
+      0,
+    );
+
+    // Act / Assert: 正規クライアントが接続完了する
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("legit client after silent HRR timeout")),
+        20_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      client.onConnect.subscribe(() => {
+        clearTimeout(timer);
+        client.close();
+        server.close();
+        resolve();
+      });
+      await client.connect();
+    });
+  }, 25_000);
+});
+
+describe("P1: peer close_notify lifecycle", () => {
+  test("peer close() fires local onClose and clears connected", async () => {
+    // Arrange: 双方向接続後に server が close
+    const serverTransport = await UdpTransport.init("udp4");
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.address;
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      protocolVersions: [DtlsVersion.V1_3],
+      addressValidation: "none",
+    });
+
+    // Act / Assert: 双方 connected 後に server close → client onClose
+    await new Promise<void>(async (resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("close_notify lifecycle timeout")),
+        15_000,
+      );
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      client.onClose.subscribe(() => {
+        try {
+          // Assert: 公開状態がローカル close と一致
+          expect(client.connected).toBe(false);
+          const eng = (client as any).engine13;
+          expect(eng.connected).toBe(false);
+          expect(eng.closed || eng.isClosed?.()).toBe(true);
+          clearTimeout(timer);
+          client.close();
+          resolve();
+        } catch (e) {
+          clearTimeout(timer);
+          reject(e);
+        }
+      });
+      // 双方の markConnected を待ってから close（client 先行 race を避ける）
+      await Promise.all([
+        new Promise<void>((r) => client.onConnect.once(r)),
+        new Promise<void>((r) => server.onConnect.once(r)),
+        client.connect(),
+      ]);
+      // Act: サーバが close_notify を送って終了
+      server.close();
+    });
+  }, 20_000);
+});
+
 describe("P2/P3: strict cookie and CertificateVerify codecs", () => {
   test("CookieExtension rejects empty and trailing bytes", () => {
     // Arrange / Act / Assert: 空 cookie と trailing を拒否

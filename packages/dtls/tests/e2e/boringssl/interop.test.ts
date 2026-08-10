@@ -291,7 +291,9 @@ describeBssl("e2e/boringssl DTLS 1.3 interop", () => {
         };
         tick();
       });
-      expect(server.connected).toBe(true);
+      // Peer may send close_notify after app data; association teardown sets
+      // connected=false intentionally (public lifecycle parity with local close).
+      expect(gotData).toContain("hello-from-bssl");
       interopLog(
         "bssl-client-werift-server-ok",
         `handshake+bidirectional data ok gotData=${gotData}\nstdout=${stdout}\nstderr=${stderr}`,

@@ -734,6 +734,39 @@ export abstract class Dtls13ConnectionBase {
     this.retransmitCount = 0;
   }
 
+  /**
+   * Tear down the association: pending flights, timers, carrier, optional UDP.
+   * Used by local close() and peer close_notify so public lifecycle stays consistent
+   * (connected=false, onClose fires).
+   */
+  protected teardownAssociation(opts?: { closeTransport?: boolean }): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.connected = false;
+    this.clearPendingFlight();
+    this.clearEarlyAppData();
+    this.cancelEpochPrune?.();
+    this.cancelEpochPrune = undefined;
+    this.carrier.cancelAllTimers();
+    this.carrier.close();
+    if (opts?.closeTransport !== false) {
+      void this.options.transport.close().catch(() => {});
+    }
+    this.onClose.execute();
+  }
+
+  /**
+   * Peer close_notify half-close entry (overridden in Dtls13Connection to reply
+   * with close_notify before teardown).
+   */
+  protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
+    this.peerCloseBoundary = { epoch, sequenceNumber };
+    this.clearPendingFlight();
+    if (!this.closed && this.connected) {
+      this.teardownAssociation();
+    }
+  }
+
   /** Drop pending remote-flight ACK record numbers. */
   protected clearAckAccumulator() {
     this.receivedRecordNumbers = [];
@@ -789,6 +822,7 @@ export abstract class Dtls13ConnectionBase {
     this.cancelEpochPrune = undefined;
     this.carrier.cancelAllTimers();
     this.closed = true;
+    this.connected = false;
     this.onError.execute(err);
 
     // Protocol-version soft fail / dual version selection: keep UDP socket open

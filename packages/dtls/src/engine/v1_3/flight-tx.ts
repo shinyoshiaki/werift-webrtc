@@ -24,10 +24,17 @@ import {
  * Aligns with outbound arrows in index.ts Figure 3.
  */
 export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
+  /**
+   * @param retransmittable When false (pre-cookie HRR), send once without
+   * scheduling retransmission — unauthenticated sources must not exhaust
+   * shared retransmit state and fail() the server.
+   * @param dest Optional explicit destination (currentPeerAddr for pre-cookie).
+   */
   protected async sendHandshakeFlight(
     fragments: FragmentedHandshake[],
     epoch: number,
     retransmittable: boolean,
+    dest?: [string, number],
   ): Promise<void> {
     this.flightId += 1;
     const flightId = this.flightId;
@@ -167,8 +174,7 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
           this.pendingFlightRecordBytes.push(Buffer.from(packets[i]));
         }
       }
-      // Unpinned HRR: remember reply-to so retransmit is not lost when
-      // currentPeerAddr is cleared after the datagram handler returns.
+      // Unpinned retransmit: remember reply-to for timer-driven resend
       if (!this.peerAddr && this.currentPeerAddr) {
         this.pendingFlightReplyTo = [...this.currentPeerAddr];
       }
@@ -176,7 +182,8 @@ export abstract class Dtls13FlightTx extends Dtls13ConnectionBase {
       this.scheduleRetransmit();
     }
 
-    const sendAddr = this.getSendAddr();
+    // Explicit dest for one-shot responses; otherwise pin / retransmit reply-to
+    const sendAddr = dest ?? this.getSendAddr();
     for (const pkt of cachePackets) {
       // Single-record datagrams must fit MTU (RFC 9147 / UDP path MTU)
       if (pkt.bytes.length > mtu) {

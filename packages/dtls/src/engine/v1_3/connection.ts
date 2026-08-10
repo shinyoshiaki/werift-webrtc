@@ -113,12 +113,17 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
 
   close() {
     if (this.closed) return;
-    // RFC 8446: send close_notify before tearing down write side (unless already sent)
-    if (this.connected && !this.localCloseNotifySent) {
-      void this.sendCloseNotify().finally(() => this.teardownClose());
+    // RFC 8446: send close_notify before tearing down write side (unless already sent).
+    // Use write keys (not only connected) so a race where the peer finished first
+    // still emits close_notify.
+    const canSendCloseNotify =
+      !this.localCloseNotifySent &&
+      !!this.epochs.get(this.writeEpoch)?.writeKeys;
+    if (canSendCloseNotify) {
+      void this.sendCloseNotify().finally(() => this.teardownAssociation());
       return;
     }
-    this.teardownClose();
+    this.teardownAssociation();
   }
 
   /** Best-effort close_notify on current write epoch. */
@@ -142,22 +147,25 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
         this.localCloseNotifySent = true;
         await this.options.transport.send(record, this.getSendAddr());
       }
-    } catch (e) {
+    } catch {
       // ignore send failures during close
     }
   }
 
-  private teardownClose() {
-    if (this.closed) return;
-    this.closed = true;
+  /**
+   * Peer sent close_notify: record boundary, stop retransmits, reply close_notify,
+   * then full teardown so public state matches local close() (onClose + !connected).
+   */
+  protected onPeerCloseNotify(epoch: number, sequenceNumber: number): void {
+    this.peerCloseBoundary = { epoch, sequenceNumber };
+    // Stop any pending handshake / KeyUpdate retransmit immediately
     this.clearPendingFlight();
-    this.clearEarlyAppData();
-    this.cancelEpochPrune?.();
-    this.cancelEpochPrune = undefined;
-    this.carrier.cancelAllTimers();
-    this.carrier.close();
-    void this.options.transport.close().catch(() => {});
-    this.onClose.execute();
+    if (this.closed) return;
+    if (this.connected && !this.localCloseNotifySent) {
+      void this.sendCloseNotify().finally(() => this.teardownAssociation());
+      return;
+    }
+    this.teardownAssociation();
   }
 
   /** True after close() or fail() has torn down the association. */
