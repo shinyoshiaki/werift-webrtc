@@ -6,10 +6,7 @@ import {
   DtlsVersion,
   ProtocolVersionError,
 } from "../../src";
-import {
-  HashAlgorithm,
-  SignatureAlgorithm,
-} from "../../src/cipher/const";
+import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { HandshakeType } from "../../src/handshake/const";
 import { ServerHello } from "../../src/handshake/message/server/hello";
 import { FragmentedHandshake } from "../../src/record/message/fragment";

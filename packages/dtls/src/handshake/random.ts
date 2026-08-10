@@ -48,7 +48,9 @@ export class DtlsRandom {
    */
   applyTls12DowngradeSentinel(): void {
     if (this.random_bytes.length < 8) {
-      throw new Error("DtlsRandom.random_bytes too short for downgrade sentinel");
+      throw new Error(
+        "DtlsRandom.random_bytes too short for downgrade sentinel",
+      );
     }
     DOWNGRADE_TLS12_SENTINEL.copy(
       this.random_bytes,

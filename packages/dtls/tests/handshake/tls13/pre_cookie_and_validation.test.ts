@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../../common/src";
-import {
-  DtlsClient,
-  DtlsServer,
-  DtlsVersion,
-} from "../../../src";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
 import { CipherSuite, NamedCurveAlgorithm } from "../../../src/cipher/const";
 import { generateKeyPair } from "../../../src/cipher/namedCurve";
 import { CookieExtension } from "../../../src/handshake/extensions/cookie";
@@ -50,9 +46,8 @@ function buildCh(opts?: {
     [
       SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
       curves.extension,
-      KeyShare.forClient([
-        { group, keyExchange: kp.publicKey as Buffer },
-      ]).clientExtension,
+      KeyShare.forClient([{ group, keyExchange: kp.publicKey as Buffer }])
+        .clientExtension,
       SignatureAlgorithms.create().extension,
     ],
   );
@@ -102,9 +97,7 @@ describe("P1: pre-cookie malformed CH must not kill association", () => {
       server.onError.subscribe((e) => {
         clearTimeout(timer);
         reject(
-          new Error(
-            `server must not fail from unvalidated B: ${e.message}`,
-          ),
+          new Error(`server must not fail from unvalidated B: ${e.message}`),
         );
       });
       client.onConnect.subscribe(() => {

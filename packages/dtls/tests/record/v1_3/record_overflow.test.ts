@@ -65,9 +65,9 @@ describe("DTLS 1.3 record length limits (record_overflow)", () => {
     };
     const big = Buffer.alloc(DTLS13_MAX_PLAINTEXT_LENGTH + 1, 7);
     // Act / Assert: レコード保護を検証する
-    expect(() =>
-      encryptRecord(big, ContentType.applicationData, ep),
-    ).toThrow(DtlsRecordOverflowError);
+    expect(() => encryptRecord(big, ContentType.applicationData, ep)).toThrow(
+      DtlsRecordOverflowError,
+    );
   });
 
   test("encryptRecord accepts plaintext at 2^14 boundary", () => {
