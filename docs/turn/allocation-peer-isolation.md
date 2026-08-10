@@ -1,7 +1,7 @@
-# Issue #667: TURN allocation 汚染の before / after
+# TURN allocation の peer isolation
 
 同一 TURN allocation 上で、ある peer 向け `CreatePermission` / `ChannelBind` が拒否されたあと、
-別 peer 向けの後続操作がどうなるかをシーケンスで示す。
+別 peer 向けの後続操作がどうなるかをシーケンスで示す（before / after）。
 
 対象実装: `packages/ice/src/turn/protocol.ts`（`TurnProtocol`）
 
@@ -105,4 +105,5 @@ sequenceDiagram
 | A 失敗後の B | 共有 rejected Promise で即失敗 | B 専用操作が実行され成功しうる |
 | ICE 上の意味 | 拒否候補が先だと接続全滅しうる | 拒否候補の後でも valid relay で接続可 |
 
-関連: `werift-issue-667-root-cause-and-fix.md`、試験は `packages/ice/tests/ice/turn-protocol-isolation.test.ts` および `turn.test.ts`（拒否 peer 先行 ICE）。
+関連ドキュメント: `werift-issue-667-root-cause-and-fix.md`  
+試験: `packages/ice/tests/ice/turn-protocol-isolation.test.ts`、`packages/ice/tests/ice/turn.test.ts`（拒否 peer 先行 ICE）
