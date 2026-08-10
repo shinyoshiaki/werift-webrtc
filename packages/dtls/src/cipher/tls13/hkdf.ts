@@ -1,4 +1,4 @@
-import { createHash, createHmac, hkdfSync } from "crypto";
+import { createHash, createHmac } from "crypto";
 
 /**
  * DTLS 1.3 / TLS 1.3 HKDF helpers (RFC 8446 §7.1, RFC 9147).
@@ -22,33 +22,12 @@ export function hkdfExtract(salt: Buffer, ikm: Buffer): Buffer {
 }
 
 /**
- * HKDF-Expand-Label(Secret, Label, Context, Length)
- * HkdfLabel = length(2) || "dtls13"+Label || Context
- */
-export function hkdfExpandLabel(
-  secret: Buffer,
-  label: string,
-  context: Buffer,
-  length: number,
-  labelPrefix: string = DTLS13_LABEL_PREFIX,
-): Buffer {
-  const fullLabel = Buffer.from(labelPrefix + label, "ascii");
-  const hkdfLabel = Buffer.alloc(2 + 1 + fullLabel.length + 1 + context.length);
-  hkdfLabel.writeUInt16BE(length, 0);
-  hkdfLabel.writeUInt8(fullLabel.length, 2);
-  fullLabel.copy(hkdfLabel, 3);
-  hkdfLabel.writeUInt8(context.length, 3 + fullLabel.length);
-  context.copy(hkdfLabel, 4 + fullLabel.length);
-
-  // HKDF-Expand(Secret, HkdfLabel, Length) via Node crypto
-  return Buffer.from(
-    hkdfSync("sha256", secret, Buffer.alloc(0), hkdfLabel, length),
-  );
-}
-
-/**
- * Manual HKDF-Expand for environments where we need explicit control.
+ * Manual HKDF-Expand (RFC 5869).
  * OKM = T(1) || T(2) || ... where T(i) = HMAC(PRK, T(i-1) || info || i)
+ *
+ * TLS/DTLS 1.3 treat `secret` as PRK and only Expand (no Extract step).
+ * Do not use Node `hkdfSync` here: it always Extract+Expand and mismatches
+ * Expand-Label vectors when the secret is already a PRK.
  */
 export function hkdfExpand(prk: Buffer, info: Buffer, length: number): Buffer {
   const hashLen = 32;
@@ -64,7 +43,11 @@ export function hkdfExpand(prk: Buffer, info: Buffer, length: number): Buffer {
   return Buffer.concat(okm).subarray(0, length);
 }
 
-export function hkdfExpandLabelManual(
+/**
+ * HKDF-Expand-Label(Secret, Label, Context, Length) — RFC 8446 §7.1.
+ * HkdfLabel = length(2) || labelPrefix+Label || Context
+ */
+export function hkdfExpandLabel(
   secret: Buffer,
   label: string,
   context: Buffer,
@@ -81,6 +64,20 @@ export function hkdfExpandLabelManual(
   return hkdfExpand(secret, hkdfLabel, length);
 }
 
+/**
+ * Alias for {@link hkdfExpandLabel} (historical name from the dual-path era).
+ * Prefer `hkdfExpandLabel` in new code.
+ */
+export function hkdfExpandLabelManual(
+  secret: Buffer,
+  label: string,
+  context: Buffer,
+  length: number,
+  labelPrefix: string = DTLS13_LABEL_PREFIX,
+): Buffer {
+  return hkdfExpandLabel(secret, label, context, length, labelPrefix);
+}
+
 export function deriveSecret(
   secret: Buffer,
   label: string,
@@ -88,7 +85,7 @@ export function deriveSecret(
   labelPrefix: string = DTLS13_LABEL_PREFIX,
 ): Buffer {
   const transcriptHash = hashSha256(messages);
-  return hkdfExpandLabelManual(secret, label, transcriptHash, 32, labelPrefix);
+  return hkdfExpandLabel(secret, label, transcriptHash, 32, labelPrefix);
 }
 
 export function emptyHashSha256(): Buffer {

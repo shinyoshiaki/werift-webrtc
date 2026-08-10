@@ -3,7 +3,7 @@ import {
   deriveSecret,
   emptyHashSha256,
   hashSha256,
-  hkdfExpandLabelManual,
+  hkdfExpandLabel,
   hkdfExtract,
   hmacSha256,
 } from "./hkdf";
@@ -62,7 +62,7 @@ export class Dtls13KeySchedule {
     );
     // For empty messages, Derive-Secret uses Hash("")
     // deriveSecret already hashes messages; for "derived" use empty hash context:
-    const derivedSecret = hkdfExpandLabelManual(
+    const derivedSecret = hkdfExpandLabel(
       earlySecret,
       "derived",
       emptyHashSha256(),
@@ -101,7 +101,7 @@ export class Dtls13KeySchedule {
     serverApplicationTrafficSecret: Buffer;
     exporterMasterSecret: Buffer;
   } {
-    const derivedSecret = hkdfExpandLabelManual(
+    const derivedSecret = hkdfExpandLabel(
       handshakeSecret,
       "derived",
       emptyHashSha256(),
@@ -139,14 +139,14 @@ export class Dtls13KeySchedule {
 
   trafficKeys(trafficSecret: Buffer): TrafficKeys {
     return {
-      key: hkdfExpandLabelManual(
+      key: hkdfExpandLabel(
         trafficSecret,
         "key",
         Buffer.alloc(0),
         KEY_LEN,
         this.labelPrefix,
       ),
-      iv: hkdfExpandLabelManual(
+      iv: hkdfExpandLabel(
         trafficSecret,
         "iv",
         Buffer.alloc(0),
@@ -154,7 +154,7 @@ export class Dtls13KeySchedule {
         this.labelPrefix,
       ),
       /** Record number encryption key (RFC 9147 §4.2.3) */
-      snKey: hkdfExpandLabelManual(
+      snKey: hkdfExpandLabel(
         trafficSecret,
         "sn",
         Buffer.alloc(0),
@@ -165,7 +165,7 @@ export class Dtls13KeySchedule {
   }
 
   finishedKey(baseKey: Buffer): Buffer {
-    return hkdfExpandLabelManual(
+    return hkdfExpandLabel(
       baseKey,
       "finished",
       Buffer.alloc(0),
@@ -209,7 +209,7 @@ export class Dtls13KeySchedule {
    *   HKDF-Expand-Label(..., "traffic upd", "", Hash.length)
    */
   updateTrafficSecret(secret: Buffer): Buffer {
-    return hkdfExpandLabelManual(
+    return hkdfExpandLabel(
       secret,
       "traffic upd",
       Buffer.alloc(0),
@@ -236,7 +236,7 @@ export class Dtls13KeySchedule {
       Buffer.alloc(0),
       this.labelPrefix,
     );
-    return hkdfExpandLabelManual(
+    return hkdfExpandLabel(
       derived,
       "exporter",
       hashSha256(context),
