@@ -10,5 +10,5 @@
 
 libwebrtc ProbeController-aligned states:
 - init: no probing initiated yet
-- waiting_for_result: cluster(s) outstanding (queued and/or front active)
+- waiting_for_result: pacing and/or awaiting-ACK clusters outstanding
 - complete: initial exponential probing finished

@@ -102,8 +102,7 @@ export class ReceiverTWCC {
       const ageUs = nowUs - info.timestamp;
       const back = (latestTsn - tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
       const tooOld = ageUs > maxAgeUs;
-      const tooFar =
-        back > REORDER_BACK_WINDOW_SEQ && back < MAX_FEEDBACK_SPAN;
+      const tooFar = back > REORDER_BACK_WINDOW_SEQ && back < MAX_FEEDBACK_SPAN;
       if (tooOld || tooFar) {
         this.arrivalHistory.delete(tsn);
       }

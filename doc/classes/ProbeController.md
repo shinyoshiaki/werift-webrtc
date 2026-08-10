@@ -6,16 +6,17 @@
 
 # Class: ProbeController
 
-Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator` +
-BitrateProber FIFO semantics).
+Probe controller (libwebrtc ProbeController + BitrateProber FIFO +
+ProbeBitrateEstimator).
 
-- `setBitrates` / cold start creates exponential configs (×3 then ×6)
-- Configs are **queued**; only the **front** cluster is active for pacing
-  and packet assignment (libwebrtc BitrateProber FIFO — not multi-active)
-- InitiateProbing may still **return** both configs (started events) so the
-  app can see planned clusters; only one is paced at a time
-- Send fill requires **minBytes AND minPackets**; ACK validation uses 80%
-- Recovery probes use current estimate + cooldown
+Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
+- `pacing`: cluster currently being sent (at most one)
+- `awaitingResults`: clusters whose send fill is done, waiting for TWCC ACK
+- On **send** fill (minBytes AND minPackets), front is moved to awaiting and
+  the next queued cluster becomes pacing — **without waiting for ACK**
+- Timeout / cooldown / startMs use **sender clock** only; `receivedAtMs` is
+  used solely for receive-rate estimation
+- `setBitrates` / activate returns only **activated** configs (for pacing)
 
 ## Constructors
 
@@ -41,13 +42,25 @@ BitrateProber FIFO semantics).
 
 ***
 
+### awaitingResultCount
+
+#### Get Signature
+
+> **get** **awaitingResultCount**(): `number`
+
+##### Returns
+
+`number`
+
+***
+
 ### currentProbeTargetBps
 
 #### Get Signature
 
 > **get** **currentProbeTargetBps**(): `number`
 
-Pacing target = front (only) active cluster bitrate.
+Pacing target = current pacing cluster only (not queued, not awaiting).
 
 ##### Returns
 
@@ -85,8 +98,6 @@ Pacing target = front (only) active cluster bitrate.
 
 > **get** **queuedClusterCount**(): `number`
 
-Queued clusters waiting behind the front (e.g. 6x while 3x runs).
-
 ##### Returns
 
 `number`
@@ -123,11 +134,10 @@ Queued clusters waiting behind the front (e.g. 6x while 3x runs).
 
 ### onAckedPacket()
 
-> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`): `void`
 
-ACK a packet. Only credits the cluster that owned the wideSeq at send.
-Applies ProbeBitrateEstimator validation before accepting a result.
-On completion, pops front and activates the next queued cluster.
+ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
+awaiting). Does **not** advance FIFO pacing — that happens on send fill.
 
 #### Parameters
 
@@ -139,26 +149,35 @@ On completion, pops front and activates the next queued cluster.
 
 `number`
 
+TWCC receiver timeline (rate math only)
+
 ##### isProbe
 
 `boolean`
 
-##### wideSeq?
+##### wideSeq
+
+`undefined` | `number`
+
+##### senderNowMs
 
 `number`
 
+sender clock for session completion / cooldown
+
 #### Returns
 
-[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+`void`
 
 ***
 
 ### onProbePacketSent()
 
-> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`): `number`
+> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`): `object`
 
-Record a probation (probe-tagged) packet at send time.
-Always assigns to the **front** active cluster.
+Record a probation packet at **send** time (sender clock = sendMs).
+When minBytes AND minPackets are met, pops pacing → awaitingResults and
+activates the next queued cluster (libwebrtc BitrateProber::ProbeSent).
 
 #### Parameters
 
@@ -176,13 +195,26 @@ Always assigns to the **front** active cluster.
 
 #### Returns
 
-`number`
+`object`
+
+newly activated pacing configs (may include the next FIFO cluster)
+
+##### activated
+
+> **activated**: [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+##### clusterId
+
+> **clusterId**: `number`
 
 ***
 
 ### process()
 
 > **process**(`nowMs`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+
+Advance timeouts using **sender clock** (`nowMs` = milliTime / Date.now).
+Returns newly activated pacing configs (if any).
 
 #### Parameters
 
@@ -200,8 +232,7 @@ Always assigns to the **front** active cluster.
 
 > **remainingProbeBytes**(`packetBytes`): `number`
 
-Bytes still needed for the **front** active cluster (padding injection).
-Considers both minBytes and a byte proxy for remaining minPackets.
+Bytes still needed for the **pacing** cluster (padding injection).
 
 #### Parameters
 

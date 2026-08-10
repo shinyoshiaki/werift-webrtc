@@ -564,7 +564,17 @@ describe("media/sender bandwidth estimator", () => {
       loss.reset(500_000);
       for (let i = 0; i < 4; i++) {
         const first = 1000 + i * 300;
-        loss.update(0.0, 500_000, 480_000, 30, 0, first, 18_000, first + 300, 0);
+        loss.update(
+          0.0,
+          500_000,
+          480_000,
+          30,
+          0,
+          first,
+          18_000,
+          first + 300,
+          0,
+        );
       }
       (loss as any).delayBasedBps = 500_000;
       (loss as any).state = "decreasing";
@@ -829,9 +839,9 @@ describe("media/sender bandwidth estimator", () => {
       expect(["complete", "waiting_for_result"]).toContain(gcc.probeState);
       // activate イベントは 3x の後、送信完了で 6x（重複なし）
       expect(clusters[0]).toBe(100_000 * 3);
-      expect(clusters.filter((b) => b === 100_000 * 6).length).toBeLessThanOrEqual(
-        1,
-      );
+      expect(
+        clusters.filter((b) => b === 100_000 * 6).length,
+      ).toBeLessThanOrEqual(1);
     });
 
     test("probe 失敗（未 ACK）では推定がスタート付近のまま", () => {
