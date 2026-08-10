@@ -22,8 +22,8 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import type { Alert } from "./handshake/message/alert";
 import type { SrtpProfile } from "./imports/rtp";
-import { Alert } from "./handshake/message/alert";
 import { createPlaintext } from "./record/builder";
 import { AlertDesc, ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -145,10 +145,7 @@ export class DtlsSocket {
             case ContentType.alert:
               {
                 const alert = message.data as Alert | undefined;
-                if (
-                  alert &&
-                  alert.description === AlertDesc.ProtocolVersion
-                ) {
+                if (alert && alert.description === AlertDesc.ProtocolVersion) {
                   // 1.2-only peer × 1.3-only server: protocol_version(70)
                   const pe = new ProtocolVersionError(
                     "peer rejected protocol version (alert protocol_version)",
