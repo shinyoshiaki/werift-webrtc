@@ -6,12 +6,15 @@
 
 # Class: ProbeController
 
-Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
+Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator` +
+BitrateProber FIFO semantics).
 
-- `setBitrates` / cold start → exponential probe clusters (×3 and ×6)
-- **Multi-active**: initial 3x/6x can be active simultaneously
-- Per-packet **cluster id** (via wideSeq map) — ACKs credit one cluster only
-- Result validation: min receive %, send/recv intervals, send/recv rate ratio
+- `setBitrates` / cold start creates exponential configs (×3 then ×6)
+- Configs are **queued**; only the **front** cluster is active for pacing
+  and packet assignment (libwebrtc BitrateProber FIFO — not multi-active)
+- InitiateProbing may still **return** both configs (started events) so the
+  app can see planned clusters; only one is paced at a time
+- Send fill requires **minBytes AND minPackets**; ACK validation uses 80%
 - Recovery probes use current estimate + cooldown
 
 ## Constructors
@@ -30,11 +33,11 @@ Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
 
 #### Get Signature
 
-> **get** **activeClusterCount**(): `number`
+> **get** **activeClusterCount**(): `0` \| `1`
 
 ##### Returns
 
-`number`
+`0` \| `1`
 
 ***
 
@@ -43,6 +46,8 @@ Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
 #### Get Signature
 
 > **get** **currentProbeTargetBps**(): `number`
+
+Pacing target = front (only) active cluster bitrate.
 
 ##### Returns
 
@@ -71,6 +76,20 @@ Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
 ##### Returns
 
 [`ProbeState`](../type-aliases/ProbeState.md)
+
+***
+
+### queuedClusterCount
+
+#### Get Signature
+
+> **get** **queuedClusterCount**(): `number`
+
+Queued clusters waiting behind the front (e.g. 6x while 3x runs).
+
+##### Returns
+
+`number`
 
 ***
 
@@ -104,10 +123,11 @@ Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator`).
 
 ### onAckedPacket()
 
-> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`?): `void`
+> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
 ACK a packet. Only credits the cluster that owned the wideSeq at send.
 Applies ProbeBitrateEstimator validation before accepting a result.
+On completion, pops front and activates the next queued cluster.
 
 #### Parameters
 
@@ -129,7 +149,7 @@ Applies ProbeBitrateEstimator validation before accepting a result.
 
 #### Returns
 
-`void`
+[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
 ***
 
@@ -138,7 +158,7 @@ Applies ProbeBitrateEstimator validation before accepting a result.
 > **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`): `number`
 
 Record a probation (probe-tagged) packet at send time.
-Assigns the packet to one active cluster and stores wideSeq → clusterId.
+Always assigns to the **front** active cluster.
 
 #### Parameters
 
@@ -178,9 +198,16 @@ Assigns the packet to one active cluster and stores wideSeq → clusterId.
 
 ### remainingProbeBytes()
 
-> **remainingProbeBytes**(): `number`
+> **remainingProbeBytes**(`packetBytes`): `number`
 
-Bytes still needed across active clusters (for padding injection).
+Bytes still needed for the **front** active cluster (padding injection).
+Considers both minBytes and a byte proxy for remaining minPackets.
+
+#### Parameters
+
+##### packetBytes
+
+`number` = `200`
 
 #### Returns
 

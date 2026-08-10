@@ -144,8 +144,7 @@ export class ProbeController {
    */
   private sendFillComplete(c: ActiveCluster): boolean {
     return (
-      c.sentPackets >= c.config.minPackets &&
-      c.sentBytes >= c.config.minBytes
+      c.sentPackets >= c.config.minPackets && c.sentBytes >= c.config.minBytes
     );
   }
 

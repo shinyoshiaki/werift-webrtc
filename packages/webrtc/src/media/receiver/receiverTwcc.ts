@@ -273,8 +273,7 @@ export class ReceiverTWCC {
       this.nextReportTsn = next;
       return;
     }
-    const advance =
-      (next - this.nextReportTsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+    const advance = (next - this.nextReportTsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
     if (advance > 0 && advance < MAX_FEEDBACK_SPAN) {
       this.nextReportTsn = next;
     }
@@ -302,8 +301,7 @@ export class ReceiverTWCC {
       if (late.length > 0) {
         // Earliest late packet (max back-distance from frontier).
         let best = late[0];
-        let bestBack =
-          (frontier - best.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
+        let bestBack = (frontier - best.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
         for (const r of late) {
           const back = (frontier - r.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
           if (back > bestBack) {
