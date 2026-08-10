@@ -29,6 +29,7 @@
 - [IceOptions](interfaces/IceOptions.md)
 - [Protocol](interfaces/Protocol.md)
 - [TransactionRequestOptions](interfaces/TransactionRequestOptions.md)
+- [TurnChannel](interfaces/TurnChannel.md)
 - [TurnClientConfig](interfaces/TurnClientConfig.md)
 - [TurnClientOptions](interfaces/TurnClientOptions.md)
 
