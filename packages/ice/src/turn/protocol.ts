@@ -525,7 +525,9 @@ export class TurnProtocol implements Protocol {
       return cached;
     }
 
-    const operation = this.channelBindQueue.then(() => this.ensureChannel(addr));
+    const operation = this.channelBindQueue.then(() =>
+      this.ensureChannel(addr),
+    );
 
     // Do not let rejection poison subsequent peers on the shared queue.
     this.channelBindQueue = operation.then(

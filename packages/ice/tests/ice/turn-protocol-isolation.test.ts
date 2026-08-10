@@ -308,10 +308,13 @@ describe("TurnProtocol isolation (issue #667)", () => {
     // Arrange: A は ChannelBind 拒否、B は成功。send を記録
     const turn = createTurnProtocol();
     const sent: Buffer[] = [];
-    (turn as unknown as { send: (data: Buffer, addr: Address) => Promise<void> }).send =
-      async (data: Buffer) => {
-        sent.push(data);
-      };
+    (
+      turn as unknown as {
+        send: (data: Buffer, addr: Address) => Promise<void>;
+      }
+    ).send = async (data: Buffer) => {
+      sent.push(data);
+    };
 
     turn.requestWithRetry = async (request) => {
       if (request.messageMethod === methods.CHANNEL_BIND) {

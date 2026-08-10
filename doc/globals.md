@@ -156,6 +156,7 @@
 - [TransactionRequestOptions](interfaces/TransactionRequestOptions.md)
 - [TransceiverOptions](interfaces/TransceiverOptions.md)
 - [Transport](interfaces/Transport.md)
+- [TurnChannel](interfaces/TurnChannel.md)
 - [TurnClientConfig](interfaces/TurnClientConfig.md)
 - [TurnClientOptions](interfaces/TurnClientOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
