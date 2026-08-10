@@ -100,9 +100,8 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
         [
           SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
           curves.extension,
-          KeyShare.forClient([
-            { group, keyExchange: kp.publicKey },
-          ]).clientExtension,
+          KeyShare.forClient([{ group, keyExchange: kp.publicKey }])
+            .clientExtension,
           // deliberately omit signature_algorithms
         ],
       );
@@ -183,9 +182,8 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
         [
           SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
           curves.extension,
-          KeyShare.forClient([
-            { group, keyExchange: kp.publicKey },
-          ]).clientExtension,
+          KeyShare.forClient([{ group, keyExchange: kp.publicKey }])
+            .clientExtension,
           SignatureAlgorithms.create().extension,
           new CookieExtension(badCookie).extension,
         ],
@@ -480,7 +478,9 @@ describe("P2/P3: strict cookie and CertificateVerify codecs", () => {
     expect(ok).toBeTruthy();
     expect(ok!.ch1MessageHash.equals(clientHelloMessageHash(ch1))).toBe(true);
     expect(ok!.selectedGroup).toBe(29);
-    expect(verifyAddressCookie(secret, cookie, "198.51.100.1:1")).toBeUndefined();
+    expect(
+      verifyAddressCookie(secret, cookie, "198.51.100.1:1"),
+    ).toBeUndefined();
     expect(
       verifyAddressCookie(secret, Buffer.alloc(cookie.length, 0), peer),
     ).toBeUndefined();

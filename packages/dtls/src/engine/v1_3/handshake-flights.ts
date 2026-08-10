@@ -739,10 +739,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
       }
       // Restore CH1 for optional field checks from per-peer map when present
       const attempt = this.getPreCookieAttempt(bindPeer);
-      if (
-        attempt &&
-        attempt.ch1MessageHash.equals(verified.ch1MessageHash)
-      ) {
+      if (attempt?.ch1MessageHash.equals(verified.ch1MessageHash)) {
         this.firstClientHelloBody = attempt.ch1Body;
       } else {
         // Stateless path: no CH1 body — transcript uses precomputed message_hash
@@ -768,11 +765,7 @@ export abstract class Dtls13HandshakeFlights extends Dtls13RecordRx {
 
       // Optional CH2 vs CH1 field check when we still have CH1 body
       if (this.firstClientHelloBody) {
-        this.validateClientHelloAfterHrr(
-          this.firstClientHelloBody,
-          ch,
-          body,
-        );
+        this.validateClientHelloAfterHrr(this.firstClientHelloBody, ch, body);
       } else if (needGroupHrr || verified.selectedGroup !== undefined) {
         // Without CH1 body, still enforce single key_share for HRR group
         if (verified.selectedGroup !== undefined) {

@@ -640,7 +640,7 @@ export abstract class Dtls13ConnectionBase {
     while (this.preCookieAttempts.size > MAX_PRE_COOKIE_ATTEMPTS) {
       // Drop oldest
       let oldestKey: string | undefined;
-      let oldestAt = Infinity;
+      let oldestAt = Number.POSITIVE_INFINITY;
       for (const [k, v] of this.preCookieAttempts) {
         if (v.createdAt < oldestAt) {
           oldestAt = v.createdAt;

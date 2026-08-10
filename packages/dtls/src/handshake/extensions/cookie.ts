@@ -94,11 +94,13 @@ function macAddressCookie(
     .update(salt)
     .update(ch1MessageHash)
     .update(Buffer.from([flags & 0xff]))
-    .update((() => {
-      const g = Buffer.alloc(2);
-      g.writeUInt16BE(group & 0xffff, 0);
-      return g;
-    })())
+    .update(
+      (() => {
+        const g = Buffer.alloc(2);
+        g.writeUInt16BE(group & 0xffff, 0);
+        return g;
+      })(),
+    )
     .update(Buffer.from(peerKey, "utf8"))
     .digest()
     .subarray(0, 16);
