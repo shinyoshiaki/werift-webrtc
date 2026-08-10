@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.24.4
+
+### 🐛 Bug Fixes
+
+- **TURN CreatePermission / ChannelBind peer isolation** (#667, #668): Fix `TurnProtocol` so a rejected peer no longer poisons later peers on the same TURN allocation.
+  - Per-peer in-flight maps and success-only caches (permission by IP, channel by IP+port); allocation-global shared Promise poison removed.
+  - Serial queues keep a resolved tail so one peer’s rejection is not re-thrown to the next.
+  - Failed ChannelBind rolls back provisional mapping; failed channel numbers are not reused; channel refresh deadlines are per channel.
+  - ICE connectivity checks can fail a high-priority rejected remote first and still nominate a later valid `relay ↔ relay` pair and exchange data.
+- **PeerConnection close / Event cleanup** (#665): On `close()`, complete public `Event`s (including `connectionStateChange` / `onNegotiationneeded`) so subscribers and closures do not retain the peer; `Event.allUnsubscribe` is idempotent after `complete()` instead of throwing.
+
+### 🧪 Testing & tooling
+
+- **Memleak harness** (`packages/webrtc`, #665): Opt-in heap-snapshot scenarios for major use cases (`npm run memleak`, Node 24+); not part of default CI.
+- **pion TURN interop** (`packages/ice`, #667): Opt-in Docker integration via `npm run test:pion-turn` / `PION_TURN_HOST`; unit isolation tests for permission/channel peer isolation.
+- Design note: `docs/design/allocation-peer-isolation.md` (before/after sequences).
+
+### 📦 Packaging / versions
+
+- **`werift`** (`packages/webrtc`): `0.24.3` → **`0.24.4`**
+- **`werift-ice`** (`packages/ice`): `0.2.2` → **`0.2.3`**
+- Other lower-level packages unchanged (`werift-common` 0.0.3, `werift-rtp` 0.8.9, `werift-sctp` 0.0.11, `werift-dtls` 0.5.8, `werift-ice-server` 0.0.1).
+
 ## v0.24.3
 
 ### 📦 Packaging / versions
