@@ -216,7 +216,10 @@ sec
 
 ### getChannel()
 
-> **getChannel**(`addr`): `Promise`\<\{ `address`: readonly \[`string`, `number`\]; `number`: `number`; \}\>
+> **getChannel**(`addr`): `Promise`\<[`TurnChannel`](../interfaces/TurnChannel.md)\>
+
+Ensure a ChannelBind exists for the peer transport address.
+Peer failures are isolated; concurrent same-peer calls share one Promise.
 
 #### Parameters
 
@@ -226,13 +229,16 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`Promise`\<\{ `address`: readonly \[`string`, `number`\]; `number`: `number`; \}\>
+`Promise`\<[`TurnChannel`](../interfaces/TurnChannel.md)\>
 
 ***
 
 ### getPermission()
 
 > **getPermission**(`addr`): `Promise`\<`void`\>
+
+Ensure a CreatePermission exists for the peer IP.
+Peer failures are isolated: a rejection for peer A does not poison peer B.
 
 #### Parameters
 
