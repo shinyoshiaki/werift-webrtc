@@ -22,7 +22,7 @@ import {
 /**
  * libwebrtc ProbeController-aligned states:
  * - init: no probing initiated yet
- * - waiting_for_result: cluster(s) outstanding (queued and/or front active)
+ * - waiting_for_result: pacing and/or awaiting-ACK clusters outstanding
  * - complete: initial exponential probing finished
  */
 export type ProbeState = "init" | "waiting_for_result" | "complete";
@@ -41,8 +41,9 @@ export interface ProbeClusterConfig {
  * Per-cluster stats for libwebrtc ProbeBitrateEstimator-style validation.
  * Packets are assigned a cluster id at send time (wideSeq → clusterId map).
  */
-interface ActiveCluster {
+interface ClusterRuntime {
   config: ProbeClusterConfig;
+  /** Sender-clock (Date.now / milliTime) when pacing for this cluster started. */
   startMs: number;
   // Send-side
   sentBytes: number;
@@ -50,7 +51,7 @@ interface ActiveCluster {
   firstSendMs: number;
   lastSendMs: number;
   sizeLastSend: number;
-  // Receive / ACK side
+  // Receive / ACK side (TWCC receiver timeline — only for rate math)
   ackedBytes: number;
   ackedPackets: number;
   firstRecvMs: number;
@@ -59,26 +60,30 @@ interface ActiveCluster {
 }
 
 /**
- * Probe controller (libwebrtc `ProbeController` + `ProbeBitrateEstimator` +
- * BitrateProber FIFO semantics).
+ * Probe controller (libwebrtc ProbeController + BitrateProber FIFO +
+ * ProbeBitrateEstimator).
  *
- * - `setBitrates` / cold start creates exponential configs (×3 then ×6)
- * - Configs are **queued**; only the **front** cluster is active for pacing
- *   and packet assignment (libwebrtc BitrateProber FIFO — not multi-active)
- * - InitiateProbing may still **return** both configs (started events) so the
- *   app can see planned clusters; only one is paced at a time
- * - Send fill requires **minBytes AND minPackets**; ACK validation uses 80%
- * - Recovery probes use current estimate + cooldown
+ * Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
+ * - `pacing`: cluster currently being sent (at most one)
+ * - `awaitingResults`: clusters whose send fill is done, waiting for TWCC ACK
+ * - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
+ *   the next queued cluster becomes pacing — **without waiting for ACK**
+ * - Timeout / cooldown / startMs use **sender clock** only; `receivedAtMs` is
+ *   used solely for receive-rate estimation
+ * - `setBitrates` / activate returns only **activated** configs (for pacing)
  */
 export class ProbeController {
   private state: ProbeState = "init";
   private nextClusterId = 1;
-  /** At most one active cluster (FIFO front). */
-  private active: ActiveCluster | undefined;
+  /** Cluster currently being paced/sent (FIFO front). */
+  private pacing: ClusterRuntime | undefined;
+  /** Send-complete clusters awaiting TWCC result validation. */
+  private awaitingResults = new Map<number, ClusterRuntime>();
   private queue: ProbeClusterConfig[] = [];
   private estimatedBps = 0;
   private pendingEstimateBps = 0;
   private lastProbeTargetBps = 0;
+  /** Sender-clock time when last probe session ended. */
   private lastProbeEndMs = Number.NEGATIVE_INFINITY;
   private minBitrateBps = kMinBitrateBps;
   private startBitrateBps = kDefaultStartBitrateBps;
@@ -90,7 +95,8 @@ export class ProbeController {
   reset(_atTimeMs = 0) {
     this.state = "init";
     this.nextClusterId = 1;
-    this.active = undefined;
+    this.pacing = undefined;
+    this.awaitingResults.clear();
     this.queue = [];
     this.estimatedBps = 0;
     this.pendingEstimateBps = 0;
@@ -111,9 +117,9 @@ export class ProbeController {
     return this.estimatedBps;
   }
 
-  /** Pacing target = front (only) active cluster bitrate. */
+  /** Pacing target = current pacing cluster only (not queued, not awaiting). */
   get currentProbeTargetBps() {
-    return this.active?.config.targetBps ?? 0;
+    return this.pacing?.config.targetBps ?? 0;
   }
 
   get suggestedProbeBitrateBps() {
@@ -121,12 +127,15 @@ export class ProbeController {
   }
 
   get activeClusterCount() {
-    return this.active ? 1 : 0;
+    return this.pacing ? 1 : 0;
   }
 
-  /** Queued clusters waiting behind the front (e.g. 6x while 3x runs). */
   get queuedClusterCount() {
     return this.queue.length;
+  }
+
+  get awaitingResultCount() {
+    return this.awaitingResults.size;
   }
 
   takePendingEstimateBps(): number {
@@ -136,25 +145,21 @@ export class ProbeController {
   }
 
   shouldTagProbePacket(): boolean {
-    return this.active !== undefined;
+    return this.pacing !== undefined && !this.sendFillComplete(this.pacing);
   }
 
-  /**
-   * Whether the front cluster still needs more sent packets/bytes.
-   */
-  private sendFillComplete(c: ActiveCluster): boolean {
+  private sendFillComplete(c: ClusterRuntime): boolean {
     return (
       c.sentPackets >= c.config.minPackets && c.sentBytes >= c.config.minBytes
     );
   }
 
   /**
-   * Bytes still needed for the **front** active cluster (padding injection).
-   * Considers both minBytes and a byte proxy for remaining minPackets.
+   * Bytes still needed for the **pacing** cluster (padding injection).
    */
   remainingProbeBytes(packetBytes = 200): number {
-    if (!this.active) return 0;
-    const c = this.active;
+    if (!this.pacing) return 0;
+    const c = this.pacing;
     if (this.sendFillComplete(c)) return 0;
     const needBytes = Math.max(0, c.config.minBytes - c.sentBytes);
     const needPkts = Math.max(0, c.config.minPackets - c.sentPackets);
@@ -211,35 +216,52 @@ export class ProbeController {
     return [];
   }
 
+  /**
+   * Advance timeouts using **sender clock** (`nowMs` = milliTime / Date.now).
+   * Returns newly activated pacing configs (if any).
+   */
   process(nowMs: number): ProbeClusterConfig[] {
-    if (this.active && nowMs - this.active.startMs > kProbeResultTimeoutMs) {
-      this.dropClusterSeqs(this.active.config.id);
-      this.active = undefined;
+    // Timeout pacing cluster (never sent enough).
+    if (this.pacing && nowMs - this.pacing.startMs > kProbeResultTimeoutMs) {
+      this.dropClusterSeqs(this.pacing.config.id);
+      this.pacing = undefined;
     }
-    if (!this.active && this.queue.length === 0) {
-      if (this.state === "waiting_for_result") {
-        this.lastProbeEndMs = nowMs;
-        this.state = this.estimatedBps > 0 ? "complete" : "init";
+    // Timeout clusters waiting for ACK.
+    for (const [id, c] of this.awaitingResults) {
+      if (nowMs - c.startMs > kProbeResultTimeoutMs) {
+        this.dropClusterSeqs(id);
+        this.awaitingResults.delete(id);
       }
-      return [];
     }
-    return this.maybeActivateQueued(nowMs);
+    const activated = this.maybeActivateQueued(nowMs);
+    this.maybeMarkComplete(nowMs);
+    return activated;
   }
 
   /**
-   * Record a probation (probe-tagged) packet at send time.
-   * Always assigns to the **front** active cluster.
+   * Record a probation packet at **send** time (sender clock = sendMs).
+   * When minBytes AND minPackets are met, pops pacing → awaitingResults and
+   * activates the next queued cluster (libwebrtc BitrateProber::ProbeSent).
+   *
+   * @returns newly activated pacing configs (may include the next FIFO cluster)
    */
   onProbePacketSent(
     sizeBytes: number,
     sendMs: number,
     wideSeq: number,
-  ): number {
-    if (!this.active) return 0;
-    // Do not over-assign beyond fill goals (BitrateProber stops probing).
-    if (this.sendFillComplete(this.active)) return 0;
+  ): { clusterId: number; activated: ProbeClusterConfig[] } {
+    if (!this.pacing) {
+      return { clusterId: 0, activated: [] };
+    }
+    if (this.sendFillComplete(this.pacing)) {
+      // Already full — advance if somehow still pacing.
+      return {
+        clusterId: this.pacing.config.id,
+        activated: this.finishPacingSend(sendMs),
+      };
+    }
 
-    const cluster = this.active;
+    const cluster = this.pacing;
     const seq = wideSeq & 0xffff;
     this.seqToCluster.set(seq, cluster.config.id);
 
@@ -250,31 +272,57 @@ export class ProbeController {
     cluster.sizeLastSend = sizeBytes;
     cluster.sentBytes += sizeBytes;
     cluster.sentPackets += 1;
-    return cluster.config.id;
+
+    if (this.sendFillComplete(cluster)) {
+      return {
+        clusterId: cluster.config.id,
+        activated: this.finishPacingSend(sendMs),
+      };
+    }
+    return { clusterId: cluster.config.id, activated: [] };
   }
 
   /**
-   * ACK a packet. Only credits the cluster that owned the wideSeq at send.
-   * Applies ProbeBitrateEstimator validation before accepting a result.
-   * On completion, pops front and activates the next queued cluster.
+   * Move pacing cluster to awaiting-results and activate next from queue.
+   * Uses **sender clock** for the new cluster's startMs.
+   */
+  private finishPacingSend(senderNowMs: number): ProbeClusterConfig[] {
+    if (!this.pacing) return [];
+    const done = this.pacing;
+    this.awaitingResults.set(done.config.id, done);
+    this.pacing = undefined;
+    return this.maybeActivateQueued(senderNowMs);
+  }
+
+  /**
+   * ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
+   * awaiting). Does **not** advance FIFO pacing — that happens on send fill.
+   *
+   * @param receivedAtMs TWCC receiver timeline (rate math only)
+   * @param senderNowMs sender clock for session completion / cooldown
    */
   onAckedPacket(
     sizeBytes: number,
     receivedAtMs: number,
     isProbe: boolean,
-    wideSeq?: number,
-  ): ProbeClusterConfig[] {
-    if (!this.active || !isProbe) return [];
+    wideSeq: number | undefined,
+    senderNowMs: number,
+  ): void {
+    if (!isProbe) return;
 
-    let cluster: ActiveCluster | undefined = this.active;
+    let cluster: ClusterRuntime | undefined;
     if (wideSeq !== undefined) {
       const id = this.seqToCluster.get(wideSeq & 0xffff);
-      if (id === undefined || id !== this.active.config.id) {
-        // ACK for a previous/unknown cluster — ignore for front validation.
-        return [];
+      if (id !== undefined) {
+        cluster =
+          this.awaitingResults.get(id) ??
+          (this.pacing?.config.id === id ? this.pacing : undefined);
       }
-      cluster = this.active;
+    } else if (this.pacing && this.awaitingResults.size === 0) {
+      // Unit-test fallback without seq map.
+      cluster = this.pacing;
     }
+    if (!cluster) return;
 
     if (cluster.ackedPackets === 0) {
       cluster.firstRecvMs = receivedAtMs;
@@ -285,7 +333,7 @@ export class ProbeController {
     cluster.ackedPackets += 1;
 
     const estimate = this.estimateClusterBitrate(cluster);
-    if (estimate === undefined) return [];
+    if (estimate === undefined) return;
 
     if (estimate > this.estimatedBps) {
       this.estimatedBps = estimate;
@@ -296,19 +344,18 @@ export class ProbeController {
       cluster.config.targetBps,
     );
 
-    // Cluster complete — pop front and activate next (FIFO).
+    // Result accepted — drop from awaiting (or clear pacing if still there).
     this.dropClusterSeqs(cluster.config.id);
-    this.active = undefined;
-    const started = this.maybeActivateQueued(receivedAtMs);
-    if (!this.active && this.queue.length === 0) {
-      this.state = "complete";
-      this.lastProbeEndMs = receivedAtMs;
+    this.awaitingResults.delete(cluster.config.id);
+    if (this.pacing?.config.id === cluster.config.id) {
+      this.pacing = undefined;
     }
-    return started;
+    this.maybeMarkComplete(senderNowMs);
   }
 
   abort(nowMs: number) {
-    this.active = undefined;
+    this.pacing = undefined;
+    this.awaitingResults.clear();
     this.queue = [];
     this.seqToCluster.clear();
     if (this.state === "waiting_for_result") {
@@ -317,11 +364,23 @@ export class ProbeController {
     }
   }
 
+  private maybeMarkComplete(senderNowMs: number) {
+    if (
+      !this.pacing &&
+      this.awaitingResults.size === 0 &&
+      this.queue.length === 0 &&
+      this.state === "waiting_for_result"
+    ) {
+      this.lastProbeEndMs = senderNowMs;
+      this.state = this.estimatedBps > 0 ? "complete" : "init";
+    }
+  }
+
   /**
-   * libwebrtc ProbeBitrateEstimator::HandleProbeAndEstimateBitrate validation.
-   * Returns bps estimate or undefined if not yet valid / failed.
+   * libwebrtc ProbeBitrateEstimator validation.
+   * Uses send times (sender clock) and recv times (TWCC timeline) separately.
    */
-  private estimateClusterBitrate(c: ActiveCluster): number | undefined {
+  private estimateClusterBitrate(c: ClusterRuntime): number | undefined {
     const minProbes = Math.ceil(
       (c.config.minPackets * kProbeMinReceivedProbesPercent) / 100,
     );
@@ -343,7 +402,6 @@ export class ProbeController {
       return undefined;
     }
 
-    // Exclude last sent / first received packet sizes (libwebrtc).
     const sendSize = Math.max(0, c.sentBytes - c.sizeLastSend);
     const recvSize = Math.max(0, c.ackedBytes - c.sizeFirstRecv);
     if (sendSize <= 0 || recvSize <= 0) return undefined;
@@ -377,60 +435,49 @@ export class ProbeController {
     const bitrates = kProbeBitrateMultipliers.map((s) =>
       clamp(this.startBitrateBps * s, this.maxBitrateBps),
     );
-    // Return all configs (libwebrtc InitiateProbing returns both 3x and 6x)
-    // but only activate the front for pacing (BitrateProber FIFO).
-    return this.enqueueClusters(nowMs, bitrates, /*returnAll*/ true);
+    // Only return **activated** configs (front 3x). 6x stays queued until
+    // 3x send-fill completes (BitrateProber FIFO).
+    return this.enqueueClusters(nowMs, bitrates);
   }
 
-  /**
-   * @param returnAll when true (initial exponential), return every created
-   *   config for telemetry even though only the front is activated.
-   */
   private enqueueClusters(
     nowMs: number,
     bitrates: number[],
-    returnAll = false,
   ): ProbeClusterConfig[] {
-    const configs: ProbeClusterConfig[] = [];
     for (const bps of bitrates) {
       const minBytes = Math.max(
         kProbeMinPackets * 200,
         Math.ceil((bps / 8) * (kProbeMinDurationMs / 1000)),
       );
-      const config: ProbeClusterConfig = {
+      this.queue.push({
         id: this.nextClusterId++,
         targetBps: bps,
         minPackets: kProbeMinPackets,
         minDurationMs: kProbeMinDurationMs,
         minBytes,
-      };
-      configs.push(config);
-      this.queue.push(config);
+      });
     }
     if (bitrates.length) {
       this.state = "waiting_for_result";
     }
-    const activated = this.maybeActivateQueued(nowMs);
-    // For initial probing, surface all planned configs (3x+6x) to the app
-    // while only the front is actually paced.
-    if (returnAll && configs.length > 0) {
-      return configs;
-    }
-    return activated;
+    return this.maybeActivateQueued(nowMs);
   }
 
   private maybeActivateQueued(nowMs: number): ProbeClusterConfig[] {
-    if (this.active || this.queue.length === 0) return [];
+    if (this.pacing || this.queue.length === 0) return [];
     const config = this.queue.shift()!;
-    this.active = this.newActive(config, nowMs);
+    this.pacing = this.newRuntime(config, nowMs);
     this.state = "waiting_for_result";
     return [config];
   }
 
-  private newActive(config: ProbeClusterConfig, nowMs: number): ActiveCluster {
+  private newRuntime(
+    config: ProbeClusterConfig,
+    senderStartMs: number,
+  ): ClusterRuntime {
     return {
       config,
-      startMs: nowMs,
+      startMs: senderStartMs,
       sentBytes: 0,
       sentPackets: 0,
       firstSendMs: 0,

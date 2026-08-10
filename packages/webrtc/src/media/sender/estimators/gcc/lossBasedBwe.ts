@@ -25,6 +25,8 @@ import {
   kLossBasedObservationDurationLowerBoundMs,
   kLossBasedObservationWindow,
   kLossBasedRampupUpperBoundFactor,
+  kLossBasedRampupUpperBoundHoldThreshold,
+  kLossBasedRampupUpperBoundInHoldFactor,
   kLossBasedTemporalWeightFactor,
   kLossBasedUseByteLossRate,
   kMaxBitrateBps,
@@ -284,8 +286,7 @@ export class LossBasedBwe {
         best.lossLimitedBandwidthBps > this.current.lossLimitedBandwidthBps &&
         this.acknowledgedBps > 0
       ) {
-        const rampupCap =
-          this.acknowledgedBps * kLossBasedRampupUpperBoundFactor;
+        const rampupCap = this.acknowledgedBps * this.rampupBoundFactor();
         best.lossLimitedBandwidthBps = Math.max(
           this.current.lossLimitedBandwidthBps,
           Math.min(best.lossLimitedBandwidthBps, rampupCap),
@@ -317,6 +318,9 @@ export class LossBasedBwe {
     }
 
     // HOLD: after a decrease, do not ramp above hold rate until hold expires.
+    // libwebrtc keeps state as kDecreasing while last_hold_info_.timestamp is
+    // in the future — do **not** flip to a separate hold state that would
+    // skip this guard on the next update.
     const lastSend = this.lastSendTimeMostRecentObservation;
     if (
       this.state === "decreasing" &&
@@ -327,7 +331,6 @@ export class LossBasedBwe {
       this.current.lossLimitedBandwidthBps = clamp(
         Math.min(this.holdRateBps, this.current.lossLimitedBandwidthBps),
       );
-      this.state = "hold";
       return this.current.lossLimitedBandwidthBps;
     }
 
@@ -403,6 +406,24 @@ export class LossBasedBwe {
       this.state === "increasing" ||
       this.state === "hold"
     );
+  }
+
+  /**
+   * libwebrtc: after HOLD, if acked has not recovered above
+   * holdRate × BwRampupUpperBoundHoldThreshold (1.3), use 1.2× factor;
+   * otherwise the normal 1.5× factor.
+   */
+  private rampupBoundFactor(): number {
+    if (
+      this.holdRateBps > 0 &&
+      this.holdRateBps < kMaxBitrateBps &&
+      this.acknowledgedBps > 0 &&
+      this.acknowledgedBps <
+        this.holdRateBps * kLossBasedRampupUpperBoundHoldThreshold
+    ) {
+      return kLossBasedRampupUpperBoundInHoldFactor;
+    }
+    return kLossBasedRampupUpperBoundFactor;
   }
 
   private accumulatePartial(
@@ -578,7 +599,7 @@ export class LossBasedBwe {
 
     const rampupCap =
       this.acknowledgedBps > 0
-        ? this.acknowledgedBps * kLossBasedRampupUpperBoundFactor
+        ? this.acknowledgedBps * this.rampupBoundFactor()
         : kMaxBitrateBps;
 
     return bandwidths.map((bw) => {

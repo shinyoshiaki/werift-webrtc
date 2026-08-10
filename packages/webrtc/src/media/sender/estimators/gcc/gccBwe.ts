@@ -146,14 +146,22 @@ export class GccBandwidthEstimator
     this.finalizedSeqs.delete(seq);
     this.ensureProbing(info.sendingAtMs);
 
-    // Assign probation packets to a probe cluster (wideSeq → cluster id).
+    // Assign probation packets to the **pacing** cluster (wideSeq → id).
+    // On send-fill complete, FIFO advances to the next cluster (no ACK wait).
     if (info.isProbation && this.probe.shouldTagProbePacket()) {
-      this.probe.onProbePacketSent(info.size, info.sendingAtMs, seq);
+      const { activated } = this.probe.onProbePacketSent(
+        info.size,
+        info.sendingAtMs,
+        seq,
+      );
       this.probeClusterSentBytes += info.size;
+      for (const cfg of activated) {
+        this.onProbeClusterActivated(cfg, info.sendingAtMs);
+      }
     }
 
     for (const cfg of this.probe.process(info.sendingAtMs)) {
-      this.onProbeClusterStarted(cfg, info.sendingAtMs);
+      this.onProbeClusterActivated(cfg, info.sendingAtMs);
     }
   }
 
@@ -223,16 +231,15 @@ export class GccBandwidthEstimator
       }
 
       this.recordAck(info.size, result.receivedAtMs);
-      // onAckedPacket may complete the front cluster and activate the next
-      // (FIFO 3x → 6x); surface newly activated configs to the pacer.
-      for (const cfg of this.probe.onAckedPacket(
+      // Result validation only (sender clock for session complete/cooldown).
+      // FIFO pacing advance happens on send-fill, not on ACK.
+      this.probe.onAckedPacket(
         info.size,
         result.receivedAtMs,
         !!info.isProbation,
         seq,
-      )) {
-        this.onProbeClusterStarted(cfg, result.receivedAtMs);
-      }
+        nowMs,
+      );
       this.pushInterArrival(info.sendingAtMs, result.receivedAtMs, info.size);
     }
 
@@ -320,7 +327,7 @@ export class GccBandwidthEstimator
         this.delayBasedBps = accepted;
         this.lossBasedBps = accepted;
         for (const cfg of this.probe.setEstimatedBitrate(accepted, nowMs)) {
-          this.onProbeClusterStarted(cfg, nowMs);
+          this.onProbeClusterActivated(cfg, nowMs);
         }
       }
     }
@@ -344,12 +351,12 @@ export class GccBandwidthEstimator
     ) {
       const est = this._availableBitrate > 0 ? this._availableBitrate : target;
       for (const cfg of this.probe.requestProbe(est, nowMs)) {
-        this.onProbeClusterStarted(cfg, nowMs);
+        this.onProbeClusterActivated(cfg, nowMs);
       }
     }
 
     for (const cfg of this.probe.process(nowMs)) {
-      this.onProbeClusterStarted(cfg, nowMs);
+      this.onProbeClusterActivated(cfg, nowMs);
     }
   }
 
@@ -382,13 +389,15 @@ export class GccBandwidthEstimator
     this.reset();
   }
 
-  private onProbeClusterStarted(cfg: ProbeClusterConfig, nowMs: number) {
-    // Multi-active: only reset fill counter when target grows (new higher cluster).
-    if (cfg.targetBps >= this.lastProbeTargetBps) {
-      this.probeClusterSentBytes = 0;
-      this.probeClusterStartMs = nowMs;
-      this.lastProbeTargetBps = cfg.targetBps;
-    }
+  /**
+   * Fired only when a cluster becomes the **pacing** front (activated).
+   * RTCRtpSender uses this for pace budget + padding injection — not for
+   * queued-but-not-yet-active configs (e.g. 6x while 3x is still sending).
+   */
+  private onProbeClusterActivated(cfg: ProbeClusterConfig, nowMs: number) {
+    this.probeClusterSentBytes = 0;
+    this.probeClusterStartMs = nowMs;
+    this.lastProbeTargetBps = cfg.targetBps;
     this.onProbeClusterConfig.execute(cfg);
   }
 
@@ -401,7 +410,7 @@ export class GccBandwidthEstimator
       kMaxBitrateBps,
       nowMs,
     )) {
-      this.onProbeClusterStarted(cfg, nowMs);
+      this.onProbeClusterActivated(cfg, nowMs);
     }
   }
 

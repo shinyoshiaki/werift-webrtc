@@ -558,6 +558,67 @@ describe("media/sender bandwidth estimator", () => {
       expect((loss as any).holdDurationMs).toBe(1_200);
     });
 
+    test("LossBasedBwe HOLD は複数 update にわたり holdRate を超えない", () => {
+      // Arrange: ready observations then force HOLD window (decreasing + timer)
+      const loss = new LossBasedBwe();
+      loss.reset(500_000);
+      for (let i = 0; i < 4; i++) {
+        const first = 1000 + i * 300;
+        loss.update(0.0, 500_000, 480_000, 30, 0, first, 18_000, first + 300, 0);
+      }
+      (loss as any).delayBasedBps = 500_000;
+      (loss as any).state = "decreasing";
+      (loss as any).holdUntilMs = 10_000 + 300; // expires at t=10300
+      (loss as any).holdRateBps = 200_000;
+      (loss as any).current.lossLimitedBandwidthBps = 200_000;
+      (loss as any).lastSendTimeMostRecentObservation = 10_000;
+
+      // Act: HOLD 内の複数 update（高損失で候補が holdRate 近傍に留まる）
+      // lastSend < holdUntil → guard 継続、state は decreasing のまま
+      const t1 = loss.update(
+        0.35,
+        500_000,
+        180_000,
+        40,
+        14,
+        10_050,
+        16_000,
+        10_100,
+        10_000,
+      );
+      expect((loss as any).state).toBe("decreasing");
+      expect(t1).toBeLessThanOrEqual(200_000);
+
+      const t2 = loss.update(
+        0.35,
+        500_000,
+        190_000,
+        40,
+        14,
+        10_150,
+        16_000,
+        10_200,
+        10_000,
+      );
+      expect((loss as any).state).toBe("decreasing");
+      expect(t2).toBeLessThanOrEqual(200_000);
+
+      // Act: HOLD 期限後（lastSend > holdUntil）は guard を抜けられる
+      const t3 = loss.update(
+        0.0,
+        500_000,
+        400_000,
+        30,
+        0,
+        10_350,
+        12_000,
+        10_400,
+        0,
+      );
+      // 期限後は holdRate 上限を超え得る（厳密値は candidate 依存）
+      expect(t3).toBeGreaterThan(0);
+    });
+
     test("LossBasedBwe は 250ms×3 観測まで delay-based を返す（cap しない）", () => {
       // Arrange
       const loss = new LossBasedBwe();
@@ -684,16 +745,15 @@ describe("media/sender bandwidth estimator", () => {
 
   describe("Probe 成功・失敗・再 probe", () => {
     test("probe ACK 後に availableBitrate が初期値より上昇する", () => {
-      // Arrange: 購読は ensureProbing より前（3x/6x config 通知を取りこぼさない）
+      // Arrange: 購読は ensureProbing より前
       const start = 100_000;
       const gcc = new GccBandwidthEstimator(start);
       const clusters: number[] = [];
       gcc.onProbeClusterConfig.subscribe((c) => clusters.push(c.targetBps));
       expect(gcc.shouldTagProbePacket()).toBe(true);
-      const probeTarget = gcc.suggestedProbeBitrateBps;
-      // FIFO: pacing target is front cluster only (3x first)
-      expect(probeTarget).toBe(start * 3);
-      expect(clusters.length).toBeGreaterThanOrEqual(1);
+      // FIFO: pacing target / activate event is front=3x only
+      expect(gcc.suggestedProbeBitrateBps).toBe(start * 3);
+      expect(clusters).toEqual([start * 3]);
 
       // Act: 高レートで probation パケットを送受信（cluster 完了）
       const n = 20;
@@ -767,9 +827,11 @@ describe("media/sender bandwidth estimator", () => {
       expect(afterFirst).toBeGreaterThan(100_000);
       expect(afterSecond).toBeGreaterThan(100_000);
       expect(["complete", "waiting_for_result"]).toContain(gcc.probeState);
-      // initial 3x+6x の両方が config として通知される（pacing は front のみ）
-      expect(clusters).toContain(100_000 * 3);
-      expect(clusters).toContain(100_000 * 6);
+      // activate イベントは 3x の後、送信完了で 6x（重複なし）
+      expect(clusters[0]).toBe(100_000 * 3);
+      expect(clusters.filter((b) => b === 100_000 * 6).length).toBeLessThanOrEqual(
+        1,
+      );
     });
 
     test("probe 失敗（未 ACK）では推定がスタート付近のまま", () => {
@@ -1392,42 +1454,46 @@ describe("media/sender bandwidth estimator", () => {
       expect(after - before).toBe(0);
     });
 
-    test("initial probe は 3x/6x config を生成し FIFO で front のみ active（BitrateProber）", () => {
+    test("initial probe は front=3x のみ activate（6x は queue）", () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
-      const started: number[] = [];
-      gcc.onProbeClusterConfig.subscribe((c) => started.push(c.targetBps));
+      const activated: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((c) => activated.push(c.targetBps));
 
       // Act: 最初の送信で ensureProbing
       gcc.rtpPacketSent(sent(1, 200, Date.now()));
 
-      // Assert: InitiateProbing は 3x+6x を通知するが、pacing は front=3x のみ
-      expect(started.length).toBe(2);
-      expect(started).toContain(100_000 * 3);
-      expect(started).toContain(100_000 * 6);
+      // Assert: pacing イベントは active になった 3x のみ（6x はまだ queue）
+      expect(activated).toEqual([100_000 * 3]);
       expect(gcc.suggestedProbeBitrateBps).toBe(100_000 * 3);
-      // 1 packet (200B) では minPackets 未達 → まだ 3x に割当中
       expect(gcc.shouldTagProbePacket()).toBe(true);
     });
 
-    test("probe fill は minBytes かつ minPackets の両方を要求する", () => {
-      // Arrange: start=100kbps → 3x minBytes は max(5*200, target*15ms/8)
+    test("probe fill 完了で ACK を待たず FIFO 次 cluster へ進む", () => {
+      // Arrange: start=100kbps → 3x then 6x queued
       const probe = new ProbeController();
-      const configs = probe.setBitrates(10_000, 100_000, 1e9, 0);
-      expect(configs.map((c) => c.targetBps)).toEqual([300_000, 600_000]);
+      const activated = probe.setBitrates(10_000, 100_000, 1e9, 0);
+      expect(activated.map((c) => c.targetBps)).toEqual([300_000]);
       expect(probe.currentProbeTargetBps).toBe(300_000);
+      expect(probe.queuedClusterCount).toBe(1);
 
       // Act: 1 パケット 1200B で minBytes は満たすが minPackets=5 未満
-      probe.onProbePacketSent(1200, 1000, 1);
-      // Assert: まだ front=3x（6x に進まない）
+      let r = probe.onProbePacketSent(1200, 1000, 1);
+      expect(r.activated).toEqual([]);
       expect(probe.currentProbeTargetBps).toBe(300_000);
       expect(probe.remainingProbeBytes(200)).toBeGreaterThan(0);
 
-      // Act: minPackets まで埋める
-      for (let i = 0; i < 4; i++) {
-        probe.onProbePacketSent(200, 1001 + i, 2 + i);
+      // Act: minPackets まで埋める → 送信完了で 6x が pacing に
+      for (let i = 0; i < 3; i++) {
+        r = probe.onProbePacketSent(200, 1001 + i, 2 + i);
+        expect(r.activated).toEqual([]);
       }
-      expect(probe.remainingProbeBytes(200)).toBe(0);
+      r = probe.onProbePacketSent(200, 1004, 5);
+      // Assert: ACK 前に 6x が active
+      expect(r.activated.map((c) => c.targetBps)).toEqual([600_000]);
+      expect(probe.currentProbeTargetBps).toBe(600_000);
+      expect(probe.remainingProbeBytes(200)).toBeGreaterThan(0);
+      expect(probe.awaitingResultCount).toBe(1);
     });
 
     test("使用済み estimator の再注入で reset され履歴が残らない", async () => {

@@ -20,10 +20,15 @@ const TWCC_SEQ_MOD = 0x10000;
 const MAX_FEEDBACK_SPAN = 0x7fff;
 /**
  * How far before {@link ReceiverTWCC.nextReportTsn} a late-reordered packet
- * may still generate corrective feedback (libwebrtc keeps arrival timestamps
- * briefly for ResendsTimestampsOnReordering).
+ * may still generate corrective feedback (sequence bound, used with time bound).
  */
-const REORDER_BACK_WINDOW = 64;
+const REORDER_BACK_WINDOW_SEQ = 512;
+/**
+ * libwebrtc TransportSequenceNumberFeedbackGenerator keeps arrival timestamps
+ * for ~500ms for reordering re-send. We prune history by age (primary) and
+ * sequence distance (secondary).
+ */
+const REORDER_HISTORY_MS = 500;
 /** Wire RunLengthChunk.runLength is 13 bits → max 8191. */
 const RUN_LENGTH_MAX = 8191;
 
@@ -35,8 +40,8 @@ type ExtensionInfo = { tsn: number; timestamp: bigint };
  * Feedback triggers: every 100ms (periodic) or when >10 packets are buffered.
  * Status chunks cover the full transport-sequence span (including gaps as
  * PacketNotReceived), including losses that straddle feedback boundaries via
- * {@link nextReportTsn}. Late reordered packets within
- * {@link REORDER_BACK_WINDOW} can produce corrective feedback.
+ * {@link nextReportTsn}. Late reordered packets within a ~500ms history
+ * window can produce corrective feedback.
  */
 export class ReceiverTWCC {
   extensionInfo: {
@@ -44,7 +49,7 @@ export class ReceiverTWCC {
   } = {};
   /**
    * Recent arrivals retained after feedback so a late packet that filled a
-   * prior "not received" hole can be re-reported (bounded back-window).
+   * prior "not received" hole can be re-reported (~500ms + seq bound).
    */
   private arrivalHistory = new Map<number, ExtensionInfo>();
   /** Periodic 100ms loop runs while true (enabled in constructor). */
@@ -55,7 +60,7 @@ export class ReceiverTWCC {
    * Next transport sequence that should appear in feedback (wrap-aware).
    * When set, a feedback that receives only TSN N reports any missing
    * sequences from this cursor through N as PacketNotReceived.
-   * Late arrivals with TSN in (nextReportTsn − BACK_WINDOW, nextReportTsn)
+   * Late arrivals within the reorder history window before nextReportTsn
    * may still trigger corrective feedback without moving the frontier back.
    */
   nextReportTsn?: number;
@@ -91,12 +96,15 @@ export class ReceiverTWCC {
   }
 
   private pruneHistory(latestTsn: number) {
-    // Keep roughly 2× back-window around the frontier / latest.
-    const keep = REORDER_BACK_WINDOW * 2 + 16;
-    if (this.arrivalHistory.size <= keep) return;
-    for (const tsn of this.arrivalHistory.keys()) {
+    const nowUs = microTime();
+    const maxAgeUs = BigInt(REORDER_HISTORY_MS) * 1000n;
+    for (const [tsn, info] of this.arrivalHistory) {
+      const ageUs = nowUs - info.timestamp;
       const back = (latestTsn - tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
-      if (back > keep && back < MAX_FEEDBACK_SPAN) {
+      const tooOld = ageUs > maxAgeUs;
+      const tooFar =
+        back > REORDER_BACK_WINDOW_SEQ && back < MAX_FEEDBACK_SPAN;
+      if (tooOld || tooFar) {
         this.arrivalHistory.delete(tsn);
       }
     }
@@ -136,7 +144,7 @@ export class ReceiverTWCC {
       const frontier = this.nextReportTsn & 0xffff;
       const back =
         (frontier - baseSequenceNumber + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
-      if (back > 0 && back <= REORDER_BACK_WINDOW) {
+      if (back > 0 && back <= REORDER_BACK_WINDOW_SEQ) {
         // Cover [base, frontier) at least.
         const frontierOff =
           (frontier - 1 - baseSequenceNumber + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
@@ -296,7 +304,7 @@ export class ReceiverTWCC {
       // Corrective path: late arrival filling a prior hole.
       const late = received.filter((r) => {
         const back = (frontier - r.tsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
-        return back > 0 && back <= REORDER_BACK_WINDOW;
+        return back > 0 && back <= REORDER_BACK_WINDOW_SEQ;
       });
       if (late.length > 0) {
         // Earliest late packet (max back-distance from frontier).
