@@ -40,8 +40,26 @@ const DEFAULT_CHANNEL_REFRESH_TIME = 500;
 const DEFAULT_ALLOCATION_LIFETIME = 600;
 const UDP_TRANSPORT = 0x11000000;
 
+/** Channel binding state for a single peer transport address. */
+export interface TurnChannel {
+  number: number;
+  address: Address;
+  /** Unix seconds when this channel should be refreshed. */
+  refreshAt: number;
+}
+
 function isStreamTransport(transport: Transport) {
   return transport.type === "tcp" || transport.type === "tls";
+}
+
+/** Permission is peer-IP scoped (RFC 8656). */
+function permissionKey(addr: Address): string {
+  return addr[0];
+}
+
+/** ChannelBind is peer transport-address scoped (IP + port). */
+function channelKey(addr: Address): string {
+  return JSON.stringify(addr);
 }
 
 export class StunOverTurnProtocol implements Protocol {
@@ -156,17 +174,28 @@ export class TurnProtocol implements Protocol {
   transactions: { [hexId: string]: Transaction } = {};
   private refreshHandle?: Cancelable<void>;
   private channelNumber = 0x4000;
-  private channelByAddr: {
-    [addr: string]: { number: number; address: Address };
-  } = {};
+  private channelByAddr: { [key: string]: TurnChannel } = {};
   private addrByChannel: { [channel: number]: Address } = {};
   /**sec */
   private channelRefreshTime: number;
-  private channelBinding?: Promise<void>;
-  private channelRefreshAt = 0;
+  /**
+   * Serializes ChannelBind requests so allocation-wide auth state
+   * (nonce/realm/integrityKey) is not updated concurrently. Rejections
+   * must not poison this tail — see channelBindQueue assignment sites.
+   */
+  private channelBindQueue: Promise<void> = Promise.resolve();
+  /** In-flight ChannelBind per peer transport address (dedupe concurrent). */
+  private channelBindingByAddr = new Map<string, Promise<TurnChannel>>();
   private tcpBuffer: Buffer = Buffer.alloc(0);
-  private permissionByAddr: { [addr: string]: boolean } = {};
-  private creatingPermission: Promise<void> = Promise.resolve();
+  /** Permission cache keyed by peer IP only (RFC 8656). */
+  private permissionByAddr: { [peerIp: string]: boolean } = {};
+  /**
+   * Serializes CreatePermission requests (auth state race avoidance).
+   * Rejections must not poison this tail.
+   */
+  private permissionQueue: Promise<void> = Promise.resolve();
+  /** In-flight CreatePermission per peer IP (dedupe concurrent). */
+  private creatingPermissionByAddr = new Map<string, Promise<void>>();
 
   constructor(
     public server: Address,
@@ -292,10 +321,8 @@ export class TurnProtocol implements Protocol {
       .setAttribute("USERNAME", this.username)
       .setAttribute("REALM", this.realm)
       .setAttribute("NONCE", this.nonce);
-    await this.request(request, this.server).catch((e) => {
-      request;
-      throw e;
-    });
+    // Use requestWithRetry for stale-nonce (438) consistency with ChannelBind.
+    await this.requestWithRetry(request, this.server);
   }
 
   private refresh = (exp: number) => {
@@ -411,11 +438,15 @@ export class TurnProtocol implements Protocol {
   }
 
   async sendData(data: Buffer, addr: Address) {
-    const channel = await this.getChannel(addr).catch((e) => {
-      return new Error("channelBind error");
-    });
+    let channel: TurnChannel | undefined;
+    try {
+      channel = await this.getChannel(addr);
+    } catch (e) {
+      // Keep original ChannelBind error for diagnostics (403/438/timeout).
+      log("channelBind error; falling back to Send Indication", e);
+    }
 
-    if (channel instanceof Error) {
+    if (!channel) {
       await this.getPermission(addr);
       const indicate = new Message(methods.SEND, classes.INDICATION)
         .setAttribute("DATA", data)
@@ -428,54 +459,136 @@ export class TurnProtocol implements Protocol {
     await this.send(encodeChannelData(channel.number, data), this.server);
   }
 
+  /**
+   * Ensure a CreatePermission exists for the peer IP.
+   * Peer failures are isolated: a rejection for peer A does not poison peer B.
+   */
   async getPermission(addr: Address) {
-    await this.creatingPermission;
+    const key = permissionKey(addr);
 
-    const permitted = this.permissionByAddr[addr.join(":")];
-    if (!permitted) {
-      this.creatingPermission = this.createPermission(addr);
-      this.permissionByAddr[addr.join(":")] = true;
-      await this.creatingPermission.catch((e) => {
-        log("createPermission error", e);
-        throw e;
-      });
+    if (this.permissionByAddr[key]) {
+      return;
+    }
+
+    const existing = this.creatingPermissionByAddr.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const operation = this.permissionQueue.then(async () => {
+      // Another caller may have succeeded while we waited on the queue.
+      if (this.permissionByAddr[key]) {
+        return;
+      }
+
+      await this.createPermission(addr);
+      // Cache only after successful CreatePermission.
+      this.permissionByAddr[key] = true;
+    });
+
+    // Do not let rejection poison subsequent peers on the shared queue.
+    this.permissionQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    this.creatingPermissionByAddr.set(key, operation);
+
+    try {
+      await operation;
+    } catch (error) {
+      log("createPermission error", error);
+      throw error;
+    } finally {
+      if (this.creatingPermissionByAddr.get(key) === operation) {
+        this.creatingPermissionByAddr.delete(key);
+      }
     }
   }
 
-  async getChannel(addr: Address) {
-    if (this.channelBinding) {
-      await this.channelBinding;
+  /**
+   * Ensure a ChannelBind exists for the peer transport address.
+   * Peer failures are isolated; concurrent same-peer calls share one Promise.
+   */
+  async getChannel(addr: Address): Promise<TurnChannel> {
+    const key = channelKey(addr);
+
+    const existing = this.channelBindingByAddr.get(key);
+    if (existing) {
+      return existing;
     }
 
-    let channel = this.channelByAddr[addr.join(":")];
+    // Fast path: bound and not due for refresh.
+    const cached = this.channelByAddr[key];
+    const now = int(Date.now() / 1000);
+    if (cached && cached.refreshAt > now) {
+      return cached;
+    }
+
+    const operation = this.channelBindQueue.then(() => this.ensureChannel(addr));
+
+    // Do not let rejection poison subsequent peers on the shared queue.
+    this.channelBindQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    this.channelBindingByAddr.set(key, operation);
+
+    try {
+      return await operation;
+    } catch (error) {
+      log("channelBind error", error);
+      throw error;
+    } finally {
+      if (this.channelBindingByAddr.get(key) === operation) {
+        this.channelBindingByAddr.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Create or refresh a channel for addr. Provisional mapping is installed
+   * before the request so early ChannelData can be decoded; only a failed
+   * *initial* bind rolls the mapping back. Failed channel numbers are never
+   * reused.
+   */
+  private async ensureChannel(addr: Address): Promise<TurnChannel> {
+    const key = channelKey(addr);
+    const now = int(Date.now() / 1000);
+
+    let channel = this.channelByAddr[key];
+    if (channel && channel.refreshAt > now) {
+      return channel;
+    }
+
+    const isNew = !channel;
 
     if (!channel) {
-      this.channelByAddr[addr.join(":")] = {
+      channel = {
         number: this.channelNumber++,
         address: addr,
+        refreshAt: 0,
       };
-      channel = this.channelByAddr[addr.join(":")];
+      // Provisional mapping for ChannelData that may arrive before success.
+      this.channelByAddr[key] = channel;
       this.addrByChannel[channel.number] = addr;
-
-      this.channelBinding = this.channelBind(channel.number, addr);
-      await this.channelBinding.catch((e) => {
-        log("channelBind error", e);
-        throw e;
-      });
-      this.channelRefreshAt = int(Date.now() / 1000) + this.channelRefreshTime;
-      this.channelBinding = undefined;
-      log("channelBind", channel);
-    } else if (this.channelRefreshAt < int(Date.now() / 1000)) {
-      this.channelBinding = this.channelBind(channel.number, addr);
-      this.channelRefreshAt = int(Date.now() / 1000) + this.channelRefreshTime;
-      await this.channelBinding.catch((e) => {
-        log("channelBind error", e);
-        throw e;
-      });
-      this.channelBinding = undefined;
-      log("channelBind refresh", channel);
     }
-    return channel;
+
+    try {
+      await this.channelBind(channel.number, addr);
+      channel.refreshAt = int(Date.now() / 1000) + this.channelRefreshTime;
+      log(isNew ? "channelBind" : "channelBind refresh", channel);
+      return channel;
+    } catch (error) {
+      if (isNew) {
+        // Roll back provisional mapping only for a failed initial bind.
+        delete this.channelByAddr[key];
+        delete this.addrByChannel[channel.number];
+        // Do not reuse the channel number (no channelNumber--).
+      }
+      throw error;
+    }
   }
 
   private async channelBind(channelNumber: number, addr: Address) {
