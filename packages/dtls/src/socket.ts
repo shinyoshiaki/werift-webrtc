@@ -286,7 +286,8 @@ export class DtlsSocket {
   /**
    * Stop legacy DTLS 1.2 flight retransmit (cancelable flightSleep + flight=99).
    * Shared by client dual teardown and server/client pure-1.2 close so
-   * Flight4/Flight1 timers cannot wake after association close.
+   * Flight4/Flight1 timers cannot wake after association close
+   * (server close() must not leave sleep pending).
    */
   protected stopLegacy12Flight(): void {
     this.dtls.flight = 99;
