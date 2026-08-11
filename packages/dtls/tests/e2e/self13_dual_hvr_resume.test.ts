@@ -1669,3 +1669,204 @@ test("e2e/dual: probing rejects send/export/reconnect fallthrough to 1.2", async
   await serverTransport.close().catch(() => {});
   await clientTransport.close().catch(() => {});
 }, 10_000);
+
+/**
+ * P1: 1.3 fatal teardown は candidate 有無に関わらず transport を閉じる。
+ * hardDisposeResources は transport を閉じないため、association が必ず close する。
+ */
+test("e2e/dual: fatal after committed13 closes transport", async () => {
+  // Arrange: dual 1.3 完走
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+
+  await new Promise<void>(async (resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("committed13 setup timeout")),
+      20_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+    await client.connect();
+  });
+
+  // dual×dual without HVR keeps dualPhase "none" but owns engine13 (active 1.3)
+  expect(client.isDtls13).toBe(true);
+  expect((client as any).engine13).toBeTruthy();
+  expect((clientTransport as any).closed).toBe(false);
+
+  const eng = (client as any).engine13;
+  // Act: authenticated fatal（hardDispose 経路 — transport は engine が閉じない）
+  eng.fail(new Error("fatal alert handshake_failure (authenticated)"));
+
+  // Assert: association closed + UDP transport closed
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.isDtls13).toBe(false);
+  expect((clientTransport as any).closed).toBe(true);
+  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  await expect(client.connect()).rejects.toThrow(/closed/i);
+  expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
+    /closed/i,
+  );
+
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 25_000);
+
+/**
+ * P1: peer close_notify 後は dualPhase が closed。engine13 解除だけで 1.2 に落ちない。
+ */
+test("e2e/dual: peer close_notify sets phase closed and blocks 1.2 fallthrough", async () => {
+  // Arrange: dual 1.3 完走後に server が close_notify
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+    addressValidation: "none",
+  });
+
+  await Promise.all([
+    new Promise<void>((r) => client.onConnect.once(r)),
+    new Promise<void>((r) => server.onConnect.once(r)),
+    client.connect(),
+  ]);
+  expect(client.isDtls13).toBe(true);
+  expect((client as any).engine13).toBeTruthy();
+
+  // Act: peer close_notify
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("peer close_notify timeout")),
+      10_000,
+    );
+    client.onClose.subscribe(() => {
+      try {
+        // onClose 時点では engine をまだ検査可能、connected は false
+        expect(client.connected).toBe(false);
+        clearTimeout(timer);
+        resolve();
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+    server.close();
+  });
+
+  // Assert: association closed（phase / API / transport）
+  // peer-close 後の bridge が dualPhase を closed にする
+  for (let i = 0; i < 20 && (client as any).dualPhase !== "closed"; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.isDtls13).toBe(false);
+  expect((client as any).engine13).toBeUndefined();
+  expect((clientTransport as any).closed).toBe(true);
+
+  await expect(client.send(Buffer.from("after-peer-close"))).rejects.toThrow(
+    /closed/i,
+  );
+  await expect(client.connect()).rejects.toThrow(/closed/i);
+  expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
+    /closed/i,
+  );
+  expect(() => client.remoteCertificate).toThrow(/closed/i);
+}, 25_000);
+
+/**
+ * P1: 1.3-only version mismatch fatal でも transport が閉じる。
+ */
+test("e2e/dual: 1.3-only version mismatch closes transport", async () => {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const { HashAlgorithm, SignatureAlgorithm } = await import(
+    "../../src/cipher/const"
+  );
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3],
+  });
+
+  const err = await new Promise<Error>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("expected ProtocolVersionError")),
+      10_000,
+    );
+    client.onError.subscribe((e) => {
+      clearTimeout(timer);
+      resolve(e);
+    });
+    client.onConnect.subscribe(() => {
+      clearTimeout(timer);
+      reject(new Error("must not connect"));
+    });
+    void client.connect();
+  });
+
+  expect(err.message).toMatch(
+    /protocol version|HelloVerifyRequest|DTLS 1\.2-only/i,
+  );
+  expect((client as any).dualPhase).toBe("closed");
+  expect(client.isDtls13).toBe(false);
+  expect((clientTransport as any).closed).toBe(true);
+  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  await expect(client.connect()).rejects.toThrow(/closed/i);
+
+  try {
+    server.close();
+  } catch {
+    /* */
+  }
+}, 15_000);

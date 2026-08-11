@@ -236,14 +236,24 @@ export class DtlsClient extends DtlsSocket {
 
   /**
    * Full association hard-close: 1.2 flight stop, all 1.3 candidates, carrier,
-   * timers, phase → closed, RX drop. Transport is closed when no candidate
-   * already closed it (committed12 / pure 1.2 dual completion path).
+   * timers, phase → closed, RX drop, **always** transport close.
+   *
+   * Candidate hardDispose does not close the UDP socket; skipping transport
+   * close when a 1.3 candidate existed left sockets open after fatal teardown.
+   * Double-close is tolerated (Promise catch / already-closed).
    */
-  private closeAssociationHard(opts?: { hardDisposeCandidates?: boolean }): void {
+  private closeAssociationHard(opts?: {
+    hardDisposeCandidates?: boolean;
+  }): void {
+    if (this.dualPhase === "closed" && !this.engine13 && !this.parkedEngine13) {
+      // Idempotent re-entry (e.g. public close() after peer-close association sync).
+      this.closeAssociationCarrier();
+      void this.transport.socket.close().catch(() => {});
+      return;
+    }
     this.dtls.flight = 99;
     this.connected = false;
     this.dualPhase = "closed";
-    const had13Candidate = !!(this.engine13 || this.parkedEngine13);
     this.closeAllDtls13Candidates({
       hardDispose: opts?.hardDisposeCandidates,
     });
@@ -251,11 +261,8 @@ export class DtlsClient extends DtlsSocket {
     this.closeAssociationCarrier();
     // Association demux stays closed-gated so late inject is a no-op.
     this.transport.socket.onData = this.udpOnMessage;
-    if (!had13Candidate) {
-      // No 1.3 candidate closed the UDP socket (e.g. committed12).
-      void this.transport.socket.close().catch(() => {});
-    }
-    // had13Candidate: eng.close / hardDispose already closed transport (+ often carrier).
+    // Always close transport regardless of candidate path (hardDispose does not).
+    void this.transport.socket.close().catch(() => {});
   }
 
   /**
@@ -268,6 +275,16 @@ export class DtlsClient extends DtlsSocket {
     log("dual association: fatal teardown", err.message);
     this.closeAssociationHard({ hardDisposeCandidates: true });
     return true;
+  }
+
+  /**
+   * Peer close_notify / engine onClose: full association closed (phase, carrier,
+   * transport, public API guards). Called after public onClose so handlers can
+   * still inspect engine13, then hard-closes association ownership.
+   */
+  protected onEngine13PeerOrLocalClose(): void {
+    log("dual association: engine closed → association hard-close");
+    this.closeAssociationHard({ hardDisposeCandidates: true });
   }
 
   /**

@@ -383,12 +383,23 @@ export class DtlsSocket {
       // Soft ProtocolVersionError leaves carrier open; hard fail may already
       // have closed it. Always force resource dispose without re-firing events.
       eng.hardDisposeResources();
-      // Ensure transport is dead so late inject / retransmit cannot continue.
-      void this.transport.socket.close().catch(() => {});
     }
+    // Always close transport (hardDispose does not). Double-close is fine.
+    void this.transport.socket.close().catch(() => {});
     // Engine hard-fail would have fired onClose after onError, but unbridge
     // removed that subscription — association owns the single public onClose.
     return true;
+  }
+
+  /**
+   * After engine onClose (peer close_notify or local engine close) has been
+   * delivered publicly: drop the 1.3 handle. Dual client overrides to also set
+   * dualPhase → closed and hard-close carrier / transport.
+   */
+  protected onEngine13PeerOrLocalClose(): void {
+    this.unbridgeEngine13();
+    this.engine13 = undefined;
+    void this.transport.socket.close().catch(() => {});
   }
 
   /**
@@ -439,11 +450,9 @@ export class DtlsSocket {
         this.connected = false;
         // Fire public onClose first so handlers can still inspect engine13.
         this.onClose.execute();
-        // Then drop the public 1.3 handle (isDtls13 → false) and bridge.
-        if (this.engine13) {
-          this.unbridgeEngine13();
-          this.engine13 = undefined;
-        }
+        // Then association-level close: dualPhase → closed, carrier/transport,
+        // clear public 1.3 handle so send/exporter cannot fall through to 1.2.
+        this.onEngine13PeerOrLocalClose();
       })
       .disposer(this.engine13Bridge);
   }
