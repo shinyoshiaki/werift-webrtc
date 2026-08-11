@@ -14,6 +14,7 @@ Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
 - `awaitingResults`: clusters whose send fill is done, waiting for TWCC ACK
 - On **send** fill (minBytes AND minPackets), front is moved to awaiting and
   the next queued cluster becomes pacing — **without waiting for ACK**
+- ACK / 80% estimate must **never** clear pacing (send-fill is independent)
 - Timeout / cooldown / startMs use **sender clock** only; `receivedAtMs` is
   used solely for receive-rate estimation
 - `setBitrates` / activate returns only **activated** configs (for pacing)
@@ -80,6 +81,20 @@ Pacing target = current pacing cluster only (not queued, not awaiting).
 
 ***
 
+### furtherProbeThresholdBps
+
+#### Get Signature
+
+> **get** **furtherProbeThresholdBps**(): `number`
+
+Exposed for tests / diagnostics (last planned further-probe threshold).
+
+##### Returns
+
+`number`
+
+***
+
 ### probeState
 
 #### Get Signature
@@ -137,7 +152,7 @@ Pacing target = current pacing cluster only (not queued, not awaiting).
 > **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`): `void`
 
 ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
-awaiting). Does **not** advance FIFO pacing — that happens on send fill.
+awaiting). Does **not** advance or clear FIFO pacing — send-fill only.
 
 #### Parameters
 

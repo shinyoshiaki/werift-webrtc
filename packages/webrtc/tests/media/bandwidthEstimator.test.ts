@@ -2134,18 +2134,9 @@ describe("media/sender bandwidth estimator", () => {
       expect(partial1.lostPackets.has(10)).toBe(true);
 
       // Act 2: same seq received (late correction)
-      loss.update(
-        0,
-        300_000,
-        100_000,
-        1,
-        0,
-        1000,
-        100,
-        1000,
-        0,
-        [{ seq: 10, size: 100, received: true, sendMs: 1000 }],
-      );
+      loss.update(0, 300_000, 100_000, 1, 0, 1000, 100, 1000, 0, [
+        { seq: 10, size: 100, received: true, sendMs: 1000 },
+      ]);
       const partial2 = (loss as any).partial;
       // Assert: still one packet / 100 bytes; loss cleared
       expect(partial2.numPackets).toBe(1);
