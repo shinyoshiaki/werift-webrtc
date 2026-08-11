@@ -368,6 +368,29 @@ Wire DTLS 1.3 engine events onto this socket.
 
 ***
 
+### handleUdpDatagram()
+
+> `protected` **handleUdpDatagram**(`data`): `void`
+
+Process one UDP datagram on the DTLS 1.2 record path.
+Subclasses (dual client) may intercept before calling this.
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`handleUdpDatagram`](DtlsSocket.md#handleudpdatagram)
+
+***
+
 ### keyUpdate()
 
 > **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>
@@ -470,6 +493,9 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 > `protected` **udpOnMessage**(`data`): `void`
 
+Override UDP RX: while dualCookiePath is active, detect DTLS 1.3 selection
+and resume the 1.3 engine before the 1.2 parser consumes the datagram.
+
 #### Parameters
 
 ##### data
@@ -480,7 +506,7 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
 `void`
 
-#### Inherited from
+#### Overrides
 
 [`DtlsSocket`](DtlsSocket.md).[`udpOnMessage`](DtlsSocket.md#udponmessage)
 

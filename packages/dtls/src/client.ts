@@ -24,12 +24,12 @@ import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ClientHello } from "./handshake/message/client/hello";
 import { ServerHello } from "./handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerifyRequest";
-import { debug } from "./imports/common";
 import { DtlsRandom } from "./handshake/random";
+import { debug } from "./imports/common";
 import { ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
-import { DtlsSocket, type DtlsInternalOptions, type Options } from "./socket";
+import { type DtlsInternalOptions, DtlsSocket, type Options } from "./socket";
 import {
   DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
@@ -192,9 +192,8 @@ export class DtlsClient extends DtlsSocket {
       SupportedVersions.forClient([DTLS_1_3_VERSION, DTLS_1_2_VERSION])
         .clientExtension,
       curves.extension,
-      KeyShare.forClient([
-        { group, keyExchange: keyPair.publicKey },
-      ]).clientExtension,
+      KeyShare.forClient([{ group, keyExchange: keyPair.publicKey }])
+        .clientExtension,
       SignatureAlgorithms.create(schemes).extension,
       ...this.extensions.filter(
         (e) =>
@@ -406,10 +405,7 @@ export class DtlsClient extends DtlsSocket {
                   (e) => e.type === SupportedVersions.type,
                 );
                 if (versionsExt) {
-                  const sv = SupportedVersions.fromData(
-                    versionsExt.data,
-                    true,
-                  );
+                  const sv = SupportedVersions.fromData(versionsExt.data, true);
                   if (sv.selected === DTLS_1_3_VERSION) {
                     // Reconstruct a minimal record for reinject (may miss
                     // coalesced records — primary path is udpOnMessage).

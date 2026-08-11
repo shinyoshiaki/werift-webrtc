@@ -358,6 +358,29 @@ Wire DTLS 1.3 engine events onto this socket.
 
 ***
 
+### handleUdpDatagram()
+
+> `protected` **handleUdpDatagram**(`data`): `void`
+
+Process one UDP datagram on the DTLS 1.2 record path.
+Subclasses (dual client) may intercept before calling this.
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`handleUdpDatagram`](DtlsSocket.md#handleudpdatagram)
+
+***
+
 ### keyUpdate()
 
 > **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>

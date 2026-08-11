@@ -239,7 +239,10 @@ export class Dtls13Connection extends Dtls13HandshakeFlights {
     this.initialKeyShareGroups = [material.group];
     this.firstClientHelloBody = Buffer.from(material.clientHelloBody);
     this.transcript = new HandshakeTranscript();
-    this.transcript.add(HandshakeType.client_hello_1, this.firstClientHelloBody);
+    this.transcript.add(
+      HandshakeType.client_hello_1,
+      this.firstClientHelloBody,
+    );
     this.messageSeq = 0;
     this.hsPhase = "wait_server_hello";
     this.clientOfferedExtensionTypes = new Set(
