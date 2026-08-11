@@ -21,11 +21,12 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "ci": "run-s type:all build test doc wpt wpt:coverage",
+    "ci": "run-s type:all build test doc:check wpt wpt:coverage",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
     "datachannel": "ts-node-dev examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
     "doc": "npm run doc --workspaces --if-present && rm -rf doc && cd packages/webrtc && mv doc ../..",
+    "doc:check": "npm run doc && git diff --exit-code -- doc/",
     "e2e": "cd e2e && npm i && npm run ci:silent",
     "e2e:verbose": "cd e2e && npm run ci",
     "example": "tsx watch examples/ice/restart/offer.ts",

@@ -163,6 +163,26 @@ True when this socket is operating on the DTLS 1.3 engine.
 
 ## Methods
 
+### abortLegacy12Flight()
+
+> `protected` **abortLegacy12Flight**(`error`?): `void`
+
+Abort legacy DTLS 1.2 flight: optional fatalError, flight=99, cancel timers.
+Use on close / fatal alert / version commit away from 1.2 — not on
+successful handshake complete (that only needs cancelLegacy12FlightTimers).
+
+#### Parameters
+
+##### error?
+
+`Error`
+
+#### Returns
+
+`void`
+
+***
+
 ### assertReadyForApplicationApi()
 
 > `protected` **assertReadyForApplicationApi**(`_op`): `void`
@@ -199,6 +219,20 @@ Wire DTLS 1.3 engine events onto this socket.
 ###### filterError?
 
 (`e`) => `boolean`
+
+#### Returns
+
+`void`
+
+***
+
+### cancelLegacy12FlightTimers()
+
+> `protected` **cancelLegacy12FlightTimers**(): `void`
+
+Cancel pending DTLS 1.2 flight retransmit sleeps only (leave flight number).
+Use on successful handshake complete so Flight4/Flight5 sleep does not
+linger until the next RTO after onConnect.
 
 #### Returns
 
@@ -433,21 +467,6 @@ Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 ### setupExtensions()
 
 > `protected` **setupExtensions**(): `void`
-
-#### Returns
-
-`void`
-
-***
-
-### stopLegacy12Flight()
-
-> `protected` **stopLegacy12Flight**(): `void`
-
-Stop legacy DTLS 1.2 flight retransmit (cancelable flightSleep + flight=99).
-Shared by client dual teardown and server/client pure-1.2 close so
-Flight4/Flight1 timers cannot wake after association close
-(server close() must not leave sleep pending).
 
 #### Returns
 
