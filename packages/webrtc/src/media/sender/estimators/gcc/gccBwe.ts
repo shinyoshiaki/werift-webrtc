@@ -105,8 +105,9 @@ export class GccBandwidthEstimator
   private probeClusterStartMs = 0;
   private lastProbeTargetBps = 0;
   /**
-   * Feedback RTT proxy (feedback arrival − last send of batch), always
-   * refreshed on finite samples (clamped ≥0). Used for IsRttAboveLimit (3s).
+   * Feedback RTT proxy = feedback arrival − **earliest send among received**
+   * packets in the TWCC batch (libwebrtc max_feedback_rtt). Refreshed on every
+   * finite sample (clamped ≥0). Used for IsRttAboveLimit (3s).
    * AIMD keeps a separately clamped RTT for TimeToReduceFurther only.
    */
   private lastFeedbackRttMs = kDefaultRttMs;
