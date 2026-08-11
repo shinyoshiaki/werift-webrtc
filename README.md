@@ -29,7 +29,7 @@ Use the familiar `RTCPeerConnection` model when you want to build quickly, then 
 - **Packet-oriented media control** — send and receive RTP directly, making werift a natural fit for SFUs, recorders, relays, gateways, bots, test peers, and custom media pipelines.
 - **Modern server connectivity** — ICE-Lite, ICE restart, ICE-TCP, and TURN over UDP, TCP, and TLS are implemented in the TypeScript stack.
 - **Modular protocol packages** — use the full PeerConnection stack or focused ICE, DTLS, SCTP, RTP, and STUN/TURN server packages.
-- **Independent interoperability testing** — werift participates in the `sipsorcery/webrtc-interop` Peer Connection and Data Channel Echo matrices alongside other WebRTC implementations.
+- **Interoperability evidence at multiple levels** — Chromium-focused E2E coverage, a Firefox test runner, community-reported Safari interoperability, and independent `sipsorcery/webrtc-interop` matrices.
 - **Inspectable and extensible** — instrument RTP/RTCP, experiment with congestion logic, inspect transport state, or modify protocol behavior without crossing a native boundary.
 
 ## Install
@@ -186,11 +186,13 @@ The top-level `werift` package also exports lower-level WebRTC transport and RTP
 
 ## Interoperability
 
-Interoperability is tested at more than one level.
+Interoperability is validated at more than one level.
 
-### Browser E2E
+### Browser interoperability
 
 The repository contains browser E2E tooling and Chromium-focused coverage, including scenarios for ICE-Lite, ICE-TCP, and TURN relay over UDP/TCP/TLS. A Firefox test runner is also included in the E2E workspace.
+
+**Safari interoperability is community-verified.** Community users have reported using werift extensively with Safari; see [Issue #346](https://github.com/shinyoshiaki/werift-webrtc/issues/346). Safari is not currently part of the repository's automated browser E2E matrix, so this is presented as community validation rather than a CI guarantee.
 
 ### Cross-implementation matrix
 
