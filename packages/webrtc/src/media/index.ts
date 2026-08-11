@@ -51,6 +51,7 @@ export {
   kMaxBitrateBps,
   kMinBitrateBps,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffDropFraction,
   kRttBasedBackOffHighRttMs,
   kTrendlineWindowSize,
   sortPacketResultsByWideSeq,

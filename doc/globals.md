@@ -276,6 +276,7 @@
 - [kMaxBitrateBps](variables/kMaxBitrateBps.md)
 - [kMinBitrateBps](variables/kMinBitrateBps.md)
 - [kProbePaddingPacketBytes](variables/kProbePaddingPacketBytes.md)
+- [kRttBasedBackOffDropFraction](variables/kRttBasedBackOffDropFraction.md)
 - [kRttBasedBackOffHighRttMs](variables/kRttBasedBackOffHighRttMs.md)
 - [kTrendlineWindowSize](variables/kTrendlineWindowSize.md)
 - [NalUnitType](variables/NalUnitType.md)

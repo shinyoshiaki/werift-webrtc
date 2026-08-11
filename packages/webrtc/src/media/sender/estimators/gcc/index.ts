@@ -19,6 +19,7 @@ export {
   kMinBitrateBps,
   kProbeBitrateMultipliers,
   kProbePaddingPacketBytes,
+  kRttBasedBackOffDropFraction,
   kRttBasedBackOffHighRttMs,
   kTrendlineMinNumDeltas,
   kTrendlineThresholdGain,

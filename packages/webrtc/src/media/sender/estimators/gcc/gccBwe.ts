@@ -202,6 +202,12 @@ export class GccBandwidthEstimator
     let batchBytes = 0;
     let firstSend = Number.POSITIVE_INFINITY;
     let lastSend = 0;
+    /**
+     * Earliest send among **received** packets in this feedback.
+     * libwebrtc max_feedback_rtt = max_i (feedback_time − send_i)
+     * = feedback_time − min(send_i) over ReceivedWithSendInfo.
+     */
+    let earliestReceivedSend = Number.POSITIVE_INFINITY;
     const lossPackets: LossPacketFeedback[] = [];
 
     // Expand 24-bit reference_time across feedbacks so receivedAtMs stays
@@ -264,6 +270,9 @@ export class GccBandwidthEstimator
       received++;
       this.finalizedSeqs.add(seq);
       this.softLostSeqs.delete(seq);
+      if (info.sendingAtMs < earliestReceivedSend) {
+        earliestReceivedSend = info.sendingAtMs;
+      }
       lossPackets.push({
         seq,
         size: info.size,
@@ -344,12 +353,16 @@ export class GccBandwidthEstimator
     const batchFirstSend = Number.isFinite(firstSend) ? firstSend : 0;
     const batchLastSend = lastSend > 0 ? lastSend : batchFirstSend;
 
-    // RTT proxy: feedback arrival wall time − last send of this batch.
-    // Always refresh lastFeedbackRttMs for any finite proxy (clamp to ≥0) so
-    // high-RTT → normal-RTT (incl. <10ms) and >30s spikes update gating.
+    // libwebrtc OnTransportPacketsFeedback: max_feedback_rtt =
+    //   max over received of (feedback_time − send_time)
+    // = feedback_time − earliest send among received packets.
+    // Using only last-send RTT would miss a high-RTT head packet when the
+    // tail of the same batch is still under the 3s limit.
+    // Always refresh lastFeedbackRttMs for any finite proxy (clamp ≥0) so
+    // high-RTT → normal recovery and >30s spikes update gating.
     // AIMD TimeToReduceFurther only receives a clamped [10, 2000] ms RTT.
-    if (batchLastSend > 0) {
-      const rttProxy = nowMs - batchLastSend;
+    if (Number.isFinite(earliestReceivedSend)) {
+      const rttProxy = nowMs - earliestReceivedSend;
       if (Number.isFinite(rttProxy)) {
         const rttMs = Math.max(0, rttProxy);
         this.lastFeedbackRttMs = rttMs;
